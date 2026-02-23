@@ -21,8 +21,7 @@ cd "$SCRIPT_DIR"
 TESTNET_DIR="$SCRIPT_DIR/data/testnet"
 TESTNET_DB="$TESTNET_DIR/canopy.db"
 TESTNET_PORT=7780
-# Stable secret key — sessions survive restarts during a test session.
-TESTNET_SECRET_KEY="0cc6b6d05b9c6cb3b2d369dcfeae2d83d3b00d95ad47d03b9f857c5c6b0793ac"
+TESTNET_SECRET_KEY_FILE="$TESTNET_DIR/secret_key"
 
 # --reset flag: wipe the testnet database and start fresh
 if [[ "${1:-}" == "--reset" ]]; then
@@ -32,6 +31,21 @@ if [[ "${1:-}" == "--reset" ]]; then
 fi
 
 mkdir -p "$TESTNET_DIR"
+
+# Stable secret key — generated once and persisted so sessions survive restarts.
+if [[ ! -f "$TESTNET_SECRET_KEY_FILE" ]]; then
+    if ! python3 -c "import secrets; print(secrets.token_hex(32))" > "$TESTNET_SECRET_KEY_FILE"; then
+        echo "ERROR: Failed to generate secret key. Is python3 installed?" >&2
+        exit 1
+    fi
+    chmod 600 "$TESTNET_SECRET_KEY_FILE"
+fi
+TESTNET_SECRET_KEY="$(cat "$TESTNET_SECRET_KEY_FILE")"
+if [[ ! "$TESTNET_SECRET_KEY" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "ERROR: Secret key file '$TESTNET_SECRET_KEY_FILE' is missing or corrupt." >&2
+    echo "       Delete the file and re-run to generate a new key." >&2
+    exit 1
+fi
 
 echo ""
 echo "🌿 Canopy TESTNET (standalone, mesh-off)"
