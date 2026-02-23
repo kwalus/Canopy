@@ -292,7 +292,6 @@ Canopy/
 │   ├── ui/                  # Flask templates/static assets
 │   └── mcp/                 # MCP server implementation
 ├── docs/                    # User and developer docs
-├── scripts/                 # Utility scripts
 ├── tests/                   # Test suite
 └── run.py                   # Entry point
 ```
