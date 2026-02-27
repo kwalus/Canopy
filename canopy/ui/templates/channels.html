@@ -1536,6 +1536,28 @@
                                 <i class="bi bi-people"></i>
                             </button>
                             <div id="channel-mention-macro-buttons" class="mention-macro-buttons" style="display: none;"></div>
+                            <div class="btn-group">
+                                <button type="button"
+                                        class="btn btn-outline-danger dropdown-toggle"
+                                        id="channel-stream-quick-toggle"
+                                        data-bs-toggle="dropdown"
+                                        aria-expanded="false"
+                                        title="Create a live stream post">
+                                    <i class="bi bi-broadcast-pin"></i>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="channel-stream-quick-toggle">
+                                    <li>
+                                        <button type="button" class="dropdown-item" onclick="quickCreateLiveStream('audio')">
+                                            <i class="bi bi-mic-fill me-2"></i>Start audio stream card
+                                        </button>
+                                    </li>
+                                    <li>
+                                        <button type="button" class="dropdown-item" onclick="quickCreateLiveStream('video')">
+                                            <i class="bi bi-camera-video-fill me-2"></i>Start video stream card
+                                        </button>
+                                    </li>
+                                </ul>
+                            </div>
                             <button type="submit" class="btn btn-primary">
                                 <i class="bi bi-send"></i>
                             </button>
@@ -6066,7 +6088,8 @@ function displayAttachments(attachments) {
         return (parts.pop() || '').toLowerCase();
     };
 
-    // Separate images, audio, video, and other files
+    // Separate stream cards, images, audio, video, and other files
+    const streamCards = [];
     const images = [];
     const audioFiles = [];
     const videoFiles = [];
@@ -6074,11 +6097,16 @@ function displayAttachments(attachments) {
     attachments.forEach(att => {
         const mime = String((att && att.type) || '').toLowerCase();
         const ext = extOf((att && att.name) || (att && att.url) || '');
+        const streamKind = String((att && att.kind) || '').toLowerCase();
+        const hasStreamId = !!(att && att.stream_id);
+        const isStream = streamKind === 'stream' || hasStreamId || mime.indexOf('application/vnd.canopy.stream') === 0;
         const isImage = mime.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif'].includes(ext);
         const isAudio = mime.startsWith('audio/') || ['mp3', 'wav', 'aac', 'm4a', 'flac', 'oga', 'opus', 'weba'].includes(ext);
         const isVideo = mime.startsWith('video/') || ['mp4', 'webm', 'ogv', 'm4v', 'mov'].includes(ext);
 
-        if (isImage) {
+        if (isStream) {
+            streamCards.push(att);
+        } else if (isImage) {
             images.push(att);
         } else if (isAudio) {
             audioFiles.push(att);
@@ -6090,6 +6118,58 @@ function displayAttachments(attachments) {
     });
 
     let html = '<div class="attachments mt-2">';
+
+    // Render stream cards with one-click watch/listen session join.
+    streamCards.forEach((att, idx) => {
+        const streamId = String(att.stream_id || '').trim();
+        const streamKind = String(att.stream_kind || (String(att.protocol || '').toLowerCase() === 'events-json' ? 'telemetry' : 'media')).toLowerCase();
+        const mediaKindRaw = String(att.media_kind || 'audio').toLowerCase();
+        const mediaKind = mediaKindRaw === 'video' ? 'video' : (mediaKindRaw === 'data' ? 'data' : 'audio');
+        const status = String(att.status || 'created').toLowerCase();
+        const safeTitle = (att.title || att.name || 'Live stream').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+        const safeDesc = String(att.description || '').replace(/</g, '&lt;');
+        const slotId = `stream-slot-${Math.random().toString(36).slice(2, 10)}-${idx}`;
+        const statusLabel = status === 'live' ? 'LIVE' : (status === 'stopped' ? 'Stopped' : 'Preparing');
+        const statusClass = status === 'live' ? 'bg-danger' : 'bg-secondary';
+        const icon = streamKind === 'telemetry' ? 'cpu' : (mediaKind === 'video' ? 'camera-video' : 'broadcast');
+        const actionLabel = streamKind === 'telemetry' ? 'Open feed' : (mediaKind === 'video' ? 'Watch' : 'Listen');
+        const isOwner = att.created_by && att.created_by === currentUserId;
+        const goLiveBtn = isOwner && streamId && streamKind !== 'telemetry'
+            ? `<button class="btn btn-sm btn-outline-warning" onclick="openBroadcasterPanel('${streamId.replace(/'/g, "\\'")}', '${mediaKind}', '${slotId}')">
+                    <i class="bi bi-broadcast"></i> Go Live
+               </button>`
+            : '';
+        const streamBtn = streamId
+            ? `<button class="btn btn-sm btn-outline-success" onclick="openStreamAttachmentPlayer('${streamId.replace(/'/g, "\\'")}', '${mediaKind}', '${slotId}', '${streamKind}')">
+                    <i class="bi bi-play-fill"></i> ${actionLabel}
+               </button>`
+            : `<span class="small text-muted">Stream metadata incomplete</span>`;
+        html += `
+            <div class="attachment-item mb-2 p-2 border rounded" style="background: linear-gradient(145deg, rgba(19,36,58,0.95), rgba(16,22,34,0.94)); border-color: rgba(61, 84, 116, 0.65) !important;">
+                <div class="d-flex align-items-start justify-content-between gap-2">
+                    <div class="d-flex align-items-start gap-2">
+                        <div class="rounded-circle d-flex align-items-center justify-content-center" style="width:32px;height:32px;background:rgba(32,189,126,0.18);">
+                            <i class="bi bi-${icon}"></i>
+                        </div>
+                        <div>
+                            <div class="fw-semibold">${safeTitle}</div>
+                            <div class="small text-muted">${safeDesc || (streamKind === 'telemetry' ? 'Telemetry feed card' : (mediaKind === 'video' ? 'Video stream card' : 'Audio stream card'))}</div>
+                        </div>
+                    </div>
+                    <span class="badge ${statusClass}">${statusLabel}</span>
+                </div>
+                <div class="d-flex align-items-center justify-content-between mt-2">
+                    <span class="small text-muted">ID: ${streamId || 'n/a'}</span>
+                    <div class="d-flex align-items-center gap-2">
+                        ${streamBtn}
+                        ${goLiveBtn}
+                        ${streamId ? `<button class="btn btn-sm btn-outline-secondary" onclick="navigator.clipboard.writeText('${streamId.replace(/'/g, "\\'")}')"><i class="bi bi-clipboard"></i></button>` : ''}
+                    </div>
+                </div>
+                <div id="${slotId}" class="mt-2" style="display:none;"></div>
+            </div>
+        `;
+    });
 
     // Render image grid
     if (images.length > 0) {
@@ -6210,6 +6290,458 @@ function displayAttachments(attachments) {
 
     html += '</div>';
     return html;
+}
+
+function _escapeHtml(value) {
+    return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+async function _renderTelemetryStreamPanel(streamId, slot, sessionPayload) {
+    const eventsUrl = String((sessionPayload && sessionPayload.playback_url) || '');
+    if (!eventsUrl) {
+        throw new Error('Telemetry stream session did not return an events URL');
+    }
+    const response = await fetch(eventsUrl, {
+        method: 'GET',
+        credentials: 'same-origin',
+        cache: 'no-store',
+    });
+    let body = null;
+    try {
+        body = await response.json();
+    } catch (e) {
+        body = null;
+    }
+    if (!response.ok || !body || body.success === false) {
+        const reason = (body && (body.error || body.message)) || `HTTP ${response.status}`;
+        throw new Error(`Telemetry feed unavailable: ${reason}`);
+    }
+
+    const events = Array.isArray(body.events) ? body.events : [];
+    const rows = events.slice(-30).map((ev) => {
+        const seq = Number(ev && ev.seq ? ev.seq : 0);
+        const ts = _escapeHtml((ev && ev.event_ts) || '');
+        const ctype = _escapeHtml((ev && ev.content_type) || 'application/json');
+        const payload = (ev && Object.prototype.hasOwnProperty.call(ev, 'payload')) ? ev.payload : null;
+        const payloadPreview = typeof payload === 'string'
+            ? payload
+            : JSON.stringify(payload || {}, null, 2);
+        return `<tr>
+            <td class="text-muted small">#${Number.isFinite(seq) ? seq : 0}</td>
+            <td class="small text-muted">${ts}</td>
+            <td class="small">${ctype}</td>
+            <td><pre class="small mb-0" style="max-height: 160px; overflow:auto; white-space: pre-wrap;">${_escapeHtml(payloadPreview)}</pre></td>
+        </tr>`;
+    }).join('');
+
+    slot.style.display = 'block';
+    slot.innerHTML = `
+        <div class="border rounded p-2" style="background: rgba(13, 19, 30, 0.66); border-color: rgba(66, 92, 126, 0.6) !important;">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+                <div class="small fw-semibold"><i class="bi bi-cpu me-1"></i>Telemetry feed (latest ${events.length})</div>
+                <button class="btn btn-sm btn-outline-secondary" onclick="openStreamAttachmentPlayer('${streamId.replace(/'/g, "\\'")}', 'data', '${slot.id}', 'telemetry')">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                </button>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th scope="col">Seq</th>
+                            <th scope="col">Timestamp</th>
+                            <th scope="col">Type</th>
+                            <th scope="col">Payload</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows || '<tr><td colspan="4" class="small text-muted">No events yet.</td></tr>'}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+}
+
+// Lazily loads hls.js from CDN on first call; subsequent calls reuse the promise.
+let _hlsJsLoadPromise = null;
+function _loadHlsJs() {
+    if (!_hlsJsLoadPromise) {
+        _hlsJsLoadPromise = new Promise((resolve, reject) => {
+            if (window.Hls) { resolve(window.Hls); return; }
+            const s = document.createElement('script');
+            s.src = 'https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js';
+            s.crossOrigin = 'anonymous';
+            s.onload = () => resolve(window.Hls);
+            s.onerror = () => reject(new Error('Failed to load hls.js'));
+            document.head.appendChild(s);
+        });
+    }
+    return _hlsJsLoadPromise;
+}
+
+async function openStreamAttachmentPlayer(streamId, mediaKind, slotId, streamKind = 'media') {
+    if (!streamId) {
+        showAlert('Stream ID missing for this attachment', 'warning');
+        return;
+    }
+    const slot = document.getElementById(slotId);
+    if (!slot) return;
+    try {
+        const res = await apiCall(`/ajax/streams/${encodeURIComponent(streamId)}/session`, {
+            method: 'POST',
+            body: JSON.stringify({}),
+        });
+        if (!res || !res.success || !res.playback_url) {
+            throw new Error((res && (res.error || res.message)) || 'Unable to join stream');
+        }
+
+        const normalizedKind = String(streamKind || '').toLowerCase();
+        if (normalizedKind === 'telemetry' || String(mediaKind || '').toLowerCase() === 'data') {
+            await _renderTelemetryStreamPanel(streamId, slot, res);
+            return;
+        }
+
+        const playbackUrl = String(res.playback_url);
+        const safeUrl = playbackUrl.replace(/"/g, '&quot;');
+        const isVideo = String(mediaKind || '').toLowerCase() === 'video';
+        const tag = isVideo ? 'video' : 'audio';
+        const extraAttrs = isVideo
+            ? 'playsinline class="w-100" style="max-width:100%;border-radius:10px;background:#000;"'
+            : 'class="w-100" style="max-width:100%;"';
+        const mediaElId = `stream-player-${streamId.replace(/[^a-z0-9]/gi, '')}-${Date.now()}`;
+
+        slot.style.display = 'block';
+        slot.innerHTML = `
+            <${tag} id="${mediaElId}" controls autoplay preload="metadata" ${extraAttrs}></${tag}>
+            <div class="small text-muted mt-1">If playback does not start, <a href="${safeUrl}" target="_blank" rel="noopener">open stream URL</a> in VLC or Safari.</div>
+        `;
+
+        const mediaEl = document.getElementById(mediaElId);
+        if (!mediaEl) return;
+
+        // Live WebM streams use MSE instead of hls.js
+        const isWebm = String(res.live_format || '').toLowerCase() === 'webm' ||
+            playbackUrl.indexOf('/segments/') < 0 && playbackUrl.indexOf('webm') >= 0;
+        if (isWebm) {
+            await _startMSELiveViewer(streamId, playbackUrl, slot, mediaKind);
+            return;
+        }
+
+        if (mediaEl.canPlayType('application/vnd.apple.mpegurl')) {
+            // Safari / native HLS
+            mediaEl.src = playbackUrl;
+            mediaEl.play().catch(() => {});
+        } else {
+            // Chrome, Firefox, Edge — use hls.js; switch to MSE on media error (WebM segments)
+            try {
+                const HlsLib = await _loadHlsJs();
+                if (HlsLib && HlsLib.isSupported()) {
+                    const hls = new HlsLib({ enableWorker: true });
+                    hls.loadSource(playbackUrl);
+                    hls.attachMedia(mediaEl);
+                    hls.on(HlsLib.Events.MANIFEST_PARSED, () => mediaEl.play().catch(() => {}));
+                    hls.on(HlsLib.Events.ERROR, (_e, data) => {
+                        if (data.fatal) {
+                            console.warn('HLS fatal error', data.type, data.details);
+                            if (data.type === HlsLib.ErrorTypes.MEDIA_ERROR) {
+                                hls.destroy();
+                                _startMSELiveViewer(streamId, playbackUrl, slot, mediaKind).catch(() => {});
+                            }
+                        }
+                    });
+                } else {
+                    mediaEl.src = playbackUrl;
+                    mediaEl.play().catch(() => {});
+                }
+            } catch (hlsErr) {
+                console.warn('hls.js load failed, falling back to native src', hlsErr);
+                mediaEl.src = playbackUrl;
+                mediaEl.play().catch(() => {});
+            }
+        }
+    } catch (err) {
+        const serverMsg = err && (err.error || err.message || err.details);
+        const status = err && err.status ? ` [HTTP ${err.status}]` : '';
+        console.error('Stream error:', err);
+        if (err && err.status === 404) {
+            showAlert('Stream not found' + status + ' — this stream may live on another peer that is currently offline.', 'warning');
+        } else {
+            showAlert('Stream error' + status + ': ' + (serverMsg || 'Unable to start stream playback'), 'danger');
+        }
+    }
+}
+
+async function quickCreateLiveStream(mediaKind) {
+    const mode = String(mediaKind || 'audio').toLowerCase() === 'video' ? 'video' : 'audio';
+    if (!currentChannelId) {
+        showAlert('Select a channel before creating a stream post', 'warning');
+        return;
+    }
+    const titleHint = mode === 'video' ? 'Live camera feed' : 'Live audio feed';
+    const channelLabelEl = document.getElementById('current-channel-name');
+    const channelLabel = channelLabelEl ? channelLabelEl.textContent.trim() : String(currentChannelId);
+    const defaultTitle = `${titleHint} ${channelLabel}`.trim();
+    const title = window.prompt(`Stream title (${mode})`, defaultTitle);
+    if (title === null) return;
+    const cleanTitle = String(title || '').trim();
+    if (!cleanTitle) {
+        showAlert('Stream title is required', 'warning');
+        return;
+    }
+    const description = window.prompt('Optional stream description', '') || '';
+
+    try {
+        const payload = {
+            channel_id: currentChannelId,
+            title: cleanTitle,
+            description: String(description).trim(),
+            stream_kind: 'media',
+            media_kind: mode,
+            protocol: 'hls',
+            relay_allowed: currentChannelPrivacy === 'open',
+            auto_post: true,
+            start_now: true,
+            post_content: mode === 'video'
+                ? `Live video stream started: ${cleanTitle}`
+                : `Live audio stream started: ${cleanTitle}`,
+        };
+        const res = await apiCall('/ajax/streams', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+        if (!res || !res.success || !res.stream) {
+            throw new Error((res && (res.error || res.message)) || 'Failed to create stream');
+        }
+        showAlert(`Stream "${cleanTitle}" created — click Go Live on the card to start broadcasting`, 'success');
+        await loadChannelMessages(currentChannelId, { forceScroll: true });
+        // Auto-open broadcaster panel for the new stream
+        const newId = String(res.stream?.id || res.stream?.stream_id || '');
+        if (newId) {
+            setTimeout(() => {
+                document.querySelectorAll(`[onclick*="openBroadcasterPanel"]`).forEach(btn => {
+                    const m = btn.getAttribute('onclick')?.match(/openBroadcasterPanel\('([^']+)','([^']+)','([^']+)'\)/);
+                    if (m && m[1] === newId) { openBroadcasterPanel(m[1], m[2], m[3]); }
+                });
+            }, 700);
+        }
+    } catch (err) {
+        const msg = err && err.message ? err.message : 'Failed to create stream';
+        showAlert(msg, 'danger');
+    }
+}
+
+const _activeBroadcasters = {};
+
+async function openBroadcasterPanel(streamId, mediaKind, slotId) {
+    const slot = document.getElementById(slotId);
+    if (!slot) return;
+
+    // If already open, toggle it closed
+    if (slot.dataset.bcOpen === '1') {
+        slot.dataset.bcOpen = '0';
+        slot.style.display = 'none';
+        slot.innerHTML = '';
+        _stopLiveBroadcast(streamId);
+        return;
+    }
+
+    // Enumerate devices
+    let videoDevices = [], audioDevices = [];
+    try {
+        await navigator.mediaDevices.getUserMedia({ video: mediaKind === 'video', audio: true });
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        videoDevices = devices.filter(d => d.kind === 'videoinput');
+        audioDevices = devices.filter(d => d.kind === 'audioinput');
+    } catch (e) {
+        slot.style.display = 'block';
+        slot.innerHTML = `<p class="small text-danger mt-1">Camera/mic access denied: ${e.message}</p>`;
+        return;
+    }
+
+    const videoOpts = videoDevices.map((d, i) =>
+        `<option value="${d.deviceId}">${d.label || 'Camera ' + (i+1)}</option>`).join('');
+    const audioOpts = audioDevices.map((d, i) =>
+        `<option value="${d.deviceId}">${d.label || 'Mic ' + (i+1)}</option>`).join('');
+
+    slot.innerHTML = `
+        <div class="p-2 border rounded mt-1" style="background:rgba(0,0,0,0.3);">
+            ${mediaKind === 'video' ? `
+            <div class="mb-2">
+                <label class="small text-muted">Camera</label>
+                <select id="bc-cam-${streamId}" class="form-select form-select-sm">${videoOpts}</select>
+            </div>` : ''}
+            <div class="mb-2">
+                <label class="small text-muted">Microphone</label>
+                <select id="bc-mic-${streamId}" class="form-select form-select-sm">${audioOpts}</select>
+            </div>
+            ${mediaKind === 'video' ? `<video id="bc-preview-${streamId}" autoplay muted playsinline class="w-100 mb-2" style="max-height:160px;border-radius:6px;background:#000;"></video>` : ''}
+            <div class="d-flex gap-2 align-items-center">
+                <button id="bc-btn-${streamId}" class="btn btn-sm btn-success" onclick="_toggleBroadcast('${streamId}', '${mediaKind}')">
+                    <i class="bi bi-broadcast"></i> Start Broadcasting
+                </button>
+                <span id="bc-status-${streamId}" class="small text-muted"></span>
+            </div>
+        </div>`;
+    slot.style.display = 'block';
+    slot.dataset.bcOpen = '1';
+
+    // Live preview
+    if (mediaKind === 'video') {
+        try {
+            const camId = document.getElementById(`bc-cam-${streamId}`)?.value;
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: camId ? { deviceId: { exact: camId } } : true,
+                audio: false,
+            });
+            const preview = document.getElementById(`bc-preview-${streamId}`);
+            if (preview) preview.srcObject = stream;
+            document.getElementById(`bc-cam-${streamId}`)?.addEventListener('change', async (e) => {
+                stream.getTracks().forEach(t => t.stop());
+                const ns = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: e.target.value } }, audio: false });
+                if (preview) preview.srcObject = ns;
+            });
+        } catch (_) {}
+    }
+}
+
+async function _toggleBroadcast(streamId, mediaKind) {
+    if (_activeBroadcasters[streamId]) { _stopLiveBroadcast(streamId); } else { await _startLiveBroadcast(streamId, mediaKind); }
+}
+
+async function _startLiveBroadcast(streamId, mode) {
+    const btn = document.getElementById(`bc-btn-${streamId}`);
+    const statusEl = document.getElementById(`bc-status-${streamId}`);
+    if (btn) { btn.disabled = true; btn.textContent = 'Starting…'; }
+
+    let tok;
+    try {
+        const tr = await apiCall(`/ajax/streams/${encodeURIComponent(streamId)}/ingest-token`, { method: 'POST' });
+        tok = tr.token;
+        if (!tok) throw new Error(tr.error || 'No token returned');
+    } catch (e) {
+        if (statusEl) statusEl.textContent = 'Auth failed: ' + e.message;
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-broadcast"></i> Start Broadcasting'; }
+        return;
+    }
+
+    const camId = document.getElementById(`bc-cam-${streamId}`)?.value;
+    const micId = document.getElementById(`bc-mic-${streamId}`)?.value;
+    let mediaStream;
+    try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+            video: mode === 'video' ? (camId ? { deviceId: { exact: camId } } : true) : false,
+            audio: micId ? { deviceId: { exact: micId } } : true,
+        });
+    } catch (e) {
+        if (statusEl) statusEl.textContent = 'Media error: ' + e.message;
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-broadcast"></i> Start Broadcasting'; }
+        return;
+    }
+
+    // Prefer fMP4 (Chrome/Edge), fall back to WebM (Firefox)
+    const fmp4Mime = 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"';
+    const webmMime = 'video/webm; codecs=vp8,opus';
+    const useFmp4 = window.MediaRecorder && MediaRecorder.isTypeSupported(fmp4Mime);
+    const mimeType = useFmp4 ? fmp4Mime : webmMime;
+    const ext = useFmp4 ? 'mp4' : 'webm';
+
+    const rec = new MediaRecorder(mediaStream, { mimeType, videoBitsPerSecond: 1_500_000 });
+    let segIdx = 0, initSent = false, segNames = [], seqStart = 0;
+
+    _activeBroadcasters[streamId] = { rec, mediaStream, tok };
+
+    rec.ondataavailable = async (e) => {
+        if (!e.data || e.data.size === 0) return;
+        const buf = await e.data.arrayBuffer();
+        if (!initSent && ext === 'mp4') {
+            initSent = true;
+            await _pushBcSeg(streamId, tok, 'init.mp4', buf).catch(() => {});
+            return;
+        }
+        segIdx++;
+        const name = `seg${String(segIdx).padStart(4,'0')}.${ext}`;
+        segNames.push(name);
+        if (segNames.length > 10) { seqStart++; segNames.shift(); }
+        await _pushBcSeg(streamId, tok, name, buf).catch(() => {});
+        await _pushBcManifest(streamId, tok, _buildLiveMfst(ext, seqStart, segNames)).catch(() => {});
+    };
+
+    rec.start(2000);
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-stop-fill"></i> Stop'; btn.classList.replace('btn-success','btn-danger'); }
+    if (statusEl) statusEl.textContent = '● Live';
+}
+
+function _stopLiveBroadcast(streamId) {
+    const bc = _activeBroadcasters[streamId]; if (!bc) return;
+    try { bc.rec.stop(); } catch (_) {}
+    try { bc.mediaStream.getTracks().forEach(t => t.stop()); } catch (_) {}
+    delete _activeBroadcasters[streamId];
+    const btn = document.getElementById(`bc-btn-${streamId}`);
+    if (btn) { btn.innerHTML = '<i class="bi bi-broadcast"></i> Start Broadcasting'; btn.classList.replace('btn-danger','btn-success'); }
+    const s = document.getElementById(`bc-status-${streamId}`); if (s) s.textContent = 'Stopped';
+}
+
+async function _pushBcSeg(sid, tok, name, buf) {
+    const r = await fetch(`/api/v1/streams/${encodeURIComponent(sid)}/ingest/segments/${encodeURIComponent(name)}?token=${encodeURIComponent(tok)}`,
+        { method: 'PUT', body: buf, headers: { 'Content-Type': 'application/octet-stream' } });
+    if (!r.ok) throw new Error(`Segment push failed (${r.status})`);
+}
+async function _pushBcManifest(sid, tok, mfst) {
+    const r = await fetch(`/api/v1/streams/${encodeURIComponent(sid)}/ingest/manifest?token=${encodeURIComponent(tok)}`,
+        { method: 'PUT', body: mfst, headers: { 'Content-Type': 'application/vnd.apple.mpegurl' } });
+    if (!r.ok) throw new Error(`Manifest push failed (${r.status})`);
+}
+function _buildLiveMfst(ext, seqStart, names) {
+    const mp4 = ext === 'mp4';
+    const lines = ['#EXTM3U', `#EXT-X-VERSION:${mp4 ? 7 : 3}`, '#EXT-X-TARGETDURATION:3', `#EXT-X-MEDIA-SEQUENCE:${seqStart}`];
+    if (mp4) lines.push('#EXT-X-MAP:URI="init.mp4"');
+    names.forEach(n => lines.push('#EXTINF:2.000,', n));
+    return lines.join('\n') + '\n';
+}
+
+async function _startMSELiveViewer(streamId, playbackUrl, slot, mediaKind) {
+    const mime = 'video/webm; codecs=vp8,opus';
+    if (!window.MediaSource || !MediaSource.isTypeSupported(mime)) {
+        slot.innerHTML += '<p class="small text-warning mt-1">Live WebM not supported here. Try Chrome or Edge.</p>';
+        return;
+    }
+    const tag = mediaKind === 'video' ? 'video' : 'audio';
+    const el = document.createElement(tag);
+    el.controls = true; el.autoplay = true; el.className = 'w-100';
+    if (mediaKind === 'video') el.style.cssText = 'max-width:100%;border-radius:10px;background:#000;';
+    slot.innerHTML = ''; slot.appendChild(el); slot.style.display = 'block';
+    const ms = new MediaSource();
+    el.src = URL.createObjectURL(ms);
+    ms.addEventListener('sourceopen', () => {
+        const sb = ms.addSourceBuffer(mime);
+        let next = 1, stopped = false;
+        const base = playbackUrl.replace(/\/manifest\.m3u8.*$/, '');
+        const tm = playbackUrl.match(/[?&]token=([^&]+)/);
+        const tp = tm ? `?token=${tm[1]}` : '';
+        async function poll() {
+            if (stopped || ms.readyState !== 'open') return;
+            const seg = `seg${String(next).padStart(4,'0')}.webm`;
+            try {
+                const resp = await fetch(`${base}/segments/${encodeURIComponent(seg)}${tp}`);
+                if (resp.ok) {
+                    const buf = await resp.arrayBuffer();
+                    if (!sb.updating && ms.readyState === 'open') {
+                        sb.appendBuffer(buf);
+                        await new Promise(r => sb.addEventListener('updateend', r, { once: true }));
+                        next++; setTimeout(poll, 50);
+                    } else setTimeout(poll, 200);
+                } else { setTimeout(poll, resp.status === 404 ? 1500 : 3000); }
+            } catch (_) { setTimeout(poll, 3000); }
+        }
+        poll();
+        el.addEventListener('error', () => { stopped = true; });
+        ms.addEventListener('sourceclose', () => { stopped = true; });
+    });
 }
 
 function toggleFilePreview(previewId, url, isMarkdown) {

@@ -8124,6 +8124,331 @@ def create_ui_blueprint() -> Blueprint:
             logger.error(f"Channel search error: {e}")
             return jsonify({'error': 'Internal server error'}), 500
 
+    @ui.route('/ajax/streams', methods=['GET'])
+    @require_login
+    def ajax_list_streams():
+        """List streams visible to the current user."""
+        try:
+            stream_manager = current_app.config.get('STREAM_MANAGER')
+            if not stream_manager:
+                return jsonify({'success': False, 'error': 'Streaming unavailable'}), 503
+            user_id = get_current_user()
+            channel_id = str(request.args.get('channel_id') or '').strip() or None
+            status = str(request.args.get('status') or '').strip().lower() or None
+            try:
+                limit = int(request.args.get('limit', 100))
+            except Exception:
+                limit = 100
+            streams = stream_manager.list_streams_for_user(
+                user_id=user_id,
+                channel_id=channel_id,
+                status=status,
+                limit=limit,
+            )
+            return jsonify({'success': True, 'streams': streams, 'count': len(streams)})
+        except Exception as e:
+            logger.error(f"List streams UI failed: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/streams', methods=['POST'])
+    @require_login
+    def ajax_create_stream():
+        """Create a stream, optionally post a stream card into the channel."""
+        try:
+            db_manager, _, _, _, channel_manager, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+            stream_manager = current_app.config.get('STREAM_MANAGER')
+            if not stream_manager:
+                return jsonify({'success': False, 'error': 'Streaming unavailable'}), 503
+
+            user_id = get_current_user()
+            data = request.get_json(silent=True) or {}
+            channel_id = str(data.get('channel_id') or '').strip()
+            title = str(data.get('title') or '').strip()
+            description = str(data.get('description') or '').strip()
+            stream_kind = str(data.get('stream_kind') or '').strip().lower() or None
+            media_kind = str(data.get('media_kind') or 'audio').strip().lower()
+            protocol_default = 'events-json' if stream_kind == 'telemetry' else 'hls'
+            protocol = str(data.get('protocol') or protocol_default).strip().lower()
+            relay_allowed = str(data.get('relay_allowed') or '').strip().lower() in {'1', 'true', 'yes', 'on'}
+            auto_post = True if data.get('auto_post') is None else str(data.get('auto_post')).strip().lower() in {'1', 'true', 'yes', 'on'}
+            start_now = str(data.get('start_now') or '').strip().lower() in {'1', 'true', 'yes', 'on'}
+
+            stream_row, error = stream_manager.create_stream(
+                channel_id=channel_id,
+                created_by=user_id,
+                title=title,
+                description=description,
+                stream_kind=stream_kind,
+                media_kind=media_kind,
+                protocol=protocol,
+                relay_allowed=relay_allowed,
+                origin_peer=(p2p_manager.get_peer_id() if p2p_manager else None),
+                metadata={'created_via': 'ui'},
+            )
+            if error:
+                if error in {'channel_not_found', 'not_channel_member'}:
+                    return jsonify({'success': False, 'error': 'Channel not found'}), 404
+                return jsonify({'success': False, 'error': error}), 400
+
+            posted_message_id = None
+            if auto_post and stream_row:
+                from ..core.channels import MessageType as ChannelMessageType
+
+                attachment = {
+                    'name': str(stream_row.get('title') or title or 'Live stream'),
+                    'type': 'application/vnd.canopy.stream+json',
+                    'kind': 'stream',
+                    'stream_id': str(stream_row.get('id') or ''),
+                    'title': str(stream_row.get('title') or title or ''),
+                    'description': str(stream_row.get('description') or description or ''),
+                    'media_kind': str(stream_row.get('media_kind') or media_kind or 'audio'),
+                    'stream_kind': str(stream_row.get('stream_kind') or stream_kind or 'media'),
+                    'protocol': str(stream_row.get('protocol') or protocol or 'hls'),
+                    'status': str(stream_row.get('status') or 'created'),
+                    'channel_id': str(stream_row.get('channel_id') or channel_id),
+                    'created_by': str(stream_row.get('created_by') or user_id),
+                    'relay_allowed': bool(stream_row.get('relay_allowed')),
+                }
+                post_content = str(data.get('post_content') or '').strip()
+                if not post_content:
+                    stream_kind_value = str(stream_row.get('stream_kind') or stream_kind or 'media').lower()
+                    if stream_kind_value == 'telemetry':
+                        label = "Telemetry stream"
+                    else:
+                        label = "Live video stream" if media_kind == "video" else "Live audio stream"
+                    post_content = f"{label}: {stream_row.get('title') or title}"
+                message = channel_manager.send_message(
+                    channel_id=channel_id,
+                    user_id=user_id,
+                    content=post_content,
+                    message_type=ChannelMessageType.FILE,
+                    attachments=[attachment],
+                    origin_peer=(p2p_manager.get_peer_id() if p2p_manager else None),
+                )
+                if message:
+                    posted_message_id = message.id
+                    try:
+                        if p2p_manager:
+                            display_name = None
+                            if profile_manager:
+                                profile = profile_manager.get_profile(user_id)
+                                if profile:
+                                    display_name = profile.display_name or profile.username
+                            mode_row = None
+                            with db_manager.get_connection() as conn:
+                                mode_row = conn.execute(
+                                    "SELECT privacy_mode FROM channels WHERE id = ?",
+                                    (channel_id,),
+                                ).fetchone()
+                            channel_mode = str(mode_row['privacy_mode'] if mode_row else 'open').lower()
+                            target_peers = None
+                            if channel_mode in {'private', 'confidential'}:
+                                target_peers = channel_manager.get_target_peer_ids_for_channel(channel_id)
+                            p2p_manager.broadcast_channel_message(
+                                channel_id=channel_id,
+                                user_id=user_id,
+                                content=post_content,
+                                message_id=message.id,
+                                timestamp=message.created_at.isoformat() if getattr(message, 'created_at', None) else datetime.now(timezone.utc).isoformat(),
+                                attachments=[attachment],
+                                display_name=display_name,
+                                security={'privacy_mode': channel_mode},
+                                target_peer_ids=target_peers,
+                            )
+                    except Exception as bcast_err:
+                        logger.warning(f"Failed to broadcast stream post card: {bcast_err}")
+
+            if start_now and stream_row:
+                started, start_err = stream_manager.start_stream(stream_row['id'], user_id)
+                if not start_err and started:
+                    stream_row = started
+
+            payload = {'success': True, 'stream': stream_row}
+            if posted_message_id:
+                payload['posted_message_id'] = posted_message_id
+            return jsonify(payload), 201
+        except Exception as e:
+            logger.error(f"Create stream UI failed: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/streams/<stream_id>', methods=['GET'])
+    @require_login
+    def ajax_get_stream(stream_id):
+        try:
+            stream_manager = current_app.config.get('STREAM_MANAGER')
+            if not stream_manager:
+                return jsonify({'success': False, 'error': 'Streaming unavailable'}), 503
+            user_id = get_current_user()
+            stream_row = stream_manager.get_stream_for_user(stream_id, user_id)
+            if not stream_row:
+                return jsonify({'success': False, 'error': 'Not found'}), 404
+            return jsonify({'success': True, 'stream': stream_row})
+        except Exception as e:
+            logger.error(f"Get stream UI failed: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/streams/<stream_id>/start', methods=['POST'])
+    @require_login
+    def ajax_start_stream(stream_id):
+        try:
+            stream_manager = current_app.config.get('STREAM_MANAGER')
+            if not stream_manager:
+                return jsonify({'success': False, 'error': 'Streaming unavailable'}), 503
+            user_id = get_current_user()
+            stream_row, error = stream_manager.start_stream(stream_id, user_id)
+            if error in {'not_found', 'not_authorized'}:
+                return jsonify({'success': False, 'error': 'Not found'}), 404
+            if error:
+                return jsonify({'success': False, 'error': error}), 400
+            return jsonify({'success': True, 'stream': stream_row})
+        except Exception as e:
+            logger.error(f"Start stream UI failed: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/streams/<stream_id>/stop', methods=['POST'])
+    @require_login
+    def ajax_stop_stream(stream_id):
+        try:
+            stream_manager = current_app.config.get('STREAM_MANAGER')
+            if not stream_manager:
+                return jsonify({'success': False, 'error': 'Streaming unavailable'}), 503
+            user_id = get_current_user()
+            stream_row, error = stream_manager.stop_stream(stream_id, user_id)
+            if error in {'not_found', 'not_authorized'}:
+                return jsonify({'success': False, 'error': 'Not found'}), 404
+            if error:
+                return jsonify({'success': False, 'error': error}), 400
+            return jsonify({'success': True, 'stream': stream_row})
+        except Exception as e:
+            logger.error(f"Stop stream UI failed: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/streams/<stream_id>/session', methods=['POST'])
+    @require_login
+    def ajax_stream_session(stream_id):
+        """Issue a short-lived stream playback token for the current user."""
+        try:
+            stream_manager = current_app.config.get('STREAM_MANAGER')
+            if not stream_manager:
+                return jsonify({'success': False, 'error': 'Streaming unavailable'}), 503
+            user_id = get_current_user()
+            logger.info(f"Stream session request: stream_id={stream_id} user_id={user_id} ip={request.remote_addr}")
+            data = request.get_json(silent=True) or {}
+            ttl_seconds = data.get('ttl_seconds')
+            token_payload, error = stream_manager.issue_token(
+                stream_id=stream_id,
+                user_id=user_id,
+                scope='view',
+                ttl_seconds=ttl_seconds,
+                metadata={'issued_via': 'ui_session'},
+            )
+            logger.info(f"Stream session result: stream_id={stream_id} user_id={user_id} error={error} token_ok={bool(token_payload)}")
+            if error in {'not_found', 'not_authorized'}:
+                return jsonify({'success': False, 'error': 'Not found'}), 404
+            if error or not token_payload:
+                return jsonify({'success': False, 'error': error or 'token_issue_failed'}), 400
+
+            stream_row = stream_manager.get_stream_for_user(stream_id, user_id)
+            token_q = quote_plus(str(token_payload.get('token') or ''))
+            stream_kind = str((stream_row or {}).get('stream_kind') or 'media').lower()
+            protocol = str((stream_row or {}).get('protocol') or 'hls').lower()
+            if stream_kind == 'telemetry' or protocol == 'events-json':
+                playback_url = f"/api/v1/streams/{stream_id}/events?token={token_q}"
+            else:
+                playback_url = f"/api/v1/streams/{stream_id}/manifest.m3u8?token={token_q}"
+            return jsonify({
+                'success': True,
+                'stream': stream_row,
+                'stream_kind': stream_kind,
+                'token': token_payload.get('token'),
+                'expires_at': token_payload.get('expires_at'),
+                'playback_url': playback_url,
+                'transport_url': playback_url,
+            })
+        except Exception as e:
+            logger.error(f"Create stream session failed: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/streams/<stream_id>/setup', methods=['POST'])
+    @require_login
+    def ajax_stream_setup(stream_id):
+        """Return a setup bundle for stream operators: ingest/view tokens, URLs, and ffmpeg command templates."""
+        try:
+            stream_manager = current_app.config.get('STREAM_MANAGER')
+            if not stream_manager:
+                return jsonify({'success': False, 'error': 'Streaming unavailable'}), 503
+
+            user_id = get_current_user()
+            data = request.get_json(silent=True) or {}
+            ingest_ttl = data.get('ingest_ttl_seconds', 4 * 3600)
+            view_ttl = data.get('view_ttl_seconds', 3600)
+
+            ingest_payload, ingest_err = stream_manager.issue_token(
+                stream_id=stream_id,
+                user_id=user_id,
+                scope='ingest',
+                ttl_seconds=ingest_ttl,
+                metadata={'issued_via': 'ui_setup'},
+            )
+            if ingest_err in {'not_found', 'not_authorized'}:
+                return jsonify({'success': False, 'error': 'Not found'}), 404
+            if ingest_err or not ingest_payload:
+                return jsonify({'success': False, 'error': ingest_err or 'token_issue_failed'}), 400
+
+            view_payload, view_err = stream_manager.issue_token(
+                stream_id=stream_id,
+                user_id=user_id,
+                scope='view',
+                ttl_seconds=view_ttl,
+                metadata={'issued_via': 'ui_setup'},
+            )
+            if view_err or not view_payload:
+                return jsonify({'success': False, 'error': view_err or 'view_token_failed'}), 400
+
+            stream_row = stream_manager.get_stream_for_user(stream_id, user_id) or {}
+            stream_kind = str(stream_row.get('stream_kind') or 'media').lower()
+            protocol = str(stream_row.get('protocol') or 'hls').lower()
+
+            ingest_tok = quote_plus(str(ingest_payload.get('token') or ''))
+            view_tok = quote_plus(str(view_payload.get('token') or ''))
+            base = f"/api/v1/streams/{stream_id}"
+
+            if stream_kind == 'telemetry' or protocol == 'events-json':
+                ingest_bundle = {'events_url': f"{base}/ingest/events?token={ingest_tok}"}
+                playback = {'url': f"{base}/events?token={view_tok}"}
+                posix_cmd = f"# curl -X POST '{base}/ingest/events?token={ingest_tok}' -H 'Content-Type: application/json' -d '{{\"value\": 1}}'"
+                ps_cmd = posix_cmd
+            else:
+                ingest_bundle = {
+                    'manifest_url': f"{base}/ingest/manifest?token={ingest_tok}",
+                    'segment_url_template': f"{base}/ingest/segments/seg%06d.ts?token={ingest_tok}",
+                }
+                playback = {'url': f"{base}/manifest.m3u8?token={view_tok}"}
+                posix_cmd = (
+                    f"ffmpeg -re -i INPUT -c:v libx264 -preset veryfast -tune zerolatency"
+                    f" -c:a aac -b:a 128k -f hls -hls_time 2 -hls_list_size 5"
+                    f" -hls_flags delete_segments"
+                    f" -hls_segment_filename '{base}/ingest/segments/seg%06d.ts?token={ingest_tok}'"
+                    f" '{base}/ingest/manifest?token={ingest_tok}'"
+                )
+                ps_cmd = posix_cmd.replace("'", '"')
+
+            return jsonify({
+                'success': True,
+                'setup': {
+                    'stream_id': stream_id,
+                    'stream_kind': stream_kind,
+                    'ingest': ingest_bundle,
+                    'playback': playback,
+                    'commands': {'posix': posix_cmd, 'powershell': ps_cmd},
+                    'ingest_expires_at': ingest_payload.get('expires_at'),
+                    'view_expires_at': view_payload.get('expires_at'),
+                },
+            })
+        except Exception as e:
+            logger.error(f"Stream setup failed: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
     @ui.route('/ajax/send_channel_message', methods=['POST'])
     @require_login
     def ajax_send_channel_message():
