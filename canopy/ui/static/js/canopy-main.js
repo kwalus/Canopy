@@ -2544,6 +2544,45 @@
                 }, 1700);
             }
 
+            function undockYouTube(el) {
+                if (!el) return;
+                const ph = el.__canopyAutoDockPlaceholder;
+                if (ph && ph.isConnected && ph.parentNode) {
+                    const wrapper = el.closest('.youtube-embed');
+                    if (wrapper) {
+                        ph.parentNode.insertBefore(wrapper, ph);
+                        ph.remove();
+                    }
+                }
+                delete el.__canopyAutoDockPlaceholder;
+                if (!state.returnUrl) state.dockedSubtitle = null;
+                if (miniVideoHost) {
+                    miniVideoHost.style.display = 'none';
+                    miniVideoHost.innerHTML = '';
+                }
+            }
+
+            function autoDockYouTube(el) {
+                if (!miniVideoHost) return;
+                const wrapper = el.closest('.youtube-embed');
+                if (!wrapper || !wrapper.parentNode) return;
+                if (isDockedInMiniHost(el)) return;
+
+                var placeholder = document.createElement('div');
+                placeholder.className = 'canopy-yt-mini-placeholder';
+                placeholder.style.cssText = 'width:' + wrapper.offsetWidth + 'px;height:' + wrapper.offsetHeight + 'px;';
+                wrapper.parentNode.insertBefore(placeholder, wrapper);
+                el.__canopyAutoDockPlaceholder = placeholder;
+
+                if (!state.dockedSubtitle) state.dockedSubtitle = sourceSubtitle(el);
+
+                miniVideoHost.innerHTML = '';
+                miniVideoHost.appendChild(wrapper);
+                miniVideoHost.style.display = 'block';
+
+                if (state.observer) state.observer.observe(placeholder);
+            }
+
             function updateMini() {
                 if (!state.current || !state.current.el || !state.current.el.isConnected) {
                     const fallback = findPlayingElement();
@@ -2560,6 +2599,15 @@
                 const el = current.el;
                 const isDocked = isDockedInMiniHost(el);
                 const isResumablePause = (type === 'audio' || type === 'video') && !!el.paused && !el.ended;
+
+                if (isDocked && type === 'youtube' && el.__canopyAutoDockPlaceholder) {
+                    const ph = el.__canopyAutoDockPlaceholder;
+                    if (ph.isConnected && ph.__canopyMiniVisible) {
+                        undockYouTube(el);
+                        hideMini();
+                        return;
+                    }
+                }
 
                 if (state.dismissedEl && state.dismissedEl === el) {
                     hideMini();
@@ -2587,13 +2635,16 @@
                     return;
                 }
 
+                if (type === 'youtube' && !isDocked && miniVideoHost) {
+                    autoDockYouTube(el);
+                }
+
                 if (miniVideoHost) {
-                    miniVideoHost.style.display = isDocked ? 'block' : 'none';
+                    miniVideoHost.style.display = isDockedInMiniHost(el) ? 'block' : 'none';
                 }
 
                 const mediaTitle = titleFromMedia(el, type);
-                const subtitle = isDocked && state.dockedSubtitle
-                    ? state.dockedSubtitle : sourceSubtitle(el);
+                const subtitle = state.dockedSubtitle || sourceSubtitle(el);
                 titleEl.textContent = mediaTitle;
                 subtitleEl.textContent = subtitle;
                 icon.innerHTML = `<i class="bi ${mediaIcon(type)}"></i>`;
@@ -2616,7 +2667,7 @@
                         timeEl.textContent = formatTime(currentTime);
                     }
                     updatePiPButton(el, type);
-                } else if (isDocked && type === 'youtube') {
+                } else if (isDockedInMiniHost(el) && type === 'youtube') {
                     playBtn.style.display = '';
                     const ytPlayer = el.__canopyMiniYTPlayer;
                     const ytState = Number(el.__canopyMiniYTState);
@@ -2724,8 +2775,13 @@
                             const player = el.__canopyMiniYTPlayer;
                             if (player) {
                                 const s = player.getPlayerState();
-                                if (s === 1 || s === 3) player.pauseVideo();
-                                else player.playVideo();
+                                if (s === 1 || s === 3) {
+                                    player.pauseVideo();
+                                    el.__canopyMiniYTState = 2;
+                                } else {
+                                    player.playVideo();
+                                    el.__canopyMiniYTState = 1;
+                                }
                             }
                         } catch (_) {}
                     }
@@ -2783,9 +2839,12 @@
                                 const player = el.__canopyMiniYTPlayer;
                                 if (player && typeof player.pauseVideo === 'function') {
                                     player.pauseVideo();
+                                    el.__canopyMiniYTState = 2;
                                 }
                             } catch (_) {}
-                            if (isDockedInMiniHost(el)) {
+                            if (el.__canopyAutoDockPlaceholder) {
+                                undockYouTube(el);
+                            } else if (isDockedInMiniHost(el)) {
                                 const wrapper = el.closest('.youtube-embed') || el;
                                 wrapper.remove();
                             }
@@ -2844,40 +2903,48 @@
                 const type = state.current.type;
                 if (type !== 'youtube' || !miniVideoHost) return;
 
-                state.dockedSubtitle = sourceSubtitle(el);
+                if (!state.dockedSubtitle) state.dockedSubtitle = sourceSubtitle(el);
                 const sourceEl = state.current.sourceEl;
                 const messageId = sourceEl && sourceEl.getAttribute('data-message-id');
                 state.returnUrl = messageId
                     ? '/channels/locate?message_id=' + encodeURIComponent(messageId)
                     : window.location.pathname + window.location.search;
 
-                const wrapper = el.closest('.youtube-embed');
-                if (wrapper) {
-                    miniVideoHost.innerHTML = '';
-                    miniVideoHost.appendChild(wrapper);
-                    miniVideoHost.style.display = 'block';
-
-                    try {
-                        const player = el.__canopyMiniYTPlayer;
-                        if (player && typeof player.playVideo === 'function') {
-                            player.playVideo();
-                        }
-                    } catch (_) {}
-
-                    var retries = 0;
-                    var retryId = setInterval(function() {
-                        retries++;
-                        if (retries > 6) { clearInterval(retryId); return; }
-                        try {
-                            var p = el.__canopyMiniYTPlayer;
-                            if (p && typeof p.getPlayerState === 'function') {
-                                var s = p.getPlayerState();
-                                if (s === 1 || s === 3) { clearInterval(retryId); return; }
-                                p.playVideo();
-                            }
-                        } catch (_) { clearInterval(retryId); }
-                    }, 800);
+                if (el.__canopyAutoDockPlaceholder) {
+                    var ph = el.__canopyAutoDockPlaceholder;
+                    if (ph.isConnected) ph.remove();
+                    delete el.__canopyAutoDockPlaceholder;
                 }
+
+                if (!isDockedInMiniHost(el)) {
+                    var wrapper = el.closest('.youtube-embed');
+                    if (wrapper) {
+                        miniVideoHost.innerHTML = '';
+                        miniVideoHost.appendChild(wrapper);
+                        miniVideoHost.style.display = 'block';
+                    }
+                }
+
+                try {
+                    var player = el.__canopyMiniYTPlayer;
+                    if (player && typeof player.playVideo === 'function') {
+                        player.playVideo();
+                    }
+                } catch (_) {}
+
+                var retries = 0;
+                var retryId = setInterval(function() {
+                    retries++;
+                    if (retries > 6) { clearInterval(retryId); return; }
+                    try {
+                        var p = el.__canopyMiniYTPlayer;
+                        if (p && typeof p.getPlayerState === 'function') {
+                            var s = p.getPlayerState();
+                            if (s === 1 || s === 3) { clearInterval(retryId); return; }
+                            p.playVideo();
+                        }
+                    } catch (_) { clearInterval(retryId); }
+                }, 800);
             };
         }
         
