@@ -1,0 +1,4102 @@
+"""
+Main Flask application for Canopy.
+
+Creates and configures the Flask app with all necessary components
+and routes for the local mesh communication system.
+
+Author: Konrad Walus (architecture, design, and direction)
+Project: Canopy - Local Mesh Communication
+License: Apache 2.0
+Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
+"""
+
+import json
+import logging
+import os
+import re
+import secrets
+import threading
+import time
+from flask import Flask, jsonify
+from pathlib import Path
+from typing import Any, Optional, cast
+
+from .config import Config
+from .database import DatabaseManager
+from .logging_config import setup_logging
+from .files import FileManager
+from .interactions import InteractionManager
+from .profile import ProfileManager
+from .feed import FeedManager
+from .tasks import TaskManager
+from .search import SearchManager
+from .streams import StreamManager
+from ..security.api_keys import ApiKeyManager
+from ..security.trust import TrustManager
+from .messaging import MessageManager
+from .channels import ChannelManager
+from .mentions import (
+    MentionManager,
+    extract_mentions,
+    resolve_mention_targets,
+    split_mention_targets,
+    build_preview,
+    record_mention_activity,
+    record_thread_reply_activity,
+    broadcast_mention_interaction,
+)
+from ..network.manager import P2PNetworkManager
+from ..security.encryption import DataEncryptor
+from ..api.routes import create_api_blueprint
+from ..ui.routes import create_ui_blueprint
+
+logger = logging.getLogger('canopy.app')
+
+
+def create_app(config: Optional[Config] = None) -> Flask:
+    """Create and configure the Flask application."""
+    
+    # Load configuration first
+    if config is None:
+        config = Config.from_env()
+    
+    # Initialize comprehensive logging
+    log_system = setup_logging(debug=config.debug)
+    logger.info("Starting Canopy application initialization")
+    
+    # Create Flask app — static files live under canopy/ui/static/ (absolute path, cwd-independent)
+    import os as _os
+    _pkg_root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    _ui_static = _os.path.join(_pkg_root, 'ui', 'static')
+    app = Flask(__name__, static_folder=_ui_static)
+    
+    app.config['SECRET_KEY'] = config.secret_key
+    app.config['DEBUG'] = config.debug
+    app.config['TESTING'] = config.testing
+    
+    # Store config in app for access in routes
+    app.config['CANOPY_CONFIG'] = config
+    logger.info(f"Configuration loaded: Debug={config.debug}, Port={config.network.port}")
+    
+    # Initialize core components
+    try:
+        logger.info("Initializing database manager...")
+        db_manager = DatabaseManager(config)
+        app.config['DB_MANAGER'] = db_manager
+        logger.info("Database manager initialized successfully")
+        
+        logger.info("Initializing API key manager...")
+        api_key_manager = ApiKeyManager(db_manager)
+        app.config['API_KEY_MANAGER'] = api_key_manager
+        logger.info("API key manager initialized successfully")
+        
+        logger.info("Initializing trust manager...")
+        trust_manager = TrustManager(db_manager)
+        app.config['TRUST_MANAGER'] = trust_manager
+        logger.info("Trust manager initialized successfully")
+        
+        logger.info("Initializing message manager...")
+        message_manager = MessageManager(db_manager, api_key_manager)
+        app.config['MESSAGE_MANAGER'] = message_manager
+        logger.info("Message manager initialized successfully")
+
+        logger.info("Initializing file manager...")
+        files_dir = str(Path(config.storage.data_dir) / 'files') if config.storage.data_dir else './data/files'
+        file_manager = FileManager(db_manager, files_dir)
+        app.config['FILE_MANAGER'] = file_manager
+        logger.info("File manager initialized successfully")
+
+        logger.info("Initializing interaction manager...")
+        interaction_manager = InteractionManager(db_manager)
+        app.config['INTERACTION_MANAGER'] = interaction_manager
+        logger.info("Interaction manager initialized successfully")
+
+        logger.info("Initializing profile manager...")
+        profile_manager = ProfileManager(db_manager, file_manager)
+        app.config['PROFILE_MANAGER'] = profile_manager
+        logger.info("Profile manager initialized successfully")
+        
+        logger.info("Initializing channel manager...")
+        channel_manager = ChannelManager(db_manager, api_key_manager)
+        app.config['CHANNEL_MANAGER'] = channel_manager
+        logger.info("Channel manager initialized successfully")
+
+        logger.info("Initializing feed manager...")
+        feed_manager = FeedManager(db_manager, api_key_manager)
+        app.config['FEED_MANAGER'] = feed_manager
+        logger.info("Feed manager initialized successfully")
+
+        logger.info("Initializing task manager...")
+        task_manager = TaskManager(db_manager)
+        app.config['TASK_MANAGER'] = task_manager
+        logger.info("Task manager initialized successfully")
+
+        logger.info("Initializing request manager...")
+        from .requests import RequestManager
+        request_manager = RequestManager(db_manager)
+        app.config['REQUEST_MANAGER'] = request_manager
+        logger.info("Request manager initialized successfully")
+
+        logger.info("Initializing objective manager...")
+        from .objectives import ObjectiveManager
+        objective_manager = ObjectiveManager(db_manager, task_manager=task_manager)
+        app.config['OBJECTIVE_MANAGER'] = objective_manager
+        logger.info("Objective manager initialized successfully")
+
+        logger.info("Initializing signal manager...")
+        from .signals import SignalManager
+        signal_manager = SignalManager(db_manager)
+        app.config['SIGNAL_MANAGER'] = signal_manager
+        logger.info("Signal manager initialized successfully")
+
+        logger.info("Initializing contract manager...")
+        from .contracts import ContractManager
+        contract_manager = ContractManager(db_manager)
+        app.config['CONTRACT_MANAGER'] = contract_manager
+        logger.info("Contract manager initialized successfully")
+
+        logger.info("Initializing handoff manager...")
+        from .handoffs import HandoffManager
+        handoff_manager = HandoffManager(db_manager)
+        app.config['HANDOFF_MANAGER'] = handoff_manager
+        logger.info("Handoff manager initialized successfully")
+
+        logger.info("Initializing circle manager...")
+        from .circles import CircleManager
+        circle_manager = CircleManager(db_manager, trust_manager=trust_manager, task_manager=task_manager)
+        app.config['CIRCLE_MANAGER'] = circle_manager
+        logger.info("Circle manager initialized successfully")
+
+        logger.info("Initializing search manager...")
+        search_manager = SearchManager(db_manager)
+        app.config['SEARCH_MANAGER'] = search_manager
+        logger.info(f"Search manager initialized (enabled={search_manager.enabled})")
+
+        logger.info("Initializing skill manager...")
+        from .skills import SkillManager
+        skill_manager = SkillManager(db_manager)
+        app.config['SKILL_MANAGER'] = skill_manager
+        logger.info(f"Skill manager initialized ({skill_manager.count()} skills registered)")
+
+        logger.info("Initializing mention manager...")
+        mention_manager = MentionManager(db_manager)
+        app.config['MENTION_MANAGER'] = mention_manager
+        logger.info("Mention manager initialized successfully")
+
+        logger.info("Initializing inbox manager...")
+        from .inbox import InboxManager
+        inbox_manager = InboxManager(db_manager, trust_manager=trust_manager)
+        app.config['INBOX_MANAGER'] = inbox_manager
+        logger.info("Inbox manager initialized successfully")
+
+        logger.info("Initializing stream manager...")
+        streams_root = str(Path(config.storage.data_dir) if config.storage.data_dir else Path("./data"))
+        stream_manager = StreamManager(
+            db=db_manager,
+            channel_manager=channel_manager,
+            data_root=streams_root,
+        )
+        app.config['STREAM_MANAGER'] = stream_manager
+        logger.info("Stream manager initialized successfully")
+        
+        logger.info("Initializing P2P network manager...")
+        p2p_manager = P2PNetworkManager(config, db_manager)
+        # Relay policy priority: persisted file > env var > default
+        # Manager __init__ already loads persisted policy.
+        # Only override with config if env var was explicitly set.
+        if os.getenv('CANOPY_RELAY_POLICY'):
+            p2p_manager.set_relay_policy(config.network.relay_policy)
+        app.config['P2P_MANAGER'] = p2p_manager
+        # Safely get relay policy for logging
+        relay_policy = getattr(p2p_manager, 'relay_policy', 'broker_only')
+        logger.info(f"P2P network manager initialized (relay_policy={relay_policy})")
+
+        # Allow P2P manager to fetch device profiles for peer announcements
+        p2p_manager.get_peer_device_profile = channel_manager.get_peer_device_profile
+
+        def _resolve_local_mentions(handles: list[str],
+                                    channel_id: Optional[str] = None,
+                                    visibility: Optional[str] = None,
+                                    permissions: Optional[list[str]] = None,
+                                    author_id: Optional[str] = None) -> list[dict]:
+            if not handles:
+                return []
+            targets = resolve_mention_targets(
+                db_manager,
+                handles,
+                channel_id=channel_id,
+                visibility=visibility,
+                permissions=permissions,
+                author_id=author_id,
+            )
+            local_peer_id = None
+            try:
+                if p2p_manager:
+                    local_peer_id = p2p_manager.get_peer_id()
+            except Exception:
+                local_peer_id = None
+            local_targets, _ = split_mention_targets(targets, local_peer_id=local_peer_id)
+            return local_targets
+
+        def _record_local_mention_events(targets: list[dict],
+                                         source_type: str,
+                                         source_id: str,
+                                         author_id: str,
+                                         from_peer: str,
+                                         channel_id: Optional[str] = None,
+                                         preview: Optional[str] = None,
+                                         source_content: Optional[str] = None) -> None:
+            if not targets:
+                return
+            target_ids = cast(list[str], [t.get('user_id') for t in targets if t.get('user_id')])
+            if not target_ids:
+                return
+            record_mention_activity(
+                mention_manager,
+                p2p_manager,
+                target_ids=target_ids,
+                source_type=source_type,
+                source_id=source_id,
+                author_id=author_id,
+                origin_peer=from_peer,
+                channel_id=channel_id,
+                preview=preview or '',
+                extra_ref=None,
+                inbox_manager=inbox_manager,
+                source_content=source_content,
+            )
+
+        def _ensure_origin_peer(user_id: str, peer_id: str) -> None:
+            """Store origin_peer for shadow users (and only overwrite when missing)."""
+            if not user_id or not peer_id:
+                return
+            try:
+                with db_manager.get_connection() as conn:
+                    row = conn.execute(
+                        "SELECT origin_peer, public_key FROM users WHERE id = ?",
+                        (user_id,)
+                    ).fetchone()
+                    if not row:
+                        return
+                    current_peer = row['origin_peer'] if 'origin_peer' in row.keys() else None
+                    public_key = row['public_key'] if 'public_key' in row.keys() else ''
+                    if current_peer == peer_id:
+                        return
+                    # Avoid overwriting local users with real public keys.
+                    if public_key and current_peer:
+                        return
+                    if current_peer and public_key:
+                        return
+                    conn.execute(
+                        "UPDATE users SET origin_peer = ? WHERE id = ?",
+                        (peer_id, user_id)
+                    )
+                    conn.commit()
+            except Exception:
+                pass
+
+        def _sanitize_shadow_username(name: str) -> str:
+            """Make a safe username token for shadow users."""
+            import re
+            base = (name or '').strip()
+            if not base:
+                return 'peer'
+            base = re.sub(r'[^A-Za-z0-9_.-]+', '_', base)
+            base = base.strip('._-')
+            return base or 'peer'
+
+        def _ensure_shadow_user(user_id: str, display_name: Optional[str], from_peer: str) -> None:
+            """Create/update a shadow user safely, avoiding username collisions."""
+            if not user_id or not from_peer:
+                return
+            try:
+                existing = db_manager.get_user(user_id)
+                shadow_display = display_name or f"peer-{from_peer[:8]}"
+
+                if existing:
+                    try:
+                        current_display = existing.get('display_name', '')
+                        if display_name and (current_display.startswith('peer-') or current_display == user_id):
+                            with db_manager.get_connection() as conn:
+                                conn.execute(
+                                    "UPDATE users SET display_name = ? WHERE id = ?",
+                                    (display_name, user_id)
+                                )
+                                conn.commit()
+                    except Exception:
+                        pass
+                    _ensure_origin_peer(user_id, from_peer)
+                    return
+
+                base = _sanitize_shadow_username(display_name or f"peer-{from_peer[:8]}")
+                candidates = [
+                    f"{base}.{from_peer[:6]}",
+                    f"{base}-{user_id[-6:]}",
+                    f"peer-{user_id[-12:]}",
+                    user_id,
+                ]
+
+                created = False
+                for cand in candidates:
+                    cand = cand.strip()
+                    if not cand:
+                        continue
+                    try:
+                        if db_manager.get_user_by_username(cand):
+                            continue
+                        if db_manager.create_user(
+                            user_id=user_id,
+                            username=cand,
+                            public_key='',
+                            password_hash=None,
+                            display_name=shadow_display,
+                            origin_peer=from_peer
+                        ):
+                            created = True
+                            logger.info(
+                                f"Created shadow user {user_id} (username={cand}, display_name={shadow_display})"
+                            )
+                            break
+                    except Exception:
+                        continue
+
+                if not created:
+                    try:
+                        db_manager.create_user(
+                            user_id=user_id,
+                            username=user_id,
+                            public_key='',
+                            password_hash=None,
+                            display_name=shadow_display,
+                            origin_peer=from_peer
+                        )
+                    except Exception as e:
+                        logger.warning(f"Could not create shadow user for {user_id}: {e}")
+
+                _ensure_origin_peer(user_id, from_peer)
+            except Exception as e:
+                logger.warning(f"Shadow user ensure failed for {user_id}: {e}")
+        
+        # Wire up P2P <-> channel sync: incoming P2P channel messages
+        # get stored in the local channel DB so they appear in the UI.
+        def _on_p2p_channel_message(channel_id: str, user_id: str, content: str,
+                                     message_id: str, timestamp: str, from_peer: str,
+                                     attachments: Optional[list[Any]] = None, security: Optional[dict[str, Any]] = None,
+                                     message_type: str = 'text',
+                                     display_name: Optional[str] = None, expires_at: Optional[str] = None,
+                                     ttl_seconds: Optional[int] = None, ttl_mode: Optional[str] = None,
+                                     update_only: bool = False,
+                                     origin_peer: Optional[str] = None,
+                                     parent_message_id: Optional[str] = None,
+                                     edited_at: Optional[str] = None) -> None:
+            """Store an incoming P2P channel message locally.
+            
+            If attachments with embedded 'data' (base64) are present,
+            decode and save them via FileManager so the UI can render
+            images and files natively.
+            """
+            try:
+                existing_msg = None
+                if message_id:
+                    try:
+                        with db_manager.get_connection() as conn:
+                            existing_msg = conn.execute(
+                                "SELECT user_id FROM channel_messages WHERE id = ?",
+                                (message_id,)
+                            ).fetchone()
+                    except Exception:
+                        existing_msg = None
+
+                # --- Persistent dedup check ---
+                if message_id and channel_manager.is_message_processed(message_id) and not update_only:
+                    logger.debug(f"Skipping duplicate P2P message {message_id}")
+                    # Even for already-stored messages, re-derive inbox items for
+                    # local agent users that were mentioned but whose inbox item
+                    # was lost (e.g. due to rate-limiting or the bot being offline
+                    # when the message was first processed).
+                    if inbox_manager and content:
+                        try:
+                            mentions = extract_mentions(content)
+                            if mentions:
+                                targets = _resolve_local_mentions(
+                                    mentions,
+                                    channel_id=channel_id,
+                                    author_id=user_id,
+                                )
+                                for t in targets:
+                                    tid = t.get('user_id')
+                                    if not tid:
+                                        continue
+                                    # Only patch agent accounts — avoid spamming human inboxes
+                                    try:
+                                        with db_manager.get_connection() as conn:
+                                            urow = conn.execute(
+                                                "SELECT account_type FROM users WHERE id = ?",
+                                                (tid,)
+                                            ).fetchone()
+                                        if not urow or (urow[0] or '').lower() != 'agent':
+                                            continue
+                                    except Exception:
+                                        continue
+                                    mid_check = message_id
+                                    try:
+                                        with db_manager.get_connection() as conn:
+                                            has_item = conn.execute(
+                                                "SELECT 1 FROM agent_inbox WHERE agent_user_id = ? "
+                                                "AND source_id = ? AND trigger_type = 'mention'",
+                                                (tid, mid_check)
+                                            ).fetchone()
+                                    except Exception:
+                                        has_item = None
+                                    if not has_item:
+                                        inbox_manager.record_mention_triggers(
+                                            target_ids=[tid],
+                                            source_type='channel_message',
+                                            source_id=mid_check,
+                                            author_id=user_id,
+                                            origin_peer=from_peer,
+                                            channel_id=channel_id,
+                                            preview=build_preview(content),
+                                            source_content=content,
+                                        )
+                        except Exception as _patch_err:
+                            logger.debug(f"Duplicate-message inbox patch failed: {_patch_err}")
+                    return
+
+                effective_origin_peer = origin_peer or from_peer
+
+                # Ensure remote user exists as a shadow account so FK works.
+                # IMPORTANT: shadow users are created per user_id (not per
+                # peer) so that different users on the same peer device
+                # appear with their own display names.
+                _ensure_shadow_user(user_id, display_name, from_peer)
+
+                # Add to channel
+                try:
+                    with db_manager.get_connection() as conn:
+                        conn.execute("""
+                            INSERT OR IGNORE INTO channel_members
+                            (channel_id, user_id, role) VALUES (?, ?, 'member')
+                        """, (channel_id, user_id))
+                        conn.commit()
+                except Exception:
+                    pass
+
+                # Ensure the channel exists locally (auto-create if received
+                # from a peer who has a channel we don't know about yet).
+                # Fail closed: unknown channels start as private until an
+                # explicit channel/member sync defines broader visibility.
+                with db_manager.get_connection() as conn:
+                    existing_ch = conn.execute(
+                        "SELECT privacy_mode FROM channels WHERE id = ?", (channel_id,)
+                    ).fetchone()
+                    if not existing_ch:
+                        conn.execute(
+                            "INSERT OR IGNORE INTO channels "
+                            "(id, name, channel_type, created_by, description, "
+                            " origin_peer, privacy_mode, created_at) "
+                            "VALUES (?, ?, 'private', ?, 'Auto-created from P2P sync', "
+                            " ?, 'private', datetime('now'))",
+                            (channel_id, f"peer-channel-{channel_id[:8]}",
+                             user_id, effective_origin_peer)
+                        )
+                        conn.commit()
+                        logger.info(f"Auto-created channel {channel_id} from P2P sync "
+                                    f"(origin_peer={effective_origin_peer}, privacy_mode=private)")
+                        channel_privacy_mode = 'private'
+                    else:
+                        channel_privacy_mode = str(existing_ch['privacy_mode'] or 'open').strip().lower()
+
+                    # Ensure shadow user is a member
+                    conn.execute(
+                        "INSERT OR IGNORE INTO channel_members "
+                        "(channel_id, user_id, role) VALUES (?, ?, 'member')",
+                        (channel_id, user_id)
+                    )
+
+                    # Only open/public channels auto-include all local users.
+                    # Restricted channels must keep explicit membership.
+                    if channel_privacy_mode in ('open', 'public'):
+                        human_users = conn.execute(
+                            "SELECT id FROM users "
+                            "WHERE id != 'system' AND id != 'local_user' "
+                            "AND (password_hash IS NOT NULL AND password_hash != '' "
+                            "     OR account_type = 'agent')",
+                        ).fetchall()
+                        for (uid,) in human_users:
+                            conn.execute(
+                                "INSERT OR IGNORE INTO channel_members "
+                                "(channel_id, user_id, role) VALUES (?, ?, 'member')",
+                                (channel_id, uid)
+                            )
+
+                    conn.commit()
+
+                # --- Process file attachments from P2P ---
+                import base64 as _b64
+                processed_attachments = None
+                content_rewritten = content or ''
+                if attachments:
+                    processed_attachments = []
+                    file_id_map = {}  # sender file_id -> local file_id (so we can fix /files/ in content)
+                    for att in attachments:
+                        original_id = att.get('id')
+                        data_b64 = att.get('data')
+                        if data_b64:
+                            try:
+                                file_bytes = _b64.b64decode(data_b64)
+                                file_info = file_manager.save_file(
+                                    file_data=file_bytes,
+                                    original_name=att.get('name', 'p2p_file'),
+                                    content_type=att.get('type', 'application/octet-stream'),
+                                    uploaded_by=user_id,
+                                )
+                                if file_info:
+                                    if original_id:
+                                        file_id_map[original_id] = file_info.id
+                                    extra_meta = {
+                                        k: v for k, v in att.items()
+                                        if k not in {'data', 'id', 'file_id', 'name', 'type', 'size', 'url'}
+                                    }
+                                    payload = {
+                                        'id': file_info.id,
+                                        'name': file_info.original_name,
+                                        'type': file_info.content_type,
+                                        'size': file_info.size,
+                                        'url': file_info.url,
+                                    }
+                                    payload.update(extra_meta)
+                                    processed_attachments.append(payload)
+                                    logger.info(f"Saved P2P attachment: {file_info.id} "
+                                                f"({file_info.original_name}, {file_info.size} bytes)")
+                            except Exception as e:
+                                logger.error(f"Failed to save P2P attachment: {e}", exc_info=True)
+                        else:
+                            # Attachment metadata without data (file too large
+                            # or sender had no file_manager) — keep reference
+                            preserved = {k: v for k, v in att.items() if k != 'data'}
+                            preserved.setdefault('name', att.get('name', 'file'))
+                            preserved.setdefault('type', att.get('type', ''))
+                            preserved.setdefault('size', att.get('size', 0))
+                            preserved.setdefault('url', '')
+                            processed_attachments.append(preserved)
+
+                    if processed_attachments:
+                        message_type = 'file'
+                    # Rewrite /files/SENDER_ID in content to /files/LOCAL_ID so inline images load
+                    if content and file_id_map:
+                        for orig_id, local_id in file_id_map.items():
+                            if orig_id and local_id and orig_id != local_id:
+                                content_rewritten = content_rewritten.replace(
+                                    f'/files/{orig_id}',
+                                    f'/files/{local_id}',
+                                )
+
+                # Store the message — reuse the original message_id to avoid dupes
+                import secrets as _sec2
+                mid = message_id or f"P{_sec2.token_hex(12)}"
+                attachments_json = (json.dumps(processed_attachments)
+                                    if processed_attachments else None)
+                security_clean = None
+                if security:
+                    security_clean, sec_error = channel_manager.validate_security_metadata(security, strict=False)
+                    if sec_error:
+                        logger.warning(
+                            f"Dropping invalid security metadata for P2P channel message "
+                            f"{message_id or mid}: {sec_error}"
+                        )
+                security_json = None
+                if security_clean:
+                    try:
+                        security_json = json.dumps(security_clean)
+                    except Exception:
+                        security_json = None
+
+                # Normalise timestamp to SQLite format (YYYY-MM-DD HH:MM:SS)
+                # so P2P messages sort correctly alongside local messages.
+                normalised_ts = None
+                if timestamp:
+                    try:
+                        from datetime import datetime as _dt, timezone as _tz
+                        dt = _dt.fromisoformat(
+                            timestamp.replace('Z', '+00:00'))
+                        normalised_ts = dt.strftime('%Y-%m-%d %H:%M:%S')
+                    except Exception:
+                        normalised_ts = timestamp  # fallback
+
+                created_dt = None
+                if timestamp:
+                    try:
+                        from datetime import datetime as _dt, timezone as _tz
+                        created_dt = _dt.fromisoformat(timestamp.replace('Z', '+00:00'))
+                    except Exception:
+                        created_dt = None
+                if created_dt is None:
+                    from datetime import datetime as _dt, timezone as _tz
+                    created_dt = _dt.now(_tz.utc)
+
+                expiry_base = created_dt
+                if update_only:
+                    from datetime import datetime as _dt, timezone as _tz
+                    expiry_base = _dt.now(_tz.utc)
+                expires_dt = channel_manager._resolve_expiry(
+                    expires_at=expires_at,
+                    ttl_seconds=ttl_seconds,
+                    ttl_mode=ttl_mode,
+                    apply_default=not update_only,
+                    base_time=expiry_base,
+                )
+                if expires_dt:
+                    from datetime import datetime as _dt, timezone as _tz
+                    now_dt = _dt.now(_tz.utc)
+                    if expires_dt <= now_dt and not (update_only and existing_msg):
+                        logger.debug(f"Skipping expired P2P channel message {message_id}")
+                        return
+
+                expires_db = (channel_manager._format_db_timestamp(expires_dt)
+                              if expires_dt else None)
+
+                # If this is an update for an existing message, only refresh expiry/TTL.
+                if update_only and existing_msg:
+                    if existing_msg['user_id'] != user_id:
+                        logger.warning(f"Ignoring update for {message_id}: "
+                                       f"author mismatch ({existing_msg['user_id']} != {user_id})")
+                        return
+                    ttl_sec_db = int(ttl_seconds) if ttl_seconds is not None else None
+                    ttl_mode_db = (ttl_mode or '').strip() or None
+                    edited_db = None
+                    if edited_at:
+                        try:
+                            from datetime import datetime as _dt
+                            ed = _dt.fromisoformat(str(edited_at).replace('Z', '+00:00'))
+                            edited_db = ed.strftime('%Y-%m-%d %H:%M:%S')
+                        except Exception:
+                            edited_db = None
+                    if edited_db is None:
+                        from datetime import datetime as _dt, timezone as _tz
+                        edited_db = _dt.now(_tz.utc).strftime('%Y-%m-%d %H:%M:%S')
+
+                    # Preserve existing attachments if none provided
+                    stored_attachments = attachments_json
+                    stored_message_type = message_type or 'text'
+                    stored_security = security_json
+                    if attachments_json is None:
+                        try:
+                            with db_manager.get_connection() as conn:
+                                row = conn.execute(
+                                    "SELECT attachments, message_type, security FROM channel_messages WHERE id = ?",
+                                    (message_id,)
+                                ).fetchone()
+                                if row:
+                                    stored_attachments = row['attachments']
+                                    stored_message_type = row['message_type'] or stored_message_type
+                                    stored_security = row['security']
+                        except Exception:
+                            pass
+
+                    with db_manager.get_connection() as conn:
+                        conn.execute(
+                            "UPDATE channel_messages "
+                            "SET content = ?, message_type = ?, attachments = ?, security = ?, edited_at = ?, "
+                            "expires_at = ?, ttl_seconds = ?, ttl_mode = ? "
+                            "WHERE id = ?",
+                            (
+                                content_rewritten,
+                                stored_message_type,
+                                stored_attachments,
+                                stored_security,
+                                edited_db,
+                                expires_db,
+                                ttl_sec_db,
+                                ttl_mode_db,
+                                message_id,
+                            )
+                        )
+                        conn.commit()
+                    channel_manager.mark_message_processed(message_id)
+                    logger.info(f"Updated P2P channel message {message_id} in #{channel_id}")
+                    return
+
+                with db_manager.get_connection() as conn:
+                    conn.execute("""
+                        INSERT OR IGNORE INTO channel_messages
+                        (id, channel_id, user_id, content, message_type,
+                         attachments, security, created_at, origin_peer, expires_at, ttl_seconds, ttl_mode, parent_message_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?, ?, ?, ?, ?)
+                    """, (mid, channel_id, user_id, content_rewritten,
+                          message_type, attachments_json, security_json, normalised_ts,
+                          effective_origin_peer,
+                          expires_db,
+                          int(ttl_seconds) if ttl_seconds is not None else None,
+                          (ttl_mode or '').strip() or None,
+                          (parent_message_id or '').strip() or None))
+                    conn.commit()
+
+                # Mark as processed so catch-up won't re-insert after restart
+                channel_manager.mark_message_processed(mid)
+
+                logger.info(f"Stored P2P channel message {mid} in #{channel_id}"
+                            f"{' with ' + str(len(processed_attachments)) + ' attachment(s)' if processed_attachments else ''}")
+
+                # Inline circles from [circle] blocks (allow update-only)
+                try:
+                    from .circles import parse_circle_blocks, derive_circle_id
+                    if circle_manager:
+                        circle_specs = parse_circle_blocks(content or '')
+                        if circle_specs:
+                            # Messages received over P2P are inherently 'network' —
+                            # they already traversed the mesh.  Only downgrade to
+                            # 'local' when the channel is explicitly restricted.
+                            channel_visibility = 'network'
+                            try:
+                                with db_manager.get_connection() as conn:
+                                    row = conn.execute(
+                                        "SELECT privacy_mode FROM channels WHERE id = ?",
+                                        (channel_id,)
+                                    ).fetchone()
+                                    if row and row['privacy_mode'] and row['privacy_mode'] != 'open':
+                                        channel_visibility = 'local'
+                            except Exception:
+                                # Default to 'network' for P2P messages — the
+                                # message was already broadcast over the network.
+                                pass
+
+                            for cidx, cspec in enumerate(circle_specs):
+                                circle_id = derive_circle_id('channel', mid, cidx, len(circle_specs), override=cspec.circle_id)
+                                facilitator_id = None
+                                if cspec.facilitator:
+                                    handle = cspec.facilitator.strip()
+                                    if handle.startswith('@'):
+                                        handle = handle[1:]
+                                    try:
+                                        row = db_manager.get_user(handle)
+                                        if row:
+                                            facilitator_id = row.get('id') or handle
+                                    except Exception:
+                                        facilitator_id = None
+                                    if not facilitator_id:
+                                        targets = resolve_mention_targets(
+                                            db_manager,
+                                            [handle],
+                                            channel_id=channel_id,
+                                            author_id=user_id,
+                                        )
+                                        if targets:
+                                            facilitator_id = targets[0].get('user_id')
+                                if not facilitator_id:
+                                    facilitator_id = user_id
+
+                                if cspec.participants is not None:
+                                    resolved = []
+                                    for part in cspec.participants or []:
+                                        try:
+                                            prow = db_manager.get_user(part)
+                                            if prow:
+                                                resolved.append(prow.get('id') or part)
+                                                continue
+                                        except Exception:
+                                            pass
+                                        try:
+                                            targets = resolve_mention_targets(
+                                                db_manager,
+                                                [part],
+                                                channel_id=channel_id,
+                                                author_id=user_id,
+                                            )
+                                            if targets:
+                                                resolved.append(targets[0].get('user_id'))
+                                        except Exception:
+                                            continue
+                                    cspec.participants = resolved
+
+                                circle_manager.upsert_circle(
+                                    circle_id=circle_id,
+                                    source_type='channel',
+                                    source_id=mid,
+                                    created_by=user_id,
+                                    spec=cspec,
+                                    channel_id=channel_id,
+                                    facilitator_id=facilitator_id,
+                                    visibility=channel_visibility,
+                                    origin_peer=from_peer,
+                                    created_at=normalised_ts,
+                                )
+                except Exception as circle_err:
+                    logger.warning(f"Inline circle creation (P2P channel) failed: {circle_err}")
+
+                if not update_only:
+                    mentions = extract_mentions(content or '')
+                    targets = _resolve_local_mentions(
+                        mentions,
+                        channel_id=channel_id,
+                        author_id=user_id,
+                    )
+                    if targets:
+                        preview = build_preview(content or '')
+                        _record_local_mention_events(
+                            targets=targets,
+                            source_type='channel_message',
+                            source_id=mid,
+                            author_id=user_id,
+                            from_peer=from_peer,
+                            channel_id=channel_id,
+                            preview=preview,
+                            source_content=content,
+                        )
+
+                    # Notify thread subscribers for replies (including root
+                    # author auto-subscription unless explicitly muted).
+                    if parent_message_id and inbox_manager:
+                        try:
+                            record_thread_reply_activity(
+                                channel_manager=channel_manager,
+                                inbox_manager=inbox_manager,
+                                channel_id=channel_id,
+                                reply_message_id=mid,
+                                parent_message_id=parent_message_id,
+                                author_id=user_id,
+                                origin_peer=from_peer,
+                                source_content=content,
+                                preview=build_preview(content or ''),
+                                mentioned_user_ids=[
+                                    cast(str, t.get('user_id'))
+                                    for t in (targets or [])
+                                    if t.get('user_id')
+                                ],
+                            )
+                        except Exception as _reply_err:
+                            logger.debug(f"Thread reply inbox trigger skipped: {_reply_err}")
+
+                    # Inline tasks from [task] blocks
+                    try:
+                        from .tasks import parse_task_blocks, derive_task_id
+                        if task_manager:
+                            task_specs = parse_task_blocks(content or '')
+                            if task_specs:
+                                task_visibility = 'network'
+                                try:
+                                    with db_manager.get_connection() as conn:
+                                        row = conn.execute(
+                                            "SELECT privacy_mode FROM channels WHERE id = ?",
+                                            (channel_id,)
+                                        ).fetchone()
+                                        if row and row['privacy_mode'] and row['privacy_mode'] != 'open':
+                                            task_visibility = 'local'
+                                except Exception:
+                                    task_visibility = 'local'
+                                for idx, spec in enumerate(cast(Any, task_specs)):
+                                    spec = cast(Any, spec)
+                                    if not spec.confirmed:
+                                        continue
+                                    task_id = derive_task_id('channel', mid, idx, len(task_specs), override=spec.task_id)
+                                    assignee_id = None
+                                    if spec.assignee_clear:
+                                        assignee_id = None
+                                    elif spec.assignee:
+                                        handle = spec.assignee.strip()
+                                        if handle.startswith('@'):
+                                            handle = handle[1:]
+                                        try:
+                                            row = db_manager.get_user(handle)
+                                            if row:
+                                                assignee_id = row.get('id') or handle
+                                        except Exception:
+                                            assignee_id = None
+                                        if not assignee_id:
+                                            targets = resolve_mention_targets(
+                                                db_manager,
+                                                [handle],
+                                                channel_id=channel_id,
+                                                author_id=user_id,
+                                            )
+                                            if targets:
+                                                assignee_id = targets[0].get('user_id')
+                                    editor_ids: list[str] = []
+                                    if spec.editors_clear:
+                                        editor_ids = []
+                                    else:
+                                        for editor in spec.editors or []:
+                                            try:
+                                                eid = None
+                                                row = db_manager.get_user(editor)
+                                                if row:
+                                                    eid = row.get('id') or editor
+                                            except Exception:
+                                                eid = None
+                                            if not eid:
+                                                try:
+                                                    targets = resolve_mention_targets(
+                                                        db_manager,
+                                                        [editor],
+                                                        channel_id=channel_id,
+                                                        author_id=user_id,
+                                                    )
+                                                    if targets:
+                                                        eid = targets[0].get('user_id')
+                                                except Exception:
+                                                    eid = None
+                                            if eid:
+                                                editor_ids.append(eid)
+
+                                    meta_payload = {
+                                        'inline_task': True,
+                                        'source_type': 'channel_message',
+                                        'source_id': mid,
+                                        'channel_id': channel_id,
+                                    }
+                                    if editor_ids is not None:
+                                        meta_payload['editors'] = editor_ids
+
+                                    task_manager.create_task(
+                                        task_id=task_id,
+                                        title=spec.title,
+                                        description=spec.description,
+                                        status=spec.status,
+                                        priority=spec.priority,
+                                        created_by=user_id,
+                                        assigned_to=assignee_id,
+                                        due_at=spec.due_at.isoformat() if spec.due_at else None,
+                                        visibility=channel_visibility,
+                                        metadata=meta_payload,
+                                        origin_peer=from_peer,
+                                        source_type='human',
+                                        updated_by=user_id,
+                                    )
+                    except Exception as task_err:
+                        logger.warning(f"Inline task creation (P2P channel) failed: {task_err}")
+
+                    # Inline objectives from [objective] blocks
+                    try:
+                        from .objectives import parse_objective_blocks, derive_objective_id
+                        objective_manager = app.config.get('OBJECTIVE_MANAGER')
+                        if objective_manager:
+                            obj_specs = parse_objective_blocks(content or '')
+                            if obj_specs:
+                                obj_visibility = 'network'
+                                try:
+                                    with db_manager.get_connection() as conn:
+                                        row = conn.execute(
+                                            "SELECT privacy_mode FROM channels WHERE id = ?",
+                                            (channel_id,)
+                                        ).fetchone()
+                                        if row and row['privacy_mode'] and row['privacy_mode'] != 'open':
+                                            obj_visibility = 'local'
+                                except Exception:
+                                    obj_visibility = 'local'
+
+                                def _resolve_handle(handle: str) -> Optional[str]:
+                                    if not handle:
+                                        return None
+                                    token = handle.strip()
+                                    if token.startswith('@'):
+                                        token = token[1:]
+                                    if not token:
+                                        return None
+                                    try:
+                                        row = db_manager.get_user(token)
+                                        if row:
+                                            return row.get('id') or token
+                                    except Exception:
+                                        pass
+                                    try:
+                                        targets = resolve_mention_targets(
+                                            db_manager,
+                                            [token],
+                                            channel_id=channel_id,
+                                            author_id=user_id,
+                                        )
+                                        if targets:
+                                            return targets[0].get('user_id')
+                                    except Exception:
+                                        return None
+                                    return None
+
+                                for oidx, obj_spec in enumerate(obj_specs):
+                                    objective_id = derive_objective_id('channel', mid, oidx, len(obj_specs), override=obj_spec.objective_id)
+                                    members_payload = []
+                                    for obj_member in obj_spec.members or []:
+                                        uid = _resolve_handle(obj_member.handle)
+                                        if uid:
+                                            members_payload.append({
+                                                'user_id': uid,
+                                                'role': obj_member.role,
+                                            })
+                                    tasks_payload = []
+                                    for task_spec in obj_spec.tasks or []:
+                                        assignee_id = _resolve_handle(task_spec.assignee) if task_spec.assignee else None
+                                        tasks_payload.append({
+                                            'title': task_spec.title,
+                                            'status': task_spec.status,
+                                            'assigned_to': assignee_id,
+                                            'metadata': {
+                                                'inline_objective_task': True,
+                                                'source_type': 'channel_message',
+                                                'source_id': mid,
+                                                'channel_id': channel_id,
+                                            },
+                                        })
+                                    objective_manager.upsert_objective(
+                                        objective_id=objective_id,
+                                        title=obj_spec.title,
+                                        description=obj_spec.description,
+                                        status=obj_spec.status,
+                                        deadline=obj_spec.deadline.isoformat() if obj_spec.deadline else None,
+                                        created_by=user_id,
+                                        visibility=obj_visibility,
+                                        origin_peer=from_peer,
+                                        source_type='channel_message',
+                                        source_id=mid,
+                                        created_at=normalised_ts,
+                                        members=members_payload,
+                                        tasks=tasks_payload,
+                                        updated_by=user_id,
+                                    )
+                    except Exception as obj_err:
+                        logger.warning(f"Inline objective creation (P2P channel) failed: {obj_err}")
+
+                    # Inline signals from [signal] blocks
+                    try:
+                        from .signals import parse_signal_blocks, derive_signal_id
+                        signal_manager = app.config.get('SIGNAL_MANAGER')
+                        if signal_manager:
+                            sig_specs = parse_signal_blocks(content or '')
+                            if sig_specs:
+                                sig_visibility = 'network'
+                                try:
+                                    with db_manager.get_connection() as conn:
+                                        row = conn.execute(
+                                            "SELECT privacy_mode FROM channels WHERE id = ?",
+                                            (channel_id,)
+                                        ).fetchone()
+                                        if row and row['privacy_mode'] and row['privacy_mode'] != 'open':
+                                            sig_visibility = 'local'
+                                except Exception:
+                                    sig_visibility = 'local'
+
+                                def _resolve_handle(handle: str) -> Optional[str]:
+                                    if not handle:
+                                        return None
+                                    token = handle.strip()
+                                    if token.startswith('@'):
+                                        token = token[1:]
+                                    if not token:
+                                        return None
+                                    try:
+                                        row = db_manager.get_user(token)
+                                        if row:
+                                            return row.get('id') or token
+                                    except Exception:
+                                        pass
+                                    try:
+                                        targets = resolve_mention_targets(
+                                            db_manager,
+                                            [token],
+                                            channel_id=channel_id,
+                                            author_id=user_id,
+                                        )
+                                        if targets:
+                                            return targets[0].get('user_id')
+                                    except Exception:
+                                        return None
+                                    return None
+
+                                for sidx, sig_spec in enumerate(sig_specs):
+                                    signal_id = derive_signal_id('channel', mid, sidx, len(sig_specs), override=sig_spec.signal_id)
+                                    owner_id = _resolve_handle(sig_spec.owner) if sig_spec.owner else user_id
+                                    signal_manager.upsert_signal(
+                                        signal_id=signal_id,
+                                        signal_type=sig_spec.signal_type,
+                                        title=sig_spec.title,
+                                        summary=sig_spec.summary,
+                                        status=sig_spec.status,
+                                        confidence=sig_spec.confidence,
+                                        tags=sig_spec.tags,
+                                        data=sig_spec.data,
+                                        notes=sig_spec.notes,
+                                        owner_id=owner_id or user_id,
+                                        created_by=user_id,
+                                        visibility=sig_visibility,
+                                        origin_peer=from_peer,
+                                        source_type='channel_message',
+                                        source_id=mid,
+                                        expires_at=sig_spec.expires_at.isoformat() if sig_spec.expires_at else None,
+                                        ttl_seconds=sig_spec.ttl_seconds,
+                                        ttl_mode=sig_spec.ttl_mode,
+                                        created_at=normalised_ts,
+                                        actor_id=user_id,
+                                    )
+                    except Exception as sig_err:
+                        logger.warning(f"Inline signal creation (P2P channel) failed: {sig_err}")
+
+                # Inline contracts from [contract] blocks
+                try:
+                    from .contracts import parse_contract_blocks, derive_contract_id
+                    contract_manager = app.config.get('CONTRACT_MANAGER')
+                    if contract_manager:
+                        contract_specs = parse_contract_blocks(content or '')
+                        if contract_specs:
+                            contract_visibility = 'network'
+                            try:
+                                with db_manager.get_connection() as conn:
+                                    row = conn.execute(
+                                        "SELECT privacy_mode FROM channels WHERE id = ?",
+                                        (channel_id,)
+                                    ).fetchone()
+                                    if row and row['privacy_mode'] and row['privacy_mode'] != 'open':
+                                        contract_visibility = 'local'
+                            except Exception:
+                                contract_visibility = 'local'
+
+                            def _resolve_contract_handle(handle: str) -> Optional[str]:
+                                if not handle:
+                                    return None
+                                token = handle.strip()
+                                if token.startswith('@'):
+                                    token = token[1:]
+                                if not token:
+                                    return None
+                                try:
+                                    row = db_manager.get_user(token)
+                                    if row:
+                                        return row.get('id') or token
+                                except Exception:
+                                    pass
+                                try:
+                                    targets = resolve_mention_targets(
+                                        db_manager,
+                                        [token],
+                                        channel_id=channel_id,
+                                        author_id=user_id,
+                                    )
+                                    if targets:
+                                        return targets[0].get('user_id')
+                                except Exception:
+                                    return None
+                                return None
+
+                            for cidx, spec in enumerate(contract_specs):
+                                if not spec.confirmed:
+                                    continue
+                                contract_id = derive_contract_id(
+                                    'channel', mid, cidx, len(contract_specs), override=spec.contract_id
+                                )
+                                owner_id = _resolve_contract_handle(spec.owner) if spec.owner else user_id
+                                counterparty_ids = []
+                                for cp in spec.counterparties or []:
+                                    cp_id = _resolve_contract_handle(cp)
+                                    if cp_id:
+                                        counterparty_ids.append(cp_id)
+
+                                contract_manager.upsert_contract(
+                                    contract_id=contract_id,
+                                    title=spec.title,
+                                    summary=spec.summary,
+                                    terms=spec.terms,
+                                    status=spec.status,
+                                    owner_id=owner_id or user_id,
+                                    counterparties=counterparty_ids,
+                                    created_by=user_id,
+                                    visibility=contract_visibility,
+                                    origin_peer=from_peer,
+                                    source_type='channel_message',
+                                    source_id=mid,
+                                    expires_at=spec.expires_at.isoformat() if spec.expires_at else None,
+                                    ttl_seconds=spec.ttl_seconds,
+                                    ttl_mode=spec.ttl_mode,
+                                    metadata=spec.metadata,
+                                    created_at=normalised_ts,
+                                    actor_id=user_id,
+                                )
+                except Exception as contract_err:
+                    logger.warning(f"Inline contract creation (P2P channel) failed: {contract_err}")
+
+                # Inline requests from [request] blocks
+                try:
+                    from .requests import parse_request_blocks, derive_request_id
+                    request_manager = app.config.get('REQUEST_MANAGER')
+                    if request_manager:
+                        req_specs = parse_request_blocks(content or '')
+                        if req_specs:
+                            req_visibility = 'network'
+                            try:
+                                with db_manager.get_connection() as conn:
+                                    row = conn.execute(
+                                        "SELECT privacy_mode FROM channels WHERE id = ?",
+                                        (channel_id,)
+                                    ).fetchone()
+                                    if row and row['privacy_mode'] and row['privacy_mode'] != 'open':
+                                        req_visibility = 'local'
+                            except Exception:
+                                req_visibility = 'local'
+
+                            for ridx, req_spec in enumerate(req_specs):
+                                if not req_spec.confirmed:
+                                    continue
+                                request_id = derive_request_id('channel', mid, ridx, len(req_specs), override=req_spec.request_id)
+                                members_payload = []
+                                for req_member in req_spec.members or []:
+                                    uid = _resolve_handle(req_member.handle) if hasattr(req_member, 'handle') else None
+                                    if uid:
+                                        members_payload.append({'user_id': uid, 'role': req_member.role})
+                                request_manager.upsert_request(
+                                    request_id=request_id,
+                                    title=req_spec.title,
+                                    created_by=user_id,
+                                    request_text=req_spec.request,
+                                    required_output=req_spec.required_output,
+                                    status=req_spec.status,
+                                    priority=req_spec.priority,
+                                    tags=req_spec.tags,
+                                    due_at=req_spec.due_at.isoformat() if req_spec.due_at else None,
+                                    visibility=req_visibility,
+                                    origin_peer=origin_peer,
+                                    source_type='channel_message',
+                                    source_id=mid,
+                                    created_at=normalised_ts,
+                                    actor_id=user_id,
+                                    members=members_payload,
+                                    members_defined=('members' in req_spec.fields),
+                                    fields=req_spec.fields,
+                                )
+                except Exception as req_err:
+                    logger.warning(f"Inline request creation (P2P channel) failed: {req_err}")
+
+                # Inline handoffs from [handoff] blocks (allow update-only)
+                try:
+                    from .handoffs import parse_handoff_blocks, derive_handoff_id
+                    handoff_manager = app.config.get('HANDOFF_MANAGER')
+                    if handoff_manager:
+                        handoff_specs = parse_handoff_blocks(content or '')
+                        if handoff_specs:
+                            handoff_visibility = 'network'
+                            try:
+                                with db_manager.get_connection() as conn:
+                                    row = conn.execute(
+                                        "SELECT privacy_mode FROM channels WHERE id = ?",
+                                        (channel_id,)
+                                    ).fetchone()
+                                    if row and row['privacy_mode'] and row['privacy_mode'] != 'open':
+                                        handoff_visibility = 'local'
+                            except Exception:
+                                # Fail closed: default to local for private channel safety
+                                handoff_visibility = 'local'
+
+                            for hidx, hspec in enumerate(handoff_specs):
+                                if not hspec.confirmed:
+                                    continue
+                                handoff_id = derive_handoff_id(
+                                    'channel', mid, hidx, len(handoff_specs), override=hspec.handoff_id
+                                )
+                                handoff_manager.upsert_handoff(
+                                    handoff_id=handoff_id,
+                                    source_type='channel',
+                                    source_id=mid,
+                                    author_id=user_id,
+                                    title=hspec.title,
+                                    summary=hspec.summary,
+                                    next_steps=hspec.next_steps,
+                                    owner=hspec.owner,
+                                    tags=hspec.tags,
+                                    raw=hspec.raw,
+                                    channel_id=channel_id,
+                                    visibility=handoff_visibility,
+                                    origin_peer=from_peer,
+                                    created_at=normalised_ts,
+                                )
+                except Exception as handoff_err:
+                    logger.warning(f"Inline handoff creation (P2P channel) failed: {handoff_err}")
+
+                # Inline skill registration from [skill] blocks
+                try:
+                    skill_manager = app.config.get('SKILL_MANAGER')
+                    if skill_manager:
+                        from .skills import parse_skill_blocks
+                        skill_specs = parse_skill_blocks(content or '')
+                        for skill_spec in skill_specs:
+                            skill_manager.register_skill(
+                                skill_spec,
+                                source_type='channel_message',
+                                source_id=mid,
+                                channel_id=channel_id,
+                                author_id=user_id,
+                            )
+                except Exception as skill_err:
+                    logger.warning(f"Inline skill registration (P2P channel) failed: {skill_err}")
+            except Exception as e:
+                logger.error(f"Failed to store P2P channel message: {e}",
+                             exc_info=True)
+
+        p2p_manager.on_channel_message = _on_p2p_channel_message
+        p2p_manager.file_manager = file_manager
+
+        # --- Channel announce callback ---
+        def _on_channel_announce(channel_id, name, channel_type,
+                                  description, created_by_peer, privacy_mode,
+                                  from_peer, initial_members=None):
+            """Handle a CHANNEL_ANNOUNCE from a connected peer.
+
+            For private/confidential channels, initial_members specifies exactly which
+            local users should be added (targeted propagation). For public
+            channels, all local human users are added as before.
+            """
+            try:
+                mode = str(privacy_mode or '').strip().lower()
+                channel_type_norm = str(channel_type or '').strip().lower()
+                if mode not in {'open', 'guarded', 'private', 'confidential'}:
+                    # Backward compatibility: older peers may omit privacy_mode.
+                    mode = 'private' if channel_type_norm == 'private' else 'open'
+                is_targeted = mode in {'private', 'confidential'} or channel_type_norm == 'private'
+
+                # SECURITY: Log channel announce for audit trail
+                logger.info(f"Channel announce from {from_peer}: '{name}' ({channel_id}) "
+                           f"type={channel_type}, privacy={privacy_mode}")
+
+                # SECURITY: Strip initial_members from non-targeted channel announces
+                if initial_members and not is_targeted:
+                    logger.warning(
+                        f"SECURITY: Non-targeted channel announce from {from_peer} "
+                        f"includes initial_members (suspicious). Ignoring initial_members."
+                    )
+                    initial_members = None
+
+                if is_targeted:
+                    # Targeted channel announce — create with specific members
+                    targeted_mode = mode if mode in {'private', 'confidential'} else 'private'
+                    logger.info(f"Targeted channel announce {channel_id} ('{name}') from {from_peer}, "
+                                f"initial_members={initial_members}")
+                    result = channel_manager.create_channel_from_sync(
+                        channel_id=channel_id,
+                        name=name,
+                        channel_type=channel_type,
+                        description=description,
+                        local_user_id=cast(str, None),
+                        origin_peer=from_peer,
+                        privacy_mode=targeted_mode,
+                        initial_members=initial_members or [],
+                    )
+                    if result:
+                        logger.info(f"Created targeted channel {channel_id} from {from_peer} "
+                                    f"with {len(initial_members or [])} targeted member(s)")
+                    else:
+                        logger.debug(f"Targeted channel announce from {from_peer}: "
+                                     f"'{name}' ({channel_id}) already exists, skipped")
+                    return
+
+                # Public channel — existing merge/adopt logic
+                local_user = 'local_user'
+                try:
+                    with db_manager.get_connection() as conn:
+                        row = conn.execute(
+                            "SELECT id FROM users WHERE id != 'system' "
+                            "AND id != 'local_user' LIMIT 1"
+                        ).fetchone()
+                        if row:
+                            local_user = row[0]
+                except Exception:
+                    pass
+
+                merge_result = channel_manager.merge_or_adopt_channel(
+                    remote_id=channel_id,
+                    remote_name=name,
+                    remote_type=channel_type,
+                    remote_desc=description,
+                    local_user_id=local_user,
+                    from_peer=from_peer,
+                    privacy_mode=mode,
+                )
+                if merge_result:
+                    logger.info(f"Channel announce from {from_peer}: "
+                                f"synced '{name}' as {merge_result}")
+                else:
+                    logger.debug(f"Channel announce from {from_peer}: "
+                                 f"'{name}' ({channel_id}) already exists, skipped")
+            except Exception as e:
+                logger.error(f"Failed to handle channel announce: {e}",
+                             exc_info=True)
+
+        p2p_manager.on_channel_announce = _on_channel_announce
+
+        # --- Member sync callback (private channel membership propagation) ---
+        def _on_member_sync(channel_id, target_user_id, action, role,
+                            channel_name, channel_type, channel_description,
+                            privacy_mode, from_peer):
+            """Handle a MEMBER_SYNC from a remote peer.
+
+            When a member is added/removed from a private channel on a remote
+            peer, this creates the channel locally if needed and adds/removes
+            the specified user.
+            """
+            try:
+                logger.info(f"Member sync from {from_peer}: {action} user {target_user_id} "
+                            f"in channel {channel_id}")
+
+                # SECURITY: Validate that target_user_id exists locally
+                # and belongs to the sending peer (prevents spoofing)
+                with db_manager.get_connection() as conn:
+                    user_check = conn.execute(
+                        "SELECT id, origin_peer FROM users WHERE id = ?",
+                        (target_user_id,)
+                    ).fetchone()
+
+                    if not user_check:
+                        logger.warning(
+                            f"SECURITY: Rejected member_sync from {from_peer}: "
+                            f"user {target_user_id} does not exist locally"
+                        )
+                        return
+
+                    # Verify the user belongs to the sending peer
+                    user_origin = user_check['origin_peer'] if 'origin_peer' in user_check.keys() else None
+                    if user_origin and user_origin != from_peer:
+                        logger.warning(
+                            f"SECURITY: Rejected member_sync from {from_peer}: "
+                            f"user {target_user_id} belongs to peer {user_origin}, not {from_peer}"
+                        )
+                        return
+
+                if action == 'add':
+                    # Ensure channel exists locally
+                    with db_manager.get_connection() as conn:
+                        existing = conn.execute(
+                            "SELECT 1 FROM channels WHERE id = ?", (channel_id,)
+                        ).fetchone()
+                    if not existing:
+                        # Create the channel locally with this user as initial member
+                        channel_manager.create_channel_from_sync(
+                            channel_id=channel_id,
+                            name=channel_name or f'private-{channel_id[:8]}',
+                            channel_type=channel_type or 'private',
+                            description=channel_description or '',
+                            local_user_id=cast(str, None),
+                            origin_peer=from_peer,
+                            privacy_mode=privacy_mode or 'private',
+                            initial_members=[target_user_id],
+                        )
+                    else:
+                        # Channel exists — just add the member directly
+                        with db_manager.get_connection() as conn:
+                            conn.execute(
+                                "INSERT OR IGNORE INTO channel_members "
+                                "(channel_id, user_id, role) VALUES (?, ?, ?)",
+                                (channel_id, target_user_id, role or 'member'))
+                            conn.commit()
+                    logger.info(f"Member sync: added {target_user_id} to {channel_id}")
+
+                    # Recover any mention inbox items that may have raced ahead
+                    # of membership sync delivery for this user/channel.
+                    if inbox_manager:
+                        try:
+                            with db_manager.get_connection() as conn:
+                                user_row = conn.execute(
+                                    "SELECT username, display_name FROM users WHERE id = ?",
+                                    (target_user_id,),
+                                ).fetchone()
+                            username = ((user_row['username'] if user_row and 'username' in user_row.keys() else None) or '').strip()
+                            display_name = (user_row['display_name'] if user_row and 'display_name' in user_row.keys() else None)
+                            # Fall back to display_name so inbox rebuild runs even if
+                            # username column is empty on a legacy shadow user row.
+                            effective_username = username or (display_name or '').strip()
+                            if effective_username:
+                                rebuild = inbox_manager.rebuild_from_channel_messages(
+                                    user_id=target_user_id,
+                                    username=effective_username,
+                                    display_name=display_name,
+                                    window_hours=72,
+                                    limit=500,
+                                    channel_id=channel_id,
+                                )
+                                created = int((rebuild or {}).get('created') or 0)
+                                if created > 0:
+                                    logger.info(
+                                        "Member sync mention backfill created %d inbox item(s) "
+                                        "for user %s channel %s",
+                                        created,
+                                        target_user_id,
+                                        channel_id,
+                                    )
+                        except Exception as backfill_err:
+                            logger.debug(
+                                "Member sync mention backfill skipped for user %s channel %s: %s",
+                                target_user_id,
+                                channel_id,
+                                backfill_err,
+                            )
+
+                elif action == 'remove':
+                    with db_manager.get_connection() as conn:
+                        conn.execute(
+                            "DELETE FROM channel_members WHERE channel_id = ? AND user_id = ?",
+                            (channel_id, target_user_id))
+                        conn.commit()
+                    logger.info(f"Member sync: removed {target_user_id} from {channel_id}")
+
+            except Exception as e:
+                logger.error(f"Failed to handle member sync: {e}", exc_info=True)
+
+        p2p_manager.on_member_sync = _on_member_sync
+
+        # --- Channel sync callback ---
+        def _on_channel_sync(channels, from_peer):
+            """Handle a CHANNEL_SYNC (bulk list) from a connected peer."""
+            try:
+                local_user = 'local_user'
+                try:
+                    with db_manager.get_connection() as conn:
+                        row = conn.execute(
+                            "SELECT id FROM users WHERE id != 'system' "
+                            "AND id != 'local_user' LIMIT 1"
+                        ).fetchone()
+                        if row:
+                            local_user = row[0]
+                except Exception:
+                    pass
+
+                synced = 0
+                for ch in channels:
+                    ch_id = ch.get('id')
+                    ch_name = ch.get('name', '')
+                    ch_type = ch.get('type', 'public')
+                    ch_desc = ch.get('desc', '')
+                    ch_privacy = ch.get('privacy_mode') or 'open'
+                    # Use the channel's original origin_peer if available;
+                    # fall back to the peer that sent the sync.
+                    ch_origin = ch.get('origin_peer') or from_peer
+                    if not ch_id:
+                        continue
+                    result = channel_manager.merge_or_adopt_channel(
+                        remote_id=ch_id,
+                        remote_name=ch_name,
+                        remote_type=ch_type,
+                        remote_desc=ch_desc,
+                        local_user_id=local_user,
+                        from_peer=ch_origin,
+                        privacy_mode=ch_privacy,
+                    )
+                    if result:
+                        synced += 1
+
+                if synced:
+                    logger.info(f"Channel sync from {from_peer}: "
+                                f"synced {synced}/{len(channels)} channels")
+                else:
+                    logger.debug(f"Channel sync from {from_peer}: "
+                                 f"all {len(channels)} channels already present")
+            except Exception as e:
+                logger.error(f"Failed to handle channel sync: {e}",
+                             exc_info=True)
+
+        p2p_manager.on_channel_sync = _on_channel_sync
+
+        # --- Provide public channels for sync on new connections ---
+        def _get_public_channels_for_sync():
+            """Return public channels for P2P CHANNEL_SYNC messages."""
+            return channel_manager.get_all_public_channels()
+
+        p2p_manager.get_public_channels_for_sync = _get_public_channels_for_sync
+
+        # --- Catch-up: provide latest timestamps ---
+        def _get_channel_latest_timestamps():
+            """Return {channel_id: latest_created_at} for catch-up requests."""
+            return channel_manager.get_channel_latest_timestamps()
+
+        p2p_manager.get_channel_latest_timestamps = _get_channel_latest_timestamps
+
+        # Extra timestamp callbacks for extended catch-up (circles, tasks, feed)
+        def _get_feed_latest_timestamp():
+            try:
+                with db_manager.get_connection() as conn:
+                    row = conn.execute(
+                        "SELECT MAX(created_at) AS latest FROM feed_posts"
+                    ).fetchone()
+                return row['latest'] if row and row['latest'] else None
+            except Exception:
+                return None
+
+        def _get_circle_entries_latest():
+            return circle_manager.get_entries_latest_timestamp() if circle_manager else None
+
+        def _get_circle_votes_latest():
+            return circle_manager.get_votes_latest_timestamp() if circle_manager else None
+
+        def _get_circles_latest():
+            return circle_manager.get_circles_latest_timestamp() if circle_manager else None
+
+        def _get_tasks_latest():
+            return task_manager.get_tasks_latest_timestamp() if task_manager else None
+
+        p2p_manager.get_feed_latest_timestamp = _get_feed_latest_timestamp
+        p2p_manager.get_circle_entries_latest_timestamp = _get_circle_entries_latest
+        p2p_manager.get_circle_votes_latest_timestamp = _get_circle_votes_latest
+        p2p_manager.get_circles_latest_timestamp = _get_circles_latest
+        p2p_manager.get_tasks_latest_timestamp = _get_tasks_latest
+
+        denied_catchup_audit_ts: dict[tuple[str, str], float] = {}
+        denied_catchup_audit_interval_s = 120.0
+
+        # --- Catch-up request handler ---
+        def _on_catchup_request(channel_timestamps, from_peer,
+                                feed_latest=None, circle_entries_latest=None,
+                                circle_votes_latest=None, circles_latest=None,
+                                tasks_latest=None):
+            """A peer is asking us for messages it missed.
+
+            For each channel, query messages newer than the timestamp
+            the peer reports, then send them back.  Also gathers missed
+            feed posts, circle entries, circle votes, and tasks.
+
+            IMPORTANT: This callback runs on the asyncio event loop
+            (called from the routing layer's message handler).  We
+            must NOT block here — schedule the actual sending as an
+            async task so the event loop stays responsive.
+            """
+            try:
+                all_messages = []
+                # Get all local channels (peer may not know about some)
+                local_ts = channel_manager.get_channel_latest_timestamps()
+
+                # Build set of restricted channel IDs for filtering
+                local_peer_id = p2p_manager.get_peer_id() if p2p_manager else None
+                _private_channels = set()
+                try:
+                    with db_manager.get_connection() as conn:
+                        priv_rows = conn.execute(
+                            "SELECT id FROM channels "
+                            "WHERE COALESCE(privacy_mode, 'open') IN ('private', 'confidential')"
+                        ).fetchall()
+                        _private_channels = {r[0] for r in priv_rows}
+                except Exception:
+                    pass
+
+                for ch_id, local_latest in local_ts.items():
+                    # Skip restricted channels if the requesting peer has no members.
+                    if ch_id in _private_channels:
+                        member_peers = channel_manager.get_member_peer_ids(
+                            ch_id, local_peer_id)
+                        if from_peer not in member_peers:
+                            # SECURITY: Log denied catch-up access for audit, but
+                            # throttle repeats to avoid log floods during periodic
+                            # catch-up loops.
+                            deny_key = (from_peer, ch_id)
+                            now_ts = time.time()
+                            last_logged = denied_catchup_audit_ts.get(deny_key, 0.0)
+                            if now_ts - last_logged >= denied_catchup_audit_interval_s:
+                                denied_catchup_audit_ts[deny_key] = now_ts
+                                logger.info(
+                                    f"SECURITY: Denied catch-up for restricted channel {ch_id} "
+                                    f"to peer {from_peer} (no members from that peer)"
+                                )
+                            else:
+                                logger.debug(
+                                    f"SECURITY: Denied catch-up for restricted channel {ch_id} "
+                                    f"to peer {from_peer} (repeat suppressed)"
+                                )
+                            continue  # requesting peer has no members here
+
+                    peer_latest = channel_timestamps.get(ch_id)
+                    if peer_latest is None:
+                        # Peer has no messages in this channel — send
+                        # everything (up to the limit).
+                        since = '1970-01-01 00:00:00'
+                    elif local_latest > peer_latest:
+                        since = peer_latest
+                    else:
+                        continue  # peer is up-to-date
+
+                    msgs = channel_manager.get_messages_since(ch_id, since)
+                    all_messages.extend(msgs)
+
+                if all_messages:
+                    # Enrich each message with the author's display_name
+                    # so the receiving peer can create shadow users with
+                    # correct names instead of generic "peer-XXXX".
+                    for msg in all_messages:
+                        uid = msg.get('user_id')
+                        if uid and 'display_name' not in msg:
+                            try:
+                                u = db_manager.get_user(uid)
+                                if u:
+                                    dn = u.get('display_name') or u.get('username')
+                                    if dn and not dn.startswith('peer-'):
+                                        msg['display_name'] = dn
+                            except Exception:
+                                pass
+
+                    # Embed file data for small attachments (<=10MB per file,
+                    # cap total embedded size) so peers that receive the message
+                    # via catchup get the file too. Avoids "file not available"
+                    # for e.g. short audio clips. Larger catchups still omit
+                    # file data to prevent timeouts.
+                    _catchup_embed_limit = 20 * 1024 * 1024  # 20MB total
+                    _catchup_embed_per_file = 10 * 1024 * 1024  # 10MB per file
+                    _catchup_embedded = 0
+                    if file_manager and _catchup_embedded < _catchup_embed_limit:
+                        import base64 as _b64_catchup
+                        for msg in all_messages:
+                            atts = msg.get('attachments') or []
+                            if not atts:
+                                continue
+                            for att in atts:
+                                if not isinstance(att, dict) or att.get('data'):
+                                    continue
+                                if _catchup_embedded >= _catchup_embed_limit:
+                                    break
+                                fid = att.get('id')
+                                if not fid:
+                                    continue
+                                try:
+                                    result = file_manager.get_file_data(fid)
+                                    if not result:
+                                        continue
+                                    file_data, file_info = result
+                                    if len(file_data) > _catchup_embed_per_file:
+                                        continue
+                                    if _catchup_embedded + len(file_data) > _catchup_embed_limit:
+                                        continue
+                                    att['data'] = _b64_catchup.b64encode(file_data).decode('ascii')
+                                    _catchup_embedded += len(file_data)
+                                    logger.debug(f"Catchup: embedding attachment {fid} "
+                                                  f"({len(file_data)} bytes) for peer {from_peer}")
+                                except Exception as emb_err:
+                                    logger.debug(f"Catchup: skip embedding {fid}: {emb_err}")
+                            if _catchup_embedded >= _catchup_embed_limit:
+                                break
+
+                # ---- Gather extra catch-up data (circles, tasks, feed) ----
+                extra_data = {}
+
+                # Feed posts newer than what the peer has
+                try:
+                    since_feed = feed_latest or '1970-01-01 00:00:00'
+                    with db_manager.get_connection() as conn:
+                        rows = conn.execute(
+                            "SELECT id, author_id, content, content_type, "
+                            "visibility, metadata, created_at, expires_at "
+                            "FROM feed_posts WHERE created_at > ? AND "
+                            "(visibility = 'network' OR visibility = 'public') "
+                            "ORDER BY created_at ASC LIMIT 200",
+                            (since_feed,)
+                        ).fetchall()
+                    if rows:
+                        feed_posts = []
+                        for r in rows:
+                            fp = dict(r)
+                            # Enrich with display name
+                            uid = fp.get('author_id')
+                            if uid:
+                                try:
+                                    u = db_manager.get_user(uid)
+                                    if u:
+                                        fp['display_name'] = u.get('display_name') or u.get('username')
+                                except Exception:
+                                    pass
+                            feed_posts.append(fp)
+                        extra_data['feed_posts'] = feed_posts
+                except Exception as fp_err:
+                    logger.debug(f"Catchup feed posts gathering failed: {fp_err}")
+
+                # Circle objects newer than what the peer has (v0.3.55+)
+                if circle_manager:
+                    try:
+                        since_co = circles_latest or '1970-01-01 00:00:00'
+                        circles_data = circle_manager.get_circles_since(since_co)
+                        if circles_data:
+                            extra_data['circles'] = circles_data
+                    except Exception as co_err:
+                        logger.debug(f"Catchup circles gathering failed: {co_err}")
+
+                # Circle entries newer than what the peer has
+                if circle_manager:
+                    try:
+                        since_ce = circle_entries_latest or '1970-01-01 00:00:00'
+                        entries = circle_manager.get_entries_since(since_ce)
+                        if entries:
+                            extra_data['circle_entries'] = entries
+                    except Exception as ce_err:
+                        logger.debug(f"Catchup circle entries gathering failed: {ce_err}")
+
+                    # Circle votes
+                    try:
+                        since_cv = circle_votes_latest or '1970-01-01 00:00:00'
+                        votes = circle_manager.get_votes_since(since_cv)
+                        if votes:
+                            extra_data['circle_votes'] = votes
+                    except Exception as cv_err:
+                        logger.debug(f"Catchup circle votes gathering failed: {cv_err}")
+
+                # Tasks newer than what the peer has
+                if task_manager:
+                    try:
+                        since_t = tasks_latest or '1970-01-01 00:00:00'
+                        tasks = task_manager.get_tasks_since(since_t)
+                        if tasks:
+                            extra_data['tasks'] = tasks
+                    except Exception as t_err:
+                        logger.debug(f"Catchup tasks gathering failed: {t_err}")
+
+                total_extra = sum(len(v) for v in extra_data.values() if isinstance(v, list))
+                has_data = bool(all_messages) or total_extra > 0
+
+                if has_data:
+                    logger.info(f"Catchup response to {from_peer}: "
+                                f"{len(all_messages)} channel msgs"
+                                f"{f', +{total_extra} extra items' if total_extra else ''}")
+
+                    # Schedule the sends as an async task so we don't
+                    # block the event loop (which would deadlock
+                    # run_coroutine_threadsafe calls).
+                    import asyncio as _aio_catchup
+                    _aio_catchup.ensure_future(
+                        p2p_manager.send_catchup_response_async(
+                            from_peer, all_messages,
+                            extra_data=extra_data if extra_data else None))
+                else:
+                    logger.debug(f"Catchup request from {from_peer}: "
+                                 f"peer is up-to-date")
+            except Exception as e:
+                logger.error(f"Failed to handle catchup request: {e}",
+                             exc_info=True)
+
+        p2p_manager.on_catchup_request = _on_catchup_request
+
+        # --- Catch-up response handler ---
+        def _on_catchup_response(messages, from_peer,
+                                 feed_posts=None, circle_entries=None,
+                                 circle_votes=None, circles=None,
+                                 tasks=None):
+            """Store missed messages received in a catch-up response.
+
+            Uses the same INSERT OR IGNORE pattern as the live P2P
+            message handler to avoid duplicates.  Also processes
+            missed feed posts, circle objects, circle entries, circle
+            votes, and tasks sent by peers running v0.3.36+.
+
+            NOTE: The send side dispatches channel messages individually
+            and extra data (feed posts, circles, tasks) as a separate
+            batch with messages=[].  We must NOT return early when
+            messages is empty — the extra data still needs processing.
+            """
+            has_messages = bool(messages)
+            has_extra = bool(feed_posts) or bool(circle_entries) or bool(circle_votes) or bool(circles) or bool(tasks)
+            if not has_messages and not has_extra:
+                return
+            try:
+                stored = 0
+                skipped_dup = 0
+                for msg in (messages or []):
+                    mid = msg.get('id')
+                    if not mid:
+                        continue
+
+                    # --- Persistent dedup check ---
+                    if channel_manager.is_message_processed(mid):
+                        skipped_dup += 1
+                        continue
+
+                    channel_id = msg.get('channel_id', 'general')
+                    user_id = msg.get('user_id', f'peer_{from_peer}')
+                    content = msg.get('content', '')
+                    message_type = msg.get('message_type', 'text')
+                    timestamp = msg.get('created_at')
+
+                    # Normalise timestamp
+                    normalised_ts = None
+                    if timestamp:
+                        try:
+                            from datetime import datetime as _dt
+                            dt = _dt.fromisoformat(
+                                timestamp.replace('Z', '+00:00'))
+                            normalised_ts = dt.strftime('%Y-%m-%d %H:%M:%S')
+                        except Exception:
+                            normalised_ts = timestamp
+
+                    created_dt = None
+                    if timestamp:
+                        try:
+                            from datetime import datetime as _dt
+                            created_dt = _dt.fromisoformat(
+                                timestamp.replace('Z', '+00:00'))
+                        except Exception:
+                            created_dt = None
+                    if created_dt is None:
+                        from datetime import datetime as _dt, timezone as _tz
+                        created_dt = _dt.now(_tz.utc)
+
+                    expires_raw = msg.get('expires_at')
+                    ttl_sec = msg.get('ttl_seconds')
+                    ttl_md = msg.get('ttl_mode')
+                    if ttl_sec is not None and isinstance(ttl_sec, str):
+                        try:
+                            ttl_sec = int(ttl_sec)
+                        except (TypeError, ValueError):
+                            ttl_sec = None
+                    expires_dt = channel_manager._resolve_expiry(
+                        expires_at=expires_raw,
+                        ttl_seconds=ttl_sec,
+                        ttl_mode=ttl_md,
+                        apply_default=True,
+                        base_time=created_dt,
+                    )
+                    if expires_dt:
+                        from datetime import datetime as _dt, timezone as _tz
+                        if expires_dt <= _dt.now(_tz.utc):
+                            continue
+
+                    expires_db = (channel_manager._format_db_timestamp(expires_dt)
+                                  if expires_dt else None)
+
+                    # Extract display_name from catchup message metadata
+                    # (the sending peer may include it in the stored msg data)
+                    catchup_display = msg.get('display_name') or msg.get('author_display_name')
+
+                    # Ensure shadow user exists (per-user-id, not per-peer)
+                    _ensure_shadow_user(user_id, catchup_display, from_peer)
+
+                    # Ensure channel exists
+                    with db_manager.get_connection() as conn:
+                        existing_ch = conn.execute(
+                            "SELECT 1 FROM channels WHERE id = ?",
+                            (channel_id,)
+                        ).fetchone()
+                        if not existing_ch:
+                            conn.execute(
+                                "INSERT OR IGNORE INTO channels "
+                                "(id, name, channel_type, created_by, "
+                                "description, origin_peer, created_at) "
+                                "VALUES (?, ?, 'public', ?, "
+                                "'Auto-created from P2P catchup', ?, "
+                                "datetime('now'))",
+                                (channel_id,
+                                 f"peer-channel-{channel_id[:8]}",
+                                 user_id, from_peer)
+                            )
+                            conn.commit()
+
+                        # Ensure memberships
+                        conn.execute(
+                            "INSERT OR IGNORE INTO channel_members "
+                            "(channel_id, user_id, role) "
+                            "VALUES (?, ?, 'member')",
+                            (channel_id, user_id)
+                        )
+                        human_users = conn.execute(
+                            "SELECT id FROM users "
+                            "WHERE id != 'system' AND id != 'local_user' "
+                            "AND password_hash IS NOT NULL "
+                            "AND password_hash != ''",
+                        ).fetchall()
+                        for (uid,) in human_users:
+                            conn.execute(
+                                "INSERT OR IGNORE INTO channel_members "
+                                "(channel_id, user_id, role) "
+                                "VALUES (?, ?, 'member')",
+                                (channel_id, uid)
+                            )
+                        conn.commit()
+
+                    # Process file attachments — decode base64 data and
+                    # save to local FileManager, just like live messages.
+                    import base64 as _b64_cu
+                    attachments_json = None
+                    atts = msg.get('attachments')
+                    if atts:
+                        processed_atts = []
+                        for att in atts:
+                            data_b64 = att.get('data')
+                            if data_b64:
+                                try:
+                                    file_bytes = _b64_cu.b64decode(data_b64)
+                                    finfo = file_manager.save_file(
+                                        file_data=file_bytes,
+                                        original_name=att.get('name', 'catchup_file'),
+                                        content_type=att.get('type', 'application/octet-stream'),
+                                        uploaded_by=user_id,
+                                    )
+                                    if finfo:
+                                        extra_meta = {
+                                            k: v for k, v in att.items()
+                                            if k not in {'data', 'id', 'file_id', 'name', 'type', 'size', 'url'}
+                                        }
+                                        payload = {
+                                            'id': finfo.id,
+                                            'name': finfo.original_name,
+                                            'type': finfo.content_type,
+                                            'size': finfo.size,
+                                            'url': finfo.url,
+                                        }
+                                        payload.update(extra_meta)
+                                        processed_atts.append(payload)
+                                        logger.info(f"Catchup: saved attachment {finfo.id} "
+                                                    f"({finfo.original_name}, {finfo.size} bytes)")
+                                        continue
+                                except Exception as fe:
+                                    logger.error(f"Catchup: failed to save attachment: {fe}")
+                            # No data or save failed — keep metadata reference
+                            processed_atts.append({
+                                k: v for k, v in att.items() if k != 'data'
+                            })
+                        attachments_json = json.dumps(processed_atts)
+                        message_type = 'file'
+
+                    origin_peer = msg.get('origin_peer') or from_peer
+                    parent_message_id = (msg.get('parent_message_id') or '').strip() or None
+
+                    with db_manager.get_connection() as conn:
+                        conn.execute("""
+                            INSERT OR IGNORE INTO channel_messages
+                            (id, channel_id, user_id, content,
+                             message_type, attachments, created_at, origin_peer, expires_at, parent_message_id)
+                            VALUES (?, ?, ?, ?, ?, ?,
+                                    COALESCE(?, datetime('now')), ?, ?, ?)
+                        """, (mid, channel_id, user_id, content,
+                              message_type, attachments_json,
+                              normalised_ts, origin_peer, expires_db, parent_message_id))
+                        conn.commit()
+
+                    channel_manager.mark_message_processed(mid)
+                    stored += 1
+
+                if stored or skipped_dup:
+                    logger.info(f"Catchup from {from_peer}: stored "
+                                f"{stored}/{len(messages or [])} missed messages"
+                                f"{f', skipped {skipped_dup} duplicates' if skipped_dup else ''}")
+            except Exception as e:
+                logger.error(f"Failed to handle catchup response: {e}",
+                             exc_info=True)
+
+            # ---- Process extra catch-up data (v0.3.36+) ----
+
+            # Feed posts
+            if feed_posts:
+                fp_stored = 0
+                for fp in feed_posts:
+                    try:
+                        pid = fp.get('id')
+                        if not pid:
+                            continue
+                        author_id = fp.get('author_id', f'peer_{from_peer}')
+                        content = fp.get('content', '')
+                        display_name = fp.get('display_name')
+                        _ensure_shadow_user(author_id, display_name, from_peer)
+                        with db_manager.get_connection() as conn:
+                            existing = conn.execute(
+                                "SELECT 1 FROM feed_posts WHERE id = ?", (pid,)
+                            ).fetchone()
+                            if not existing:
+                                conn.execute("""
+                                    INSERT OR IGNORE INTO feed_posts
+                                    (id, author_id, content, content_type,
+                                     visibility, metadata, created_at, expires_at)
+                                    VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?)
+                                """, (pid, author_id, content,
+                                      fp.get('content_type', 'text'),
+                                      fp.get('visibility', 'network'),
+                                      fp.get('metadata'),
+                                      fp.get('created_at'),
+                                      fp.get('expires_at')))
+                                conn.commit()
+                                fp_stored += 1
+                    except Exception as fp_err:
+                        logger.debug(f"Catchup feed post {fp.get('id','?')} failed: {fp_err}")
+                if fp_stored:
+                    logger.info(f"Catchup from {from_peer}: stored "
+                                f"{fp_stored} missed feed posts")
+
+            # Circle objects (v0.3.55+) — must be ingested BEFORE entries
+            # so that entries have a parent circle to reference.
+            if circles and circle_manager:
+                co_stored = 0
+                for circle_data in circles:
+                    try:
+                        if circle_manager.ingest_circle_snapshot(circle_data):
+                            co_stored += 1
+                    except Exception as co_err:
+                        logger.debug(f"Catchup circle object failed: {co_err}")
+                if co_stored:
+                    logger.info(f"Catchup from {from_peer}: stored "
+                                f"{co_stored} missed circle objects")
+
+            # Circle entries
+            if circle_entries and circle_manager:
+                ce_stored = 0
+                for entry in circle_entries:
+                    try:
+                        if circle_manager.ingest_entry_snapshot(entry):
+                            ce_stored += 1
+                    except Exception as ce_err:
+                        logger.debug(f"Catchup circle entry failed: {ce_err}")
+                if ce_stored:
+                    logger.info(f"Catchup from {from_peer}: stored "
+                                f"{ce_stored} missed circle entries")
+
+            # Circle votes
+            if circle_votes and circle_manager:
+                cv_stored = 0
+                for vote in circle_votes:
+                    try:
+                        circle_id = vote.get('circle_id')
+                        user_id_v = vote.get('user_id')
+                        option_index = vote.get('option_index')
+                        created_at = vote.get('created_at')
+                        if circle_id and user_id_v is not None and option_index is not None:
+                            circle_manager.ingest_vote_snapshot(
+                                circle_id, user_id_v, option_index,
+                                created_at=created_at)
+                            cv_stored += 1
+                    except Exception as cv_err:
+                        logger.debug(f"Catchup circle vote failed: {cv_err}")
+                if cv_stored:
+                    logger.info(f"Catchup from {from_peer}: stored "
+                                f"{cv_stored} missed circle votes")
+
+            # Tasks
+            if tasks and task_manager:
+                t_stored = 0
+                for task_data in tasks:
+                    try:
+                        if task_manager.apply_task_snapshot(task_data):
+                            t_stored += 1
+                    except Exception as t_err:
+                        logger.debug(f"Catchup task failed: {t_err}")
+                if t_stored:
+                    logger.info(f"Catchup from {from_peer}: stored "
+                                f"{t_stored} missed tasks")
+
+        p2p_manager.on_catchup_response = _on_catchup_response
+
+        # --- Profile sync callback ---
+        # Deduplication: track (peer_id, user_id) we've already relayed
+        # to prevent profile sync storms when peers run different code versions.
+        import time as _time
+        _relayed_profiles: dict[tuple[str, str], float] = {}  # (peer_id, user_id) -> timestamp of last relay
+        _PROFILE_RELAY_COOLDOWN = 30  # seconds — don't re-relay same peer's profile within this window
+
+        # Profile hash cache — skip re-processing unchanged profiles
+        _seen_profile_hashes: dict[tuple[str, str], str] = {}  # (peer_id, user_id) -> profile_hash
+
+        def _on_profile_sync(profile_data, from_peer):
+            """Handle incoming PROFILE_SYNC / PROFILE_UPDATE from a peer.
+
+            Updates the shadow user's display_name, bio, and avatar so
+            that remote users appear with their real names in the UI.
+
+            Device profiles are stored unconditionally (keyed by peer_id),
+            even if no shadow user exists yet — this is critical for
+            profiles arriving via relay before any messages.
+            """
+            try:
+                remote_peer_id = profile_data.get('peer_id', from_peer)
+
+                # ---- Skip unchanged profiles (version hash dedup) ----
+                incoming_hash = profile_data.get('profile_hash')
+                if incoming_hash:
+                    hash_key = (remote_peer_id, profile_data.get('user_id', ''))
+                    if _seen_profile_hashes.get(hash_key) == incoming_hash:
+                        logger.debug(
+                            f"Profile from {from_peer} unchanged (hash={incoming_hash[:8]}), "
+                            f"skipping")
+                        return
+                    _seen_profile_hashes[hash_key] = incoming_hash
+
+                # ---- Store device profile FIRST (independent of user) ----
+                # Device profiles are keyed by peer_id in a separate table,
+                # so they don't require a shadow user to exist.  This must
+                # happen before the early-return below, otherwise profiles
+                # arriving via relay (before any messages) would be lost.
+                device_info = profile_data.get('device')
+                if device_info and remote_peer_id:
+                    channel_manager.store_peer_device_profile(
+                        peer_id=remote_peer_id,
+                        display_name=device_info.get('display_name'),
+                        description=device_info.get('description'),
+                        avatar_b64=device_info.get('avatar_b64'),
+                        avatar_mime=device_info.get('avatar_mime'),
+                    )
+                    logger.debug(f"Stored device profile for {remote_peer_id} "
+                                 f"(device_name={device_info.get('display_name')})")
+
+                # ---- Re-broadcast to other peers (relay) ----
+                # Do this before the shadow-user check so profiles propagate
+                # through the mesh even if this node doesn't have a shadow
+                # user yet (e.g. A relays B's profile to C before C has
+                # ever received a message from B).
+                profile_origin = profile_data.get('peer_id', '')
+                relay_key = (profile_origin, profile_data.get('user_id', '') or '')
+                now = _time.time()
+                last_relay = _relayed_profiles.get(relay_key, 0)
+                if profile_origin == from_peer and (now - last_relay) > _PROFILE_RELAY_COOLDOWN:
+                    _relayed_profiles[relay_key] = now
+                    try:
+                        import asyncio
+                        connected = p2p_manager.get_connected_peers()
+                        relayed = 0
+                        for pid in connected:
+                            if pid == from_peer:
+                                continue  # don't echo back to sender
+                            if pid == (p2p_manager.get_peer_id() or ''):
+                                continue  # skip ourselves
+                            if p2p_manager.message_router and p2p_manager._event_loop:
+                                asyncio.run_coroutine_threadsafe(
+                                    p2p_manager.message_router.send_profile_sync(
+                                        pid, profile_data),
+                                    p2p_manager._event_loop
+                                )
+                                relayed += 1
+                        if relayed:
+                            logger.debug(f"Relayed profile from {from_peer} to "
+                                         f"{relayed} other peer(s)")
+                    except Exception as relay_err:
+                        logger.warning(f"Failed to relay profile: {relay_err}")
+
+                # ---- Update user profile ----
+                # If no shadow user exists yet (e.g. profile arrived via
+                # relay before any messages), create one now so the
+                # display name / avatar are ready when messages arrive.
+                remote_user_id = profile_data.get('user_id')
+                if not remote_user_id:
+                    logger.debug(f"Profile sync from {from_peer}: no user_id, "
+                                 f"skipping user profile update (device profile stored)")
+                    return
+
+                target_user_id = remote_user_id
+
+                with db_manager.get_connection() as conn:
+                    # Try direct user_id first (most reliable)
+                    row = conn.execute(
+                        "SELECT id FROM users WHERE id = ?",
+                        (remote_user_id,)
+                    ).fetchone()
+                    if not row:
+                        # Broader fallback: look for any shadow user whose
+                        # username contains the peer prefix.  Shadow users
+                        # may have been created with various naming patterns
+                        # (peer-XXXX, peer-XXXX-YYYY, etc.)
+                        for pattern in [
+                            f"peer-{remote_peer_id[:8]}",
+                            f"peer-{remote_peer_id[:8]}-%",
+                            f"peer-%-{remote_user_id[-8:]}",
+                        ]:
+                            row = conn.execute(
+                                "SELECT id FROM users WHERE username LIKE ?",
+                                (pattern,)
+                            ).fetchone()
+                            if row:
+                                break
+                    if row:
+                        target_user_id = row[0]
+                    else:
+                        # No shadow user yet — create one now so the
+                        # profile (display name, avatar) is applied
+                        # immediately instead of being lost.
+                        _ensure_shadow_user(
+                            remote_user_id,
+                            profile_data.get('display_name'),
+                            remote_peer_id,
+                        )
+                        if db_manager.get_user(remote_user_id):
+                            target_user_id = remote_user_id
+                        else:
+                            logger.warning(
+                                f"Could not create shadow user for {remote_peer_id} "
+                                f"(user_id={remote_user_id}); profile update skipped"
+                            )
+                            return
+
+                # Profile sync from the actual peer always wins — force
+                # update display_name even if the current name is not a
+                # generic "peer-" prefix (e.g. it was set from a catchup
+                # message with the wrong display name).
+                profile_manager.update_from_remote(target_user_id, profile_data,
+                                                   force_display_name=True)
+                _ensure_origin_peer(target_user_id, remote_peer_id)
+                logger.debug(f"Profile sync from {from_peer}: updated {target_user_id} "
+                             f"(display_name={profile_data.get('display_name')})")
+
+            except Exception as e:
+                logger.error(f"Failed to handle profile sync: {e}", exc_info=True)
+
+        p2p_manager.on_profile_sync = _on_profile_sync
+
+        # --- Provide local profile card for sync ---
+        def _get_local_profile_sync_user_ids():
+            """Return local user IDs that should be included in profile sync.
+
+            Older instances may contain local users without public keys,
+            and older shadow users may have missing origin_peer metadata.
+            We therefore classify sync candidates by local origin when
+            available, with a conservative fallback for legacy rows.
+            """
+            user_ids = []
+            seen = set()
+            try:
+                local_peer_id = (p2p_manager.get_peer_id() or '').strip() if p2p_manager else ''
+                with db_manager.get_connection() as conn:
+                    api_user_ids = set()
+                    try:
+                        api_rows = conn.execute(
+                            "SELECT DISTINCT user_id FROM api_keys WHERE COALESCE(revoked, 0) = 0"
+                        ).fetchall()
+                        for api_row in api_rows:
+                            try:
+                                api_user_ids.add(api_row['user_id'])
+                            except Exception:
+                                api_user_ids.add(api_row[0])
+                    except Exception:
+                        api_user_ids = set()
+
+                    rows = conn.execute(
+                        "SELECT id, username, origin_peer, public_key FROM users "
+                        "WHERE id != 'system' AND id != 'local_user' "
+                        "AND password_hash IS NOT NULL AND password_hash != '' "
+                        "AND COALESCE(status, 'active') = 'active' "
+                        "ORDER BY created_at ASC"
+                    ).fetchall()
+
+                    for row in rows:
+                        try:
+                            user_id = row['id']
+                            username = (row['username'] or '').strip().lower()
+                            origin_peer = (row['origin_peer'] or '').strip()
+                            has_public_key = bool((row['public_key'] or '').strip())
+                        except Exception:
+                            user_id = row[0]
+                            username = ''
+                            origin_peer = ''
+                            has_public_key = False
+
+                        is_local = False
+                        if origin_peer:
+                            is_local = bool(local_peer_id and origin_peer == local_peer_id)
+                        else:
+                            # Legacy fallback: local users may have no origin_peer.
+                            # Avoid relaying synthetic shadow rows (peer-* without
+                            # local credentials) as if they were local profiles.
+                            if username.startswith('peer-') and not has_public_key and user_id not in api_user_ids:
+                                is_local = False
+                            else:
+                                is_local = True
+
+                        if is_local and user_id and user_id not in seen:
+                            seen.add(user_id)
+                            user_ids.append(user_id)
+            except Exception as e:
+                logger.error(f"Failed to collect local profile sync users: {e}", exc_info=True)
+            return user_ids
+
+        def _get_local_profile_card():
+            """Return profile card of the primary local user."""
+            try:
+                user_ids = _get_local_profile_sync_user_ids()
+                if user_ids:
+                    return profile_manager.get_profile_card(user_ids[0])
+            except Exception as e:
+                logger.error(f"Failed to get local profile card: {e}", exc_info=True)
+            return None
+
+        p2p_manager.get_local_profile_card = _get_local_profile_card
+
+        def _get_all_local_profile_cards():
+            """Return profile cards for ALL registered local users.
+            
+            This ensures that remote peers receive display names for
+            every user on this device (not just the primary one), so
+            messages from different users show the correct names.
+            """
+            cards = []
+            try:
+                for user_id in _get_local_profile_sync_user_ids():
+                    card = profile_manager.get_profile_card(user_id)
+                    if card:
+                        cards.append(card)
+            except Exception as e:
+                logger.error(f"Failed to get all local profile cards: {e}", exc_info=True)
+            return cards
+
+        p2p_manager.get_all_local_profile_cards = _get_all_local_profile_cards
+
+        # --- Peer announcement callback ---
+        def _on_peer_announcement(introduced_peers, from_peer):
+            """Handle peer introductions from a connected peer.
+
+            Stores introduced peer identities so users can connect to
+            them from the Connect page.
+            """
+            try:
+                import base58
+                for p in introduced_peers:
+                    pid = p.get('peer_id')
+                    epk = p.get('ed25519_public_key')
+                    xpk = p.get('x25519_public_key')
+                    device_profile = p.get('device_profile') if isinstance(p, dict) else None
+                    if pid and epk and xpk:
+                        try:
+                            ed_bytes = base58.b58decode(epk)
+                            x_bytes = base58.b58decode(xpk)
+                            p2p_manager.identity_manager.create_remote_peer(
+                                pid, ed_bytes, x_bytes
+                            )
+                        except Exception as e:
+                            logger.warning(f"Could not register introduced peer {pid}: {e}")
+                    # Store device profile if provided (helps show friendly names for contacts list)
+                    if pid and device_profile and channel_manager:
+                        try:
+                            channel_manager.store_peer_device_profile(
+                                pid,
+                                display_name=device_profile.get('display_name'),
+                                description=device_profile.get('description'),
+                                avatar_b64=device_profile.get('avatar_b64'),
+                                avatar_mime=device_profile.get('avatar_mime'),
+                            )
+                        except Exception:
+                            pass
+
+                p2p_manager.store_introduced_peers(introduced_peers, from_peer)
+                logger.info(f"Peer announcement from {from_peer}: "
+                            f"{len(introduced_peers)} peer(s) introduced")
+            except Exception as e:
+                logger.error(f"Failed to handle peer announcement: {e}", exc_info=True)
+
+        p2p_manager.on_peer_announcement = _on_peer_announcement
+
+        # --- Feed post P2P handler ---
+        def _on_p2p_feed_post(post_id, author_id, content, post_type,
+                               visibility, timestamp, metadata,
+                               expires_at, ttl_seconds, ttl_mode,
+                               display_name, from_peer):
+            """Store an incoming P2P feed post locally. Updates content/metadata when post already exists (edit broadcast)."""
+            try:
+                # Ensure shadow user exists (reuse channel message logic)
+                _ensure_shadow_user(author_id, display_name, from_peer)
+
+                # Normalise timestamp
+                normalised_ts = None
+                created_dt = None
+                if timestamp:
+                    try:
+                        from datetime import datetime as _dt, timezone as _tz
+                        dt = _dt.fromisoformat(timestamp.replace('Z', '+00:00'))
+                        normalised_ts = dt.strftime('%Y-%m-%d %H:%M:%S')
+                        created_dt = dt
+                    except Exception:
+                        normalised_ts = timestamp
+                if created_dt is None:
+                    from datetime import datetime as _dt, timezone as _tz
+                    created_dt = _dt.now(_tz.utc)
+
+                # Process feed attachments with embedded data (if any)
+                processed_attachments = None
+                if metadata and metadata.get('attachments'):
+                    try:
+                        processed_attachments = []
+                        for att in metadata.get('attachments') or []:
+                            if not isinstance(att, dict):
+                                continue
+                            data_b64 = att.get('data')
+                            if data_b64 and file_manager:
+                                try:
+                                    import base64 as _b64_feed
+                                    file_bytes = _b64_feed.b64decode(data_b64)
+                                    finfo = file_manager.save_file(
+                                        file_data=file_bytes,
+                                        original_name=att.get('name', 'feed_file'),
+                                        content_type=att.get('type', 'application/octet-stream'),
+                                        uploaded_by=author_id,
+                                    )
+                                    if finfo:
+                                        extra_meta = {
+                                            k: v for k, v in att.items()
+                                            if k not in {'data', 'id', 'file_id', 'name', 'type', 'size', 'url'}
+                                        }
+                                        payload = {
+                                            'id': finfo.id,
+                                            'name': finfo.original_name,
+                                            'type': finfo.content_type,
+                                            'size': finfo.size,
+                                            'url': finfo.url,
+                                        }
+                                        payload.update(extra_meta)
+                                        processed_attachments.append(payload)
+                                        continue
+                                except Exception:
+                                    pass
+                            # No data or save failed — keep metadata reference (strip data)
+                            processed_attachments.append({
+                                k: v for k, v in att.items() if k != 'data'
+                            })
+                        metadata = dict(metadata)
+                        metadata['attachments'] = processed_attachments
+                    except Exception:
+                        pass
+                if metadata is None:
+                    metadata = {}
+                metadata = dict(metadata)
+                metadata.setdefault('origin_peer', from_peer)
+
+                # Resolve expiry (prefer explicit expires_at, else ttl_seconds, else default)
+                expires_raw = expires_at or (metadata or {}).get('expires_at')
+                ttl_raw = ttl_seconds if ttl_seconds is not None else (metadata or {}).get('ttl_seconds')
+                ttl_mode_val = ttl_mode or (metadata or {}).get('ttl_mode')
+
+                expires_dt = None
+                try:
+                    if ttl_mode_val in ('none', 'no_expiry', 'immortal'):
+                        expires_dt = None
+                    elif expires_raw:
+                        from datetime import datetime as _dt, timezone as _tz
+                        try:
+                            expires_dt = _dt.fromisoformat(str(expires_raw).replace('Z', '+00:00'))
+                        except Exception:
+                            try:
+                                expires_dt = _dt.strptime(str(expires_raw), '%Y-%m-%d %H:%M:%S')
+                            except Exception:
+                                expires_dt = None
+                        if expires_dt and expires_dt.tzinfo is None:
+                            expires_dt = expires_dt.replace(tzinfo=_tz.utc)
+                    elif ttl_raw is not None:
+                        try:
+                            ttl_val = int(ttl_raw)
+                        except (TypeError, ValueError):
+                            ttl_val = None
+                        if ttl_val is not None and ttl_val > 0:
+                            from datetime import timedelta as _td
+                            expires_dt = created_dt + _td(seconds=ttl_val)
+                    else:
+                        from datetime import timedelta as _td
+                        expires_dt = created_dt + _td(days=90)
+                except Exception:
+                    expires_dt = None
+
+                if expires_dt:
+                    from datetime import datetime as _dt
+                    from datetime import timezone as _tz
+                    now_dt = _dt.now(_tz.utc)
+                    if expires_dt <= now_dt:
+                        logger.debug(f"Skipping expired P2P feed post {post_id}")
+                        return
+
+                expires_db = None
+                if expires_dt:
+                    from datetime import timezone as _tz
+                    expires_db = expires_dt.astimezone(_tz.utc).strftime('%Y-%m-%d %H:%M:%S')
+
+                # Store or update the feed post
+                import secrets as _sec2
+                pid = post_id or f"FP{_sec2.token_hex(12)}"
+                metadata_json = json.dumps(metadata) if metadata else None
+
+                is_new_post = True
+                with db_manager.get_connection() as conn:
+                    existing = conn.execute(
+                        "SELECT author_id, content_type, visibility, metadata FROM feed_posts WHERE id = ?",
+                        (pid,)
+                    ).fetchone()
+                    if existing:
+                        is_new_post = False
+                        if existing['author_id'] == author_id:
+                            final_post_type = post_type or existing['content_type'] or 'text'
+                            final_visibility = visibility or existing['visibility'] or 'network'
+                            final_metadata = metadata_json if metadata_json is not None else existing['metadata']
+                            conn.execute(
+                                "UPDATE feed_posts SET content = ?, content_type = ?, visibility = ?, metadata = ?, expires_at = ? WHERE id = ?",
+                                (content, final_post_type, final_visibility, final_metadata, expires_db, pid)
+                            )
+                            conn.commit()
+                            # Sync inline circles on updates as well
+                            try:
+                                from .circles import parse_circle_blocks, derive_circle_id
+                                if circle_manager:
+                                    circle_specs = parse_circle_blocks(content or '')
+                                    if circle_specs:
+                                        for idx, spec in enumerate(cast(Any, circle_specs)):
+                                            spec = cast(Any, spec)
+                                            circle_id = derive_circle_id('feed', pid, idx, len(circle_specs), override=spec.circle_id)
+                                            facilitator_id = None
+                                            if spec.facilitator:
+                                                handle = spec.facilitator.strip()
+                                                if handle.startswith('@'):
+                                                    handle = handle[1:]
+                                                try:
+                                                    row = db_manager.get_user(handle)
+                                                    if row:
+                                                        facilitator_id = row.get('id') or handle
+                                                except Exception:
+                                                    facilitator_id = None
+                                                if not facilitator_id:
+                                                    targets = resolve_mention_targets(
+                                                        db_manager,
+                                                        [handle],
+                                                        visibility=final_visibility,
+                                                        permissions=None,
+                                                        author_id=author_id,
+                                                    )
+                                                    if targets:
+                                                        facilitator_id = targets[0].get('user_id')
+                                            if not facilitator_id:
+                                                facilitator_id = author_id
+
+                                            if spec.participants is not None:
+                                                resolved = []
+                                                for part in spec.participants or []:
+                                                    try:
+                                                        prow = db_manager.get_user(part)
+                                                        if prow:
+                                                            resolved.append(prow.get('id') or part)
+                                                            continue
+                                                    except Exception:
+                                                        pass
+                                                    try:
+                                                        targets = resolve_mention_targets(
+                                                            db_manager,
+                                                            [part],
+                                                            visibility=final_visibility,
+                                                            permissions=None,
+                                                            author_id=author_id,
+                                                        )
+                                                        if targets:
+                                                            resolved.append(targets[0].get('user_id'))
+                                                    except Exception:
+                                                        continue
+                                                spec.participants = resolved
+
+                                            circle_manager.upsert_circle(
+                                                circle_id=circle_id,
+                                                source_type='feed',
+                                                source_id=pid,
+                                                created_by=author_id,
+                                                spec=spec,
+                                                facilitator_id=facilitator_id,
+                                                visibility=final_visibility,
+                                                origin_peer=from_peer,
+                                                created_at=normalised_ts,
+                                            )
+                            except Exception as circle_err:
+                                logger.warning(f"Inline circle update (P2P feed) failed: {circle_err}")
+
+                            # Sync inline handoffs on updates as well
+                            try:
+                                from .handoffs import parse_handoff_blocks, derive_handoff_id
+                                handoff_manager = app.config.get('HANDOFF_MANAGER')
+                                if handoff_manager:
+                                    handoff_specs = parse_handoff_blocks(content or '')
+                                    if handoff_specs:
+                                        vis_val = visibility or 'network'
+                                        for hidx, hspec in enumerate(handoff_specs):
+                                            if not hspec.confirmed:
+                                                continue
+                                            handoff_id = derive_handoff_id(
+                                                'feed', pid, hidx, len(handoff_specs), override=hspec.handoff_id
+                                            )
+                                            handoff_manager.upsert_handoff(
+                                                handoff_id=handoff_id,
+                                                source_type='feed',
+                                                source_id=pid,
+                                                author_id=author_id,
+                                                title=hspec.title,
+                                                summary=hspec.summary,
+                                                next_steps=hspec.next_steps,
+                                                owner=hspec.owner,
+                                                tags=hspec.tags,
+                                                raw=hspec.raw,
+                                                channel_id=None,
+                                                visibility=vis_val,
+                                                origin_peer=from_peer,
+                                                permissions=None,
+                                                created_at=normalised_ts,
+                                            )
+                            except Exception as handoff_err:
+                                logger.warning(f"Inline handoff update (P2P feed) failed: {handoff_err}")
+                        return
+                    conn.execute("""
+                        INSERT OR IGNORE INTO feed_posts
+                        (id, author_id, content, content_type, visibility, metadata, created_at, expires_at)
+                        VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?)
+                    """, (pid, author_id, content, post_type or 'text',
+                          visibility or 'network', metadata_json, normalised_ts, expires_db))
+                    conn.commit()
+
+                logger.info(f"Stored P2P feed post {pid} by {author_id} from peer {from_peer}")
+
+                if is_new_post:
+                    mentions = extract_mentions(content or '')
+                    targets = _resolve_local_mentions(
+                        mentions,
+                        visibility=visibility,
+                        permissions=None,
+                        author_id=author_id,
+                    )
+                    if targets:
+                        preview = build_preview(content or '')
+                        _record_local_mention_events(
+                            targets=targets,
+                            source_type='feed_post',
+                            source_id=pid,
+                            author_id=author_id,
+                            from_peer=from_peer,
+                            channel_id=None,
+                            preview=preview,
+                            source_content=content,
+                        )
+
+                    # Inline circles from [circle] blocks
+                    try:
+                        from .circles import parse_circle_blocks, derive_circle_id
+                        if circle_manager:
+                            circle_specs = parse_circle_blocks(content or '')
+                            if circle_specs:
+                                vis_val = visibility or 'network'
+                                for idx, spec in enumerate(cast(Any, circle_specs)):
+                                    spec = cast(Any, spec)
+                                    circle_id = derive_circle_id('feed', pid, idx, len(circle_specs), override=spec.circle_id)
+                                    facilitator_id = None
+                                    if spec.facilitator:
+                                        handle = spec.facilitator.strip()
+                                        if handle.startswith('@'):
+                                            handle = handle[1:]
+                                        try:
+                                            row = db_manager.get_user(handle)
+                                            if row:
+                                                facilitator_id = row.get('id') or handle
+                                        except Exception:
+                                            facilitator_id = None
+                                        if not facilitator_id:
+                                            targets = resolve_mention_targets(
+                                                db_manager,
+                                                [handle],
+                                                visibility=vis_val,
+                                                permissions=None,
+                                                author_id=author_id,
+                                            )
+                                            if targets:
+                                                facilitator_id = targets[0].get('user_id')
+                                    if not facilitator_id:
+                                        facilitator_id = author_id
+
+                                    if spec.participants is not None:
+                                        resolved = []
+                                        for part in spec.participants or []:
+                                            try:
+                                                pid_row = db_manager.get_user(part)
+                                                if pid_row:
+                                                    resolved.append(pid_row.get('id') or part)
+                                                    continue
+                                            except Exception:
+                                                pass
+                                            try:
+                                                targets = resolve_mention_targets(
+                                                    db_manager,
+                                                    [part],
+                                                    visibility=vis_val,
+                                                    permissions=None,
+                                                    author_id=author_id,
+                                                )
+                                                if targets:
+                                                    resolved.append(targets[0].get('user_id'))
+                                            except Exception:
+                                                continue
+                                        spec.participants = resolved
+
+                                    circle_manager.upsert_circle(
+                                        circle_id=circle_id,
+                                        source_type='feed',
+                                        source_id=pid,
+                                        created_by=author_id,
+                                        spec=spec,
+                                        facilitator_id=facilitator_id,
+                                        visibility=vis_val,
+                                        origin_peer=from_peer,
+                                        created_at=normalised_ts,
+                                    )
+                    except Exception as circle_err:
+                        logger.warning(f"Inline circle creation (P2P feed) failed: {circle_err}")
+
+                    # Inline tasks from [task] blocks
+                    try:
+                        from .tasks import parse_task_blocks, derive_task_id
+                        if task_manager:
+                            task_specs = parse_task_blocks(content or '')
+                            if task_specs:
+                                vis_val = visibility or 'network'
+                                task_visibility = 'network' if vis_val in ('public', 'network') else 'local'
+                                for idx, spec in enumerate(cast(Any, task_specs)):
+                                    spec = cast(Any, spec)
+                                    if not spec.confirmed:
+                                        continue
+                                    task_id = derive_task_id('feed', pid, idx, len(task_specs), override=spec.task_id)
+                                    assignee_id = None
+                                    if spec.assignee_clear:
+                                        assignee_id = None
+                                    elif spec.assignee:
+                                        handle = spec.assignee.strip()
+                                        if handle.startswith('@'):
+                                            handle = handle[1:]
+                                        try:
+                                            row = db_manager.get_user(handle)
+                                            if row:
+                                                assignee_id = row.get('id') or handle
+                                        except Exception:
+                                            assignee_id = None
+                                        if not assignee_id:
+                                            targets = resolve_mention_targets(
+                                                db_manager,
+                                                [handle],
+                                                visibility=vis_val,
+                                                permissions=None,
+                                                author_id=author_id,
+                                            )
+                                            if targets:
+                                                assignee_id = targets[0].get('user_id')
+                                    editor_ids: list[str] = []
+                                    if spec.editors_clear:
+                                        editor_ids = []
+                                    else:
+                                        for editor in spec.editors or []:
+                                            try:
+                                                eid = None
+                                                row = db_manager.get_user(editor)
+                                                if row:
+                                                    eid = row.get('id') or editor
+                                            except Exception:
+                                                eid = None
+                                            if not eid:
+                                                try:
+                                                    targets = resolve_mention_targets(
+                                                        db_manager,
+                                                        [editor],
+                                                        visibility=vis_val,
+                                                        permissions=None,
+                                                        author_id=author_id,
+                                                    )
+                                                    if targets:
+                                                        eid = targets[0].get('user_id')
+                                                except Exception:
+                                                    eid = None
+                                            if eid:
+                                                editor_ids.append(eid)
+
+                                    meta_payload = {
+                                        'inline_task': True,
+                                        'source_type': 'feed_post',
+                                        'source_id': pid,
+                                        'post_visibility': vis_val,
+                                    }
+                                    if editor_ids is not None:
+                                        meta_payload['editors'] = editor_ids
+
+                                    task_manager.create_task(
+                                        task_id=task_id,
+                                        title=spec.title,
+                                        description=spec.description,
+                                        status=spec.status,
+                                        priority=spec.priority,
+                                        created_by=author_id,
+                                        assigned_to=assignee_id,
+                                        due_at=spec.due_at.isoformat() if spec.due_at else None,
+                                        visibility=task_visibility,
+                                        metadata=meta_payload,
+                                        origin_peer=from_peer,
+                                        source_type='human',
+                                        updated_by=author_id,
+                                    )
+                    except Exception as task_err:
+                        logger.warning(f"Inline task creation (P2P feed) failed: {task_err}")
+
+                    # Inline objectives from [objective] blocks
+                    try:
+                        from .objectives import parse_objective_blocks, derive_objective_id
+                        objective_manager = app.config.get('OBJECTIVE_MANAGER')
+                        if objective_manager:
+                            obj_specs = parse_objective_blocks(content or '')
+                            if obj_specs:
+                                vis_val = visibility or 'network'
+                                obj_visibility = 'network' if vis_val in ('public', 'network') else 'local'
+
+                                def _resolve_handle(handle: str) -> Optional[str]:
+                                    if not handle:
+                                        return None
+                                    token = handle.strip()
+                                    if token.startswith('@'):
+                                        token = token[1:]
+                                    if not token:
+                                        return None
+                                    try:
+                                        row = db_manager.get_user(token)
+                                        if row:
+                                            return row.get('id') or token
+                                    except Exception:
+                                        pass
+                                    try:
+                                        targets = resolve_mention_targets(
+                                            db_manager,
+                                            [token],
+                                            visibility=vis_val,
+                                            permissions=None,
+                                            author_id=author_id,
+                                        )
+                                        if targets:
+                                            return targets[0].get('user_id')
+                                    except Exception:
+                                        return None
+                                    return None
+
+                                for oidx, spec in enumerate(obj_specs):
+                                    objective_id = derive_objective_id('feed', pid, oidx, len(obj_specs), override=spec.objective_id)
+                                    members_payload = []
+                                    for member in spec.members or []:
+                                        uid = _resolve_handle(member.handle)
+                                        if uid:
+                                            members_payload.append({
+                                                'user_id': uid,
+                                                'role': member.role,
+                                            })
+                                    tasks_payload = []
+                                    for t in spec.tasks or []:
+                                        assignee_id = _resolve_handle(t.assignee) if t.assignee else None
+                                        tasks_payload.append({
+                                            'title': t.title,
+                                            'status': t.status,
+                                            'assigned_to': assignee_id,
+                                            'metadata': {
+                                                'inline_objective_task': True,
+                                                'source_type': 'feed_post',
+                                                'source_id': pid,
+                                                'post_visibility': vis_val,
+                                            },
+                                        })
+                                    objective_manager.upsert_objective(
+                                        objective_id=objective_id,
+                                        title=spec.title,
+                                        description=spec.description,
+                                        status=spec.status,
+                                        deadline=spec.deadline.isoformat() if spec.deadline else None,
+                                        created_by=author_id,
+                                        visibility=obj_visibility,
+                                        origin_peer=from_peer,
+                                        source_type='feed_post',
+                                        source_id=pid,
+                                        created_at=normalised_ts,
+                                        members=members_payload,
+                                        tasks=tasks_payload,
+                                        updated_by=author_id,
+                                    )
+                    except Exception as obj_err:
+                        logger.warning(f"Inline objective creation (P2P feed) failed: {obj_err}")
+
+                    # Inline signals from [signal] blocks
+                    try:
+                        from .signals import parse_signal_blocks, derive_signal_id
+                        signal_manager = app.config.get('SIGNAL_MANAGER')
+                        if signal_manager:
+                            sig_specs = parse_signal_blocks(content or '')
+                            if sig_specs:
+                                vis_val = visibility or 'network'
+                                sig_visibility = 'network' if vis_val in ('public', 'network') else 'local'
+
+                                def _resolve_handle(handle: str) -> Optional[str]:
+                                    if not handle:
+                                        return None
+                                    token = handle.strip()
+                                    if token.startswith('@'):
+                                        token = token[1:]
+                                    if not token:
+                                        return None
+                                    try:
+                                        row = db_manager.get_user(token)
+                                        if row:
+                                            return row.get('id') or token
+                                    except Exception:
+                                        pass
+                                    try:
+                                        targets = resolve_mention_targets(
+                                            db_manager,
+                                            [token],
+                                            visibility=vis_val,
+                                            permissions=None,
+                                            author_id=author_id,
+                                        )
+                                        if targets:
+                                            return targets[0].get('user_id')
+                                    except Exception:
+                                        return None
+                                    return None
+
+                                for sidx, spec in enumerate(sig_specs):
+                                    signal_id = derive_signal_id('feed', pid, sidx, len(sig_specs), override=spec.signal_id)
+                                    owner_id = _resolve_handle(spec.owner) if spec.owner else author_id
+                                    signal_manager.upsert_signal(
+                                        signal_id=signal_id,
+                                        signal_type=spec.signal_type,
+                                        title=spec.title,
+                                        summary=spec.summary,
+                                        status=spec.status,
+                                        confidence=spec.confidence,
+                                        tags=spec.tags,
+                                        data=spec.data,
+                                        notes=spec.notes,
+                                        owner_id=owner_id or author_id,
+                                        created_by=author_id,
+                                        visibility=sig_visibility,
+                                        origin_peer=from_peer,
+                                        source_type='feed_post',
+                                        source_id=pid,
+                                        expires_at=spec.expires_at.isoformat() if spec.expires_at else None,
+                                        ttl_seconds=spec.ttl_seconds,
+                                        ttl_mode=spec.ttl_mode,
+                                        created_at=normalised_ts,
+                                        actor_id=author_id,
+                                    )
+                    except Exception as sig_err:
+                        logger.warning(f"Inline signal creation (P2P feed) failed: {sig_err}")
+
+                    # Inline contracts from [contract] blocks
+                    try:
+                        from .contracts import parse_contract_blocks, derive_contract_id
+                        contract_manager = app.config.get('CONTRACT_MANAGER')
+                        if contract_manager:
+                            contract_specs = parse_contract_blocks(content or '')
+                            if contract_specs:
+                                vis_val = visibility or 'network'
+                                contract_visibility = 'network' if vis_val in ('public', 'network') else 'local'
+
+                                def _resolve_contract_handle(handle: str) -> Optional[str]:
+                                    if not handle:
+                                        return None
+                                    token = handle.strip()
+                                    if token.startswith('@'):
+                                        token = token[1:]
+                                    if not token:
+                                        return None
+                                    try:
+                                        row = db_manager.get_user(token)
+                                        if row:
+                                            return row.get('id') or token
+                                    except Exception:
+                                        pass
+                                    try:
+                                        targets = resolve_mention_targets(
+                                            db_manager,
+                                            [token],
+                                            visibility=vis_val,
+                                            permissions=None,
+                                            author_id=author_id,
+                                        )
+                                        if targets:
+                                            return targets[0].get('user_id')
+                                    except Exception:
+                                        return None
+                                    return None
+
+                                for cidx, spec in enumerate(contract_specs):
+                                    if not spec.confirmed:
+                                        continue
+                                    contract_id = derive_contract_id(
+                                        'feed', pid, cidx, len(contract_specs), override=spec.contract_id
+                                    )
+                                    owner_id = _resolve_contract_handle(spec.owner) if spec.owner else author_id
+                                    counterparty_ids = []
+                                    for cp in spec.counterparties or []:
+                                        cp_id = _resolve_contract_handle(cp)
+                                        if cp_id:
+                                            counterparty_ids.append(cp_id)
+                                    contract_manager.upsert_contract(
+                                        contract_id=contract_id,
+                                        title=spec.title,
+                                        summary=spec.summary,
+                                        terms=spec.terms,
+                                        status=spec.status,
+                                        owner_id=owner_id or author_id,
+                                        counterparties=counterparty_ids,
+                                        created_by=author_id,
+                                        visibility=contract_visibility,
+                                        origin_peer=from_peer,
+                                        source_type='feed_post',
+                                        source_id=pid,
+                                        expires_at=spec.expires_at.isoformat() if spec.expires_at else None,
+                                        ttl_seconds=spec.ttl_seconds,
+                                        ttl_mode=spec.ttl_mode,
+                                        metadata=spec.metadata,
+                                        created_at=normalised_ts,
+                                        actor_id=author_id,
+                                    )
+                    except Exception as contract_err:
+                        logger.warning(f"Inline contract creation (P2P feed) failed: {contract_err}")
+
+                    # Inline requests from [request] blocks
+                    try:
+                        from .requests import parse_request_blocks, derive_request_id
+                        request_manager = app.config.get('REQUEST_MANAGER')
+                        if request_manager:
+                            req_specs = parse_request_blocks(content or '')
+                            if req_specs:
+                                vis_val = visibility or 'network'
+                                req_visibility = 'network' if vis_val in ('public', 'network') else 'local'
+                                for ridx, spec in enumerate(req_specs):
+                                    if not spec.confirmed:
+                                        continue
+                                    request_id = derive_request_id('feed', pid, ridx, len(req_specs), override=spec.request_id)
+                                    members_payload = []
+                                    for member in cast(Any, spec.members or []):
+                                        uid = _resolve_handle(member.handle) if hasattr(member, 'handle') else None
+                                        if uid:
+                                            members_payload.append({'user_id': uid, 'role': member.role})
+                                    request_manager.upsert_request(
+                                        request_id=request_id,
+                                        title=spec.title,
+                                        created_by=author_id,
+                                        request_text=spec.request,
+                                        required_output=spec.required_output,
+                                        status=spec.status,
+                                        priority=spec.priority,
+                                        tags=spec.tags,
+                                        due_at=spec.due_at.isoformat() if spec.due_at else None,
+                                        visibility=req_visibility,
+                                        origin_peer=from_peer,
+                                        source_type='feed_post',
+                                        source_id=pid,
+                                        created_at=normalised_ts,
+                                        actor_id=author_id,
+                                        members=members_payload,
+                                        members_defined=('members' in spec.fields),
+                                        fields=spec.fields,
+                                    )
+                    except Exception as req_err:
+                        logger.warning(f"Inline request creation (P2P feed) failed: {req_err}")
+
+                    # Inline handoffs from [handoff] blocks
+                    try:
+                        from .handoffs import parse_handoff_blocks, derive_handoff_id
+                        handoff_manager = app.config.get('HANDOFF_MANAGER')
+                        if handoff_manager:
+                            handoff_specs = parse_handoff_blocks(content or '')
+                            if handoff_specs:
+                                vis_val = visibility or 'network'
+                                for hidx, hspec in enumerate(handoff_specs):
+                                    if not hspec.confirmed:
+                                        continue
+                                    handoff_id = derive_handoff_id(
+                                        'feed', pid, hidx, len(handoff_specs), override=hspec.handoff_id
+                                    )
+                                    handoff_manager.upsert_handoff(
+                                        handoff_id=handoff_id,
+                                        source_type='feed',
+                                        source_id=pid,
+                                        author_id=author_id,
+                                        title=hspec.title,
+                                        summary=hspec.summary,
+                                        next_steps=hspec.next_steps,
+                                        owner=hspec.owner,
+                                        tags=hspec.tags,
+                                        raw=hspec.raw,
+                                        channel_id=None,
+                                        visibility=vis_val,
+                                        origin_peer=from_peer,
+                                        permissions=None,
+                                        created_at=normalised_ts,
+                                    )
+                    except Exception as handoff_err:
+                        logger.warning(f"Inline handoff creation (P2P feed) failed: {handoff_err}")
+
+            except Exception as e:
+                logger.error(f"Failed to store P2P feed post: {e}", exc_info=True)
+
+        p2p_manager.on_feed_post = _on_p2p_feed_post
+
+        # --- Interaction P2P handler ---
+        def _on_p2p_interaction(item_id, user_id, action, item_type,
+                                 display_name, metadata, from_peer):
+            """Apply an incoming P2P interaction locally (idempotent)."""
+            try:
+                # Ensure shadow user exists
+                _ensure_shadow_user(user_id, display_name, from_peer)
+                meta = metadata or {}
+
+                if action == 'mention':
+                    target_ids = meta.get('target_user_ids') or []
+                    if isinstance(target_ids, str):
+                        target_ids = [target_ids]
+                    single_target = meta.get('target_user_id')
+                    if single_target:
+                        target_ids = list(target_ids) + [single_target]
+
+                    source_id = meta.get('source_id') or item_id
+                    source_type = (meta.get('source_type') or item_type or 'feed_post').strip()
+                    author_id = meta.get('author_id') or user_id
+                    channel_id = meta.get('channel_id')
+                    preview = build_preview(meta.get('preview') or '')
+
+                    local_targets = []
+                    for tid in target_ids:
+                        if not tid:
+                            continue
+                        try:
+                            row = db_manager.get_user(tid)
+                        except Exception:
+                            row = None
+                        if not row:
+                            continue
+                        # Include user if they have a public_key (local/registered) or are an
+                        # agent — agents without public_key (e.g. API-key-only) should still
+                        # receive inbox items when mentioned via P2P broadcast.
+                        has_key = bool((row.get('public_key') or '').strip())
+                        is_agent = (row.get('account_type') or '').strip().lower() == 'agent'
+                        if has_key or is_agent:
+                            local_targets.append({'user_id': tid})
+
+                    if local_targets:
+                        # Extract source_content from P2P metadata so inbox
+                        # items include the full message, not just preview.
+                        p2p_source_content = meta.get('content') or meta.get('source_content')
+                        _record_local_mention_events(
+                            targets=local_targets,
+                            source_type=source_type,
+                            source_id=source_id,
+                            author_id=author_id,
+                            from_peer=from_peer,
+                            channel_id=channel_id,
+                            preview=preview,
+                            source_content=p2p_source_content,
+                        )
+                    return
+
+                if action in ('task_create', 'task_update', 'task_status', 'task_assign') or item_type == 'task':
+                    if task_manager:
+                        task_payload = meta.get('task') or {}
+                        if not isinstance(task_payload, dict):
+                            task_payload = {}
+                        if item_id and not task_payload.get('id'):
+                            task_payload['id'] = item_id
+                        if not task_payload.get('created_by'):
+                            task_payload['created_by'] = user_id
+                        if from_peer and not task_payload.get('origin_peer'):
+                            task_payload['origin_peer'] = from_peer
+                        task_manager.apply_task_snapshot(task_payload)
+                    return
+
+                if action == 'circle_entry' or item_type == 'circle_entry':
+                    if circle_manager:
+                        entry_payload = meta.get('entry') or {}
+                        if not isinstance(entry_payload, dict):
+                            entry_payload = {}
+                        if item_id and not entry_payload.get('id'):
+                            entry_payload['id'] = item_id
+                        if not entry_payload.get('circle_id'):
+                            entry_payload['circle_id'] = meta.get('circle_id') or item_id
+                        if not entry_payload.get('user_id'):
+                            entry_payload['user_id'] = user_id
+                        circle_manager.ingest_entry_snapshot(entry_payload)
+                    return
+
+                if action == 'circle_phase':
+                    if circle_manager:
+                        circle_id = meta.get('circle_id') or item_id
+                        phase = cast(str, meta.get('phase'))
+                        updated_at = meta.get('updated_at')
+                        circle_manager.ingest_phase_snapshot(
+                            circle_id,
+                            phase,
+                            updated_at=updated_at,
+                            round_number=meta.get('round_number'),
+                        )
+                    return
+
+                if action == 'circle_vote':
+                    if circle_manager:
+                        circle_id = meta.get('circle_id') or item_id
+                        circle_option_index = cast(int, meta.get('option_index'))
+                        circle_manager.ingest_vote_snapshot(circle_id, user_id, circle_option_index, created_at=meta.get('created_at'))
+                    return
+
+                with db_manager.get_connection() as conn:
+                    if action == 'poll_vote':
+                        poll_id = meta.get('poll_id') or item_id
+                        poll_kind = (meta.get('poll_kind') or 'feed').strip().lower()
+                        poll_option_index = meta.get('option_index')
+                        if poll_id is not None and poll_option_index is not None:
+                            try:
+                                interaction_manager.record_poll_vote(
+                                    poll_id=poll_id,
+                                    item_type=poll_kind,
+                                    user_id=user_id,
+                                    option_index=poll_option_index,
+                                )
+                            except Exception:
+                                pass
+                        logger.info(f"Applied P2P poll vote for {poll_id} ({poll_kind}) by {user_id}")
+                        return
+
+                    if action == 'poll_closed':
+                        poll_id = meta.get('poll_id') or item_id
+                        poll_kind = (meta.get('poll_kind') or 'feed').strip().lower()
+                        summary = meta.get('summary') or meta.get('preview')
+                        if poll_id:
+                            interaction_manager.mark_poll_closed(poll_id, poll_kind, summary=summary)
+                        logger.info(f"Applied P2P poll closure for {poll_id} ({poll_kind}) by {user_id}")
+                        return
+
+                    if action == 'like':
+                        # Idempotent like: INSERT OR IGNORE
+                        import secrets as _sec2
+                        like_id = f"L{_sec2.token_hex(8)}"
+                        conn.execute("""
+                            INSERT OR IGNORE INTO likes (id, message_id, user_id, reaction_type)
+                            VALUES (?, ?, ?, 'like')
+                        """, (like_id, item_id, user_id))
+
+                        # Update the counter in the appropriate table
+                        if item_type == 'post':
+                            conn.execute(
+                                "UPDATE feed_posts SET likes = likes + 1 WHERE id = ? AND "
+                                "NOT EXISTS (SELECT 1 FROM likes WHERE message_id = ? AND user_id = ? AND id != ?)",
+                                (item_id, item_id, user_id, like_id))
+                        else:
+                            # For channel messages, likes counter is in the likes table itself
+                            pass
+
+                    elif action == 'unlike':
+                        conn.execute("""
+                            DELETE FROM likes WHERE message_id = ? AND user_id = ?
+                        """, (item_id, user_id))
+                        if item_type == 'post':
+                            conn.execute(
+                                "UPDATE feed_posts SET likes = MAX(0, likes - 1) WHERE id = ?",
+                                (item_id,))
+
+                    conn.commit()
+
+                logger.info(f"Applied P2P interaction: {action} on {item_type} {item_id} "
+                            f"by {user_id} from peer {from_peer}")
+
+            except Exception as e:
+                logger.error(f"Failed to apply P2P interaction: {e}", exc_info=True)
+
+        p2p_manager.on_interaction = _on_p2p_interaction
+
+        # --- Direct message handler (P2P) ---
+        def _on_p2p_direct_message(sender_id, recipient_id, content,
+                                    message_id, timestamp, display_name,
+                                    metadata, update_only, edited_at, from_peer):
+            """Handle an incoming direct message from P2P.
+
+            Only store the message if the recipient is a local user on
+            this node.  Otherwise ignore it (the message was broadcast
+            to all peers, but only the recipient's node should store it).
+            """
+            try:
+                if not recipient_id:
+                    return
+
+                # Ignore local echo: we already store local sends before broadcast.
+                try:
+                    local_peer_id = p2p_manager.get_peer_id() if p2p_manager else None
+                except Exception:
+                    local_peer_id = None
+                if local_peer_id and from_peer == local_peer_id:
+                    if message_id:
+                        try:
+                            channel_manager.mark_message_processed(message_id)
+                        except Exception:
+                            pass
+                    return
+
+                # Check if recipient is a local user on this node
+                recipient = db_manager.get_user(recipient_id)
+                if not recipient:
+                    logger.debug(f"DM for {recipient_id} — not a local user, ignoring")
+                    return
+
+                # Skip if recipient is a shadow/peer user (not a real local account)
+                r_username = recipient.get('username', '')
+                if r_username.startswith('peer-'):
+                    logger.debug(f"DM for {recipient_id} — shadow user, ignoring")
+                    return
+
+                update_only = bool(update_only)
+
+                if update_only and not message_id:
+                    logger.debug("DM update missing message_id — ignoring")
+                    return
+
+                # If we already stored this message (e.g., local send echoed back via relay),
+                # skip storing a duplicate and mark it processed to stop replays.
+                # BUT: allow update_only edits through — the message MUST exist for edits.
+                if message_id and not update_only:
+                    try:
+                        with db_manager.get_connection() as conn:
+                            existing_row = conn.execute(
+                                "SELECT id FROM messages WHERE id = ?",
+                                (message_id,)
+                            ).fetchone()
+                        if existing_row:
+                            try:
+                                channel_manager.mark_message_processed(message_id)
+                            except Exception:
+                                pass
+                            return
+                    except Exception:
+                        pass
+
+                # Dedup
+                mid = message_id or f"dm_{sender_id}_{timestamp}"
+                if mid and channel_manager.is_message_processed(mid) and not update_only:
+                    return
+
+                # Track existing message for update-only edits
+                existing_msg = None
+                if message_id:
+                    try:
+                        with db_manager.get_connection() as conn:
+                            existing_msg = conn.execute(
+                                "SELECT sender_id, message_type, metadata FROM messages WHERE id = ?",
+                                (message_id,)
+                            ).fetchone()
+                    except Exception:
+                        existing_msg = None
+
+                # Ensure shadow user exists for sender
+                _ensure_shadow_user(sender_id, display_name, from_peer)
+
+                # Process DM attachments with embedded data (if any)
+                meta_payload = metadata
+                if meta_payload and meta_payload.get('attachments'):
+                    try:
+                        processed_attachments = []
+                        for att in meta_payload.get('attachments') or []:
+                            if not isinstance(att, dict):
+                                continue
+                            data_b64 = att.get('data')
+                            if data_b64 and file_manager:
+                                try:
+                                    import base64 as _b64_dm
+                                    file_bytes = _b64_dm.b64decode(data_b64)
+                                    finfo = file_manager.save_file(
+                                        file_data=file_bytes,
+                                        original_name=att.get('name', 'dm_file'),
+                                        content_type=att.get('type', 'application/octet-stream'),
+                                        uploaded_by=sender_id,
+                                    )
+                                    if finfo:
+                                        extra_meta = {
+                                            k: v for k, v in att.items()
+                                            if k not in {'data', 'id', 'file_id', 'name', 'type', 'size', 'url'}
+                                        }
+                                        payload = {
+                                            'id': finfo.id,
+                                            'name': finfo.original_name,
+                                            'type': finfo.content_type,
+                                            'size': finfo.size,
+                                            'url': finfo.url,
+                                        }
+                                        payload.update(extra_meta)
+                                        processed_attachments.append(payload)
+                                        continue
+                                except Exception:
+                                    pass
+                            processed_attachments.append({
+                                k: v for k, v in att.items() if k != 'data'
+                            })
+                        meta_payload = dict(meta_payload)
+                        meta_payload['attachments'] = processed_attachments
+                    except Exception:
+                        pass
+
+                if meta_payload is not None:
+                    meta_payload = dict(meta_payload)
+                    meta_payload.setdefault('origin_peer', from_peer)
+
+                from canopy.core.messaging import MessageType as MsgType
+                if update_only and existing_msg:
+                    if existing_msg['sender_id'] != sender_id:
+                        logger.warning(
+                            f"Ignoring DM update for {message_id}: author mismatch "
+                            f"({existing_msg['sender_id']} != {sender_id})"
+                        )
+                        return
+                    if meta_payload and meta_payload.get('attachments'):
+                        msg_type = MsgType.FILE
+                    else:
+                        try:
+                            msg_type = MsgType(existing_msg['message_type'])
+                        except Exception:
+                            msg_type = MsgType.TEXT
+                    success = message_manager.update_message(
+                        message_id=mid,
+                        user_id=sender_id,
+                        content=content or '',
+                        message_type=msg_type,
+                        metadata=meta_payload,
+                        allow_admin=False,
+                        edited_at=edited_at,
+                    )
+                    if success:
+                        channel_manager.mark_message_processed(mid)
+                        logger.info(f"Updated P2P DM {mid} from {sender_id} to {recipient_id}")
+                    else:
+                        logger.warning(f"Failed to update P2P DM {mid} from {sender_id}")
+                    return
+
+                # Store the DM using message_manager
+                if meta_payload is None:
+                    meta_payload = {}
+                meta_payload = dict(meta_payload)
+                meta_payload.setdefault('origin_peer', from_peer)
+                msg_type = MsgType.FILE if meta_payload.get('attachments') else MsgType.TEXT
+
+                msg = message_manager.create_message(
+                    sender_id=sender_id,
+                    content=content,
+                    recipient_id=recipient_id,
+                    message_type=msg_type,
+                    metadata=meta_payload,
+                )
+                if msg:
+                    # Override the auto-generated ID with the sender's ID for dedup
+                    try:
+                        with db_manager.get_connection() as conn:
+                            conn.execute(
+                                "UPDATE messages SET id = ? WHERE id = ?",
+                                (mid, msg.id))
+                            conn.commit()
+                    except Exception:
+                        pass  # If ID conflicts, original insert is fine
+                    message_manager.send_message(msg)
+                    channel_manager.mark_message_processed(mid)
+                    logger.info(f"Stored P2P DM {mid} from {sender_id} to {recipient_id}")
+                else:
+                    logger.warning(f"Failed to store P2P DM from {sender_id}")
+
+            except Exception as e:
+                logger.error(f"Failed to handle P2P DM: {e}", exc_info=True)
+
+        p2p_manager.on_direct_message = _on_p2p_direct_message
+
+        # --- Delete signal handler ---
+        def _on_delete_signal(signal_id, data_type, data_id, reason,
+                              requester_peer, is_ack, ack_status, from_peer):
+            """Handle incoming DELETE_SIGNAL from a peer.
+
+            Two cases:
+            1. is_ack=False  → a peer is asking us to delete some data.
+               We attempt the deletion, store a record, and send an ack.
+            2. is_ack=True   → a peer is confirming they handled our signal.
+               We update our local signal status and adjust trust score.
+            """
+            try:
+                if is_ack:
+                    # --- Acknowledgment from a peer ---
+                    status = ack_status or 'acknowledged'
+                    logger.info(f"Delete signal ACK from {from_peer}: "
+                                f"signal={signal_id}, status={status}")
+                    if status == 'complied':
+                        trust_manager.comply_with_delete_signal(signal_id, from_peer)
+                    elif status == 'rejected':
+                        trust_manager.violate_delete_signal(signal_id, from_peer)
+                    else:
+                        trust_manager.acknowledge_delete_signal(signal_id)
+                    return
+
+                # --- Incoming deletion request ---
+                logger.info(f"Delete signal from {from_peer}: "
+                            f"type={data_type}, id={data_id}, reason={reason}")
+
+                deleted = False
+                if data_type == 'message':
+                    # Delete a specific channel message
+                    try:
+                        with db_manager.get_connection() as conn:
+                            cur = conn.execute(
+                                "DELETE FROM channel_messages WHERE id = ?",
+                                (data_id,))
+                            conn.commit()
+                            deleted = cur.rowcount > 0
+                    except Exception as del_err:
+                        logger.error(f"Failed to delete message {data_id}: {del_err}")
+
+                elif data_type == 'file':
+                    # Remove a file from the file manager
+                    try:
+                        deleted = file_manager.delete_file(data_id, 'system')
+                    except Exception:
+                        try:
+                            with db_manager.get_connection() as conn:
+                                conn.execute("DELETE FROM files WHERE id = ?", (data_id,))
+                                conn.commit()
+                                deleted = True
+                        except Exception as del_err:
+                            logger.error(f"Failed to delete file {data_id}: {del_err}")
+
+                elif data_type in ('feed_post', 'post'):
+                    # Delete a feed post
+                    try:
+                        with db_manager.get_connection() as conn:
+                            cur = conn.execute(
+                                "DELETE FROM feed_posts WHERE id = ?",
+                                (data_id,))
+                            conn.commit()
+                            deleted = cur.rowcount > 0
+                    except Exception as del_err:
+                        logger.error(f"Failed to delete feed post {data_id}: {del_err}")
+
+                elif data_type == 'channel_message':
+                    # Delete a specific channel message (explicit type).
+                    # Remove FK references first: likes and parent_message_id.
+                    try:
+                        with db_manager.get_connection() as conn:
+                            conn.execute("DELETE FROM likes WHERE message_id = ?", (data_id,))
+                            conn.execute(
+                                "UPDATE channel_messages SET parent_message_id = NULL WHERE parent_message_id = ?",
+                                (data_id,),
+                            )
+                            cur = conn.execute(
+                                "DELETE FROM channel_messages WHERE id = ?",
+                                (data_id,))
+                            conn.commit()
+                            deleted = cur.rowcount > 0
+                    except Exception as del_err:
+                        logger.error(f"Failed to delete channel message {data_id}: {del_err}")
+
+                elif data_type == 'channel':
+                    # Delete all messages in a channel (drastic). Clear FK refs first.
+                    try:
+                        with db_manager.get_connection() as conn:
+                            conn.execute(
+                                "UPDATE channel_messages SET parent_message_id = NULL WHERE channel_id = ?",
+                                (data_id,),
+                            )
+                            conn.execute(
+                                "DELETE FROM likes WHERE message_id IN (SELECT id FROM channel_messages WHERE channel_id = ?)",
+                                (data_id,),
+                            )
+                            conn.execute(
+                                "DELETE FROM channel_messages WHERE channel_id = ?",
+                                (data_id,))
+                            conn.commit()
+                            deleted = True
+                    except Exception as del_err:
+                        logger.error(f"Failed to purge channel {data_id}: {del_err}")
+
+                # Store the incoming signal locally for audit
+                try:
+                    db_manager.create_delete_signal(
+                        signal_id, requester_peer, data_type, data_id, reason)
+                    if deleted:
+                        db_manager.update_delete_signal_status(signal_id, 'complied')
+                except Exception:
+                    pass  # best-effort audit record
+
+                # Send compliance / rejection acknowledgment back
+                ack_status_out = 'complied' if deleted else 'rejected'
+                if p2p_manager and p2p_manager.is_running():
+                    try:
+                        p2p_manager.send_delete_signal_ack(
+                            from_peer, signal_id, ack_status_out)
+                    except Exception as ack_err:
+                        logger.warning(f"Failed to send delete ack: {ack_err}")
+
+                logger.info(f"Delete signal {signal_id}: {ack_status_out} "
+                            f"(data_type={data_type}, data_id={data_id})")
+
+            except Exception as e:
+                logger.error(f"Failed to handle delete signal: {e}", exc_info=True)
+
+        p2p_manager.on_delete_signal = _on_delete_signal
+
+        # Wire trust score lookup so P2P relay can gate by trust
+        p2p_manager.get_trust_score = trust_manager.get_trust_score
+
+        # Start P2P network (skip if CANOPY_DISABLE_MESH=true, e.g. for isolated testnet)
+        import os as _os
+        if _os.getenv('CANOPY_DISABLE_MESH', '').strip().lower() in ('1', 'true', 'yes'):
+            logger.info("P2P mesh disabled via CANOPY_DISABLE_MESH — running in standalone (API-only) mode")
+        else:
+            logger.info("Starting P2P network...")
+            p2p_manager.start()
+            logger.info("P2P network started successfully")
+        
+        # Initialize data-at-rest encryption using the peer identity
+        logger.info("Initializing data-at-rest encryption...")
+        identity_path = Path(config.storage.database_path).parent / 'peer_identity.json'
+        data_encryptor = DataEncryptor(identity_path)
+        app.config['DATA_ENCRYPTOR'] = data_encryptor
+        if data_encryptor.is_enabled:
+            logger.info("Data-at-rest encryption is ACTIVE")
+            # Inject encryptor into managers that need it
+            message_manager.data_encryptor = data_encryptor
+            feed_manager.data_encryptor = data_encryptor
+        else:
+            logger.warning("Data-at-rest encryption is DISABLED (identity not yet created)")
+        
+        # Prune old dedup records on startup (keep 7 days)
+        try:
+            channel_manager.prune_processed_messages(keep_days=7)
+        except Exception:
+            pass
+
+        # Start TTL maintenance loop (purge expired content + cleanup files)
+        def _start_maintenance_loop():
+            if app.config.get('TESTING'):
+                return
+            if app.config.get('MAINTENANCE_THREAD_STARTED'):
+                return
+            app.config['MAINTENANCE_THREAD_STARTED'] = True
+
+            try:
+                interval = int(os.getenv('CANOPY_MAINTENANCE_INTERVAL_SECONDS', '900'))
+            except Exception:
+                interval = 900
+            interval = max(300, interval)  # minimum 5 minutes
+            initial_delay = min(30, interval)
+
+            def _loop():
+                time.sleep(initial_delay)
+                while True:
+                    try:
+                        with app.app_context():
+                            # Identify local users (exclude shadow/system)
+                            local_user_ids = set()
+                            try:
+                                with db_manager.get_connection() as conn:
+                                    rows = conn.execute(
+                                        "SELECT id FROM users "
+                                        "WHERE id != 'system' AND id != 'local_user' "
+                                        "AND password_hash IS NOT NULL AND password_hash != ''"
+                                    ).fetchall()
+                                    for row in rows:
+                                        try:
+                                            local_user_ids.add(row['id'])
+                                        except Exception:
+                                            local_user_ids.add(row[0])
+                            except Exception:
+                                pass
+
+                            expired_messages = channel_manager.purge_expired_channel_messages()
+                            expired_posts = feed_manager.purge_expired_posts()
+
+                            # Purge expired signals
+                            try:
+                                signal_manager = app.config.get('SIGNAL_MANAGER')
+                                if signal_manager:
+                                    purged_signals = signal_manager.purge_expired_signals()
+                                    if purged_signals:
+                                        logger.info(f"Purged {purged_signals} expired signal(s)")
+                            except Exception as sig_purge_err:
+                                logger.warning(f"Signal purge failed: {sig_purge_err}")
+
+                            # Clean up attachments for expired channel messages
+                            if expired_messages and file_manager:
+                                for msg in expired_messages:
+                                    owner_id = msg.get('user_id')
+                                    msg_id = msg.get('id')
+                                    for file_id in msg.get('attachment_ids') or []:
+                                        try:
+                                            file_info = file_manager.get_file(file_id)
+                                            if not file_info or file_info.uploaded_by != owner_id:
+                                                continue
+                                            if file_manager.is_file_referenced(
+                                                file_id,
+                                                exclude_channel_message_id=msg_id,
+                                            ):
+                                                continue
+                                            file_manager.delete_file(file_id, owner_id)
+                                        except Exception:
+                                            continue
+
+                            # Clean up attachments for expired feed posts
+                            if expired_posts and file_manager:
+                                for post in expired_posts:
+                                    owner_id = post.get('author_id')
+                                    post_id = post.get('id')
+                                    for file_id in post.get('attachment_ids') or []:
+                                        try:
+                                            file_info = file_manager.get_file(file_id)
+                                            if not file_info or file_info.uploaded_by != owner_id:
+                                                continue
+                                            if file_manager.is_file_referenced(
+                                                file_id,
+                                                exclude_feed_post_id=post_id,
+                                            ):
+                                                continue
+                                            file_manager.delete_file(file_id, owner_id)
+                                        except Exception:
+                                            continue
+
+                            # Broadcast delete signals for expired content authored locally
+                            if p2p_manager and p2p_manager.is_running():
+                                import secrets as _sec
+                                for msg in expired_messages or []:
+                                    if msg.get('user_id') not in local_user_ids:
+                                        continue
+                                    msg_id = cast(str, msg.get('id'))
+                                    try:
+                                        signal_id = f"DS{_sec.token_hex(8)}"
+                                        p2p_manager.broadcast_delete_signal(
+                                            signal_id=signal_id,
+                                            data_type='channel_message',
+                                            data_id=msg_id,
+                                            reason='expired_ttl',
+                                        )
+                                    except Exception:
+                                        continue
+                                for post in expired_posts or []:
+                                    if post.get('author_id') not in local_user_ids:
+                                        continue
+                                    post_id = cast(str, post.get('id'))
+                                    try:
+                                        signal_id = f"DS{_sec.token_hex(8)}"
+                                        p2p_manager.broadcast_delete_signal(
+                                            signal_id=signal_id,
+                                            data_type='feed_post',
+                                            data_id=post_id,
+                                            reason='expired_ttl',
+                                        )
+                                    except Exception:
+                                        continue
+                    except Exception as loop_err:
+                        logger.debug(f"Maintenance loop error: {loop_err}")
+
+                    time.sleep(interval)
+
+            thread = threading.Thread(target=_loop, daemon=True, name='canopy_maintenance')
+            thread.start()
+            logger.info(f"TTL maintenance loop started (interval={interval}s)")
+
+        _start_maintenance_loop()
+        
+        logger.info("All core components initialized successfully")
+        
+    except Exception as e:
+        logger.error(f"Failed to initialize core components: {e}", exc_info=True)
+        raise
+    
+    # Register blueprints
+    try:
+        logger.info("Registering API blueprint...")
+        api_bp = create_api_blueprint()
+        app.register_blueprint(api_bp, url_prefix='/api/v1')
+        logger.info("API blueprint registered successfully")
+        
+        logger.info("Registering UI blueprint...")
+        ui_bp = create_ui_blueprint()
+        app.register_blueprint(ui_bp)
+        logger.info("UI blueprint registered successfully")
+        
+        logger.info("All blueprints registered successfully")
+        
+    except Exception as e:
+        logger.error(f"Failed to register blueprints: {e}", exc_info=True)
+        raise
+    
+    # Register error handlers
+    register_error_handlers(app)
+
+    # Install rate limiting
+    _install_rate_limiting(app)
+    
+    # Register shutdown handlers
+    register_shutdown_handlers(app)
+    
+    # Register template filters
+    register_template_filters(app)
+    
+    # Log startup information
+    logger.info(f"Canopy application created successfully")
+    logger.info(f"Configuration: {config.to_dict()}")
+    
+    return app
+
+
+# Old setup_logging function removed - using new comprehensive logging system
+
+
+class _RateLimiter:
+    """Simple in-process token-bucket rate limiter.
+
+    Each bucket is identified by a string key (typically the client's
+    IP address or API key).  Tokens are replenished at *rate* tokens
+    per second, up to *capacity*.  If the bucket is empty the request
+    is denied.
+    """
+
+    def __init__(self, rate: float = 10.0, capacity: int = 30):
+        self.rate = rate        # tokens per second
+        self.capacity = capacity
+        self._buckets: dict = {}  # key -> [tokens, last_refill]
+
+    def allow(self, key: str) -> bool:
+        import time as _t
+        now = _t.monotonic()
+        if key not in self._buckets:
+            self._buckets[key] = [self.capacity - 1, now]
+            return True
+        tokens, last = self._buckets[key]
+        # Refill
+        elapsed = now - last
+        tokens = min(self.capacity, tokens + elapsed * self.rate)
+        if tokens >= 1:
+            self._buckets[key] = [tokens - 1, now]
+            return True
+        self._buckets[key][1] = now
+        return False
+
+    def prune(self, max_age: float = 3600.0) -> None:
+        """Remove stale buckets to prevent memory growth."""
+        import time as _t
+        now = _t.monotonic()
+        stale = [k for k, v in self._buckets.items() if now - v[1] > max_age]
+        for k in stale:
+            del self._buckets[k]
+
+
+# Global rate limiter instances
+_api_limiter = _RateLimiter(rate=5, capacity=15)         # Stricter: 5 req/s burst 15
+_upload_limiter = _RateLimiter(rate=1, capacity=3)       # Stricter: 1 req/s burst 3
+_register_limiter = _RateLimiter(rate=0.1, capacity=3)   # Very strict: 1 per 10s, burst 3
+_login_limiter = _RateLimiter(rate=0.2, capacity=5)      # Login: ~1 per 5s, burst 5 (per IP)
+_ui_ajax_limiter = _RateLimiter(rate=10, capacity=30)    # UI AJAX: 10 req/s burst 30 (per IP/session)
+_p2p_limiter = _RateLimiter(rate=20, capacity=60)        # Stricter P2P: 20 req/s burst 60
+
+
+def _install_rate_limiting(app: Flask) -> None:
+    """Install a before_request hook that enforces rate limits."""
+    from flask import request as _req, abort, session as _session
+
+    @app.before_request
+    def _rate_limit_check():
+        # Identify caller by IP (or API key if present)
+        # For registration/login, always use IP to prevent automated abuse
+        path = _req.path or ''
+        key = _req.remote_addr or 'unknown'
+
+        if '/register' in path or '/keys' in path:
+            limiter = _register_limiter
+        elif path.rstrip('/') == '/login' and _req.method == 'POST':
+            limiter = _login_limiter
+        elif path.startswith('/ajax/'):
+            # Per-IP (and optionally session) for UI AJAX (login, content creation, uploads)
+            session_marker = _session.get('_id') or _session.get('user_id') or ''
+            key = f"{key}:{session_marker}" if session_marker else key
+            limiter = _ui_ajax_limiter
+        elif '/files/upload' in path:
+            key = _req.headers.get('X-API-Key', key)
+            limiter = _upload_limiter
+        elif path.startswith('/api/') and '/streams/' in path and (
+            path.endswith('/manifest.m3u8') or '/segments/' in path or path.endswith('/events')
+        ):
+            return  # Stream playback endpoints are not rate-limited
+        elif path.startswith('/api/'):
+            key = _req.headers.get('X-API-Key', key)
+            limiter = _api_limiter
+        else:
+            return  # Other UI pages are not rate-limited
+
+        if not limiter.allow(key):
+            logger.warning(f"Rate limit exceeded for {key} on {path}")
+            abort(429)
+
+    # Periodic prune (piggyback on after_request)
+    _prune_counter = {'n': 0}
+
+    @app.after_request
+    def _prune_buckets(response):
+        _prune_counter['n'] += 1
+        if _prune_counter['n'] >= 500:
+            _prune_counter['n'] = 0
+            _api_limiter.prune()
+            _upload_limiter.prune()
+            _register_limiter.prune()
+            _login_limiter.prune()
+            _ui_ajax_limiter.prune()
+            _p2p_limiter.prune()
+        return response
+
+
+def register_error_handlers(app: Flask) -> None:
+    """Register error handlers for the application."""
+    
+    @app.errorhandler(400)
+    def bad_request(error):
+        return {'error': 'Bad request', 'message': str(error)}, 400
+    
+    @app.errorhandler(401)
+    def unauthorized(error):
+        return {'error': 'Unauthorized', 'message': 'Invalid or missing API key'}, 401
+    
+    @app.errorhandler(403)
+    def forbidden(error):
+        return {'error': 'Forbidden', 'message': 'Insufficient permissions'}, 403
+    
+    @app.errorhandler(404)
+    def not_found(error):
+        return {'error': 'Not found', 'message': 'Resource not found'}, 404
+    
+    @app.errorhandler(429)
+    def rate_limit_exceeded(error):
+        retry_after = str(int(float(os.getenv('CANOPY_RETRY_AFTER_SECONDS', '1') or '1')))
+        response = jsonify({'error': 'Rate limit exceeded', 'message': 'Too many requests'})
+        response.status_code = 429
+        response.headers['Retry-After'] = retry_after
+        return response
+    
+    @app.errorhandler(500)
+    def internal_error(error):
+        logger.error(f"Internal server error: {error}")
+        return {'error': 'Internal server error', 'message': 'An unexpected error occurred'}, 500
+    
+    logger.info("Error handlers registered")
+
+
+def register_shutdown_handlers(app: Flask) -> None:
+    """Register shutdown handlers for cleanup."""
+    
+    @app.teardown_appcontext
+    def close_db(error):
+        """Close database connections on app context teardown."""
+        # Database connections are handled by context managers
+        # This is here for any future cleanup needs
+        pass
+    
+    def cleanup_on_shutdown():
+        """Cleanup function called on app shutdown."""
+        try:
+            # Close any open connections
+            # Cleanup temporary files
+            # Save any pending data
+            logger.info("Application shutdown cleanup completed")
+        except Exception as e:
+            logger.error(f"Error during shutdown cleanup: {e}")
+    
+    # Register cleanup function
+    import atexit
+    atexit.register(cleanup_on_shutdown)
+    
+    logger.info("Shutdown handlers registered")
+
+
+def register_template_filters(app: Flask) -> None:
+    """Register custom template filters."""
+    
+    @app.template_filter('filesizeformat')
+    def filesizeformat(num_bytes):
+        """
+        Format a file size in bytes as a human readable string.
+        """
+        if num_bytes is None:
+            return "Unknown size"
+        
+        try:
+            num_bytes = int(num_bytes)
+        except (ValueError, TypeError):
+            return "Unknown size"
+            
+        if num_bytes == 0:
+            return "0 bytes"
+        
+        for unit in ['bytes', 'KB', 'MB', 'GB', 'TB']:
+            if num_bytes < 1024.0:
+                if unit == 'bytes':
+                    return f"{num_bytes} {unit}"
+                return f"{num_bytes:.1f} {unit}"
+            num_bytes /= 1024.0
+        return f"{num_bytes:.1f} PB"
+    
+    logger.info("Template filters registered")
+
+
+# get_app_components moved to canopy.core.utils to avoid circular imports
