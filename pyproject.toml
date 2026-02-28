@@ -1,0 +1,100 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "canopy"
+version = "0.4.16"
+description = "Local-first mesh communication layer for humans and AI agents."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [
+  { name = "Canopy Contributors" }
+]
+dependencies = [
+  "Flask>=3.0.0",
+  "Werkzeug>=3.0.1",
+  "cryptography>=41.0.7",
+  "bcrypt>=4.1.2",
+  "python-dateutil>=2.8.2",
+  "Pillow>=10.4.0",
+  "zeroconf>=0.132.2",
+  "websockets>=12.0",
+  "msgpack>=1.0.7",
+  "base58>=2.1.1",
+  "waitress>=3.0.2",
+]
+
+[project.optional-dependencies]
+mcp = [
+  "mcp>=1.0.0",
+  "pydantic>=2.0.0",
+  "python-dotenv>=0.21.0",
+]
+tray = [
+  "pystray>=0.19.5",
+  "winotify>=1.1.0; sys_platform == 'win32'",
+]
+tray-build = [
+  "pyinstaller>=6.0",
+]
+dev = [
+  "pytest>=7.4.3",
+  "pytest-flask>=1.3.0",
+  "pytest-cov>=4.1.0",
+  "black>=23.11.0",
+  "flake8>=6.1.0",
+]
+
+[project.scripts]
+canopy = "canopy.main:main"
+canopy-tray = "canopy_tray.__main__:main"
+canopy-mcp = "canopy.mcp.server:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["canopy*", "canopy_tray*"]
+
+[tool.setuptools.package-data]
+canopy = [
+  "ui/templates/*.html",
+  "ui/static/manifest.json",
+  "ui/static/icons/*",
+  "ui/static/css/*",
+  "ui/static/js/*",
+]
+canopy_tray = [
+  "assets/*",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.19.1",
+]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["canopy", "canopy_tray"]
+namespace_packages = true
+explicit_package_bases = true
+show_error_codes = true
+strict = false
+warn_unused_configs = true
+disallow_untyped_calls = false
+disallow_untyped_defs = false
+disallow_incomplete_defs = true
+check_untyped_defs = true
+warn_return_any = true
+warn_unused_ignores = true
+no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+module = ["pystray", "winotify"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["waitress"]
+ignore_missing_imports = true

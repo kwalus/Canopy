@@ -1,0 +1,14 @@
+# Canopy MCP Server Dependencies
+# Requires Python >= 3.10
+#
+# The MCP server imports the full Canopy package, so all core deps are needed.
+-r requirements.txt
+
+# Model Context Protocol framework
+mcp>=1.0.0
+
+# Additional utilities (mcp depends on pydantic internally)
+pydantic>=2.0.0
+
+# Optional: .env file loading (used by canopy_mcp_server.py)
+python-dotenv>=0.21.0
