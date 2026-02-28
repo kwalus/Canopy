@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}Error - Canopy{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-body text-center py-5">
+                    <i class="bi bi-exclamation-triangle fs-1 text-warning mb-4"></i>
+                    
+                    <h3 class="mb-3">
+                        {% if error_code %}
+                            Error {{ error_code }}
+                        {% else %}
+                            Something went wrong
+                        {% endif %}
+                    </h3>
+                    
+                    <p class="text-muted mb-4">
+                        {{ error or "An unexpected error occurred. Please try again later." }}
+                    </p>
+                    
+                    <div class="d-flex gap-2 justify-content-center">
+                        <a href="{{ url_for('ui.dashboard') }}" class="btn btn-primary">
+                            <i class="bi bi-house-door"></i> Go Home
+                        </a>
+                        <button onclick="window.history.back()" class="btn btn-outline-secondary">
+                            <i class="bi bi-arrow-left"></i> Go Back
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

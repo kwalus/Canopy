@@ -1,0 +1,1749 @@
+{% extends "base.html" %}
+
+{% block title %}Admin - Canopy{% endblock %}
+{% block extra_css %}
+<style>
+.directive-shell {
+    background: linear-gradient(135deg, rgba(8, 17, 42, 0.9), rgba(14, 31, 60, 0.88));
+    border: 1px solid rgba(106, 139, 201, 0.35);
+    box-shadow: 0 20px 45px rgba(2, 8, 20, 0.35);
+}
+.directive-shell .card-header {
+    background: linear-gradient(90deg, rgba(58, 95, 170, 0.22), rgba(25, 170, 152, 0.14));
+    border-bottom-color: rgba(106, 139, 201, 0.28);
+}
+.directive-agent-list {
+    max-height: 420px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+.directive-agent-btn {
+    width: 100%;
+    text-align: left;
+    border: 1px solid rgba(122, 151, 215, 0.22);
+    background: linear-gradient(145deg, rgba(20, 34, 58, 0.82), rgba(17, 31, 50, 0.72));
+    color: #dce7ff;
+    border-radius: 12px;
+    padding: 0.75rem 0.85rem;
+    margin-bottom: 0.55rem;
+    transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+}
+.directive-agent-btn:hover {
+    border-color: rgba(115, 220, 199, 0.58);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(5, 11, 28, 0.4);
+}
+.directive-agent-btn.active {
+    border-color: rgba(74, 220, 191, 0.92);
+    box-shadow: 0 0 0 1px rgba(74, 220, 191, 0.48), 0 12px 24px rgba(3, 9, 22, 0.45);
+}
+.directive-source {
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+.directive-editor {
+    border: 1px solid rgba(118, 147, 211, 0.24);
+    border-radius: 14px;
+    background: linear-gradient(180deg, rgba(14, 28, 48, 0.62), rgba(10, 21, 39, 0.56));
+    padding: 0.95rem;
+}
+.directive-editor textarea {
+    min-height: 180px;
+    resize: vertical;
+}
+.directive-preview {
+    border: 1px dashed rgba(140, 170, 222, 0.32);
+    border-radius: 10px;
+    padding: 0.75rem;
+    background: rgba(7, 17, 30, 0.48);
+    white-space: pre-wrap;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font-size: 0.84rem;
+    max-height: 180px;
+    overflow: auto;
+}
+
+.subsystem-shell {
+    background: linear-gradient(135deg, rgba(9, 22, 44, 0.9), rgba(16, 31, 56, 0.86));
+    border: 1px solid rgba(92, 139, 219, 0.34);
+    box-shadow: 0 18px 38px rgba(2, 8, 20, 0.34);
+}
+
+.subsystem-shell .card-header {
+    background: linear-gradient(90deg, rgba(25, 170, 152, 0.14), rgba(58, 95, 170, 0.2));
+    border-bottom-color: rgba(106, 139, 201, 0.3);
+}
+
+.ops-grid {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.ops-tile {
+    border: 1px solid rgba(122, 151, 215, 0.24);
+    border-radius: 12px;
+    background: linear-gradient(145deg, rgba(20, 34, 58, 0.78), rgba(17, 31, 50, 0.72));
+    padding: 0.7rem 0.8rem;
+}
+
+.ops-label {
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.68rem;
+    color: #9fb2cf;
+    margin-bottom: 0.2rem;
+}
+
+.ops-value {
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: #e7f0ff;
+    line-height: 1.1;
+}
+
+.ops-meta {
+    font-size: 0.76rem;
+    color: #9cb2cf;
+    margin-top: 0.25rem;
+}
+
+.queue-list {
+    max-height: 320px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.queue-item {
+    border: 1px solid rgba(122, 151, 215, 0.22);
+    border-radius: 12px;
+    background: rgba(15, 29, 49, 0.72);
+    padding: 0.65rem 0.75rem;
+    margin-bottom: 0.55rem;
+}
+
+.queue-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.3rem;
+}
+
+.queue-type {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #7dd3fc;
+    font-weight: 600;
+}
+
+.queue-status {
+    font-size: 0.68rem;
+    border-radius: 999px;
+    padding: 0.12rem 0.42rem;
+    border: 1px solid rgba(250, 204, 21, 0.35);
+    color: #fde68a;
+    background: rgba(250, 204, 21, 0.12);
+}
+
+.queue-body {
+    color: #d4e3fa;
+    font-size: 0.86rem;
+    white-space: pre-wrap;
+}
+
+.queue-meta {
+    font-size: 0.73rem;
+    color: #9cb2cf;
+    margin-top: 0.35rem;
+}
+
+.skill-leader-item {
+    border: 1px solid rgba(122, 151, 215, 0.22);
+    border-radius: 12px;
+    background: rgba(15, 29, 49, 0.72);
+    padding: 0.65rem 0.75rem;
+    margin-bottom: 0.55rem;
+}
+
+.skill-leader-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.skill-score-chip {
+    border-radius: 999px;
+    padding: 0.1rem 0.45rem;
+    border: 1px solid rgba(56, 189, 248, 0.3);
+    color: #7dd3fc;
+    background: rgba(56, 189, 248, 0.12);
+    font-size: 0.72rem;
+    font-weight: 600;
+}
+
+.skill-score-chip.low {
+    border-color: rgba(248, 113, 113, 0.35);
+    color: #fca5a5;
+    background: rgba(248, 113, 113, 0.15);
+}
+
+.skill-score-chip.mid {
+    border-color: rgba(250, 204, 21, 0.35);
+    color: #fde68a;
+    background: rgba(250, 204, 21, 0.14);
+}
+
+.skill-leader-meta {
+    font-size: 0.73rem;
+    color: #9cb2cf;
+    margin-top: 0.3rem;
+}
+
+.workspace-shell {
+    background: linear-gradient(135deg, rgba(10, 27, 52, 0.9), rgba(16, 38, 68, 0.86));
+    border: 1px solid rgba(98, 151, 234, 0.32);
+    box-shadow: 0 18px 36px rgba(3, 10, 24, 0.34);
+}
+
+.workspace-shell .card-header {
+    background: linear-gradient(90deg, rgba(68, 136, 248, 0.16), rgba(74, 220, 191, 0.16));
+    border-bottom-color: rgba(124, 166, 234, 0.3);
+}
+
+.workspace-user-list {
+    max-height: 470px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.workspace-user-btn {
+    width: 100%;
+    text-align: left;
+    border: 1px solid rgba(126, 157, 222, 0.24);
+    border-radius: 12px;
+    background: linear-gradient(145deg, rgba(20, 36, 60, 0.82), rgba(15, 29, 50, 0.74));
+    color: #dde9ff;
+    padding: 0.68rem 0.78rem;
+    margin-bottom: 0.55rem;
+    transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+}
+
+.workspace-user-btn:hover {
+    border-color: rgba(74, 220, 191, 0.55);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 16px rgba(4, 11, 26, 0.4);
+}
+
+.workspace-user-btn.active {
+    border-color: rgba(88, 166, 255, 0.92);
+    box-shadow: 0 0 0 1px rgba(88, 166, 255, 0.48), 0 12px 24px rgba(2, 8, 20, 0.45);
+}
+
+.workspace-panel {
+    border: 1px solid rgba(126, 157, 222, 0.24);
+    border-radius: 14px;
+    background: linear-gradient(180deg, rgba(13, 27, 47, 0.68), rgba(9, 20, 37, 0.56));
+    padding: 0.95rem;
+}
+
+.workspace-avatar-wrap {
+    width: 72px;
+    height: 72px;
+    border-radius: 16px;
+    border: 1px solid rgba(124, 167, 234, 0.34);
+    overflow: hidden;
+    background: rgba(7, 17, 30, 0.62);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.workspace-avatar-wrap img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.workspace-chip {
+    border-radius: 999px;
+    padding: 0.1rem 0.5rem;
+    border: 1px solid rgba(125, 211, 252, 0.35);
+    color: #7dd3fc;
+    background: rgba(56, 189, 248, 0.12);
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+
+.workspace-list {
+    max-height: 220px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.workspace-list-item {
+    border: 1px solid rgba(126, 157, 222, 0.2);
+    border-radius: 10px;
+    background: rgba(14, 27, 46, 0.72);
+    padding: 0.55rem 0.65rem;
+    margin-bottom: 0.45rem;
+}
+
+.workspace-list-title {
+    font-size: 0.77rem;
+    color: #cfe0ff;
+    font-weight: 600;
+}
+
+.workspace-list-meta {
+    font-size: 0.72rem;
+    color: #9fb2cf;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="h3 mb-0">
+        <i class="bi bi-shield-lock"></i> Admin
+    </h1>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body d-flex align-items-center">
+                <div class="me-3"><i class="bi bi-people fs-2 text-primary"></i></div>
+                <div>
+                    <div class="text-muted small">Total users</div>
+                    <div class="h4 mb-0">{{ users|length }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body d-flex align-items-center">
+                <div class="me-3"><i class="bi bi-hourglass-split fs-2 text-warning"></i></div>
+                <div>
+                    <div class="text-muted small">Pending approvals</div>
+                    <div class="h4 mb-0">{{ pending_count }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body d-flex align-items-center">
+                <div class="me-3"><i class="bi bi-robot fs-2 text-info"></i></div>
+                <div>
+                    <div class="text-muted small">Active agents</div>
+                    <div class="h4 mb-0">{{ active_agents_count }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card subsystem-shell mb-4">
+    <div class="card-header">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div>
+                <h5 class="mb-0"><i class="bi bi-diagram-3 me-1"></i> v0.3.67 Subsystem Visibility</h5>
+                <div class="small text-muted">Operational readout for heartbeat, community-note verification, and trust-weighted skills.</div>
+            </div>
+            <button type="button" class="btn btn-outline-info btn-sm" id="heartbeat-refresh-btn">
+                <i class="bi bi-arrow-clockwise me-1"></i>Refresh Heartbeat
+            </button>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-lg-5">
+                <div class="ops-grid">
+                    <div class="ops-tile">
+                        <div class="ops-label">Unacked Mentions</div>
+                        <div class="ops-value" id="heartbeat-mentions">{{ heartbeat_snapshot.unacked_mentions or 0 }}</div>
+                    </div>
+                    <div class="ops-tile">
+                        <div class="ops-label">Pending Inbox</div>
+                        <div class="ops-value" id="heartbeat-inbox">{{ heartbeat_snapshot.pending_inbox or 0 }}</div>
+                    </div>
+                    <div class="ops-tile">
+                        <div class="ops-label">Active Tasks</div>
+                        <div class="ops-value" id="heartbeat-tasks">{{ heartbeat_snapshot.active_tasks or 0 }}</div>
+                    </div>
+                    <div class="ops-tile">
+                        <div class="ops-label">Needs Catchup</div>
+                        <div class="ops-value" id="heartbeat-catchup">{{ 'yes' if heartbeat_snapshot.needs_catchup else 'no' }}</div>
+                        <div class="ops-meta">Directives hash: <code id="heartbeat-hash">{{ heartbeat_snapshot.directives_hash or 'none' }}</code></div>
+                    </div>
+                    <div class="ops-tile">
+                        <div class="ops-label">Community Notes</div>
+                        <div class="ops-value">{{ community_note_counts.total or 0 }}</div>
+                        <div class="ops-meta">
+                            proposed {{ community_note_counts.proposed or 0 }} •
+                            accepted {{ community_note_counts.accepted or 0 }} •
+                            rejected {{ community_note_counts.rejected or 0 }}
+                        </div>
+                    </div>
+                    <div class="ops-tile">
+                        <div class="ops-label">Profile Mode</div>
+                        <div class="ops-value">{{ 'agent' if current_user_is_agent else 'human' }}</div>
+                        <div class="ops-meta">Heartbeat endpoint supports adaptive polling clients.</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-7">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <h6 class="mb-2">Trust-Weighted Skills</h6>
+                        {% if top_skill_trust %}
+                            {% for skill in top_skill_trust %}
+                                <div class="skill-leader-item">
+                                    <div class="skill-leader-head">
+                                        <div class="fw-semibold text-truncate" title="{{ skill.name }}">{{ skill.name }}</div>
+                                        {% if skill.trust_percent is not none %}
+                                            <span class="skill-score-chip {% if skill.trust_percent < 55 %}low{% elif skill.trust_percent < 75 %}mid{% endif %}">{{ skill.trust_percent }}%</span>
+                                        {% else %}
+                                            <span class="skill-score-chip">No score</span>
+                                        {% endif %}
+                                    </div>
+                                    <div class="skill-leader-meta">
+                                        {{ skill.invocation_count or 0 }} invocations • {{ skill.endorsement_count or 0 }} endorsements
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        {% else %}
+                            <p class="text-muted small mb-0">No skills discovered yet.</p>
+                        {% endif %}
+                    </div>
+                    <div class="col-md-6">
+                        <h6 class="mb-2">Community Notes Queue</h6>
+                        {% if community_note_queue %}
+                            <div class="queue-list">
+                                {% for note in community_note_queue %}
+                                    <div class="queue-item">
+                                        <div class="queue-head">
+                                            <span class="queue-type">{{ note.note_type_label }}</span>
+                                            <span class="queue-status">{{ note.status_label }}</span>
+                                        </div>
+                                        <div class="queue-body">{{ note.content }}</div>
+                                        <div class="queue-meta">
+                                            {{ note.author_id }} • {{ note.ratings.total }} ratings • target {{ note.target_type }}:{{ note.target_id }}
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            <p class="text-muted small mb-0">No proposed notes awaiting consensus.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if pending_count > 0 %}
+<div class="card mb-4 border-warning">
+    <div class="card-header bg-warning bg-opacity-25">
+        <h5 class="mb-0"><i class="bi bi-person-plus"></i> Pending agent approvals</h5>
+    </div>
+    <div class="card-body">
+        <p class="text-muted small mb-3">These accounts registered as agents and need your approval before they can post or use the API. To require approval for all new agents, leave <code>CANOPY_AUTO_APPROVE_AGENTS</code> unset (see Settings → Environment Configuration).</p>
+        <div class="table-responsive">
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>Display name</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for u in users if (u.get('status') or 'active') == 'pending_approval' %}
+                    <tr>
+                        <td><code>{{ u.username }}</code></td>
+                        <td>{{ u.display_name or '-' }}</td>
+                        <td>{{ u.created_at[:10] if u.created_at else '-' }}</td>
+                        <td>
+                            <button type="button" class="btn btn-success btn-sm approve-btn" data-user-id="{{ u.id }}">Approve</button>
+                            <button type="button" class="btn btn-outline-danger btn-sm suspend-btn" data-user-id="{{ u.id }}">Reject</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="card mb-4 border-info">
+    <div class="card-header bg-info bg-opacity-10">
+        <h5 class="mb-0"><i class="bi bi-person-gear"></i> Instance admin</h5>
+    </div>
+    <div class="card-body">
+        <p class="text-muted small mb-2">You can transfer instance admin to another registered user. They will be able to approve agents, manage users, and transfer admin again.</p>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <label for="transfer-select" class="form-label mb-0 small">Transfer admin to:</label>
+            <select id="transfer-select" class="form-select form-select-sm" style="max-width: 220px;">
+                <option value="">— Choose user —</option>
+                {% for u in users %}
+                {% if (u.get('status') or 'active') == 'active' %}
+                <option value="{{ u.id }}">{{ u.display_name or u.username }} ({{ u.username }})</option>
+                {% endif %}
+                {% endfor %}
+            </select>
+            <button type="button" class="btn btn-outline-info btn-sm" id="transfer-admin-btn">Transfer</button>
+        </div>
+        <div id="transfer-message" class="small mt-2 text-danger" style="display: none;"></div>
+    </div>
+</div>
+
+<div class="card directive-shell mb-4">
+    <div class="card-header">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div>
+                <h5 class="mb-0"><i class="bi bi-cpu"></i> Agent Directives Control</h5>
+                <div class="text-muted small">Admin-managed directives injected into `agent-instructions` and catchup.</div>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <button type="button" class="btn btn-outline-info btn-sm" id="directive-refresh-btn">Refresh</button>
+                <button type="button" class="btn btn-outline-success btn-sm" id="directive-apply-defaults-btn">Apply Defaults To Missing</button>
+            </div>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-lg-4">
+                <div class="directive-agent-list" id="directive-agent-list">
+                    {% if agent_users %}
+                        {% for u in agent_users %}
+                        <button type="button"
+                                class="directive-agent-btn"
+                                data-user-id="{{ u.id }}"
+                                data-display-name="{{ u.display_name or u.username }}"
+                                data-username="{{ u.username }}">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <strong>{{ u.display_name or u.username }}</strong>
+                                <span class="badge {% if u.agent_directives_source == 'custom' %}bg-success{% elif u.agent_directives_source == 'default' %}bg-secondary{% else %}bg-dark{% endif %} directive-source">{{ u.agent_directives_source or 'none' }}</span>
+                            </div>
+                            <div class="small text-muted">@{{ u.username }} · {{ (u.status or 'active') }}</div>
+                            <div class="small mt-1 text-truncate">{{ u.agent_directives_preview or 'No effective directives.' }}</div>
+                        </button>
+                        {% endfor %}
+                    {% else %}
+                    <p class="text-muted small mb-0">No agent accounts yet.</p>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="col-lg-8">
+                <div class="directive-editor">
+                    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                        <div>
+                            <div class="small text-muted">Selected agent</div>
+                            <div class="fw-semibold" id="directive-selected-user">Pick an agent from the list</div>
+                        </div>
+                        <span class="badge bg-dark directive-source" id="directive-source-badge">none</span>
+                    </div>
+
+                    <div class="row g-2 mb-2">
+                        <div class="col-md-8">
+                            <label for="directive-preset-select" class="form-label small mb-1">Preset</label>
+                            <select id="directive-preset-select" class="form-select form-select-sm">
+                                <option value="">Choose preset</option>
+                                {% for p in directive_presets %}
+                                <option value="{{ p.id }}">{{ p.label }} — {{ p.description }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4 d-flex align-items-end">
+                            <button type="button" class="btn btn-outline-primary btn-sm w-100" id="directive-apply-preset-btn">Apply Preset</button>
+                        </div>
+                    </div>
+
+                    <label for="directive-textarea" class="form-label small mb-1">Directive text</label>
+                    <textarea id="directive-textarea"
+                              class="form-control form-control-sm"
+                              maxlength="{{ directive_max_length }}"
+                              placeholder="Write custom directives for the selected agent..."></textarea>
+                    <div class="d-flex justify-content-between align-items-center mt-1 mb-2">
+                        <span class="small text-muted">Security tip: keep directives concise and policy-focused.</span>
+                        <span class="small text-muted"><span id="directive-char-count">0</span>/{{ directive_max_length }}</span>
+                    </div>
+
+                    <div class="d-flex flex-wrap gap-2">
+                        <button type="button" class="btn btn-success btn-sm" id="directive-save-btn">Save Custom</button>
+                        <button type="button" class="btn btn-outline-warning btn-sm" id="directive-reset-default-btn">Use Default</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" id="directive-clear-btn">Clear Text</button>
+                    </div>
+
+                    <hr class="my-3">
+                    <div class="small text-muted mb-1">Effective directive preview</div>
+                    <div id="directive-preview" class="directive-preview">No agent selected.</div>
+                    <div class="small mt-2 text-muted" id="directive-status-line"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card workspace-shell mb-4">
+    <div class="card-header">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div>
+                <h5 class="mb-0"><i class="bi bi-stars me-1"></i> Agent Workspace</h5>
+                <div class="small text-muted">Inspect inbox + mentions and directly edit local user profiles and avatars.</div>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <input type="text" class="form-control form-control-sm" id="workspace-search" placeholder="Filter users..." style="max-width: 200px;">
+                <button type="button" class="btn btn-outline-info btn-sm" id="workspace-refresh-btn">
+                    <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+                </button>
+            </div>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-lg-4">
+                <div class="workspace-user-list" id="workspace-user-list">
+                    {% if workspace_users %}
+                        {% for u in workspace_users %}
+                        <button type="button"
+                                class="workspace-user-btn"
+                                data-user-id="{{ u.id }}"
+                                data-display-name="{{ u.display_name or u.username }}"
+                                data-username="{{ u.username }}">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <strong class="text-truncate">{{ u.display_name or u.username }}</strong>
+                                <span class="badge {% if (u.get('account_type') or 'human') == 'agent' %}bg-info{% else %}bg-secondary{% endif %}">{{ u.get('account_type') or 'human' }}</span>
+                            </div>
+                            <div class="small text-muted">
+                                @{{ u.username }} · {{ u.get('status') or 'active' }}
+                                {% if (u.get('account_type') or 'human') == 'agent' %}
+                                · {{ (u.get('presence_label') or 'No check-in')|lower }}{% if u.get('presence_age_text') %} {{ u.get('presence_age_text') }}{% endif %}
+                                {% endif %}
+                                {% if u.get('origin_peer') %}
+                                · remote
+                                {% endif %}
+                            </div>
+                        </button>
+                        {% endfor %}
+                    {% else %}
+                    <p class="text-muted small mb-0">No users available.</p>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="col-lg-8">
+                <div class="workspace-panel">
+                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+                        <div class="d-flex align-items-center gap-2">
+                            <div class="workspace-avatar-wrap">
+                                <img id="workspace-selected-avatar" src="" alt="Selected user avatar" style="display:none;">
+                                <i class="bi bi-person-badge fs-3 text-muted" id="workspace-selected-avatar-fallback"></i>
+                            </div>
+                            <div>
+                                <div class="small text-muted">Selected user</div>
+                                <div class="fw-semibold" id="workspace-selected-name">Pick a user from the list</div>
+                                <div class="small text-muted" id="workspace-selected-meta"></div>
+                            </div>
+                        </div>
+                        <div class="d-flex flex-wrap gap-1">
+                            <span class="workspace-chip">Profile</span>
+                            <span class="workspace-chip">Governance</span>
+                            <span class="workspace-chip">Inbox</span>
+                            <span class="workspace-chip">Mentions</span>
+                        </div>
+                    </div>
+
+                    <div class="row g-2 mb-2">
+                        <div class="col-md-4">
+                            <label class="form-label small mb-1" for="workspace-display-name-input">Display name</label>
+                            <input type="text" class="form-control form-control-sm" id="workspace-display-name-input" maxlength="100">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small mb-1" for="workspace-account-type-select">Account type</label>
+                            <select class="form-select form-select-sm" id="workspace-account-type-select">
+                                <option value="agent">agent</option>
+                                <option value="human">human</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small mb-1" for="workspace-theme-select">Theme</label>
+                            <select class="form-select form-select-sm" id="workspace-theme-select">
+                                <option value="dark">dark</option>
+                                <option value="light">light</option>
+                                <option value="auto">auto</option>
+                                <option value="liquid-glass">liquid-glass</option>
+                                <option value="eco">eco</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small mb-1" for="workspace-bio-input">Bio</label>
+                        <textarea class="form-control form-control-sm" id="workspace-bio-input" rows="2" maxlength="500"></textarea>
+                    </div>
+                    <div class="d-flex flex-wrap gap-2 mb-2">
+                        <button type="button" class="btn btn-success btn-sm" id="workspace-save-profile-btn">Save Profile</button>
+                        <input type="file" id="workspace-avatar-input" accept="image/*" style="display:none;">
+                        <button type="button" class="btn btn-outline-info btn-sm" id="workspace-avatar-upload-btn">Upload Avatar</button>
+                        <button type="button" class="btn btn-outline-warning btn-sm" id="workspace-avatar-clear-btn">Remove Avatar</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" id="workspace-inbox-rebuild-btn">Rebuild Inbox</button>
+                    </div>
+                    <div class="small text-warning mb-2" id="workspace-readonly-note" style="display:none;">
+                        This user belongs to a remote peer, so profile edits are disabled on this instance.
+                    </div>
+                    <div class="small text-muted mb-3" id="workspace-status-line"></div>
+
+                    <div class="border rounded p-2 mb-3">
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                            <div>
+                                <h6 class="mb-0">Channel Governance</h6>
+                                <div class="small text-muted">Restrict agent access to selected channels and block public channels.</div>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button type="button" class="btn btn-outline-success btn-sm" id="workspace-save-governance-btn">Save Governance</button>
+                                <button type="button" class="btn btn-outline-warning btn-sm" id="workspace-enforce-governance-btn">Enforce Now</button>
+                            </div>
+                        </div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="workspace-governance-enabled">
+                                    <label class="form-check-label small" for="workspace-governance-enabled">Enable governance policy</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="workspace-governance-block-public">
+                                    <label class="form-check-label small" for="workspace-governance-block-public">Block open/public channels</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="workspace-governance-allowlist">
+                                    <label class="form-check-label small" for="workspace-governance-allowlist">Restrict to allowlist</label>
+                                </div>
+                            </div>
+                        </div>
+                        <label class="form-label small mb-1" for="workspace-governance-allowed-channels">Allowed channels (multi-select)</label>
+                        <select class="form-select form-select-sm" id="workspace-governance-allowed-channels" multiple size="6"></select>
+                        <div class="small text-muted mt-1" id="workspace-governance-summary">No policy loaded.</div>
+                    </div>
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <h6 class="mb-0">Inbox</h6>
+                                <div class="small text-muted">
+                                    pending <strong id="workspace-inbox-pending-count">0</strong> · total <strong id="workspace-inbox-total-count">0</strong>
+                                </div>
+                            </div>
+                            <div class="small text-muted mb-2" id="workspace-inbox-rejections"></div>
+                            <div class="workspace-list" id="workspace-inbox-items">
+                                <p class="small text-muted mb-0">No inbox data yet.</p>
+                            </div>
+                            <div class="small text-muted mt-2 mb-1">Recent audit</div>
+                            <div class="workspace-list" id="workspace-inbox-audit">
+                                <p class="small text-muted mb-0">No audit data yet.</p>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <h6 class="mb-0">Mentions</h6>
+                                <div class="small text-muted">
+                                    unacked <strong id="workspace-mention-unacked-count">0</strong>
+                                </div>
+                            </div>
+                            <div class="workspace-list" id="workspace-mention-items">
+                                <p class="small text-muted mb-0">No mention data yet.</p>
+                            </div>
+                            <div class="small text-muted mt-2 mb-1">Inbox config</div>
+                            <pre id="workspace-inbox-config" class="small mb-0 p-2 rounded border border-secondary" style="max-height: 140px; overflow:auto; background: rgba(8,16,30,0.5);">{}</pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-list-ul"></i> All users</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>Display name</th>
+                        <th>Type</th>
+                        <th>Status</th>
+                        <th>Directive</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for u in users %}
+                    <tr data-user-id="{{ u.id }}">
+                        <td>
+                            <code>{{ u.username }}</code>
+                            {% if u.get('origin_peer') %}
+                            <span class="badge bg-dark ms-1" title="Synced from peer {{ u.origin_peer }}">remote</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ u.display_name or '-' }}</td>
+                        <td>
+                            {% set at = u.get('account_type') or 'human' %}
+                            <span class="badge bg-{{ 'info' if at == 'agent' else 'secondary' }}">{{ at }}</span>
+                        </td>
+                        <td>
+                            {% set st = u.get('status') or 'active' %}
+                            <span class="badge bg-{{ 'success' if st == 'active' else 'warning' if st == 'pending_approval' else 'danger' }}">{{ st }}</span>
+                            {% if (u.get('account_type') or 'human') == 'agent' %}
+                            {% set pstate = u.get('presence_state') or 'no_checkin' %}
+                            {% set pcolor = 'success' if pstate == 'online' else 'info' if pstate == 'recent' else 'warning' if pstate == 'idle' else 'secondary' %}
+                            <span class="badge bg-{{ pcolor }} ms-1" title="Last check-in: {{ u.get('last_check_in_at') or 'none' }}">{{ u.get('presence_label') or 'No check-in' }}{% if u.get('presence_age_text') %} {{ u.get('presence_age_text') }}{% endif %}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if u.get('agent_directives_source') %}
+                            <span class="badge {% if u.get('agent_directives_source') == 'custom' %}bg-success{% elif u.get('agent_directives_source') == 'default' %}bg-secondary{% else %}bg-dark{% endif %}">{{ u.get('agent_directives_source') or 'none' }}</span>
+                            {% else %}
+                            <span class="text-muted small">-</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ u.created_at[:10] if u.created_at else '-' }}</td>
+                        <td>
+                            <button type="button" class="btn btn-outline-secondary btn-sm keys-btn" data-user-id="{{ u.id }}" data-username="{{ u.username }}">Keys</button>
+                            <button type="button"
+                                    class="btn btn-outline-primary btn-sm workspace-jump-btn"
+                                    data-user-id="{{ u.id }}"
+                                    data-display-name="{{ u.display_name or u.username }}">Workspace</button>
+                            {% if not u.get('origin_peer') %}
+                            <button type="button"
+                                    class="btn btn-outline-info btn-sm directive-jump-btn"
+                                    data-user-id="{{ u.id }}"
+                                    data-display-name="{{ u.display_name or u.username }}">Directives</button>
+                            {% endif %}
+                            {% if (u.get('status') or 'active') == 'pending_approval' %}
+                            <button type="button" class="btn btn-success btn-sm approve-btn" data-user-id="{{ u.id }}">Approve</button>
+                            <button type="button" class="btn btn-outline-danger btn-sm suspend-btn" data-user-id="{{ u.id }}">Reject</button>
+                            {% elif (u.get('status') or 'active') == 'suspended' %}
+                            <button type="button" class="btn btn-outline-success btn-sm activate-btn" data-user-id="{{ u.id }}">Activate</button>
+                            {% elif (u.get('status') or 'active') == 'active' and (u.get('account_type') or 'human') == 'agent' %}
+                            <button type="button" class="btn btn-outline-warning btn-sm suspend-btn" data-user-id="{{ u.id }}">Suspend</button>
+                            {% endif %}
+                            <button type="button" class="btn btn-outline-danger btn-sm delete-btn" data-user-id="{{ u.id }}" data-username="{{ u.username }}">Delete</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <!-- Inline API keys panel (no modal — stays in page flow to avoid z-index/obstruction) -->
+        <div id="keys-panel" class="mt-3 p-3 rounded border border-secondary" style="display: none; background: var(--canopy-bg-tertiary, rgba(30,30,50,0.4));">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="mb-0">API keys — <span id="keys-panel-username"></span></h6>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="keys-panel-close" aria-label="Close">Close</button>
+            </div>
+            <input type="hidden" id="keys-panel-user-id" value="">
+            <div id="keys-list-container">
+                <p class="text-muted small">Loading…</p>
+            </div>
+            <hr class="my-3">
+            <h6 class="mb-2">Create new key</h6>
+            <p class="text-muted small mb-2">Select permissions (default: all). The new key is shown once — copy it and give it to the user.</p>
+            <div class="mb-2" id="keys-permission-checkboxes">
+                {% for p in all_permissions %}
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input key-perm-cb" type="checkbox" id="perm-{{ p }}" value="{{ p }}">
+                    <label class="form-check-label small" for="perm-{{ p }}">{{ p }}</label>
+                </div>
+                {% endfor %}
+            </div>
+            <div class="mb-2">
+                <label class="form-label small">Expires (days, optional)</label>
+                <input type="number" class="form-control form-control-sm" id="keys-expires-days" placeholder="Leave empty for no expiry" min="1" style="max-width: 120px;">
+            </div>
+            <button type="button" class="btn btn-primary btn-sm" id="keys-create-btn">Create key</button>
+            <div id="keys-new-key-area" class="mt-3 p-2 rounded border bg-dark bg-opacity-25" style="display: none;">
+                <p class="small text-warning mb-1">Copy this key now; it will not be shown again.</p>
+                <div class="d-flex gap-2 align-items-center">
+                    <input type="text" class="form-control form-control-sm font-monospace" id="keys-new-key-input" readonly>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="keys-copy-key-btn">Copy</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+
+    function api(method, url, body) {
+        const opts = {
+            method,
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-CSRFToken': csrfToken
+            }
+        };
+        if (body && (method === 'POST' || method === 'DELETE' || method === 'PATCH' || method === 'PUT')) {
+            opts.body = JSON.stringify(body);
+        }
+        return fetch(url, opts).then(async r => {
+            let data = {};
+            try {
+                data = await r.json();
+            } catch (_) {
+                data = {};
+            }
+            return { ok: r.ok, status: r.status, data };
+        });
+    }
+
+    function apiUpload(url, formData) {
+        return fetch(url, {
+            method: 'POST',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-CSRFToken': csrfToken
+            },
+            body: formData
+        }).then(async r => {
+            let data = {};
+            try {
+                data = await r.json();
+            } catch (_) {
+                data = {};
+            }
+            return { ok: r.ok, status: r.status, data };
+        });
+    }
+
+    function rowForUserId(userId) {
+        return document.querySelector(`tr[data-user-id="${userId}"]`);
+    }
+
+    async function refreshHeartbeat() {
+        const mentionsEl = document.getElementById('heartbeat-mentions');
+        const inboxEl = document.getElementById('heartbeat-inbox');
+        const tasksEl = document.getElementById('heartbeat-tasks');
+        const catchupEl = document.getElementById('heartbeat-catchup');
+        const hashEl = document.getElementById('heartbeat-hash');
+        if (!mentionsEl || !inboxEl || !tasksEl || !catchupEl || !hashEl) return;
+        const { ok, data } = await api('GET', '/ajax/agent/heartbeat');
+        if (!ok || !data.heartbeat) return;
+        const hb = data.heartbeat;
+        mentionsEl.textContent = String(hb.unacked_mentions || 0);
+        inboxEl.textContent = String(hb.pending_inbox || 0);
+        tasksEl.textContent = String(hb.active_tasks || 0);
+        catchupEl.textContent = hb.needs_catchup ? 'yes' : 'no';
+        hashEl.textContent = hb.directives_hash || 'none';
+    }
+
+    const heartbeatRefreshBtn = document.getElementById('heartbeat-refresh-btn');
+    if (heartbeatRefreshBtn) {
+        heartbeatRefreshBtn.addEventListener('click', () => refreshHeartbeat());
+        setInterval(refreshHeartbeat, 20000);
+    }
+
+    document.querySelectorAll('.approve-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const userId = btn.getAttribute('data-user-id');
+            if (!userId) return;
+            const { ok, data } = await api('POST', `/ajax/admin/users/${userId}/approve`, {});
+            if (ok) { window.location.reload(); } else { alert(data.error || 'Failed'); }
+        });
+    });
+
+    document.querySelectorAll('.suspend-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const userId = btn.getAttribute('data-user-id');
+            if (!userId || !confirm('Suspend this user? They will not be able to use the API.')) return;
+            const { ok, data } = await api('POST', `/ajax/admin/users/${userId}/suspend`, {});
+            if (ok) { window.location.reload(); } else { alert(data.error || 'Failed'); }
+        });
+    });
+
+    document.querySelectorAll('.activate-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const userId = btn.getAttribute('data-user-id');
+            if (!userId) return;
+            const { ok, data } = await api('POST', `/ajax/admin/users/${userId}/approve`, {});
+            if (ok) { window.location.reload(); } else { alert(data.error || 'Failed'); }
+        });
+    });
+
+    document.querySelectorAll('.delete-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const userId = btn.getAttribute('data-user-id');
+            const username = btn.getAttribute('data-username') || userId;
+            if (!userId || !confirm(`Permanently delete user "${username}"? This cannot be undone.`)) return;
+            const { ok, data } = await api('DELETE', `/ajax/admin/users/${userId}`);
+            if (ok) {
+                const tr = rowForUserId(userId);
+                if (tr) tr.remove();
+                else window.location.reload();
+            } else { alert(data.error || 'Failed'); }
+        });
+    });
+
+    const transferSelect = document.getElementById('transfer-select');
+    const transferBtn = document.getElementById('transfer-admin-btn');
+    const transferMsg = document.getElementById('transfer-message');
+    if (transferBtn && transferSelect) {
+        transferBtn.addEventListener('click', async () => {
+            const userId = transferSelect.value;
+            if (!userId) { transferMsg.textContent = 'Choose a user first.'; transferMsg.style.display = 'block'; return; }
+            if (!confirm('Transfer instance admin to this user? You will no longer be admin and must log in as them (or have them transfer back).')) return;
+            transferMsg.style.display = 'none';
+            const { ok, data } = await api('POST', '/ajax/admin/transfer', { user_id: userId });
+            if (ok) {
+                window.location.href = '/';
+            } else {
+                transferMsg.textContent = data.error || 'Transfer failed';
+                transferMsg.style.display = 'block';
+            }
+        });
+    }
+
+    // Keys panel (inline below table — no modal to avoid z-index/obstruction)
+    const keysPanel = document.getElementById('keys-panel');
+    const keysPanelUserId = document.getElementById('keys-panel-user-id');
+    const keysPanelUsername = document.getElementById('keys-panel-username');
+    const keysListContainer = document.getElementById('keys-list-container');
+    const keysCreateBtn = document.getElementById('keys-create-btn');
+    const keysNewKeyArea = document.getElementById('keys-new-key-area');
+    const keysNewKeyInput = document.getElementById('keys-new-key-input');
+    const keysCopyKeyBtn = document.getElementById('keys-copy-key-btn');
+    const keysPanelClose = document.getElementById('keys-panel-close');
+
+    async function loadKeysForUser(userId) {
+        keysListContainer.innerHTML = '<p class="text-muted small">Loading…</p>';
+        const { ok, data } = await api('GET', `/ajax/admin/users/${userId}/keys`);
+        if (!ok) {
+            keysListContainer.innerHTML = '<p class="text-danger small">Failed to load keys.</p>';
+            return;
+        }
+        const keys = data.keys || [];
+        if (keys.length === 0) {
+            keysListContainer.innerHTML = '<p class="text-muted small">No API keys yet. Create one below.</p>';
+        } else {
+            keysListContainer.innerHTML = '<table class="table table-sm"><thead><tr><th>Key</th><th>Permissions</th><th>Created</th><th></th></tr></thead><tbody>' +
+                keys.map(k => '<tr>' +
+                    '<td><code>' + (k.id_suffix || k.id) + '</code></td>' +
+                    '<td><span class="badge bg-secondary me-1">' + (k.permissions || []).length + ' perms</span></td>' +
+                    '<td class="small">' + (k.created_at ? k.created_at.slice(0, 10) : '-') + '</td>' +
+                    '<td>' + (k.revoked ? '<span class="badge bg-danger">Revoked</span>' : '<button type="button" class="btn btn-outline-danger btn-sm revoke-key-btn" data-key-id="' + k.id + '">Revoke</button>') + '</td></tr>'
+                ).join('') + '</tbody></table>';
+            keysListContainer.querySelectorAll('.revoke-key-btn').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    if (!confirm('Revoke this key? It will stop working immediately.')) return;
+                    const keyId = btn.getAttribute('data-key-id');
+                    const { ok: ok2 } = await api('DELETE', `/ajax/admin/users/${userId}/keys/${keyId}`);
+                    if (ok2) loadKeysForUser(userId);
+                    else alert('Failed to revoke');
+                });
+            });
+        }
+    }
+
+    function showKeysPanel(userId, username) {
+        keysPanelUserId.value = userId;
+        keysPanelUsername.textContent = username;
+        keysNewKeyArea.style.display = 'none';
+        document.querySelectorAll('.key-perm-cb').forEach(cb => { cb.checked = true; });
+        const expEl = document.getElementById('keys-expires-days');
+        if (expEl) expEl.value = '';
+        keysPanel.style.display = 'block';
+        loadKeysForUser(userId);
+        keysPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function hideKeysPanel() {
+        keysPanel.style.display = 'none';
+    }
+
+    document.querySelectorAll('.keys-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const userId = btn.getAttribute('data-user-id');
+            const username = btn.getAttribute('data-username') || userId;
+            showKeysPanel(userId, username);
+        });
+    });
+    if (keysPanelClose) keysPanelClose.addEventListener('click', hideKeysPanel);
+
+    if (keysCreateBtn) {
+        keysCreateBtn.addEventListener('click', async () => {
+            const userId = keysPanelUserId.value;
+            if (!userId) return;
+            const perms = Array.from(document.querySelectorAll('.key-perm-cb:checked')).map(cb => cb.value);
+            const expiresVal = document.getElementById('keys-expires-days').value;
+            const expires_days = expiresVal ? parseInt(expiresVal, 10) : null;
+            const { ok, data } = await api('POST', `/ajax/admin/users/${userId}/keys`, { permissions: perms.length ? perms : undefined, expires_days: expires_days || undefined });
+            if (ok && data.api_key) {
+                keysNewKeyInput.value = data.api_key;
+                keysNewKeyArea.style.display = 'block';
+                loadKeysForUser(userId);
+            } else {
+                alert(data.error || 'Failed to create key');
+            }
+        });
+    }
+    if (keysCopyKeyBtn && keysNewKeyInput) {
+        keysCopyKeyBtn.addEventListener('click', () => {
+            keysNewKeyInput.select();
+            navigator.clipboard.writeText(keysNewKeyInput.value).then(() => { keysCopyKeyBtn.textContent = 'Copied!'; setTimeout(() => { keysCopyKeyBtn.textContent = 'Copy'; }, 2000); });
+        });
+    }
+
+    // Agent workspace panel
+    const workspaceUserButtons = Array.from(document.querySelectorAll('.workspace-user-btn'));
+    const workspaceSearch = document.getElementById('workspace-search');
+    const workspaceRefreshBtn = document.getElementById('workspace-refresh-btn');
+    const workspaceSelectedName = document.getElementById('workspace-selected-name');
+    const workspaceSelectedMeta = document.getElementById('workspace-selected-meta');
+    const workspaceSelectedAvatar = document.getElementById('workspace-selected-avatar');
+    const workspaceSelectedAvatarFallback = document.getElementById('workspace-selected-avatar-fallback');
+    const workspaceDisplayNameInput = document.getElementById('workspace-display-name-input');
+    const workspaceAccountTypeSelect = document.getElementById('workspace-account-type-select');
+    const workspaceThemeSelect = document.getElementById('workspace-theme-select');
+    const workspaceBioInput = document.getElementById('workspace-bio-input');
+    const workspaceSaveProfileBtn = document.getElementById('workspace-save-profile-btn');
+    const workspaceAvatarInput = document.getElementById('workspace-avatar-input');
+    const workspaceAvatarUploadBtn = document.getElementById('workspace-avatar-upload-btn');
+    const workspaceAvatarClearBtn = document.getElementById('workspace-avatar-clear-btn');
+    const workspaceInboxRebuildBtn = document.getElementById('workspace-inbox-rebuild-btn');
+    const workspaceReadonlyNote = document.getElementById('workspace-readonly-note');
+    const workspaceStatusLine = document.getElementById('workspace-status-line');
+    const workspaceInboxPendingCount = document.getElementById('workspace-inbox-pending-count');
+    const workspaceInboxTotalCount = document.getElementById('workspace-inbox-total-count');
+    const workspaceInboxRejections = document.getElementById('workspace-inbox-rejections');
+    const workspaceInboxItems = document.getElementById('workspace-inbox-items');
+    const workspaceInboxAudit = document.getElementById('workspace-inbox-audit');
+    const workspaceMentionUnackedCount = document.getElementById('workspace-mention-unacked-count');
+    const workspaceMentionItems = document.getElementById('workspace-mention-items');
+    const workspaceInboxConfig = document.getElementById('workspace-inbox-config');
+    const workspaceGovernanceEnabled = document.getElementById('workspace-governance-enabled');
+    const workspaceGovernanceBlockPublic = document.getElementById('workspace-governance-block-public');
+    const workspaceGovernanceAllowlist = document.getElementById('workspace-governance-allowlist');
+    const workspaceGovernanceAllowedChannels = document.getElementById('workspace-governance-allowed-channels');
+    const workspaceGovernanceSummary = document.getElementById('workspace-governance-summary');
+    const workspaceSaveGovernanceBtn = document.getElementById('workspace-save-governance-btn');
+    const workspaceEnforceGovernanceBtn = document.getElementById('workspace-enforce-governance-btn');
+
+    let selectedWorkspaceUserId = null;
+    let selectedWorkspaceUserLabel = null;
+    let selectedWorkspaceIsLocal = true;
+
+    function escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function formatTime(value) {
+        if (!value) return '-';
+        const dt = new Date(value);
+        if (Number.isNaN(dt.getTime())) return String(value);
+        return dt.toLocaleString();
+    }
+
+    function setWorkspaceStatus(text, isError = false) {
+        if (!workspaceStatusLine) return;
+        workspaceStatusLine.textContent = text || '';
+        workspaceStatusLine.classList.toggle('text-danger', !!isError);
+        workspaceStatusLine.classList.toggle('text-success', !isError && !!text);
+    }
+
+    function getSelectedOptions(selectEl) {
+        if (!selectEl) return [];
+        return Array.from(selectEl.selectedOptions || [])
+            .map(opt => String(opt.value || '').trim())
+            .filter(Boolean);
+    }
+
+    function syncGovernanceControlState() {
+        const canEdit = !!selectedWorkspaceIsLocal;
+        if (workspaceGovernanceAllowedChannels) {
+            const allowlistEnabled = !!workspaceGovernanceAllowlist?.checked;
+            workspaceGovernanceAllowedChannels.disabled = !canEdit || !allowlistEnabled;
+        }
+    }
+
+    function setWorkspaceEditable(canEdit) {
+        selectedWorkspaceIsLocal = !!canEdit;
+        [workspaceDisplayNameInput, workspaceAccountTypeSelect, workspaceThemeSelect, workspaceBioInput, workspaceSaveProfileBtn, workspaceAvatarUploadBtn, workspaceAvatarClearBtn, workspaceGovernanceEnabled, workspaceGovernanceBlockPublic, workspaceGovernanceAllowlist, workspaceSaveGovernanceBtn, workspaceEnforceGovernanceBtn]
+            .filter(Boolean)
+            .forEach(el => { el.disabled = !canEdit; });
+        if (workspaceReadonlyNote) {
+            workspaceReadonlyNote.style.display = canEdit ? 'none' : 'block';
+        }
+        syncGovernanceControlState();
+    }
+
+    function renderWorkspaceList(container, rows, emptyText, renderRow) {
+        if (!container) return;
+        if (!rows || rows.length === 0) {
+            container.innerHTML = `<p class="small text-muted mb-0">${escapeHtml(emptyText)}</p>`;
+            return;
+        }
+        container.innerHTML = rows.map(renderRow).join('');
+    }
+
+    function renderWorkspace(workspace) {
+        if (!workspace || !workspace.user) return;
+        const user = workspace.user || {};
+        const inbox = workspace.inbox || {};
+        const mentions = workspace.mentions || {};
+        const governance = workspace.governance || {};
+        const governancePolicy = governance.policy || {};
+        const governanceChannels = Array.isArray(governance.channels) ? governance.channels : [];
+
+        selectedWorkspaceUserId = user.id || null;
+        selectedWorkspaceUserLabel = user.display_name || user.username || user.id || null;
+
+        if (workspaceSelectedName) workspaceSelectedName.textContent = selectedWorkspaceUserLabel || 'Unknown user';
+        if (workspaceSelectedMeta) {
+            const remoteLabel = user.origin_peer ? `remote via ${user.origin_peer}` : 'local';
+            workspaceSelectedMeta.textContent = `@${user.username || user.id || ''} · ${user.account_type || 'human'} · ${user.status || 'active'} · ${remoteLabel}`;
+        }
+
+        if (workspaceDisplayNameInput) workspaceDisplayNameInput.value = user.display_name || '';
+        if (workspaceBioInput) workspaceBioInput.value = user.bio || '';
+        if (workspaceAccountTypeSelect) workspaceAccountTypeSelect.value = user.account_type || 'human';
+        if (workspaceThemeSelect) workspaceThemeSelect.value = user.theme_preference || 'dark';
+
+        const avatarUrl = user.avatar_url || '';
+        if (workspaceSelectedAvatar && workspaceSelectedAvatarFallback) {
+            if (avatarUrl) {
+                workspaceSelectedAvatar.src = avatarUrl;
+                workspaceSelectedAvatar.style.display = 'block';
+                workspaceSelectedAvatarFallback.style.display = 'none';
+            } else {
+                workspaceSelectedAvatar.removeAttribute('src');
+                workspaceSelectedAvatar.style.display = 'none';
+                workspaceSelectedAvatarFallback.style.display = 'block';
+            }
+        }
+
+        setWorkspaceEditable(!!user.is_local);
+
+        if (workspaceInboxPendingCount) workspaceInboxPendingCount.textContent = String(inbox.pending_count || 0);
+        if (workspaceInboxTotalCount) workspaceInboxTotalCount.textContent = String(inbox.total_count || 0);
+        if (workspaceMentionUnackedCount) workspaceMentionUnackedCount.textContent = String(mentions.unacked_count || 0);
+
+        const rejectionCounts = ((inbox.stats || {}).rejection_counts) || {};
+        const rejectionText = Object.keys(rejectionCounts).length
+            ? Object.entries(rejectionCounts).map(([k, v]) => `${k}: ${v}`).join(' • ')
+            : 'No recent rejection reasons.';
+        if (workspaceInboxRejections) workspaceInboxRejections.textContent = rejectionText;
+
+        if (workspaceInboxConfig) {
+            workspaceInboxConfig.textContent = JSON.stringify(inbox.config || {}, null, 2);
+        }
+
+        if (workspaceGovernanceEnabled) workspaceGovernanceEnabled.checked = !!governancePolicy.enabled;
+        if (workspaceGovernanceBlockPublic) workspaceGovernanceBlockPublic.checked = !!governancePolicy.block_public_channels;
+        if (workspaceGovernanceAllowlist) workspaceGovernanceAllowlist.checked = !!governancePolicy.restrict_to_allowed_channels;
+
+        if (workspaceGovernanceAllowedChannels) {
+            const allowedSet = new Set((governancePolicy.allowed_channel_ids || []).map(id => String(id)));
+            workspaceGovernanceAllowedChannels.innerHTML = '';
+            governanceChannels.forEach((channel) => {
+                const channelId = String(channel.id || '').trim();
+                if (!channelId) return;
+                const channelName = channel.name || channelId;
+                const mode = channel.privacy_mode || 'open';
+                const memberState = channel.is_member ? 'member' : 'not member';
+                const option = document.createElement('option');
+                option.value = channelId;
+                option.selected = allowedSet.has(channelId);
+                option.textContent = `#${channelName} [${mode}] \u00b7 ${memberState}`;
+                workspaceGovernanceAllowedChannels.appendChild(option);
+            });
+            if (!workspaceGovernanceAllowedChannels.options.length) {
+                const emptyOption = document.createElement('option');
+                emptyOption.value = '';
+                emptyOption.textContent = 'No channels available';
+                emptyOption.disabled = true;
+                workspaceGovernanceAllowedChannels.appendChild(emptyOption);
+            }
+        }
+
+        if (workspaceGovernanceSummary) {
+            const allowedCount = (governancePolicy.allowed_channel_ids || []).length;
+            const updatedAt = governancePolicy.updated_at ? formatTime(governancePolicy.updated_at) : 'never';
+            const updatedBy = governancePolicy.updated_by ? ` by ${governancePolicy.updated_by}` : '';
+            workspaceGovernanceSummary.textContent =
+                `enabled=${governancePolicy.enabled ? 'yes' : 'no'} \u00b7 ` +
+                `block_public=${governancePolicy.block_public_channels ? 'yes' : 'no'} \u00b7 ` +
+                `allowlist=${governancePolicy.restrict_to_allowed_channels ? 'yes' : 'no'} (${allowedCount}) \u00b7 ` +
+                `updated ${updatedAt}${updatedBy}`;
+        }
+        syncGovernanceControlState();
+
+        renderWorkspaceList(
+            workspaceInboxItems,
+            inbox.items || [],
+            'No inbox items found.',
+            (item) => {
+                const preview = item.preview || '(no preview)';
+                return (
+                    `<div class="workspace-list-item">` +
+                        `<div class="workspace-list-title">${escapeHtml(item.trigger_type || item.source_type || 'item')} · ${escapeHtml(item.status || 'pending')}</div>` +
+                        `<div class="workspace-list-meta">${escapeHtml(item.source_type || '')}:${escapeHtml(item.source_id || '')} · ${formatTime(item.created_at)}</div>` +
+                        `<div class="small text-muted">${escapeHtml(preview)}</div>` +
+                    `</div>`
+                );
+            }
+        );
+
+        renderWorkspaceList(
+            workspaceInboxAudit,
+            inbox.audit || [],
+            'No recent audit rows.',
+            (row) => (
+                `<div class="workspace-list-item">` +
+                    `<div class="workspace-list-title">${escapeHtml(row.reason || 'unknown')}</div>` +
+                    `<div class="workspace-list-meta">${escapeHtml(row.source_type || '')}:${escapeHtml(row.source_id || '')} · ${formatTime(row.created_at)}</div>` +
+                `</div>`
+            )
+        );
+
+        renderWorkspaceList(
+            workspaceMentionItems,
+            mentions.items || [],
+            'No mentions recorded.',
+            (mention) => (
+                `<div class="workspace-list-item">` +
+                    `<div class="workspace-list-title">${escapeHtml(mention.source_type || 'mention')} · ${escapeHtml(mention.status || 'new')}</div>` +
+                    `<div class="workspace-list-meta">${escapeHtml(mention.source_id || '')} · ${formatTime(mention.created_at)}</div>` +
+                    `<div class="small text-muted">${escapeHtml(mention.preview || '(no preview)')}</div>` +
+                `</div>`
+            )
+        );
+
+        workspaceUserButtons.forEach(btn => {
+            btn.classList.toggle('active', btn.getAttribute('data-user-id') === user.id);
+        });
+    }
+
+    async function loadWorkspaceForUser(userId, label) {
+        if (!userId) return;
+        selectedWorkspaceUserId = userId;
+        selectedWorkspaceUserLabel = label || userId;
+        if (workspaceSelectedName) workspaceSelectedName.textContent = selectedWorkspaceUserLabel;
+        setWorkspaceStatus('Loading workspace...');
+        const { ok, data } = await api('GET', `/ajax/admin/users/${userId}/workspace`);
+        if (!ok) {
+            setWorkspaceStatus(data.error || 'Failed to load workspace', true);
+            return;
+        }
+        renderWorkspace(data.workspace || {});
+        setWorkspaceStatus('Workspace loaded');
+    }
+
+    workspaceUserButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const uid = btn.getAttribute('data-user-id');
+            const label = btn.getAttribute('data-display-name') || btn.getAttribute('data-username') || uid;
+            loadWorkspaceForUser(uid, label);
+        });
+    });
+
+    document.querySelectorAll('.workspace-jump-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const uid = btn.getAttribute('data-user-id');
+            const label = btn.getAttribute('data-display-name') || uid;
+            const target = document.querySelector(`.workspace-user-btn[data-user-id="${uid}"]`);
+            if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            const shell = document.querySelector('.workspace-shell');
+            if (shell) shell.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            loadWorkspaceForUser(uid, label);
+        });
+    });
+
+    if (workspaceSearch) {
+        workspaceSearch.addEventListener('input', () => {
+            const term = (workspaceSearch.value || '').trim().toLowerCase();
+            workspaceUserButtons.forEach(btn => {
+                const hay = (
+                    (btn.getAttribute('data-display-name') || '') + ' ' +
+                    (btn.getAttribute('data-username') || '') + ' ' +
+                    (btn.getAttribute('data-user-id') || '')
+                ).toLowerCase();
+                btn.style.display = (!term || hay.includes(term)) ? '' : 'none';
+            });
+        });
+    }
+
+    if (workspaceRefreshBtn) {
+        workspaceRefreshBtn.addEventListener('click', async () => {
+            if (selectedWorkspaceUserId) {
+                await loadWorkspaceForUser(selectedWorkspaceUserId, selectedWorkspaceUserLabel);
+                return;
+            }
+            if (workspaceUserButtons.length > 0) {
+                const first = workspaceUserButtons[0];
+                await loadWorkspaceForUser(first.getAttribute('data-user-id'), first.getAttribute('data-display-name') || first.getAttribute('data-username'));
+            }
+        });
+    }
+
+    if (workspaceSaveProfileBtn) {
+        workspaceSaveProfileBtn.addEventListener('click', async () => {
+            if (!selectedWorkspaceUserId) {
+                setWorkspaceStatus('Select a user first', true);
+                return;
+            }
+            if (!selectedWorkspaceIsLocal) {
+                setWorkspaceStatus('Remote peer profiles are read-only on this instance', true);
+                return;
+            }
+            const payload = {
+                display_name: (workspaceDisplayNameInput?.value || '').trim(),
+                bio: (workspaceBioInput?.value || '').trim(),
+                account_type: workspaceAccountTypeSelect?.value || 'human',
+                theme_preference: workspaceThemeSelect?.value || 'dark'
+            };
+            const { ok, data } = await api('POST', `/ajax/admin/users/${selectedWorkspaceUserId}/profile`, payload);
+            if (!ok) {
+                setWorkspaceStatus(data.error || 'Failed to update profile', true);
+                return;
+            }
+            if (data.workspace) renderWorkspace(data.workspace);
+            setWorkspaceStatus(data.message || 'Profile updated');
+        });
+    }
+
+    if (workspaceAvatarUploadBtn && workspaceAvatarInput) {
+        workspaceAvatarUploadBtn.addEventListener('click', () => {
+            if (!selectedWorkspaceUserId) {
+                setWorkspaceStatus('Select a user first', true);
+                return;
+            }
+            if (!selectedWorkspaceIsLocal) {
+                setWorkspaceStatus('Remote peer profiles are read-only on this instance', true);
+                return;
+            }
+            workspaceAvatarInput.click();
+        });
+
+        workspaceAvatarInput.addEventListener('change', async () => {
+            if (!selectedWorkspaceUserId) return;
+            const file = workspaceAvatarInput.files && workspaceAvatarInput.files[0];
+            if (!file) return;
+            const formData = new FormData();
+            formData.append('avatar', file);
+            setWorkspaceStatus('Uploading avatar...');
+            const { ok, data } = await apiUpload(`/ajax/admin/users/${selectedWorkspaceUserId}/avatar`, formData);
+            workspaceAvatarInput.value = '';
+            if (!ok) {
+                setWorkspaceStatus(data.error || 'Avatar upload failed', true);
+                return;
+            }
+            if (data.workspace) renderWorkspace(data.workspace);
+            setWorkspaceStatus(data.message || 'Avatar updated');
+        });
+    }
+
+    if (workspaceAvatarClearBtn) {
+        workspaceAvatarClearBtn.addEventListener('click', async () => {
+            if (!selectedWorkspaceUserId) {
+                setWorkspaceStatus('Select a user first', true);
+                return;
+            }
+            if (!selectedWorkspaceIsLocal) {
+                setWorkspaceStatus('Remote peer profiles are read-only on this instance', true);
+                return;
+            }
+            if (!confirm('Remove avatar for this user?')) return;
+            const { ok, data } = await api('DELETE', `/ajax/admin/users/${selectedWorkspaceUserId}/avatar`);
+            if (!ok) {
+                setWorkspaceStatus(data.error || 'Failed to remove avatar', true);
+                return;
+            }
+            if (data.workspace) renderWorkspace(data.workspace);
+            setWorkspaceStatus(data.message || 'Avatar removed');
+        });
+    }
+
+    if (workspaceInboxRebuildBtn) {
+        workspaceInboxRebuildBtn.addEventListener('click', async () => {
+            if (!selectedWorkspaceUserId) {
+                setWorkspaceStatus('Select a user first', true);
+                return;
+            }
+            if (!confirm('Rebuild inbox from recent channel mentions for this user?')) return;
+            setWorkspaceStatus('Rebuilding inbox...');
+            const { ok, data } = await api('POST', `/ajax/admin/users/${selectedWorkspaceUserId}/inbox/rebuild`, {
+                window_hours: 168,
+                limit: 2000
+            });
+            if (!ok) {
+                setWorkspaceStatus(data.error || 'Inbox rebuild failed', true);
+                return;
+            }
+            if (data.workspace) renderWorkspace(data.workspace);
+            setWorkspaceStatus(data.message || 'Inbox rebuild complete');
+        });
+    }
+
+    [workspaceGovernanceAllowlist, workspaceGovernanceEnabled].filter(Boolean).forEach((el) => {
+        el.addEventListener('change', () => {
+            syncGovernanceControlState();
+        });
+    });
+
+    if (workspaceSaveGovernanceBtn) {
+        workspaceSaveGovernanceBtn.addEventListener('click', async () => {
+            if (!selectedWorkspaceUserId) {
+                setWorkspaceStatus('Select a user first', true);
+                return;
+            }
+            if (!selectedWorkspaceIsLocal) {
+                setWorkspaceStatus('Remote peer users are read-only on this instance', true);
+                return;
+            }
+            const payload = {
+                enabled: !!workspaceGovernanceEnabled?.checked,
+                block_public_channels: !!workspaceGovernanceBlockPublic?.checked,
+                restrict_to_allowed_channels: !!workspaceGovernanceAllowlist?.checked,
+                allowed_channel_ids: getSelectedOptions(workspaceGovernanceAllowedChannels),
+                enforce_now: false,
+            };
+            const { ok, data } = await api('POST', `/ajax/admin/users/${selectedWorkspaceUserId}/governance`, payload);
+            if (!ok) {
+                setWorkspaceStatus(data.error || 'Failed to save governance policy', true);
+                return;
+            }
+            if (data.workspace) renderWorkspace(data.workspace);
+            setWorkspaceStatus(data.message || 'Governance policy updated');
+        });
+    }
+
+    if (workspaceEnforceGovernanceBtn) {
+        workspaceEnforceGovernanceBtn.addEventListener('click', async () => {
+            if (!selectedWorkspaceUserId) {
+                setWorkspaceStatus('Select a user first', true);
+                return;
+            }
+            if (!selectedWorkspaceIsLocal) {
+                setWorkspaceStatus('Remote peer users are read-only on this instance', true);
+                return;
+            }
+            if (!confirm('Apply governance policy now and remove disallowed memberships for this user?')) return;
+            const payload = {
+                enabled: !!workspaceGovernanceEnabled?.checked,
+                block_public_channels: !!workspaceGovernanceBlockPublic?.checked,
+                restrict_to_allowed_channels: !!workspaceGovernanceAllowlist?.checked,
+                allowed_channel_ids: getSelectedOptions(workspaceGovernanceAllowedChannels),
+                enforce_now: true,
+            };
+            const { ok, data } = await api('POST', `/ajax/admin/users/${selectedWorkspaceUserId}/governance`, payload);
+            if (!ok) {
+                setWorkspaceStatus(data.error || 'Failed to enforce governance policy', true);
+                return;
+            }
+            if (data.workspace) renderWorkspace(data.workspace);
+            const removed = Number((data.enforcement || {}).removed_count || 0);
+            setWorkspaceStatus(data.message || `Governance enforced (removed ${removed} memberships)`);
+        });
+    }
+
+    if (workspaceUserButtons.length > 0) {
+        const first = workspaceUserButtons[0];
+        loadWorkspaceForUser(first.getAttribute('data-user-id'), first.getAttribute('data-display-name') || first.getAttribute('data-username'));
+    }
+
+    // Agent directives control panel
+    const directiveAgentButtons = Array.from(document.querySelectorAll('.directive-agent-btn'));
+    const directiveSelectedUser = document.getElementById('directive-selected-user');
+    const directiveSourceBadge = document.getElementById('directive-source-badge');
+    const directiveTextarea = document.getElementById('directive-textarea');
+    const directiveCharCount = document.getElementById('directive-char-count');
+    const directivePreview = document.getElementById('directive-preview');
+    const directiveStatusLine = document.getElementById('directive-status-line');
+    const directivePresetSelect = document.getElementById('directive-preset-select');
+    const directiveApplyPresetBtn = document.getElementById('directive-apply-preset-btn');
+    const directiveSaveBtn = document.getElementById('directive-save-btn');
+    const directiveResetDefaultBtn = document.getElementById('directive-reset-default-btn');
+    const directiveClearBtn = document.getElementById('directive-clear-btn');
+    const directiveApplyDefaultsBtn = document.getElementById('directive-apply-defaults-btn');
+    const directiveRefreshBtn = document.getElementById('directive-refresh-btn');
+
+    let selectedDirectiveUserId = null;
+    let selectedDirectiveUserLabel = null;
+
+    function sourceBadgeClass(source) {
+        if (source === 'custom') return 'badge bg-success directive-source';
+        if (source === 'default') return 'badge bg-secondary directive-source';
+        return 'badge bg-dark directive-source';
+    }
+
+    function setDirectiveStatus(text, isError = false) {
+        if (!directiveStatusLine) return;
+        directiveStatusLine.textContent = text || '';
+        directiveStatusLine.classList.toggle('text-danger', !!isError);
+        directiveStatusLine.classList.toggle('text-success', !isError && !!text);
+    }
+
+    function renderDirectiveState(state) {
+        if (!state) return;
+        const source = state.source || 'none';
+        directiveSourceBadge.className = sourceBadgeClass(source);
+        directiveSourceBadge.textContent = source;
+        const textForEdit = state.custom || state.effective || '';
+        directiveTextarea.value = textForEdit;
+        directiveCharCount.textContent = String(textForEdit.length);
+        directivePreview.textContent = state.effective || 'No effective directives.';
+    }
+
+    async function loadDirectiveForUser(userId, label) {
+        if (!userId) return;
+        selectedDirectiveUserId = userId;
+        selectedDirectiveUserLabel = label || userId;
+        directiveSelectedUser.textContent = selectedDirectiveUserLabel;
+        setDirectiveStatus('Loading directives…');
+        const { ok, data } = await api('GET', `/ajax/admin/users/${userId}/directive`);
+        if (!ok) {
+            setDirectiveStatus(data.error || 'Failed to load directives', true);
+            return;
+        }
+        renderDirectiveState(data.directive || {});
+        setDirectiveStatus('Loaded');
+        directiveAgentButtons.forEach(btn => {
+            btn.classList.toggle('active', btn.getAttribute('data-user-id') === userId);
+        });
+    }
+
+    directiveAgentButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const uid = btn.getAttribute('data-user-id');
+            const label = btn.getAttribute('data-display-name') || btn.getAttribute('data-username') || uid;
+            loadDirectiveForUser(uid, label);
+        });
+    });
+
+    document.querySelectorAll('.directive-jump-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const uid = btn.getAttribute('data-user-id');
+            const label = btn.getAttribute('data-display-name') || uid;
+            const target = document.querySelector(`.directive-agent-btn[data-user-id="${uid}"]`);
+            if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            loadDirectiveForUser(uid, label);
+        });
+    });
+
+    if (directiveTextarea) {
+        directiveTextarea.addEventListener('input', () => {
+            directiveCharCount.textContent = String((directiveTextarea.value || '').length);
+        });
+    }
+
+    if (directiveSaveBtn) {
+        directiveSaveBtn.addEventListener('click', async () => {
+            if (!selectedDirectiveUserId) {
+                setDirectiveStatus('Select an agent first', true);
+                return;
+            }
+            const payload = { agent_directives: directiveTextarea.value || '' };
+            const { ok, data } = await api('POST', `/ajax/admin/users/${selectedDirectiveUserId}/directive`, payload);
+            if (!ok) {
+                setDirectiveStatus(data.error || 'Failed to save directives', true);
+                return;
+            }
+            renderDirectiveState(data.directive || {});
+            setDirectiveStatus('Saved custom directives');
+        });
+    }
+
+    if (directiveApplyPresetBtn) {
+        directiveApplyPresetBtn.addEventListener('click', async () => {
+            if (!selectedDirectiveUserId) {
+                setDirectiveStatus('Select an agent first', true);
+                return;
+            }
+            const presetId = directivePresetSelect.value;
+            if (!presetId) {
+                setDirectiveStatus('Select a preset', true);
+                return;
+            }
+            const { ok, data } = await api('POST', `/ajax/admin/users/${selectedDirectiveUserId}/directive`, { preset_id: presetId });
+            if (!ok) {
+                setDirectiveStatus(data.error || 'Failed to apply preset', true);
+                return;
+            }
+            renderDirectiveState(data.directive || {});
+            setDirectiveStatus('Preset applied');
+        });
+    }
+
+    if (directiveResetDefaultBtn) {
+        directiveResetDefaultBtn.addEventListener('click', async () => {
+            if (!selectedDirectiveUserId) {
+                setDirectiveStatus('Select an agent first', true);
+                return;
+            }
+            if (!confirm('Reset this agent to default directives?')) return;
+            const { ok, data } = await api('POST', `/ajax/admin/users/${selectedDirectiveUserId}/directive`, { use_default: true });
+            if (!ok) {
+                setDirectiveStatus(data.error || 'Failed to reset directives', true);
+                return;
+            }
+            renderDirectiveState(data.directive || {});
+            setDirectiveStatus('Default directives restored');
+        });
+    }
+
+    if (directiveClearBtn) {
+        directiveClearBtn.addEventListener('click', () => {
+            directiveTextarea.value = '';
+            directiveCharCount.textContent = '0';
+            setDirectiveStatus('Editor cleared (not saved)');
+        });
+    }
+
+    if (directiveApplyDefaultsBtn) {
+        directiveApplyDefaultsBtn.addEventListener('click', async () => {
+            if (!confirm('Apply defaults to agent accounts with missing custom directives?')) return;
+            const { ok, data } = await api('POST', '/ajax/admin/agent-directives/apply-defaults', { overwrite: false });
+            if (!ok) {
+                setDirectiveStatus(data.error || 'Bulk apply failed', true);
+                return;
+            }
+            setDirectiveStatus(`Defaults applied to ${data.updated_count || 0} agent(s)`);
+        });
+    }
+
+    if (directiveRefreshBtn) {
+        directiveRefreshBtn.addEventListener('click', async () => {
+            if (!selectedDirectiveUserId) return window.location.reload();
+            await loadDirectiveForUser(selectedDirectiveUserId, selectedDirectiveUserLabel);
+        });
+    }
+
+    if (directiveAgentButtons.length > 0) {
+        const first = directiveAgentButtons[0];
+        loadDirectiveForUser(first.getAttribute('data-user-id'), first.getAttribute('data-display-name') || first.getAttribute('data-username'));
+    }
+})();
+</script>
+{% endblock %}

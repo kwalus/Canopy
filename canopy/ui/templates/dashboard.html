@@ -1,0 +1,513 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Canopy{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="h3 mb-0">
+        <i class="bi bi-house-door"></i> Dashboard
+    </h1>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-primary btn-sm" onclick="refreshDashboard()">
+            <i class="bi bi-arrow-clockwise"></i> Refresh
+        </button>
+    </div>
+</div>
+
+<!-- Statistics Cards -->
+<div class="row mb-4">
+    <div class="col-md-3 col-sm-6 mb-3">
+        <div class="card stats-card">
+            <div class="card-body">
+                <i class="bi bi-chat-left-text fs-1 text-primary mb-2"></i>
+                <div class="stats-number">{{ message_stats.total_messages }}</div>
+                <div class="text-muted">Total Messages</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 col-sm-6 mb-3">
+        <div class="card stats-card">
+            <div class="card-body">
+                <i class="bi bi-key fs-1 text-success mb-2"></i>
+                <div class="stats-number">{{ api_keys|length }}</div>
+                <div class="text-muted">API Keys</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 col-sm-6 mb-3">
+        <div class="card stats-card">
+            <div class="card-body">
+                <i class="bi bi-people fs-1 text-info mb-2"></i>
+                <div class="stats-number">{{ trust_scores|length }}</div>
+                <div class="text-muted">Network Peers</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 col-sm-6 mb-3">
+        <div class="card stats-card">
+            <div class="card-body">
+                <i class="bi bi-shield-check fs-1 text-warning mb-2"></i>
+                {% set trusted_count = trust_scores.values() | selectattr('is_trusted') | list | length %}
+                <div class="stats-number">{{ trusted_count }}</div>
+                <div class="text-muted">Trusted Peers</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Recent Messages -->
+    <div class="col-lg-6 mb-4">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="bi bi-chat-left-text"></i> Recent Messages
+                </h5>
+                <a href="{{ url_for('ui.messages') }}" class="btn btn-sm btn-outline-primary">
+                    View All
+                </a>
+            </div>
+            <div class="card-body">
+                {% if recent_messages %}
+                    <div id="recent-messages">
+                        {% for message in recent_messages[:5] %}
+                            <div class="d-flex align-items-start mb-3 pb-3 border-bottom" data-user-id="{{ message.sender_id }}">
+                                <div class="flex-shrink-0">
+                                    <div class="user-avatar" style="width: 40px; height: 40px;" data-user-id="{{ message.sender_id }}">
+                                        <div class="bg-secondary rounded-circle d-flex align-items-center justify-content-center" 
+                                             style="width: 100%; height: 100%;">
+                                            <i class="bi bi-person text-white"></i>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="flex-grow-1 ms-3">
+                                    <div class="d-flex justify-content-between align-items-start">
+                                        <h6 class="mb-1" data-user-display="{{ message.sender_id }}">
+                                            {{ message.sender_username or message.sender_id }}
+                                        </h6>
+                                        <small class="text-muted timestamp" data-timestamp="{{ message.created_at }}">
+                                            {{ message.created_at }}
+                                        </small>
+                                    </div>
+                                    <div class="message-content">
+                                        {% if message.content %}
+                                            <p class="mb-1 text-truncate">{{ message.content[:100] }}{% if message.content|length > 100 %}...{% endif %}</p>
+                                        {% endif %}
+                                                                        {% if message.metadata and message.metadata.attachments %}
+                                    <div class="attachments-preview mt-1">
+                                        {% for attachment in message.metadata.attachments[:2] %}
+                                                    {% if attachment.type and attachment.type.startswith('image/') %}
+                                                        <span class="badge bg-primary me-1">
+                                                            <i class="bi bi-image"></i> {{ attachment.name }}
+                                                        </span>
+                                                    {% else %}
+                                                        <span class="badge bg-secondary me-1">
+                                                            <i class="bi bi-paperclip"></i> {{ attachment.name }}
+                                                        </span>
+                                                    {% endif %}
+                                                {% endfor %}
+                                                                                        {% if message.metadata.attachments|length > 2 %}
+                                            <span class="text-muted small">+{{ message.metadata.attachments|length - 2 }} more</span>
+                                                {% endif %}
+                                            </div>
+                                        {% endif %}
+                                    </div>
+                                    <small class="text-muted">
+                                        <i class="bi bi-{{ 'broadcast' if not message.recipient_id else 'person' }}"></i>
+                                        {{ 'Broadcast' if not message.recipient_id else 'Direct Message' }}
+                                    </small>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="text-center text-muted py-4">
+                        <i class="bi bi-chat-left-text fs-1 mb-3"></i>
+                        <p class="mb-0">No messages yet</p>
+                        <small>Start a conversation to see messages here</small>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <!-- Quick Actions -->
+    <div class="col-lg-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-lightning"></i> Quick Actions
+                </h5>
+            </div>
+            <div class="card-body">
+                <!-- Send Message -->
+                <div class="mb-3">
+                    <button class="btn btn-primary w-100" data-bs-toggle="modal" data-bs-target="#sendMessageModal">
+                        <i class="bi bi-plus-circle"></i> Send Message
+                    </button>
+                </div>
+                
+                <!-- Generate API Key -->
+                <div class="mb-3">
+                    <button class="btn btn-success w-100" data-bs-toggle="modal" data-bs-target="#generateKeyModal">
+                        <i class="bi bi-key"></i> Generate API Key
+                    </button>
+                </div>
+                
+                <!-- View Trust Network -->
+                <div class="mb-3">
+                    <a href="{{ url_for('ui.trust_management') }}" class="btn btn-info w-100">
+                        <i class="bi bi-diagram-3"></i> Trust Network
+                    </a>
+                </div>
+                
+                <!-- System Info -->
+                <div class="accordion" id="systemInfoAccordion">
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" 
+                                    data-bs-toggle="collapse" data-bs-target="#systemInfo">
+                                <i class="bi bi-info-circle me-2"></i> System Information
+                            </button>
+                        </h2>
+                        <div id="systemInfo" class="accordion-collapse collapse" 
+                             data-bs-parent="#systemInfoAccordion">
+                            <div class="accordion-body">
+                                <div class="row">
+                                    <div class="col-6">
+                                        <strong>Database:</strong><br>
+                                        <small class="text-muted">
+                                            Users: {{ db_stats.users or 0 }}<br>
+                                            Messages: {{ db_stats.messages or 0 }}<br>
+                                            Trust Scores: {{ db_stats.trust_scores or 0 }}
+                                        </small>
+                                    </div>
+                                    <div class="col-6">
+                                        <strong>Network:</strong><br>
+                                        <small class="text-muted">
+                                            Port: {{ config.network.port }}<br>
+                                            Max Peers: {{ config.network.max_peers }}<br>
+                                            Trust Threshold: {{ config.security.trust_threshold }}
+                                        </small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Trust Network Overview -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="bi bi-shield-check"></i> Trust Network Overview
+                </h5>
+                <a href="{{ url_for('ui.trust_management') }}" class="btn btn-sm btn-outline-primary">
+                    Manage Trust
+                </a>
+            </div>
+            <div class="card-body">
+                {% if trust_scores %}
+                    <div class="row">
+                        {% for peer_id, score_info in trust_scores.items() %}
+                            {% if loop.index <= 6 %}
+                                <div class="col-md-4 col-lg-2 mb-3">
+                                    <div class="text-center">
+                                        <div class="trust-score 
+                                            {% if score_info.score >= 80 %}trust-high
+                                            {% elif score_info.score >= 50 %}trust-medium
+                                            {% else %}trust-low{% endif %}">
+                                            {{ score_info.score }}
+                                        </div>
+                                        <div class="mt-2">
+                                            <small class="text-muted d-block">{{ peer_id[:12] }}...</small>
+                                            <small class="text-muted">
+                                                <i class="bi bi-check-circle text-success"></i> {{ score_info.compliance_events }}
+                                                <i class="bi bi-x-circle text-danger ms-1"></i> {{ score_info.violation_events }}
+                                            </small>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endif %}
+                        {% endfor %}
+                        
+                        {% if trust_scores|length > 6 %}
+                            <div class="col-md-4 col-lg-2 mb-3">
+                                <div class="text-center">
+                                    <div class="text-muted">
+                                        <i class="bi bi-three-dots fs-3"></i>
+                                    </div>
+                                    <small class="text-muted">+{{ trust_scores|length - 6 }} more</small>
+                                </div>
+                            </div>
+                        {% endif %}
+                    </div>
+                    
+                    {% if trust_stats %}
+                        <div class="mt-3 pt-3 border-top">
+                            <div class="row text-center">
+                                <div class="col-md-3">
+                                    <div class="text-muted">Average Score</div>
+                                    <div class="fw-bold">{{ "%.1f"|format(trust_stats.average_score or 0) }}</div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="text-muted">Compliance Rate</div>
+                                    <div class="fw-bold text-success">{{ "%.1f"|format(trust_stats.compliance_rate or 100) }}%</div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="text-muted">Total Signals</div>
+                                    <div class="fw-bold">{{ trust_stats.total_signals or 0 }}</div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="text-muted">Pending Signals</div>
+                                    <div class="fw-bold text-warning">{{ trust_stats.pending_signals or 0 }}</div>
+                                </div>
+                            </div>
+                        </div>
+                    {% endif %}
+                {% else %}
+                    <div class="text-center text-muted py-4">
+                        <i class="bi bi-shield-check fs-1 mb-3"></i>
+                        <p class="mb-0">No peers in trust network yet</p>
+                        <small>Trust scores will appear as you interact with other Canopy users</small>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Send Message Modal -->
+<div class="modal fade" id="sendMessageModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-plus-circle"></i> Send Message
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="sendMessageForm">
+                    <div class="mb-3">
+                        <label for="messageRecipient" class="form-label">Recipient (leave empty for broadcast)</label>
+                        <input type="text" class="form-control" id="messageRecipient" 
+                               placeholder="Enter recipient ID or leave empty">
+                    </div>
+                    <div class="mb-3">
+                        <label for="messageContent" class="form-label">Message</label>
+                        <textarea class="form-control" id="messageContent" rows="3" 
+                                  placeholder="Enter your message here..." required></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="sendMessage()">
+                    <i class="bi bi-send"></i> Send Message
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Generate API Key Modal -->
+<div class="modal fade" id="generateKeyModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-key"></i> Generate API Key
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="generateKeyForm">
+                    <div class="mb-3">
+                        <label class="form-label">Permissions</label>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" value="read_messages" id="permRead" checked>
+                            <label class="form-check-label" for="permRead">Read Messages</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" value="write_messages" id="permWrite" checked>
+                            <label class="form-check-label" for="permWrite">Write Messages</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" value="read_feed" id="permFeed" checked>
+                            <label class="form-check-label" for="permFeed">Read Feed</label>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="keyExpiry" class="form-label">Expires in (days, leave empty for permanent)</label>
+                        <input type="number" class="form-control" id="keyExpiry" min="1" max="365">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" onclick="generateApiKey()">
+                    <i class="bi bi-key"></i> Generate Key
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function refreshDashboard() {
+        window.location.reload();
+    }
+    
+    function sendMessage() {
+        const recipient = document.getElementById('messageRecipient').value.trim() || null;
+        const content = document.getElementById('messageContent').value.trim();
+        
+        if (!content) {
+            showAlert('Message content is required', 'danger');
+            return;
+        }
+        
+        apiCall('/ajax/send_message', {
+            method: 'POST',
+            body: JSON.stringify({
+                recipient_id: recipient,
+                content: content
+            })
+        })
+        .then(response => {
+            showAlert('Message sent successfully!', 'success');
+            document.getElementById('sendMessageForm').reset();
+            bootstrap.Modal.getInstance(document.getElementById('sendMessageModal')).hide();
+            // Refresh recent messages
+            setTimeout(refreshDashboard, 1000);
+        })
+        .catch(error => {
+            showAlert(error.error || 'Failed to send message', 'danger');
+        });
+    }
+    
+    function generateApiKey() {
+        const permissions = [];
+        document.querySelectorAll('#generateKeyModal input[type="checkbox"]:checked').forEach(checkbox => {
+            permissions.push(checkbox.value);
+        });
+        
+        const expiryDays = document.getElementById('keyExpiry').value;
+        
+        apiCall('/ajax/generate_key', {
+            method: 'POST',
+            body: JSON.stringify({
+                permissions: permissions,
+                expires_days: expiryDays ? parseInt(expiryDays) : null
+            })
+        })
+        .then(response => {
+            showAlert('API key generated successfully!', 'success');
+            document.getElementById('generateKeyForm').reset();
+            bootstrap.Modal.getInstance(document.getElementById('generateKeyModal')).hide();
+            
+            // Show the generated key
+            const keyModal = new bootstrap.Modal(document.createElement('div'));
+            const keyAlert = `
+                <div class="alert alert-success alert-dismissible">
+                    <h6>Your new API Key:</h6>
+                    <code style="word-break: break-all;">${response.api_key}</code>
+                    <br><small class="text-muted mt-2 d-block">Save this key securely - it won't be shown again!</small>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            `;
+            document.querySelector('.flash-messages').innerHTML += keyAlert;
+        })
+        .catch(error => {
+            showAlert(error.error || 'Failed to generate API key', 'danger');
+        });
+    }
+    
+    function formatTimestamp(timestamp) {
+        if (typeof window.formatCanopyTimestamp === 'function') {
+            return window.formatCanopyTimestamp(timestamp);
+        }
+        const date = new Date(timestamp);
+        if (Number.isNaN(date.getTime())) return String(timestamp || '');
+        const now = new Date();
+        const diff = now - date;
+        if (diff < 60000) return 'Just now';
+        if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+        if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+        return date.toLocaleString();
+    }
+    
+    // Function to fetch user display info including avatars
+    function fetchUserDisplayInfo(userIds) {
+        return fetch(`/ajax/get_user_display_info?user_ids=${userIds.join(',')}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    return data.users;
+                } else {
+                    console.error('Failed to fetch user info:', data.error);
+                    return {};
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching user info:', error);
+                return {};
+            });
+    }
+
+    // Function to update user avatars and display names on the page
+    function updateUserAvatars() {
+        const userElements = document.querySelectorAll('[data-user-id]');
+        const userIds = [...new Set(Array.from(userElements).map(el => el.dataset.userId))];
+        
+        if (userIds.length === 0) return;
+        
+        fetchUserDisplayInfo(userIds).then(userInfo => {
+            userElements.forEach(element => {
+                const userId = element.dataset.userId;
+                const user = userInfo[userId];
+                
+                if (user) {
+                    // Update avatar if this element is an avatar container
+                    if (element.classList.contains('user-avatar')) {
+                        if (user.avatar_url) {
+                            element.innerHTML = `<img src="${user.avatar_url}" alt="${user.display_name}" class="rounded-circle" style="width: 100%; height: 100%; object-fit: cover;">`;
+                        }
+                    }
+                    
+                    // Update display name if element has data-user-display attribute
+                    const displayElement = document.querySelector(`[data-user-display="${userId}"]`);
+                    if (displayElement && user.display_name) {
+                        displayElement.textContent = user.display_name;
+                    }
+                }
+            });
+        });
+    }
+
+    // Initialize timestamp formatting and user avatars
+    document.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('[data-timestamp]').forEach(el => {
+            const timestamp = el.getAttribute('data-timestamp');
+            if (timestamp) {
+                el.textContent = formatTimestamp(timestamp);
+            }
+        });
+        
+        updateUserAvatars(); // Load user avatars
+    });
+</script>
+{% endblock %}

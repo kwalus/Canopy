@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}Claim instance admin - Canopy{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card border-2 border-primary">
+                <div class="card-body">
+                    <h2 class="h4 mb-3">
+                        <i class="bi bi-shield-lock text-primary"></i> Instance admin
+                    </h2>
+                    {% if needs_secret %}
+                        <p class="text-muted">
+                            An instance admin already exists. To take over (for example after a reset or if you lost access),
+                            enter the recovery secret configured by the server administrator (<code>CANOPY_ADMIN_CLAIM_SECRET</code>).
+                        </p>
+                        <form method="post" action="{{ url_for('ui.claim_admin') }}">
+                            <div class="mb-3">
+                                <label for="secret" class="form-label">Recovery secret</label>
+                                <input type="password" class="form-control" id="secret" name="secret" autocomplete="off" placeholder="Enter recovery secret" required>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Recover admin</button>
+                            <a href="{{ url_for('ui.dashboard') }}" class="btn btn-outline-secondary ms-2">Cancel</a>
+                        </form>
+                    {% else %}
+                        <p class="text-muted">
+                            No instance admin has been set yet. As a logged-in user, you can claim the instance admin role.
+                            You will be able to approve agents, manage users, and transfer admin to someone else later.
+                        </p>
+                        <form method="post" action="{{ url_for('ui.claim_admin') }}">
+                            <button type="submit" class="btn btn-primary">Claim instance admin</button>
+                            <a href="{{ url_for('ui.dashboard') }}" class="btn btn-outline-secondary ms-2">Cancel</a>
+                        </form>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

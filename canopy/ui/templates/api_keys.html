@@ -1,0 +1,396 @@
+{% extends "base.html" %}
+
+{% block title %}API Keys - Canopy{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="h3 mb-1">
+            <i class="bi bi-key"></i> API Keys
+        </h1>
+        <p class="text-muted mb-0">
+            Create and manage access tokens for programmatic access to your Canopy account
+        </p>
+    </div>
+    <button class="btn btn-success" onclick="toggleGenerateKey()">
+        <i class="bi bi-plus-circle"></i> Generate New Key
+    </button>
+</div>
+
+<!-- What are API Keys? Info Box -->
+<div class="alert alert-info mb-4">
+    <h6 class="alert-heading"><i class="bi bi-question-circle"></i> What are API Keys?</h6>
+    <p class="mb-2">
+        API keys let you access Canopy programmatically from scripts, applications, or automation tools. 
+        Each key has specific permissions that control what it can do.
+    </p>
+    <p class="mb-0 small">
+        <strong>Important:</strong> Treat API keys like passwords. Never share them publicly or commit them to source control.
+    </p>
+</div>
+
+<!-- Inline Generate Key Form (hidden by default) -->
+<div class="card mb-4" id="generate-key-card" style="display:none;">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-key"></i> Generate New API Key</h5>
+        <button type="button" class="btn-close" onclick="toggleGenerateKey()"></button>
+    </div>
+    <div class="card-body">
+        <form id="generateKeyForm">
+            <div class="mb-3">
+                <h6>Select Permissions</h6>
+                <p class="text-muted small mb-2">
+                    Choose what this API key will be allowed to do. You can select multiple permissions.
+                    <a href="#permissions-reference" class="text-decoration-none">See descriptions below.</a>
+                </p>
+                <div class="row">
+                    {% for permission in all_permissions %}
+                        <div class="col-md-6 col-lg-4 mb-2">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" 
+                                       value="{{ permission.value }}" 
+                                       id="perm{{ loop.index }}"
+                                       {% if permission in default_permissions %}checked{% endif %}>
+                                <label class="form-check-label" for="perm{{ loop.index }}">
+                                    {{ permission.value.replace('_', ' ').title() }}
+                                </label>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+            
+            <div class="mb-3">
+                <label for="keyExpiry" class="form-label">Expiration (Optional)</label>
+                <input type="number" class="form-control" id="keyExpiry" min="1" max="365" 
+                       placeholder="Days until expiration (leave empty for permanent)">
+                <small class="form-text text-muted">
+                    <strong>Recommended:</strong> Set an expiration date for better security. 
+                    Permanent keys don't expire but can still be revoked manually if needed.
+                </small>
+            </div>
+            
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle"></i>
+                <strong>Important:</strong> The generated API key will only be shown once. 
+                Make sure to copy and save it securely!
+            </div>
+            
+            <div class="d-flex gap-2">
+                <button type="button" class="btn btn-success" onclick="generateApiKey()">
+                    <i class="bi bi-key"></i> Generate Key
+                </button>
+                <button type="button" class="btn btn-outline-secondary" onclick="toggleGenerateKey()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Inline Key Result (hidden by default) -->
+<div class="card mb-4 border-success" id="key-result-card" style="display:none;">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-check-circle text-success"></i> API Key Generated</h5>
+        <button type="button" class="btn-close" onclick="dismissKeyResult()"></button>
+    </div>
+    <div class="card-body">
+        <div class="alert alert-warning">
+            <i class="bi bi-exclamation-triangle"></i>
+            <strong>Save this key now!</strong> It will not be shown again.
+        </div>
+        
+        <div class="mb-3">
+            <label class="form-label">Your new API Key:</label>
+            <div class="input-group">
+                <input type="text" class="form-control" id="generatedKey" readonly>
+                <button class="btn btn-outline-secondary" type="button" onclick="copyToClipboard()">
+                    <i class="bi bi-clipboard"></i> Copy
+                </button>
+            </div>
+        </div>
+        
+        <div class="mb-3">
+            <small class="text-muted">
+                <strong>Example usage:</strong><br>
+                <code>curl -H "X-API-Key: YOUR_KEY_HERE" http://localhost:7770/api/v1/messages</code>
+            </small>
+        </div>
+        
+        <button type="button" class="btn btn-primary" onclick="dismissKeyResult()">
+            <i class="bi bi-check-lg"></i> I've Saved the Key
+        </button>
+    </div>
+</div>
+
+<!-- Statistics Cards -->
+<div class="row mb-4">
+    <div class="col-md-3 col-sm-6 mb-3">
+        <div class="card stats-card">
+            <div class="card-body">
+                <i class="bi bi-key fs-1 text-primary mb-2"></i>
+                <div class="stats-number">{{ key_stats.total_keys }}</div>
+                <div class="text-muted">Total Keys</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 col-sm-6 mb-3">
+        <div class="card stats-card">
+            <div class="card-body">
+                <i class="bi bi-check-circle fs-1 text-success mb-2"></i>
+                <div class="stats-number">{{ key_stats.active_keys }}</div>
+                <div class="text-muted">Active Keys</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 col-sm-6 mb-3">
+        <div class="card stats-card">
+            <div class="card-body">
+                <i class="bi bi-x-circle fs-1 text-danger mb-2"></i>
+                <div class="stats-number">{{ key_stats.revoked_keys }}</div>
+                <div class="text-muted">Revoked Keys</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 col-sm-6 mb-3">
+        <div class="card stats-card">
+            <div class="card-body">
+                <i class="bi bi-infinity fs-1 text-info mb-2"></i>
+                <div class="stats-number">{{ key_stats.permanent_keys }}</div>
+                <div class="text-muted">Permanent Keys</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- API Keys List -->
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0">Your API Keys</h5>
+    </div>
+    <div class="card-body">
+        {% if keys %}
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Key ID</th>
+                            <th>Permissions</th>
+                            <th>Created</th>
+                            <th>Expires</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for key in keys %}
+                            <tr>
+                                <td>
+                                    <code>{{ key.id[:12] }}...</code>
+                                </td>
+                                <td>
+                                    {% for permission in key.permissions %}
+                                        <span class="badge bg-secondary me-1">{{ permission.value.replace('_', ' ').title() }}</span>
+                                    {% endfor %}
+                                </td>
+                                <td>
+                                    <small data-timestamp="{{ key.created_at }}">{{ key.created_at }}</small>
+                                </td>
+                                <td>
+                                    {% if key.expires_at %}
+                                        <small data-timestamp="{{ key.expires_at }}">{{ key.expires_at }}</small>
+                                    {% else %}
+                                        <span class="text-muted">Never</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if key.revoked %}
+                                        <span class="badge bg-danger">Revoked</span>
+                                    {% elif key.expires_at and key.expires_at.replace(tzinfo=None) < now %}
+                                        <span class="badge bg-warning">Expired</span>
+                                    {% else %}
+                                        <span class="badge bg-success">Active</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <div class="btn-group btn-group-sm" role="group">
+                                        {% if not key.revoked %}
+                                            <button class="btn btn-outline-danger" 
+                                                    onclick="revokeKey('{{ key.id }}')"
+                                                    title="Permanently disable this API key">
+                                                <i class="bi bi-x-circle"></i> Revoke
+                                            </button>
+                                        {% endif %}
+                                        <button class="btn btn-outline-secondary" 
+                                                onclick="showKeyDetails('{{ key.id }}')"
+                                                title="View detailed information about this key">
+                                            <i class="bi bi-info-circle"></i> Details
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="text-center text-muted py-5">
+                <i class="bi bi-key fs-1 mb-3"></i>
+                <h5>No API Keys Yet</h5>
+                <p class="mb-3">Generate your first API key to start using the Canopy API</p>
+                <button class="btn btn-success" onclick="toggleGenerateKey()">
+                    <i class="bi bi-plus-circle"></i> Generate First Key
+                </button>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Permissions Reference -->
+<div class="card mt-4" id="permissions-reference">
+    <div class="card-header">
+        <h5 class="mb-0">
+            <i class="bi bi-info-circle"></i> Permission Descriptions
+        </h5>
+    </div>
+    <div class="card-body">
+        <p class="text-muted small mb-3">
+            Each permission controls access to a specific part of Canopy. 
+            For security, only grant the permissions your application needs.
+        </p>
+        <div class="row">
+            {% for permission in all_permissions %}
+                <div class="col-md-6 col-lg-4 mb-3">
+                    <div class="d-flex align-items-center">
+                        <div class="flex-shrink-0">
+                            <i class="bi bi-{% if 'read' in permission.value %}eye{% elif 'write' in permission.value %}pencil{% elif 'manage' in permission.value %}gear{% elif 'delete' in permission.value %}trash{% else %}shield{% endif %} text-primary"></i>
+                        </div>
+                        <div class="flex-grow-1 ms-2">
+                            <strong>{{ permission.value.replace('_', ' ').title() }}</strong>
+                            <br>
+                            <small class="text-muted">
+                                {% if permission.value == 'read_messages' %}
+                                    View messages and conversations
+                                {% elif permission.value == 'write_messages' %}
+                                    Send new messages
+                                {% elif permission.value == 'read_files' %}
+                                    Access shared files
+                                {% elif permission.value == 'write_files' %}
+                                    Upload and share files
+                                {% elif permission.value == 'read_feed' %}
+                                    View feed posts
+                                {% elif permission.value == 'write_feed' %}
+                                    Create feed posts
+                                {% elif permission.value == 'voice_call' %}
+                                    Make voice calls
+                                {% elif permission.value == 'manage_keys' %}
+                                    Manage API keys
+                                {% elif permission.value == 'view_trust' %}
+                                    View trust scores
+                                {% elif permission.value == 'delete_data' %}
+                                    Send delete signals
+                                {% endif %}
+                            </small>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function toggleGenerateKey() {
+        const card = document.getElementById('generate-key-card');
+        if (!card) return;
+        const isHidden = card.style.display === 'none';
+        card.style.display = isHidden ? 'block' : 'none';
+        if (isHidden) {
+            card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    }
+
+    function dismissKeyResult() {
+        const card = document.getElementById('key-result-card');
+        if (card) card.style.display = 'none';
+        window.location.reload();
+    }
+
+    function generateApiKey() {
+        const permissions = [];
+        document.querySelectorAll('#generate-key-card input[type="checkbox"]:checked').forEach(checkbox => {
+            permissions.push(checkbox.value);
+        });
+        
+        if (permissions.length === 0) {
+            showAlert('Please select at least one permission', 'warning');
+            return;
+        }
+        
+        const expiryDays = document.getElementById('keyExpiry').value;
+        
+        apiCall('/ajax/generate_key', {
+            method: 'POST',
+            body: JSON.stringify({
+                permissions: permissions,
+                expires_days: expiryDays ? parseInt(expiryDays) : null
+            })
+        })
+        .then(response => {
+            // Show the result card with the key
+            document.getElementById('generatedKey').value = response.api_key;
+            document.getElementById('generate-key-card').style.display = 'none';
+            const resultCard = document.getElementById('key-result-card');
+            resultCard.style.display = 'block';
+            resultCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            
+            // Reset form for next use
+            document.getElementById('generateKeyForm').reset();
+        })
+        .catch(error => {
+            showAlert(error.error || 'Failed to generate API key', 'danger');
+        });
+    }
+    
+    function revokeKey(keyId) {
+        if (!confirm('Are you sure you want to revoke this API key?\n\nThis action cannot be undone. Any applications using this key will immediately lose access.')) {
+            return;
+        }
+        
+        apiCall('/ajax/revoke_key', {
+            method: 'POST',
+            body: JSON.stringify({
+                key_id: keyId
+            })
+        })
+        .then(response => {
+            showAlert('API key revoked successfully', 'success');
+            window.location.reload();
+        })
+        .catch(error => {
+            showAlert(error.error || 'Failed to revoke API key', 'danger');
+        });
+    }
+    
+    function showKeyDetails(keyId) {
+        // TODO: Implement key details view
+        showAlert('Key details coming soon!', 'info');
+    }
+    
+    function copyToClipboard() {
+        const keyInput = document.getElementById('generatedKey');
+        keyInput.select();
+        keyInput.setSelectionRange(0, 99999);
+        navigator.clipboard.writeText(keyInput.value).then(() => {
+            showAlert('API key copied to clipboard!', 'success');
+        }).catch(() => {
+            document.execCommand('copy');
+            showAlert('API key copied to clipboard!', 'success');
+        });
+    }
+</script>
+{% endblock %}

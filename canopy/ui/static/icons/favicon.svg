@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="canopy-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded background -->
+  <rect width="128" height="128" rx="28" fill="url(#canopy-grad)"/>
+  <!-- Tree canopy (three layered leaf clusters) -->
+  <ellipse cx="64" cy="38" rx="26" ry="20" fill="#fff" opacity="0.92"/>
+  <ellipse cx="44" cy="54" rx="22" ry="18" fill="#fff" opacity="0.85"/>
+  <ellipse cx="84" cy="54" rx="22" ry="18" fill="#fff" opacity="0.85"/>
+  <ellipse cx="64" cy="62" rx="30" ry="16" fill="#fff" opacity="0.78"/>
+  <!-- Trunk -->
+  <rect x="58" y="72" width="12" height="30" rx="4" fill="#fff" opacity="0.92"/>
+  <!-- Ground line -->
+  <rect x="36" y="100" width="56" height="5" rx="2.5" fill="#fff" opacity="0.45"/>
+</svg>

@@ -1,0 +1,1237 @@
+{% extends "base.html" %}
+
+{% block title %}Connect - Canopy{% endblock %}
+
+{% block extra_css %}
+<style>
+    .peer-row {
+        border-radius: 12px;
+        border: 1px solid transparent;
+        padding: 0.65rem 0.75rem;
+        transition: border-color 0.2s ease, background 0.2s ease;
+    }
+    .peer-row:hover {
+        border-color: var(--canopy-border);
+        background: var(--canopy-bg-tertiary);
+    }
+    .peer-meta {
+        min-width: 0;
+    }
+    .peer-title {
+        font-weight: 600;
+        color: var(--canopy-text-primary);
+    }
+    .peer-activity {
+        font-size: 0.72rem;
+        color: var(--canopy-text-secondary);
+    }
+    .peer-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        flex-wrap: wrap;
+    }
+    .peer-status-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #22c55e;
+        box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.2);
+        margin-top: 6px;
+        flex-shrink: 0;
+    }
+    .peer-status-dot.offline {
+        background: #64748b;
+        box-shadow: 0 0 0 4px rgba(100, 116, 139, 0.2);
+    }
+    .peer-status-dot.relay {
+        background: #38bdf8;
+        box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.2);
+    }
+    .peer-pill {
+        font-size: 0.7rem;
+        padding: 0.2rem 0.5rem;
+        border-radius: 999px;
+    }
+    .peer-controls .dropdown-toggle::after {
+        margin-left: 0.4rem;
+    }
+    .connection-history-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.75rem;
+        padding: 0.65rem 0.5rem;
+        border-radius: 12px;
+        border: 1px solid transparent;
+    }
+    .connection-history-item:hover {
+        border-color: var(--canopy-border);
+        background: var(--canopy-bg-tertiary);
+    }
+    .history-icon {
+        width: 32px;
+        height: 32px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1rem;
+        background: rgba(99, 102, 241, 0.12);
+        color: var(--canopy-text-primary);
+        flex-shrink: 0;
+    }
+    .history-detail {
+        min-width: 0;
+        flex: 1;
+    }
+    .history-title {
+        font-weight: 600;
+        color: var(--canopy-text-primary);
+    }
+    .history-meta {
+        font-size: 0.75rem;
+        color: var(--canopy-text-secondary);
+    }
+    .history-pill {
+        font-size: 0.7rem;
+        border-radius: 999px;
+        padding: 0.2rem 0.5rem;
+    }
+    .mesh-diag-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        gap: 0.65rem;
+    }
+    .mesh-kpi {
+        border: 1px solid var(--canopy-border);
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 74%, transparent);
+        border-radius: 12px;
+        padding: 0.65rem 0.75rem;
+    }
+    .mesh-kpi-label {
+        font-size: 0.72rem;
+        color: var(--canopy-text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin-bottom: 0.2rem;
+    }
+    .mesh-kpi-value {
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: var(--canopy-text-primary);
+    }
+    .mesh-list {
+        max-height: 220px;
+        overflow-y: auto;
+        padding-right: 0.2rem;
+    }
+    .mesh-list-item {
+        border: 1px solid var(--canopy-border);
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 68%, transparent);
+        border-radius: 10px;
+        padding: 0.55rem 0.65rem;
+        margin-bottom: 0.45rem;
+    }
+    .mesh-list-item:last-child {
+        margin-bottom: 0;
+    }
+    .mesh-muted {
+        color: var(--canopy-text-secondary);
+        font-size: 0.8rem;
+    }
+    @media (max-width: 767.98px) {
+        .peer-actions {
+            width: 100%;
+            justify-content: flex-start;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="h3 mb-0">
+        <i class="bi bi-link-45deg"></i> Connect with Peers
+    </h1>
+</div>
+
+<div class="row">
+    <!-- Your Invite Code -->
+    <div class="col-lg-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-share"></i> Your Invite Code</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small">Share this code with a friend so they can connect to your Canopy instance.</p>
+
+                {% if invite_code %}
+                <div class="mb-3">
+                    <label class="form-label small text-muted">Peer ID</label>
+                    <div><code>{{ peer_id }}</code></div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small text-muted">Reachable at</label>
+                    <div>
+                        {% for ep in endpoints %}
+                        <span class="badge bg-secondary me-1 mb-1">{{ ep }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small text-muted">Invite code (copy &amp; send to friend)</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control font-monospace" id="inviteCode" 
+                               value="{{ invite_code }}" readonly style="font-size: 0.8rem;">
+                        <button class="btn btn-primary" onclick="copyInvite()" title="Copy to clipboard">
+                            <i class="bi bi-clipboard"></i>
+                        </button>
+                    </div>
+                    <div id="copySuccess" class="text-success small mt-1" style="display:none;">
+                        <i class="bi bi-check-circle"></i> Copied!
+                    </div>
+                </div>
+
+                <!-- Public / port-forwarded host -->
+                <hr>
+                <p class="text-muted small mb-2">
+                    <i class="bi bi-globe"></i> <strong>Connecting from outside your LAN?</strong><br>
+                    If you've port-forwarded port <code>{{ mesh_port }}</code> on your router, enter your public IP below to generate an invite that works over the internet.
+                </p>
+                <div class="input-group mb-2">
+                    <input type="text" class="form-control" id="publicHost" placeholder="Public IP or hostname">
+                    <input type="number" class="form-control" id="publicPort" placeholder="Port" value="{{ mesh_port }}" style="max-width:100px;">
+                    <button class="btn btn-outline-primary" onclick="regenerateInvite()">
+                        <i class="bi bi-arrow-repeat"></i> Regenerate
+                    </button>
+                </div>
+
+                {% else %}
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle"></i> P2P identity not initialized. Start the server and try again.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Import a Friend's Invite -->
+    <div class="col-lg-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-box-arrow-in-down"></i> Import Friend's Invite</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small">Paste an invite code from another Canopy user to connect.</p>
+
+                <div class="mb-3">
+                    <label class="form-label small text-muted">Invite code</label>
+                    <textarea class="form-control font-monospace" id="importCode" rows="3"
+                              placeholder="canopy:eyJ2Ij..." style="font-size: 0.8rem;"></textarea>
+                </div>
+
+                <button class="btn btn-success w-100" onclick="importInvite()" id="importBtn">
+                    <i class="bi bi-plug"></i> Connect
+                </button>
+
+                <div id="importResult" class="mt-3" style="display:none;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Connected / Discovered Peers -->
+<div class="row">
+    <div class="col-lg-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="bi bi-people"></i> Connected Peers</h5>
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <span class="badge bg-success peer-pill">{{ connected_peers|length }} connected</span>
+                        <span class="badge bg-secondary peer-pill">{{ discovered_peers|length }} discovered</span>
+                        <span class="badge bg-dark peer-pill">{{ known_peers|length }} known</span>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="refreshConnectPage()" title="Refresh">
+                            <i class="bi bi-arrow-clockwise"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                {% if connected_peers or (relay_status and relay_status.active_relays) %}
+                <ul class="list-group list-group-flush">
+                    {% for pid in connected_peers %}
+                    {% set dev = peer_device_profiles.get(pid) if peer_device_profiles else None %}
+                    <li class="list-group-item d-flex align-items-start peer-row" data-peer-id="{{ pid }}" style="background:transparent; color:var(--canopy-text-primary); border-color:var(--canopy-border);">
+                        <span class="peer-status-dot"></span>
+                        {% if dev and dev.avatar_b64 and dev.avatar_mime %}
+                        <img src="data:{{ dev.avatar_mime }};base64,{{ dev.avatar_b64 }}"
+                             alt="" style="width:32px; height:32px; border-radius:50%; margin:0 10px; object-fit:cover;">
+                        {% else %}
+                        <i class="bi bi-pc-display-horizontal me-2" style="font-size:1.2rem; opacity:0.5; margin:0 10px 0 6px;"></i>
+                        {% endif %}
+                        <div class="peer-meta">
+                            {% if dev and dev.display_name %}
+                            <div class="peer-title">{{ dev.display_name }}</div>
+                            <small class="text-muted d-block" style="font-size:0.75rem;">{{ pid[:16] }}...</small>
+                            {% if dev.description %}
+                            <small class="text-muted d-block" style="font-size:0.7rem; opacity:0.7;">{{ dev.description }}</small>
+                            {% endif %}
+                            {% else %}
+                            <code>{{ pid }}</code>
+                            {% endif %}
+                            <small class="peer-activity d-block" data-peer-connected>Connected: —</small>
+                            <small class="peer-activity d-block" data-peer-last>Last activity: —</small>
+                        </div>
+                        <div class="ms-auto peer-actions">
+                            {% set tscore = trust_scores.get(pid, 100) if trust_scores is defined else 100 %}
+                            {% if tscore < 20 %}
+                            <span class="badge bg-danger" title="Trust score: {{ tscore }}/100 — LOW TRUST"><i class="bi bi-shield-exclamation"></i> {{ tscore }}</span>
+                            {% elif tscore < 50 %}
+                            <span class="badge bg-warning text-dark" title="Trust score: {{ tscore }}/100"><i class="bi bi-exclamation-triangle"></i> {{ tscore }}</span>
+                            {% else %}
+                            <span class="badge bg-secondary" title="Trust score: {{ tscore }}/100" style="opacity:0.6;"><i class="bi bi-shield-check"></i> {{ tscore }}</span>
+                            {% endif %}
+                            <span class="badge bg-success" title="Direct connection"><i class="bi bi-lightning-charge"></i> Direct</span>
+                            <div class="dropdown peer-controls">
+                                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
+                                    <i class="bi bi-gear"></i>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    <li><a class="dropdown-item" href="#" onclick="copyPeerId('{{ pid }}'); return false;"><i class="bi bi-clipboard"></i> Copy ID</a></li>
+                                    <li><a class="dropdown-item" href="#" onclick="disconnectPeer('{{ pid }}'); return false;"><i class="bi bi-plug"></i> Disconnect</a></li>
+                                    <li><a class="dropdown-item text-danger" href="#" onclick="forgetPeer('{{ pid }}'); return false;"><i class="bi bi-trash"></i> Forget</a></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </li>
+                    {% endfor %}
+                    {% if relay_status and relay_status.active_relays %}
+                    {% for dest, relay in relay_status.active_relays.items() %}
+                    {% set rdev = peer_device_profiles.get(dest) if peer_device_profiles else None %}
+                    {% set viadev = peer_device_profiles.get(relay) if peer_device_profiles else None %}
+                    <li class="list-group-item d-flex align-items-start peer-row" data-peer-id="{{ dest }}" style="background:transparent; color:var(--canopy-text-primary); border-color:var(--canopy-border);">
+                        <span class="peer-status-dot relay"></span>
+                        {% if rdev and rdev.avatar_b64 and rdev.avatar_mime %}
+                        <img src="data:{{ rdev.avatar_mime }};base64,{{ rdev.avatar_b64 }}"
+                             alt="" style="width:32px; height:32px; border-radius:50%; margin:0 10px; object-fit:cover;">
+                        {% else %}
+                        <i class="bi bi-pc-display-horizontal me-2" style="font-size:1.2rem; opacity:0.5; margin:0 10px 0 6px;"></i>
+                        {% endif %}
+                        <div class="peer-meta">
+                            {% if rdev and rdev.display_name %}
+                            <div class="peer-title">{{ rdev.display_name }}</div>
+                            <small class="text-muted d-block" style="font-size:0.75rem;">{{ dest[:16] }}...</small>
+                            {% else %}
+                            <code>{{ dest[:16] }}...</code>
+                            {% endif %}
+                            <small class="peer-activity d-block" data-peer-connected>Connected: —</small>
+                            <small class="peer-activity d-block" data-peer-last>Last activity: —</small>
+                        </div>
+                        <div class="ms-auto peer-actions">
+                            <span class="badge bg-info" title="Relayed via {{ (viadev.display_name if viadev and viadev.display_name else relay[:12]) }}">
+                                <i class="bi bi-arrow-left-right"></i> Via {{ (viadev.display_name if viadev and viadev.display_name else relay[:12]) }}
+                            </span>
+                            <div class="dropdown peer-controls">
+                                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
+                                    <i class="bi bi-gear"></i>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    <li><a class="dropdown-item" href="#" onclick="copyPeerId('{{ dest }}'); return false;"><i class="bi bi-clipboard"></i> Copy ID</a></li>
+                                    <li><span class="dropdown-item-text text-muted"><i class="bi bi-arrow-left-right"></i> Relayed route</span></li>
+                                    <li><a class="dropdown-item text-danger" href="#" onclick="forgetPeer('{{ dest }}'); return false;"><i class="bi bi-trash"></i> Forget</a></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </li>
+                    {% endfor %}
+                    {% endif %}
+                </ul>
+                {% else %}
+                <p class="text-muted mb-0"><i class="bi bi-info-circle"></i> No peers connected yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-broadcast"></i> Discovered Peers (LAN)</h5>
+            </div>
+            <div class="card-body">
+                {% if discovered_peers %}
+                <ul class="list-group list-group-flush">
+                    {% for peer in discovered_peers %}
+                    {% set ddev = peer_device_profiles.get(peer.peer_id) if peer_device_profiles else None %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center" style="background:transparent; color:var(--canopy-text-primary); border-color:var(--canopy-border);">
+                        <div class="d-flex align-items-center">
+                            {% if ddev and ddev.avatar_b64 and ddev.avatar_mime %}
+                            <img src="data:{{ ddev.avatar_mime }};base64,{{ ddev.avatar_b64 }}"
+                                 alt="" style="width:28px; height:28px; border-radius:50%; margin-right:8px; object-fit:cover;">
+                            {% endif %}
+                            <div>
+                                {% if ddev and ddev.display_name %}
+                                <strong>{{ ddev.display_name }}</strong>
+                                <small class="text-muted d-block" style="font-size:0.75rem;">{{ peer.peer_id[:16] }} &middot; {{ peer.address }}:{{ peer.port }}</small>
+                                {% else %}
+                                <code>{{ peer.peer_id }}</code>
+                                <small class="text-muted d-block">{{ peer.address }}:{{ peer.port }}</small>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <span class="badge bg-{{ 'success' if peer.connected else 'secondary' }}">
+                            {{ 'connected' if peer.connected else 'discovered' }}
+                        </span>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="text-muted mb-0"><i class="bi bi-info-circle"></i> No peers discovered on LAN yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Peers via Contacts (introduced by connected peers) -->
+{% if introduced_peers %}
+<div class="row">
+    <div class="col-12 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-people-fill"></i> Peers via Your Contacts</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small">These peers were introduced by your connected contacts. Click <strong>Connect</strong> to establish a direct link.</p>
+                <div class="table-responsive">
+                    <table class="table table-sm" style="color:var(--canopy-text-primary);">
+                        <thead>
+                            <tr>
+                                <th>Peer</th>
+                                <th>Endpoint</th>
+                                <th>Introduced by</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for peer in introduced_peers %}
+                            {% set idev = peer_device_profiles.get(peer.peer_id) if peer_device_profiles else None %}
+                            {% set ibydev = peer_device_profiles.get(peer.introduced_by) if peer_device_profiles else None %}
+                            <tr>
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        {% if idev and idev.avatar_b64 and idev.avatar_mime %}
+                                        <img src="data:{{ idev.avatar_mime }};base64,{{ idev.avatar_b64 }}"
+                                             alt="" style="width:24px; height:24px; border-radius:50%; margin-right:6px; object-fit:cover;">
+                                        {% endif %}
+                                        <div>
+                                            {% if idev and idev.display_name %}
+                                            <strong>{{ idev.display_name }}</strong>
+                                            <small class="text-muted d-block" style="font-size:0.75rem;">{{ peer.peer_id[:12] }}...</small>
+                                            {% elif peer.display_name %}
+                                            <strong>{{ peer.display_name }}</strong>
+                                            <small class="text-muted d-block" style="font-size:0.75rem;">{{ peer.peer_id[:12] }}...</small>
+                                            {% else %}
+                                            <code>{{ peer.peer_id[:12] }}...</code>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    {% for ep in peer.endpoints %}
+                                    <span class="badge bg-secondary me-1">{{ ep }}</span>
+                                    {% endfor %}
+                                </td>
+                                <td>
+                                    {% if ibydev and ibydev.display_name %}
+                                    <strong>{{ ibydev.display_name }}</strong>
+                                    {% else %}
+                                    <code>{{ peer.introduced_by[:12] }}...</code>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <button class="btn btn-sm btn-outline-success"
+                                            onclick="connectToIntroduced('{{ peer.peer_id }}', this)">
+                                        <i class="bi bi-plug"></i> Connect
+                                    </button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Known Peers (reconnect) -->
+{% if known_peers %}
+<div class="row">
+    <div class="col-12 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="bi bi-journal-bookmark"></i> Known Peers</h5>
+                    <div class="d-flex align-items-center gap-2">
+                        <button class="btn btn-sm btn-outline-primary" onclick="reconnectAllPeers()">
+                            <i class="bi bi-arrow-repeat"></i> Reconnect All
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small">Previously connected peers. Click <strong>Reconnect</strong> to try reaching them again.</p>
+                <ul class="list-group list-group-flush">
+                    {% for peer in known_peers %}
+                    {% set kdev = peer_device_profiles.get(peer.peer_id) if peer_device_profiles else None %}
+                    <li class="list-group-item d-flex align-items-start peer-row" data-peer-id="{{ peer.peer_id }}" style="background:transparent; color:var(--canopy-text-primary); border-color:var(--canopy-border);">
+                        <span class="peer-status-dot {% if not peer.connected %}offline{% endif %}"></span>
+                        <div class="d-flex align-items-center">
+                            {% if kdev and kdev.avatar_b64 and kdev.avatar_mime %}
+                            <img src="data:{{ kdev.avatar_mime }};base64,{{ kdev.avatar_b64 }}"
+                                 alt="" style="width:32px; height:32px; border-radius:50%; margin:0 10px; object-fit:cover;">
+                            {% else %}
+                            <i class="bi bi-pc-display-horizontal me-2" style="font-size:1.3rem; opacity:0.4; margin:0 10px 0 6px;"></i>
+                            {% endif %}
+                            <div class="peer-meta">
+                                {% if kdev and kdev.display_name %}
+                                <div class="peer-title">{{ kdev.display_name }}</div>
+                                {% elif peer.display_name %}
+                                <div class="peer-title">{{ peer.display_name }}</div>
+                                {% endif %}
+                                <small class="text-muted d-block" style="font-size:0.75rem;">{{ peer.peer_id[:16] }}...</small>
+                                {% if kdev and kdev.description %}
+                                <small class="text-muted d-block" style="font-size:0.7rem; opacity:0.7;">{{ kdev.description }}</small>
+                                {% endif %}
+                                {% for ep in peer.endpoints %}
+                                <span class="badge bg-secondary me-1" style="font-size:0.65rem;">{{ ep }}</span>
+                                {% endfor %}
+                                <small class="peer-activity d-block" data-peer-last>Last activity: —</small>
+                            </div>
+                        </div>
+                        <div class="ms-auto peer-actions">
+                            {% if peer.connected %}
+                            <span class="badge bg-success">Connected</span>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="disconnectPeer('{{ peer.peer_id }}')">
+                                <i class="bi bi-plug"></i> Disconnect
+                            </button>
+                            {% else %}
+                            {% if peer.endpoints %}
+                            <button class="btn btn-sm btn-outline-primary"
+                                    onclick="reconnectPeer('{{ peer.peer_id }}', this)">
+                                <i class="bi bi-arrow-repeat"></i> Reconnect
+                            </button>
+                            {% else %}
+                            <span class="badge bg-secondary">No endpoints</span>
+                            {% endif %}
+                            {% endif %}
+                            <button class="btn btn-sm btn-outline-danger" onclick="forgetPeer('{{ peer.peer_id }}')">
+                                <i class="bi bi-trash"></i> Forget
+                            </button>
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Connection History -->
+<div class="row">
+    <div class="col-12 mb-4">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-activity"></i> Connection History</h5>
+                <button class="btn btn-sm btn-outline-secondary" onclick="clearConnectionHistory()">
+                    <i class="bi bi-x-circle"></i> Clear
+                </button>
+            </div>
+            <div class="card-body">
+                <ul class="list-group list-group-flush" id="connection-history-list">
+                    <li class="list-group-item text-muted">No connection events yet.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Mesh Diagnostics -->
+<div class="row">
+    <div class="col-12 mb-4">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <h5 class="mb-0"><i class="bi bi-shield-check"></i> Mesh Diagnostics</h5>
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <span id="mesh-security-badge" class="badge bg-success peer-pill">Signature strict</span>
+                    {% if is_admin %}
+                    <button class="btn btn-sm btn-outline-primary" onclick="triggerMeshResync(true, this)">
+                        <i class="bi bi-arrow-repeat"></i> Resync Mesh
+                    </button>
+                    {% endif %}
+                    <button class="btn btn-sm btn-outline-secondary" onclick="pollMeshDiagnostics()">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="mesh-diag-grid mb-3">
+                    <div class="mesh-kpi">
+                        <div class="mesh-kpi-label">Connected</div>
+                        <div class="mesh-kpi-value" id="diag-connected-count">—</div>
+                    </div>
+                    <div class="mesh-kpi">
+                        <div class="mesh-kpi-label">Known Peers</div>
+                        <div class="mesh-kpi-value" id="diag-known-count">—</div>
+                    </div>
+                    <div class="mesh-kpi">
+                        <div class="mesh-kpi-label">Pending Queue</div>
+                        <div class="mesh-kpi-value" id="diag-pending-total">—</div>
+                    </div>
+                    <div class="mesh-kpi">
+                        <div class="mesh-kpi-label">Reconnect Tasks</div>
+                        <div class="mesh-kpi-value" id="diag-reconnect-count">—</div>
+                    </div>
+                    <div class="mesh-kpi">
+                        <div class="mesh-kpi-label">Sync Queue</div>
+                        <div class="mesh-kpi-value" id="diag-sync-queue">—</div>
+                    </div>
+                    <div class="mesh-kpi">
+                        <div class="mesh-kpi-label">Active Catch-ups</div>
+                        <div class="mesh-kpi-value" id="diag-catchups">—</div>
+                    </div>
+                </div>
+                <div class="row g-3">
+                    <div class="col-lg-6">
+                        <div class="mesh-muted mb-2">Pending by peer</div>
+                        <div id="diag-pending-by-peer" class="mesh-list">
+                            <div class="mesh-muted">No pending messages.</div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="mesh-muted mb-2">Recent failures / security blocks</div>
+                        <div id="diag-recent-failures" class="mesh-list">
+                            <div class="mesh-muted">No recent failures.</div>
+                        </div>
+                    </div>
+                </div>
+                <div id="diag-last-updated" class="mesh-muted mt-3">Last updated: —</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- How it works -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-question-circle"></i> How to connect with a friend</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-4 mb-3">
+                <h6><span class="badge bg-primary me-1">1</span> Same network (LAN)</h6>
+                <p class="small text-muted mb-0">Both on the same WiFi? Canopy discovers peers automatically — no invite needed.</p>
+            </div>
+            <div class="col-md-4 mb-3">
+                <h6><span class="badge bg-primary me-1">2</span> Different location</h6>
+                <p class="small text-muted mb-0">One person port-forwards <code>{{ mesh_port }}</code> on their router, enters their public IP above, then sends the invite code to the friend.</p>
+            </div>
+            <div class="col-md-4 mb-3">
+                <h6><span class="badge bg-primary me-1">3</span> Friend imports the code</h6>
+                <p class="small text-muted mb-0">The friend pastes the invite code and clicks <strong>Connect</strong>. Canopy verifies the identity and establishes an encrypted channel.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const PEER_LABELS = {{ peer_labels | tojson }};
+const USER_IS_ADMIN = {{ 'true' if is_admin else 'false' }};
+const connectionEvents = new Map();
+const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+
+function apiJsonFetch(url, options = {}) {
+    const method = (options.method || 'GET').toUpperCase();
+    const headers = { ...(options.headers || {}) };
+    const hasBody = options.body !== undefined && options.body !== null;
+    const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
+    if (hasBody && !isFormData && !headers['Content-Type']) {
+        headers['Content-Type'] = 'application/json';
+    }
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+        headers['X-CSRFToken'] = headers['X-CSRFToken'] || CSRF_TOKEN;
+    }
+
+    return fetch(url, {...options, method, headers}).then(async (response) => {
+        const raw = await response.text();
+        let data = {};
+        if (raw) {
+            try {
+                data = JSON.parse(raw);
+            } catch (_) {
+                data = {};
+            }
+        }
+        if (!response.ok) {
+            const usingKey = Boolean(headers['X-API-Key'] || headers['Authorization']);
+            let message = (data && (data.error || data.message)) || `Request failed (${response.status})`;
+            if (response.status === 401 && !usingKey && /api key required|authentication required/i.test(message)) {
+                message = 'Authentication required. Your session may have expired. Reload and sign in again.';
+            }
+            throw new Error(message);
+        }
+        return data || {};
+    });
+}
+
+function buildConnectErrorMessage(err) {
+    const text = String((err && err.message) ? err.message : (err || 'Unknown error'));
+    if (/session may have expired|authentication required|api key required/i.test(text)) {
+        return 'Authentication required for this action. Please reload the page and sign in again. ' +
+               'If you are using a script/CLI, include X-API-Key.';
+    }
+    return text;
+}
+
+function copyInvite() {
+    const el = document.getElementById('inviteCode');
+    navigator.clipboard.writeText(el.value).then(() => {
+        const s = document.getElementById('copySuccess');
+        s.style.display = 'block';
+        setTimeout(() => s.style.display = 'none', 2000);
+    });
+}
+
+function regenerateInvite() {
+    const host = document.getElementById('publicHost').value.trim();
+    const port = document.getElementById('publicPort').value.trim();
+    if (!host) {
+        alert('Enter your public IP or hostname.');
+        return;
+    }
+    let url = '/api/v1/p2p/invite?public_host=' + encodeURIComponent(host);
+    if (port) url += '&public_port=' + encodeURIComponent(port);
+    apiJsonFetch(url).then(data => {
+        if (data.invite_code) {
+            document.getElementById('inviteCode').value = data.invite_code;
+            const s = document.getElementById('copySuccess');
+            s.textContent = 'Regenerated with public endpoint!';
+            s.style.display = 'block';
+            setTimeout(() => { s.style.display = 'none'; s.innerHTML = '<i class="bi bi-check-circle"></i> Copied!'; }, 3000);
+        } else {
+            alert('Error: ' + (data.error || 'Unknown'));
+        }
+    }).catch((err) => {
+        alert('Error: ' + buildConnectErrorMessage(err));
+    });
+}
+
+function importInvite() {
+    const code = document.getElementById('importCode').value.trim();
+    if (!code) {
+        alert('Paste an invite code first.');
+        return;
+    }
+    const btn = document.getElementById('importBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Connecting...';
+
+    apiJsonFetch('/api/v1/p2p/invite/import', {
+        method: 'POST',
+        body: JSON.stringify({invite_code: code})
+    })
+    .then(data => {
+        const res = document.getElementById('importResult');
+        res.style.display = 'block';
+        const safePeerId = _escapeHtml(data.peer_id || '');
+        const safeEndpoint = _escapeHtml(data.connected_endpoint || '');
+        const safeError = _escapeHtml(data.error || '');
+        if (data.status === 'connected') {
+            res.className = 'mt-3 alert alert-success';
+            res.innerHTML = '<i class="bi bi-check-circle-fill"></i> Connected to <code>' + safePeerId + '</code> via <code>' + safeEndpoint + '</code>!';
+        } else if (data.status === 'imported_not_connected') {
+            res.className = 'mt-3 alert alert-warning';
+            res.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Peer <code>' + safePeerId + '</code> registered but could not connect. ' +
+                'Make sure the peer is online and the endpoint is reachable (port forwarded?).';
+        } else if (data.error) {
+            res.className = 'mt-3 alert alert-danger';
+            res.innerHTML = '<i class="bi bi-x-circle-fill"></i> Error: ' + safeError;
+        }
+    })
+    .catch(err => {
+        const res = document.getElementById('importResult');
+        res.style.display = 'block';
+        res.className = 'mt-3 alert alert-danger';
+        res.innerHTML = '<i class="bi bi-x-circle-fill"></i> ' + _escapeHtml(buildConnectErrorMessage(err));
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-plug"></i> Connect';
+    });
+}
+
+function connectToIntroduced(peerId, buttonEl) {
+    const btn = buttonEl || (typeof event !== 'undefined' ? event.target.closest('button') : null);
+    if (!btn) return;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Connecting...';
+    apiJsonFetch('/api/v1/p2p/connect_introduced', {
+        method: 'POST',
+        body: JSON.stringify({peer_id: peerId})
+    })
+    .then((data) => {
+        if (data.status === 'connected') {
+            btn.className = 'btn btn-sm btn-success';
+            btn.innerHTML = '<i class="bi bi-check-circle"></i> Connected';
+        } else if (data.status === 'brokering') {
+            btn.className = 'btn btn-sm btn-warning';
+            btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Brokering...';
+            btn.title = data.message || 'Waiting for broker to arrange connection';
+            // Poll for connection after a delay
+            setTimeout(() => checkBrokeredConnection(peerId, btn), 8000);
+        } else {
+            alert(data.error || data.message || 'Could not connect');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-plug"></i> Connect';
+        }
+    })
+    .catch(err => {
+        alert('Error: ' + buildConnectErrorMessage(err));
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-plug"></i> Connect';
+    });
+}
+
+function checkBrokeredConnection(peerId, btn, attempt) {
+    attempt = attempt || 1;
+    const maxAttempts = 12;
+    const pollInterval = 5000; // 5s between polls
+
+    // Show progress on the button
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Brokering... (' + attempt + '/' + maxAttempts + ')';
+
+    apiJsonFetch('/api/v1/p2p/status')
+    .then(data => {
+        const connected = data.connected_peers_list || [];
+        if (connected.includes(peerId)) {
+            btn.className = 'btn btn-sm btn-success';
+            btn.innerHTML = '<i class="bi bi-check-circle"></i> Connected';
+            btn.disabled = false;
+            return;
+        }
+
+        // Check if relay is active
+        return apiJsonFetch('/api/v1/p2p/relay_status')
+            .then(relay => {
+                if (relay.active_relays && relay.active_relays[peerId]) {
+                    btn.className = 'btn btn-sm btn-info';
+                    btn.innerHTML = '<i class="bi bi-arrow-left-right"></i> Via Relay';
+                    btn.disabled = false;
+                } else if (attempt < maxAttempts) {
+                    // Keep polling
+                    setTimeout(() => checkBrokeredConnection(peerId, btn, attempt + 1), pollInterval);
+                } else {
+                    // Exhausted retries
+                    const relayPolicy = relay && relay.relay_policy ? relay.relay_policy : '';
+                    const policyHint = relayPolicy && relayPolicy !== 'full_relay'
+                        ? ' If both peers are behind NAT/firewall, set an intermediary to Full Relay in Settings.'
+                        : '';
+                    btn.className = 'btn btn-sm btn-outline-danger';
+                    btn.innerHTML = '<i class="bi bi-x-circle"></i> Brokering timeout — Retry';
+                    btn.disabled = false;
+                    btn.title = 'Broker could not arrange a direct or relay connection.' +
+                        (relayPolicy ? (' Relay policy: ' + relayPolicy + '.') : '') + policyHint;
+                    btn.onclick = function() { connectToIntroduced(peerId, btn); };
+                }
+            })
+            .catch((err) => {
+                if (attempt < maxAttempts) {
+                    setTimeout(() => checkBrokeredConnection(peerId, btn, attempt + 1), pollInterval);
+                } else {
+                    const msg = buildConnectErrorMessage(err);
+                    btn.className = 'btn btn-sm btn-outline-secondary';
+                    btn.innerHTML = '<i class="bi bi-plug"></i> Retry';
+                    btn.disabled = false;
+                    btn.title = msg;
+                }
+            });
+    })
+    .catch((err) => {
+        if (attempt < maxAttempts) {
+            setTimeout(() => checkBrokeredConnection(peerId, btn, attempt + 1), pollInterval);
+        } else {
+            const msg = buildConnectErrorMessage(err);
+            btn.disabled = false;
+            btn.className = 'btn btn-sm btn-outline-secondary';
+            btn.innerHTML = '<i class="bi bi-plug"></i> Retry';
+            btn.title = msg;
+        }
+    });
+}
+
+function reconnectPeer(peerId, buttonEl) {
+    const btn = buttonEl || (typeof event !== 'undefined' ? event.target.closest('button') : null);
+    if (!btn) return;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    apiJsonFetch('/api/v1/p2p/reconnect', {
+        method: 'POST',
+        body: JSON.stringify({peer_id: peerId})
+    })
+    .then(data => {
+        if (data.status === 'connected') {
+            btn.className = 'btn btn-sm btn-success';
+            btn.innerHTML = '<i class="bi bi-check-circle"></i> Connected';
+        } else {
+            alert(data.error || data.message || 'Could not reconnect');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Reconnect';
+        }
+    })
+    .catch(err => {
+        alert('Error: ' + buildConnectErrorMessage(err));
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Reconnect';
+    });
+}
+
+function reconnectAllPeers() {
+    const btns = document.querySelectorAll('[onclick="reconnectAllPeers()"]');
+    btns.forEach(btn => {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Reconnecting...';
+    });
+    apiJsonFetch('/api/v1/p2p/reconnect_all', {method: 'POST'})
+        .then(data => {
+            if (data.status === 'scheduled') {
+                showAlert('Reconnect scheduled for all known peers.', 'success');
+                setTimeout(refreshConnectPage, 1500);
+            } else {
+                showAlert(data.message || 'Reconnect failed', 'danger');
+            }
+        })
+        .catch((err) => showAlert('Reconnect failed: ' + buildConnectErrorMessage(err), 'danger'))
+        .finally(() => {
+            btns.forEach(btn => {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Reconnect All';
+            });
+        });
+}
+
+function refreshConnectPage() {
+    window.location.reload();
+}
+
+function copyPeerId(peerId) {
+    if (!peerId) return;
+    navigator.clipboard.writeText(peerId).then(() => {
+        if (typeof showAlert === 'function') {
+            showAlert('Peer ID copied to clipboard', 'success');
+        }
+    });
+}
+
+function disconnectPeer(peerId) {
+    if (!peerId) return;
+    apiJsonFetch('/api/v1/p2p/disconnect', {
+        method: 'POST',
+        body: JSON.stringify({peer_id: peerId})
+    })
+    .then(data => {
+        if (data.status === 'disconnected') {
+            showAlert('Peer disconnected.', 'success');
+            refreshConnectPage();
+        } else if (data.status === 'not_connected') {
+            showAlert('No direct connection to disconnect (peer may be relayed).', 'warning');
+        } else {
+            showAlert(data.message || 'Disconnect failed', 'danger');
+        }
+    })
+    .catch((err) => showAlert('Disconnect failed: ' + buildConnectErrorMessage(err), 'danger'));
+}
+
+function forgetPeer(peerId) {
+    if (!peerId) return;
+    if (!confirm('Forget this peer? This will remove stored endpoints and stop auto-reconnect.')) return;
+    apiJsonFetch('/api/v1/p2p/forget', {
+        method: 'POST',
+        body: JSON.stringify({peer_id: peerId})
+    })
+    .then(data => {
+        if (data.status === 'forgotten' || data.status === 'not_found') {
+            document.querySelectorAll(`[data-peer-id="${peerId}"]`).forEach(el => el.remove());
+            showAlert('Peer removed from known list.', 'success');
+        } else {
+            showAlert(data.message || 'Could not forget peer', 'danger');
+        }
+    })
+    .catch((err) => showAlert('Could not forget peer: ' + buildConnectErrorMessage(err), 'danger'));
+}
+
+let lastPeerActivityFetch = null;
+
+function formatRelativeTime(deltaSeconds) {
+    if (deltaSeconds == null || isNaN(deltaSeconds)) return '—';
+    if (deltaSeconds < 30) return 'just now';
+    if (deltaSeconds < 60) return `${Math.floor(deltaSeconds)}s ago`;
+    if (deltaSeconds < 3600) return `${Math.floor(deltaSeconds / 60)}m ago`;
+    if (deltaSeconds < 86400) return `${Math.floor(deltaSeconds / 3600)}h ago`;
+    return `${Math.floor(deltaSeconds / 86400)}d ago`;
+}
+
+function updatePeerActivity(peers, serverTime) {
+    Object.entries(peers || {}).forEach(([peerId, info]) => {
+        const rows = document.querySelectorAll(`[data-peer-id="${peerId}"]`);
+        rows.forEach(row => {
+            const connectedAt = info.connected_at;
+            const lastActivity = info.last_activity || info.last_inbound_activity || info.last_outbound_activity;
+            const connectedEl = row.querySelector('[data-peer-connected]');
+            if (connectedEl && connectedAt) {
+                connectedEl.textContent = `Connected: ${formatRelativeTime(serverTime - connectedAt)}`;
+            }
+            const lastEl = row.querySelector('[data-peer-last]');
+            if (lastEl) {
+                if (lastActivity) {
+                    lastEl.textContent = `Last activity: ${formatRelativeTime(serverTime - lastActivity)}`;
+                } else {
+                    lastEl.textContent = 'Last activity: —';
+                }
+            }
+        });
+    });
+}
+
+function pollPeerActivity() {
+    let url = '/ajax/peer_activity';
+    if (lastPeerActivityFetch) {
+        url += '?since=' + encodeURIComponent(lastPeerActivityFetch);
+    }
+    fetch(url)
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) return;
+            lastPeerActivityFetch = data.server_time || Date.now() / 1000;
+            updatePeerActivity(data.peers || {}, data.server_time || Date.now() / 1000);
+            updateConnectionHistory(data.events || []);
+        })
+        .catch(() => {});
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    pollPeerActivity();
+    setInterval(pollPeerActivity, 8000);
+    pollMeshDiagnostics();
+    setInterval(pollMeshDiagnostics, 12000);
+});
+
+function getPeerLabel(peerId) {
+    if (!peerId) return 'Unknown peer';
+    return PEER_LABELS[peerId] || peerId;
+}
+
+    function connectionStatusMeta(status) {
+        const map = {
+            connected: {label: 'Connected', icon: 'bi-check-circle-fill', color: 'text-success', pill: 'bg-success'},
+            disconnected: {label: 'Disconnected', icon: 'bi-plug', color: 'text-secondary', pill: 'bg-secondary'},
+            failed: {label: 'Failed', icon: 'bi-x-circle', color: 'text-danger', pill: 'bg-danger'},
+            attempt: {label: 'Connecting', icon: 'bi-arrow-repeat', color: 'text-info', pill: 'bg-info'},
+            reconnect: {label: 'Reconnect', icon: 'bi-arrow-repeat', color: 'text-warning', pill: 'bg-warning text-dark'},
+            broker: {label: 'Broker', icon: 'bi-diagram-3', color: 'text-info', pill: 'bg-info'},
+            forgotten: {label: 'Forgotten', icon: 'bi-trash', color: 'text-muted', pill: 'bg-secondary'},
+        };
+        return map[status] || {label: status || 'Event', icon: 'bi-activity', color: 'text-secondary', pill: 'bg-secondary'};
+    }
+
+function updateConnectionHistory(events) {
+    if (!events.length) return;
+    events.forEach(ev => {
+        if (ev && ev.kind === 'connection' && ev.id) {
+            connectionEvents.set(ev.id, ev);
+        }
+    });
+    renderConnectionHistory();
+}
+
+function _escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = String(text);
+    return div.innerHTML;
+}
+
+function renderConnectionHistory() {
+    const list = document.getElementById('connection-history-list');
+    if (!list) return;
+    const items = Array.from(connectionEvents.values())
+        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+        .slice(0, 40);
+
+    if (!items.length) {
+        list.innerHTML = '<li class="list-group-item text-muted">No connection events yet.</li>';
+        return;
+    }
+
+    list.innerHTML = items.map(ev => {
+        const meta = connectionStatusMeta(ev.status);
+        const peerLabel = _escapeHtml(getPeerLabel(ev.peer_id));
+        const endpoint = ev.endpoint ? `• ${_escapeHtml(ev.endpoint)}` : '';
+        const via = ev.via_peer ? `• via ${_escapeHtml(getPeerLabel(ev.via_peer))}` : '';
+        const detail = _escapeHtml(ev.detail ? ev.detail : meta.label);
+        const age = _escapeHtml(formatRelativeTime((Date.now() / 1000) - (ev.timestamp || Date.now() / 1000)));
+        return `
+            <li class="list-group-item connection-history-item">
+                <div class="history-icon ${meta.color}"><i class="bi ${meta.icon}"></i></div>
+                <div class="history-detail">
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <span class="history-title">${detail}</span>
+                        <span class="badge ${meta.pill} history-pill">${meta.label}</span>
+                    </div>
+                    <div class="history-meta">${peerLabel} ${endpoint} ${via}</div>
+                </div>
+                <div class="history-meta">${age}</div>
+            </li>
+        `;
+    }).join('');
+}
+
+function setDiagValue(id, value) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = value;
+}
+
+function renderPendingByPeer(byPeer) {
+    const container = document.getElementById('diag-pending-by-peer');
+    if (!container) return;
+    const entries = Object.entries(byPeer || {}).sort((a, b) => (b[1] || 0) - (a[1] || 0));
+    if (!entries.length) {
+        container.innerHTML = '<div class="mesh-muted">No pending messages.</div>';
+        return;
+    }
+    container.innerHTML = entries.slice(0, 20).map(([peerId, count]) => `
+        <div class="mesh-list-item d-flex justify-content-between align-items-center">
+            <span>${_escapeHtml(getPeerLabel(peerId))}</span>
+            <span class="badge bg-warning text-dark">${count}</span>
+        </div>
+    `).join('');
+}
+
+function renderRecentFailures(events) {
+    const container = document.getElementById('diag-recent-failures');
+    if (!container) return;
+    const list = Array.isArray(events) ? [...events].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)) : [];
+    if (!list.length) {
+        container.innerHTML = '<div class="mesh-muted">No recent failures.</div>';
+        return;
+    }
+    container.innerHTML = list.slice(0, 15).map((ev) => {
+        const peer = _escapeHtml(getPeerLabel(ev.peer_id));
+        const detail = _escapeHtml(ev.detail || ev.status || 'Event');
+        const age = formatRelativeTime((Date.now() / 1000) - (ev.timestamp || Date.now() / 1000));
+        const kindBadge = ev.kind === 'security'
+            ? '<span class="badge bg-danger-subtle text-danger border border-danger-subtle">Security</span>'
+            : '<span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">Connection</span>';
+        return `
+            <div class="mesh-list-item">
+                <div class="d-flex justify-content-between align-items-center gap-2 mb-1">
+                    <strong>${peer}</strong>
+                    ${kindBadge}
+                </div>
+                <div class="mesh-muted">${detail}</div>
+                <div class="mesh-muted">${_escapeHtml(age)}</div>
+            </div>
+        `;
+    }).join('');
+}
+
+function renderMeshDiagnostics(diag) {
+    if (!diag) return;
+    const connected = Array.isArray(diag.connected_peers) ? diag.connected_peers.length : 0;
+    setDiagValue('diag-connected-count', connected);
+    setDiagValue('diag-known-count', (diag.known_peers_count != null ? diag.known_peers_count : 0));
+    setDiagValue('diag-pending-total', (diag.pending_messages && diag.pending_messages.total != null) ? diag.pending_messages.total : 0);
+    setDiagValue('diag-reconnect-count', (diag.reconnect_tasks && diag.reconnect_tasks.count != null) ? diag.reconnect_tasks.count : 0);
+    setDiagValue('diag-sync-queue', (diag.sync && diag.sync.queue_depth != null) ? diag.sync.queue_depth : 0);
+    const activeCatchups = (diag.sync && Array.isArray(diag.sync.active_catchups)) ? diag.sync.active_catchups : [];
+    setDiagValue('diag-catchups', activeCatchups.length);
+
+    const strict = !(diag.security && diag.security.allow_unverified_relay_messages);
+    const badge = document.getElementById('mesh-security-badge');
+    if (badge) {
+        badge.className = strict ? 'badge bg-success peer-pill' : 'badge bg-warning text-dark peer-pill';
+        badge.textContent = strict ? 'Signature strict' : 'Compatibility mode';
+    }
+
+    renderPendingByPeer((diag.pending_messages && diag.pending_messages.by_peer) ? diag.pending_messages.by_peer : {});
+    renderRecentFailures(diag.recent_failures || []);
+
+    const updated = document.getElementById('diag-last-updated');
+    if (updated) {
+        const ts = diag.timestamp ? new Date(diag.timestamp * 1000) : null;
+        updated.textContent = ts
+            ? `Last updated: ${ts.toLocaleTimeString()}`
+            : 'Last updated: —';
+    }
+}
+
+function pollMeshDiagnostics() {
+    fetch('/ajax/p2p/diagnostics')
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) return;
+            renderMeshDiagnostics(data.diagnostics);
+        })
+        .catch(() => {});
+}
+
+function triggerMeshResync(includeReconnect, buttonEl) {
+    if (!USER_IS_ADMIN) {
+        showAlert('Admin permission required', 'warning');
+        return;
+    }
+    const button = buttonEl || null;
+    if (button) {
+        button.disabled = true;
+        button.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Resyncing...';
+    }
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+    fetch('/ajax/p2p/resync', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken,
+        },
+        body: JSON.stringify({ include_reconnect: includeReconnect !== false }),
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) {
+                showAlert(data.error || 'Resync failed', 'danger');
+                return;
+            }
+            const count = data.scheduled_syncs || 0;
+            const reconnect = data.reconnect_scheduled ? ' + reconnect scheduled' : '';
+            showAlert(`Resync queued for ${count} connected peer(s)${reconnect}.`, 'success');
+            pollMeshDiagnostics();
+        })
+        .catch(() => showAlert('Resync failed', 'danger'))
+        .finally(() => {
+            if (button) {
+                button.disabled = false;
+                button.innerHTML = '<i class="bi bi-arrow-repeat"></i> Resync Mesh';
+            }
+        });
+}
+
+function clearConnectionHistory() {
+    connectionEvents.clear();
+    renderConnectionHistory();
+}
+</script>
+{% endblock %}
