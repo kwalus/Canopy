@@ -1,0 +1,829 @@
+{% extends "base.html" %}
+
+{% block title %}Tasks - Canopy{% endblock %}
+
+{% block extra_css %}
+<style>
+    .tasks-hero {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1.5rem;
+        margin-bottom: 1.5rem;
+        flex-wrap: wrap;
+    }
+    .tasks-hero h1 {
+        font-size: 2rem;
+        font-weight: 700;
+        margin-bottom: 0.25rem;
+    }
+    .tasks-hero p {
+        color: var(--canopy-text-secondary);
+        margin-bottom: 0;
+        max-width: 560px;
+    }
+    .tasks-layout {
+        display: grid;
+        grid-template-columns: minmax(280px, 340px) 1fr;
+        gap: 1.5rem;
+        align-items: start;
+    }
+    .task-create-card {
+        position: sticky;
+        top: 90px;
+    }
+    .task-create-card .card-body {
+        display: flex;
+        flex-direction: column;
+        gap: 0.85rem;
+    }
+    .task-create-card .form-label {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--canopy-text-secondary);
+    }
+    .task-create-card .form-control,
+    .task-create-card .form-select {
+        background: var(--canopy-bg-tertiary);
+        border: 1px solid var(--canopy-border);
+        color: var(--canopy-text-primary);
+    }
+    .task-create-card .form-control::placeholder {
+        color: var(--canopy-text-secondary);
+    }
+    .assignee-suggestions {
+        position: absolute;
+        top: calc(100% + 6px);
+        left: 0;
+        right: 0;
+        background: var(--canopy-bg-secondary);
+        border: 1px solid var(--canopy-border);
+        border-radius: 12px;
+        z-index: 20;
+        max-height: 220px;
+        overflow-y: auto;
+        display: none;
+    }
+    .assignee-suggestion {
+        padding: 0.55rem 0.75rem;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        color: var(--canopy-text-primary);
+    }
+    .assignee-suggestion:hover {
+        background: var(--canopy-bg-tertiary);
+    }
+    .assignee-suggestion .suggestion-avatar {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.08);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 600;
+        overflow: hidden;
+    }
+    .assignee-suggestion img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+    .task-board {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(220px, 1fr));
+        gap: 1rem;
+    }
+    .task-column {
+        background: var(--canopy-bg-secondary);
+        border: 1px solid var(--canopy-border);
+        border-radius: 18px;
+        padding: 0.75rem;
+        min-height: 200px;
+    }
+    .task-column-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 0.75rem;
+    }
+    .task-column-title {
+        font-weight: 600;
+        font-size: 0.95rem;
+    }
+    .task-count {
+        font-size: 0.75rem;
+        padding: 0.15rem 0.5rem;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.08);
+        color: var(--canopy-text-secondary);
+    }
+    .task-column-body {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+    .task-card {
+        background: linear-gradient(150deg, rgba(25, 35, 55, 0.9), rgba(20, 24, 40, 0.85));
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 16px;
+        padding: 0.85rem;
+        position: relative;
+        overflow: hidden;
+        box-shadow: 0 10px 24px rgba(0,0,0,0.25);
+    }
+    .task-card::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(circle at top right, rgba(74, 222, 128, 0.18), transparent 55%);
+        opacity: 0.6;
+        pointer-events: none;
+    }
+    .task-card[data-status="blocked"]::before {
+        background: radial-gradient(circle at top right, rgba(248, 113, 113, 0.2), transparent 55%);
+    }
+    .task-card[data-status="in_progress"]::before {
+        background: radial-gradient(circle at top right, rgba(56, 189, 248, 0.2), transparent 55%);
+    }
+    .task-card[data-status="done"]::before {
+        background: radial-gradient(circle at top right, rgba(34, 197, 94, 0.18), transparent 55%);
+    }
+    .task-card-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        position: relative;
+        z-index: 1;
+    }
+    .task-status {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        padding: 0.2rem 0.55rem;
+        border-radius: 999px;
+        font-weight: 600;
+    }
+    .task-status.open {
+        background: rgba(94, 234, 212, 0.15);
+        color: #5eead4;
+    }
+    .task-status.in_progress {
+        background: rgba(56, 189, 248, 0.18);
+        color: #38bdf8;
+    }
+    .task-status.blocked {
+        background: rgba(248, 113, 113, 0.2);
+        color: #f87171;
+    }
+    .task-status.done {
+        background: rgba(34, 197, 94, 0.18);
+        color: #4ade80;
+    }
+    .task-priority {
+        font-size: 0.68rem;
+        padding: 0.2rem 0.5rem;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.08);
+        color: var(--canopy-text-secondary);
+    }
+    .task-priority.high {
+        color: #fbbf24;
+        background: rgba(251, 191, 36, 0.15);
+    }
+    .task-priority.critical {
+        color: #fb7185;
+        background: rgba(251, 113, 133, 0.18);
+    }
+    .task-title {
+        font-weight: 600;
+        font-size: 1rem;
+        margin-top: 0.65rem;
+        position: relative;
+        z-index: 1;
+    }
+    .task-desc {
+        color: var(--canopy-text-secondary);
+        font-size: 0.85rem;
+        margin-top: 0.4rem;
+        position: relative;
+        z-index: 1;
+        white-space: pre-wrap;
+    }
+    .task-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem 0.75rem;
+        align-items: center;
+        margin-top: 0.6rem;
+        color: var(--canopy-text-secondary);
+        font-size: 0.7rem;
+        position: relative;
+        z-index: 1;
+    }
+    .task-due.overdue {
+        color: #f87171;
+    }
+    .task-assignee {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        margin-top: 0.7rem;
+        position: relative;
+        z-index: 1;
+    }
+    .task-assignee-avatar {
+        width: 36px;
+        height: 36px;
+    }
+    .task-assignee-text {
+        font-size: 0.8rem;
+        color: var(--canopy-text-secondary);
+    }
+    .task-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        margin-top: 0.75rem;
+        position: relative;
+        z-index: 1;
+    }
+    .task-actions .btn {
+        font-size: 0.7rem;
+        padding: 0.3rem 0.55rem;
+    }
+    .task-progress {
+        width: 100%;
+        height: 6px;
+        background: rgba(255,255,255,0.08);
+        border-radius: 999px;
+        overflow: hidden;
+        margin-top: 0.6rem;
+        position: relative;
+        z-index: 1;
+    }
+    .task-progress-bar {
+        height: 100%;
+        background: linear-gradient(90deg, rgba(16, 185, 129, 0.9), rgba(59, 130, 246, 0.9));
+        border-radius: 999px;
+    }
+    .task-scope {
+        font-size: 0.65rem;
+        padding: 0.2rem 0.45rem;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.08);
+        color: var(--canopy-text-secondary);
+    }
+    .task-empty {
+        color: var(--canopy-text-secondary);
+        font-size: 0.75rem;
+        text-align: center;
+        padding: 1rem 0.5rem;
+    }
+    @media (max-width: 1200px) {
+        .tasks-layout {
+            grid-template-columns: 1fr;
+        }
+        .task-create-card {
+            position: static;
+        }
+        .task-board {
+            grid-template-columns: repeat(2, minmax(220px, 1fr));
+        }
+    }
+    @media (max-width: 768px) {
+        .task-board {
+            grid-template-columns: 1fr;
+        }
+        .tasks-hero h1 {
+            font-size: 1.6rem;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="tasks-hero">
+    <div>
+        <h1>Tasks</h1>
+        <p>Coordinate humans and agents with a clear, shared task board. Network tasks sync to peers; local tasks stay on this node.</p>
+    </div>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-light" id="task-refresh-btn"><i class="bi bi-arrow-repeat me-1"></i>Refresh</button>
+    </div>
+</div>
+
+<div class="tasks-layout">
+    <div class="card task-create-card">
+        <div class="card-body">
+            <div class="d-flex align-items-center justify-content-between">
+                <h5 class="mb-0">Create Task</h5>
+                <span class="task-scope">default: network</span>
+            </div>
+            <form id="task-create-form" autocomplete="off">
+                <div>
+                    <label class="form-label">Title</label>
+                    <input type="text" class="form-control" id="task-title" placeholder="Ship mention events integration" required>
+                </div>
+                <div>
+                    <label class="form-label">Details</label>
+                    <textarea class="form-control" id="task-description" rows="3" placeholder="Key steps, links, and context..."></textarea>
+                </div>
+                <div style="position: relative;">
+                    <label class="form-label">Assignee (optional)</label>
+                    <input type="text" class="form-control" id="task-assignee" placeholder="Start typing a name...">
+                    <div class="assignee-suggestions" id="task-assignee-suggestions"></div>
+                </div>
+                <div class="row g-2">
+                    <div class="col-6">
+                        <label class="form-label">Status</label>
+                        <select class="form-select" id="task-status">
+                            <option value="open" selected>Open</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="blocked">Blocked</option>
+                            <option value="done">Done</option>
+                        </select>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">Priority</label>
+                        <select class="form-select" id="task-priority">
+                            <option value="normal" selected>Normal</option>
+                            <option value="low">Low</option>
+                            <option value="high">High</option>
+                            <option value="critical">Critical</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="row g-2">
+                    <div class="col-6">
+                        <label class="form-label">Due (optional)</label>
+                        <input type="date" class="form-control" id="task-due">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">Scope</label>
+                        <select class="form-select" id="task-visibility">
+                            <option value="network" selected>Network</option>
+                            <option value="local">Local only</option>
+                        </select>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary w-100 mt-2">
+                    <i class="bi bi-plus-circle me-1"></i> Add Task
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <div class="task-board" id="task-board">
+        <div class="task-column" data-status="open">
+            <div class="task-column-header">
+                <span class="task-column-title">Open</span>
+                <span class="task-count">0</span>
+            </div>
+            <div class="task-column-body"></div>
+        </div>
+        <div class="task-column" data-status="in_progress">
+            <div class="task-column-header">
+                <span class="task-column-title">In Progress</span>
+                <span class="task-count">0</span>
+            </div>
+            <div class="task-column-body"></div>
+        </div>
+        <div class="task-column" data-status="blocked">
+            <div class="task-column-header">
+                <span class="task-column-title">Blocked</span>
+                <span class="task-count">0</span>
+            </div>
+            <div class="task-column-body"></div>
+        </div>
+        <div class="task-column" data-status="done">
+            <div class="task-column-header">
+                <span class="task-column-title">Done</span>
+                <span class="task-count">0</span>
+            </div>
+            <div class="task-column-body"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const CURRENT_USER_ID = {{ current_user_id|tojson }};
+    const CURRENT_USER_NAME = {{ current_user_name|tojson }};
+    const TASK_STATUSES = ['open', 'in_progress', 'blocked', 'done'];
+    const STATUS_LABELS = {
+        open: 'Open',
+        in_progress: 'In Progress',
+        blocked: 'Blocked',
+        done: 'Done'
+    };
+    const PRIORITY_LABELS = {
+        low: 'Low',
+        normal: 'Normal',
+        high: 'High',
+        critical: 'Critical'
+    };
+
+    let taskUsers = {};
+    let mentionSuggestions = [];
+    let mentionSuggestionsLoading = false;
+    let mentionSuggestionsFetchedAt = 0;
+    const TASK_MENTION_CACHE_TTL_MS = 30000;
+
+    function escapeHtml(text) {
+        return (text || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function statusProgress(status) {
+        switch (status) {
+            case 'done': return 100;
+            case 'in_progress': return 60;
+            case 'blocked': return 20;
+            default: return 10;
+        }
+    }
+
+    function formatDue(dueAt) {
+        if (!dueAt) return '';
+        const due = new Date(dueAt);
+        if (isNaN(due)) return '';
+        return due.toLocaleDateString();
+    }
+
+    function isOverdue(dueAt, status) {
+        if (!dueAt || status === 'done') return false;
+        const due = new Date(dueAt);
+        const now = new Date();
+        return due < now;
+    }
+
+    function renderAssignee(container, userId) {
+        if (!container) return;
+        if (!userId) {
+            container.innerHTML = `<div class="task-assignee-text">Unassigned</div>`;
+            return;
+        }
+        const user = taskUsers[userId] || { display_name: userId, avatar_url: null, origin_peer: null };
+        const avatarWrap = document.createElement('div');
+        avatarWrap.className = 'task-assignee-avatar';
+        if (window.renderAvatarStack) {
+            window.renderAvatarStack(avatarWrap, {
+                userLabel: user.display_name || userId,
+                userAvatarUrl: user.avatar_url || null,
+                peerId: user.origin_peer || null
+            });
+        }
+        const textWrap = document.createElement('div');
+        textWrap.className = 'task-assignee-text';
+        textWrap.textContent = `Assigned to ${user.display_name || userId}`;
+        container.innerHTML = '';
+        container.appendChild(avatarWrap);
+        container.appendChild(textWrap);
+    }
+
+    function buildTaskActions(task) {
+        const actions = [];
+        if (!task.assigned_to) {
+            actions.push({ action: 'claim', label: 'Claim' });
+        }
+        if (task.status === 'open') {
+            actions.push({ action: 'start', label: 'Start' });
+            actions.push({ action: 'block', label: 'Block' });
+            actions.push({ action: 'complete', label: 'Complete' });
+        } else if (task.status === 'in_progress') {
+            actions.push({ action: 'block', label: 'Block' });
+            actions.push({ action: 'complete', label: 'Complete' });
+        } else if (task.status === 'blocked') {
+            actions.push({ action: 'resume', label: 'Resume' });
+            actions.push({ action: 'complete', label: 'Complete' });
+        } else if (task.status === 'done') {
+            actions.push({ action: 'reopen', label: 'Reopen' });
+        }
+        return actions;
+    }
+
+    function createTaskCard(task) {
+        const card = document.createElement('div');
+        card.className = 'task-card';
+        card.dataset.taskId = task.id;
+        card.dataset.status = task.status;
+
+        const priorityClass = task.priority || 'normal';
+        const statusLabel = STATUS_LABELS[task.status] || task.status;
+        const priorityLabel = PRIORITY_LABELS[priorityClass] || priorityClass;
+        const dueLabel = formatDue(task.due_at);
+        const overdue = isOverdue(task.due_at, task.status);
+        const progress = statusProgress(task.status);
+
+        card.innerHTML = `
+            <div class="task-card-top">
+                <span class="task-status ${task.status}">${statusLabel}</span>
+                <span class="task-priority ${priorityClass}">${priorityLabel}</span>
+            </div>
+            <div class="task-title">${escapeHtml(task.title)}</div>
+            ${task.description ? `<div class="task-desc">${escapeHtml(task.description)}</div>` : ''}
+            <div class="task-meta">
+                <span>Updated ${formatTimestamp(task.updated_at)}</span>
+                ${dueLabel ? `<span class="task-due ${overdue ? 'overdue' : ''}">Due ${dueLabel}</span>` : ''}
+                ${task.visibility === 'local' ? '<span class="task-scope">Local</span>' : ''}
+            </div>
+            <div class="task-progress">
+                <div class="task-progress-bar" style="width: ${progress}%;"></div>
+            </div>
+            <div class="task-assignee"></div>
+            <div class="task-actions"></div>
+        `;
+
+        const assigneeWrap = card.querySelector('.task-assignee');
+        renderAssignee(assigneeWrap, task.assigned_to);
+
+        const actionsWrap = card.querySelector('.task-actions');
+        const actions = buildTaskActions(task);
+        if (!actions.length) {
+            actionsWrap.innerHTML = '';
+        } else {
+            const safeTaskId = escapeHtml(task.id);
+            actionsWrap.innerHTML = actions.map(action => `
+                <button class="btn btn-outline-light" data-task-action="${action.action}" data-task-id="${safeTaskId}">
+                    ${action.label}
+                </button>
+            `).join('');
+        }
+
+        return card;
+    }
+
+    function renderTaskBoard(tasks) {
+        const grouped = {
+            open: [],
+            in_progress: [],
+            blocked: [],
+            done: []
+        };
+        (tasks || []).forEach(task => {
+            const status = TASK_STATUSES.includes(task.status) ? task.status : 'open';
+            grouped[status].push(task);
+        });
+
+        document.querySelectorAll('.task-column').forEach(column => {
+            const status = column.dataset.status;
+            const list = grouped[status] || [];
+            column.querySelector('.task-count').textContent = list.length;
+            const body = column.querySelector('.task-column-body');
+            body.innerHTML = '';
+            if (!list.length) {
+                body.innerHTML = `<div class="task-empty">No tasks yet.</div>`;
+                return;
+            }
+            list.forEach(task => {
+                body.appendChild(createTaskCard(task));
+            });
+        });
+    }
+
+    function loadTasks() {
+        return apiCall('/ajax/tasks')
+            .then(data => {
+                if (!data || !data.success) {
+                    showAlert(data && data.error ? data.error : 'Failed to load tasks', 'warning');
+                    return;
+                }
+                taskUsers = data.users || {};
+                renderTaskBoard(data.tasks || []);
+            })
+            .catch(err => {
+                console.error('Task load error', err);
+            });
+    }
+
+    function updateTask(taskId, payload) {
+        return apiCall(`/ajax/tasks/${taskId}`, {
+            method: 'POST',
+            body: JSON.stringify(payload || {})
+        });
+    }
+
+    function handleTaskAction(action, taskId) {
+        if (!taskId) return;
+        let payload = {};
+        switch (action) {
+            case 'start':
+                payload.status = 'in_progress';
+                break;
+            case 'block':
+                payload.status = 'blocked';
+                break;
+            case 'complete':
+                payload.status = 'done';
+                break;
+            case 'resume':
+                payload.status = 'in_progress';
+                break;
+            case 'reopen':
+                payload.status = 'open';
+                break;
+            case 'claim':
+                payload.assigned_to = CURRENT_USER_ID;
+                break;
+            default:
+                return;
+        }
+        updateTask(taskId, payload)
+            .then(() => loadTasks())
+            .catch(err => {
+                console.error('Task update error', err);
+                showAlert('Failed to update task', 'warning');
+            });
+    }
+
+    function loadMentionSuggestions(options) {
+        const forceRefresh = !!(options && options.forceRefresh);
+        const isFresh = mentionSuggestionsFetchedAt > 0
+            && (Date.now() - mentionSuggestionsFetchedAt) < TASK_MENTION_CACHE_TTL_MS;
+        if (!forceRefresh && Array.isArray(mentionSuggestions) && mentionSuggestions.length && isFresh) {
+            return Promise.resolve(mentionSuggestions);
+        }
+        if (mentionSuggestionsLoading) return Promise.resolve(mentionSuggestions);
+        mentionSuggestionsLoading = true;
+        return apiCall('/ajax/mention_suggestions')
+            .then(data => {
+                if (data && data.users) {
+                    mentionSuggestions = data.users;
+                }
+                mentionSuggestionsFetchedAt = Date.now();
+                mentionSuggestionsLoading = false;
+                return mentionSuggestions;
+            })
+            .catch(err => {
+                console.warn('Failed to load mention suggestions', err);
+                mentionSuggestionsFetchedAt = Date.now();
+                mentionSuggestionsLoading = false;
+                return mentionSuggestions;
+            });
+    }
+
+    function filterAssigneeSuggestions(query) {
+        if (!query) return [];
+        const needle = query.toLowerCase();
+        return (mentionSuggestions || []).filter(user => {
+            const display = (user.display_name || '').toLowerCase();
+            const username = (user.username || '').toLowerCase();
+            const handle = (user.handle || '').toLowerCase();
+            const uid = (user.user_id || '').toLowerCase();
+            return display.includes(needle) || username.includes(needle) || handle.includes(needle) || uid.includes(needle);
+        }).slice(0, 6);
+    }
+
+    function setupAssigneeAutocomplete() {
+        const input = document.getElementById('task-assignee');
+        const suggestionsEl = document.getElementById('task-assignee-suggestions');
+        if (!input || !suggestionsEl) return;
+
+        function hideSuggestions() {
+            suggestionsEl.style.display = 'none';
+            suggestionsEl.innerHTML = '';
+        }
+
+        function renderSuggestions(matches) {
+            suggestionsEl.innerHTML = matches.map(user => {
+                const safeDisplay = escapeHtml(user.display_name || user.username || user.user_id || '?');
+                const safeUid = escapeHtml(user.user_id || '');
+                const safeHandle = escapeHtml(user.handle || user.user_id || '');
+                const initial = safeDisplay[0] || '?';
+                const isSafeUrl = user.avatar_url && typeof user.avatar_url === 'string' && user.avatar_url.startsWith('/');
+                const avatar = isSafeUrl
+                    ? `<img src="${escapeHtml(user.avatar_url)}" alt="${safeDisplay}">`
+                    : `<span>${initial.toUpperCase()}</span>`;
+                return `
+                    <div class="assignee-suggestion" data-user-id="${safeUid}">
+                        <div class="suggestion-avatar">${avatar}</div>
+                        <div>
+                            <div>${safeDisplay}</div>
+                            <div class="text-muted" style="font-size: 0.7rem;">@${safeHandle}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            suggestionsEl.style.display = 'block';
+        }
+
+        input.addEventListener('input', () => {
+            input.dataset.userId = '';
+            const query = input.value.trim();
+            if (!query || query.length < 2) {
+                hideSuggestions();
+                return;
+            }
+            const matches = filterAssigneeSuggestions(query);
+            if (!matches.length) {
+                loadMentionSuggestions({ forceRefresh: true }).then(() => {
+                    const refreshedMatches = filterAssigneeSuggestions(query);
+                    if (!refreshedMatches.length) {
+                        hideSuggestions();
+                        return;
+                    }
+                    renderSuggestions(refreshedMatches);
+                });
+                return;
+            }
+            renderSuggestions(matches);
+        });
+
+        suggestionsEl.addEventListener('click', (event) => {
+            const item = event.target.closest('.assignee-suggestion');
+            if (!item) return;
+            const userId = item.dataset.userId;
+            const user = (mentionSuggestions || []).find(u => u.user_id === userId);
+            if (user) {
+                input.value = user.display_name || user.username || user.user_id;
+                input.dataset.userId = user.user_id;
+            }
+            hideSuggestions();
+        });
+
+        document.addEventListener('click', (event) => {
+            if (!suggestionsEl.contains(event.target) && event.target !== input) {
+                hideSuggestions();
+            }
+        });
+    }
+
+    function setupTaskForm() {
+        const form = document.getElementById('task-create-form');
+        if (!form) return;
+        form.addEventListener('submit', (event) => {
+            event.preventDefault();
+            const titleEl = document.getElementById('task-title');
+            const descriptionEl = document.getElementById('task-description');
+            const assigneeEl = document.getElementById('task-assignee');
+            const statusEl = document.getElementById('task-status');
+            const priorityEl = document.getElementById('task-priority');
+            const dueEl = document.getElementById('task-due');
+            const visibilityEl = document.getElementById('task-visibility');
+
+            const payload = {
+                title: titleEl.value.trim(),
+                description: descriptionEl.value.trim(),
+                status: statusEl.value,
+                priority: priorityEl.value,
+                assigned_to: assigneeEl.dataset.userId || '',
+                due_at: dueEl.value ? new Date(dueEl.value).toISOString() : null,
+                visibility: visibilityEl.value
+            };
+
+            if (!payload.title) {
+                showAlert('Title is required', 'warning');
+                return;
+            }
+
+            apiCall('/ajax/tasks', {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            }).then((data) => {
+                if (data && data.success) {
+                    showAlert('Task created', 'success');
+                    form.reset();
+                    assigneeEl.dataset.userId = '';
+                    loadTasks();
+                } else {
+                    showAlert(data && data.error ? data.error : 'Failed to create task', 'warning');
+                }
+            }).catch(err => {
+                console.error('Create task error', err);
+                showAlert('Failed to create task', 'warning');
+            });
+        });
+    }
+
+    document.addEventListener('click', (event) => {
+        const actionBtn = event.target.closest('[data-task-action]');
+        if (!actionBtn) return;
+        const action = actionBtn.dataset.taskAction;
+        const taskId = actionBtn.dataset.taskId;
+        handleTaskAction(action, taskId);
+    });
+
+    const refreshBtn = document.getElementById('task-refresh-btn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => loadTasks());
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadTasks();
+        loadMentionSuggestions();
+        setupAssigneeAutocomplete();
+        setupTaskForm();
+        setInterval(loadTasks, 15000);
+    });
+</script>
+{% endblock %}

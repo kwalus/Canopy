@@ -1,0 +1,7 @@
+# Canopy Tray - additional dependencies
+# (on top of canopy/requirements.txt)
+
+pystray>=0.19.5        # System tray icon
+winotify>=1.1.0        # Windows 10/11 toast notifications
+Pillow>=10.4.0         # Image processing (also in main requirements)
+pyinstaller>=6.0       # For building standalone .exe (optional, build-time only)

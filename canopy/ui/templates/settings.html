@@ -1,0 +1,987 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - Canopy{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="h3 mb-1">
+            <i class="bi bi-gear"></i> Settings
+        </h1>
+        <p class="text-muted small mb-0">
+            Configure your Canopy instance and view system information
+        </p>
+    </div>
+    <button class="btn btn-outline-primary btn-sm" onclick="refreshSettings()">
+        <i class="bi bi-arrow-clockwise"></i> Refresh
+    </button>
+</div>
+
+<div class="row">
+    <!-- System Information -->
+    <div class="col-lg-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-info-circle"></i> System Information
+                </h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    Key information about your Canopy installation. These values are read-only and configured at startup.
+                </p>
+                <dl class="row">
+                    <dt class="col-sm-4">Version:</dt>
+                    <dd class="col-sm-8"><code>0.1.0</code></dd>
+                    
+                    <dt class="col-sm-4">Host:</dt>
+                    <dd class="col-sm-8"><code>{{ config.network.host }}</code></dd>
+                    
+                    <dt class="col-sm-4">Port:</dt>
+                    <dd class="col-sm-8"><code>{{ config.network.port }}</code></dd>
+                    
+                    <dt class="col-sm-4">Debug Mode:</dt>
+                    <dd class="col-sm-8">
+                        <span class="badge bg-{{ 'warning' if config.debug else 'success' }}">
+                            {{ 'Enabled' if config.debug else 'Disabled' }}
+                        </span>
+                    </dd>
+                    
+                    <dt class="col-sm-4">Database:</dt>
+                    <dd class="col-sm-8"><code>{{ config.storage.database_path }}</code></dd>
+                    
+                    <dt class="col-sm-4">Max Peers:</dt>
+                    <dd class="col-sm-8"><code>{{ config.network.max_peers }}</code></dd>
+                    
+                    <dt class="col-sm-4">Trust Threshold:</dt>
+                    <dd class="col-sm-8">
+                        <code>{{ config.security.trust_threshold }}</code>
+                        <small class="text-muted d-block">Minimum trust score (0-100) required for peer interactions</small>
+                    </dd>
+                </dl>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Database Statistics -->
+    <div class="col-lg-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-database"></i> Database Statistics
+                </h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    Current counts of stored data in your local Canopy database.
+                </p>
+                <dl class="row">
+                    <dt class="col-sm-6">Users:</dt>
+                    <dd class="col-sm-6"><span class="badge bg-primary">{{ db_stats.users or 0 }}</span></dd>
+                    
+                    <dt class="col-sm-6">Messages:</dt>
+                    <dd class="col-sm-6"><span class="badge bg-info">{{ db_stats.messages or 0 }}</span></dd>
+                    
+                    <dt class="col-sm-6">Trust Scores:</dt>
+                    <dd class="col-sm-6"><span class="badge bg-success">{{ db_stats.trust_scores or 0 }}</span></dd>
+                    
+                    <dt class="col-sm-6">Delete Signals:</dt>
+                    <dd class="col-sm-6"><span class="badge bg-warning">{{ db_stats.delete_signals or 0 }}</span></dd>
+                    
+                    <dt class="col-sm-6">Peers:</dt>
+                    <dd class="col-sm-6"><span class="badge bg-secondary">{{ db_stats.peers or 0 }}</span></dd>
+                    
+                    <dt class="col-sm-6">Feed Posts:</dt>
+                    <dd class="col-sm-6"><span class="badge bg-info">{{ db_stats.feed_posts or 0 }}</span></dd>
+                </dl>
+                
+                <div class="mt-3">
+                    <button class="btn btn-outline-warning btn-sm" onclick="cleanupDatabase()">
+                        <i class="bi bi-trash"></i> Cleanup Old Data
+                    </button>
+                    <small class="text-muted d-block mt-1">Removes messages and data older than 30 days</small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Configuration Settings -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-sliders"></i> Configuration
+                </h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    Current configuration values. These are typically set via environment variables or config files at startup.
+                </p>
+                <div class="row">
+                    <!-- Network Settings -->
+                    <div class="col-md-6">
+                        <h6>Network Settings</h6>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-dark">
+                                <tbody>
+                                    <tr>
+                                        <td><strong>Host Address</strong></td>
+                                        <td><code>{{ config.network.host }}</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Port</strong></td>
+                                        <td><code>{{ config.network.port }}</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Mesh Port</strong></td>
+                                        <td><code>{{ config.network.mesh_port }}</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Discovery Port</strong></td>
+                                        <td><code>{{ config.network.discovery_port }}</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Max Peers</strong></td>
+                                        <td><code>{{ config.network.max_peers }}</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Connection Timeout</strong></td>
+                                        <td><code>{{ config.network.connection_timeout }}s</code></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <!-- Security Settings -->
+                    <div class="col-md-6">
+                        <h6>Security Settings</h6>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-dark">
+                                <tbody>
+                                    <tr>
+                                        <td><strong>Encryption Algorithm</strong></td>
+                                        <td><code>{{ config.security.encryption_algorithm }}</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Key Derivation Rounds</strong></td>
+                                        <td><code>{{ config.security.key_derivation_rounds }}</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Session Timeout</strong></td>
+                                        <td><code>{{ config.security.session_timeout }}s</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Max Key Age</strong></td>
+                                        <td><code>{{ config.security.max_key_age }}s</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Trust Threshold</strong></td>
+                                        <td><code>{{ config.security.trust_threshold }}</code></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row mt-4">
+                    <!-- Storage Settings -->
+                    <div class="col-md-6">
+                        <h6>Storage Settings</h6>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-dark">
+                                <tbody>
+                                    <tr>
+                                        <td><strong>Database Path</strong></td>
+                                        <td><code>{{ config.storage.database_path }}</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Backup Interval</strong></td>
+                                        <td><code>{{ config.storage.backup_interval }}s</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Max Message Size</strong></td>
+                                        <td><code>{{ (config.storage.max_message_size / 1024) | int }}KB</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Max File Size</strong></td>
+                                        <td><code>{{ (config.storage.max_file_size / 1024 / 1024) | int }}MB</code></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <!-- UI Settings -->
+                    <div class="col-md-6">
+                        <h6>User Interface Settings</h6>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-dark">
+                                <tbody>
+                                    <tr>
+                                        <td><strong>Theme</strong></td>
+                                        <td><code>{{ config.ui.theme }}</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Language</strong></td>
+                                        <td><code>{{ config.ui.language }}</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Auto Refresh</strong></td>
+                                        <td><code>{{ config.ui.auto_refresh }}s</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Max Feed Items</strong></td>
+                                        <td><code>{{ config.ui.max_feed_items }}</code></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Landing Page Preference -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-door-open"></i> Default Landing Page
+                </h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    Choose which page Canopy opens to when you log in. 
+                    By default, desktop opens to Channels and mobile opens to the Social Feed for optimal experience.
+                </p>
+                <div class="row align-items-center">
+                    <div class="col-md-4">
+                        <select class="form-select" id="landingPageSelect" onchange="saveLandingPreference()">
+                            <option value="">Auto (Channels on desktop, Feed on mobile)</option>
+                            <option value="channels">Channels</option>
+                            <option value="feed">Social Feed</option>
+                            <option value="messages">Direct Messages</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <span id="landing-page-status" class="text-muted small"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Device Profile -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-pc-display-horizontal"></i> Device Profile
+                </h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    Give this device a unique identity that other peers will see in the network.
+                    Channels and content originating from this device will be tagged with this profile.
+                    This helps identify which of your devices created content when you run Canopy on multiple machines.
+                </p>
+                <div class="row">
+                    <div class="col-md-3 text-center mb-3">
+                        <div id="device-avatar-preview" style="width:100px; height:100px; border-radius:50%; margin:0 auto; background:var(--canopy-bg-card); border:2px dashed var(--canopy-border); display:flex; align-items:center; justify-content:center; overflow:hidden;">
+                            <i class="bi bi-pc-display-horizontal" style="font-size:2rem; opacity:0.4;" id="device-avatar-placeholder"></i>
+                            <img id="device-avatar-img" src="" style="width:100%; height:100%; object-fit:cover; display:none;">
+                        </div>
+                        <label class="btn btn-sm btn-outline-secondary mt-2">
+                            <i class="bi bi-camera"></i> Upload
+                            <input type="file" id="device-avatar-input" accept="image/*" style="display:none;" onchange="previewDeviceAvatar(this)">
+                        </label>
+                    </div>
+                    <div class="col-md-9">
+                        <div class="mb-3">
+                            <label for="device-display-name" class="form-label">Device Name</label>
+                            <input type="text" class="form-control" id="device-display-name"
+                                   placeholder="e.g. Mac Studio, Office Desktop, VM-Ubuntu">
+                        </div>
+                        <div class="mb-3">
+                            <label for="device-description" class="form-label">Description</label>
+                            <textarea class="form-control" id="device-description" rows="2"
+                                      placeholder="Brief description of this device"></textarea>
+                        </div>
+                        <button class="btn btn-primary btn-sm" onclick="saveDeviceProfile()">
+                            <i class="bi bi-check-lg"></i> Save Device Profile
+                        </button>
+                        <span id="device-profile-status" class="ms-2 text-muted small"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Mesh Relay Settings -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-arrow-left-right"></i> Mesh Relay
+                </h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    <strong>What is Mesh Relay?</strong> When two peers can't connect directly (e.g., both behind NATs/firewalls), 
+                    a third peer can help them communicate. This setting controls how your node participates in helping others connect.
+                </p>
+
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label"><strong>Relay Policy</strong></label>
+                        <select class="form-select" id="relayPolicySelect" onchange="updateRelayPolicy()">
+                            <option value="off">Off &mdash; Do not help peers connect</option>
+                            <option value="broker_only">Broker Only &mdash; Help introduce peers (default, recommended)</option>
+                            <option value="full_relay">Full Relay &mdash; Also forward messages for unreachable peers</option>
+                        </select>
+                        <small class="text-muted mt-2 d-block">
+                            <strong>Broker Only</strong> (recommended) helps peers find and establish direct connections with minimal bandwidth cost.
+                            <br>
+                            <strong>Full Relay</strong> also carries traffic for peers that cannot connect directly, which uses your bandwidth and resources.
+                        </small>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label"><strong>Current Status</strong></label>
+                        <div id="relayStatusInfo">
+                            <p class="text-muted small mb-1">Loading...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="routingTableSection" style="display:none;">
+                    <hr class="my-3">
+                    <label class="form-label"><strong>Active Routing Table</strong></label>
+                    <p class="text-muted small">
+                        Shows current peer-to-peer routes. "Relay" routes forward traffic; "Route" entries are direct connections.
+                    </p>
+                    <div class="table-responsive">
+                        <table class="table table-sm" style="color:var(--canopy-text-primary);">
+                            <thead>
+                                <tr><th>Destination</th><th>Next Hop</th><th>Type</th></tr>
+                            </thead>
+                            <tbody id="routingTableBody">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Advanced Actions -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-tools"></i> Advanced Actions
+                </h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    <i class="bi bi-exclamation-triangle text-warning"></i>
+                    <strong>Warning:</strong> These actions affect your data. Use with caution.
+                </p>
+                <div class="row">
+                    <div class="col-md-3">
+                        <div class="d-grid">
+                            <button class="btn btn-outline-warning" id="cleanup-db-btn" onclick="cleanupDatabase()">
+                                <i class="bi bi-trash"></i> Cleanup Database
+                            </button>
+                            <small class="text-muted mt-1">Remove old messages and expired data</small>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <div class="d-grid">
+                            <button class="btn btn-outline-info" id="export-data-btn" onclick="exportData()">
+                                <i class="bi bi-download"></i> Export Data
+                            </button>
+                            <small class="text-muted mt-1">Download your data for backup</small>
+                        </div>
+                    </div>
+
+                    <div class="col-md-3">
+                        <div class="d-grid">
+                            <button class="btn btn-outline-danger" id="import-data-btn" onclick="openImportDataPicker()"
+                                    {% if not is_admin %}disabled title="Instance admin only"{% endif %}>
+                                <i class="bi bi-upload"></i> Import Data
+                            </button>
+                            <small class="text-muted mt-1">
+                                Overwrites local database (backup created automatically)
+                                {% if not is_admin %}<span class="d-block">Instance admin only</span>{% endif %}
+                            </small>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <div class="d-grid">
+                            <button class="btn btn-outline-danger" id="reset-system-btn" onclick="resetSystem()">
+                                <i class="bi bi-arrow-clockwise"></i> Reset System
+                            </button>
+                            <small class="text-muted mt-1">Clear all data and start fresh</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Environment Variables -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-code-square"></i> Environment Configuration
+                </h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted mb-3">
+                    You can customize Canopy behavior using these environment variables:
+                </p>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Network Configuration</h6>
+                        <pre class="p-3 rounded" style="background: var(--canopy-bg-tertiary); color: var(--canopy-text-primary);"><code>export CANOPY_HOST=0.0.0.0
+export CANOPY_PORT=7770
+export CANOPY_DEBUG=true</code></pre>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <h6>Storage Configuration</h6>
+                        <pre class="p-3 rounded" style="background: var(--canopy-bg-tertiary); color: var(--canopy-text-primary);"><code>export CANOPY_DATABASE_PATH=./data/canopy.db
+export CANOPY_SECRET_KEY=&lt;generate-a-strong-random-value&gt;</code></pre>
+                        <p class="small text-muted mb-0">Canopy auto-generates a secret key at first run if not set. Only set this if you need a fixed value (e.g. multi-process).</p>
+                    </div>
+                </div>
+
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <h6>Agents / MCP</h6>
+                        <p class="text-muted small mb-2">Control whether new agent (bot) accounts are approved automatically or require human approval in Admin.</p>
+                        <div class="d-flex align-items-center flex-wrap gap-2">
+                            <span class="badge bg-{{ 'success' if auto_approve_agents else 'secondary' }}">
+                                CANOPY_AUTO_APPROVE_AGENTS: {{ 'Enabled' if auto_approve_agents else 'Not set' }}
+                            </span>
+                            <span class="text-muted small">Set to <code>1</code>, <code>true</code>, or <code>yes</code> to auto-approve new agents; leave unset to require approval in Admin.</span>
+                        </div>
+                        <pre class="p-3 rounded mt-2 mb-0" style="background: var(--canopy-bg-tertiary); color: var(--canopy-text-primary);"><code># Optional: auto-approve new agent registrations (restart required)
+export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
+                    </div>
+                </div>
+                
+                <div class="alert alert-info mt-3">
+                    <i class="bi bi-info-circle"></i>
+                    <strong>Note:</strong> Changes to environment variables require restarting Canopy to take effect.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- System Health -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-heart-pulse"></i> System Health
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-3">
+                        <div class="text-success">
+                            <i class="bi bi-check-circle fs-1"></i>
+                        </div>
+                        <h6>Database</h6>
+                        <small class="text-muted">Connected and healthy</small>
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <div class="text-success">
+                            <i class="bi bi-wifi fs-1"></i>
+                        </div>
+                        <h6>Network</h6>
+                        <small class="text-muted">Server running on port {{ config.network.port }}</small>
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <div class="text-success">
+                            <i class="bi bi-shield-check fs-1"></i>
+                        </div>
+                        <h6>Security</h6>
+                        <small class="text-muted">API keys and trust system active</small>
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <div class="text-success">
+                            <i class="bi bi-graph-up fs-1"></i>
+                        </div>
+                        <h6>Performance</h6>
+                        <small class="text-muted">Running smoothly</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<input type="file" id="import-db-input" class="d-none" accept=".db,.sqlite,.sqlite3,application/x-sqlite3">
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function extractErrorMessage(err, fallback) {
+        if (!err) return fallback;
+        if (typeof err === 'string') return err;
+        if (err.error) return err.error;
+        if (err.message) return err.message;
+        return fallback;
+    }
+
+    function setButtonBusy(buttonId, busy, label) {
+        const btn = document.getElementById(buttonId);
+        if (!btn) return;
+        if (!btn.dataset.defaultLabel) {
+            btn.dataset.defaultLabel = btn.innerHTML;
+        }
+        btn.disabled = !!busy;
+        btn.innerHTML = busy ? label : btn.dataset.defaultLabel;
+    }
+
+    function parseDownloadFilename(contentDisposition) {
+        if (!contentDisposition) return '';
+        const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+        if (utf8Match && utf8Match[1]) {
+            return decodeURIComponent(utf8Match[1].replace(/^"(.*)"$/, '$1'));
+        }
+        const asciiMatch = contentDisposition.match(/filename="?([^"]+)"?/i);
+        return asciiMatch && asciiMatch[1] ? asciiMatch[1] : '';
+    }
+
+    function refreshSettings() {
+        window.location.reload();
+    }
+    
+    function cleanupDatabase() {
+        if (!confirm('This will remove old messages and expired data older than 30 days.\n\nYour recent messages and data will be preserved. Continue?')) {
+            return;
+        }
+
+        setButtonBusy('cleanup-db-btn', true, '<i class="bi bi-hourglass-split"></i> Cleaning...');
+        apiCall('/ajax/database_cleanup', {
+            method: 'POST',
+            body: JSON.stringify({ days: 30 })
+        })
+        .then(data => {
+            if (data.success) {
+                showAlert(data.message || 'Database cleaned up successfully!', 'success');
+            } else {
+                showAlert('Cleanup failed: ' + (data.error || 'Unknown error'), 'danger');
+            }
+        })
+        .catch(err => showAlert('Cleanup failed: ' + extractErrorMessage(err, 'Unknown error'), 'danger'))
+        .finally(() => setButtonBusy('cleanup-db-btn', false));
+    }
+    
+    async function exportData() {
+        setButtonBusy('export-data-btn', true, '<i class="bi bi-hourglass-split"></i> Preparing...');
+        try {
+            const response = await fetch('/ajax/database_export', {
+                method: 'GET',
+                credentials: 'same-origin',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            });
+
+            if (!response.ok) {
+                let message = `Export failed (${response.status})`;
+                const contentType = response.headers.get('Content-Type') || '';
+                if (contentType.includes('application/json')) {
+                    const payload = await response.json();
+                    message = payload.error || payload.message || message;
+                }
+                throw new Error(message);
+            }
+
+            const contentType = (response.headers.get('Content-Type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                const payload = await response.json();
+                throw new Error(payload.error || payload.message || 'Export failed');
+            }
+            if (contentType.includes('text/html')) {
+                throw new Error('Export did not return a database file. Your session may have expired; reload and sign in again.');
+            }
+
+            const blob = await response.blob();
+            if (!blob || blob.size === 0) {
+                throw new Error('Export file was empty');
+            }
+
+            const contentDisposition = response.headers.get('Content-Disposition') || '';
+            const headerName = parseDownloadFilename(contentDisposition);
+            const fallbackName = `canopy_export_${new Date().toISOString().replace(/[-:]/g, '').split('.')[0]}.db`;
+            const downloadName = headerName || fallbackName;
+
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = downloadName;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+
+            showAlert(`Export prepared: ${downloadName}`, 'success');
+        } catch (err) {
+            showAlert('Export failed: ' + extractErrorMessage(err, 'Unknown error'), 'danger');
+        } finally {
+            setButtonBusy('export-data-btn', false);
+        }
+    }
+
+    function openImportDataPicker() {
+        const input = document.getElementById('import-db-input');
+        if (!input) {
+            showAlert('Import file input is unavailable on this page.', 'danger');
+            return;
+        }
+        input.value = '';
+        input.click();
+    }
+
+    async function importDatabaseFile(file) {
+        if (!file) return;
+
+        const lowerName = (file.name || '').toLowerCase();
+        const allowedExt = ['.db', '.sqlite', '.sqlite3'];
+        const hasAllowedExt = allowedExt.some(ext => lowerName.endsWith(ext));
+        if (!hasAllowedExt) {
+            showAlert('Unsupported file type. Use a .db, .sqlite, or .sqlite3 backup file.', 'danger');
+            return;
+        }
+        if (file.size <= 0) {
+            showAlert('Selected file is empty.', 'danger');
+            return;
+        }
+        if (file.size > 512 * 1024 * 1024) {
+            showAlert('Import file is too large (max 512MB).', 'danger');
+            return;
+        }
+
+        const firstConfirm = confirm(
+            'DANGER: Importing a database REPLACES your current local data (messages, channels, posts, users, and settings on this node).\n\n' +
+            'A pre-import backup will be created automatically.\n\n' +
+            `Selected file: ${file.name}\n\n` +
+            'Continue?'
+        );
+        if (!firstConfirm) {
+            showAlert('Database import canceled.', 'info');
+            return;
+        }
+
+        const confirmPhrase = prompt('Type IMPORT DATABASE to proceed with destructive import.');
+        if (confirmPhrase !== 'IMPORT DATABASE') {
+            showAlert('Database import canceled. Confirmation phrase did not match.', 'info');
+            return;
+        }
+
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+        const formData = new FormData();
+        formData.append('database', file);
+        formData.append('confirm_phrase', confirmPhrase);
+
+        setButtonBusy('import-data-btn', true, '<i class="bi bi-hourglass-split"></i> Importing...');
+        try {
+            const response = await fetch('/ajax/database_import', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'X-CSRFToken': csrfToken,
+                },
+                body: formData,
+            });
+
+            let payload = {};
+            try {
+                payload = await response.json();
+            } catch (_) {
+                payload = {};
+            }
+
+            if (!response.ok) {
+                throw new Error(payload.error || payload.message || `Import failed (${response.status})`);
+            }
+            if (!payload.success) {
+                throw new Error(payload.error || payload.message || 'Import failed');
+            }
+
+            showAlert(payload.message || 'Database imported successfully. Reloading...', 'success');
+            setTimeout(() => window.location.reload(), 1800);
+        } catch (err) {
+            showAlert('Import failed: ' + extractErrorMessage(err, 'Unknown error'), 'danger');
+        } finally {
+            setButtonBusy('import-data-btn', false);
+        }
+    }
+    
+    function resetSystem() {
+        if (!confirm('⚠️ DANGER: This will DELETE ALL DATA including messages, users, settings, and trust scores.\n\nThis action CANNOT be undone.\n\nAre you absolutely sure you want to reset the entire system?')) {
+            return;
+        }
+
+        const finalConfirmation = prompt('FINAL WARNING: Type RESET to permanently clear all data.');
+        if (finalConfirmation !== 'RESET') {
+            showAlert('Reset canceled. Exact confirmation text was not provided.', 'info');
+            return;
+        }
+
+        setButtonBusy('reset-system-btn', true, '<i class="bi bi-hourglass-split"></i> Resetting...');
+        apiCall('/ajax/system_reset', { method: 'POST' })
+        .then(data => {
+            if (data.success) {
+                showAlert(data.message || 'System reset complete.', 'success');
+                setTimeout(() => location.reload(), 2000);
+            } else {
+                showAlert('Reset failed: ' + (data.error || 'Unknown error'), 'danger');
+            }
+        })
+        .catch(err => showAlert('Reset failed: ' + extractErrorMessage(err, 'Unknown error'), 'danger'))
+        .finally(() => setButtonBusy('reset-system-btn', false));
+    }
+
+    // ---- Device Profile ----
+    let _deviceAvatarB64 = '';
+    let _deviceAvatarMime = '';
+
+    function loadDeviceProfile() {
+        fetch('/api/v1/device/profile')
+            .then(r => r.json())
+            .then(data => {
+                if (data.display_name) {
+                    document.getElementById('device-display-name').value = data.display_name;
+                }
+                if (data.description) {
+                    document.getElementById('device-description').value = data.description;
+                }
+                if (data.avatar_b64 && data.avatar_mime) {
+                    _deviceAvatarB64 = data.avatar_b64;
+                    _deviceAvatarMime = data.avatar_mime;
+                    const img = document.getElementById('device-avatar-img');
+                    img.src = 'data:' + data.avatar_mime + ';base64,' + data.avatar_b64;
+                    img.style.display = 'block';
+                    document.getElementById('device-avatar-placeholder').style.display = 'none';
+                }
+            })
+            .catch(() => {});
+    }
+
+    function previewDeviceAvatar(input) {
+        if (!input.files || !input.files[0]) return;
+        const file = input.files[0];
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const img = document.getElementById('device-avatar-img');
+            img.src = e.target.result;
+            img.style.display = 'block';
+            document.getElementById('device-avatar-placeholder').style.display = 'none';
+            // Extract base64
+            const dataUrl = e.target.result;
+            _deviceAvatarMime = dataUrl.split(';')[0].split(':')[1];
+            _deviceAvatarB64 = dataUrl.split(',')[1];
+        };
+        reader.readAsDataURL(file);
+    }
+
+    function saveDeviceProfile() {
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+        const body = {
+            display_name: document.getElementById('device-display-name').value,
+            description: document.getElementById('device-description').value,
+        };
+        if (_deviceAvatarB64) {
+            body.avatar_b64 = _deviceAvatarB64;
+            body.avatar_mime = _deviceAvatarMime;
+        }
+        fetch('/api/v1/device/profile', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken,
+            },
+            body: JSON.stringify(body)
+        })
+        .then(r => r.json())
+        .then(data => {
+            const status = document.getElementById('device-profile-status');
+            if (data.ok) {
+                status.textContent = '✓ Device profile saved successfully!';
+                status.style.color = 'var(--bs-success)';
+            } else {
+                status.textContent = '✗ Error: ' + (data.error || 'Failed to save');
+                status.style.color = 'var(--bs-danger)';
+            }
+            setTimeout(() => { status.textContent = ''; }, 4000);
+        })
+        .catch(err => {
+            document.getElementById('device-profile-status').textContent = 'Network error';
+        });
+    }
+
+    // Load device profile on page load
+    loadDeviceProfile();
+
+    // ---- Mesh Relay ----
+    function loadRelayStatus() {
+        fetch('/api/v1/p2p/relay_status')
+        .then(r => r.json())
+        .then(data => {
+            // Set policy selector
+            const sel = document.getElementById('relayPolicySelect');
+            if (sel && data.relay_policy) {
+                sel.value = data.relay_policy;
+            }
+
+            // Status info
+            const info = document.getElementById('relayStatusInfo');
+            const relays = data.active_relays || {};
+            const routes = data.routing_table || {};
+            const relayCount = Object.keys(relays).length;
+            const routeCount = Object.keys(routes).length;
+            info.innerHTML = '<p class="small mb-1"><span class="badge bg-primary">' + data.relay_policy + '</span></p>' +
+                '<p class="small mb-0">Active relays: <strong>' + relayCount + '</strong> &middot; Routes: <strong>' + routeCount + '</strong></p>';
+
+            // Routing table
+            const section = document.getElementById('routingTableSection');
+            const tbody = document.getElementById('routingTableBody');
+            tbody.innerHTML = '';
+            if (routeCount > 0) {
+                section.style.display = 'block';
+                for (const [dest, hop] of Object.entries(routes)) {
+                    const isRelay = relays[dest] === hop;
+                    const row = document.createElement('tr');
+                    row.innerHTML = '<td><code>' + dest.substring(0,12) + '...</code></td>' +
+                        '<td><code>' + hop.substring(0,12) + '...</code></td>' +
+                        '<td><span class="badge bg-' + (isRelay ? 'info' : 'secondary') + '">' + (isRelay ? 'Relay' : 'Route') + '</span></td>';
+                    tbody.appendChild(row);
+                }
+            } else {
+                section.style.display = 'none';
+            }
+        })
+        .catch(err => {
+            const info = document.getElementById('relayStatusInfo');
+            info.innerHTML = '<p class="text-muted small mb-0">P2P not available</p>';
+        });
+    }
+
+    function updateRelayPolicy() {
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+        const policy = document.getElementById('relayPolicySelect').value;
+        fetch('/api/v1/p2p/relay_policy', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken,
+            },
+            body: JSON.stringify({policy: policy})
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'ok') {
+                showAlert('✓ Relay policy updated successfully to: ' + policy, 'success');
+                loadRelayStatus();
+            } else {
+                showAlert('Failed to update relay policy: ' + (data.error || 'Unknown error'), 'danger');
+            }
+        })
+        .catch(err => showAlert('Error: ' + err, 'danger'));
+    }
+
+    // --- Landing page preference ---
+    function loadLandingPreference() {
+        // Read from cookie
+        const match = document.cookie.match(/(?:^|;\s*)canopy_landing=([^;]*)/);
+        const val = match ? decodeURIComponent(match[1]) : '';
+        const sel = document.getElementById('landingPageSelect');
+        if (sel) sel.value = val;
+    }
+
+    function saveLandingPreference() {
+        const sel = document.getElementById('landingPageSelect');
+        const page = sel ? sel.value : '';
+        const status = document.getElementById('landing-page-status');
+
+        if (!page) {
+            // Clear cookie to revert to auto-detection
+            document.cookie = 'canopy_landing=; max-age=0; path=/; SameSite=Lax';
+            if (status) { status.textContent = 'Saved &mdash; using auto-detect'; setTimeout(() => status.textContent = '', 3000); }
+            return;
+        }
+
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+        fetch('/ajax/set_landing', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken,
+            },
+            body: JSON.stringify({page: page})
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                if (status) { 
+                    status.textContent = '✓ Landing page preference saved!'; 
+                    status.style.color = 'var(--bs-success)';
+                    setTimeout(() => status.textContent = '', 3000); 
+                }
+            } else {
+                if (status) {
+                    status.textContent = '✗ Error: ' + (data.error || 'unknown');
+                    status.style.color = 'var(--bs-danger)';
+                }
+            }
+        })
+        .catch(err => { if (status) status.textContent = 'Error: ' + err; });
+    }
+
+    // Load relay status and landing preference on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        const importInput = document.getElementById('import-db-input');
+        if (importInput) {
+            importInput.addEventListener('change', function(e) {
+                const file = e.target && e.target.files && e.target.files[0] ? e.target.files[0] : null;
+                if (file) {
+                    importDatabaseFile(file);
+                }
+            });
+        }
+        loadRelayStatus();
+        loadLandingPreference();
+    });
+</script>
+{% endblock %}

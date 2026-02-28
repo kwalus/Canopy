@@ -1,0 +1,1957 @@
+{% extends "base.html" %}
+
+{% block title %}Messages - Canopy{% endblock %}
+
+{% block extra_css %}
+<style>
+    .recipient-input-wrap {
+        position: relative;
+    }
+    .recipient-input {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.4rem;
+        background: var(--canopy-bg-tertiary);
+        border: 1px solid var(--canopy-border);
+        border-radius: 12px;
+        padding: 0.4rem 0.6rem;
+        min-height: 44px;
+    }
+    .recipient-input input {
+        border: none;
+        background: transparent;
+        outline: none;
+        flex: 1;
+        min-width: 160px;
+        color: var(--canopy-text-primary);
+        padding: 0.2rem 0;
+        font-size: 0.95rem;
+    }
+    .recipient-input input::placeholder {
+        color: var(--canopy-text-secondary);
+    }
+    .recipient-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        border-radius: 999px;
+        padding: 0.2rem 0.55rem;
+        font-size: 0.8rem;
+        background: rgba(99, 102, 241, 0.15);
+        border: 1px solid rgba(99, 102, 241, 0.35);
+        color: var(--canopy-text-primary);
+    }
+    .recipient-chip.unknown {
+        background: rgba(148, 163, 184, 0.14);
+        border-color: rgba(148, 163, 184, 0.35);
+    }
+    .recipient-chip-id {
+        font-size: 0.72rem;
+        color: var(--canopy-text-secondary);
+    }
+    .recipient-chip button {
+        border: none;
+        background: transparent;
+        color: var(--canopy-text-secondary);
+        font-size: 0.95rem;
+        line-height: 1;
+        padding: 0;
+    }
+    .recipient-suggestions {
+        position: absolute;
+        top: calc(100% + 6px);
+        left: 0;
+        right: 0;
+        background: var(--canopy-bg-card);
+        border: 1px solid var(--canopy-border);
+        border-radius: 12px;
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+        max-height: 240px;
+        overflow-y: auto;
+        z-index: 1050;
+        display: none;
+    }
+    .recipient-suggestion-item {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        padding: 0.55rem 0.75rem;
+        cursor: pointer;
+    }
+    .recipient-suggestion-item:hover,
+    .recipient-suggestion-item.active {
+        background: var(--canopy-bg-tertiary);
+    }
+    .recipient-suggestion-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--canopy-primary);
+        box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.12);
+    }
+    .recipient-suggestion-name {
+        font-weight: 600;
+        color: var(--canopy-text-primary);
+    }
+    .recipient-suggestion-id {
+        font-size: 0.75rem;
+        color: var(--canopy-text-secondary);
+    }
+    .recipient-suggestion-avatar {
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        overflow: hidden;
+        flex-shrink: 0;
+        background: rgba(99, 102, 241, 0.15);
+        border: 1px solid rgba(99, 102, 241, 0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--canopy-text-primary);
+        font-weight: 600;
+        font-size: 0.8rem;
+    }
+    .recipient-suggestion-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+    .group-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.1rem 0.55rem;
+        border-radius: 999px;
+        background: rgba(99, 102, 241, 0.14);
+        border: 1px solid rgba(99, 102, 241, 0.3);
+        color: var(--canopy-text-primary);
+        text-decoration: none;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+    .group-link:hover {
+        background: rgba(99, 102, 241, 0.22);
+        text-decoration: none;
+    }
+    .group-header-card {
+        margin-top: 0.85rem;
+        background: linear-gradient(135deg, rgba(18, 24, 38, 0.98), rgba(24, 42, 64, 0.94));
+        border: 1px solid rgba(99, 102, 241, 0.28);
+        border-radius: 18px;
+        padding: 0.9rem 1rem;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        box-shadow: 0 16px 36px rgba(6, 12, 24, 0.4);
+    }
+    .group-header-avatars {
+        display: flex;
+        align-items: center;
+    }
+    .group-avatar {
+        width: 46px;
+        height: 46px;
+        border-radius: 50%;
+        overflow: hidden;
+        border: 2px solid var(--canopy-bg-card);
+        background: rgba(99, 102, 241, 0.2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--canopy-text-primary);
+        font-weight: 700;
+        font-size: 0.8rem;
+        margin-left: -10px;
+        box-shadow: 0 8px 18px rgba(5, 10, 24, 0.35);
+    }
+    .group-avatar:first-child {
+        margin-left: 0;
+    }
+    .group-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+    .group-header-info {
+        flex: 1;
+        min-width: 0;
+    }
+    .group-header-title {
+        font-size: 1rem;
+        font-weight: 700;
+        color: var(--canopy-text-primary);
+        margin-bottom: 0.15rem;
+    }
+    .group-header-meta {
+        font-size: 0.8rem;
+        color: var(--canopy-text-secondary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .group-header-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .group-member-preview {
+        font-size: 0.75rem;
+        color: var(--canopy-text-secondary);
+    }
+
+    .message-content {
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+        word-break: break-word;
+        max-width: 100%;
+    }
+
+    .message-content p,
+    .message-content .rich-content {
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+        max-width: 100%;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="h3 mb-0">
+        <i class="bi bi-chat-left-text"></i> Messages
+    </h1>
+    <div class="d-flex gap-2">
+        <button class="btn btn-primary" onclick="toggleNewMessage()">
+            <i class="bi bi-plus-circle"></i> New Message
+        </button>
+        <button class="btn btn-outline-primary btn-sm" onclick="refreshMessages()">
+            <i class="bi bi-arrow-clockwise"></i> Refresh
+        </button>
+    </div>
+</div>
+
+<!-- Search Bar -->
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-8">
+                <input type="text" class="form-control" id="searchInput" placeholder="Search messages..." 
+                       value="{{ search_query or '' }}">
+            </div>
+            <div class="col-md-4">
+                <button class="btn btn-outline-secondary w-100" onclick="searchMessages()">
+                    <i class="bi bi-search"></i> Search
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Messages List -->
+<div class="card">
+    <div class="card-header">
+        <div class="d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">
+                {% if conversation_group %}
+                    Group Conversation
+                {% elif conversation_with %}
+                    Conversation with {{ conversation_with }}
+                {% elif search_query %}
+                    Search Results for "{{ search_query }}"
+                {% else %}
+                    All Messages
+                {% endif %}
+            </h5>
+            <div class="d-flex align-items-center gap-2">
+                {% if conversation_group %}
+                    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('ui.messages') }}">
+                        <i class="bi bi-arrow-left"></i> Back
+                    </a>
+                {% endif %}
+                <small class="text-muted">{{ messages|length }} message{% if messages|length != 1 %}s{% endif %}</small>
+            </div>
+        </div>
+        {% if conversation_group %}
+            <div class="group-header-card" data-group-members="{{ group_members | join(',') }}" data-group-id="{{ conversation_group }}">
+                <div class="group-header-avatars" id="group-header-avatars"></div>
+                <div class="group-header-info">
+                    <div class="group-header-title">Group DM</div>
+                    <div class="group-header-meta">
+                        <span id="group-member-count"></span>
+                        <span class="mx-2">•</span>
+                        <span id="group-member-names"></span>
+                    </div>
+                </div>
+                <div class="group-header-actions">
+                    <button class="btn btn-sm btn-primary" type="button" onclick="openGroupComposer()">
+                        <i class="bi bi-pencil-square"></i> Reply
+                    </button>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+    <div class="card-body">
+        {% if messages %}
+            <div id="messages-list">
+                {% for message in messages %}
+                    <div class="message-item mb-3 pb-3 {% if not loop.last %}border-bottom{% endif %}" data-user-id="{{ message.sender_id }}" data-message-id="{{ message.id }}">
+                        <div class="d-flex align-items-start">
+                            <div class="flex-shrink-0">
+                                <div class="user-avatar" style="width: 40px; height: 40px;"
+                                     data-user-id="{{ message.sender_id }}"
+                                     data-origin-peer="{{ message.metadata.get('origin_peer') if message.metadata and message.metadata.get('origin_peer') else '' }}"
+                                     onclick="copyUserId('{{ message.sender_id }}', '{{ message.sender_id }}', this)"
+                                     title="View user details">
+                                    <div class="bg-{{ 'primary' if message.sender_id == user_id else 'secondary' }} rounded-circle d-flex align-items-center justify-content-center" 
+                                         style="width: 100%; height: 100%;">
+                                        <i class="bi bi-person text-white"></i>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="flex-grow-1 ms-3">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <div>
+                                        <h6 class="mb-1" data-user-display="{{ message.sender_id }}">
+                                            {{ message.sender_username or message.sender_id }}
+                                            {% if message.sender_id == user_id %}
+                                                <small class="text-muted">(You)</small>
+                                            {% endif %}
+                                        </h6>
+                                        <small class="text-muted">
+                                            <i class="bi bi-clock"></i> 
+                                            <span data-timestamp="{{ message.created_at }}">{{ message.created_at }}</span>
+                                            {% if message.edited_at %}
+                                                <span class="ms-2 badge bg-secondary-subtle text-light border rounded-pill" title="Edited {{ message.edited_at }}">
+                                                    <i class="bi bi-pencil-square me-1"></i> Edited
+                                                </span>
+                                            {% endif %}
+                                            {% set group_members = message.metadata.get('group_members') if message.metadata else None %}
+                                            {% set group_id = message.metadata.get('group_id') if message.metadata else None %}
+                                            {% if group_members %}
+                                                <span class="ms-2">
+                                                    {% if group_id %}
+                                                        <a class="group-link" href="{{ url_for('ui.messages') }}?group={{ group_id }}" data-group-id="{{ group_id }}">
+                                                            <i class="bi bi-people"></i>
+                                                            Group
+                                                        </a>
+                                                    {% else %}
+                                                        <span class="group-link"><i class="bi bi-people"></i> Group</span>
+                                                    {% endif %}
+                                                    <span class="ms-1 group-member-preview" data-group-members="{{ group_members | join(',') }}">members</span>
+                                                </span>
+                                            {% elif message.recipient_id %}
+                                                <i class="bi bi-person ms-2"></i> Direct
+                                                <span class="ms-2">
+                                                    To:
+                                                    {% if message.recipient_id == user_id %}
+                                                        <span>you</span>
+                                                    {% else %}
+                                                        <span data-recipient-display="{{ message.recipient_id }}">{{ message.recipient_id }}</span>
+                                                    {% endif %}
+                                                </span>
+                                            {% else %}
+                                                <i class="bi bi-broadcast ms-2"></i> Broadcast
+                                            {% endif %}
+                                        </small>
+                                    </div>
+                                    <div class="dropdown">
+                                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" 
+                                                data-bs-toggle="dropdown">
+                                            <i class="bi bi-three-dots"></i>
+                                        </button>
+                                        <ul class="dropdown-menu">
+                                            <li><a class="dropdown-item" href="#" onclick="replyToMessage('{{ message.id }}')">
+                                                <i class="bi bi-reply"></i> Reply
+                                            </a></li>
+                                            {% if message.sender_id == user_id %}
+                                                <li><a class="dropdown-item" href="#" onclick="editMessage('{{ message.id }}')">
+                                                    <i class="bi bi-pencil"></i> Edit
+                                                </a></li>
+                                                <li><a class="dropdown-item text-danger" href="#" onclick="deleteMessage('{{ message.id }}')">
+                                                    <i class="bi bi-trash"></i> Delete
+                                                </a></li>
+                                            {% endif %}
+                                        </ul>
+                                    </div>
+                                </div>
+                                <div class="message-content mt-2">
+                                    {% if message.content %}
+                                        <p class="mb-0 dm-message-text">{{ message.content }}</p>
+                                    {% endif %}
+                                    
+                                    {% if message.metadata and message.metadata.attachments %}
+                                        <div class="attachments mt-2">
+                                            {% for attachment in message.metadata.attachments %}
+                                                {% if attachment.type and attachment.type.startswith('image/') %}
+                                                    <!-- Display images inline -->
+                                                    <div class="attachment-item mb-2">
+                                                        <div class="image-attachment">
+                                                            <img src="{{ attachment.url }}" class="img-fluid rounded message-image" 
+                                                                 onclick="viewImage('{{ attachment.url }}')" 
+                                                                 alt="{{ attachment.name }}" 
+                                                                 title="Click to view full size">
+                                                            <div class="mt-1">
+                                                                <small class="text-muted">
+                                                                    <i class="bi bi-image me-1"></i>
+                                                                    {{ attachment.name }} ({{ attachment.size | filesizeformat if attachment.size is defined and attachment.size is not none else '—' }})
+                                                                </small>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                {% elif attachment.type and attachment.type.startswith('audio/') %}
+                                                    <!-- Inline HTML5 audio player (Mac, Windows, Linux) -->
+                                                    <div class="attachment-item mb-2 p-2 border rounded">
+                                                        <div class="d-flex align-items-center flex-wrap">
+                                                            <i class="bi bi-music-note me-2"></i>
+                                                            <div class="flex-grow-1">
+                                                                <strong>{{ attachment.name }}</strong>
+                                                                <small class="text-muted d-block">{{ attachment.type }} • {{ attachment.size | filesizeformat if attachment.size is defined and attachment.size is not none else '—' }}</small>
+                                                                {% if attachment.url %}
+                                                                <audio controls preload="metadata" class="mt-1" style="max-width:100%;width:100%;"><source src="{{ attachment.url }}" type="{{ attachment.type or 'audio/mpeg' }}">Your browser does not support the audio element.</audio>
+                                                                {% endif %}
+                                                            </div>
+                                                            {% if attachment.url %}
+                                                            <div class="d-flex align-items-center gap-2 ms-2">
+                                                                <a href="{{ attachment.url }}" class="btn btn-sm btn-outline-primary" download="{{ attachment.name }}"><i class="bi bi-download"></i> Download</a>
+                                                                <button class="btn btn-sm btn-outline-secondary" onclick='openFileAccessInspector({{ (attachment.id or attachment.file_id or attachment.url) | tojson }})' title="Inspect access">
+                                                                    <i class="bi bi-shield-lock"></i>
+                                                                </button>
+                                                            </div>
+                                                            {% else %}
+                                                            <span class="small text-muted ms-2" title="File will be available when it syncs to this device">Not on this device yet — will appear when synced</span>
+                                                            {% endif %}
+                                                        </div>
+                                                    </div>
+                                                {% else %}
+                                                    <!-- Display other files as download links -->
+                                                    <div class="attachment-item mb-2 p-2 border rounded">
+                                                        <div class="d-flex align-items-center">
+                                                            <i class="bi bi-{{ 'file-pdf' if attachment.type and 'pdf' in attachment.type else 'file-earmark' }} me-2"></i>
+                                                            <div class="flex-grow-1">
+                                                                <strong>{{ attachment.name }}</strong>
+                                                                <small class="text-muted d-block">{{ attachment.type or '' }} • {{ attachment.size | filesizeformat if attachment.size is defined and attachment.size is not none else '—' }}</small>
+                                                            </div>
+                                                            {% if attachment.url %}
+                                                            <div class="d-flex align-items-center gap-2">
+                                                                <a href="{{ attachment.url }}" class="btn btn-sm btn-outline-primary" download="{{ attachment.name }}"><i class="bi bi-download"></i> Download</a>
+                                                                <button class="btn btn-sm btn-outline-secondary" onclick='openFileAccessInspector({{ (attachment.id or attachment.file_id or attachment.url) | tojson }})' title="Inspect access">
+                                                                    <i class="bi bi-shield-lock"></i>
+                                                                </button>
+                                                            </div>
+                                                            {% else %}
+                                                            <span class="small text-muted" title="File will be available when it syncs to this device">Not on this device yet — will appear when synced</span>
+                                                            {% endif %}
+                                                        </div>
+                                                    </div>
+                                                {% endif %}
+                                            {% endfor %}
+                                        </div>
+                                    {% endif %}
+                                    
+                                    {% if message.metadata and message.message_type %}
+                                        <small class="text-muted">
+                                            <i class="bi bi-info-circle"></i> 
+                                            Type: {{ message.message_type }}
+                                        </small>
+                                    {% endif %}
+                                </div>
+                                
+                                <!-- Message Actions -->
+                                <div class="message-actions mt-2 pt-2 border-top" style="font-size: 0.85rem;">
+                                    <div class="d-flex gap-2 flex-wrap">
+                                        <button class="btn btn-sm {% if message.id in user_liked_ids %}btn-primary{% else %}btn-outline-primary{% endif %} like-btn" 
+                                                onclick="toggleLike('{{ message.id }}')"
+                                                data-item-id="{{ message.id }}"
+                                                data-liked="{{ 'true' if message.id in user_liked_ids else 'false' }}">
+                                            <i class="bi bi-heart{% if message.id in user_liked_ids %}-fill{% endif %}"></i> 
+                                            <span class="like-text">{% if message.id in user_liked_ids %}Liked{% else %}Like{% endif %}</span> 
+                                            <span class="like-count">{{ like_counts.get(message.id, 0) }}</span>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-secondary" 
+                                                onclick="toggleComments('{{ message.id }}')">
+                                            <i class="bi bi-chat"></i> 
+                                            Reply 
+                                            <span class="comment-count">0</span>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-secondary copy-btn"
+                                                onclick="copyToClipboard(this, '{{ message.id }}')"
+                                                title="Copy to clipboard">
+                                            <i class="bi bi-clipboard"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-secondary context-insight-trigger"
+                                                onclick="openContentContextModalFromAction('direct_message', '{{ message.id }}'); return false;"
+                                                title="Extract and review link context">
+                                            <i class="bi bi-file-earmark-text"></i> Context
+                                        </button>
+                                    </div>
+                                    
+                                    <!-- Comments Section (hidden by default) -->
+                                    <div class="comments-section mt-3" id="comments-{{ message.id }}" style="display: none;">
+                                        <div class="border-top pt-3">
+                                            <!-- Add Comment Form -->
+                                            <div class="mb-3">
+                                                <div class="input-group input-group-sm">
+                                                    <input type="text" class="form-control" 
+                                                           placeholder="Add a reply..." 
+                                                           id="comment-input-{{ message.id }}"
+                                                           onkeydown="handleCommentKeydown(event, '{{ message.id }}')">
+                                                    <button class="btn btn-primary" onclick="addComment('{{ message.id }}')">
+                                                        <i class="bi bi-send"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- Comments List -->
+                                            <div class="comments-list" id="comments-list-{{ message.id }}">
+                                                <!-- Comments will be loaded here -->
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="text-center text-muted py-5">
+                <i class="bi bi-chat-left-text fs-1 mb-3"></i>
+                <h5>No messages found</h5>
+                <p class="mb-3">
+                    {% if search_query %}
+                        No messages match your search criteria.
+                    {% else %}
+                        Start a conversation by sending your first message!
+                    {% endif %}
+                </p>
+                <button class="btn btn-primary" onclick="toggleNewMessage()">
+                    <i class="bi bi-plus-circle"></i> Send Message
+                </button>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Inline New Message Composer -->
+<div class="card mb-4" id="new-message-composer" style="display:none;">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-plus-circle"></i> New Message</h5>
+        <button type="button" class="btn-close" onclick="toggleNewMessage()"></button>
+    </div>
+    <div class="card-body">
+        <form id="sendMessageForm">
+            <div class="mb-3">
+                <label for="messageRecipient" class="form-label">Recipient</label>
+                <div class="recipient-input-wrap">
+                    <div class="recipient-input" id="recipient-input">
+                        <div id="recipient-chips" class="d-flex flex-wrap gap-1"></div>
+                        <input type="text" id="messageRecipient"
+                               placeholder="Type a name, @handle, or ID (leave blank to broadcast)">
+                    </div>
+                    <div id="recipient-suggestions" class="recipient-suggestions"></div>
+                </div>
+                <small class="form-text text-muted">Leave empty to broadcast to all users</small>
+            </div>
+            <div class="mb-3">
+                <label for="messageContent" class="form-label">Message</label>
+                <div class="position-relative">
+                    <textarea class="form-control" id="messageContent" rows="3" 
+                              placeholder="Enter your message here..."
+                              onkeydown="handleMessageContentKeydown(event)"></textarea>
+                    <div id="dm-channel-suggestions" class="mention-suggestions" style="display: none;"></div>
+                </div>
+            </div>
+            
+            <!-- File Upload Section -->
+            <div class="mb-3">
+                <label class="form-label">Attachments</label>
+                <div class="d-flex gap-2 mb-2">
+                    <input type="file" id="message-file-input" style="display: none;" multiple 
+                           accept="image/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.yaml,.yml,.xml,.mp3,.mp4,.avi">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" 
+                            onclick="document.getElementById('message-file-input').click()">
+                        <i class="bi bi-paperclip"></i> Add Files
+                    </button>
+                    <small class="text-muted align-self-center">Drag & drop or click to select</small>
+                </div>
+                <div id="message-file-preview" class="file-preview mt-2" style="display: none;"></div>
+            </div>
+            
+            <div class="mb-3">
+                <label for="messageType" class="form-label">Message Type</label>
+                <select class="form-select" id="messageType">
+                    <option value="text">Text</option>
+                    <option value="system">System</option>
+                </select>
+            </div>
+            
+            <div class="d-flex gap-2">
+                <button type="button" class="btn btn-primary" id="sendMessageBtn" onclick="sendMessage()">
+                    <i class="bi bi-send"></i> Send Message
+                </button>
+                <button type="button" class="btn btn-outline-secondary" onclick="toggleNewMessage()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const CURRENT_USER_ID = "{{ user_id }}";
+    function refreshMessages() {
+        window.location.reload();
+    }
+
+    function toggleNewMessage() {
+        const composer = document.getElementById('new-message-composer');
+        if (!composer) return;
+        const isHidden = composer.style.display === 'none';
+        composer.style.display = isHidden ? 'block' : 'none';
+        if (isHidden) {
+            composer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            const input = document.getElementById('messageRecipient');
+            if (input) input.focus();
+        } else {
+            const form = document.getElementById('sendMessageForm');
+            if (form) form.reset();
+            messageSelectedFiles = [];
+            selectedRecipients = [];
+            updateRecipientChips();
+            updateMessageFilePreview();
+            clearRecipientInput();
+        }
+    }
+    
+    function searchMessages() {
+        const query = document.getElementById('searchInput').value.trim();
+        if (query) {
+            window.location.href = `{{ url_for('ui.messages') }}?search=${encodeURIComponent(query)}`;
+        } else {
+            window.location.href = `{{ url_for('ui.messages') }}`;
+        }
+    }
+    
+    let messageSelectedFiles = [];
+    let editMessageSelectedFiles = [];
+    let editMessageExistingAttachments = [];
+    let recipientDirectory = [];
+    let recipientDirectoryLoading = false;
+    let recipientDirectoryFetchedAt = 0;
+    const RECIPIENT_DIRECTORY_TTL_MS = 30000;
+    let recipientMatches = [];
+    let recipientActiveIndex = -1;
+    let selectedRecipients = [];
+    let dmChannelCandidates = null;
+    let dmChannelLoading = false;
+    let dmChannelContext = null;
+    let dmChannelMatches = [];
+    let dmChannelHighlightIndex = 0;
+    
+    // Message modal file upload functionality
+    function setupMessageFileUpload() {
+        const fileInput = document.getElementById('message-file-input');
+        
+        // File input change
+        fileInput.addEventListener('change', (e) => {
+            const files = Array.from(e.target.files);
+            addMessageFiles(files);
+            e.target.value = ''; // Reset input
+        });
+    }
+
+    function addMessageFiles(files) {
+        const maxSize = 100 * 1024 * 1024; // 100MB
+        const allowedMimeTypes = ['image/', 'video/', 'audio/', 'application/pdf', 'text/', 'application/msword',
+                                  'application/json', 'application/xml', 'application/x-yaml',
+                                  'application/javascript', 'application/typescript', 'application/octet-stream'];
+        const allowedExtensions = ['.md', '.txt', '.tex', '.json', '.py', '.js', '.ts', '.log',
+                                   '.csv', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
+                                   '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx'];
+        
+        files.forEach(file => {
+            if (file.size > maxSize) {
+                showAlert(`File ${file.name} is too large. Maximum size is 100MB.`, 'danger');
+                return;
+            }
+            
+            const ext = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
+            if (!allowedMimeTypes.some(type => file.type.startsWith(type)) && !allowedExtensions.includes(ext)) {
+                showAlert(`File type ${file.type || 'unknown'} is not supported.`, 'danger');
+                return;
+            }
+            
+            // Read file as base64 for upload
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const base64Data = e.target.result.split(',')[1]; // Remove data: prefix
+                
+                messageSelectedFiles.push({
+                    name: file.name,
+                    type: file.type,
+                    size: file.size,
+                    data: base64Data,
+                    file: file
+                });
+                
+                updateMessageFilePreview();
+            };
+            
+            reader.onerror = function() {
+                showAlert(`Failed to read file: ${file.name}`, 'danger');
+            };
+            
+            reader.readAsDataURL(file);
+        });
+    }
+
+    function updateMessageFilePreview() {
+        const preview = document.getElementById('message-file-preview');
+        
+        if (messageSelectedFiles.length === 0) {
+            preview.style.display = 'none';
+            return;
+        }
+        
+        preview.style.display = 'block';
+        preview.innerHTML = messageSelectedFiles.map((file, index) => `
+            <div class="file-preview-item d-inline-flex align-items-center gap-2 me-2 mb-2 p-2 rounded" style="background: var(--canopy-bg-tertiary); border: 1px solid var(--canopy-border);">
+                <i class="bi bi-${getFileIcon(file.type)}"></i>
+                <span class="small">${file.name}</span>
+                <button type="button" class="btn-close btn-sm" onclick="removeMessageFile(${index})" style="font-size: 0.7rem;"></button>
+            </div>
+        `).join('');
+    }
+
+    function removeMessageFile(index) {
+        messageSelectedFiles.splice(index, 1);
+        updateMessageFilePreview();
+    }
+
+    function getFileIcon(type) {
+        const lowerType = String(type || '').toLowerCase();
+        if (lowerType === 'text/markdown' || lowerType === 'text/x-markdown') return 'filetype-md';
+        if (lowerType.startsWith('image/')) return 'image';
+        if (lowerType.startsWith('video/')) return 'camera-video';
+        if (lowerType.startsWith('audio/')) return 'music-note';
+        if (lowerType.includes('pdf')) return 'file-pdf';
+        if (lowerType.includes('json')) return 'filetype-json';
+        if (lowerType.startsWith('text/')) return 'file-text';
+        return 'file-earmark';
+    }
+    
+    function sendMessage() {
+        const content = document.getElementById('messageContent').value.trim();
+        const messageType = document.getElementById('messageType').value;
+        const manualInput = document.getElementById('messageRecipient')?.value.trim() || '';
+
+        if (!content && messageSelectedFiles.length === 0) {
+            showAlert('Message content or attachments required', 'danger');
+            return;
+        }
+
+        let recipients = selectedRecipients.map(r => r.user_id);
+        if (recipients.length === 0 && manualInput) {
+            recipients = manualInput.split(',').map(r => r.trim().replace(/^@/, '')).filter(Boolean);
+        }
+
+        const payload = {
+            content: content,
+            message_type: messageType,
+            attachments: messageSelectedFiles
+        };
+
+        if (recipients.length > 1) {
+            payload.recipient_ids = recipients;
+        } else if (recipients.length === 1) {
+            payload.recipient_id = recipients[0];
+        } else {
+            payload.recipient_id = null;
+        }
+
+        const sendBtn = document.getElementById('sendMessageBtn');
+        if (sendBtn) {
+            sendBtn.disabled = true;
+            sendBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Sending...';
+        }
+
+        apiCall('/ajax/send_message', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        })
+        .then(() => {
+            const msg = recipients.length > 1
+                ? `Group message sent to ${recipients.length} recipients.`
+                : 'Message sent successfully!';
+            showAlert(msg, 'success');
+            document.getElementById('sendMessageForm').reset();
+            messageSelectedFiles = [];
+            selectedRecipients = [];
+            updateRecipientChips();
+            updateMessageFilePreview();
+            const composer = document.getElementById('new-message-composer');
+            if (composer) composer.style.display = 'none';
+            setTimeout(refreshMessages, 1000);
+        })
+        .catch(error => {
+            showAlert(error.error || 'Failed to send message', 'danger');
+        })
+        .finally(() => {
+            if (sendBtn) {
+                sendBtn.disabled = false;
+                sendBtn.innerHTML = '<i class="bi bi-send"></i> Send Message';
+            }
+        });
+    }
+
+    function handleMessageContentKeydown(event) {
+        const suggestionsBox = document.getElementById('dm-channel-suggestions');
+        const suggestionsVisible = suggestionsBox && suggestionsBox.style.display !== 'none';
+        if (suggestionsVisible) return;
+        if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
+            sendMessage();
+        }
+    }
+
+    function normalizeRecipientInput(value) {
+        if (!value) return '';
+        return value.trim().replace(/^@/, '');
+    }
+
+    function getDmChannelContext(textarea) {
+        if (!textarea) return null;
+        const pos = textarea.selectionStart || 0;
+        const before = textarea.value.slice(0, pos);
+        const match = /(^|[\s\(\[\{<>"'.,;:!?])#([A-Za-z0-9_.-]{0,79})$/.exec(before);
+        if (!match) return null;
+        const start = before.length - match[2].length - 1;
+        return {
+            query: match[2],
+            start: start,
+            end: pos
+        };
+    }
+
+    function fetchDmChannelCandidates() {
+        if (dmChannelCandidates || dmChannelLoading) {
+            return Promise.resolve(dmChannelCandidates || []);
+        }
+        dmChannelLoading = true;
+        return apiCall('/ajax/channel_suggestions')
+            .then(data => {
+                dmChannelLoading = false;
+                if (data && data.success && Array.isArray(data.channels)) {
+                    dmChannelCandidates = data.channels;
+                } else {
+                    dmChannelCandidates = [];
+                }
+                return dmChannelCandidates;
+            })
+            .catch(() => {
+                dmChannelLoading = false;
+                dmChannelCandidates = [];
+                return [];
+            });
+    }
+
+    function hideDmChannelSuggestions() {
+        const box = document.getElementById('dm-channel-suggestions');
+        if (box) box.style.display = 'none';
+        dmChannelContext = null;
+        dmChannelMatches = [];
+    }
+
+    function renderDmChannelSuggestions(list, context) {
+        const box = document.getElementById('dm-channel-suggestions');
+        if (!box) return;
+        if (!list || !list.length || !context) {
+            hideDmChannelSuggestions();
+            return;
+        }
+        dmChannelMatches = list;
+        dmChannelHighlightIndex = 0;
+        box.innerHTML = '';
+        list.forEach((item, i) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'mention-item' + (i === 0 ? ' highlighted' : '');
+            const label = item.name || item.id;
+            btn.innerHTML = `<div class="flex-grow-1">
+                    <div><strong>#${escapeHtml(label)}</strong></div>
+                    <div class="mention-meta">${escapeHtml(item.privacy_mode || 'open')}</div>
+                </div>`;
+            btn.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                insertDmChannel(label, context);
+            });
+            btn.addEventListener('mouseenter', () => {
+                dmChannelHighlightIndex = i;
+                box.querySelectorAll('.mention-item').forEach((el, j) => el.classList.toggle('highlighted', j === i));
+            });
+            box.appendChild(btn);
+        });
+        box.style.display = '';
+    }
+
+    function insertDmChannel(name, context) {
+        const textarea = document.getElementById('messageContent');
+        if (!textarea || !context) return;
+        const value = textarea.value;
+        const before = value.slice(0, context.start);
+        const after = value.slice(context.end);
+        const insert = '#' + name + ' ';
+        textarea.value = before + insert + after;
+        const newPos = before.length + insert.length;
+        textarea.setSelectionRange(newPos, newPos);
+        textarea.focus();
+        hideDmChannelSuggestions();
+    }
+
+    function handleDmChannelInput() {
+        const textarea = document.getElementById('messageContent');
+        if (!textarea) return;
+        const context = getDmChannelContext(textarea);
+        if (!context) {
+            hideDmChannelSuggestions();
+            return;
+        }
+        fetchDmChannelCandidates().then(channels => {
+            const q = (context.query || '').toLowerCase();
+            const matches = channels.filter(item => {
+                const name = (item.name || '').toLowerCase();
+                if (!q) return true;
+                return name.includes(q);
+            }).slice(0, 6);
+            dmChannelContext = context;
+            renderDmChannelSuggestions(matches, context);
+        });
+    }
+
+    function handleDmChannelKeydown(e) {
+        const box = document.getElementById('dm-channel-suggestions');
+        if (!box || box.style.display === 'none' || !dmChannelMatches.length) return;
+        if (e.key === 'Tab' || e.key === 'Enter') {
+            const idx = Math.min(dmChannelHighlightIndex, dmChannelMatches.length - 1);
+            const item = dmChannelMatches[idx];
+            if (item) {
+                insertDmChannel(item.name || item.id, dmChannelContext);
+                e.preventDefault();
+            }
+            return;
+        }
+        if (e.key === 'ArrowDown') {
+            dmChannelHighlightIndex = (dmChannelHighlightIndex + 1) % dmChannelMatches.length;
+            box.querySelectorAll('.mention-item').forEach((el, i) => el.classList.toggle('highlighted', i === dmChannelHighlightIndex));
+            e.preventDefault();
+            return;
+        }
+        if (e.key === 'ArrowUp') {
+            dmChannelHighlightIndex = (dmChannelHighlightIndex - 1 + dmChannelMatches.length) % dmChannelMatches.length;
+            box.querySelectorAll('.mention-item').forEach((el, i) => el.classList.toggle('highlighted', i === dmChannelHighlightIndex));
+            e.preventDefault();
+            return;
+        }
+    }
+
+    function applyDmChannelLinkify() {
+        document.querySelectorAll('.dm-message-text').forEach(el => {
+            const raw = el.textContent;
+            if (!raw) return;
+            const tmp = document.createElement('div');
+            tmp.textContent = raw;
+            let html = tmp.innerHTML;
+            if (typeof linkifyMentions === 'function') {
+                html = linkifyMentions(html);
+            }
+            if (typeof linkifyChannels === 'function') {
+                html = linkifyChannels(html);
+            }
+            el.innerHTML = html;
+        });
+    }
+
+    function fetchRecipientDirectory(options) {
+        const forceRefresh = !!(options && options.forceRefresh);
+        const isFresh = recipientDirectoryFetchedAt > 0
+            && (Date.now() - recipientDirectoryFetchedAt) < RECIPIENT_DIRECTORY_TTL_MS;
+        if (!forceRefresh && Array.isArray(recipientDirectory) && recipientDirectory.length && isFresh) {
+            return Promise.resolve(recipientDirectory);
+        }
+        if (recipientDirectoryLoading) return Promise.resolve(recipientDirectory);
+        recipientDirectoryLoading = true;
+        return fetch('/ajax/mention_suggestions')
+            .then(res => res.json())
+            .then(data => {
+                if (data && Array.isArray(data.users)) {
+                    recipientDirectory = data.users;
+                } else if (!Array.isArray(recipientDirectory)) {
+                    recipientDirectory = [];
+                }
+                recipientDirectoryFetchedAt = Date.now();
+                recipientDirectoryLoading = false;
+                return recipientDirectory;
+            })
+            .catch(() => {
+                if (!Array.isArray(recipientDirectory)) {
+                    recipientDirectory = [];
+                }
+                recipientDirectoryFetchedAt = Date.now();
+                recipientDirectoryLoading = false;
+                return recipientDirectory;
+            });
+    }
+
+    function updateRecipientChips() {
+        const chipContainer = document.getElementById('recipient-chips');
+        if (!chipContainer) return;
+        chipContainer.innerHTML = selectedRecipients.map(rec => {
+            const unknownClass = rec.unknown ? 'unknown' : '';
+            const label = escapeHtml(rec.display_name || rec.user_id);
+            const safeId = escapeHtml(rec.user_id);
+            const idShort = escapeHtml(rec.user_id.length > 12 ? rec.user_id.slice(0, 10) + '…' : rec.user_id);
+            return `
+                <span class="recipient-chip ${unknownClass}" data-user-id="${safeId}">
+                    <span>${label}</span>
+                    <span class="recipient-chip-id">• ${idShort}</span>
+                    <button type="button" class="recipient-chip-remove" data-uid="${safeId}">&times;</button>
+                </span>
+            `;
+        }).join('');
+        // Delegate click events for chip removal (avoids inline onclick injection)
+        chipContainer.querySelectorAll('.recipient-chip-remove').forEach(btn => {
+            btn.addEventListener('click', function() {
+                removeRecipient(this.getAttribute('data-uid'));
+            });
+        });
+    }
+
+    function removeRecipient(userId) {
+        selectedRecipients = selectedRecipients.filter(r => r.user_id !== userId);
+        updateRecipientChips();
+    }
+
+    function isRecipientSelected(userId) {
+        return selectedRecipients.some(r => r.user_id === userId);
+    }
+
+    function addRecipient(rec) {
+        if (!rec || !rec.user_id) return;
+        if (isRecipientSelected(rec.user_id)) return;
+        selectedRecipients.push(rec);
+        updateRecipientChips();
+    }
+
+    function showRecipientSuggestions(show) {
+        const dropdown = document.getElementById('recipient-suggestions');
+        if (!dropdown) return;
+        dropdown.style.display = show ? 'block' : 'none';
+    }
+
+    function _isSafeAvatarUrl(url) {
+        // Only allow internal paths — block javascript:, data:, and external URLs
+        if (!url || typeof url !== 'string') return false;
+        return url.startsWith('/');
+    }
+
+    function renderRecipientSuggestions() {
+        const dropdown = document.getElementById('recipient-suggestions');
+        if (!dropdown) return;
+        if (!recipientMatches.length) {
+            dropdown.innerHTML = '';
+            showRecipientSuggestions(false);
+            return;
+        }
+        dropdown.innerHTML = recipientMatches.map((rec, idx) => {
+            const activeClass = idx === recipientActiveIndex ? 'active' : '';
+            const display = escapeHtml(rec.display_name || rec.username || rec.user_id);
+            const safeUserId = escapeHtml(rec.user_id);
+            const initials = escapeHtml(getRecipientInitials(rec.display_name || rec.username || rec.user_id));
+            const avatar = _isSafeAvatarUrl(rec.avatar_url)
+                ? `<div class="recipient-suggestion-avatar"><img src="${escapeHtml(rec.avatar_url)}" alt="${display}"></div>`
+                : `<div class="recipient-suggestion-avatar">${initials}</div>`;
+            return `
+                <div class="recipient-suggestion-item ${activeClass}" data-idx="${idx}">
+                    ${avatar}
+                    <div>
+                        <div class="recipient-suggestion-name">${display}</div>
+                        <div class="recipient-suggestion-id">${safeUserId}</div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        // Delegate click events (avoids inline onclick injection)
+        dropdown.querySelectorAll('.recipient-suggestion-item').forEach(item => {
+            item.addEventListener('click', function() {
+                selectRecipientByIndex(parseInt(this.getAttribute('data-idx'), 10));
+            });
+        });
+        showRecipientSuggestions(true);
+    }
+
+    function getRecipientInitials(text) {
+        if (!text) return '?';
+        const parts = text.trim().split(/\s+/).filter(Boolean);
+        if (!parts.length) return '?';
+        if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+        return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+
+    function selectRecipientByIndex(index) {
+        const rec = recipientMatches[index];
+        if (!rec) return;
+        addRecipient({
+            user_id: rec.user_id,
+            display_name: rec.display_name || rec.username || rec.user_id,
+            username: rec.username || rec.user_id,
+            avatar_url: rec.avatar_url || null,
+            unknown: false
+        });
+        clearRecipientInput();
+    }
+
+    function clearRecipientInput() {
+        const input = document.getElementById('messageRecipient');
+        if (input) input.value = '';
+        recipientMatches = [];
+        recipientActiveIndex = -1;
+        renderRecipientSuggestions();
+    }
+
+    function filterRecipientMatches(query) {
+        const term = query.toLowerCase();
+        return recipientDirectory
+            .filter(rec => rec.user_id && !isRecipientSelected(rec.user_id))
+            .filter(rec => {
+                const display = (rec.display_name || rec.username || rec.user_id).toLowerCase();
+                const username = (rec.username || '').toLowerCase();
+                const userId = rec.user_id.toLowerCase();
+                return display.includes(term) || username.includes(term) || userId.includes(term);
+            })
+            .slice(0, 8);
+    }
+
+    function updateRecipientSuggestions(query, options) {
+        const opts = options || {};
+        const term = query.trim();
+        if (!term) {
+            recipientMatches = recipientDirectory.filter(rec => rec.user_id && !isRecipientSelected(rec.user_id)).slice(0, 8);
+        } else {
+            recipientMatches = filterRecipientMatches(term);
+        }
+        recipientActiveIndex = recipientMatches.length ? 0 : -1;
+        renderRecipientSuggestions();
+        if (!opts.skipRefresh && term && !recipientMatches.length) {
+            fetchRecipientDirectory({ forceRefresh: true }).then(() => {
+                updateRecipientSuggestions(term, { skipRefresh: true });
+            });
+        }
+    }
+
+    function commitRecipientFromInput(forceValue) {
+        const input = document.getElementById('messageRecipient');
+        if (!input) return;
+        const raw = normalizeRecipientInput(forceValue || input.value);
+        if (!raw) return;
+
+        let match = recipientDirectory.find(rec => rec.user_id === raw);
+        if (!match) {
+            match = recipientDirectory.find(rec => (rec.username || '').toLowerCase() === raw.toLowerCase());
+        }
+        if (!match) {
+            match = recipientDirectory.find(rec => (rec.display_name || '').toLowerCase() === raw.toLowerCase());
+        }
+
+        if (match) {
+            addRecipient({
+                user_id: match.user_id,
+                display_name: match.display_name || match.username || match.user_id,
+                username: match.username || match.user_id,
+                avatar_url: match.avatar_url || null,
+                unknown: false
+            });
+        } else {
+            // Validate manually-entered recipient IDs
+            if (raw.length > 100) {
+                showAlert('Recipient ID is too long (max 100 characters).', 'warning');
+                return;
+            }
+            if (!/^[A-Za-z0-9_.\-@]+$/.test(raw)) {
+                showAlert('Recipient ID contains invalid characters.', 'warning');
+                return;
+            }
+            addRecipient({
+                user_id: raw,
+                display_name: raw,
+                username: raw,
+                avatar_url: null,
+                unknown: true
+            });
+        }
+        clearRecipientInput();
+    }
+
+    function handleRecipientKeydown(event) {
+        if (event.key === 'ArrowDown') {
+            if (recipientMatches.length) {
+                recipientActiveIndex = (recipientActiveIndex + 1) % recipientMatches.length;
+                renderRecipientSuggestions();
+            }
+            event.preventDefault();
+        } else if (event.key === 'ArrowUp') {
+            if (recipientMatches.length) {
+                recipientActiveIndex = (recipientActiveIndex - 1 + recipientMatches.length) % recipientMatches.length;
+                renderRecipientSuggestions();
+            }
+            event.preventDefault();
+        } else if (event.key === 'Enter' || event.key === 'Tab' || event.key === ',') {
+            if (recipientMatches.length && recipientActiveIndex >= 0) {
+                selectRecipientByIndex(recipientActiveIndex);
+            } else {
+                commitRecipientFromInput();
+            }
+            event.preventDefault();
+        } else if (event.key === 'Backspace') {
+            const input = document.getElementById('messageRecipient');
+            if (input && !input.value && selectedRecipients.length) {
+                selectedRecipients.pop();
+                updateRecipientChips();
+            }
+        }
+    }
+
+    function setupRecipientPicker() {
+        const input = document.getElementById('messageRecipient');
+        const wrapper = document.querySelector('.recipient-input-wrap');
+        if (!input || !wrapper) return;
+
+        input.addEventListener('input', (e) => {
+            const value = normalizeRecipientInput(e.target.value);
+            updateRecipientSuggestions(value);
+        });
+        input.addEventListener('focus', (e) => {
+            fetchRecipientDirectory().then(() => {
+                updateRecipientSuggestions(normalizeRecipientInput(e.target.value || ''));
+            });
+        });
+        input.addEventListener('keydown', handleRecipientKeydown);
+
+        document.addEventListener('click', (e) => {
+            if (!wrapper.contains(e.target)) {
+                showRecipientSuggestions(false);
+            }
+        });
+
+        fetchRecipientDirectory().then(() => updateRecipientSuggestions(''));
+    }
+    
+    function replyToMessage(messageId) {
+        // Find the original message element to get sender info
+        const msgEl = document.querySelector(`[data-message-id="${messageId}"]`);
+        const senderName = msgEl ? (msgEl.querySelector('.fw-bold')?.textContent || 'user') : 'user';
+
+        const content = prompt(`Reply to ${senderName}:`);
+        if (!content || !content.trim()) return;
+
+        apiCall('/ajax/reply_message', {
+            method: 'POST',
+            body: JSON.stringify({ message_id: messageId, content: content.trim() })
+        })
+        .then(data => {
+            if (data.success) {
+                showAlert('Reply sent!', 'success');
+                setTimeout(refreshMessages, 500);
+            } else {
+                showAlert(data.error || 'Failed to send reply', 'danger');
+            }
+        })
+        .catch(err => showAlert('Reply failed: ' + (err.message || err), 'danger'));
+    }
+    
+    function deleteMessage(messageId) {
+        if (!confirm('Are you sure you want to delete this message?')) return;
+
+        apiCall('/ajax/delete_message', {
+            method: 'POST',
+            body: JSON.stringify({ message_id: messageId })
+        })
+        .then(data => {
+            if (data.success) {
+                // Remove from DOM
+                const msgEl = document.querySelector(`[data-message-id="${messageId}"]`);
+                if (msgEl) msgEl.remove();
+                showAlert('Message deleted', 'success');
+            } else {
+                showAlert(data.error || 'Failed to delete', 'danger');
+            }
+        })
+        .catch(err => showAlert('Delete failed: ' + (err.message || err), 'danger'));
+    }
+
+    function editMessage(messageId) {
+        apiCall(`/ajax/get_message_data/${messageId}`)
+            .then(data => {
+                if (data.success && data.message) {
+                    openEditMessageModal(data.message);
+                } else {
+                    showAlert(data.error || 'Could not load message for editing', 'danger');
+                }
+            })
+            .catch(err => {
+                showAlert('Failed to load message: ' + (err.message || err), 'danger');
+            });
+    }
+
+    function openEditMessageModal(message) {
+        editMessageSelectedFiles = [];
+        editMessageExistingAttachments = Array.isArray(message.metadata && message.metadata.attachments)
+            ? [...message.metadata.attachments]
+            : [];
+
+        const modalHtml = `
+            <div class="modal fade" id="editMessageModal" tabindex="-1">
+                <div class="modal-dialog modal-lg">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Edit Message</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <input type="hidden" id="editMessageId" value="${message.id}">
+                            <div class="mb-3">
+                                <label for="editMessageContent" class="form-label">Content</label>
+                                <textarea class="form-control" id="editMessageContent" rows="4" required></textarea>
+                            </div>
+                            <div class="mb-2">
+                                <div id="edit-message-existing-attachments" class="existing-attachments"></div>
+                                <div id="edit-message-file-preview" class="file-preview mt-2" style="display: none;"></div>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <div class="me-auto">
+                                <input type="file" id="edit-message-file-input" style="display: none;" multiple
+                                       accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.yaml,.yml,.xml">
+                                <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('edit-message-file-input').click()">
+                                    <i class="bi bi-paperclip"></i> Add Files
+                                </button>
+                            </div>
+                            <div>
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="button" class="btn btn-primary" onclick="updateMessage()">Update Message</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const existingModal = document.getElementById('editMessageModal');
+        if (existingModal) existingModal.remove();
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+        const contentEl = document.getElementById('editMessageContent');
+        if (contentEl) {
+            contentEl.value = message.content || '';
+        }
+
+        updateEditMessageExistingAttachments();
+        setupEditMessageFileUpload();
+
+        const modal = new bootstrap.Modal(document.getElementById('editMessageModal'));
+        modal.show();
+
+        document.getElementById('editMessageModal').addEventListener('hidden.bs.modal', function() {
+            editMessageSelectedFiles = [];
+            editMessageExistingAttachments = [];
+            this.remove();
+        });
+    }
+
+    function setupEditMessageFileUpload() {
+        const fileInput = document.getElementById('edit-message-file-input');
+        if (!fileInput) return;
+        fileInput.addEventListener('change', (e) => {
+            const files = Array.from(e.target.files || []);
+            addEditMessageFiles(files);
+            e.target.value = '';
+        });
+    }
+
+    function addEditMessageFiles(files) {
+        const maxSize = 100 * 1024 * 1024;
+        const allowedMimeTypes = ['image/', 'video/', 'audio/', 'application/pdf', 'text/', 'application/msword',
+                                  'application/json', 'application/xml', 'application/x-yaml',
+                                  'application/javascript', 'application/typescript', 'application/octet-stream'];
+        const allowedExtensions = ['.md', '.txt', '.tex', '.json', '.py', '.js', '.ts', '.log',
+                                   '.csv', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
+                                   '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx'];
+
+        files.forEach(file => {
+            if (file.size > maxSize) {
+                showAlert(`File ${file.name} is too large. Maximum size is 100MB.`, 'danger');
+                return;
+            }
+
+            const ext = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
+            const mimeOk = allowedMimeTypes.some(type => file.type.startsWith(type));
+            const extOk = allowedExtensions.includes(ext);
+            if (!mimeOk && !extOk) {
+                showAlert(`File type ${file.type || 'unknown'} is not supported.`, 'danger');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const base64Data = e.target.result.split(',')[1];
+                editMessageSelectedFiles.push({
+                    name: file.name,
+                    type: file.type,
+                    size: file.size,
+                    data: base64Data,
+                    file: file
+                });
+                updateEditMessageFilePreview();
+            };
+            reader.onerror = function() {
+                showAlert(`Failed to read file: ${file.name}`, 'danger');
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+
+    function updateEditMessageFilePreview() {
+        const preview = document.getElementById('edit-message-file-preview');
+        if (!preview) return;
+        if (editMessageSelectedFiles.length === 0) {
+            preview.style.display = 'none';
+            return;
+        }
+        preview.style.display = 'block';
+        preview.innerHTML = editMessageSelectedFiles.map((file, index) => `
+            <div class="file-preview-item d-inline-flex align-items-center gap-2 me-2 mb-2 p-2 rounded" style="background: var(--canopy-bg-tertiary); border: 1px solid var(--canopy-border);">
+                <i class="bi bi-${getFileIcon(file.type)}"></i>
+                <span class="small">${file.name}</span>
+                <button type="button" class="btn-close btn-sm" onclick="removeEditMessageFile(${index})" style="font-size: 0.7rem;"></button>
+            </div>
+        `).join('');
+    }
+
+    function removeEditMessageFile(index) {
+        editMessageSelectedFiles.splice(index, 1);
+        updateEditMessageFilePreview();
+    }
+
+    function updateEditMessageExistingAttachments() {
+        const container = document.getElementById('edit-message-existing-attachments');
+        if (!container) return;
+        if (editMessageExistingAttachments.length === 0) {
+            container.innerHTML = '';
+            return;
+        }
+        container.innerHTML = `
+            <div class="mb-2"><strong>Current Files:</strong></div>
+            ${editMessageExistingAttachments.map((attachment, index) => `
+                <div class="file-preview-item d-inline-flex align-items-center gap-2 me-2 mb-2 p-2 rounded" style="background: var(--canopy-bg-secondary); border: 1px solid var(--canopy-border);">
+                    <i class="bi bi-${getFileIcon(attachment.type || '')}"></i>
+                    <span class="small">${attachment.name || 'file'}</span>
+                    <button type="button" class="btn-close btn-sm" onclick="removeEditMessageExistingAttachment(${index})" style="font-size: 0.7rem;"></button>
+                </div>
+            `).join('')}
+        `;
+    }
+
+    function removeEditMessageExistingAttachment(index) {
+        editMessageExistingAttachments.splice(index, 1);
+        updateEditMessageExistingAttachments();
+    }
+
+    function updateMessage() {
+        const messageId = document.getElementById('editMessageId').value;
+        const content = document.getElementById('editMessageContent').value.trim();
+
+        if (!content && editMessageExistingAttachments.length === 0 && editMessageSelectedFiles.length === 0) {
+            showAlert('Message content or attachments are required', 'warning');
+            return;
+        }
+
+        apiCall('/ajax/update_message', {
+            method: 'POST',
+            body: JSON.stringify({
+                message_id: messageId,
+                content: content,
+                attachments: editMessageExistingAttachments,
+                new_attachments: editMessageSelectedFiles
+            })
+        })
+        .then(() => {
+            showAlert('Message updated successfully!', 'success');
+            const modalEl = document.getElementById('editMessageModal');
+            if (modalEl) bootstrap.Modal.getInstance(modalEl).hide();
+            setTimeout(refreshMessages, 600);
+        })
+        .catch(error => {
+            showAlert(error.error || 'Failed to update message', 'danger');
+        });
+    }
+    
+    // Function to fetch user display info including avatars
+    function fetchUserDisplayInfo(userIds) {
+        return fetch(`/ajax/get_user_display_info?user_ids=${userIds.join(',')}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    return data.users;
+                } else {
+                    console.error('Failed to fetch user info:', data.error);
+                    return {};
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching user info:', error);
+                return {};
+            });
+    }
+
+    // Function to update user avatars and display names on the page
+    function updateUserAvatars() {
+        const userElements = document.querySelectorAll('.user-avatar[data-user-id]');
+        const recipientElements = document.querySelectorAll('[data-recipient-display]');
+        const groupNameElements = document.querySelectorAll('.group-members[data-group-members], .group-member-preview[data-group-members]');
+        const groupHeader = document.querySelector('.group-header-card[data-group-members]');
+        const userIds = new Set(Array.from(userElements).map(el => el.dataset.userId));
+        recipientElements.forEach(el => {
+            if (el.dataset.recipientDisplay) userIds.add(el.dataset.recipientDisplay);
+        });
+        groupNameElements.forEach(el => {
+            const raw = el.dataset.groupMembers || '';
+            raw.split(',').map(s => s.trim()).filter(Boolean).forEach(id => userIds.add(id));
+        });
+        if (groupHeader) {
+            const raw = groupHeader.dataset.groupMembers || '';
+            raw.split(',').map(s => s.trim()).filter(Boolean).forEach(id => userIds.add(id));
+        }
+        const uniqueIds = [...userIds];
+        
+        if (uniqueIds.length === 0) return;
+        
+        fetchUserDisplayInfo(uniqueIds).then(userInfo => {
+            window.lastUserInfo = userInfo || {};
+            userElements.forEach(element => {
+                const userId = element.dataset.userId;
+                const user = userInfo[userId];
+                
+                if (user) {
+                    const peerId = user.origin_peer || element.dataset.originPeer || null;
+                    const label = user.display_name || user.username || userId;
+                    if (window.renderAvatarStack) {
+                        window.renderAvatarStack(element, {
+                            userId: userId,
+                            userLabel: label,
+                            userAvatarUrl: user.avatar_url,
+                            peerId: peerId
+                        });
+                    } else if (user.avatar_url) {
+                        element.innerHTML = `<img src="${user.avatar_url}" alt="${label}" class="rounded-circle" style="width: 100%; height: 100%; object-fit: cover;">`;
+                    }
+                    
+                    // Update display name(s)
+                    document.querySelectorAll(`[data-user-display="${userId}"]`).forEach(displayElement => {
+                        if (displayElement && user.display_name) {
+                            displayElement.textContent = user.display_name;
+                        }
+                    });
+                }
+            });
+
+            recipientElements.forEach(element => {
+                const recipientId = element.dataset.recipientDisplay;
+                const user = userInfo[recipientId];
+                if (user && (user.display_name || user.username)) {
+                    element.textContent = user.display_name || user.username || recipientId;
+                }
+            });
+
+            groupNameElements.forEach(element => {
+                const raw = element.dataset.groupMembers || '';
+                const ids = raw.split(',').map(s => s.trim()).filter(Boolean);
+                if (!ids.length) return;
+                const names = ids.map(id => {
+                    if (id === CURRENT_USER_ID) return 'you';
+                    const user = userInfo[id];
+                    return user?.display_name || user?.username || id;
+                });
+                element.textContent = names.join(', ');
+            });
+
+            renderGroupHeader(userInfo);
+        });
+    }
+
+    function openGroupComposer() {
+        const header = document.querySelector('.group-header-card[data-group-members]');
+        if (!header) {
+            toggleNewMessage();
+            return;
+        }
+        const raw = header.dataset.groupMembers || '';
+        const ids = raw.split(',').map(s => s.trim()).filter(Boolean).filter(id => id !== CURRENT_USER_ID);
+        const userInfo = window.lastUserInfo || {};
+        selectedRecipients = ids.map(id => ({
+            user_id: id,
+            display_name: userInfo[id]?.display_name || userInfo[id]?.username || id,
+            username: userInfo[id]?.username || id,
+            avatar_url: userInfo[id]?.avatar_url || null,
+            unknown: false
+        }));
+        updateRecipientChips();
+        const composer = document.getElementById('new-message-composer');
+        if (composer && composer.style.display === 'none') {
+            composer.style.display = 'block';
+            composer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        const messageInput = document.getElementById('messageContent');
+        if (messageInput) messageInput.focus();
+    }
+
+    function renderGroupHeader(userInfo) {
+        const header = document.querySelector('.group-header-card[data-group-members]');
+        if (!header) return;
+        const raw = header.dataset.groupMembers || '';
+        const ids = raw.split(',').map(s => s.trim()).filter(Boolean);
+        if (!ids.length) return;
+
+        const avatarWrap = document.getElementById('group-header-avatars');
+        if (avatarWrap) {
+            avatarWrap.innerHTML = ids.map((id, index) => {
+                const user = userInfo[id];
+                const label = escapeHtml(user?.display_name || user?.username || id);
+                const initials = escapeHtml(getRecipientInitials(user?.display_name || user?.username || id));
+                const avatar = _isSafeAvatarUrl(user?.avatar_url)
+                    ? `<img src="${escapeHtml(user.avatar_url)}" alt="${label}">`
+                    : `<span>${initials}</span>`;
+                return `<div class="group-avatar" style="z-index:${10 - index};">${avatar}</div>`;
+            }).join('');
+        }
+
+        const countEl = document.getElementById('group-member-count');
+        if (countEl) {
+            countEl.textContent = `${ids.length} members`;
+        }
+        const namesEl = document.getElementById('group-member-names');
+        if (namesEl) {
+            const names = ids.map(id => {
+                if (id === CURRENT_USER_ID) return 'you';
+                const user = userInfo[id];
+                return user?.display_name || user?.username || id;
+            });
+            namesEl.textContent = names.join(', ');
+        }
+    }
+
+    // viewImage and openLightbox are defined globally in base.html
+
+    // Like and Comment functions
+    function toggleLike(messageId) {
+        apiCall('/ajax/toggle_like', {
+            method: 'POST',
+            body: JSON.stringify({
+                message_id: messageId,
+                reaction_type: 'like'
+            })
+        })
+        .then(data => {
+            if (data.success) {
+                updateLikeButton(messageId, data.liked, data.interactions);
+            }
+        })
+        .catch(error => {
+            console.error('Error toggling like:', error);
+            showAlert('Failed to update like', 'danger');
+        });
+    }
+
+    function updateLikeButton(messageId, liked, interactions) {
+        const button = document.querySelector(`.like-btn[data-item-id="${messageId}"]`);
+        if (!button) return;
+        
+        const likeText = button.querySelector('.like-text');
+        const likeCount = button.querySelector('.like-count');
+        const icon = button.querySelector('i');
+        
+        button.dataset.liked = liked ? 'true' : 'false';
+        
+        if (liked) {
+            button.classList.remove('btn-outline-primary');
+            button.classList.add('btn-primary');
+            likeText.textContent = 'Liked';
+            icon.classList.remove('bi-heart');
+            icon.classList.add('bi-heart-fill');
+        } else {
+            button.classList.remove('btn-primary');
+            button.classList.add('btn-outline-primary');
+            likeText.textContent = 'Like';
+            icon.classList.remove('bi-heart-fill');
+            icon.classList.add('bi-heart');
+        }
+        
+        likeCount.textContent = interactions.total_likes;
+    }
+
+    function copyToClipboard(btn, messageId) {
+        // Get the message content from the DOM
+        const msgCard = btn.closest('.message-item, .card');
+        const contentEl = msgCard ? msgCard.querySelector('.message-content p, .card-text, p') : null;
+        const text = contentEl ? contentEl.textContent.trim() : '';
+        
+        if (!text) return;
+        
+        navigator.clipboard.writeText(text).then(() => {
+            const icon = btn.querySelector('i');
+            icon.classList.remove('bi-clipboard');
+            icon.classList.add('bi-clipboard-check');
+            btn.classList.remove('btn-outline-secondary');
+            btn.classList.add('btn-success');
+            setTimeout(() => {
+                icon.classList.remove('bi-clipboard-check');
+                icon.classList.add('bi-clipboard');
+                btn.classList.remove('btn-success');
+                btn.classList.add('btn-outline-secondary');
+            }, 1500);
+        }).catch(() => {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+        });
+    }
+
+    function toggleComments(messageId) {
+        const commentsSection = document.getElementById(`comments-${messageId}`);
+        
+        if (commentsSection.style.display === 'none') {
+            commentsSection.style.display = 'block';
+            loadComments(messageId);
+        } else {
+            commentsSection.style.display = 'none';
+        }
+    }
+
+    function loadComments(messageId) {
+        const commentsList = document.getElementById(`comments-list-${messageId}`);
+        commentsList.innerHTML = '<div class="text-center"><div class="spinner-border spinner-border-sm" role="status"></div></div>';
+        
+        apiCall(`/ajax/get_comments/${messageId}`)
+            .then(data => {
+                displayComments(messageId, data.comments);
+                updateCommentCount(messageId, data.interactions.comment_count);
+            })
+            .catch(error => {
+                console.error('Error loading comments:', error);
+                commentsList.innerHTML = '<div class="text-danger">Failed to load comments</div>';
+            });
+    }
+
+    function displayComments(messageId, comments) {
+        const commentsList = document.getElementById(`comments-list-${messageId}`);
+        
+        if (comments.length === 0) {
+            commentsList.innerHTML = '<div class="text-muted small">No replies yet</div>';
+            return;
+        }
+        
+        commentsList.innerHTML = comments.map(comment => `
+            <div class="comment-item mb-2 p-2 rounded" style="background: var(--canopy-bg-tertiary);">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div class="flex-grow-1">
+                        <strong class="small">${comment.user_id}</strong>
+                        <span class="text-muted ms-2 small">${formatTimestamp(comment.created_at)}</span>
+                        <div class="mt-1 small">${escapeHtml(comment.content)}</div>
+                    </div>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteComment('${comment.id}', '${messageId}')"
+                            title="Delete reply">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function addComment(messageId) {
+        const input = document.getElementById(`comment-input-${messageId}`);
+        const content = input.value.trim();
+        
+        if (!content) return;
+        
+        apiCall('/ajax/add_comment', {
+            method: 'POST',
+            body: JSON.stringify({
+                message_id: messageId,
+                content: content
+            })
+        })
+        .then(data => {
+            if (data.success) {
+                input.value = '';
+                loadComments(messageId); // Reload comments
+            }
+        })
+        .catch(error => {
+            console.error('Error adding comment:', error);
+            showAlert('Failed to add reply', 'danger');
+        });
+    }
+
+    function handleCommentKeydown(event, messageId) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            addComment(messageId);
+        }
+    }
+
+    function deleteComment(commentId, messageId) {
+        if (!confirm('Are you sure you want to delete this reply?')) {
+            return;
+        }
+        
+        apiCall('/ajax/delete_comment', {
+            method: 'POST',
+            body: JSON.stringify({
+                comment_id: commentId
+            })
+        })
+        .then(data => {
+            if (data.success) {
+                loadComments(messageId); // Reload comments
+            }
+        })
+        .catch(error => {
+            console.error('Error deleting comment:', error);
+            showAlert('Failed to delete reply', 'danger');
+        });
+    }
+
+    function updateCommentCount(messageId, count) {
+        const commentBtn = document.querySelector(`button[onclick="toggleComments('${messageId}')"] .comment-count`);
+        if (commentBtn) {
+            commentBtn.textContent = count;
+        }
+    }
+
+    function formatTimestamp(timestamp) {
+        if (typeof window.formatCanopyTimestamp === 'function') {
+            return window.formatCanopyTimestamp(timestamp);
+        }
+        const date = new Date(timestamp);
+        if (Number.isNaN(date.getTime())) return String(timestamp || '');
+        const now = new Date();
+        const diff = now - date;
+        if (diff < 60000) return 'Just now';
+        if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+        if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+        return date.toLocaleString();
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // Handle paste events for images/screenshots in messages
+    function setupMessagePasteHandler() {
+        // Add paste handler to message content textarea
+        const messageContent = document.getElementById('messageContent');
+        if (messageContent) {
+            messageContent.addEventListener('paste', handleMessagePaste);
+        }
+        
+        // Add paste handler to the entire modal for when user pastes outside textarea
+        const sendMessageModal = document.getElementById('sendMessageModal');
+        if (sendMessageModal) {
+            sendMessageModal.addEventListener('paste', handleMessagePaste);
+        }
+    }
+    
+    function handleMessagePaste(e) {
+        const items = e.clipboardData?.items;
+        if (!items) return;
+        
+        let hasImage = false;
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            
+            // Check if the item is an image
+            if (item.type.indexOf('image') !== -1) {
+                hasImage = true;
+                const file = item.getAsFile();
+                if (file) {
+                    // Generate a filename for the pasted image
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                    const newFile = new File([file], `pasted-image-${timestamp}.png`, { type: file.type });
+                    
+                    addMessageFiles([newFile]);
+                    showAlert('Image pasted successfully!', 'success');
+                }
+                break;
+            }
+        }
+        
+        if (hasImage) {
+            e.preventDefault(); // Prevent default paste behavior for images
+        }
+    }
+
+    // Initialize user avatars and file upload on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        updateUserAvatars();
+        setupMessageFileUpload();
+        setupMessagePasteHandler();
+        setupRecipientPicker();
+        const messageContent = document.getElementById('messageContent');
+        if (messageContent) {
+            messageContent.addEventListener('input', handleDmChannelInput);
+            messageContent.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                    hideDmChannelSuggestions();
+                } else {
+                    handleDmChannelKeydown(e);
+                }
+            });
+            messageContent.addEventListener('blur', () => {
+                setTimeout(hideDmChannelSuggestions, 150);
+            });
+        }
+    });
+
+    // Enable search on Enter key
+    document.getElementById('searchInput').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            searchMessages();
+        }
+    });
+
+    // --- Rich link embed rendering for DM messages ---
+    // Process server-rendered message content to embed YouTube/X previews
+    document.addEventListener('DOMContentLoaded', function() {
+        if (typeof processRichEmbeds === 'function') {
+            processRichEmbeds('.message-content p');
+        }
+        if (typeof ensureChannelIndex === 'function') {
+            ensureChannelIndex().then(() => {
+                applyDmChannelLinkify();
+            }).catch(() => {
+                applyDmChannelLinkify();
+            });
+        } else {
+            applyDmChannelLinkify();
+        }
+    });
+</script>
+{% endblock %}

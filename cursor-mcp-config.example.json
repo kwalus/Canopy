@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "canopy": {
+      "command": "python",
+      "args": ["/path/to/Canopy/start_mcp_server.py"],
+      "env": {
+        "CANOPY_API_KEY": "YOUR_API_KEY_FROM_CANOPY_UI",
+        "PYTHONPATH": "/path/to/Canopy"
+      }
+    }
+  }
+}

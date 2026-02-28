@@ -1,0 +1,804 @@
+{% extends "base.html" %}
+
+{% block title %}Profile Settings - Canopy{% endblock %}
+
+{% block extra_css %}
+<style>
+    .profile-header {
+        background: var(--canopy-gradient-primary);
+        border-radius: 16px;
+        padding: 2rem;
+        text-align: center;
+        color: white;
+        margin-bottom: 2rem;
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .profile-header::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grid" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M 10 0 L 0 0 0 10" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="0.5"/></pattern></defs><rect width="100" height="100" fill="url(%23grid)"/></svg>');
+        opacity: 0.3;
+    }
+    
+    .profile-content {
+        position: relative;
+        z-index: 1;
+    }
+    
+    .avatar-container {
+        position: relative;
+        display: inline-block;
+        margin-bottom: 1rem;
+    }
+    
+    .avatar {
+        width: 120px;
+        height: 120px;
+        border-radius: 50%;
+        border: 4px solid rgba(255, 255, 255, 0.3);
+        background: rgba(255, 255, 255, 0.1);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 3rem;
+        color: white;
+        overflow: hidden;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        cursor: pointer;
+    }
+    
+    .avatar:hover {
+        transform: scale(1.05);
+        border-color: rgba(255, 255, 255, 0.6);
+    }
+    
+    .avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        border-radius: 50%;
+    }
+    
+    .avatar-upload-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.7);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+        cursor: pointer;
+    }
+    
+    .avatar-container:hover .avatar-upload-overlay {
+        opacity: 1;
+    }
+    
+    .profile-form {
+        background: var(--canopy-bg-card);
+        border: 1px solid var(--canopy-border);
+        border-radius: 16px;
+        padding: 2rem;
+        margin-bottom: 2rem;
+    }
+    
+    .form-section {
+        margin-bottom: 2rem;
+    }
+    
+    .form-section:last-child {
+        margin-bottom: 0;
+    }
+    
+    .section-title {
+        color: var(--canopy-text-primary);
+        font-size: 1.25rem;
+        font-weight: 600;
+        margin-bottom: 1rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    
+    .theme-options {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+        margin-top: 1rem;
+    }
+    
+    .theme-option {
+        background: var(--canopy-bg-tertiary);
+        border: 2px solid var(--canopy-border);
+        border-radius: 12px;
+        padding: 1rem;
+        cursor: pointer;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        text-align: center;
+    }
+    
+    .theme-option:hover {
+        border-color: var(--canopy-primary);
+        transform: translateY(-2px);
+    }
+    
+    .theme-option.active {
+        border-color: var(--canopy-primary);
+        background: rgba(34, 197, 94, 0.1);
+    }
+    
+    .theme-preview {
+        width: 100%;
+        height: 60px;
+        border-radius: 8px;
+        margin-bottom: 0.5rem;
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .theme-dark .theme-preview {
+        background: linear-gradient(135deg, #0f0f1a 0%, #171728 100%);
+        border: 1px solid rgba(34, 197, 94, 0.15);
+    }
+    
+    .theme-light .theme-preview {
+        background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+    }
+    
+    .theme-auto .theme-preview {
+        background: linear-gradient(135deg, #0f0f23 0%, #f8fafc 100%);
+    }
+    
+    .theme-eco .theme-preview {
+        background: linear-gradient(135deg, #052e16 0%, #14532d 50%, #22c55e 100%);
+        border: 1px solid rgba(74, 222, 128, 0.3);
+    }
+
+    .theme-liquid-glass .theme-preview {
+        background: 
+            linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%),
+            url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><radialGradient id="glass-bg"><stop offset="0%" stop-color="%23667eea"/><stop offset="100%" stop-color="%23764ba2"/></radialGradient></defs><rect width="100" height="100" fill="url(%23glass-bg)"/></svg>');
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        position: relative;
+    }
+    
+    .theme-liquid-glass .theme-preview::before {
+        content: '';
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        width: 20px;
+        height: 20px;
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 50%;
+        backdrop-filter: blur(5px);
+        border: 1px solid rgba(255, 255, 255, 0.4);
+    }
+    
+    .theme-liquid-glass .theme-preview::after {
+        content: '';
+        position: absolute;
+        bottom: 10px;
+        right: 10px;
+        width: 30px;
+        height: 8px;
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 4px;
+        backdrop-filter: blur(3px);
+    }
+    
+    .save-button {
+        background: var(--canopy-gradient-secondary);
+        border: none;
+        color: white;
+        padding: 12px 32px;
+        border-radius: 12px;
+        font-weight: 600;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: 0 4px 15px rgba(6, 182, 212, 0.3);
+    }
+    
+    .save-button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(6, 182, 212, 0.4);
+    }
+    
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 1rem;
+        margin-top: 1rem;
+    }
+    
+    .stat-card {
+        background: var(--canopy-bg-tertiary);
+        border: 1px solid var(--canopy-border);
+        border-radius: 12px;
+        padding: 1rem;
+        text-align: center;
+    }
+    
+    .stat-value {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--canopy-primary);
+        margin-bottom: 0.25rem;
+    }
+    
+    .stat-label {
+        font-size: 0.85rem;
+        color: var(--canopy-text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    .file-drop-zone {
+        border: 2px dashed var(--canopy-border);
+        border-radius: 12px;
+        padding: 2rem;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        margin-top: 1rem;
+    }
+    
+    .file-drop-zone:hover,
+    .file-drop-zone.dragover {
+        border-color: var(--canopy-primary);
+        background: rgba(99, 102, 241, 0.05);
+    }
+    
+    .upload-progress {
+        display: none;
+        margin-top: 1rem;
+    }
+    
+    .progress-bar {
+        background: var(--canopy-bg-tertiary);
+        border-radius: 10px;
+        overflow: hidden;
+        height: 8px;
+    }
+    
+    .progress-fill {
+        background: var(--canopy-gradient-primary);
+        height: 100%;
+        width: 0%;
+        transition: width 0.3s ease;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Profile Header -->
+    <div class="profile-header">
+        <div class="profile-content">
+            <div class="avatar-container" onclick="triggerAvatarUpload()">
+                <div class="avatar" id="user-avatar" title="Click to change your profile picture">
+                    {% if profile.avatar_url %}
+                        <img src="{{ profile.avatar_url }}" alt="Avatar">
+                    {% else %}
+                        <i class="bi bi-person-circle"></i>
+                    {% endif %}
+                </div>
+                <div class="avatar-upload-overlay">
+                    <i class="bi bi-camera fs-2"></i>
+                    <div class="small mt-1">Click to change</div>
+                </div>
+            </div>
+            <h2 class="mb-2">{{ profile.display_name or profile.username }}</h2>
+            <p class="mb-0 opacity-75">{{ profile.bio or 'No bio set' }}</p>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8">
+            <!-- Profile Information Form -->
+            <div class="profile-form">
+                <form id="profile-form">
+                    <div class="form-section">
+                        <div class="section-title">
+                            <i class="bi bi-person"></i>
+                            Personal Information
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="username" class="form-label">
+                                    Username
+                                    <span class="badge bg-secondary ms-1" style="font-size: 0.65rem; font-weight: normal;">Read-only</span>
+                                </label>
+                                <input type="text" class="form-control" id="username" 
+                                       value="{{ profile.username }}" readonly
+                                       style="background-color: var(--canopy-bg-tertiary); cursor: not-allowed;">
+                                <div class="form-text text-muted">Your unique identifier in Canopy &mdash; cannot be changed</div>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="display_name" class="form-label">
+                                    Display Name
+                                    <span class="text-success ms-1" style="font-size: 0.85rem;">✓ Editable</span>
+                                </label>
+                                <input type="text" class="form-control" id="display_name" 
+                                       value="{{ profile.display_name or '' }}" 
+                                       placeholder="How others see your name"
+                                       maxlength="100">
+                                <div class="form-text text-muted">This is the name shown to other users (optional)</div>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="bio" class="form-label">
+                                Bio
+                                <span class="text-success ms-1" style="font-size: 0.85rem;">✓ Editable</span>
+                            </label>
+                            <textarea class="form-control" id="bio" rows="3" 
+                                      placeholder="Tell others about yourself..."
+                                      maxlength="500">{{ profile.bio or '' }}</textarea>
+                            <div class="form-text text-muted">
+                                A short description shown on your profile. 
+                                <span id="bio-count">{{ (profile.bio or '')|length }}</span>/500 characters used
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <div class="section-title">
+                            <i class="bi bi-palette"></i>
+                            Appearance
+                        </div>
+                        <p class="text-muted small mb-3">
+                            Choose a visual theme for Canopy. Your selection is saved and syncs across your devices.
+                        </p>
+                        
+                        <div class="theme-options">
+                            <div class="theme-option theme-dark {{ 'active' if profile.theme_preference == 'dark' else '' }}" 
+                                 data-theme="dark">
+                                <div class="theme-preview"></div>
+                                <strong>Dark</strong>
+                                <div class="text-muted small">Perfect for night owls</div>
+                            </div>
+                            <div class="theme-option theme-light {{ 'active' if profile.theme_preference == 'light' else '' }}" 
+                                 data-theme="light">
+                                <div class="theme-preview"></div>
+                                <strong>Light</strong>
+                                <div class="text-muted small">Classic and clean</div>
+                            </div>
+                            <div class="theme-option theme-auto {{ 'active' if profile.theme_preference == 'auto' else '' }}" 
+                                 data-theme="auto">
+                                <div class="theme-preview"></div>
+                                <strong>Auto</strong>
+                                <div class="text-muted small">Follows system preference</div>
+                            </div>
+                            <div class="theme-option theme-liquid-glass {{ 'active' if profile.theme_preference == 'liquid-glass' else '' }}" 
+                                 data-theme="liquid-glass">
+                                <div class="theme-preview liquid-glass-preview"></div>
+                                <strong>Liquid Glass</strong>
+                                <div class="text-muted small">Translucent & modern</div>
+                            </div>
+                            <div class="theme-option theme-eco {{ 'active' if profile.theme_preference == 'eco' else '' }}" 
+                                 data-theme="eco">
+                                <div class="theme-preview"></div>
+                                <strong>Eco</strong>
+                                <div class="text-muted small">Full forest canopy</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="text-end">
+                        <button type="submit" class="save-button">
+                            <i class="bi bi-check-circle me-2"></i>
+                            Save Changes
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <!-- Profile Stats -->
+            <div class="card">
+                <div class="card-header">
+                    <i class="bi bi-graph-up me-2"></i>
+                    Your Activity
+                </div>
+                <div class="card-body">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-value">{{ profile_stats.messages if profile_stats is defined else 0 }}</div>
+                            <div class="stat-label">Messages</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">{{ profile_stats.channels if profile_stats is defined else 0 }}</div>
+                            <div class="stat-label">Channels</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">{{ profile_stats.posts if profile_stats is defined else 0 }}</div>
+                            <div class="stat-label">Posts</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">{{ profile_stats.api_keys if profile_stats is defined else 0 }}</div>
+                            <div class="stat-label">API Keys</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Change Password -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <i class="bi bi-key me-2"></i>
+                    Change Password
+                </div>
+                <div class="card-body">
+                    <form id="password-form">
+                        <div class="mb-3">
+                            <label class="form-label small">Current Password</label>
+                            <input type="password" class="form-control form-control-sm" 
+                                   id="current-password" required>
+                            <small class="text-muted">Enter your existing password to confirm it's you</small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small">New Password</label>
+                            <input type="password" class="form-control form-control-sm" 
+                                   id="new-password" required minlength="8">
+                            <small class="text-muted">Minimum 8 characters</small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small">Confirm New Password</label>
+                            <input type="password" class="form-control form-control-sm" 
+                                   id="confirm-password" required minlength="8">
+                            <small class="text-muted">Re-type your new password</small>
+                        </div>
+                        <div id="password-alert" class="alert d-none mb-2" role="alert" style="font-size: 0.85rem;"></div>
+                        <button type="submit" class="btn btn-outline-primary btn-sm w-100">
+                            <i class="bi bi-shield-check me-1"></i> Update Password
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Avatar Upload -->
+            <div class="card">
+                <div class="card-header">
+                    <i class="bi bi-image me-2"></i>
+                    Profile Picture
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small mb-2">
+                        <i class="bi bi-info-circle"></i> 
+                        <strong>Two ways to upload:</strong> Click the box below or drag and drop an image file onto it.
+                    </p>
+                    <div class="file-drop-zone" id="avatar-drop-zone">
+                        <i class="bi bi-cloud-upload fs-2 text-muted mb-2"></i>
+                        <p class="mb-1"><strong>Click here</strong> or <strong>drag & drop</strong> an image</p>
+                        <small class="text-muted">Maximum 5MB • Formats: JPG, PNG, GIF</small>
+                    </div>
+                    
+                    <div class="upload-progress" id="upload-progress">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="small">Uploading...</span>
+                            <span class="small" id="upload-percent">0%</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progress-fill"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Hidden file input -->
+<input type="file" id="avatar-input" accept="image/*" style="display: none;">
+
+<script>
+let selectedTheme = '{{ profile.theme_preference }}';
+const PROFILE_CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+
+function profileFetch(url, options = {}) {
+    const method = (options.method || 'GET').toUpperCase();
+    const headers = { ...(options.headers || {}) };
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+        headers['X-CSRFToken'] = headers['X-CSRFToken'] || PROFILE_CSRF_TOKEN;
+    }
+
+    return fetch(url, { ...options, method, headers }).then(async (response) => {
+        let data = {};
+        try {
+            data = await response.json();
+        } catch (_) {
+            data = {};
+        }
+        if (!response.ok) {
+            let message = data.error || data.message || `Request failed (${response.status})`;
+            if (response.status === 403) {
+                message = 'Permission check failed. Reload this page and sign in again, then retry.';
+            }
+            throw new Error(message);
+        }
+        return data || {};
+    });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    setupThemeSelection();
+    setupAvatarUpload();
+    setupFormValidation();
+});
+
+function setupThemeSelection() {
+    const themeOptions = document.querySelectorAll('.theme-option');
+    
+    themeOptions.forEach(option => {
+        option.addEventListener('click', function() {
+            themeOptions.forEach(opt => opt.classList.remove('active'));
+            this.classList.add('active');
+            selectedTheme = this.dataset.theme;
+            
+            // Apply theme immediately for preview
+            if (typeof applyTheme === 'function') {
+                applyTheme(selectedTheme);
+            } else {
+                // Fallback if base theme function not available
+                document.documentElement.setAttribute('data-theme', selectedTheme);
+                localStorage.setItem('canopy-theme', selectedTheme);
+            }
+        });
+    });
+}
+
+function setupAvatarUpload() {
+    const dropZone = document.getElementById('avatar-drop-zone');
+    const fileInput = document.getElementById('avatar-input');
+    
+    // Click to upload
+    dropZone.addEventListener('click', () => fileInput.click());
+    
+    // Drag and drop
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('dragover');
+    });
+    
+    dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('dragover');
+    });
+    
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+        
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            uploadAvatar(files[0]);
+        }
+    });
+    
+    // File input change
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            uploadAvatar(e.target.files[0]);
+        }
+    });
+}
+
+function triggerAvatarUpload() {
+    document.getElementById('avatar-input').click();
+}
+
+function uploadAvatar(file) {
+    if (!file.type.startsWith('image/')) {
+        showAlert('Please select an image file', 'danger');
+        return;
+    }
+    
+    if (file.size > 5 * 1024 * 1024) {
+        showAlert('File too large. Maximum size is 5MB', 'danger');
+        return;
+    }
+    
+    const formData = new FormData();
+    formData.append('avatar', file);
+    
+    const progressBar = document.getElementById('upload-progress');
+    const progressFill = document.getElementById('progress-fill');
+    const progressPercent = document.getElementById('upload-percent');
+    
+    progressBar.style.display = 'block';
+    
+    // Simulate upload progress
+    let progress = 0;
+    const progressInterval = setInterval(() => {
+        progress += Math.random() * 30;
+        if (progress > 90) progress = 90;
+        
+        progressFill.style.width = progress + '%';
+        progressPercent.textContent = Math.round(progress) + '%';
+    }, 100);
+    
+    profileFetch('/ajax/upload_avatar', {
+        method: 'POST',
+        body: formData
+    })
+    .then(data => {
+        clearInterval(progressInterval);
+        progressFill.style.width = '100%';
+        progressPercent.textContent = '100%';
+        
+        setTimeout(() => {
+            progressBar.style.display = 'none';
+            progressFill.style.width = '0%';
+        }, 1000);
+        
+        if (data.success) {
+            // Update avatar display
+            const avatarImg = document.querySelector('#user-avatar img');
+            if (avatarImg) {
+                avatarImg.src = data.avatar_url + '?t=' + Date.now();
+            } else {
+                document.getElementById('user-avatar').innerHTML = 
+                    `<img src="${data.avatar_url}" alt="Avatar">`;
+            }
+            
+            // Update navbar avatar as well
+            const navbarAvatar = document.getElementById('navbar-avatar');
+            if (navbarAvatar) {
+                navbarAvatar.innerHTML = `<img src="${data.avatar_url}?t=${Date.now()}" alt="Avatar" class="rounded-circle" style="width: 100%; height: 100%; object-fit: cover;">`;
+            }
+            
+            showAlert('Avatar updated successfully!', 'success');
+        } else {
+            showAlert(data.error || 'Failed to upload avatar', 'danger');
+        }
+    })
+    .catch(error => {
+        clearInterval(progressInterval);
+        progressBar.style.display = 'none';
+        console.error('Upload error:', error);
+        showAlert(error.message || 'Upload failed', 'danger');
+    });
+}
+
+function setupFormValidation() {
+    const bioTextarea = document.getElementById('bio');
+    const bioCount = document.getElementById('bio-count');
+    
+    bioTextarea.addEventListener('input', function() {
+        bioCount.textContent = this.value.length;
+    });
+}
+
+document.getElementById('profile-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const displayName = document.getElementById('display_name').value.trim();
+    const bio = document.getElementById('bio').value.trim();
+    
+    const data = {
+        display_name: displayName,
+        bio: bio,
+        theme_preference: selectedTheme
+    };
+    
+    profileFetch('/ajax/update_profile', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+    })
+    .then(data => {
+        if (data.success) {
+            showAlert('Profile updated successfully!', 'success');
+            
+            // Update header display
+            const headerTitle = document.querySelector('.profile-header h2');
+            const headerBio = document.querySelector('.profile-header p');
+            
+            if (headerTitle) {
+                headerTitle.textContent = displayName || '{{ profile.username }}';
+            }
+            if (headerBio) {
+                headerBio.textContent = bio || 'No bio set';
+            }
+            
+            // Update navbar username as well
+            const navbarUsername = document.getElementById('navbar-username');
+            if (navbarUsername && displayName) {
+                navbarUsername.textContent = displayName;
+            }
+        } else {
+            showAlert(data.error || 'Failed to update profile', 'danger');
+        }
+    })
+    .catch(error => {
+        console.error('Update error:', error);
+        showAlert(error.message || 'Update failed', 'danger');
+    });
+});
+
+// Password change form
+document.getElementById('password-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const alertEl = document.getElementById('password-alert');
+    const currentPw = document.getElementById('current-password').value;
+    const newPw = document.getElementById('new-password').value;
+    const confirmPw = document.getElementById('confirm-password').value;
+    
+    if (newPw.length < 8) {
+        alertEl.className = 'alert alert-danger mb-2';
+        alertEl.textContent = 'New password must be at least 8 characters';
+        alertEl.classList.remove('d-none');
+        return;
+    }
+    if (newPw !== confirmPw) {
+        alertEl.className = 'alert alert-danger mb-2';
+        alertEl.textContent = 'New passwords do not match';
+        alertEl.classList.remove('d-none');
+        return;
+    }
+    
+    profileFetch('/ajax/change_password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            current_password: currentPw,
+            new_password: newPw,
+            confirm_password: confirmPw
+        })
+    })
+    .then(data => {
+        if (data.success) {
+            alertEl.className = 'alert alert-success mb-2';
+            alertEl.textContent = 'Password changed successfully!';
+            alertEl.classList.remove('d-none');
+            document.getElementById('password-form').reset();
+        } else {
+            alertEl.className = 'alert alert-danger mb-2';
+            alertEl.textContent = data.error || 'Failed to change password';
+            alertEl.classList.remove('d-none');
+        }
+    })
+    .catch(error => {
+        alertEl.className = 'alert alert-danger mb-2';
+        alertEl.textContent = error.message || 'Request failed';
+        alertEl.classList.remove('d-none');
+    });
+});
+
+function showAlert(message, type) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    
+    const container = document.querySelector('.container-fluid');
+    container.insertBefore(alertDiv, container.firstChild);
+    
+    // Auto-dismiss after 5 seconds
+    setTimeout(() => {
+        if (alertDiv.parentNode) {
+            alertDiv.remove();
+        }
+    }, 5000);
+}
+</script>
+{% endblock %}

@@ -1,0 +1,985 @@
+{% extends "base.html" %}
+
+{% block title %}Trust Network - Canopy{% endblock %}
+
+{% block extra_css %}
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+    .trust-page {
+        font-family: 'IBM Plex Sans', 'Segoe UI', sans-serif;
+        color: var(--canopy-text-primary);
+    }
+
+    .trust-hero {
+        position: relative;
+        padding: 28px 28px 24px;
+        border-radius: 24px;
+        background:
+            radial-gradient(circle at 20% 20%, rgba(34, 197, 94, 0.22), transparent 45%),
+            radial-gradient(circle at 80% 10%, rgba(6, 182, 212, 0.18), transparent 40%),
+            linear-gradient(135deg, rgba(15, 15, 26, 0.9), rgba(17, 24, 39, 0.85));
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: 0 30px 60px rgba(0, 0, 0, 0.25);
+        overflow: hidden;
+        display: grid;
+        gap: 24px;
+        grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+    }
+
+    .trust-hero::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(120deg, rgba(255, 255, 255, 0.08), transparent 55%);
+        pointer-events: none;
+    }
+
+    .trust-hero-main {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+    }
+
+    .trust-kicker {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.2em;
+        color: rgba(148, 163, 184, 0.85);
+    }
+
+    .trust-title {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: clamp(1.8rem, 2.8vw, 2.6rem);
+        margin: 0;
+    }
+
+    .trust-subtitle {
+        font-size: 1rem;
+        color: var(--canopy-text-secondary);
+        max-width: 520px;
+        margin: 0;
+    }
+
+    .trust-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .trust-hero-stats {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+    }
+
+    .trust-stat {
+        padding: 14px 16px;
+        border-radius: 16px;
+        background: rgba(15, 23, 42, 0.6);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        backdrop-filter: blur(8px);
+    }
+
+    .trust-stat-label {
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: rgba(148, 163, 184, 0.85);
+    }
+
+    .trust-stat-value {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 1.4rem;
+        font-weight: 600;
+        color: var(--canopy-text-primary);
+    }
+
+    .trust-stat-sub {
+        font-size: 0.8rem;
+        color: var(--canopy-text-muted);
+    }
+
+    .trust-layout {
+        margin-top: 24px;
+        display: grid;
+        gap: 24px;
+        grid-template-columns: minmax(0, 2.1fr) minmax(0, 1fr);
+    }
+
+    .trust-map {
+        background: rgba(15, 23, 42, 0.55);
+        border-radius: 24px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        padding: 22px;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+    }
+
+    .trust-map-header {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 18px;
+    }
+
+    .trust-map-title {
+        font-family: 'Space Grotesk', sans-serif;
+        margin: 0 0 4px;
+        font-size: 1.4rem;
+    }
+
+    .trust-map-sub {
+        margin: 0;
+        color: var(--canopy-text-secondary);
+        font-size: 0.95rem;
+    }
+
+    .trust-map-legend {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .legend-chip {
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(15, 23, 42, 0.6);
+        color: var(--canopy-text-secondary);
+    }
+
+    .legend-chip.safe { color: #34d399; border-color: rgba(52, 211, 153, 0.4); }
+    .legend-chip.guarded { color: #facc15; border-color: rgba(250, 204, 21, 0.35); }
+    .legend-chip.restricted { color: #fb923c; border-color: rgba(251, 146, 60, 0.35); }
+    .legend-chip.quarantine { color: #f87171; border-color: rgba(248, 113, 113, 0.35); }
+
+    .trust-zone {
+        border-radius: 18px;
+        padding: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        margin-bottom: 14px;
+        position: relative;
+        transition: box-shadow 0.2s ease, border-color 0.2s ease;
+    }
+
+    .trust-zone:last-child { margin-bottom: 0; }
+
+    .trust-zone.safe {
+        background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(16, 185, 129, 0.05));
+        border-color: rgba(52, 211, 153, 0.4);
+    }
+
+    .trust-zone.guarded {
+        background: linear-gradient(135deg, rgba(250, 204, 21, 0.18), rgba(250, 204, 21, 0.04));
+        border-color: rgba(250, 204, 21, 0.35);
+    }
+
+    .trust-zone.restricted {
+        background: linear-gradient(135deg, rgba(251, 146, 60, 0.18), rgba(251, 146, 60, 0.04));
+        border-color: rgba(251, 146, 60, 0.35);
+    }
+
+    .trust-zone.quarantine {
+        background: linear-gradient(135deg, rgba(248, 113, 113, 0.18), rgba(248, 113, 113, 0.04));
+        border-color: rgba(248, 113, 113, 0.35);
+    }
+
+    .trust-zone.drag-over {
+        box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.5);
+        border-color: rgba(6, 182, 212, 0.6);
+    }
+
+    .trust-zone-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .trust-zone-title {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 1rem;
+        margin: 0;
+    }
+
+    .trust-zone-sub {
+        margin: 0;
+        color: var(--canopy-text-secondary);
+        font-size: 0.85rem;
+    }
+
+    .trust-zone-count {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 1rem;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.6);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .trust-zone-list {
+        margin-top: 12px;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
+    }
+
+    .trust-zone-empty {
+        padding: 12px;
+        font-size: 0.85rem;
+        color: var(--canopy-text-muted);
+        border: 1px dashed rgba(255, 255, 255, 0.2);
+        border-radius: 12px;
+        text-align: center;
+    }
+
+    .trust-node {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        padding: 10px 12px;
+        border-radius: 14px;
+        background: rgba(15, 23, 42, 0.7);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        cursor: grab;
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .trust-node.dragging {
+        opacity: 0.7;
+        transform: scale(0.98);
+    }
+
+    .trust-node-avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 12px;
+        overflow: hidden;
+        background: rgba(34, 197, 94, 0.2);
+        color: #bbf7d0;
+        display: grid;
+        place-items: center;
+        font-weight: 600;
+        font-size: 0.9rem;
+    }
+
+    .trust-node-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .trust-node-body {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .trust-node-name {
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.95rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .trust-node-live {
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: #22c55e;
+        padding: 2px 6px;
+        border-radius: 999px;
+        border: 1px solid rgba(34, 197, 94, 0.35);
+        background: rgba(34, 197, 94, 0.12);
+    }
+
+    .trust-node-meta {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--canopy-text-muted);
+        font-size: 0.75rem;
+    }
+
+    .trust-node-id {
+        font-family: 'Space Grotesk', sans-serif;
+    }
+
+    .trust-node-tag {
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        font-size: 0.6rem;
+    }
+
+    .trust-node-actions {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 6px;
+    }
+
+    .trust-score-pill {
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.7);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        font-weight: 600;
+        font-size: 0.75rem;
+    }
+
+    .trust-score {
+        font-family: 'Space Grotesk', sans-serif;
+    }
+
+    .trust-tier-select {
+        display: none;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        background: rgba(15, 23, 42, 0.7);
+        color: var(--canopy-text-primary);
+        font-size: 0.7rem;
+        padding: 4px 8px;
+    }
+
+    .trust-side {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .trust-side-card {
+        padding: 16px;
+        border-radius: 18px;
+        background: rgba(15, 23, 42, 0.6);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .trust-side-title {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 1rem;
+        margin-bottom: 8px;
+    }
+
+    .trust-side-sub {
+        font-size: 0.85rem;
+        color: var(--canopy-text-secondary);
+        margin-bottom: 12px;
+    }
+
+    .trust-side-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        max-height: 280px;
+        overflow-y: auto;
+    }
+
+    .trust-side-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 10px;
+        border-radius: 12px;
+        background: rgba(15, 23, 42, 0.7);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .trust-side-item .trust-node-avatar {
+        width: 32px;
+        height: 32px;
+        border-radius: 10px;
+    }
+
+    .trust-side-item-meta {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .trust-side-item-name {
+        font-size: 0.85rem;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .trust-side-item-id {
+        font-size: 0.7rem;
+        color: var(--canopy-text-muted);
+    }
+
+    .trust-policy-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .trust-policy-list li {
+        font-size: 0.85rem;
+        color: var(--canopy-text-secondary);
+        display: flex;
+        gap: 8px;
+        align-items: flex-start;
+    }
+
+    .trust-policy-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--canopy-accent);
+        margin-top: 6px;
+    }
+
+    @media (max-width: 1200px) {
+        .trust-hero {
+            grid-template-columns: 1fr;
+        }
+
+        .trust-layout {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    @media (max-width: 768px) {
+        .trust-hero {
+            padding: 22px;
+        }
+
+        .trust-zone-list {
+            grid-template-columns: 1fr;
+        }
+
+        .trust-tier-select {
+            display: block;
+        }
+
+        .trust-node {
+            cursor: default;
+        }
+    }
+</style>
+{% endblock %}
+
+{% macro render_trust_node(peer, tier, connected_peers, peer_device_profiles) %}
+    {% set peer_id = peer.peer_id %}
+    {% set profile = peer_device_profiles.get(peer_id) if peer_device_profiles else None %}
+    {% set display_name = profile.display_name if profile and profile.display_name else peer_id[:12] %}
+    {% set desc = profile.description if profile and profile.description else '' %}
+    {% set desc_lower = desc|lower %}
+    {% if 'agent' in desc_lower or 'bot' in desc_lower or 'automation' in desc_lower or 'ai' in desc_lower %}
+        {% set role = 'Agent' %}
+    {% elif 'human' in desc_lower or 'person' in desc_lower %}
+        {% set role = 'Human' %}
+    {% else %}
+        {% set role = 'Unlabeled' %}
+    {% endif %}
+    <div class="trust-node" draggable="true" data-peer-id="{{ peer_id }}" data-tier="{{ tier }}">
+        <div class="trust-node-avatar">
+            {% if profile and profile.avatar_b64 %}
+                <img src="data:{{ profile.avatar_mime or 'image/png' }};base64,{{ profile.avatar_b64 }}" alt="{{ display_name }}">
+            {% else %}
+                <span>{{ display_name[:1]|upper }}</span>
+            {% endif %}
+        </div>
+        <div class="trust-node-body">
+            <div class="trust-node-name">
+                {{ display_name }}
+                {% if peer_id in connected_peers %}
+                    <span class="trust-node-live">Live</span>
+                {% endif %}
+            </div>
+            <div class="trust-node-meta">
+                <span class="trust-node-id">{{ peer_id[:12] }}...</span>
+                <span class="trust-node-tag">{{ role }}</span>
+            </div>
+        </div>
+        <div class="trust-node-actions">
+            <div class="trust-score-pill"><span class="trust-score">{{ peer.score }}</span></div>
+            <select class="trust-tier-select" data-peer-id="{{ peer_id }}">
+                <option value="safe" {% if tier == 'safe' %}selected{% endif %}>Safe</option>
+                <option value="guarded" {% if tier == 'guarded' %}selected{% endif %}>Guarded</option>
+                <option value="restricted" {% if tier == 'restricted' %}selected{% endif %}>Restricted</option>
+                <option value="quarantine" {% if tier == 'quarantine' %}selected{% endif %}>Quarantine</option>
+            </select>
+        </div>
+    </div>
+{% endmacro %}
+
+{% macro render_potential_node(peer, peer_device_profiles) %}
+    {% set peer_id = peer.peer_id %}
+    {% set profile = peer.device_profile if peer.device_profile else (peer_device_profiles.get(peer_id) if peer_device_profiles else None) %}
+    {% set display_name = peer.display_name if peer.display_name else (profile.display_name if profile and profile.display_name else peer_id[:12]) %}
+    <div class="trust-node" draggable="true" data-peer-id="{{ peer_id }}" data-tier="potential">
+        <div class="trust-node-avatar">
+            {% if profile and profile.avatar_b64 %}
+                <img src="data:{{ profile.avatar_mime or 'image/png' }};base64,{{ profile.avatar_b64 }}" alt="{{ display_name }}">
+            {% else %}
+                <span>{{ display_name[:1]|upper }}</span>
+            {% endif %}
+        </div>
+        <div class="trust-node-body">
+            <div class="trust-node-name">
+                {{ display_name }}
+            </div>
+            <div class="trust-node-meta">
+                <span class="trust-node-id">{{ peer_id[:12] }}...</span>
+                {% if peer.introduced_by %}
+                    <span class="trust-node-tag">via {{ peer.introduced_by[:8] }}</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="trust-node-actions">
+            <div class="trust-score-pill"><span class="trust-score">--</span></div>
+            <select class="trust-tier-select" data-peer-id="{{ peer_id }}">
+                <option value="safe">Safe</option>
+                <option value="guarded">Guarded</option>
+                <option value="restricted">Restricted</option>
+                <option value="quarantine">Quarantine</option>
+            </select>
+        </div>
+    </div>
+{% endmacro %}
+
+{% block content %}
+{% set connected_peers = connected_peers or [] %}
+{% set trust_tiers = trust_tiers or {'safe': [], 'guarded': [], 'restricted': [], 'quarantine': []} %}
+{% set potential_peers = potential_peers or [] %}
+{% set peer_device_profiles = peer_device_profiles or {} %}
+
+<section class="trust-page">
+    <div class="trust-hero">
+        <div class="trust-hero-main">
+            <div class="trust-kicker">Trust Network</div>
+            <h1 class="trust-title">See and shape your mesh at a glance</h1>
+            <p class="trust-subtitle">
+                Drag peers between zones to control permissions, relay privileges, and data access. Tag
+                profiles with 'Agent' or 'Human' in their description to surface the right context.
+            </p>
+            <div class="trust-actions">
+                <button class="btn btn-warning" data-bs-toggle="modal" data-bs-target="#deleteSignalModal">
+                    <i class="bi bi-trash"></i> Send Delete Signal
+                </button>
+                <button class="btn btn-outline-primary btn-sm" onclick="refreshTrust()">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                </button>
+            </div>
+        </div>
+        <div class="trust-hero-stats">
+            <div class="trust-stat">
+                <div class="trust-stat-label">Connected</div>
+                <div class="trust-stat-value" data-stat-connected>{{ connected_peers|length }}</div>
+                <div class="trust-stat-sub">live peers</div>
+            </div>
+            <div class="trust-stat">
+                <div class="trust-stat-label">Safe Zone</div>
+                <div class="trust-stat-value" data-stat-safe>{{ trust_tiers.safe|length }}</div>
+                <div class="trust-stat-sub">full trust</div>
+            </div>
+            <div class="trust-stat">
+                <div class="trust-stat-label">Potential</div>
+                <div class="trust-stat-value" data-stat-potential>{{ potential_peers|length }}</div>
+                <div class="trust-stat-sub">introduced</div>
+            </div>
+            <div class="trust-stat">
+                <div class="trust-stat-label">Compliance</div>
+                <div class="trust-stat-value">{{ "%.0f"|format(trust_stats.compliance_rate or 100) }}%</div>
+                <div class="trust-stat-sub">delete signals</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="trust-layout">
+        <div class="trust-map">
+            <div class="trust-map-header">
+                <div>
+                    <h2 class="trust-map-title">Trust Zones</h2>
+                    <p class="trust-map-sub">Layer your mesh so humans and agents stay inside the right permission band.</p>
+                </div>
+                <div class="trust-map-legend">
+                    <span class="legend-chip safe">Safe</span>
+                    <span class="legend-chip guarded">Guarded</span>
+                    <span class="legend-chip restricted">Restricted</span>
+                    <span class="legend-chip quarantine">Quarantine</span>
+                </div>
+            </div>
+
+            <div class="trust-zone safe" data-tier="safe">
+                <div class="trust-zone-header">
+                    <div>
+                        <h3 class="trust-zone-title">Safe Zone</h3>
+                        <p class="trust-zone-sub">Full relay + private data access.</p>
+                    </div>
+                    <div class="trust-zone-count" data-zone-count="safe">{{ trust_tiers.safe|length }}</div>
+                </div>
+                <div class="trust-zone-list">
+                    {% for peer in trust_tiers.safe %}
+                        {{ render_trust_node(peer, 'safe', connected_peers, peer_device_profiles) }}
+                    {% else %}
+                        <div class="trust-zone-empty">Drop peers here to grant full trust.</div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="trust-zone guarded" data-tier="guarded">
+                <div class="trust-zone-header">
+                    <div>
+                        <h3 class="trust-zone-title">Guarded</h3>
+                        <p class="trust-zone-sub">Messaging ok, sensitive data gated.</p>
+                    </div>
+                    <div class="trust-zone-count" data-zone-count="guarded">{{ trust_tiers.guarded|length }}</div>
+                </div>
+                <div class="trust-zone-list">
+                    {% for peer in trust_tiers.guarded %}
+                        {{ render_trust_node(peer, 'guarded', connected_peers, peer_device_profiles) }}
+                    {% else %}
+                        <div class="trust-zone-empty">Drag here for guarded access.</div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="trust-zone restricted" data-tier="restricted">
+                <div class="trust-zone-header">
+                    <div>
+                        <h3 class="trust-zone-title">Restricted</h3>
+                        <p class="trust-zone-sub">Limited participation, no relay.</p>
+                    </div>
+                    <div class="trust-zone-count" data-zone-count="restricted">{{ trust_tiers.restricted|length }}</div>
+                </div>
+                <div class="trust-zone-list">
+                    {% for peer in trust_tiers.restricted %}
+                        {{ render_trust_node(peer, 'restricted', connected_peers, peer_device_profiles) }}
+                    {% else %}
+                        <div class="trust-zone-empty">Keep low-trust peers here.</div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="trust-zone quarantine" data-tier="quarantine">
+                <div class="trust-zone-header">
+                    <div>
+                        <h3 class="trust-zone-title">Quarantine</h3>
+                        <p class="trust-zone-sub">Isolated. Monitor before reintroducing.</p>
+                    </div>
+                    <div class="trust-zone-count" data-zone-count="quarantine">{{ trust_tiers.quarantine|length }}</div>
+                </div>
+                <div class="trust-zone-list">
+                    {% for peer in trust_tiers.quarantine %}
+                        {{ render_trust_node(peer, 'quarantine', connected_peers, peer_device_profiles) }}
+                    {% else %}
+                        <div class="trust-zone-empty">Drag here to isolate.</div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <aside class="trust-side">
+            <div class="trust-side-card">
+                <div class="trust-side-title">Connected Now</div>
+                <div class="trust-side-sub">Live peers with active sockets.</div>
+                <div class="trust-side-list">
+                    {% if connected_peers %}
+                        {% for peer_id in connected_peers %}
+                            {% set profile = peer_device_profiles.get(peer_id) if peer_device_profiles else None %}
+                            {% set display_name = profile.display_name if profile and profile.display_name else peer_id[:12] %}
+                            <div class="trust-side-item">
+                                <div class="trust-node-avatar">
+                                    {% if profile and profile.avatar_b64 %}
+                                        <img src="data:{{ profile.avatar_mime or 'image/png' }};base64,{{ profile.avatar_b64 }}" alt="{{ display_name }}">
+                                    {% else %}
+                                        <span>{{ display_name[:1]|upper }}</span>
+                                    {% endif %}
+                                </div>
+                                <div class="trust-side-item-meta">
+                                    <div class="trust-side-item-name">{{ display_name }}</div>
+                                    <div class="trust-side-item-id">{{ peer_id[:12] }}...</div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="trust-zone-empty">No active peers yet.</div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="trust-side-card">
+                <div class="trust-side-title">Potential Peers</div>
+                <div class="trust-side-sub">Introduced by your network. Drag into a zone to trust.</div>
+                <div class="trust-side-list" data-potential-list>
+                    {% if potential_peers %}
+                        {% for peer in potential_peers %}
+                            {{ render_potential_node(peer, peer_device_profiles) }}
+                        {% endfor %}
+                    {% else %}
+                        <div class="trust-zone-empty">No introductions yet.</div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="trust-side-card">
+                <div class="trust-side-title">Delete Signals</div>
+                <div class="trust-side-sub">Data removal requests that impact trust.</div>
+                {% if delete_signals %}
+                    <div class="trust-side-list">
+                        {% for signal in delete_signals[:6] %}
+                            <div class="trust-side-item">
+                                <div class="trust-side-item-meta">
+                                    <div class="trust-side-item-name">{{ signal.data_type.title() }} -> {{ signal.target_peer_id[:8] }}...</div>
+                                    <div class="trust-side-item-id">{{ signal.status.title() }} - {{ signal.sent_at }}</div>
+                                </div>
+                                <div class="trust-score-pill"><span class="trust-score">{{ signal.status.title() }}</span></div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="trust-zone-empty">No pending delete signals.</div>
+                {% endif %}
+            </div>
+
+            <div class="trust-side-card">
+                <div class="trust-side-title">Trust Policy</div>
+                <ul class="trust-policy-list">
+                    <li><span class="trust-policy-dot"></span>Safe peers can relay and access protected data.</li>
+                    <li><span class="trust-policy-dot"></span>Guarded peers can message but cannot relay.</li>
+                    <li><span class="trust-policy-dot"></span>Restricted peers are read-mostly and monitored.</li>
+                    <li><span class="trust-policy-dot"></span>Quarantined peers stay isolated until reviewed.</li>
+                </ul>
+            </div>
+        </aside>
+    </div>
+</section>
+
+<!-- Send Delete Signal Modal -->
+<div class="modal fade" id="deleteSignalModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-trash"></i> Send Delete Signal
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="deleteSignalForm">
+                    <div class="mb-3">
+                        <label for="targetPeer" class="form-label">Target Peer ID</label>
+                        <input type="text" class="form-control" id="targetPeer" required
+                               placeholder="Enter the peer ID to send delete signal to">
+                    </div>
+                    <div class="mb-3">
+                        <label for="dataType" class="form-label">Data Type</label>
+                        <select class="form-select" id="dataType" required>
+                            <option value="">Select data type</option>
+                            <option value="message">Message</option>
+                            <option value="file">File</option>
+                            <option value="post">Feed Post</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="dataId" class="form-label">Data ID</label>
+                        <input type="text" class="form-control" id="dataId" required
+                               placeholder="Enter the ID of the data to be deleted">
+                    </div>
+                    <div class="mb-3">
+                        <label for="deleteReason" class="form-label">Reason (Optional)</label>
+                        <textarea class="form-control" id="deleteReason" rows="2"
+                                  placeholder="Explain why this data should be deleted"></textarea>
+                    </div>
+                    <div class="alert alert-warning">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        <strong>Warning:</strong> Delete signals are tracked and affect trust scores.
+                        Only send legitimate deletion requests.
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-warning" onclick="sendDeleteSignal()">
+                    <i class="bi bi-send"></i> Send Signal
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function refreshTrust() {
+        window.location.reload();
+    }
+
+    function sendDeleteSignal() {
+        const targetPeer = document.getElementById('targetPeer').value.trim();
+        const dataType = document.getElementById('dataType').value;
+        const dataId = document.getElementById('dataId').value.trim();
+        const reason = document.getElementById('deleteReason').value.trim();
+
+        if (!targetPeer || !dataType || !dataId) {
+            showAlert('Please fill in all required fields', 'warning');
+            return;
+        }
+
+        if (!confirm('Are you sure you want to send this delete signal? This action will be tracked.')) {
+            return;
+        }
+
+        apiCall('/ajax/trust/delete_signal', {
+            method: 'POST',
+            body: JSON.stringify({
+                target_peer_id: targetPeer,
+                data_type: dataType,
+                data_id: dataId,
+                reason: reason || null
+            })
+        })
+        .then(response => {
+            showAlert('Delete signal sent successfully!', 'success');
+            document.getElementById('deleteSignalForm').reset();
+            bootstrap.Modal.getInstance(document.getElementById('deleteSignalModal')).hide();
+            setTimeout(refreshTrust, 1000);
+        })
+        .catch(error => {
+            showAlert(error.error || 'Failed to send delete signal', 'danger');
+        });
+    }
+
+    function updateZoneCounts() {
+        document.querySelectorAll('.trust-zone').forEach(zone => {
+            const countEl = zone.querySelector('[data-zone-count]');
+            if (!countEl) return;
+            const count = zone.querySelectorAll('.trust-node').length;
+            countEl.textContent = count;
+        });
+
+        const safeCount = document.querySelector('.trust-zone.safe')?.querySelectorAll('.trust-node').length || 0;
+        const potentialCount = document.querySelector('[data-potential-list]')?.querySelectorAll('.trust-node').length || 0;
+
+        const safeStat = document.querySelector('[data-stat-safe]');
+        if (safeStat) safeStat.textContent = safeCount;
+        const potentialStat = document.querySelector('[data-stat-potential]');
+        if (potentialStat) potentialStat.textContent = potentialCount;
+    }
+
+    function handleTierChange(peerId, tier) {
+        const node = document.querySelector(`.trust-node[data-peer-id="${peerId}"]`);
+        if (!node) return;
+
+        const previousZone = node.closest('.trust-zone');
+        const previousParent = node.parentElement;
+        const targetZone = document.querySelector(`.trust-zone[data-tier="${tier}"]`);
+        const targetList = targetZone ? targetZone.querySelector('.trust-zone-list') : null;
+        const originalTier = node.dataset.tier;
+
+        apiCall('/trust/update', {
+            method: 'POST',
+            body: JSON.stringify({
+                peer_id: peerId,
+                tier: tier
+            })
+        })
+        .then(data => {
+            if (targetList) {
+                targetList.appendChild(node);
+            }
+            node.dataset.tier = tier;
+            const scoreEl = node.querySelector('.trust-score');
+            if (scoreEl) {
+                scoreEl.textContent = data.trust_score;
+            }
+            const selectEl = node.querySelector('.trust-tier-select');
+            if (selectEl) {
+                selectEl.value = tier;
+            }
+            updateZoneCounts();
+        })
+        .catch(error => {
+            if (previousParent) {
+                previousParent.appendChild(node);
+            }
+            node.dataset.tier = originalTier || node.dataset.tier;
+            const selectEl = node.querySelector('.trust-tier-select');
+            if (selectEl && originalTier) {
+                selectEl.value = originalTier;
+            }
+            showAlert(error.error || 'Failed to update trust score', 'danger');
+        });
+    }
+
+    function initTrustDragAndDrop() {
+        const nodes = document.querySelectorAll('.trust-node');
+        const zones = document.querySelectorAll('.trust-zone');
+
+        nodes.forEach(node => {
+            node.addEventListener('dragstart', event => {
+                node.classList.add('dragging');
+                event.dataTransfer.setData('text/plain', node.dataset.peerId);
+            });
+
+            node.addEventListener('dragend', () => {
+                node.classList.remove('dragging');
+            });
+        });
+
+        zones.forEach(zone => {
+            zone.addEventListener('dragover', event => {
+                event.preventDefault();
+                zone.classList.add('drag-over');
+            });
+
+            zone.addEventListener('dragleave', () => {
+                zone.classList.remove('drag-over');
+            });
+
+            zone.addEventListener('drop', event => {
+                event.preventDefault();
+                zone.classList.remove('drag-over');
+                const peerId = event.dataTransfer.getData('text/plain');
+                if (!peerId) return;
+                const tier = zone.dataset.tier;
+                handleTierChange(peerId, tier);
+            });
+        });
+
+        document.querySelectorAll('.trust-tier-select').forEach(select => {
+            select.addEventListener('change', event => {
+                const peerId = event.target.dataset.peerId;
+                const tier = event.target.value;
+                if (peerId && tier) {
+                    handleTierChange(peerId, tier);
+                }
+            });
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        initTrustDragAndDrop();
+        updateZoneCounts();
+    });
+</script>
+{% endblock %}

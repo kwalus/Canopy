@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0a1a0f">
+    <title>Canopy - Setup</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #052e16 0%, #0a1a0f 50%, #0f1f15 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #e2e8f0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        .setup-card {
+            background: rgba(15, 31, 21, 0.92);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            border-radius: 16px;
+            padding: 2.5rem;
+            max-width: 440px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        }
+        .setup-card h2 { color: #22c55e; margin-bottom: 0.5rem; }
+        .setup-card .subtitle { color: #94a3b8; margin-bottom: 1.5rem; font-size: 0.9rem; }
+        .form-control {
+            background: rgba(5, 46, 22, 0.8);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            color: #e2e8f0;
+            padding: 0.75rem 1rem;
+        }
+        .form-control:focus {
+            background: rgba(5, 46, 22, 0.9);
+            border-color: #22c55e;
+            color: #e2e8f0;
+            box-shadow: 0 0 0 0.2rem rgba(34, 197, 94, 0.25);
+        }
+        .form-control::placeholder { color: #6b8f71; }
+        .btn-primary {
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            border: none;
+            padding: 0.75rem;
+            font-size: 1rem;
+            font-weight: 600;
+            border-radius: 8px;
+            color: #052e16;
+        }
+        .btn-primary:hover { background: linear-gradient(135deg, #16a34a, #15803d); }
+        .alert-danger {
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+        }
+        .logo-img {
+            width: 128px;
+            height: 128px;
+            object-fit: contain;
+            margin-bottom: 1rem;
+            filter: drop-shadow(0 4px 20px rgba(34, 197, 94, 0.4));
+        }
+        .form-label { color: #a7f3d0; font-weight: 500; font-size: 0.9rem; }
+        .setup-hint {
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.2);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
+            font-size: 0.85rem;
+            color: #bbf7d0;
+        }
+        .invite-optional { color: #64748b; font-size: 0.85rem; }
+        .crypto-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.2);
+            border-radius: 6px;
+            padding: 2px 8px;
+            font-size: 0.75rem;
+            color: #86efac;
+            margin-top: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="setup-card text-center">
+        <img src="{{ url_for('static', filename='icons/canopy-logo.png') }}" alt="Canopy" class="logo-img">
+        <h2>Welcome to Canopy</h2>
+        <p class="subtitle">Create your admin account to get started</p>
+        <div class="setup-hint">
+            <i class="bi bi-star-fill me-1"></i>
+            You're the first user. This account will be the instance admin.
+        </div>
+        {% if error %}
+            <div class="alert alert-danger mb-3">{{ error }}</div>
+        {% endif %}
+        <form method="POST" action="{{ url_for('ui.setup') }}">
+            <div class="mb-3 text-start">
+                <label class="form-label">Username</label>
+                <input type="text" class="form-control" name="username"
+                       placeholder="Choose a username" required minlength="2" maxlength="30"
+                       pattern="[a-zA-Z0-9_\-]+" title="Letters, numbers, underscores, and hyphens only"
+                       value="{{ request.form.get('username', '') }}" autofocus>
+            </div>
+            <div class="mb-3 text-start">
+                <label class="form-label">Display Name</label>
+                <input type="text" class="form-control" name="display_name"
+                       placeholder="How others will see you" maxlength="50"
+                       value="{{ request.form.get('display_name', '') }}">
+            </div>
+            <div class="mb-3 text-start">
+                <label class="form-label">Password</label>
+                <input type="password" class="form-control" name="password"
+                       placeholder="Choose a password (min 8 characters)" required minlength="8">
+            </div>
+            <div class="mb-3 text-start">
+                <label class="form-label">Confirm Password</label>
+                <input type="password" class="form-control" name="password_confirm"
+                       placeholder="Confirm your password" required minlength="8">
+            </div>
+            <div class="mb-4 text-start">
+                <label class="form-label">Peer invite code <span class="invite-optional">(optional)</span></label>
+                <input type="text" class="form-control" name="invite_code"
+                       placeholder="Paste a canopy:... invite to connect a peer"
+                       value="{{ request.form.get('invite_code', '') }}">
+            </div>
+            <button type="submit" class="btn btn-primary w-100">
+                <i class="bi bi-check2-circle"></i> Complete setup
+            </button>
+            <div class="crypto-badge mx-auto mt-3">
+                <i class="bi bi-key-fill"></i> Crypto keypair generated automatically
+            </div>
+        </form>
+    </div>
+</body>
+</html>
