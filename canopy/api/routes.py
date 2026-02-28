@@ -7291,39 +7291,51 @@ def create_api_blueprint() -> Blueprint:
             logger.error(f"Ingest stream event failed: {e}", exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
+    def _find_stream_remote_base(self_stream_id: str) -> Optional[str]:
+        """Find a reachable remote base URL for a stream by trying all host_addrs."""
+        from urllib.request import urlopen as _urlopen
+        from urllib.error import URLError as _URLError
+        import json as _json
+        db_manager = _get_db_manager()
+        if not db_manager:
+            return None
+        candidates: list[str] = []
+        with db_manager.get_connection() as conn:
+            rows = conn.execute(
+                "SELECT attachments FROM channel_messages "
+                "WHERE attachments IS NOT NULL AND attachments != '[]' "
+                "ORDER BY created_at DESC LIMIT 300"
+            ).fetchall()
+        for row in rows:
+            try:
+                atts = _json.loads(row[0] if not hasattr(row, 'keys') else row['attachments'])
+            except Exception:
+                continue
+            for att in atts:
+                if not isinstance(att, dict):
+                    continue
+                if str(att.get('stream_id') or '') == self_stream_id:
+                    candidates = [str(a).rstrip('/') for a in (att.get('host_addrs') or [])]
+                    break
+            if candidates:
+                break
+        for base in candidates:
+            try:
+                test_url = f"{base}/api/v1/streams/{self_stream_id}/manifest.m3u8"
+                with _urlopen(test_url, timeout=4) as resp:
+                    resp.read(1)
+                return base
+            except Exception:
+                continue
+        return candidates[0] if candidates else None
+
     @api.route('/stream-proxy/<stream_id>/manifest.m3u8', methods=['GET'])
     def stream_proxy_manifest_api(stream_id):
         """Server-side proxy for remote peer streams — fetches manifest from origin peer and rewrites segment URLs."""
         from urllib.request import urlopen as _urlopen
         from urllib.error import URLError as _URLError
         try:
-            db_manager = _get_db_manager()
-            if not db_manager:
-                return jsonify({'error': 'Unavailable'}), 503
-            # Look up remote base URL from channel_messages
-            import json as _json
-            remote_base: Optional[str] = None
-            with db_manager.get_connection() as conn:
-                rows = conn.execute(
-                    "SELECT attachments FROM channel_messages "
-                    "WHERE attachments IS NOT NULL AND attachments != '[]' "
-                    "ORDER BY created_at DESC LIMIT 300"
-                ).fetchall()
-            for row in rows:
-                try:
-                    atts = _json.loads(row[0] if not hasattr(row, 'keys') else row['attachments'])
-                except Exception:
-                    continue
-                for att in atts:
-                    if not isinstance(att, dict):
-                        continue
-                    if str(att.get('stream_id') or '') == stream_id:
-                        addrs = att.get('host_addrs') or []
-                        if addrs:
-                            remote_base = str(addrs[0]).rstrip('/')
-                        break
-                if remote_base:
-                    break
+            remote_base = _find_stream_remote_base(stream_id)
             if not remote_base:
                 return jsonify({'error': 'Remote peer not found'}), 404
             remote_url = f"{remote_base}/api/v1/streams/{stream_id}/manifest.m3u8"
@@ -7371,33 +7383,8 @@ def create_api_blueprint() -> Blueprint:
         """Server-side proxy for remote peer stream segments."""
         from urllib.request import urlopen as _urlopen
         from urllib.error import URLError as _URLError
-        import json as _json
         try:
-            db_manager = _get_db_manager()
-            if not db_manager:
-                return jsonify({'error': 'Unavailable'}), 503
-            remote_base: Optional[str] = None
-            with db_manager.get_connection() as conn:
-                rows = conn.execute(
-                    "SELECT attachments FROM channel_messages "
-                    "WHERE attachments IS NOT NULL AND attachments != '[]' "
-                    "ORDER BY created_at DESC LIMIT 300"
-                ).fetchall()
-            for row in rows:
-                try:
-                    atts = _json.loads(row[0] if not hasattr(row, 'keys') else row['attachments'])
-                except Exception:
-                    continue
-                for att in atts:
-                    if not isinstance(att, dict):
-                        continue
-                    if str(att.get('stream_id') or '') == stream_id:
-                        addrs = att.get('host_addrs') or []
-                        if addrs:
-                            remote_base = str(addrs[0]).rstrip('/')
-                        break
-                if remote_base:
-                    break
+            remote_base = _find_stream_remote_base(stream_id)
             if not remote_base:
                 return jsonify({'error': 'Not found'}), 404
             remote_url = f"{remote_base}/api/v1/streams/{stream_id}/segments/{segment_name}"

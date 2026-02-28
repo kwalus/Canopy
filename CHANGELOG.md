@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [Unreleased]
+
+### Changed
+- **Icon-only post action controls** — Channel messages, feed posts, and direct-message posts now render tool/action buttons as icon-only controls (with tooltip/ARIA labels), keeping action rows compact while preserving visible counters.
+
+### Fixed
+- **Mobile layout fit across Canopy** — On small screens, collapsed main sidebar no longer reserves horizontal width that clipped content panes (including channel lists). Mobile sidebar behavior now uses full-width content by default with explicit expanded/hidden toggle behavior.
+
+---
+
 ## [0.4.11] - 2026-02-27
 
 ### Added

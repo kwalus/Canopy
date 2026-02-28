@@ -214,6 +214,26 @@
         overflow-wrap: break-word;
         max-width: 100%;
     }
+
+    .icon-action-btn {
+        min-width: 2rem;
+        padding-left: 0.45rem;
+        padding-right: 0.45rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.3rem;
+    }
+
+    .icon-action-btn .action-label {
+        display: none !important;
+    }
+
+    .icon-action-btn .action-count {
+        font-size: 0.74rem;
+        font-weight: 600;
+        line-height: 1;
+    }
 </style>
 {% endblock %}
 
@@ -461,29 +481,35 @@
                                 <!-- Message Actions -->
                                 <div class="message-actions mt-2 pt-2 border-top" style="font-size: 0.85rem;">
                                     <div class="d-flex gap-2 flex-wrap">
-                                        <button class="btn btn-sm {% if message.id in user_liked_ids %}btn-primary{% else %}btn-outline-primary{% endif %} like-btn" 
+                                        <button class="btn btn-sm icon-action-btn {% if message.id in user_liked_ids %}btn-primary{% else %}btn-outline-primary{% endif %} like-btn" 
                                                 onclick="toggleLike('{{ message.id }}')"
                                                 data-item-id="{{ message.id }}"
-                                                data-liked="{{ 'true' if message.id in user_liked_ids else 'false' }}">
+                                                data-liked="{{ 'true' if message.id in user_liked_ids else 'false' }}"
+                                                title="{% if message.id in user_liked_ids %}Unlike message{% else %}Like message{% endif %}"
+                                                aria-label="{% if message.id in user_liked_ids %}Unlike message{% else %}Like message{% endif %}">
                                             <i class="bi bi-heart{% if message.id in user_liked_ids %}-fill{% endif %}"></i> 
-                                            <span class="like-text">{% if message.id in user_liked_ids %}Liked{% else %}Like{% endif %}</span> 
-                                            <span class="like-count">{{ like_counts.get(message.id, 0) }}</span>
+                                            <span class="like-text action-label">{% if message.id in user_liked_ids %}Liked{% else %}Like{% endif %}</span> 
+                                            <span class="like-count action-count">{{ like_counts.get(message.id, 0) }}</span>
                                         </button>
-                                        <button class="btn btn-sm btn-outline-secondary" 
-                                                onclick="toggleComments('{{ message.id }}')">
+                                        <button class="btn btn-sm btn-outline-secondary icon-action-btn"
+                                                onclick="toggleComments('{{ message.id }}')"
+                                                title="Toggle replies"
+                                                aria-label="Toggle replies">
                                             <i class="bi bi-chat"></i> 
-                                            Reply 
-                                            <span class="comment-count">0</span>
+                                            <span class="action-label">Reply</span>
+                                            <span class="comment-count action-count">0</span>
                                         </button>
-                                        <button class="btn btn-sm btn-outline-secondary copy-btn"
+                                        <button class="btn btn-sm btn-outline-secondary copy-btn icon-action-btn"
                                                 onclick="copyToClipboard(this, '{{ message.id }}')"
-                                                title="Copy to clipboard">
+                                                title="Copy message"
+                                                aria-label="Copy message">
                                             <i class="bi bi-clipboard"></i>
                                         </button>
-                                        <button class="btn btn-sm btn-outline-secondary context-insight-trigger"
+                                        <button class="btn btn-sm btn-outline-secondary context-insight-trigger icon-action-btn"
                                                 onclick="openContentContextModalFromAction('direct_message', '{{ message.id }}'); return false;"
-                                                title="Extract and review link context">
-                                            <i class="bi bi-file-earmark-text"></i> Context
+                                                title="Open context insights"
+                                                aria-label="Open context insights">
+                                            <i class="bi bi-file-earmark-text"></i><span class="action-label">Context</span>
                                         </button>
                                     </div>
                                     
@@ -1686,18 +1712,22 @@
         if (liked) {
             button.classList.remove('btn-outline-primary');
             button.classList.add('btn-primary');
-            likeText.textContent = 'Liked';
+            if (likeText) likeText.textContent = 'Liked';
+            button.setAttribute('title', 'Unlike message');
+            button.setAttribute('aria-label', 'Unlike message');
             icon.classList.remove('bi-heart');
             icon.classList.add('bi-heart-fill');
         } else {
             button.classList.remove('btn-primary');
             button.classList.add('btn-outline-primary');
-            likeText.textContent = 'Like';
+            if (likeText) likeText.textContent = 'Like';
+            button.setAttribute('title', 'Like message');
+            button.setAttribute('aria-label', 'Like message');
             icon.classList.remove('bi-heart-fill');
             icon.classList.add('bi-heart');
         }
         
-        likeCount.textContent = interactions.total_likes;
+        if (likeCount) likeCount.textContent = interactions.total_likes;
     }
 
     function copyToClipboard(btn, messageId) {

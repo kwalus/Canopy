@@ -4398,6 +4398,26 @@ def create_ui_blueprint() -> Blueprint:
             logger.error(f"Channel suggestions error: {e}")
             return jsonify({'success': False, 'channels': [], 'count': 0})
 
+    @ui.route('/ajax/channel_sidebar_state', methods=['GET'])
+    @require_login
+    def ajax_channel_sidebar_state():
+        """Return lightweight per-channel sidebar state (unread + mute)."""
+        try:
+            _, _, _, _, channel_manager, _, _, _, _, _, _ = _get_app_components_any(current_app)
+            user_id = get_current_user()
+            channels = channel_manager.get_user_channels(user_id)
+            payload = []
+            for ch in channels:
+                payload.append({
+                    'id': ch.id,
+                    'unread_count': int(getattr(ch, 'unread_count', 0) or 0),
+                    'notifications_enabled': bool(getattr(ch, 'notifications_enabled', True)),
+                })
+            return jsonify({'success': True, 'channels': payload, 'count': len(payload)})
+        except Exception as e:
+            logger.error(f"Channel sidebar state error: {e}")
+            return jsonify({'success': False, 'channels': [], 'count': 0})
+
     @ui.route('/ajax/content_contexts/extract', methods=['POST'])
     @require_login
     def ajax_extract_content_context():

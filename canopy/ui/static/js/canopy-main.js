@@ -428,7 +428,7 @@
             const EMBED_PLACEHOLDER = '\x00EMB_';
 
             // --- YouTube embeds ---
-            const ytRegex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)([\w-]{11})(?:[&?]\S*)?/g;
+            const ytRegex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/|youtube\.com\/live\/)([\w-]{11})(?:[&?]\S*)?/g;
             html = html.replace(ytRegex, function(match, videoId) {
                 const idx = embeds.length;
                 embeds.push('<div class="embed-preview youtube-embed" data-video-id="' + videoId + '">' +

@@ -960,13 +960,15 @@
             }
             
             .sidebar-container.collapsed {
-                width: 60px;
-                min-width: 60px;
-                flex: 0 0 60px;
+                width: 0;
+                min-width: 0;
+                flex: 0 0 0;
             }
             
             .sidebar.collapsed {
-                width: 60px;
+                width: 0;
+                opacity: 0;
+                pointer-events: none;
             }
             
             .sidebar.collapsed .nav-link {
@@ -999,14 +1001,16 @@
             }
             
             .sidebar-container.collapsed {
-                width: 50px;
-                min-width: 50px;
+                width: 0;
+                min-width: 0;
                 position: relative;
-                flex: 0 0 50px;
+                flex: 0 0 0;
             }
             
             .sidebar.collapsed {
-                width: 50px;
+                width: 0;
+                opacity: 0;
+                pointer-events: none;
             }
             
             .sidebar.collapsed .nav-link {

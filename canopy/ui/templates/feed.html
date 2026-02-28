@@ -1189,38 +1189,46 @@
                             <!-- Post Actions -->
                             <div class="d-flex justify-content-between align-items-center pt-2 border-top">
                                 <div class="d-flex gap-2 flex-wrap">
-                                    <button class="btn btn-sm {% if post.user_has_liked %}btn-primary{% else %}btn-outline-primary{% endif %} like-btn" 
+                                    <button class="btn btn-sm icon-action-btn {% if post.user_has_liked %}btn-primary{% else %}btn-outline-primary{% endif %} like-btn" 
                                             onclick="toggleLike('{{ post.id }}')"
                                             data-item-id="{{ post.id }}"
-                                            data-liked="{{ 'true' if post.user_has_liked else 'false' }}">
+                                            data-liked="{{ 'true' if post.user_has_liked else 'false' }}"
+                                            title="{% if post.user_has_liked %}Unlike post{% else %}Like post{% endif %}"
+                                            aria-label="{% if post.user_has_liked %}Unlike post{% else %}Like post{% endif %}">
                                         <i class="bi bi-heart{% if post.user_has_liked %}-fill{% endif %}"></i> 
-                                        <span class="like-text">{% if post.user_has_liked %}Liked{% else %}Like{% endif %}</span> 
-                                        <span class="like-count">{{ post.likes or 0 }}</span>
+                                        <span class="like-text action-label">{% if post.user_has_liked %}Liked{% else %}Like{% endif %}</span> 
+                                        <span class="like-count action-count">{{ post.likes or 0 }}</span>
                                     </button>
-                                    <button class="btn btn-sm btn-outline-secondary" 
-                                            onclick="toggleComments('{{ post.id }}')">
-                                        <i class="bi bi-chat"></i> 
-                                        Comment 
-                                        <span class="comment-count">{{ post.comments or 0 }}</span>
+                                    <button class="btn btn-sm btn-outline-secondary icon-action-btn" 
+                                            onclick="toggleComments('{{ post.id }}')"
+                                            title="Toggle comments"
+                                            aria-label="Toggle comments">
+                                        <i class="bi bi-chat"></i>
+                                        <span class="action-label">Comment</span>
+                                        <span class="comment-count action-count">{{ post.comments or 0 }}</span>
                                     </button>
-                                    <button class="btn btn-sm btn-outline-info" onclick="sharePost('{{ post.id }}')">
-                                        <i class="bi bi-share"></i> Share
+                                    <button class="btn btn-sm btn-outline-info icon-action-btn" onclick="sharePost('{{ post.id }}')" title="Share post" aria-label="Share post">
+                                        <i class="bi bi-share"></i><span class="action-label">Share</span>
                                     </button>
-                                    <button class="btn btn-sm btn-outline-secondary copy-btn"
+                                    <button class="btn btn-sm btn-outline-secondary copy-btn icon-action-btn"
                                             onclick="copyToClipboard(this, '{{ post.id }}')"
-                                            title="Copy to clipboard">
+                                            title="Copy post text"
+                                            aria-label="Copy post text">
                                         <i class="bi bi-clipboard"></i>
                                     </button>
-                                    <button class="btn btn-sm btn-outline-secondary context-insight-trigger"
+                                    <button class="btn btn-sm btn-outline-secondary context-insight-trigger icon-action-btn"
                                             onclick="openContentContextModalFromAction('feed_post', '{{ post.id }}'); return false;"
-                                            title="Extract and review link context">
-                                        <i class="bi bi-file-earmark-text"></i> Context
+                                            title="Open context insights"
+                                            aria-label="Open context insights">
+                                        <i class="bi bi-file-earmark-text"></i><span class="action-label">Context</span>
                                     </button>
-                                    <button class="btn btn-sm btn-outline-info community-note-trigger"
+                                    <button class="btn btn-sm btn-outline-info community-note-trigger icon-action-btn"
                                             onclick="openCommunityNoteModal('feed_post', '{{ post.id }}')"
-                                            title="Add community note">
+                                            title="Open community notes"
+                                            aria-label="Open community notes">
                                         <i class="bi bi-journal-check"></i>
-                                        Notes {{ post.community_notes_count or 0 }}
+                                        <span class="action-label">Notes</span>
+                                        <span class="action-count">{{ post.community_notes_count or 0 }}</span>
                                     </button>
                                 </div>
                                 
@@ -1333,6 +1341,26 @@
 
 .file-preview-item .btn-close {
     font-size: 0.7rem;
+}
+
+.icon-action-btn {
+    min-width: 2rem;
+    padding-left: 0.45rem;
+    padding-right: 0.45rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.3rem;
+}
+
+.icon-action-btn .action-label {
+    display: none !important;
+}
+
+.icon-action-btn .action-count {
+    font-size: 0.74rem;
+    font-weight: 600;
+    line-height: 1;
 }
 
 .task-inline-toggle {
@@ -4978,13 +5006,17 @@
         if (liked) {
             button.classList.remove('btn-outline-primary');
             button.classList.add('btn-primary');
-            likeText.textContent = 'Liked';
+            if (likeText) likeText.textContent = 'Liked';
+            button.setAttribute('title', 'Unlike post');
+            button.setAttribute('aria-label', 'Unlike post');
             icon.classList.remove('bi-heart');
             icon.classList.add('bi-heart-fill');
         } else {
             button.classList.remove('btn-primary');
             button.classList.add('btn-outline-primary');
-            likeText.textContent = 'Like';
+            if (likeText) likeText.textContent = 'Like';
+            button.setAttribute('title', 'Like post');
+            button.setAttribute('aria-label', 'Like post');
             icon.classList.remove('bi-heart-fill');
             icon.classList.add('bi-heart');
         }
