@@ -2643,6 +2643,7 @@
                 }
 
                 if (!isDocked && !isOffscreen(el)) {
+                    if (state.dismissedEl === el) state.dismissedEl = null;
                     hideMini();
                     return;
                 }
