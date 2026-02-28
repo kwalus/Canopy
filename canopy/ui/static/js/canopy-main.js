@@ -2581,6 +2581,27 @@
                 miniVideoHost.style.display = 'block';
 
                 if (state.observer) state.observer.observe(placeholder);
+
+                try {
+                    var player = el.__canopyMiniYTPlayer;
+                    if (player && typeof player.playVideo === 'function') {
+                        player.playVideo();
+                    }
+                } catch (_) {}
+
+                var retries = 0;
+                var retryId = setInterval(function() {
+                    retries++;
+                    if (retries > 6) { clearInterval(retryId); return; }
+                    try {
+                        var p = el.__canopyMiniYTPlayer;
+                        if (p && typeof p.getPlayerState === 'function') {
+                            var s = p.getPlayerState();
+                            if (s === 1 || s === 3) { clearInterval(retryId); return; }
+                            p.playVideo();
+                        }
+                    } catch (_) { clearInterval(retryId); }
+                }, 800);
             }
 
             function updateMini() {
@@ -2599,15 +2620,6 @@
                 const el = current.el;
                 const isDocked = isDockedInMiniHost(el);
                 const isResumablePause = (type === 'audio' || type === 'video') && !!el.paused && !el.ended;
-
-                if (isDocked && type === 'youtube' && el.__canopyAutoDockPlaceholder) {
-                    const ph = el.__canopyAutoDockPlaceholder;
-                    if (ph.isConnected && ph.__canopyMiniVisible) {
-                        undockYouTube(el);
-                        hideMini();
-                        return;
-                    }
-                }
 
                 if (state.dismissedEl && state.dismissedEl === el) {
                     hideMini();
@@ -2750,14 +2762,33 @@
 
             function jumpToCurrentSource() {
                 if (!state.current || !state.current.el) return;
+                const el = state.current.el;
+
+                if (el.__canopyAutoDockPlaceholder) {
+                    undockYouTube(el);
+                    state.dismissedEl = null;
+                    state.dockedSubtitle = null;
+                    const container = sourceContainer(el);
+                    const scrollTarget = container && container.isConnected ? container : el;
+                    if (scrollTarget.isConnected) {
+                        scrollTarget.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+                        applyFocusFlash(scrollTarget);
+                    }
+                    hideMini();
+                    return;
+                }
+
+                if (state.returnUrl) {
+                    window.location.href = state.returnUrl;
+                    return;
+                }
+
                 const target = state.current.sourceEl && state.current.sourceEl.isConnected
                     ? state.current.sourceEl
                     : null;
                 if (target) {
                     target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
                     applyFocusFlash(target);
-                } else if (state.returnUrl) {
-                    window.location.href = state.returnUrl;
                 }
             }
 
