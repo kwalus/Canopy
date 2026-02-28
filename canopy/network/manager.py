@@ -1,0 +1,2551 @@
+"""
+P2P Network Manager for Canopy.
+
+Coordinates all P2P networking components and provides a unified interface
+for the application layer.
+
+Author: Konrad Walus (architecture, design, and direction)
+Project: Canopy - Local Mesh Communication
+License: Apache 2.0
+Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
+"""
+
+import asyncio
+import logging
+import os
+import threading
+import time
+from collections import deque
+from typing import Optional, Callable, Dict, Any, Union, Tuple, Deque
+from pathlib import Path
+
+from .identity import IdentityManager, PeerIdentity
+from .discovery import PeerDiscovery, DiscoveredPeer
+from .connection import ConnectionManager, PeerConnection
+from .routing import MessageRouter, P2PMessage, MessageType
+
+logger = logging.getLogger('canopy.network.manager')
+
+
+class P2PNetworkManager:
+    """
+    Main P2P network manager that coordinates all networking components.
+    
+    This is the primary interface between the application and the P2P network.
+    """
+    
+    def __init__(self, config, database_manager):
+        """
+        Initialize P2P network manager.
+        
+        Args:
+            config: Application configuration
+            database_manager: Database manager for persistence
+        """
+        self.config = config
+        self.db = database_manager
+        
+        # Determine identity path
+        identity_path = Path(config.storage.database_path).parent / 'peer_identity.json'
+        
+        # Initialize components
+        logger.info("Initializing P2P network components...")
+        
+        self.identity_manager = IdentityManager(identity_path)
+        self.local_identity: Optional[PeerIdentity] = None
+        
+        self.discovery: Optional[PeerDiscovery] = None
+        self.connection_manager: Optional[ConnectionManager] = None
+        self.message_router: Optional[MessageRouter] = None
+        
+        # State
+        self._running = False
+        self._event_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._network_thread: Optional[threading.Thread] = None
+        
+        # Application callbacks
+        self.on_peer_connected: Optional[Callable[[str], None]] = None
+        self.on_peer_disconnected: Optional[Callable[[str], None]] = None
+        self.on_message_received: Optional[Callable[[P2PMessage], None]] = None
+        self.on_channel_message: Optional[Callable] = None
+        self.on_channel_announce: Optional[Callable] = None
+        self.on_channel_sync: Optional[Callable] = None
+        self.on_member_sync: Optional[Callable] = None
+
+        # Recent peer activity events for UI (thread-safe; event-loop thread writes, Flask reads).
+        self._activity_lock = threading.Lock()
+        self._activity_events: Deque[Dict[str, Any]] = deque(maxlen=200)
+        
+        # Callback that returns list of public channels for sync
+        self.get_public_channels_for_sync: Optional[Callable] = None
+        
+        # Catch-up callbacks
+        self.on_catchup_request: Optional[Callable] = None
+        self.on_catchup_response: Optional[Callable] = None
+        self.get_channel_latest_timestamps: Optional[Callable] = None
+        self.get_feed_latest_timestamp: Optional[Callable[[], Optional[str]]] = None
+        self.get_circle_entries_latest_timestamp: Optional[Callable[[], Optional[str]]] = None
+        self.get_circle_votes_latest_timestamp: Optional[Callable[[], Optional[str]]] = None
+        self.get_circles_latest_timestamp: Optional[Callable[[], Optional[str]]] = None
+        self.get_tasks_latest_timestamp: Optional[Callable[[], Optional[str]]] = None
+        
+        # Profile sync callbacks
+        self.on_profile_sync: Optional[Callable] = None
+        self.get_local_profile_card: Optional[Callable] = None
+        self.get_all_local_profile_cards: Optional[Callable] = None
+        # Optional callback to fetch a device profile for a peer_id
+        self.get_peer_device_profile: Optional[Callable[[str], Optional[Dict[str, Any]]]] = None
+
+        # Peer announcement callbacks
+        self.on_peer_announcement: Optional[Callable] = None
+        
+        # Delete signal callbacks
+        self.on_delete_signal: Optional[Callable] = None
+        
+        # Feed post, interaction, and direct message callbacks
+        self.on_feed_post: Optional[Callable] = None
+        self.on_interaction: Optional[Callable] = None
+        self.on_direct_message: Optional[Callable] = None
+        
+        # Trust score lookup (injected from app layer)
+        # Signature: get_trust_score(peer_id: str) -> int (0-100)
+        self.get_trust_score: Optional[Callable] = None
+        
+        # Introduced peers learned from connected peers
+        self._introduced_peers: Dict[str, Dict[str, Any]] = {}
+        
+        # Relay policy: 'off', 'broker_only' (default), 'full_relay'
+        self.relay_policy: str = 'broker_only'
+        
+        # Track active relay routes (destination_peer -> relay_peer)
+        self._active_relays: Dict[str, str] = {}
+        
+        # File manager reference for reading attachment bytes during broadcast
+        self.file_manager = None
+        
+        # Auto-reconnect state
+        self._reconnect_tasks: Dict[str, Any] = {}  # peer_id -> Future/Task
+        self._RECONNECT_MAX_ATTEMPTS = 20
+        self._RECONNECT_INITIAL_DELAY = 5   # seconds
+        self._RECONNECT_MAX_DELAY = 60      # seconds
+
+        # Security compatibility switch:
+        # disabled by default so unverifiable relayed messages are rejected.
+        # Can be enabled temporarily for mixed-version meshes.
+        cfg_security = getattr(config, 'security', None)
+        cfg_compat = bool(getattr(cfg_security, 'allow_unverified_relay_messages', False))
+        env_compat = os.getenv('CANOPY_ALLOW_UNVERIFIED_RELAY_MESSAGES')
+        if env_compat is None:
+            self.allow_unverified_relay_messages = cfg_compat
+        else:
+            self.allow_unverified_relay_messages = env_compat.strip().lower() in (
+                '1', 'true', 'yes', 'on'
+            )
+
+        # Startup grace period — serializes syncs and limits concurrency
+        self._startup_time: Optional[float] = None
+        self._STARTUP_GRACE_PERIOD = 10.0  # seconds
+        self._sync_queue: asyncio.Queue[str] = asyncio.Queue()
+        self._sync_queue_task: Optional[asyncio.Task] = None
+        self._active_catchups: set = set()
+        self._MAX_CONCURRENT_CATCHUPS_STARTUP = 2
+        self._MAX_CONCURRENT_CATCHUPS_NORMAL = 5
+
+        # Load persisted relay policy (overrides default)
+        self._load_persisted_relay_policy()
+        
+        logger.info("P2PNetworkManager initialized")
+
+    def _record_activity_event(self, event: Dict[str, Any]) -> None:
+        """Record a user-facing activity event from the message router."""
+        try:
+            with self._activity_lock:
+                self._activity_events.append(event)
+        except Exception as e:
+            logger.debug(f"Failed to record activity event: {e}")
+
+    def get_activity_events(self, since: Optional[float] = None, limit: int = 50) -> list[Dict[str, Any]]:
+        """Return recent activity events, optionally filtered by timestamp."""
+        with self._activity_lock:
+            events = list(self._activity_events)
+        if since is not None:
+            try:
+                since_val = float(since)
+            except (TypeError, ValueError):
+                since_val = None
+            if since_val is not None:
+                events = [e for e in events if (e.get('timestamp') or 0) > since_val]
+        if limit and limit > 0:
+            events = events[-limit:]
+        return events
+
+    def record_activity_event(self, event: Dict[str, Any]) -> None:
+        """Public hook to record a UI activity event (e.g., mentions)."""
+        self._record_activity_event(event)
+
+    def _record_connection_event(self, peer_id: str, status: str,
+                                 detail: Optional[str] = None,
+                                 endpoint: Optional[str] = None,
+                                 via_peer: Optional[str] = None) -> None:
+        """Record a connection event for UI history."""
+        try:
+            event = {
+                'id': f"conn_{peer_id}_{int(time.time() * 1000)}",
+                'peer_id': peer_id,
+                'kind': 'connection',
+                'timestamp': time.time(),
+                'status': status,
+                'detail': detail or '',
+                'endpoint': endpoint,
+                'via_peer': via_peer,
+            }
+            self._record_activity_event(event)
+        except Exception as e:
+            logger.debug(f"Failed to record connection event: {e}")
+    
+    def _in_startup_grace_period(self) -> bool:
+        """Check if we're still in the startup grace period."""
+        if self._startup_time is None:
+            return False
+        return (time.time() - self._startup_time) < self._STARTUP_GRACE_PERIOD
+
+    def _get_max_concurrent_catchups(self) -> int:
+        """Get max concurrent catchups based on startup state."""
+        if self._in_startup_grace_period():
+            return self._MAX_CONCURRENT_CATCHUPS_STARTUP
+        return self._MAX_CONCURRENT_CATCHUPS_NORMAL
+
+    async def _acquire_catchup_slot(self, peer_id: str) -> bool:
+        """Try to acquire a catchup slot. Returns True if acquired."""
+        max_catchups = self._get_max_concurrent_catchups()
+        if len(self._active_catchups) >= max_catchups:
+            logger.debug(f"Catchup slot denied for {peer_id}: {len(self._active_catchups)}/{max_catchups} active")
+            return False
+        self._active_catchups.add(peer_id)
+        return True
+
+    def _release_catchup_slot(self, peer_id: str) -> None:
+        """Release a catchup slot."""
+        self._active_catchups.discard(peer_id)
+
+    async def _process_sync_queue(self) -> None:
+        """Process post-connect sync requests serially to prevent DB contention."""
+        logger.info("Sync queue processor started")
+        while self._running:
+            try:
+                peer_id = await self._sync_queue.get()
+                try:
+                    if not await self._acquire_catchup_slot(peer_id):
+                        # Wait a bit and retry if at capacity
+                        await asyncio.sleep(2.0)
+                        if not await self._acquire_catchup_slot(peer_id):
+                            logger.warning(f"Skipping sync for {peer_id}: at capacity")
+                            self._sync_queue.task_done()
+                            continue
+
+                    await self._run_post_connect_sync_impl(peer_id)
+
+                    # Delay between syncs to reduce contention
+                    if self._in_startup_grace_period():
+                        await asyncio.sleep(1.0)
+                    else:
+                        await asyncio.sleep(0.3)
+                except Exception as e:
+                    logger.error(f"Error processing sync for {peer_id}: {e}", exc_info=True)
+                finally:
+                    self._release_catchup_slot(peer_id)
+                    self._sync_queue.task_done()
+            except asyncio.CancelledError:
+                logger.info("Sync queue processor cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in sync queue processor: {e}", exc_info=True)
+
+    def start(self) -> None:
+        """Start P2P networking in a background thread."""
+        if self._running:
+            logger.warning("P2P network already running")
+            return
+        
+        logger.info("Starting P2P network...")
+        
+        # Initialize identity
+        self.local_identity = self.identity_manager.initialize()
+        
+        logger.info(f"Local Peer ID: {self.local_identity.peer_id}")
+        logger.info(f"Ed25519 Public Key: {self.local_identity.ed25519_public_key[:16].hex()}...")
+        
+        # Start network thread
+        self._network_thread = threading.Thread(target=self._run_network_loop, daemon=True)
+        self._network_thread.start()
+        
+        logger.info("P2P network started")
+    
+    def stop(self) -> None:
+        """Stop P2P networking."""
+        if not self._running:
+            return
+        
+        logger.info("Stopping P2P network...")
+        self._running = False
+        
+        # Stop event loop
+        if self._event_loop:
+            self._event_loop.call_soon_threadsafe(self._event_loop.stop)
+        
+        # Wait for thread to finish
+        if self._network_thread:
+            self._network_thread.join(timeout=5.0)
+        
+        logger.info("P2P network stopped")
+    
+    def _run_network_loop(self) -> None:
+        """Run the asyncio event loop in a separate thread."""
+        try:
+            # Create new event loop for this thread
+            self._event_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._event_loop)
+            
+            # Run startup coroutine
+            self._event_loop.run_until_complete(self._startup())
+            
+            # Keep loop running
+            self._event_loop.run_forever()
+            
+        except Exception as e:
+            logger.error(f"Error in network loop: {e}", exc_info=True)
+        finally:
+            # Cleanup
+            if self._event_loop:
+                self._event_loop.run_until_complete(self._shutdown())
+                self._event_loop.close()
+    
+    async def _startup(self) -> None:
+        """Initialize and start all networking components."""
+        try:
+            logger.info("Starting P2P networking components...")
+            
+            # Get network config
+            network_config = self.config.network
+            if self.local_identity is None:
+                raise RuntimeError("Local identity is not initialized")
+            
+            # Initialize connection manager FIRST (core functionality)
+            # Always bind P2P listener to all interfaces for peer connectivity
+            self.connection_manager = ConnectionManager(
+                local_peer_id=self.local_identity.peer_id,
+                identity_manager=self.identity_manager,
+                host="0.0.0.0",
+                port=network_config.mesh_port,
+                enable_tls=getattr(network_config, 'enable_tls', False),
+                tls_cert_path=getattr(network_config, 'tls_cert_path', None),
+                tls_key_path=getattr(network_config, 'tls_key_path', None),
+            )
+            
+            # Initialize message router
+            self.message_router = MessageRouter(
+                local_peer_id=self.local_identity.peer_id,
+                identity_manager=self.identity_manager,
+                connection_manager=self.connection_manager
+            )
+            
+            # Pass application callbacks
+            if self.on_channel_message:
+                self.message_router.on_channel_message = self.on_channel_message
+            if self.on_channel_announce:
+                self.message_router.on_channel_announce = self.on_channel_announce
+            if self.on_channel_sync:
+                self.message_router.on_channel_sync = self.on_channel_sync
+            if self.on_member_sync:
+                self.message_router.on_member_sync = self.on_member_sync
+            if self.on_catchup_request:
+                self.message_router.on_catchup_request = self.on_catchup_request
+            if self.on_catchup_response:
+                self.message_router.on_catchup_response = self.on_catchup_response
+            if self.on_profile_sync:
+                self.message_router.on_profile_sync = self.on_profile_sync
+            if self.on_peer_announcement:
+                self.message_router.on_peer_announcement = self.on_peer_announcement
+            if self.on_delete_signal:
+                self.message_router.on_delete_signal = self.on_delete_signal
+            if self.on_feed_post:
+                self.message_router.on_feed_post = self.on_feed_post
+            if self.on_interaction:
+                self.message_router.on_interaction = self.on_interaction
+            if self.on_direct_message:
+                self.message_router.on_direct_message = self.on_direct_message
+
+            # Internal UI activity tracking (user-facing message types only)
+            self.message_router.on_activity_event = self._record_activity_event
+            
+            # Wire broker/relay callbacks (handled internally by manager)
+            self.message_router.on_broker_request = self._on_broker_request
+            self.message_router.on_broker_intro = self._on_broker_intro
+            self.message_router.on_relay_offer = self._on_relay_offer
+            
+            # Register message handler
+            self.connection_manager.register_message_handler(
+                'p2p_message',
+                self._handle_p2p_message
+            )
+            
+            # When a remote peer connects to us (incoming), run channel sync + catch-up
+            self.connection_manager.on_peer_authenticated = self._on_incoming_peer_authenticated
+            
+            # Clean up relay routes when a peer disconnects
+            self.connection_manager.on_peer_disconnected = self.on_peer_disconnected_cleanup
+            
+            # Start the WebSocket server (core P2P functionality)
+            await self.connection_manager.start()
+            
+            self._running = True
+            logger.info("P2P WebSocket mesh started successfully")
+            
+            # Start mDNS discovery in a SEPARATE thread to avoid zeroconf
+            # corrupting the P2P asyncio event loop (known issue on Windows).
+            def _start_discovery_isolated():
+                try:
+                    local_identity = self.local_identity
+                    if local_identity is None:
+                        raise RuntimeError("Local identity not initialized")
+                    self.discovery = PeerDiscovery(
+                        local_peer_id=local_identity.peer_id,
+                        service_port=network_config.mesh_port,
+                        service_name=f"canopy-{local_identity.peer_id}"
+                    )
+                    self.discovery.on_peer_discovered(self._on_peer_discovered)
+                    self.discovery.start()
+                    logger.info("mDNS discovery started")
+                except Exception as disc_err:
+                    logger.warning(f"mDNS discovery failed (non-fatal, invite codes still work): {disc_err}")
+                    self.discovery = None
+            
+            discovery_thread = threading.Thread(target=_start_discovery_isolated, daemon=True)
+            discovery_thread.start()
+            discovery_thread.join(timeout=15)  # Wait up to 15s, then move on
+            
+            # Initialize sync queue and start processor
+            self._sync_queue = asyncio.Queue()
+            self._startup_time = time.time()
+            self._sync_queue_task = asyncio.ensure_future(self._process_sync_queue())
+
+            # Auto-reconnect to all known peers from previous sessions
+            asyncio.ensure_future(self._reconnect_known_peers())
+
+            # Periodic catch-up: every few minutes, compare timestamps
+            # with all connected peers and request any missed messages.
+            # This covers messages lost due to flaky connections where
+            # the websocket send "succeeds" but the remote never processes it.
+            asyncio.ensure_future(self._periodic_catchup_loop())
+
+        except Exception as e:
+            logger.error(f"Failed to start P2P components: {e}", exc_info=True)
+            raise
+    
+    async def _reconnect_known_peers(self) -> None:
+        """Try to connect to all known peers on startup using persisted endpoints.
+        
+        Runs after a short delay to let the mesh listener settle.
+        """
+        await asyncio.sleep(3)  # Let WebSocket server and mDNS settle first
+        
+        known_endpoints = self.identity_manager.peer_endpoints
+        local_id = self.local_identity.peer_id if self.local_identity else ''
+        attempted = 0
+        connected = 0
+
+        # Iterate over a snapshot since we may prune endpoints as we go.
+        for peer_id, endpoints in list(known_endpoints.items()):
+            if peer_id == local_id:
+                continue
+            if self.connection_manager and self.connection_manager.is_connected(peer_id):
+                continue
+            endpoints = self._sanitize_endpoints(peer_id, endpoints)
+            if endpoints != known_endpoints.get(peer_id, []):
+                self.identity_manager.peer_endpoints[peer_id] = endpoints
+                self.identity_manager._save_known_peers()
+            if not endpoints:
+                continue
+
+            attempted += 1
+            for ep in endpoints:
+                try:
+                    await self._connect_to_endpoint(peer_id, ep)
+                    if self.connection_manager and self.connection_manager.is_connected(peer_id):
+                        logger.info(f"Startup reconnect: connected to {peer_id} via {ep}")
+                        connected += 1
+                        # Queue post-connect sync instead of fire-and-forget
+                        await self._enqueue_sync(peer_id)
+                        break
+                except Exception as e:
+                    logger.debug(f"Startup reconnect: {peer_id} via {ep} failed: {e}")
+                    continue
+
+        if attempted:
+            logger.info(f"Startup reconnect: {connected}/{attempted} known peers connected")
+
+    def reconnect_known_peers(self) -> bool:
+        """Public method: schedule reconnect to all known peers now."""
+        if not self._event_loop or self._event_loop.is_closed():
+            logger.warning("Reconnect: event loop not available")
+            return False
+        if not self._running:
+            logger.warning("Reconnect: P2P network not running")
+            return False
+        asyncio.run_coroutine_threadsafe(self._reconnect_known_peers(), self._event_loop)
+        logger.info("Reconnect: scheduled reconnect to known peers")
+        return True
+
+    # ------------------------------------------------------------------ #
+    #  Auto-reconnect on disconnect                                        #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _parse_endpoint(endpoint: str) -> Optional[Tuple[str, int, str]]:
+        """Parse ws:// or wss:// endpoint into (host, port, scheme)."""
+        if not endpoint:
+            return None
+        try:
+            from urllib.parse import urlparse
+            ep = endpoint.strip()
+            if '://' not in ep:
+                ep = f"ws://{ep}"
+            parsed = urlparse(ep)
+            host = parsed.hostname
+            port = parsed.port
+            scheme = parsed.scheme or 'ws'
+            if not host or not port:
+                return None
+            return host, port, scheme
+        except Exception:
+            return None
+
+    def _canonicalize_endpoint(self, endpoint: str) -> Optional[str]:
+        parsed = self._parse_endpoint(endpoint)
+        if not parsed:
+            return None
+        host, port, scheme = parsed
+        return f"{scheme}://{host}:{port}"
+
+    def _sanitize_endpoints(self, peer_id: str, endpoints: list) -> list:
+        """Drop unusable endpoints (loopback/0.0.0.0) and de-dupe while preserving order."""
+        local_id = self.local_identity.peer_id if self.local_identity else ''
+        out: list = []
+        seen: set = set()
+        for ep in endpoints or []:
+            canon = self._canonicalize_endpoint(ep)
+            if not canon:
+                continue
+            parsed = self._parse_endpoint(canon)
+            if not parsed:
+                continue
+            host, _, _ = parsed
+            if peer_id != local_id:
+                if host in ('0.0.0.0', 'localhost') or host.startswith('127.'):
+                    continue
+            if canon in seen:
+                continue
+            seen.add(canon)
+            out.append(canon)
+        return out
+
+    async def _connect_to_endpoint(self, peer_id: str, endpoint: str) -> bool:
+        """Connect to a peer using a ws:// or wss:// endpoint string."""
+        if not self.connection_manager:
+            return False
+        local_id = self.local_identity.peer_id if self.local_identity else ''
+        if peer_id == local_id:
+            logger.debug("Reconnect: refusing to connect to self (%s)", peer_id)
+            return False
+        canon = self._canonicalize_endpoint(endpoint)
+        parsed = self._parse_endpoint(canon or endpoint)
+        if not parsed:
+            logger.debug(f"Reconnect: invalid endpoint '{endpoint}' for {peer_id}")
+            return False
+        host, port, scheme = parsed
+        if peer_id != local_id:
+            if host in ('0.0.0.0', 'localhost') or host.startswith('127.'):
+                logger.debug(f"Reconnect: skipping unusable endpoint {endpoint} for {peer_id}")
+                return False
+        if scheme == 'wss' and not self.connection_manager.enable_tls:
+            logger.warning(
+                f"Reconnect: endpoint {endpoint} requires TLS, but TLS is disabled; "
+                f"connection may fail."
+            )
+        self._record_connection_event(
+            peer_id,
+            status='attempt',
+            detail='Attempting connection',
+            endpoint=canon or endpoint,
+        )
+        ok = await self.connection_manager.connect_to_peer(peer_id, host, port)
+        if ok and canon:
+            # Claim the endpoint so stale mappings don't keep retrying the wrong peer_id.
+            self.identity_manager.record_endpoint(peer_id, canon, claim=True)
+            self._record_connection_event(
+                peer_id,
+                status='connected',
+                detail='Connected successfully',
+                endpoint=canon,
+            )
+        elif not ok:
+            self._record_connection_event(
+                peer_id,
+                status='failed',
+                detail='Connection failed',
+                endpoint=canon or endpoint,
+            )
+        return ok
+
+    def _schedule_reconnect(self, peer_id: str, attempt: int = 1) -> None:
+        """Schedule a reconnection attempt for a disconnected peer.
+
+        Uses exponential backoff (capped) and stops after 20 attempts.
+        """
+        if not self._event_loop or self._event_loop.is_closed():
+            return
+        if not self._running:
+            return
+        local_id = self.local_identity.peer_id if self.local_identity else ''
+        if peer_id == local_id:
+            return
+        if self.connection_manager and self.connection_manager.is_connected(peer_id):
+            self._reconnect_tasks.pop(peer_id, None)
+            return
+
+        # Keep trying indefinitely, but cap the backoff stage.
+        stage = min(attempt, self._RECONNECT_MAX_ATTEMPTS)
+        delay = min(
+            self._RECONNECT_INITIAL_DELAY * (2 ** (stage - 1)),
+            self._RECONNECT_MAX_DELAY,
+        )
+
+        async def _attempt() -> None:
+            sleep_for = float(delay)
+            try:
+                # Add a small jitter so multiple peers don't reconnect in lockstep.
+                import random
+
+                jitter = random.uniform(0, min(5.0, delay * 0.2))
+                sleep_for = delay + jitter
+                await asyncio.sleep(sleep_for)
+            except asyncio.CancelledError:
+                logger.debug(f"Reconnect: task for {peer_id} cancelled during sleep")
+                return
+
+            # Check if still needed
+            if not self._running:
+                return
+            if self.connection_manager and self.connection_manager.is_connected(peer_id):
+                logger.debug(f"Reconnect: {peer_id} already connected, skipping")
+                self._reconnect_tasks.pop(peer_id, None)
+                return
+
+            endpoints = self._sanitize_endpoints(
+                peer_id,
+                self.identity_manager.peer_endpoints.get(peer_id, []),
+            )
+            if endpoints != self.identity_manager.peer_endpoints.get(peer_id, []):
+                self.identity_manager.peer_endpoints[peer_id] = endpoints
+                self.identity_manager._save_known_peers()
+            if not endpoints:
+                logger.debug(f"Reconnect: no endpoints for {peer_id}, giving up")
+                self._reconnect_tasks.pop(peer_id, None)
+                return
+
+            logger.info(
+                f"Reconnect attempt {attempt} (stage {stage}/{self._RECONNECT_MAX_ATTEMPTS}) "
+                f"for {peer_id} (delay={sleep_for:.1f}s)"
+            )
+            self._record_connection_event(
+                peer_id,
+                status='reconnect',
+                detail=f"Reconnect attempt {attempt}",
+                endpoint=(endpoints[0] if endpoints else None),
+            )
+
+            for ep in endpoints:
+                try:
+                    await self._connect_to_endpoint(peer_id, ep)
+                    if self.connection_manager and self.connection_manager.is_connected(peer_id):
+                        logger.info(f"Reconnect: successfully reconnected to {peer_id} via {ep}")
+                        self._reconnect_tasks.pop(peer_id, None)
+                        asyncio.ensure_future(self._run_post_connect_sync(peer_id))
+                        return
+                except Exception as e:
+                    logger.debug(f"Reconnect: {peer_id} via {ep} failed: {e}")
+                    continue
+
+            # All endpoints failed — schedule next attempt up to hard cap
+            self._reconnect_tasks.pop(peer_id, None)
+            if attempt >= self._RECONNECT_MAX_ATTEMPTS:
+                logger.info(
+                    f"Reconnect: giving up on {peer_id} after {attempt} attempts. "
+                    "Peer moved to cold state — will reconnect if peer initiates."
+                )
+                return
+            self._schedule_reconnect(peer_id, attempt + 1)
+
+        # Cancel any existing task for this peer
+        self._cancel_reconnect(peer_id)
+
+        # Schedule in the event loop (may be called from event loop thread or other)
+        try:
+            loop = self._event_loop
+            try:
+                running_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                running_loop = None
+
+            task: Any
+            if running_loop is loop:
+                task = running_loop.create_task(_attempt())
+            elif loop.is_running():
+                task = asyncio.run_coroutine_threadsafe(_attempt(), loop)
+            else:
+                task = loop.create_task(_attempt())
+            self._reconnect_tasks[peer_id] = task
+        except Exception as e:
+            logger.debug(f"Reconnect: failed to schedule task for {peer_id}: {e}")
+
+    def _cancel_reconnect(self, peer_id: str) -> None:
+        """Cancel any pending reconnect task for a peer."""
+        task = self._reconnect_tasks.pop(peer_id, None)
+        if task is None:
+            return
+        try:
+            if hasattr(task, 'cancel'):
+                task.cancel()
+        except Exception:
+            pass
+
+    async def _shutdown(self) -> None:
+        """Shutdown all networking components."""
+        logger.info("Shutting down P2P components...")
+
+        # Cancel sync queue processor
+        if self._sync_queue_task:
+            self._sync_queue_task.cancel()
+            self._sync_queue_task = None
+
+        # Cancel all pending reconnect tasks
+        for peer_id in list(self._reconnect_tasks.keys()):
+            self._cancel_reconnect(peer_id)
+        
+        try:
+            if self.connection_manager:
+                await self.connection_manager.stop()
+            
+            if self.discovery:
+                self.discovery.stop()
+            
+            logger.info("All P2P components shutdown")
+            
+        except Exception as e:
+            logger.error(f"Error during shutdown: {e}", exc_info=True)
+    
+    def _on_peer_discovered(self, peer: DiscoveredPeer, added: bool) -> None:
+        """
+        Handle peer discovery events.
+        
+        Args:
+            peer: Discovered peer
+            added: True if peer was added, False if removed
+        """
+        if added:
+            logger.info(f"Peer discovered: {peer.peer_id} at {peer.address}:{peer.port}")
+
+            # Ignore peers advertising loopback/unspecified addresses.
+            if peer.address in ('0.0.0.0', 'localhost') or peer.address.startswith('127.'):
+                logger.debug(
+                    f"Ignoring discovered peer {peer.peer_id} with unusable address {peer.address}"
+                )
+                return
+
+            # If we're already connected, just record/claim the endpoint and stop.
+            if self.connection_manager and self.connection_manager.is_connected(peer.peer_id):
+                ep = f"{self.ws_scheme}://{peer.address}:{peer.port}"
+                self.identity_manager.record_endpoint(peer.peer_id, ep, claim=True)
+                return
+
+            # Attempt to connect
+            if self._event_loop and not self._event_loop.is_closed():
+                asyncio.run_coroutine_threadsafe(
+                    self._connect_to_discovered_peer(peer),
+                    self._event_loop,
+                )
+        else:
+            logger.info(f"Peer removed: {peer.peer_id}")
+    
+    async def _connect_to_discovered_peer(self, peer: DiscoveredPeer) -> None:
+        """
+        Connect to a discovered peer.
+        
+        Args:
+            peer: Discovered peer info
+        """
+        try:
+            if not self.connection_manager:
+                return
+            success = await self.connection_manager.connect_to_peer(
+                peer.peer_id,
+                peer.address,
+                peer.port
+            )
+            
+            if success:
+                logger.info(f"Successfully connected to {peer.peer_id}")
+
+                # Persist endpoint info
+                ep = f"{self.ws_scheme}://{peer.address}:{peer.port}"
+                self.identity_manager.record_endpoint(peer.peer_id, ep, claim=True)
+                
+                # Run the full post-connect sync (channels, profiles, peer announcements, catch-up)
+                await self._run_post_connect_sync(peer.peer_id)
+            else:
+                logger.warning(f"Failed to connect to {peer.peer_id}")
+                
+        except Exception as e:
+            logger.error(f"Error connecting to {peer.peer_id}: {e}", exc_info=True)
+    
+    # ------------------------------------------------------------------ #
+    #  Post-connect sync (channel sync + catch-up) for ANY new connection #
+    # ------------------------------------------------------------------ #
+
+    def _on_incoming_peer_authenticated(self, peer_id: str) -> None:
+        """
+        Called (from ConnectionManager) when a remote peer successfully
+        authenticates on an *incoming* WebSocket.  Schedules channel
+        sync + catch-up on the P2P event loop.
+        """
+        logger.info(f"Incoming peer authenticated: {peer_id} — scheduling post-connect sync")
+        self._record_connection_event(
+            peer_id,
+            status='connected',
+            detail='Incoming connection authenticated',
+        )
+        # Persist endpoint info from the connection
+        conn = self.connection_manager.connections.get(peer_id) if self.connection_manager else None
+        if conn:
+            ep = f"{self.ws_scheme}://{conn.address}:{self.config.network.mesh_port}"
+            self.identity_manager.record_endpoint(peer_id, ep, claim=True)
+        if self._event_loop and not self._event_loop.is_closed():
+            asyncio.run_coroutine_threadsafe(
+                self._run_post_connect_sync(peer_id),
+                self._event_loop
+            )
+
+    async def _enqueue_sync(self, peer_id: str) -> None:
+        """Add a peer to the sync queue for serialized processing."""
+        if self._sync_queue is not None:
+            await self._sync_queue.put(peer_id)
+            logger.debug(f"Enqueued post-connect sync for {peer_id}")
+        else:
+            # Fallback if queue not initialized yet
+            await self._run_post_connect_sync_impl(peer_id)
+
+    async def _run_post_connect_sync(self, peer_id: str) -> None:
+        """
+        Schedule post-connect sync for a peer via the sync queue.
+        Falls back to direct execution if the queue isn't available.
+        """
+        await self._enqueue_sync(peer_id)
+
+    async def _run_post_connect_sync_impl(self, peer_id: str) -> None:
+        """
+        Run channel-sync, profile exchange, peer announcements, flush
+        pending messages, and catch-up request for a newly-connected peer
+        (works for both incoming and outgoing invite-code connections).
+        """
+        try:
+            # Cancel any pending auto-reconnect task for this peer
+            self._cancel_reconnect(peer_id)
+
+            # Notify application layer
+            if self.on_peer_connected:
+                self.on_peer_connected(peer_id)
+
+            # Channel metadata sync
+            await self._send_channel_sync_to_peer(peer_id)
+
+            # Exchange profile cards
+            await self._send_profile_to_peer(peer_id)
+
+            # Announce other connected peers to the new peer
+            await self._send_peer_announcement_to(peer_id)
+
+            # Announce the new peer to all OTHER existing connected peers
+            await self._announce_new_peer_to_others(peer_id)
+
+            # Flush pending messages
+            if self.message_router:
+                sent_count = await self.message_router.flush_pending_messages(peer_id)
+                if sent_count > 0:
+                    logger.info(f"Sent {sent_count} pending messages to {peer_id}")
+
+            # Catch-up request for any missed messages
+            await self._send_catchup_request(peer_id)
+            logger.info(f"Post-connect sync completed for {peer_id}")
+        except Exception as e:
+            logger.error(f"Error in post-connect sync for {peer_id}: {e}", exc_info=True)
+
+    def trigger_peer_sync(self, peer_id: str) -> bool:
+        """
+        Public method to trigger channel-sync + catch-up for a peer.
+        Called from the API route after a successful invite-code connection.
+
+        Returns True if the sync was successfully scheduled.
+        """
+        if not self._event_loop or self._event_loop.is_closed():
+            logger.warning("Cannot trigger peer sync — event loop unavailable")
+            return False
+        asyncio.run_coroutine_threadsafe(
+            self._run_post_connect_sync(peer_id),
+            self._event_loop
+        )
+        logger.info(f"Peer sync triggered for {peer_id}")
+        return True
+
+    # ------------------------------------------------------------------ #
+    #  Profile sync helpers                                                #
+    # ------------------------------------------------------------------ #
+
+    async def _send_profile_to_peer(self, peer_id: str) -> None:
+        """Send local profile cards (all registered users + device) to a peer.
+
+        Sends the primary user profile first (for backwards compat),
+        then any additional registered user profiles so remote peers
+        can display correct display names for all users on this device.
+        """
+        if not self.message_router or not self.get_local_profile_card:
+            return
+        try:
+            # Build device info once (shared across all cards)
+            device_info = None
+            try:
+                from canopy.core.device import get_device_profile, get_device_id
+                dev_profile = get_device_profile()
+                device_info = {
+                    'device_id': get_device_id(),
+                    'display_name': dev_profile.get('display_name', ''),
+                    'description': dev_profile.get('description', ''),
+                    'avatar_b64': dev_profile.get('avatar_b64', ''),
+                    'avatar_mime': dev_profile.get('avatar_mime', ''),
+                }
+            except Exception:
+                pass
+
+            local_peer_id = self.local_identity.peer_id if self.local_identity else ''
+
+            # Collect all profile cards to send
+            cards_to_send: list[Dict[str, Any]] = []
+            if self.get_all_local_profile_cards:
+                cards_to_send = self.get_all_local_profile_cards() or []
+            if not cards_to_send:
+                # Fallback to primary profile only
+                card = self.get_local_profile_card()
+                if card:
+                    cards_to_send = [card]
+
+            import hashlib, json as _json
+
+            for card in cards_to_send:
+                card['peer_id'] = local_peer_id
+                if device_info:
+                    card['device'] = device_info
+                # Attach a content hash so the receiver can skip
+                # re-processing unchanged profiles on reconnect.
+                hash_src = _json.dumps(
+                    {k: v for k, v in sorted(card.items())
+                     if k != 'profile_hash'},
+                    sort_keys=True, default=str,
+                )
+                card['profile_hash'] = hashlib.sha256(
+                    hash_src.encode()).hexdigest()[:16]
+
+            if cards_to_send:
+                logger.debug(f"Sending {len(cards_to_send)} profile card(s) to {peer_id}")
+                for card in cards_to_send:
+                    await self.message_router.send_profile_sync(peer_id, card)
+        except Exception as e:
+            logger.error(f"Error sending profile to {peer_id}: {e}", exc_info=True)
+
+    def broadcast_profile_update(self, profile_data: Dict[str, Any]) -> bool:
+        """Broadcast a profile update to all connected peers.
+
+        Called from the application layer when a user changes their
+        display name, bio, or avatar.
+        """
+        if not self._running or not self._event_loop:
+            return False
+        if not self.message_router:
+            return False
+        if self.local_identity:
+            profile_data['peer_id'] = self.local_identity.peer_id
+        # Attach content hash for dedup on the receiving side
+        import hashlib, json as _json
+        hash_src = _json.dumps(
+            {k: v for k, v in sorted(profile_data.items())
+             if k != 'profile_hash'},
+            sort_keys=True, default=str,
+        )
+        profile_data['profile_hash'] = hashlib.sha256(
+            hash_src.encode()).hexdigest()[:16]
+        future = asyncio.run_coroutine_threadsafe(
+            self.message_router.send_profile_update(profile_data),
+            self._event_loop
+        )
+        try:
+            return future.result(timeout=10.0)
+        except Exception as e:
+            logger.error(f"Error broadcasting profile update: {e}", exc_info=True)
+            return False
+
+    # ------------------------------------------------------------------ #
+    #  Peer announcement helpers                                           #
+    # ------------------------------------------------------------------ #
+
+    async def _send_peer_announcement_to(self, peer_id: str) -> None:
+        """Announce our other connected peers to a specific peer."""
+        if not self.message_router or not self.connection_manager:
+            return
+        try:
+            import base58
+            connected = self.connection_manager.get_connected_peers()
+            introduced: list = []
+            for pid in connected:
+                if pid == peer_id or pid == (self.local_identity.peer_id if self.local_identity else ''):
+                    continue  # skip the target and ourselves
+                identity = self.identity_manager.get_peer(pid)
+                if not identity:
+                    continue
+                conn = self.connection_manager.connections.get(pid)
+                endpoints = []
+                if conn:
+                    endpoints.append(f"{self.ws_scheme}://{conn.address}:{self.config.network.mesh_port}")
+                # Include stored endpoints as well; they often contain better
+                # externally-reachable addresses than the current socket origin.
+                stored_eps = self._sanitize_endpoints(
+                    pid,
+                    self.identity_manager.peer_endpoints.get(pid, []),
+                )
+                for ep in stored_eps:
+                    if ep not in endpoints:
+                        endpoints.append(ep)
+                endpoints = self._sanitize_endpoints(pid, endpoints)
+                device_profile = None
+                if self.get_peer_device_profile:
+                    try:
+                        device_profile = self.get_peer_device_profile(pid)
+                    except Exception:
+                        device_profile = None
+                display_name = (
+                    device_profile.get('display_name')
+                    if device_profile and device_profile.get('display_name')
+                    else self.identity_manager.peer_display_names.get(pid, pid[:8])
+                )
+                introduced.append({
+                    'peer_id': pid,
+                    'display_name': display_name,
+                    'endpoints': endpoints,
+                    'ed25519_public_key': base58.b58encode(identity.ed25519_public_key).decode(),
+                    'x25519_public_key': base58.b58encode(identity.x25519_public_key).decode(),
+                    'device_profile': device_profile,
+                })
+            if introduced:
+                logger.debug(f"Announcing {len(introduced)} peers to {peer_id}")
+                await self.message_router.send_peer_announcement(peer_id, introduced)
+        except Exception as e:
+            logger.error(f"Error sending peer announcement to {peer_id}: {e}", exc_info=True)
+
+    async def _announce_new_peer_to_others(self, new_peer_id: str) -> None:
+        """Announce a newly connected peer to all OTHER connected peers.
+
+        This ensures that when Machine B joins, the VM learns about B
+        (and vice versa) even if B connected after the VM.
+        """
+        if not self.message_router or not self.connection_manager:
+            return
+        try:
+            import base58
+            identity = self.identity_manager.get_peer(new_peer_id)
+            if not identity:
+                return
+            conn = self.connection_manager.connections.get(new_peer_id)
+            endpoints = []
+            if conn:
+                endpoints.append(f"{self.ws_scheme}://{conn.address}:{self.config.network.mesh_port}")
+            # Also include any stored endpoints
+            stored_eps = self._sanitize_endpoints(
+                new_peer_id,
+                self.identity_manager.peer_endpoints.get(new_peer_id, []),
+            )
+            for ep in stored_eps:
+                if ep not in endpoints:
+                    endpoints.append(ep)
+            device_profile = None
+            if self.get_peer_device_profile:
+                try:
+                    device_profile = self.get_peer_device_profile(new_peer_id)
+                except Exception:
+                    device_profile = None
+            display_name = (
+                device_profile.get('display_name')
+                if device_profile and device_profile.get('display_name')
+                else self.identity_manager.peer_display_names.get(new_peer_id, new_peer_id[:8])
+            )
+            new_peer_info = [{
+                'peer_id': new_peer_id,
+                'display_name': display_name,
+                'endpoints': endpoints,
+                'ed25519_public_key': base58.b58encode(identity.ed25519_public_key).decode(),
+                'x25519_public_key': base58.b58encode(identity.x25519_public_key).decode(),
+                'device_profile': device_profile,
+            }]
+
+            connected = self.connection_manager.get_connected_peers()
+            local_id = self.local_identity.peer_id if self.local_identity else ''
+            announced = 0
+            for pid in connected:
+                if pid == new_peer_id or pid == local_id:
+                    continue
+                await self.message_router.send_peer_announcement(pid, new_peer_info)
+                announced += 1
+            if announced:
+                logger.info(f"Announced new peer {new_peer_id} to {announced} existing peer(s)")
+        except Exception as e:
+            logger.error(f"Error announcing new peer to others: {e}", exc_info=True)
+
+    def store_introduced_peers(self, introduced_peers: list,
+                                from_peer: str) -> None:
+        """Store peers introduced by a connected peer.
+
+        IMPORTANT: This also registers the peer's public keys in the
+        identity manager so that messages relayed from those peers can
+        be verified.  Without this, relayed messages from indirectly-
+        connected peers would fail signature verification and be
+        silently dropped.
+        """
+        import base58
+
+        for p in introduced_peers:
+            pid = p.get('peer_id')
+            if not pid:
+                continue
+            # Skip ourselves
+            if self.local_identity and pid == self.local_identity.peer_id:
+                continue
+            # Skip already-connected peers
+            if self.connection_manager and self.connection_manager.is_connected(pid):
+                continue
+            # Sanitize endpoints so we don't persist unusable (127.*, 0.0.0.0, etc)
+            # and keep historical endpoints announced by other introducers.
+            existing = self._introduced_peers.get(pid, {})
+            existing_eps = existing.get('endpoints', []) if isinstance(existing, dict) else []
+            combined_eps = []
+            if isinstance(existing_eps, list):
+                combined_eps.extend(existing_eps)
+            if isinstance(p.get('endpoints', []), list):
+                combined_eps.extend(p.get('endpoints', []))
+            endpoints = self._sanitize_endpoints(pid, combined_eps)
+
+            # Preserve prior metadata when possible, then overlay latest data.
+            cleaned = dict(existing) if isinstance(existing, dict) else {}
+            cleaned.update(dict(p))
+            cleaned['endpoints'] = endpoints
+            cleaned['introduced_by'] = from_peer
+
+            # Track all known introducers for more reliable broker fallback.
+            introduced_via: list[str] = []
+            prior_via = existing.get('introduced_via', []) if isinstance(existing, dict) else []
+            if isinstance(prior_via, list):
+                for via in prior_via:
+                    if isinstance(via, str) and via and via not in introduced_via:
+                        introduced_via.append(via)
+            prior_single = existing.get('introduced_by') if isinstance(existing, dict) else None
+            if isinstance(prior_single, str) and prior_single and prior_single not in introduced_via:
+                introduced_via.append(prior_single)
+            if from_peer not in introduced_via:
+                introduced_via.append(from_peer)
+            cleaned['introduced_via'] = introduced_via
+
+            self._introduced_peers[pid] = cleaned
+
+            # Register the peer's public keys in the identity manager
+            # so we can verify relayed messages from this peer.
+            ed25519_key_b58 = p.get('ed25519_public_key')
+            x25519_key_b58 = p.get('x25519_public_key')
+            if ed25519_key_b58 and x25519_key_b58:
+                try:
+                    ed25519_bytes = base58.b58decode(ed25519_key_b58)
+                    x25519_bytes = base58.b58decode(x25519_key_b58)
+                    display_name = p.get('display_name', '')
+                    self.identity_manager.create_remote_peer(
+                        peer_id=pid,
+                        ed25519_public_key=ed25519_bytes,
+                        x25519_public_key=x25519_bytes,
+                        endpoints=endpoints,
+                        display_name=display_name,
+                    )
+                    logger.info(f"Registered public keys for introduced "
+                                f"peer {pid} ({display_name})")
+                except Exception as e:
+                    logger.warning(f"Could not register keys for "
+                                   f"introduced peer {pid}: {e}")
+            else:
+                # Persist endpoint info even without keys
+                display_name = p.get('display_name', '')
+                if endpoints:
+                    self.identity_manager.peer_endpoints[pid] = endpoints
+                if display_name:
+                    self.identity_manager.peer_display_names[pid] = display_name
+
+        if introduced_peers:
+            self.identity_manager._save_known_peers()
+            logger.info(f"Stored {len(introduced_peers)} introduced peer(s) from {from_peer}")
+
+    def get_introduced_peers(self) -> list:
+        """Return the list of peers introduced by our contacts."""
+        if not hasattr(self, '_introduced_peers'):
+            self._introduced_peers = {}
+        return list(self._introduced_peers.values())
+
+    # ------------------------------------------------------------------ #
+    #  Connection brokering and relay                                      #
+    # ------------------------------------------------------------------ #
+
+    def _on_broker_request(self, target_peer: str,
+                           requester_endpoints: list,
+                           requester_keys: dict,
+                           from_peer: str) -> None:
+        """Handle a BROKER_REQUEST: peer asks us to help it connect to target_peer.
+
+        If we are connected to target_peer, forward a BROKER_INTRO with
+        the requester's endpoints so target_peer can connect back.
+        """
+        if self.relay_policy == 'off':
+            logger.info(f"Broker request from {from_peer} declined (relay_policy=off)")
+            return
+
+        # Check trust score — decline relay for low-trust peers
+        if self.get_trust_score:
+            try:
+                score = self.get_trust_score(from_peer)
+                if score < 20:
+                    logger.warning(f"Broker request from {from_peer} declined "
+                                   f"(trust score {score} < 20)")
+                    return
+            except Exception:
+                pass
+
+        logger.info(f"Broker request from {from_peer}: wants to reach {target_peer}")
+
+        if not self.connection_manager or not self.connection_manager.is_connected(target_peer):
+            logger.warning(f"Cannot broker: not connected to {target_peer}")
+            # If full relay, offer to relay instead
+            if self.relay_policy == 'full_relay':
+                self._schedule_relay_offers(from_peer, target_peer)
+            return
+
+        # Forward a BROKER_INTRO to the target
+        if self._event_loop and not self._event_loop.is_closed() and self.message_router:
+            asyncio.run_coroutine_threadsafe(
+                self.message_router.send_broker_intro(
+                    to_peer=target_peer,
+                    requester_peer_id=from_peer,
+                    requester_endpoints=requester_endpoints,
+                    requester_keys=requester_keys,
+                ),
+                self._event_loop
+            )
+            logger.info(f"Forwarded broker intro for {from_peer} to {target_peer}")
+
+            # If full_relay, also proactively offer relay as a fallback
+            # in case the reverse connection also fails
+            if self.relay_policy == 'full_relay':
+                self._schedule_relay_offers(from_peer, target_peer)
+
+    def _on_broker_intro(self, requester_peer_id: str,
+                         requester_endpoints: list,
+                         requester_keys: dict,
+                         from_peer: str) -> None:
+        """Handle a BROKER_INTRO: an intermediary tells us a peer wants to connect.
+
+        Attempt to connect directly to the requester using the provided endpoints.
+        """
+        logger.info(f"Broker intro from {from_peer}: {requester_peer_id} wants to connect")
+
+        # Register the requester's identity if we have their keys
+        if requester_keys and requester_peer_id:
+            try:
+                import base58
+                epk = requester_keys.get('ed25519_public_key', '')
+                xpk = requester_keys.get('x25519_public_key', '')
+                if epk and xpk:
+                    ed_bytes = base58.b58decode(epk)
+                    x_bytes = base58.b58decode(xpk)
+                    cleaned_eps = self._sanitize_endpoints(requester_peer_id, requester_endpoints)
+                    self.identity_manager.create_remote_peer(
+                        requester_peer_id, ed_bytes, x_bytes,
+                        endpoints=cleaned_eps)
+            except Exception as e:
+                logger.warning(f"Could not register broker-introduced peer: {e}")
+
+        # Attempt to connect to each endpoint
+        if self._event_loop and not self._event_loop.is_closed():
+            asyncio.run_coroutine_threadsafe(
+                self._attempt_brokered_connection(
+                    requester_peer_id, requester_endpoints, broker_peer=from_peer),
+                self._event_loop
+            )
+
+    async def _attempt_brokered_connection(self, peer_id: str,
+                                            endpoints: list,
+                                            broker_peer: Optional[str] = None) -> None:
+        """Try each endpoint to establish a direct connection.
+        
+        Args:
+            peer_id: Peer we are trying to reach
+            endpoints: List of ws:// endpoints to try
+            broker_peer: The intermediary that forwarded the intro
+        """
+        if not self.connection_manager:
+            return
+        if self.connection_manager.is_connected(peer_id):
+            logger.info(f"Already connected to {peer_id}, skipping brokered connect")
+            return
+
+        endpoints = self._sanitize_endpoints(peer_id, endpoints)
+        for ep in endpoints:
+            try:
+                logger.info(f"Brokered connect attempt to {peer_id} via {ep}")
+                await self._connect_to_endpoint(peer_id, ep)
+                if self.connection_manager.is_connected(peer_id):
+                    logger.info(f"Brokered connection to {peer_id} succeeded!")
+                    # Remove any relay route since we now have a direct connection
+                    if self.message_router:
+                        self.message_router.remove_route(peer_id)
+                        self._active_relays.pop(peer_id, None)
+                    await self._run_post_connect_sync(peer_id)
+                    return
+            except Exception as e:
+                logger.warning(f"Brokered connect to {ep} failed: {e}")
+                continue
+
+        logger.warning(f"All brokered connection attempts to {peer_id} failed")
+        # If broker peer is known and set to full_relay, the broker would have
+        # already decided to send relay offers. Nothing more for us to do here.
+
+    def _on_relay_offer(self, relay_peer: str, target_peer: str) -> None:
+        """Handle a RELAY_OFFER: a peer offers to relay our traffic to target_peer.
+
+        Populate the routing table so messages for target_peer go through relay_peer.
+        """
+        if not self.message_router:
+            return
+
+        # Don't accept relay to ourselves
+        if self.local_identity and target_peer == self.local_identity.peer_id:
+            return
+
+        # Don't need relay if already directly connected
+        if self.connection_manager and self.connection_manager.is_connected(target_peer):
+            logger.debug(f"Declining relay offer for {target_peer}: already connected")
+            return
+
+        logger.info(f"Accepted relay offer from {relay_peer} for {target_peer}")
+        self.message_router.update_routing_table(target_peer, relay_peer)
+        self._active_relays[target_peer] = relay_peer
+
+    def _schedule_relay_offers(self, peer_a: str, peer_b: str) -> None:
+        """Send RELAY_OFFER to both peers so they can route through us."""
+        if not self._event_loop or self._event_loop.is_closed():
+            return
+        if not self.message_router:
+            return
+        if not self.connection_manager:
+            return
+        connection_manager = self.connection_manager
+        message_router = self.message_router
+
+        async def _send_offers():
+            try:
+                if connection_manager.is_connected(peer_a):
+                    await message_router.send_relay_offer(peer_a, peer_b)
+                    logger.info(f"Sent relay offer to {peer_a} for {peer_b}")
+                if connection_manager.is_connected(peer_b):
+                    await message_router.send_relay_offer(peer_b, peer_a)
+                    logger.info(f"Sent relay offer to {peer_b} for {peer_a}")
+            except Exception as e:
+                logger.error(f"Error sending relay offers: {e}", exc_info=True)
+
+        asyncio.run_coroutine_threadsafe(_send_offers(), self._event_loop)
+
+    def send_broker_request(self, target_peer_id: str,
+                            via_peer_id: str) -> bool:
+        """Public method: ask via_peer to broker a connection to target_peer.
+
+        Called from the API layer when a direct connection attempt fails.
+        Returns True if the request was successfully scheduled.
+        """
+        if not self._running or not self._event_loop:
+            return False
+        if not self.message_router:
+            return False
+        if not self.local_identity:
+            return False
+
+        import base58
+        local_id = self.local_identity
+        requester_keys = {
+            'ed25519_public_key': base58.b58encode(local_id.ed25519_public_key).decode(),
+            'x25519_public_key': base58.b58encode(local_id.x25519_public_key).decode(),
+        }
+
+        # Gather our own endpoints
+        mesh_port = self.config.network.mesh_port
+        requester_endpoints = []
+        try:
+            from .invite import get_local_ips
+            for ip in get_local_ips():
+                requester_endpoints.append(f"{self.ws_scheme}://{ip}:{mesh_port}")
+        except Exception:
+            requester_endpoints.append(f"{self.ws_scheme}://0.0.0.0:{mesh_port}")
+
+        future = asyncio.run_coroutine_threadsafe(
+            self.message_router.send_broker_request(
+                to_peer=via_peer_id,
+                target_peer=target_peer_id,
+                requester_endpoints=requester_endpoints,
+                requester_keys=requester_keys,
+            ),
+            self._event_loop
+        )
+        try:
+            result = bool(future.result(timeout=5.0))
+            if result:
+                logger.info(f"Broker request sent to {via_peer_id} for {target_peer_id}")
+                self._record_connection_event(
+                    target_peer_id,
+                    status='broker',
+                    detail=f"Broker request sent via {via_peer_id[:8]}",
+                    via_peer=via_peer_id,
+                )
+            else:
+                logger.warning(
+                    f"Broker request via {via_peer_id} for {target_peer_id} "
+                    f"was not routed immediately"
+                )
+                self._record_connection_event(
+                    target_peer_id,
+                    status='pending',
+                    detail=f"Broker request not routed immediately via {via_peer_id[:8]}",
+                    via_peer=via_peer_id,
+                )
+            return result
+        except Exception as e:
+            logger.error(f"Error sending broker request: {e}", exc_info=True)
+            return False
+
+    def on_peer_disconnected_cleanup(self, peer_id: str) -> None:
+        """Clean up routing table entries when a peer disconnects, then schedule auto-reconnect."""
+        self._record_connection_event(
+            peer_id,
+            status='disconnected',
+            detail='Peer disconnected',
+        )
+        removed = 0
+        if self.message_router:
+            removed = self.message_router.cleanup_routes_via(peer_id) or 0
+        if removed:
+            # Also clean up active relay tracking
+            to_remove = [dest for dest, relay in self._active_relays.items() if relay == peer_id]
+            for dest in to_remove:
+                del self._active_relays[dest]
+
+        # If a reconnect loop is already scheduled/running for this peer,
+        # don't restart it (that resets backoff and can cause thrash).
+        existing = self._reconnect_tasks.get(peer_id)
+        if existing is not None:
+            try:
+                if hasattr(existing, 'done') and not existing.done():
+                    logger.debug(f"Peer {peer_id} disconnected — reconnect already scheduled")
+                    return
+            except Exception:
+                pass
+            # Stale/done entry — drop it so we can reschedule.
+            self._reconnect_tasks.pop(peer_id, None)
+
+        endpoints = self._sanitize_endpoints(peer_id, self.identity_manager.peer_endpoints.get(peer_id, []))
+        if endpoints != self.identity_manager.peer_endpoints.get(peer_id, []):
+            self.identity_manager.peer_endpoints[peer_id] = endpoints
+            self.identity_manager._save_known_peers()
+
+        if endpoints and self._running:
+            logger.info(
+                f"Peer {peer_id} disconnected — scheduling auto-reconnect "
+                f"({len(endpoints)} endpoint(s))"
+            )
+            self._schedule_reconnect(peer_id, attempt=1)
+
+    def set_relay_policy(self, policy: str) -> bool:
+        """Update the relay policy. Valid values: 'off', 'broker_only', 'full_relay'.
+        
+        Persists the setting to a file so it survives restarts.
+        """
+        if policy not in ('off', 'broker_only', 'full_relay'):
+            return False
+        old_policy = self.relay_policy
+        self.relay_policy = policy
+        logger.info(f"Relay policy changed: {old_policy} -> {policy}")
+        # Persist to settings file
+        try:
+            import json
+            settings_path = Path(self.config.storage.database_path).parent / 'relay_settings.json'
+            settings_path.write_text(json.dumps({'relay_policy': policy}))
+            logger.info(f"Relay policy persisted to {settings_path}")
+        except Exception as e:
+            logger.warning(f"Could not persist relay policy: {e}")
+        return True
+
+    def _load_persisted_relay_policy(self) -> None:
+        """Load relay policy from persisted settings file."""
+        try:
+            import json
+            settings_path = Path(self.config.storage.database_path).parent / 'relay_settings.json'
+            if settings_path.exists():
+                data = json.loads(settings_path.read_text())
+                policy = data.get('relay_policy', '')
+                if policy in ('off', 'broker_only', 'full_relay'):
+                    self.relay_policy = policy
+                    logger.info(f"Loaded persisted relay policy: {policy}")
+        except Exception as e:
+            logger.warning(f"Could not load persisted relay policy: {e}")
+
+    def get_relay_status(self) -> Dict[str, Any]:
+        """Return current relay status for API/UI."""
+        routing = {}
+        if self.message_router:
+            routing = dict(self.message_router.routing_table)
+        return {
+            'relay_policy': self.relay_policy,
+            'active_relays': dict(self._active_relays),
+            'routing_table': routing,
+        }
+
+    async def _handle_p2p_message(self, connection: PeerConnection, data: Dict[str, Any]) -> None:
+        """
+        Handle incoming P2P message.
+        
+        Args:
+            connection: Source connection
+            data: Message data
+        """
+        try:
+            if not self.message_router:
+                return
+            message_dict = data.get('message')
+            if not message_dict:
+                logger.warning("P2P message missing 'message' field")
+                return
+            
+            # Parse message
+            message = P2PMessage.from_dict(message_dict)
+            
+            logger.debug(f"Received {message.type.value} message from "
+                         f"{message.from_peer} via {connection.peer_id}")
+            
+            # Verify signature.
+            # Default: reject unverifiable messages, including relayed traffic.
+            # Optional compatibility mode can temporarily allow trusted relays.
+            verified = self.message_router.verify_message(message)
+            if not verified:
+                relay_peer = connection.peer_id
+                is_relayed = (message.from_peer != relay_peer)
+                is_trusted_relay = (
+                    is_relayed
+                    and self.connection_manager
+                    and self.connection_manager.is_connected(relay_peer)
+                )
+                if self.allow_unverified_relay_messages and is_trusted_relay:
+                    logger.warning(
+                        f"Compatibility mode enabled: accepting unverifiable "
+                        f"relayed {message.type.value} from {message.from_peer} "
+                        f"via {relay_peer}")
+                    self._record_activity_event({
+                        'id': f"security_unverified_allow_{int(time.time() * 1000)}",
+                        'kind': 'security',
+                        'timestamp': time.time(),
+                        'status': 'warning',
+                        'peer_id': message.from_peer,
+                        'detail': (
+                            f"Accepted unverifiable relayed {message.type.value} "
+                            f"via {relay_peer} (compat mode)"
+                        ),
+                    })
+                else:
+                    logger.warning(
+                        f"Invalid signature on message {message.id} "
+                        f"from {message.from_peer}; dropped")
+                    self._record_activity_event({
+                        'id': f"security_unverified_drop_{int(time.time() * 1000)}",
+                        'kind': 'security',
+                        'timestamp': time.time(),
+                        'status': 'blocked',
+                        'peer_id': message.from_peer,
+                        'detail': (
+                            f"Dropped {message.type.value} with invalid signature "
+                            f"(via {relay_peer})"
+                        ),
+                    })
+                    return
+            
+            # Route message
+            await self.message_router.route_message(message)
+            
+            # Notify application
+            if self.on_message_received:
+                self.on_message_received(message)
+                
+        except Exception as e:
+            logger.error(f"Error handling P2P message: {e}", exc_info=True)
+    
+    def send_message_to_peer(self, peer_id: str, content: str, 
+                            metadata: Optional[Dict] = None) -> bool:
+        """
+        Send a message to a specific peer.
+        
+        Args:
+            peer_id: Target peer ID
+            content: Message content
+            metadata: Optional metadata
+            
+        Returns:
+            True if sent successfully
+        """
+        if not self._running or not self._event_loop:
+            logger.warning("P2P network not running")
+            return False
+        if not self.message_router:
+            return False
+        
+        # Schedule coroutine
+        future = asyncio.run_coroutine_threadsafe(
+            self.message_router.send_direct_message(peer_id, content, metadata),
+            self._event_loop
+        )
+        
+        try:
+            return future.result(timeout=5.0)
+        except Exception as e:
+            logger.error(f"Error sending message: {e}", exc_info=True)
+            return False
+    
+    def broadcast_message(self, content: str, metadata: Optional[Dict] = None) -> bool:
+        """
+        Broadcast a message to all connected peers.
+        
+        Args:
+            content: Message content
+            metadata: Optional metadata
+            
+        Returns:
+            True if sent successfully
+        """
+        if not self._running or not self._event_loop:
+            logger.warning("P2P network not running")
+            return False
+        if not self.message_router:
+            return False
+        
+        # Schedule coroutine
+        future = asyncio.run_coroutine_threadsafe(
+            self.message_router.send_broadcast(content, metadata),
+            self._event_loop
+        )
+        
+        try:
+            return future.result(timeout=5.0)
+        except Exception as e:
+            logger.error(f"Error broadcasting message: {e}", exc_info=True)
+            return False
+    
+    def broadcast_channel_message(self, channel_id: str, user_id: str,
+                                   content: str, message_id: str,
+                                   timestamp: str,
+                                   attachments: Optional[list[Any]] = None,
+                                   display_name: Optional[str] = None,
+                                   expires_at: Optional[str] = None,
+                                   ttl_seconds: Optional[int] = None,
+                                   ttl_mode: Optional[str] = None,
+                                   update_only: bool = False,
+                                   parent_message_id: Optional[str] = None,
+                                   edited_at: Optional[str] = None,
+                                   security: Optional[dict[Any, Any]] = None,
+                                   target_peer_ids: Optional[set[Any]] = None) -> bool:
+        """
+        Broadcast a channel message to all connected peers so they
+        can store it locally and display it in their UI.
+        
+        If attachments are provided and file_manager is set, the actual
+        file bytes are base64-encoded and included in the payload so
+        receiving peers can save files locally.
+        """
+        if not self._running or not self._event_loop:
+            logger.warning("P2P network not running, cannot broadcast channel message")
+            return False
+
+        if not self.message_router:
+            return False
+        metadata: Dict[str, Any] = {
+            'type': 'channel_message',
+            'channel_id': channel_id,
+            'user_id': user_id,
+            'message_id': message_id,
+            'timestamp': timestamp,
+            'expires_at': expires_at,
+            'ttl_seconds': ttl_seconds,
+            'ttl_mode': ttl_mode,
+        }
+        if parent_message_id:
+            metadata['parent_message_id'] = parent_message_id
+        if 'origin_peer' not in metadata or not metadata.get('origin_peer'):
+            try:
+                metadata['origin_peer'] = self.get_peer_id()
+            except Exception:
+                metadata['origin_peer'] = None
+        if update_only:
+            metadata['update_only'] = True
+        if edited_at:
+            metadata['edited_at'] = edited_at
+        if security:
+            metadata['security'] = security
+
+        # Include sender display_name so remote peers can show the
+        # correct name even if they haven't received a profile sync
+        # for this specific user yet.
+        if display_name:
+            metadata['display_name'] = display_name
+
+        # Embed file data for each attachment so peers can store locally.
+        # Include original file_id so receivers can rewrite /files/ORIGINAL in content to /files/LOCAL.
+        if attachments:
+            import base64
+            p2p_attachments = []
+            for att in attachments:
+                att_entry: Dict[str, Any] = dict(att or {}) if isinstance(att, dict) else {}
+                file_id = att_entry.get('id', att_entry.get('file_id'))
+                att_entry['name'] = att_entry.get('name', att_entry.get('original_name', 'file'))
+                att_entry['type'] = att_entry.get('type', att_entry.get('content_type', 'application/octet-stream'))
+                att_entry['size'] = att_entry.get('size', 0)
+                # Sender-side inline data should always be regenerated from local file
+                # state to prevent forwarding stale/untrusted payload blobs.
+                att_entry.pop('data', None)
+                if file_id:
+                    att_entry['id'] = file_id
+                # Read file bytes if we have a file_manager and a file id
+                if file_id and self.file_manager:
+                    try:
+                        result = self.file_manager.get_file_data(file_id)
+                        if result:
+                            file_data, file_info = result
+                            if len(file_data) <= 10 * 1024 * 1024:  # 10MB limit
+                                att_entry['data'] = base64.b64encode(file_data).decode('ascii')
+                                logger.info(f"Attached file {file_id} ({len(file_data)} bytes) to P2P broadcast")
+                            else:
+                                logger.warning(f"File {file_id} too large for inline P2P transfer "
+                                             f"({len(file_data)} bytes, limit 10MB)")
+                    except Exception as e:
+                        logger.error(f"Failed to read file {file_id} for P2P broadcast: {e}")
+                p2p_attachments.append(att_entry)
+
+            metadata['attachments'] = p2p_attachments
+            metadata['message_type'] = 'file'
+
+        # For restricted channels with targeted peers, send to each peer individually.
+        timeout = 60.0 if attachments else 5.0
+        if target_peer_ids:
+            local_id = self.get_peer_id() if hasattr(self, 'get_peer_id') else None
+            remote_peers = {p for p in target_peer_ids if p != local_id}
+            if not remote_peers:
+                return True
+            logger.info(f"Targeted channel message for restricted channel "
+                        f"{channel_id} to {len(remote_peers)} peer(s)")
+            success = False
+            for peer in remote_peers:
+                future = asyncio.run_coroutine_threadsafe(
+                    self.message_router.send_channel_broadcast(content, metadata, to_peer=peer),
+                    self._event_loop
+                )
+                try:
+                    result = future.result(timeout=timeout)
+                    success = success or result
+                except Exception as e:
+                    logger.error(f"Error sending targeted channel msg to {peer}: {e}")
+            return success
+        else:
+            # SECURITY: Fail-closed for restricted channels — never broadcast without targets.
+            mode = ''
+            if security:
+                try:
+                    mode = str(security.get('privacy_mode') or '').lower()
+                except Exception:
+                    mode = ''
+            if mode in {'private', 'confidential'}:
+                logger.warning(
+                    f"SECURITY: Attempted to broadcast restricted channel message "
+                    f"without target_peer_ids for channel {channel_id}. Message not sent."
+                )
+                return False
+
+            future = asyncio.run_coroutine_threadsafe(
+                self.message_router.send_channel_broadcast(content, metadata),
+                self._event_loop
+            )
+            try:
+                return future.result(timeout=timeout)
+            except Exception as e:
+                logger.error(f"Error broadcasting channel message: {e}", exc_info=True)
+                return False
+
+    def broadcast_feed_post(self, post_id: str, author_id: str,
+                             content: str, post_type: str = 'text',
+                             visibility: str = 'network',
+                             timestamp: Optional[str] = None,
+                             metadata: Optional[dict[Any, Any]] = None,
+                             expires_at: Optional[str] = None,
+                             ttl_seconds: Optional[int] = None,
+                             ttl_mode: Optional[str] = None,
+                             display_name: Optional[str] = None) -> bool:
+        """
+        Broadcast a feed post to all connected peers so they
+        can store it locally and display it in their feed.
+        """
+        if not self._running or not self._event_loop:
+            logger.warning("P2P network not running, cannot broadcast feed post")
+            return False
+
+        if not self.message_router:
+            return False
+        meta: Dict[str, Any] = {
+            'type': 'feed_post',
+            'post_id': post_id,
+            'author_id': author_id,
+            'post_type': post_type,
+            'visibility': visibility,
+            'timestamp': timestamp,
+            'metadata': metadata or {},
+            'expires_at': expires_at,
+            'ttl_seconds': ttl_seconds,
+            'ttl_mode': ttl_mode,
+        }
+
+        try:
+            if meta['metadata'] is None:
+                meta['metadata'] = {}
+            if isinstance(meta['metadata'], dict) and not meta['metadata'].get('origin_peer'):
+                meta['metadata']['origin_peer'] = self.get_peer_id()
+        except Exception:
+            pass
+
+        if display_name:
+            meta['display_name'] = display_name
+
+        # Embed file data for feed attachments so peers can render locally
+        try:
+            meta_metadata = meta.get('metadata')
+            attachments = meta_metadata.get('attachments') if isinstance(meta_metadata, dict) else []
+            attachments = attachments or []
+            if attachments:
+                import base64
+                enriched = []
+                for att in attachments:
+                    if not isinstance(att, dict):
+                        continue
+                    entry = dict(att)
+                    file_id = entry.get('id') or entry.get('file_id')
+                    if file_id and self.file_manager:
+                        try:
+                            result = self.file_manager.get_file_data(file_id)
+                            if result:
+                                file_data, _ = result
+                                if len(file_data) <= 10 * 1024 * 1024:
+                                    entry['data'] = base64.b64encode(file_data).decode('ascii')
+                                else:
+                                    logger.warning(
+                                        f"Feed attachment {file_id} too large for P2P (size={len(file_data)} bytes)"
+                                    )
+                        except Exception as e:
+                            logger.error(f"Failed to read feed attachment {file_id} for P2P: {e}")
+                    enriched.append(entry)
+                if isinstance(meta_metadata, dict):
+                    meta_metadata['attachments'] = enriched
+        except Exception as e:
+            logger.debug(f"Feed attachment embedding failed: {e}")
+
+        future = asyncio.run_coroutine_threadsafe(
+            self.message_router.send_feed_post_broadcast(content, meta),
+            self._event_loop
+        )
+
+        try:
+            return future.result(timeout=5.0)
+        except Exception as e:
+            logger.error(f"Error broadcasting feed post: {e}", exc_info=True)
+            return False
+
+    def broadcast_interaction(self, item_id: str, user_id: str,
+                               action: str, item_type: str = 'post',
+                               display_name: Optional[str] = None,
+                               extra: Optional[dict[Any, Any]] = None) -> bool:
+        """
+        Broadcast a like/unlike interaction to all connected peers
+        so they can apply it locally (idempotent).
+        """
+        if not self._running or not self._event_loop:
+            logger.warning("P2P network not running, cannot broadcast interaction")
+            return False
+
+        if not self.message_router:
+            return False
+        meta: Dict[str, Any] = {
+            'type': 'interaction',
+            'item_id': item_id,
+            'user_id': user_id,
+            'action': action,
+            'item_type': item_type,
+        }
+        if extra:
+            try:
+                meta.update(extra)
+            except Exception:
+                pass
+
+        if display_name:
+            meta['display_name'] = display_name
+
+        future = asyncio.run_coroutine_threadsafe(
+            self.message_router.send_interaction_broadcast(meta),
+            self._event_loop
+        )
+
+        try:
+            return future.result(timeout=5.0)
+        except Exception as e:
+            logger.error(f"Error broadcasting interaction: {e}", exc_info=True)
+            return False
+
+    def broadcast_direct_message(self, sender_id: str, recipient_id: str,
+                                  content: str, message_id: str,
+                                  timestamp: str,
+                                  display_name: Optional[str] = None,
+                                  metadata: Optional[dict[Any, Any]] = None,
+                                  update_only: bool = False,
+                                  edited_at: Optional[str] = None) -> bool:
+        """
+        Broadcast a direct message to all connected peers.
+        The recipient peer stores it; others ignore it.
+        """
+        if not self._running or not self._event_loop:
+            logger.warning("P2P network not running, cannot broadcast DM")
+            return False
+
+        if not self.message_router:
+            return False
+        meta: Dict[str, Any] = {
+            'type': 'direct_message',
+            'sender_id': sender_id,
+            'recipient_id': recipient_id,
+            'message_id': message_id,
+            'timestamp': timestamp,
+        }
+
+        if display_name:
+            meta['display_name'] = display_name
+        if metadata:
+            meta['metadata'] = metadata
+        if update_only:
+            meta['update_only'] = True
+        if edited_at:
+            meta['edited_at'] = edited_at
+
+        # Embed file data for DM attachments so recipient can render locally
+        try:
+            dm_metadata = meta.get('metadata')
+            attachments = dm_metadata.get('attachments') if isinstance(dm_metadata, dict) else []
+            attachments = attachments or []
+            if attachments:
+                import base64
+                enriched = []
+                for att in attachments:
+                    if not isinstance(att, dict):
+                        continue
+                    entry = dict(att)
+                    file_id = entry.get('id') or entry.get('file_id')
+                    if file_id and self.file_manager:
+                        try:
+                            result = self.file_manager.get_file_data(file_id)
+                            if result:
+                                file_data, _ = result
+                                if len(file_data) <= 10 * 1024 * 1024:
+                                    entry['data'] = base64.b64encode(file_data).decode('ascii')
+                                else:
+                                    logger.warning(
+                                        f"DM attachment {file_id} too large for P2P (size={len(file_data)} bytes)"
+                                    )
+                        except Exception as e:
+                            logger.error(f"Failed to read DM attachment {file_id} for P2P: {e}")
+                    enriched.append(entry)
+                if isinstance(dm_metadata, dict):
+                    dm_metadata['attachments'] = enriched
+        except Exception as e:
+            logger.debug(f"DM attachment embedding failed: {e}")
+
+        future = asyncio.run_coroutine_threadsafe(
+            self.message_router.send_dm_broadcast(content, meta),
+            self._event_loop
+        )
+
+        try:
+            result = future.result(timeout=5.0)
+            logger.info(f"Broadcast DM {message_id} from {sender_id} to {recipient_id}")
+            return result
+        except Exception as e:
+            logger.error(f"Error broadcasting DM: {e}", exc_info=True)
+            return False
+
+    def broadcast_delete_signal(self, signal_id: str, data_type: str,
+                                data_id: str, reason: Optional[str] = None,
+                                target_peer: Optional[str] = None) -> bool:
+        """Broadcast (or direct-send) a delete signal via P2P."""
+        if not self._running or not self._event_loop:
+            logger.warning("P2P network not running, cannot broadcast delete signal")
+            return False
+        if not self.message_router:
+            return False
+
+        future = asyncio.run_coroutine_threadsafe(
+            self.message_router.send_delete_signal(
+                signal_id=signal_id,
+                data_type=data_type,
+                data_id=data_id,
+                reason=reason,
+                target_peer=target_peer,
+            ),
+            self._event_loop
+        )
+
+        try:
+            return future.result(timeout=5.0)
+        except Exception as e:
+            logger.error(f"Error broadcasting delete signal: {e}", exc_info=True)
+            return False
+
+    def send_delete_signal_ack(self, to_peer: str, signal_id: str,
+                               status: str) -> bool:
+        """Send a delete-signal acknowledgment to a specific peer."""
+        if not self._running or not self._event_loop:
+            return False
+        if not self.message_router:
+            return False
+
+        future = asyncio.run_coroutine_threadsafe(
+            self.message_router.send_delete_signal_ack(to_peer, signal_id, status),
+            self._event_loop
+        )
+        try:
+            return future.result(timeout=5.0)
+        except TimeoutError:
+            logger.warning(
+                "Delete signal ack to %s timed out (local delete already applied)",
+                to_peer,
+            )
+            return False
+        except Exception as e:
+            logger.error(f"Error sending delete signal ack: {e}", exc_info=True)
+            return False
+
+    def broadcast_channel_announce(self, channel_id: str, name: str,
+                                     channel_type: str, description: str,
+                                     privacy_mode: Optional[str] = None,
+                                     member_peer_ids: Optional[set[Any]] = None,
+                                     initial_members_by_peer: Optional[dict[Any, Any]] = None) -> bool:
+        """
+        Broadcast a channel announcement to connected peers.
+        
+        For open/guarded channels: broadcasts to all peers.
+        For private/confidential channels: sends targeted announces only to peers
+        that have members, with initial_members specifying which users
+        to add on each receiving peer.
+        
+        Args:
+            member_peer_ids: Set of peer IDs to target (private/confidential only).
+            initial_members_by_peer: Dict mapping peer_id -> list of user_ids
+                to include as initial_members in each targeted announce.
+        """
+        if not self._running or not self._event_loop:
+            logger.warning("P2P network not running, cannot broadcast channel announce")
+            return False
+        if not self.message_router:
+            return False
+
+        peer_id = self.local_identity.peer_id if self.local_identity else 'unknown'
+        mode = str(privacy_mode or '').lower()
+        is_private = mode in {'private', 'confidential'}
+
+        if is_private and member_peer_ids:
+            # Targeted announces to specific peers
+            target_peers = {p for p in member_peer_ids if p != peer_id}
+            if not target_peers:
+                logger.debug("Restricted channel %s: no remote peers to announce to", channel_id)
+                return True
+            logger.info(f"Targeted channel announce for restricted channel {channel_id} "
+                        f"to {len(target_peers)} peer(s): {target_peers}")
+            success = False
+            for target in target_peers:
+                members_for_peer = (initial_members_by_peer or {}).get(target, [])
+                future = asyncio.run_coroutine_threadsafe(
+                    self.message_router.send_channel_announce(
+                        channel_id=channel_id,
+                        name=name,
+                        channel_type=channel_type,
+                        description=description or '',
+                        privacy_mode=privacy_mode,
+                        created_by_peer=peer_id,
+                        to_peer=target,
+                        initial_members=members_for_peer,
+                    ),
+                    self._event_loop
+                )
+                try:
+                    result = future.result(timeout=5.0)
+                    success = success or result
+                except Exception as e:
+                    logger.error(f"Error sending targeted announce to {target}: {e}")
+            return success
+        else:
+            # Public channel: broadcast to all
+            future = asyncio.run_coroutine_threadsafe(
+                self.message_router.send_channel_announce(
+                    channel_id=channel_id,
+                    name=name,
+                    channel_type=channel_type,
+                    description=description or '',
+                    privacy_mode=privacy_mode,
+                    created_by_peer=peer_id,
+                ),
+                self._event_loop
+            )
+            try:
+                return future.result(timeout=5.0)
+            except Exception as e:
+                logger.error(f"Error broadcasting channel announce: {e}", exc_info=True)
+                return False
+
+    def broadcast_member_sync(self, channel_id: str, target_user_id: str,
+                               action: str, target_peer_id: str,
+                               role: str = 'member',
+                               channel_name: str = '',
+                               channel_type: str = 'private',
+                               channel_description: str = '',
+                               privacy_mode: str = 'private') -> bool:
+        """
+        Send a targeted MEMBER_SYNC to a specific peer when a member
+        is added/removed from a private channel.
+        """
+        if not self._running or not self._event_loop:
+            logger.warning("P2P network not running, cannot send member sync")
+            return False
+        if not self.message_router:
+            return False
+
+        logger.info(f"Sending member_sync ({action}) for user {target_user_id} "
+                     f"in channel {channel_id} to peer {target_peer_id}")
+        future = asyncio.run_coroutine_threadsafe(
+            self.message_router.send_member_sync(
+                to_peer=target_peer_id,
+                channel_id=channel_id,
+                target_user_id=target_user_id,
+                action=action,
+                role=role,
+                channel_name=channel_name,
+                channel_type=channel_type,
+                channel_description=channel_description,
+                privacy_mode=privacy_mode,
+            ),
+            self._event_loop
+        )
+        try:
+            return future.result(timeout=5.0)
+        except Exception as e:
+            logger.error(f"Error sending member sync: {e}", exc_info=True)
+            return False
+
+    async def _send_channel_sync_to_peer(self, peer_id: str) -> None:
+        """
+        Send all local public channels to a newly connected peer.
+        
+        Called automatically when a peer connects.
+        """
+        if not self.message_router:
+            return
+
+        try:
+            channels = []
+            if self.get_public_channels_for_sync:
+                channels = self.get_public_channels_for_sync()
+
+            if not channels:
+                logger.debug(f"No public channels to sync with {peer_id}")
+                return
+
+            logger.debug(f"Sending channel sync ({len(channels)} channels) to {peer_id}")
+            await self.message_router.send_channel_sync(peer_id, channels)
+        except Exception as e:
+            logger.error(f"Error sending channel sync to {peer_id}: {e}", exc_info=True)
+
+    PERIODIC_CATCHUP_INTERVAL = 180  # seconds (3 minutes)
+
+    async def _periodic_catchup_loop(self) -> None:
+        """Periodically send catch-up requests to all connected peers.
+
+        This covers messages that were "sent OK" at the TCP level but
+        never actually processed by the remote peer (e.g. because the
+        connection dropped right after the send).  The on-reconnect
+        catch-up only fires once; this loop provides ongoing repair.
+        """
+        # Initial delay — let startup settle before first periodic run
+        await asyncio.sleep(60)
+
+        while self._running:
+            try:
+                if not self.connection_manager:
+                    await asyncio.sleep(self.PERIODIC_CATCHUP_INTERVAL)
+                    continue
+
+                peers = self.connection_manager.get_connected_peers()
+                if peers:
+                    logger.info(f"Periodic catch-up: syncing with "
+                                f"{len(peers)} connected peer(s)")
+                    for peer_id in peers:
+                        try:
+                            await self._send_catchup_request(peer_id)
+                        except Exception as per_err:
+                            logger.debug(f"Periodic catchup to {peer_id} "
+                                         f"failed: {per_err}")
+                        # Small stagger between peers
+                        await asyncio.sleep(2)
+            except Exception as e:
+                logger.error(f"Error in periodic catchup loop: {e}",
+                             exc_info=True)
+
+            await asyncio.sleep(self.PERIODIC_CATCHUP_INTERVAL)
+
+    async def _send_catchup_request(self, peer_id: str) -> None:
+        """Send a catch-up request to a peer after connecting.
+
+        Builds a map of {channel_id: latest_timestamp} from local data
+        and sends it so the peer can reply with any newer messages.
+        Also includes latest timestamps for feed posts, circle entries,
+        circle votes, and tasks so the peer can send missed items.
+        """
+        if not self.message_router:
+            return
+
+        try:
+            channel_timestamps = {}
+            if self.get_channel_latest_timestamps:
+                channel_timestamps = self.get_channel_latest_timestamps()
+
+            # Gather extra timestamps for non-channel data
+            extra_timestamps = {}
+            for attr, key in [
+                ('get_feed_latest_timestamp', 'feed_latest'),
+                ('get_circle_entries_latest_timestamp', 'circle_entries_latest'),
+                ('get_circle_votes_latest_timestamp', 'circle_votes_latest'),
+                ('get_circles_latest_timestamp', 'circles_latest'),
+                ('get_tasks_latest_timestamp', 'tasks_latest'),
+            ]:
+                cb = getattr(self, attr, None)
+                if cb:
+                    try:
+                        ts = cb()
+                        if ts:
+                            extra_timestamps[key] = ts
+                    except Exception:
+                        pass
+
+            # Even if we have no messages yet, send an empty map so the
+            # peer can send us everything.
+            logger.debug(f"Sending catchup request ({len(channel_timestamps)} "
+                         f"channels, extras={list(extra_timestamps.keys())}) "
+                         f"to {peer_id}")
+            await self.message_router.send_catchup_request(
+                peer_id, channel_timestamps,
+                extra_timestamps=extra_timestamps if extra_timestamps else None)
+        except Exception as e:
+            logger.error(f"Error sending catchup request to {peer_id}: {e}",
+                         exc_info=True)
+
+    def send_catchup_response(self, peer_id: str,
+                               messages: list) -> bool:
+        """Send a catch-up response with missed messages to a peer.
+
+        Called from the application layer when a catchup request is
+        received and messages have been gathered.  This SYNCHRONOUS
+        version blocks until the send completes; prefer
+        send_catchup_response_async when called from the event loop
+        (the catchup handler in app.py uses the async path to avoid
+        blocking and timeouts).
+        """
+        if not self._running or not self._event_loop:
+            return False
+        if not self.message_router:
+            return False
+
+        future = asyncio.run_coroutine_threadsafe(
+            self.message_router.send_catchup_response(peer_id, messages),
+            self._event_loop
+        )
+        # Generous timeout: payload can be large and peer may be slow.
+        # Prefer send_catchup_response_async so the event loop is not blocked.
+        try:
+            return future.result(timeout=60.0)
+        except Exception as e:
+            logger.error(f"Error sending catchup response to {peer_id}: {e}",
+                         exc_info=True)
+            return False
+
+    async def send_catchup_response_async(self, peer_id: str,
+                                           messages: list,
+                                           extra_data: Optional[dict[Any, Any]] = None) -> None:
+        """Send catchup response messages asynchronously.
+
+        Sends each channel message individually so a single failure
+        doesn't block everything.  Then sends any extra data (feed
+        posts, circle entries, circle votes, tasks) as a single batch.
+
+        This is safe to call from the event loop (unlike the sync
+        version which would deadlock).
+        """
+        if not self._running or not self.message_router:
+            return
+
+        sent = 0
+        for msg in messages:
+            try:
+                # Per-message timeout so a slow/dead peer doesn't block forever
+                ok = await asyncio.wait_for(
+                    self.message_router.send_catchup_response(
+                        peer_id, [msg]),
+                    timeout=25.0)
+                if ok:
+                    sent += 1
+                else:
+                    logger.warning(
+                        f"Catchup to {peer_id}: send failed at msg "
+                        f"{sent + 1}/{len(messages)}, aborting")
+                    break
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"Catchup to {peer_id}: timeout at msg "
+                    f"{sent + 1}/{len(messages)}, aborting")
+                break
+            except Exception as e:
+                logger.warning(
+                    f"Catchup to {peer_id}: error at msg "
+                    f"{sent + 1}/{len(messages)}: {e}")
+                break
+            # Small stagger between messages
+            await asyncio.sleep(0.1)
+
+        if sent > 0:
+            logger.info(f"Catchup to {peer_id}: sent {sent}/{len(messages)} "
+                        f"messages successfully")
+
+        # Send extra data (circle entries, tasks, feed posts, votes) as
+        # a single batch response.  These are typically small so one
+        # message is fine.
+        if extra_data:
+            total_extra = sum(len(v) for v in extra_data.values() if isinstance(v, list))
+            if total_extra > 0:
+                try:
+                    ok = await asyncio.wait_for(
+                        self.message_router.send_catchup_response(
+                            peer_id, [], extra_data=extra_data),
+                        timeout=30.0)
+                    if ok:
+                        logger.info(f"Catchup to {peer_id}: sent extra data "
+                                    f"({', '.join(f'{k}={len(v)}' for k, v in extra_data.items() if isinstance(v, list) and v)})")
+                    else:
+                        logger.warning(f"Catchup to {peer_id}: failed to send extra data")
+                except asyncio.TimeoutError:
+                    logger.warning(f"Catchup to {peer_id}: timeout sending extra data")
+                except Exception as e:
+                    logger.warning(f"Catchup to {peer_id}: error sending extra data: {e}")
+
+    def get_connected_peers(self) -> list[str]:
+        """Get list of currently connected peer IDs."""
+        if not self.connection_manager:
+            return []
+        return self.connection_manager.get_connected_peers()
+    
+    def get_discovered_peers(self) -> list[Dict[str, Any]]:
+        """Get list of discovered peers."""
+        if not self.discovery:
+            return []
+        
+        peers = self.discovery.get_discovered_peers()
+        return [
+            {
+                'peer_id': p.peer_id,
+                'address': p.address,
+                'port': p.port,
+                'discovered_at': p.discovered_at,
+                'connected': self.connection_manager.is_connected(p.peer_id) if self.connection_manager else False
+            }
+            for p in peers
+        ]
+    
+    @property
+    def ws_scheme(self) -> str:
+        """Return 'wss' if TLS is active, else 'ws'."""
+        if self.connection_manager and getattr(self.connection_manager, 'enable_tls', False):
+            return 'wss'
+        return 'ws'
+
+    def get_peer_id(self) -> Optional[str]:
+        """Get local peer ID."""
+        return self.local_identity.peer_id if self.local_identity else None
+
+    def get_mesh_diagnostics(self) -> Dict[str, Any]:
+        """Return runtime diagnostics for troubleshooting mesh stability."""
+        pending_by_peer: Dict[str, int] = {}
+        total_pending = 0
+        if self.message_router:
+            for peer_id, queue in (self.message_router.pending_messages or {}).items():
+                count = len(queue or [])
+                if count <= 0:
+                    continue
+                pending_by_peer[peer_id] = count
+                total_pending += count
+
+        reconnect_tasks: Dict[str, str] = {}
+        for peer_id, task in list(self._reconnect_tasks.items()):
+            state = 'scheduled'
+            try:
+                if getattr(task, 'cancelled', lambda: False)():
+                    state = 'cancelled'
+                    self._reconnect_tasks.pop(peer_id, None)
+                elif getattr(task, 'done', lambda: False)():
+                    state = 'done'
+                    self._reconnect_tasks.pop(peer_id, None)
+                else:
+                    state = 'running'
+            except Exception:
+                state = 'unknown'
+            reconnect_tasks[peer_id] = state
+
+        recent_failures = []
+        try:
+            for event in self.get_activity_events(limit=200):
+                kind = event.get('kind')
+                status = (event.get('status') or '').lower()
+                if kind == 'connection' and status in {'failed', 'disconnected'}:
+                    recent_failures.append(event)
+                elif kind == 'security' and status in {'blocked', 'warning'}:
+                    recent_failures.append(event)
+        except Exception:
+            recent_failures = []
+
+        sync_queue_depth = 0
+        if self._sync_queue:
+            try:
+                sync_queue_depth = int(self._sync_queue.qsize())
+            except Exception:
+                sync_queue_depth = 0
+
+        return {
+            'timestamp': time.time(),
+            'connected_peers': self.get_connected_peers(),
+            'known_peers_count': len(getattr(self.identity_manager, 'known_peers', {}) or {}),
+            'pending_messages': {
+                'total': total_pending,
+                'by_peer': pending_by_peer,
+            },
+            'reconnect_tasks': {
+                'count': len(reconnect_tasks),
+                'by_peer': reconnect_tasks,
+            },
+            'sync': {
+                'queue_depth': sync_queue_depth,
+                'active_catchups': list(self._active_catchups),
+                'startup_grace': self._in_startup_grace_period(),
+            },
+            'security': {
+                'allow_unverified_relay_messages': bool(
+                    getattr(self, 'allow_unverified_relay_messages', False)
+                ),
+            },
+            'recent_failures': recent_failures[-20:],
+        }
+
+    def resync_mesh(self, include_reconnect: bool = True) -> Dict[str, Any]:
+        """
+        Schedule post-connect sync for connected peers and optionally reconnect known peers.
+        """
+        if not self._event_loop or self._event_loop.is_closed():
+            return {
+                'scheduled_syncs': 0,
+                'connected_targets': [],
+                'reconnect_scheduled': False,
+                'error': 'event-loop-unavailable',
+            }
+
+        connected = self.get_connected_peers()
+        scheduled = 0
+        for peer_id in connected:
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    self._run_post_connect_sync(peer_id),
+                    self._event_loop
+                )
+                scheduled += 1
+            except Exception:
+                logger.warning(f"Failed to schedule manual sync for {peer_id}", exc_info=True)
+
+        reconnect_ok = False
+        if include_reconnect:
+            reconnect_ok = self.reconnect_known_peers()
+
+        return {
+            'scheduled_syncs': scheduled,
+            'connected_targets': connected,
+            'reconnect_scheduled': reconnect_ok,
+        }
+    
+    def get_network_status(self) -> Dict[str, Any]:
+        """
+        Get current network status.
+        
+        Returns:
+            Dictionary with network status information
+        """
+        return {
+            'running': self._running,
+            'peer_id': self.get_peer_id(),
+            'connected_peers': len(self.get_connected_peers()),
+            'connected_peers_list': self.get_connected_peers(),
+            'discovered_peers': len(self.get_discovered_peers()),
+            'peers': self.get_discovered_peers(),
+            'relay_policy': getattr(self, 'relay_policy', 'broker_only'),
+            'security': {
+                'allow_unverified_relay_messages': bool(
+                    getattr(self, 'allow_unverified_relay_messages', False)
+                ),
+            },
+        }
+    
+    def is_running(self) -> bool:
+        """Check if P2P network is running."""
+        return self._running
