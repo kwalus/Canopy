@@ -1,0 +1,3096 @@
+"""
+Slack-style channel system for Canopy.
+
+Implements channel-based organization similar to Slack, with real-time
+messaging, threading, and work-focused communication.
+
+Author: Konrad Walus (architecture, design, and direction)
+Project: Canopy - Local Mesh Communication
+License: Apache 2.0
+Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
+"""
+
+import logging
+import secrets
+import json
+from datetime import datetime, timezone, timedelta
+from typing import Dict, List, Optional, Any, Union, Tuple, cast
+from dataclasses import dataclass
+from enum import Enum
+
+from .database import DatabaseManager
+from ..security.api_keys import ApiKeyManager, Permission
+from .logging_config import log_performance, LogOperation
+
+logger = logging.getLogger('canopy.channels')
+
+
+class ChannelType(Enum):
+    """Types of channels supported."""
+    PUBLIC = "public"      # Anyone can join and see
+    PRIVATE = "private"    # Invite-only
+    DM = "dm"             # Direct message (2 people)
+    GROUP_DM = "group_dm" # Group direct message (3+ people)
+    GENERAL = "general"   # Company-wide general channel
+
+
+class MessageType(Enum):
+    """Types of messages supported."""
+    TEXT = "text"
+    SYSTEM = "system"     # System notifications
+    FILE = "file"         # File attachments
+    IMAGE = "image"       # Image attachments
+    LINK = "link"         # Link shares
+    THREAD_REPLY = "thread_reply"  # Reply to a thread
+
+
+@dataclass
+class Channel:
+    """Represents a communication channel."""
+    id: str
+    name: str
+    channel_type: ChannelType
+    created_by: str
+    created_at: datetime
+    description: Optional[str] = None
+    topic: Optional[str] = None
+    member_count: int = 0
+    unread_count: int = 0
+    last_message_at: Optional[datetime] = None
+    origin_peer: Optional[str] = None
+    privacy_mode: str = 'open'
+    user_role: str = 'member'
+    notifications_enabled: bool = True
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert channel to dictionary."""
+        return {
+            'id': self.id,
+            'name': self.name,
+            'type': self.channel_type.value,
+            'created_by': self.created_by,
+            'created_at': self.created_at.isoformat(),
+            'description': self.description,
+            'topic': self.topic,
+            'member_count': self.member_count,
+            'unread_count': self.unread_count,
+            'last_message_at': self.last_message_at.isoformat() if self.last_message_at else None,
+            'origin_peer': self.origin_peer,
+            'privacy_mode': self.privacy_mode,
+            'user_role': self.user_role,
+            'notifications_enabled': self.notifications_enabled,
+        }
+
+
+@dataclass
+class Message:
+    """Represents a message in a channel."""
+    id: str
+    channel_id: str
+    user_id: str
+    content: str
+    message_type: MessageType
+    created_at: datetime
+    thread_id: Optional[str] = None  # If this is a thread reply
+    parent_message_id: Optional[str] = None  # For threading
+    reactions: Optional[Dict[str, List[str]]] = None  # emoji -> [user_ids]
+    attachments: Optional[List[Dict[str, Any]]] = None
+    security: Optional[Dict[str, Any]] = None
+    edited_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = None
+    origin_peer: Optional[str] = None
+
+    @staticmethod
+    def normalize_attachment(attachment: Any) -> Optional[Dict[str, Any]]:
+        """Return a canonical attachment dict for UI/API compatibility.
+
+        Canonical keys are:
+        - id (or file_id alias)
+        - name
+        - type
+        - size
+        - url (optional)
+
+        Agents sometimes send attachment metadata using upload-response keys
+        (file_id, filename, content_type). This normalizer preserves backward
+        compatibility by mapping aliases into canonical fields.
+        """
+        if isinstance(attachment, str):
+            file_id = attachment.strip()
+            if not file_id:
+                return None
+            return {
+                'id': file_id,
+                'file_id': file_id,
+                'name': file_id,
+                'type': 'application/octet-stream',
+            }
+
+        if not isinstance(attachment, dict):
+            return None
+
+        att = dict(attachment)
+        file_id = att.get('id') or att.get('file_id')
+        if file_id:
+            file_id_str = str(file_id).strip()
+            if file_id_str:
+                att['id'] = file_id_str
+                att.setdefault('file_id', file_id_str)
+
+        name = (
+            att.get('name')
+            or att.get('filename')
+            or att.get('original_name')
+            or att.get('file_name')
+        )
+        if name:
+            att['name'] = str(name)
+
+        content_type = (
+            att.get('type')
+            or att.get('content_type')
+            or att.get('mime_type')
+            or att.get('mime')
+        )
+        if content_type:
+            att['type'] = str(content_type)
+
+        if 'size' in att and att.get('size') is not None:
+            try:
+                att['size'] = int(att.get('size'))
+            except (TypeError, ValueError):
+                pass
+
+        return att
+
+    @classmethod
+    def normalize_attachments(cls, attachments: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+        """Normalize an attachment list while preserving unknown extra keys."""
+        normalized: List[Dict[str, Any]] = []
+        for attachment in attachments or []:
+            att = cls.normalize_attachment(attachment)
+            if att:
+                normalized.append(att)
+        return normalized
+
+    @property
+    def is_expired(self) -> bool:
+        """Return True if this message has expired."""
+        if not self.expires_at:
+            return False
+        now = datetime.now(timezone.utc)
+        exp = self.expires_at
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        return exp <= now
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert message to dictionary."""
+        attachments = self.normalize_attachments(self.attachments)
+        return {
+            'id': self.id,
+            'channel_id': self.channel_id,
+            'user_id': self.user_id,
+            'content': self.content,
+            'type': self.message_type.value,
+            'created_at': self.created_at.isoformat(),
+            'expires_at': self.expires_at.isoformat() if self.expires_at else None,
+            'thread_id': self.thread_id,
+            'parent_message_id': self.parent_message_id,
+            'reactions': self.reactions or {},
+            'attachments': attachments,
+            'security': self.security or {},
+            'edited_at': self.edited_at.isoformat() if self.edited_at else None,
+            'origin_peer': self.origin_peer,
+        }
+
+
+class ChannelManager:
+    """Manages Slack-style channels and messaging."""
+
+    DEFAULT_TTL_DAYS = 90  # Quarterly default
+    DEFAULT_TTL_SECONDS = DEFAULT_TTL_DAYS * 24 * 3600
+    TARGETED_PRIVACY_MODES = {'private', 'confidential'}
+    PRIVACY_ORDER = {
+        'open': 0,
+        'guarded': 1,
+        'private': 2,
+        'confidential': 3,
+    }
+    SECURITY_ALLOWED_KEYS = {
+        'algorithm',
+        'ciphertext',
+        'nonce',
+        'sender_key',
+        'recipient_key',
+        'version',
+        'payload_format',
+        'key_id',
+        'tag',
+        'aad',
+        'iv',
+        'salt',
+        'kdf',
+    }
+    SECURITY_MAX_JSON_BYTES = 16384
+    SECURITY_MAX_VALUE_BYTES = 4096
+    SECURITY_MAX_LIST_ITEMS = 64
+    GOVERNANCE_MAX_ALLOWED_CHANNELS = 512
+    GOVERNANCE_MAX_CHANNEL_ID_LENGTH = 128
+    
+    def __init__(self, db: DatabaseManager, api_key_manager: ApiKeyManager):
+        """Initialize channel manager."""
+        logger.info("Initializing ChannelManager")
+        self.db = db
+        self.api_key_manager = api_key_manager
+        
+        # Ensure database tables exist
+        with LogOperation("Channel tables initialization"):
+            self._ensure_tables()
+        
+        # Create default general channel if it doesn't exist
+        with LogOperation("Default channel creation"):
+            self._ensure_default_channels()
+        
+        logger.info("ChannelManager initialized successfully")
+
+    @staticmethod
+    def _parse_datetime(value: Any) -> Optional[datetime]:
+        """Parse a timestamp string into a timezone-aware datetime (UTC)."""
+        if not value:
+            return None
+        if isinstance(value, datetime):
+            dt = value
+        else:
+            try:
+                dt = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+            except Exception:
+                try:
+                    dt = datetime.strptime(str(value), '%Y-%m-%d %H:%M:%S')
+                except Exception:
+                    return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+
+    @staticmethod
+    def _format_db_timestamp(dt: datetime) -> str:
+        """Format a datetime for SQLite comparisons (UTC, no timezone suffix)."""
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+
+    def _resolve_expiry(self,
+                        expires_at: Optional[Any] = None,
+                        ttl_seconds: Optional[int] = None,
+                        ttl_mode: Optional[str] = None,
+                        apply_default: bool = True,
+                        base_time: Optional[datetime] = None) -> Optional[datetime]:
+        """Resolve expiry for a channel message based on explicit expiry, TTL, or defaults."""
+        if ttl_mode in ('none', 'no_expiry', 'immortal'):
+            return None
+
+        if expires_at:
+            return self._parse_datetime(expires_at)
+
+        base = base_time or datetime.now(timezone.utc)
+
+        if ttl_seconds is not None:
+            try:
+                ttl_val = int(ttl_seconds)
+            except (TypeError, ValueError):
+                ttl_val = None
+            if ttl_val is not None:
+                if ttl_val <= 0:
+                    return None
+                return base + timedelta(seconds=ttl_val)
+
+        if apply_default:
+            return base + timedelta(seconds=self.DEFAULT_TTL_SECONDS)
+
+        return None
+
+    def validate_security_metadata(
+        self,
+        security: Optional[Dict[str, Any]],
+        strict: bool = True
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        """Validate and sanitize security metadata for channel messages."""
+        if security is None:
+            return None, None
+        if not isinstance(security, dict):
+            return None, "Security metadata must be an object"
+
+        sanitized: Dict[str, Any] = {}
+        for key, value in security.items():
+            if key not in self.SECURITY_ALLOWED_KEYS:
+                if strict:
+                    return None, f"Unsupported security field: {key}"
+                continue
+
+            if value is None or isinstance(value, (str, int, float, bool)):
+                if isinstance(value, str) and len(value) > self.SECURITY_MAX_VALUE_BYTES:
+                    return None, f"Security field too large: {key}"
+                sanitized[key] = value
+                continue
+
+            if isinstance(value, list):
+                if len(value) > self.SECURITY_MAX_LIST_ITEMS:
+                    return None, f"Security field list too long: {key}"
+                for item in value:
+                    if not isinstance(item, (str, int, float, bool)) and item is not None:
+                        return None, f"Unsupported security list item: {key}"
+                    if isinstance(item, str) and len(item) > self.SECURITY_MAX_VALUE_BYTES:
+                        return None, f"Security field too large: {key}"
+                sanitized[key] = value
+                continue
+
+            if strict:
+                return None, f"Unsupported security value for {key}"
+            return None, "Invalid security metadata"
+
+        if not sanitized:
+            return None, None
+
+        try:
+            encoded = json.dumps(sanitized)
+        except Exception:
+            return None, "Security metadata not serializable"
+
+        if len(encoded.encode('utf-8')) > self.SECURITY_MAX_JSON_BYTES:
+            return None, "Security metadata too large"
+
+        return sanitized, None
+    
+    def _ensure_tables(self) -> None:
+        """Ensure channel-related tables exist."""
+        logger.info("Ensuring channel database tables exist...")
+        
+        try:
+            with self.db.get_connection() as conn:
+                conn.executescript("""
+                    -- Channels table
+                    CREATE TABLE IF NOT EXISTS channels (
+                        id TEXT PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        channel_type TEXT NOT NULL,
+                        created_by TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        description TEXT,
+                        topic TEXT,
+                        FOREIGN KEY (created_by) REFERENCES users (id)
+                    );
+                    
+                    -- Channel members table
+                    CREATE TABLE IF NOT EXISTS channel_members (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        channel_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        role TEXT DEFAULT 'member',  -- admin, member
+                        notifications_enabled BOOLEAN DEFAULT TRUE,
+                        last_read_at TIMESTAMP,
+                        FOREIGN KEY (channel_id) REFERENCES channels (id) ON DELETE CASCADE,
+                        FOREIGN KEY (user_id) REFERENCES users (id),
+                        UNIQUE(channel_id, user_id)
+                    );
+                    
+                    -- Channel messages table  
+                    CREATE TABLE IF NOT EXISTS channel_messages (
+                        id TEXT PRIMARY KEY,
+                        channel_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        message_type TEXT DEFAULT 'text',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        origin_peer TEXT,
+                        expires_at TIMESTAMP,
+                        thread_id TEXT,
+                        parent_message_id TEXT,
+                        reactions TEXT,  -- JSON blob
+                        attachments TEXT,  -- JSON blob
+                        security TEXT,  -- JSON blob for future encryption metadata
+                        edited_at TIMESTAMP,
+                        FOREIGN KEY (channel_id) REFERENCES channels (id) ON DELETE CASCADE,
+                        FOREIGN KEY (user_id) REFERENCES users (id),
+                        FOREIGN KEY (parent_message_id) REFERENCES channel_messages (id)
+                    );
+                    
+                    -- Indexes for performance
+                    CREATE INDEX IF NOT EXISTS idx_channel_members_channel ON channel_members(channel_id);
+                    CREATE INDEX IF NOT EXISTS idx_channel_members_user ON channel_members(user_id);
+                    CREATE INDEX IF NOT EXISTS idx_channel_messages_channel ON channel_messages(channel_id);
+                    CREATE INDEX IF NOT EXISTS idx_channel_messages_created_at ON channel_messages(created_at);
+                    CREATE INDEX IF NOT EXISTS idx_channel_messages_thread ON channel_messages(thread_id);
+                    
+                    -- Unique constraint for public channel names
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_channels_public_name ON channels(name) WHERE channel_type = 'public';
+                """)
+
+                # Add origin_peer column if it doesn't exist (migration)
+                try:
+                    conn.execute("SELECT origin_peer FROM channels LIMIT 1")
+                except Exception:
+                    conn.execute("ALTER TABLE channels ADD COLUMN origin_peer TEXT DEFAULT NULL")
+                    logger.info("Added origin_peer column to channels table")
+
+                # Add privacy_mode column if missing
+                try:
+                    conn.execute("SELECT privacy_mode FROM channels LIMIT 1")
+                except Exception:
+                    conn.execute("ALTER TABLE channels ADD COLUMN privacy_mode TEXT DEFAULT 'open'")
+                    logger.info("Added privacy_mode column to channels table")
+
+                # Add expires_at column to channel_messages if missing
+                try:
+                    conn.execute("SELECT expires_at FROM channel_messages LIMIT 1")
+                except Exception:
+                    conn.execute("ALTER TABLE channel_messages ADD COLUMN expires_at TIMESTAMP")
+                    # Backfill existing messages with default TTL so the network shrinks over time
+                    try:
+                        conn.execute("""
+                            UPDATE channel_messages
+                            SET expires_at = datetime(created_at, ?)
+                            WHERE expires_at IS NULL
+                        """, (f'+{self.DEFAULT_TTL_DAYS} days',))
+                    except Exception as backfill_err:
+                        logger.debug(f"Channel message TTL backfill skipped: {backfill_err}")
+                    logger.info("Added expires_at column to channel_messages table")
+
+                # Add origin_peer column to channel_messages if missing
+                try:
+                    conn.execute("SELECT origin_peer FROM channel_messages LIMIT 1")
+                except Exception:
+                    conn.execute("ALTER TABLE channel_messages ADD COLUMN origin_peer TEXT")
+                    logger.info("Added origin_peer column to channel_messages table")
+
+                # Ensure expires_at index exists now that the column is guaranteed
+                try:
+                    conn.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_channel_messages_expires_at
+                        ON channel_messages(expires_at)
+                    """)
+                except Exception as idx_err:
+                    logger.debug(f"Could not create expires_at index: {idx_err}")
+
+                # Add ttl_seconds, ttl_mode, edited_at, security so catchup/edit can send them
+                for col, typ in [('ttl_seconds', 'INTEGER'), ('ttl_mode', 'TEXT'), ('edited_at', 'TIMESTAMP'), ('security', 'TEXT')]:
+                    try:
+                        conn.execute(f"SELECT {col} FROM channel_messages LIMIT 1")
+                    except Exception:
+                        conn.execute(f"ALTER TABLE channel_messages ADD COLUMN {col} {typ}")
+                        logger.info(f"Added {col} column to channel_messages table")
+
+                # Add last_activity_at for reply resurfacing (Circle decision)
+                try:
+                    conn.execute("SELECT last_activity_at FROM channel_messages LIMIT 1")
+                except Exception:
+                    conn.execute("ALTER TABLE channel_messages ADD COLUMN last_activity_at TIMESTAMP")
+                    conn.execute("CREATE INDEX IF NOT EXISTS idx_channel_messages_last_activity ON channel_messages(last_activity_at)")
+                    logger.info("Added last_activity_at column to channel_messages table")
+
+                # Add notifications_enabled to channel_members for per-user mute
+                try:
+                    conn.execute("SELECT notifications_enabled FROM channel_members LIMIT 1")
+                except Exception:
+                    conn.execute("ALTER TABLE channel_members ADD COLUMN notifications_enabled BOOLEAN DEFAULT 1")
+                    logger.info("Added notifications_enabled column to channel_members table")
+
+                # Migration: strip leading '#' from channel names
+                # (the '#' is a display prefix added by the UI)
+                try:
+                    fixed = conn.execute("""
+                        UPDATE channels SET name = LTRIM(name, '#')
+                        WHERE name LIKE '#%'
+                    """).rowcount
+                    if fixed:
+                        conn.commit()
+                        logger.info(f"Stripped '#' prefix from {fixed} channel name(s)")
+                except Exception as e:
+                    logger.debug(f"Channel name '#' migration skipped: {e}")
+
+                # Peer device profiles — store name, description, avatar
+                # received from remote peers so the UI can show them.
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS peer_device_profiles (
+                        peer_id TEXT PRIMARY KEY,
+                        display_name TEXT,
+                        description TEXT,
+                        avatar_b64 TEXT,
+                        avatar_mime TEXT,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+                # Processed-messages table — persistent deduplication
+                # Prevents duplicate messages after restart + catch-up.
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS processed_messages (
+                        message_id TEXT PRIMARY KEY,
+                        processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_processed_messages_at
+                    ON processed_messages(processed_at)
+                """)
+
+                # Per-user channel governance policy.
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS user_channel_governance (
+                        user_id TEXT PRIMARY KEY,
+                        enabled BOOLEAN NOT NULL DEFAULT 0,
+                        block_public_channels BOOLEAN NOT NULL DEFAULT 0,
+                        restrict_to_allowed_channels BOOLEAN NOT NULL DEFAULT 0,
+                        allowed_channel_ids TEXT NOT NULL DEFAULT '[]',
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_by TEXT,
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                    )
+                """)
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_user_channel_governance_enabled
+                    ON user_channel_governance(enabled)
+                """)
+
+                # Per-user subscriptions for thread reply inbox notifications.
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS channel_thread_subscriptions (
+                        channel_id TEXT NOT NULL,
+                        thread_root_message_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        subscribed BOOLEAN NOT NULL DEFAULT 1,
+                        source TEXT NOT NULL DEFAULT 'manual',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (thread_root_message_id, user_id),
+                        FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                    )
+                """)
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_channel_thread_subscriptions_channel
+                    ON channel_thread_subscriptions(channel_id, thread_root_message_id, subscribed)
+                """)
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_channel_thread_subscriptions_user
+                    ON channel_thread_subscriptions(user_id, subscribed)
+                """)
+                
+                conn.commit()
+                logger.info("Channel database tables ensured successfully")
+                
+        except Exception as e:
+            logger.error(f"Failed to ensure channel tables: {e}", exc_info=True)
+            raise
+    
+    def _ensure_default_channels(self) -> None:
+        """Ensure default channels exist."""
+        logger.info("Ensuring default channels exist...")
+        
+        try:
+            with self.db.get_connection() as conn:
+                # Ensure system user exists
+                conn.execute("""
+                    INSERT OR IGNORE INTO users (id, username, public_key)
+                    VALUES ('system', 'System', 'system_public_key')
+                """)
+                
+                # Ensure local user exists
+                conn.execute("""
+                    INSERT OR IGNORE INTO users (id, username, public_key)
+                    VALUES ('local_user', 'Local User', 'default_public_key')
+                """)
+                
+                # Check if general channel exists
+                cursor = conn.execute("SELECT id FROM channels WHERE name = 'general'")
+                if not cursor.fetchone():
+                    logger.info("Creating default general channel")
+                    
+                    # Create the general channel
+                    conn.execute("""
+                        INSERT INTO channels (id, name, channel_type, created_by, description, privacy_mode)
+                        VALUES ('general', 'general', 'public', 'system', 'General discussion channel', 'open')
+                    """)
+                    
+                    # Add local user to the general channel
+                    conn.execute("""
+                        INSERT OR IGNORE INTO channel_members (channel_id, user_id, role)
+                        VALUES ('general', 'local_user', 'admin')
+                    """)
+                    
+                    conn.commit()
+                    logger.info("Default general channel created successfully")
+                else:
+                    logger.debug("General channel already exists")
+                    # Ensure general channel is always open
+                    conn.execute("""
+                        UPDATE channels SET privacy_mode = 'open' WHERE id = 'general'
+                    """)
+                    
+                    # Ensure local user is in general channel even if channel exists
+                    conn.execute("""
+                        INSERT OR IGNORE INTO channel_members (channel_id, user_id, role)
+                        VALUES ('general', 'local_user', 'admin')
+                    """)
+                    conn.commit()
+                    
+        except Exception as e:
+            logger.error(f"Failed to ensure default channels: {e}", exc_info=True)
+            raise
+
+    # ------------------------------------------------------------------
+    #  Channel governance helpers
+    # ------------------------------------------------------------------
+
+    def _default_channel_governance_policy(self, user_id: str) -> Dict[str, Any]:
+        return {
+            'user_id': user_id,
+            'enabled': False,
+            'block_public_channels': False,
+            'restrict_to_allowed_channels': False,
+            'allowed_channel_ids': [],
+            'updated_at': None,
+            'updated_by': None,
+        }
+
+    def _normalize_allowed_channel_ids(self, raw: Any) -> List[str]:
+        values: list[Any]
+        if raw is None:
+            values = []
+        elif isinstance(raw, str):
+            parsed: Any = None
+            txt = raw.strip()
+            if txt:
+                try:
+                    parsed = json.loads(txt)
+                except Exception:
+                    parsed = [part.strip() for part in txt.split(',')]
+            values = parsed if isinstance(parsed, list) else []
+        elif isinstance(raw, (list, tuple, set)):
+            values = list(raw)
+        else:
+            values = []
+
+        out: List[str] = []
+        seen = set()
+        for item in values:
+            cid = str(item or '').strip()
+            if not cid:
+                continue
+            if len(cid) > self.GOVERNANCE_MAX_CHANNEL_ID_LENGTH:
+                continue
+            if cid in seen:
+                continue
+            seen.add(cid)
+            out.append(cid)
+            if len(out) >= self.GOVERNANCE_MAX_ALLOWED_CHANNELS:
+                break
+        return out
+
+    def _is_public_channel(self, channel_type: Any, privacy_mode: Any) -> bool:
+        ctype = str(channel_type or '').strip().lower()
+        mode = self._normalize_privacy_mode(privacy_mode, default='open')
+        return mode == 'open' and ctype in {'public', 'general'}
+
+    def _is_channel_allowed_by_policy(
+        self,
+        policy: Dict[str, Any],
+        channel_id: str,
+        channel_type: Any,
+        privacy_mode: Any,
+    ) -> Tuple[bool, str]:
+        if not bool(policy.get('enabled')):
+            return True, 'policy_disabled'
+        if bool(policy.get('block_public_channels')) and self._is_public_channel(channel_type, privacy_mode):
+            return False, 'governance_public_channels_blocked'
+        if bool(policy.get('restrict_to_allowed_channels')):
+            allowed = set(self._normalize_allowed_channel_ids(policy.get('allowed_channel_ids')))
+            if channel_id not in allowed:
+                return False, 'governance_channel_not_allowlisted'
+        return True, 'ok'
+
+    def _load_user_channel_governance(self, conn: Any, user_id: str) -> Dict[str, Any]:
+        policy = self._default_channel_governance_policy(user_id)
+        if not user_id:
+            return policy
+        row = conn.execute(
+            """
+            SELECT enabled, block_public_channels, restrict_to_allowed_channels,
+                   allowed_channel_ids, updated_at, updated_by
+            FROM user_channel_governance
+            WHERE user_id = ?
+            """,
+            (user_id,),
+        ).fetchone()
+        if not row:
+            return policy
+
+        def _get(name: str, default: Any = None) -> Any:
+            try:
+                return row[name]
+            except Exception:
+                return default
+
+        def _as_bool(value: Any) -> bool:
+            if isinstance(value, bool):
+                return value
+            if value is None:
+                return False
+            if isinstance(value, (int, float)):
+                return value != 0
+            return str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
+
+        policy['enabled'] = _as_bool(_get('enabled', 0))
+        policy['block_public_channels'] = _as_bool(_get('block_public_channels', 0))
+        policy['restrict_to_allowed_channels'] = _as_bool(_get('restrict_to_allowed_channels', 0))
+        policy['allowed_channel_ids'] = self._normalize_allowed_channel_ids(_get('allowed_channel_ids', '[]'))
+        policy['updated_at'] = _get('updated_at')
+        policy['updated_by'] = _get('updated_by')
+        return policy
+
+    def get_user_channel_governance(self, user_id: str) -> Dict[str, Any]:
+        """Return persisted channel governance policy for a user."""
+        if not user_id:
+            return self._default_channel_governance_policy('')
+        try:
+            with self.db.get_connection() as conn:
+                return self._load_user_channel_governance(conn, user_id)
+        except Exception as e:
+            logger.error(f"Failed to load channel governance for {user_id}: {e}", exc_info=True)
+            return self._default_channel_governance_policy(user_id)
+
+    def set_user_channel_governance(
+        self,
+        user_id: str,
+        *,
+        enabled: bool,
+        block_public_channels: bool,
+        restrict_to_allowed_channels: bool,
+        allowed_channel_ids: Optional[List[str]] = None,
+        updated_by: Optional[str] = None,
+    ) -> bool:
+        """Create or update a user's channel governance policy."""
+        if not user_id:
+            return False
+        normalized_ids = self._normalize_allowed_channel_ids(allowed_channel_ids)
+        try:
+            with self.db.get_connection() as conn:
+                exists = conn.execute(
+                    "SELECT 1 FROM users WHERE id = ?",
+                    (user_id,),
+                ).fetchone()
+                if not exists:
+                    return False
+
+                conn.execute(
+                    """
+                    INSERT INTO user_channel_governance (
+                        user_id, enabled, block_public_channels,
+                        restrict_to_allowed_channels, allowed_channel_ids,
+                        updated_at, updated_by
+                    ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+                    ON CONFLICT(user_id) DO UPDATE SET
+                        enabled = excluded.enabled,
+                        block_public_channels = excluded.block_public_channels,
+                        restrict_to_allowed_channels = excluded.restrict_to_allowed_channels,
+                        allowed_channel_ids = excluded.allowed_channel_ids,
+                        updated_at = CURRENT_TIMESTAMP,
+                        updated_by = excluded.updated_by
+                    """,
+                    (
+                        user_id,
+                        1 if enabled else 0,
+                        1 if block_public_channels else 0,
+                        1 if restrict_to_allowed_channels else 0,
+                        json.dumps(normalized_ids),
+                        updated_by,
+                    ),
+                )
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Failed to update channel governance for {user_id}: {e}", exc_info=True)
+            return False
+
+    def get_channel_access_decision(
+        self,
+        channel_id: str,
+        user_id: str,
+        *,
+        require_membership: bool = True,
+    ) -> Dict[str, Any]:
+        """Resolve whether a user can access a channel under membership + governance."""
+        decision = {
+            'allowed': False,
+            'reason': 'invalid_request',
+            'role': None,
+            'channel_exists': False,
+            'policy': self._default_channel_governance_policy(user_id),
+        }
+        if not channel_id or not user_id:
+            return decision
+        try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    """
+                    SELECT c.id, c.channel_type, COALESCE(c.privacy_mode, 'open') AS privacy_mode,
+                           cm.role AS member_role
+                    FROM channels c
+                    LEFT JOIN channel_members cm
+                      ON cm.channel_id = c.id AND cm.user_id = ?
+                    WHERE c.id = ?
+                    """,
+                    (user_id, channel_id),
+                ).fetchone()
+                if not row:
+                    decision['reason'] = 'channel_not_found'
+                    return decision
+
+                decision['channel_exists'] = True
+                role = row['member_role'] if 'member_role' in row.keys() else None
+                decision['role'] = role
+                if require_membership and not role:
+                    decision['reason'] = 'not_member'
+                    return decision
+
+                policy = self._load_user_channel_governance(conn, user_id)
+                decision['policy'] = policy
+                allowed, reason = self._is_channel_allowed_by_policy(
+                    policy=policy,
+                    channel_id=channel_id,
+                    channel_type=row['channel_type'],
+                    privacy_mode=row['privacy_mode'],
+                )
+                decision['allowed'] = allowed
+                decision['reason'] = reason
+                return decision
+        except Exception as e:
+            logger.error(
+                f"Failed to evaluate channel access for user={user_id} channel={channel_id}: {e}",
+                exc_info=True,
+            )
+            decision['reason'] = 'internal_error'
+            return decision
+
+    def enforce_user_channel_governance(self, user_id: str) -> Dict[str, Any]:
+        """Prune disallowed memberships based on current governance policy."""
+        result = {
+            'user_id': user_id,
+            'enabled': False,
+            'checked_count': 0,
+            'removed_count': 0,
+            'removed_channel_ids': [],
+        }
+        if not user_id:
+            return result
+        try:
+            with self.db.get_connection() as conn:
+                policy = self._load_user_channel_governance(conn, user_id)
+                result['enabled'] = bool(policy.get('enabled'))
+                rows = conn.execute(
+                    """
+                    SELECT cm.channel_id, c.channel_type, COALESCE(c.privacy_mode, 'open') AS privacy_mode
+                    FROM channel_members cm
+                    JOIN channels c ON c.id = cm.channel_id
+                    WHERE cm.user_id = ?
+                    """,
+                    (user_id,),
+                ).fetchall()
+                result['checked_count'] = len(rows)
+                if not policy.get('enabled'):
+                    return result
+
+                removed_ids: List[str] = []
+                for row in rows:
+                    channel_id = row['channel_id']
+                    allowed, _ = self._is_channel_allowed_by_policy(
+                        policy=policy,
+                        channel_id=channel_id,
+                        channel_type=row['channel_type'],
+                        privacy_mode=row['privacy_mode'],
+                    )
+                    if allowed:
+                        continue
+                    conn.execute(
+                        "DELETE FROM channel_members WHERE channel_id = ? AND user_id = ?",
+                        (channel_id, user_id),
+                    )
+                    removed_ids.append(channel_id)
+                conn.commit()
+
+                result['removed_count'] = len(removed_ids)
+                result['removed_channel_ids'] = removed_ids
+                return result
+        except Exception as e:
+            logger.error(f"Failed to enforce channel governance for {user_id}: {e}", exc_info=True)
+            return result
+
+    def list_channels_for_governance(self, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List channels for admin governance UI with optional user-specific flags."""
+        try:
+            with self.db.get_connection() as conn:
+                policy = self._load_user_channel_governance(conn, user_id) if user_id else None
+                if user_id:
+                    rows = conn.execute(
+                        """
+                        SELECT c.id, c.name, c.channel_type, COALESCE(c.privacy_mode, 'open') AS privacy_mode,
+                               COUNT(DISTINCT cm.user_id) AS member_count,
+                               MAX(CASE WHEN cmu.user_id IS NOT NULL THEN 1 ELSE 0 END) AS is_member
+                        FROM channels c
+                        LEFT JOIN channel_members cm ON cm.channel_id = c.id
+                        LEFT JOIN channel_members cmu
+                          ON cmu.channel_id = c.id AND cmu.user_id = ?
+                        GROUP BY c.id, c.name, c.channel_type, COALESCE(c.privacy_mode, 'open')
+                        ORDER BY CASE WHEN c.id = 'general' THEN 0 ELSE 1 END, LOWER(c.name) ASC
+                        """,
+                        (user_id,),
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        """
+                        SELECT c.id, c.name, c.channel_type, COALESCE(c.privacy_mode, 'open') AS privacy_mode,
+                               COUNT(DISTINCT cm.user_id) AS member_count
+                        FROM channels c
+                        LEFT JOIN channel_members cm ON cm.channel_id = c.id
+                        GROUP BY c.id, c.name, c.channel_type, COALESCE(c.privacy_mode, 'open')
+                        ORDER BY CASE WHEN c.id = 'general' THEN 0 ELSE 1 END, LOWER(c.name) ASC
+                        """
+                    ).fetchall()
+
+                payload: List[Dict[str, Any]] = []
+                for row in rows:
+                    channel_id = row['id']
+                    channel_type = row['channel_type']
+                    privacy_mode = row['privacy_mode']
+                    is_public = self._is_public_channel(channel_type, privacy_mode)
+                    entry: Dict[str, Any] = {
+                        'id': channel_id,
+                        'name': row['name'],
+                        'channel_type': channel_type,
+                        'privacy_mode': privacy_mode,
+                        'member_count': int(row['member_count'] or 0),
+                        'is_public_open': bool(is_public),
+                    }
+                    if user_id:
+                        entry['is_member'] = bool(row['is_member'])
+                        if policy:
+                            allowed, reason = self._is_channel_allowed_by_policy(
+                                policy=policy,
+                                channel_id=channel_id,
+                                channel_type=channel_type,
+                                privacy_mode=privacy_mode,
+                            )
+                            entry['governance_allowed'] = bool(allowed)
+                            entry['governance_reason'] = reason
+                    payload.append(entry)
+                return payload
+        except Exception as e:
+            logger.error(f"Failed to list channels for governance: {e}", exc_info=True)
+            return []
+
+    # ------------------------------------------------------------------
+    #  Peer device profile helpers
+    # ------------------------------------------------------------------
+
+    def store_peer_device_profile(self, peer_id: str,
+                                  display_name: Optional[str] = None,
+                                  description: Optional[str] = None,
+                                  avatar_b64: Optional[str] = None,
+                                  avatar_mime: Optional[str] = None) -> bool:
+        """Upsert a device profile received from a remote peer."""
+        try:
+            with self.db.get_connection() as conn:
+                conn.execute("""
+                    INSERT INTO peer_device_profiles
+                        (peer_id, display_name, description,
+                         avatar_b64, avatar_mime, updated_at)
+                    VALUES (?, ?, ?, ?, ?, datetime('now'))
+                    ON CONFLICT(peer_id) DO UPDATE SET
+                        display_name = COALESCE(excluded.display_name, display_name),
+                        description  = COALESCE(excluded.description, description),
+                        avatar_b64   = COALESCE(excluded.avatar_b64, avatar_b64),
+                        avatar_mime  = COALESCE(excluded.avatar_mime, avatar_mime),
+                        updated_at   = datetime('now')
+                """, (peer_id, display_name, description,
+                      avatar_b64, avatar_mime))
+                conn.commit()
+            logger.debug(f"Stored device profile for peer {peer_id}: "
+                         f"name={display_name}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to store device profile for {peer_id}: {e}")
+            return False
+
+    def get_peer_device_profile(self, peer_id: str) -> Optional[Dict[str, Any]]:
+        """Return the stored device profile for a peer, or None."""
+        try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT display_name, description, avatar_b64, avatar_mime "
+                    "FROM peer_device_profiles WHERE peer_id = ?",
+                    (peer_id,)
+                ).fetchone()
+                if row:
+                    return {
+                        'peer_id': peer_id,
+                        'display_name': row[0] or peer_id[:12],
+                        'description': row[1] or '',
+                        'avatar_b64': row[2] or '',
+                        'avatar_mime': row[3] or '',
+                    }
+        except Exception as e:
+            logger.error(f"Failed to get device profile for {peer_id}: {e}")
+        return None
+
+    def get_all_peer_device_profiles(self) -> Dict[str, Dict[str, Any]]:
+        """Return all stored peer device profiles keyed by peer_id."""
+        profiles = {}
+        try:
+            with self.db.get_connection() as conn:
+                rows = conn.execute(
+                    "SELECT peer_id, display_name, description, "
+                    "avatar_b64, avatar_mime FROM peer_device_profiles"
+                ).fetchall()
+                for r in rows:
+                    profiles[r[0]] = {
+                        'peer_id': r[0],
+                        'display_name': r[1] or r[0][:12],
+                        'description': r[2] or '',
+                        'avatar_b64': r[3] or '',
+                        'avatar_mime': r[4] or '',
+                    }
+        except Exception as e:
+            logger.error(f"Failed to get all device profiles: {e}")
+        return profiles
+
+    @staticmethod
+    def _normalize_channel_name(name: str) -> str:
+        """Strip leading '#' characters from a channel name.
+
+        The '#' is a display prefix added by the UI — it should never
+        be stored in the database.  This prevents double-hash rendering
+        (e.g. '##general') when users or agents include '#' in the name.
+        """
+        return name.lstrip('#').strip() if name else name
+
+    @classmethod
+    def _normalize_privacy_mode(cls, mode: Any, default: str = 'open') -> str:
+        """Normalize channel privacy mode to a known value."""
+        candidate = str(mode or '').strip().lower()
+        if candidate in cls.PRIVACY_ORDER:
+            return candidate
+        return default
+
+    @classmethod
+    def _is_privacy_downgrade(cls, old_mode: str, new_mode: str) -> bool:
+        """Return True if new_mode is less restrictive than old_mode."""
+        old_rank = cls.PRIVACY_ORDER.get(cls._normalize_privacy_mode(old_mode), 0)
+        new_rank = cls.PRIVACY_ORDER.get(cls._normalize_privacy_mode(new_mode), 0)
+        return new_rank < old_rank
+
+    def _resolve_sync_channel_creator(self, conn: Any,
+                                      local_user_id: Optional[str]) -> str:
+        """Resolve a valid local user ID for FK-safe synced channel creation."""
+        candidates: list[str] = []
+        if local_user_id and isinstance(local_user_id, str):
+            candidates.append(local_user_id)
+        candidates.extend(['system', 'local_user'])
+
+        for candidate in candidates:
+            row = conn.execute(
+                "SELECT id FROM users WHERE id = ?",
+                (candidate,),
+            ).fetchone()
+            if row:
+                return candidate
+
+        # Last-resort bootstrap for legacy installs where defaults were not seeded.
+        try:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO users (id, username, public_key)
+                VALUES ('system', 'System', 'system_public_key')
+                """
+            )
+            row = conn.execute(
+                "SELECT id FROM users WHERE id = 'system'"
+            ).fetchone()
+            if row:
+                return 'system'
+        except Exception as e:
+            logger.warning(f"Could not bootstrap system user for synced channel creator: {e}")
+
+        row = conn.execute("SELECT id FROM users LIMIT 1").fetchone()
+        if row:
+            return cast(str, row[0] if not hasattr(row, 'keys') else row['id'])
+
+        raise RuntimeError("No local users available to satisfy channels.created_by foreign key")
+
+    @log_performance('channels')
+    def create_channel(self, name: str, channel_type: ChannelType,
+                      created_by: str, description: Optional[str] = None,
+                      initial_members: Optional[List[str]] = None,
+                      privacy_mode: str = 'open',
+                      origin_peer: Optional[str] = None) -> Optional[Channel]:
+        """Create a new channel."""
+        # Normalize — strip leading '#' so the UI doesn't double-prefix
+        name = self._normalize_channel_name(name)
+        logger.info(f"Creating channel: name={name}, type={channel_type.value}, created_by={created_by}")
+
+        try:
+            # Validate channel name
+            if not name or len(name) < 1:
+                logger.error("Channel name cannot be empty")
+                return None
+            
+            if len(name) > 80:
+                logger.error(f"Channel name too long: {len(name)} > 80")
+                return None
+
+            creator_policy = self.get_user_channel_governance(created_by)
+            if (
+                creator_policy.get('enabled')
+                and creator_policy.get('block_public_channels')
+                and self._is_public_channel(channel_type.value, privacy_mode)
+            ):
+                logger.warning(
+                    f"Governance denied public channel creation for {created_by}: "
+                    f"name={name}, channel_type={channel_type.value}, privacy_mode={privacy_mode}"
+                )
+                return None
+            if creator_policy.get('enabled') and creator_policy.get('restrict_to_allowed_channels'):
+                logger.warning(
+                    f"Governance denied channel creation for {created_by}: "
+                    f"allowlist mode active for user"
+                )
+                return None
+            
+            # Generate unique channel ID
+            channel_id = f"C{secrets.token_hex(8)}"
+            logger.debug(f"Generated channel ID: {channel_id}")
+            
+            # Create channel object
+            channel = Channel(
+                id=channel_id,
+                name=name,
+                channel_type=channel_type,
+                created_by=created_by,
+                created_at=datetime.now(timezone.utc),
+                description=description,
+                origin_peer=origin_peer,
+                privacy_mode=privacy_mode or 'open',
+                user_role='admin',
+            )
+            
+            with LogOperation(f"Database insert for channel {channel_id}"):
+                with self.db.get_connection() as conn:
+                    # Insert channel
+                    conn.execute("""
+                        INSERT INTO channels (id, name, channel_type, created_by, description, privacy_mode, origin_peer)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        channel_id, name, channel_type.value, created_by, description,
+                        privacy_mode or 'open', origin_peer
+                    ))
+                    
+                    # Add creator as admin member
+                    conn.execute("""
+                        INSERT INTO channel_members (channel_id, user_id, role)
+                        VALUES (?, ?, 'admin')
+                    """, (channel_id, created_by))
+
+                    # Ensure instance owner (admin) always has access to targeted channels.
+                    mode = (privacy_mode or 'open').lower()
+                    if channel_type == ChannelType.PRIVATE or mode in self.TARGETED_PRIVACY_MODES:
+                        try:
+                            owner_id = self.db.get_instance_owner_user_id()
+                        except Exception:
+                            owner_id = None
+                        if owner_id and owner_id != created_by:
+                            conn.execute("""
+                                INSERT OR IGNORE INTO channel_members (channel_id, user_id, role)
+                                VALUES (?, ?, 'admin')
+                            """, (channel_id, owner_id))
+                    
+                    # Add initial members if provided
+                    if initial_members:
+                        for user_id in initial_members:
+                            if user_id != created_by:  # Don't add creator twice
+                                target_policy = self._load_user_channel_governance(conn, user_id)
+                                allowed, reason = self._is_channel_allowed_by_policy(
+                                    policy=target_policy,
+                                    channel_id=channel_id,
+                                    channel_type=channel_type.value,
+                                    privacy_mode=privacy_mode,
+                                )
+                                if not allowed:
+                                    logger.warning(
+                                        f"Skipping member {user_id} for channel {channel_id} "
+                                        f"due to governance policy ({reason})"
+                                    )
+                                    continue
+                                conn.execute("""
+                                    INSERT OR IGNORE INTO channel_members (channel_id, user_id)
+                                    VALUES (?, ?)
+                                """, (channel_id, user_id))
+                    
+                    conn.commit()
+            
+            logger.info(f"Successfully created channel {channel_id}: {name}")
+            return channel
+            
+        except Exception as e:
+            logger.error(f"Failed to create channel: {e}", exc_info=True)
+            return None
+    
+    def get_all_public_channels(self) -> List[Dict[str, Any]]:
+        """
+        Return all public channels as lightweight dicts for P2P sync.
+        
+        Returns:
+            List of dicts with id, name, type, description, origin_peer.
+        """
+        try:
+            with self.db.get_connection() as conn:
+                rows = conn.execute("""
+                    SELECT id, name, channel_type, description,
+                           created_at, origin_peer, privacy_mode
+                    FROM channels
+                    WHERE (channel_type = 'public' OR channel_type = 'general')
+                      AND COALESCE(privacy_mode, 'open') NOT IN ('private', 'confidential')
+                """).fetchall()
+                return [
+                    {
+                        'id': r[0],
+                        'name': r[1],
+                        'type': r[2],
+                        'desc': r[3] or '',
+                        'origin_peer': r[5] or '',
+                        'privacy_mode': r[6] or 'open',
+                    }
+                    for r in rows
+                ]
+        except Exception as e:
+            logger.error(f"Failed to get public channels: {e}", exc_info=True)
+            return []
+
+    def create_channel_from_sync(self, channel_id: str, name: str,
+                                  channel_type: str, description: str,
+                                  local_user_id: Optional[str],
+                                  origin_peer: Optional[str] = None,
+                                  privacy_mode: str = 'open',
+                                  initial_members: Optional[list[Any]] = None) -> Optional[Channel]:
+        """
+        Create a channel with a specific ID received from P2P sync.
+        
+        Unlike create_channel(), this accepts an explicit ID so the
+        channel matches the one on the remote peer. Open channels
+        add all local human users as members so the channel is visible
+        to everyone on this instance. Targeted channels only add the
+        explicitly specified initial_members (targeted propagation).
+        
+        Args:
+            channel_id: The exact channel ID from the remote peer
+            name: Channel name
+            channel_type: Channel type string (e.g. 'public')
+            description: Channel description
+            local_user_id: Preferred local user ID for FK-safe creator fallback
+            origin_peer: Peer ID that originally owns this channel
+            privacy_mode: Channel privacy mode ('open', 'guarded', 'private', 'confidential')
+            initial_members: For targeted channels, explicit list of user IDs to add
+            
+        Returns:
+            Channel object if created, None if it already exists or failed
+        """
+        # Normalize — strip leading '#' to prevent double-hash display
+        name = self._normalize_channel_name(name)
+        try:
+            sync_creator_id = 'system'
+            with self.db.get_connection() as conn:
+                # Check if channel already exists
+                existing = conn.execute(
+                    "SELECT 1 FROM channels WHERE id = ?", (channel_id,)
+                ).fetchone()
+                if existing:
+                    logger.debug(f"Channel {channel_id} already exists, skipping sync-create")
+                    return None
+
+                sync_creator_id = self._resolve_sync_channel_creator(conn, local_user_id)
+
+                conn.execute("""
+                    INSERT INTO channels (id, name, channel_type, created_by,
+                                          description, origin_peer, privacy_mode)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (channel_id, name, channel_type, sync_creator_id,
+                      description, origin_peer, privacy_mode or 'open'))
+
+                added = 0
+                mode = (privacy_mode or '').lower()
+                is_targeted = mode in self.TARGETED_PRIVACY_MODES or channel_type == 'private'
+                if is_targeted:
+                    # Targeted channels: only add explicitly specified members
+                    if initial_members:
+                        # SECURITY: Validate that initial_members are legitimate local users
+                        for uid in initial_members:
+                            if uid and isinstance(uid, str):
+                                user_check = conn.execute(
+                                    "SELECT id FROM users WHERE id = ?", (uid,)
+                                ).fetchone()
+                                if not user_check:
+                                    logger.warning(
+                                        f"SECURITY: Rejected invalid user_id '{uid}' in initial_members "
+                                        f"from peer {origin_peer} for channel {channel_id}"
+                                    )
+                                    continue
+                                target_policy = self._load_user_channel_governance(conn, uid)
+                                allowed, reason = self._is_channel_allowed_by_policy(
+                                    policy=target_policy,
+                                    channel_id=channel_id,
+                                    channel_type=channel_type,
+                                    privacy_mode=privacy_mode,
+                                )
+                                if not allowed:
+                                    logger.warning(
+                                        f"SECURITY: Skipping targeted member {uid} for channel {channel_id} "
+                                        f"due to governance policy ({reason})"
+                                    )
+                                    continue
+                                conn.execute("""
+                                    INSERT OR IGNORE INTO channel_members (channel_id, user_id, role)
+                                    VALUES (?, ?, 'member')
+                                """, (channel_id, uid))
+                                added += 1
+                                logger.debug(f"Added targeted member {uid} to channel {channel_id}")
+                else:
+                    # Public channels: add ALL registered human users
+                    human_users = conn.execute("""
+                        SELECT id FROM users
+                        WHERE id != 'system' AND id != 'local_user'
+                          AND password_hash IS NOT NULL AND password_hash != ''
+                    """).fetchall()
+
+                    for (uid,) in human_users:
+                        target_policy = self._load_user_channel_governance(conn, uid)
+                        allowed, reason = self._is_channel_allowed_by_policy(
+                            policy=target_policy,
+                            channel_id=channel_id,
+                            channel_type=channel_type,
+                            privacy_mode=privacy_mode,
+                        )
+                        if not allowed:
+                            logger.info(
+                                f"Skipping auto-membership for {uid} in synced channel {channel_id} "
+                                f"due to governance policy ({reason})"
+                            )
+                            continue
+                        conn.execute("""
+                            INSERT OR IGNORE INTO channel_members (channel_id, user_id, role)
+                            VALUES (?, ?, 'member')
+                        """, (channel_id, uid))
+                        added += 1
+
+                # Fallback: if no human users found, add the provided user (open/guarded only)
+                if added == 0 and local_user_id and not is_targeted:
+                    fallback_policy = self._load_user_channel_governance(conn, local_user_id)
+                    fallback_allowed, fallback_reason = self._is_channel_allowed_by_policy(
+                        policy=fallback_policy,
+                        channel_id=channel_id,
+                        channel_type=channel_type,
+                        privacy_mode=privacy_mode,
+                    )
+                    if not fallback_allowed:
+                        logger.info(
+                            f"Skipped fallback member {local_user_id} for synced channel {channel_id} "
+                            f"due to governance policy ({fallback_reason})"
+                        )
+                    else:
+                        conn.execute("""
+                            INSERT OR IGNORE INTO channel_members (channel_id, user_id, role)
+                            VALUES (?, ?, 'member')
+                        """, (channel_id, local_user_id))
+
+                conn.commit()
+
+            channel = Channel(
+                id=channel_id,
+                name=name,
+                channel_type=ChannelType(channel_type) if channel_type in [e.value for e in ChannelType] else ChannelType.PUBLIC,
+                created_by=sync_creator_id,
+                created_at=datetime.now(timezone.utc),
+                description=description,
+                privacy_mode=privacy_mode or 'open',
+            )
+            logger.info(f"Created synced channel {channel_id}: {name}")
+            return channel
+
+        except Exception as e:
+            logger.error(f"Failed to create synced channel {channel_id}: {e}", exc_info=True)
+            return None
+
+    def merge_or_adopt_channel(self, remote_id: str, remote_name: str,
+                                remote_type: str, remote_desc: str,
+                                local_user_id: str,
+                                from_peer: str,
+                                privacy_mode: str = 'open') -> Optional[str]:
+        """
+        Handle a remote channel that may conflict with a local one.
+        
+        Rules:
+        - If remote ID already exists locally: skip (already synced).
+        - If a local channel has the same name but different ID and is
+          empty (no messages): adopt the remote ID (delete local, create
+          with remote ID).
+        - If same name, different ID, and local has messages: create the
+          remote channel with a disambiguated name.
+        - Otherwise: create the remote channel as-is.
+        
+        Returns:
+            The channel ID that was created/adopted, or None if skipped.
+        """
+        # Normalize — strip leading '#' to prevent double-hash display
+        remote_name = self._normalize_channel_name(remote_name)
+        privacy_mode = self._normalize_privacy_mode(privacy_mode, default='open')
+        # General channel is always open, never downgraded by remote metadata
+        if remote_id == 'general':
+            privacy_mode = 'open'
+        try:
+            with self.db.get_connection() as conn:
+                # Already have this exact channel?
+                existing = conn.execute(
+                    "SELECT name, description, privacy_mode, origin_peer, created_by FROM channels WHERE id = ?",
+                    (remote_id,)
+                ).fetchone()
+                if existing:
+                    old_name = existing[0] or ''
+                    old_desc = existing[1] or ''
+                    old_privacy = self._normalize_privacy_mode(existing[2], default='open')
+                    old_origin_peer = existing[3] or ''
+                    old_created_by = existing[4] or ''
+
+                    can_apply_remote_metadata = False
+                    if old_origin_peer:
+                        can_apply_remote_metadata = bool(from_peer and str(old_origin_peer) == str(from_peer))
+                    elif old_created_by == 'p2p-sync':
+                        # Legacy synced rows may have NULL origin_peer; allow updates cautiously.
+                        can_apply_remote_metadata = True
+
+                    # Update placeholder names / empty descriptions
+                    # with real metadata from the remote peer
+                    needs_update = False
+                    new_name = old_name
+                    new_desc = old_desc
+                    new_privacy = old_privacy
+                    if (can_apply_remote_metadata and old_name.startswith('peer-channel-') and remote_name
+                            and not remote_name.startswith('peer-channel-')):
+                        new_name = remote_name
+                        needs_update = True
+                    if (can_apply_remote_metadata and (not old_desc or old_desc.startswith('Auto-created from P2P'))
+                            and remote_desc
+                            and not remote_desc.startswith('Auto-created from P2P')):
+                        new_desc = remote_desc
+                        needs_update = True
+                    if privacy_mode and privacy_mode != old_privacy:
+                        privacy_downgrade = self._is_privacy_downgrade(old_privacy, privacy_mode)
+                        if can_apply_remote_metadata:
+                            # For legacy rows with unknown origin, fail closed on downgrades.
+                            if old_origin_peer or not privacy_downgrade:
+                                new_privacy = privacy_mode
+                                needs_update = True
+                            else:
+                                logger.warning(
+                                    "SECURITY: Ignoring privacy downgrade for channel %s "
+                                    "(origin unknown, old=%s, new=%s, from=%s)",
+                                    remote_id, old_privacy, privacy_mode, from_peer,
+                                )
+                        else:
+                            logger.warning(
+                                "SECURITY: Ignoring privacy update for channel %s from non-origin peer %s "
+                                "(origin=%s, old=%s, incoming=%s)",
+                                remote_id, from_peer, old_origin_peer or 'local/unknown',
+                                old_privacy, privacy_mode,
+                            )
+                    if needs_update:
+                        try:
+                            conn.execute(
+                                "UPDATE channels SET name = ?, description = ?, privacy_mode = ?, "
+                                "origin_peer = COALESCE(origin_peer, ?) WHERE id = ?",
+                                (new_name, new_desc, new_privacy, from_peer, remote_id)
+                            )
+                            conn.commit()
+                            logger.info(f"Updated channel {remote_id}: "
+                                        f"name='{old_name}'->'{new_name}', "
+                                        f"desc updated={old_desc != new_desc}")
+                            return remote_id
+                        except Exception as ue:
+                            logger.debug(f"Channel update for {remote_id} skipped: {ue}")
+                    # Still set origin_peer if not yet set (only for synced rows).
+                    try:
+                        if old_created_by == 'p2p-sync':
+                            conn.execute(
+                                "UPDATE channels SET origin_peer = ? "
+                                "WHERE id = ? AND origin_peer IS NULL",
+                                (from_peer, remote_id)
+                            )
+                            conn.commit()
+                    except Exception:
+                        pass
+                    return None  # Already synced, no updates needed
+
+                # Check for same-name conflict
+                conflict = conn.execute(
+                    "SELECT id FROM channels WHERE name = ? AND id != ?",
+                    (remote_name, remote_id)
+                ).fetchone()
+
+                if conflict:
+                    local_id = conflict[0]
+                    # Count messages in the local channel
+                    msg_count = conn.execute(
+                        "SELECT COUNT(*) FROM channel_messages WHERE channel_id = ?",
+                        (local_id,)
+                    ).fetchone()[0]
+
+                    if msg_count == 0:
+                        # Local channel is empty — adopt remote ID
+                        # Move members to the new channel, delete old one
+                        sync_creator_id = self._resolve_sync_channel_creator(conn, local_user_id)
+                        members = conn.execute(
+                            "SELECT user_id, role FROM channel_members WHERE channel_id = ?",
+                            (local_id,)
+                        ).fetchall()
+
+                        conn.execute("DELETE FROM channel_members WHERE channel_id = ?", (local_id,))
+                        conn.execute("DELETE FROM channels WHERE id = ?", (local_id,))
+
+                        conn.execute("""
+                            INSERT INTO channels (id, name, channel_type, created_by,
+                                                  description, origin_peer, privacy_mode)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """, (remote_id, remote_name, remote_type, sync_creator_id,
+                              remote_desc, from_peer, privacy_mode or 'open'))
+
+                        for user_id, role in members:
+                            conn.execute("""
+                                INSERT OR IGNORE INTO channel_members (channel_id, user_id, role)
+                                VALUES (?, ?, ?)
+                            """, (remote_id, user_id, role))
+
+                        conn.commit()
+                        logger.info(f"Adopted remote channel {remote_id} for '{remote_name}' "
+                                    f"(replaced empty local {local_id})")
+                        return remote_id
+                    else:
+                        # Local channel has messages — keep both, disambiguate remote
+                        peer_tag = from_peer[:8] if from_peer else 'remote'
+                        disambig_name = f"{remote_name} (peer-{peer_tag})"
+                        logger.info(f"Name conflict for '{remote_name}': keeping local {local_id}, "
+                                    f"creating remote {remote_id} as '{disambig_name}'")
+                        self.create_channel_from_sync(
+                            remote_id, disambig_name, remote_type, remote_desc,
+                            local_user_id, origin_peer=from_peer,
+                            privacy_mode=privacy_mode
+                        )
+                        return remote_id
+
+            # No conflict — create normally
+            self.create_channel_from_sync(
+                remote_id, remote_name, remote_type, remote_desc, local_user_id,
+                origin_peer=from_peer,
+                privacy_mode=privacy_mode
+            )
+            return remote_id
+
+        except Exception as e:
+            logger.error(f"Error in merge_or_adopt_channel: {e}", exc_info=True)
+            return None
+
+    def update_channel_privacy(self, channel_id: str, user_id: str,
+                               privacy_mode: str,
+                               allow_admin: bool = False,
+                               local_peer_id: Optional[str] = None) -> bool:
+        """Update a channel privacy mode. Only channel admins can edit."""
+        allowed_modes = {'open', 'guarded', 'private', 'confidential'}
+        if privacy_mode not in allowed_modes:
+            return False
+        try:
+            with self.db.get_connection() as conn:
+                # Never allow privacy changes on the default general channel
+                if channel_id == 'general':
+                    return False
+
+                role_row = conn.execute(
+                    "SELECT role FROM channel_members WHERE channel_id = ? AND user_id = ?",
+                    (channel_id, user_id)
+                ).fetchone()
+                if not role_row:
+                    return False
+                role = role_row['role'] if isinstance(role_row, dict) or hasattr(role_row, '__getitem__') else role_row[0]
+
+                chan_row = conn.execute(
+                    "SELECT origin_peer FROM channels WHERE id = ?",
+                    (channel_id,)
+                ).fetchone()
+                origin_peer = None
+                if chan_row:
+                    try:
+                        origin_peer = chan_row['origin_peer']
+                    except Exception:
+                        origin_peer = chan_row[0]
+
+                is_origin_local = not origin_peer
+                if local_peer_id and origin_peer:
+                    is_origin_local = origin_peer == local_peer_id
+
+                if not is_origin_local:
+                    return False
+                if role != 'admin' and not allow_admin:
+                    return False
+                conn.execute(
+                    "UPDATE channels SET privacy_mode = ? WHERE id = ?",
+                    (privacy_mode, channel_id)
+                )
+                if privacy_mode in self.TARGETED_PRIVACY_MODES:
+                    # Prune members so targeted channels don't keep broad-era membership.
+                    keep_ids = set()
+                    try:
+                        rows = conn.execute(
+                            "SELECT user_id, role FROM channel_members WHERE channel_id = ?",
+                            (channel_id,)
+                        ).fetchall()
+                        for r in rows:
+                            try:
+                                uid = r['user_id']
+                                role_val = r['role']
+                            except Exception:
+                                uid = r[0]
+                                role_val = r[1] if len(r) > 1 else None
+                            if role_val == 'admin':
+                                keep_ids.add(uid)
+                    except Exception:
+                        pass
+                    try:
+                        owner_id = self.db.get_instance_owner_user_id()
+                    except Exception:
+                        owner_id = None
+                    if owner_id:
+                        keep_ids.add(owner_id)
+                        conn.execute(
+                            "INSERT OR IGNORE INTO channel_members (channel_id, user_id, role) VALUES (?, ?, 'admin')",
+                            (channel_id, owner_id)
+                        )
+                    try:
+                        creator_row = conn.execute(
+                            "SELECT created_by FROM channels WHERE id = ?",
+                            (channel_id,)
+                        ).fetchone()
+                        if creator_row:
+                            try:
+                                keep_ids.add(creator_row['created_by'])
+                            except Exception:
+                                keep_ids.add(creator_row[0])
+                    except Exception:
+                        pass
+                    if user_id:
+                        keep_ids.add(user_id)
+                    if keep_ids:
+                        placeholders = ",".join("?" for _ in keep_ids)
+                        params = [channel_id] + list(keep_ids)
+                        conn.execute(
+                            f"DELETE FROM channel_members WHERE channel_id = ? AND user_id NOT IN ({placeholders})",
+                            params
+                        )
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Failed to update channel privacy: {e}", exc_info=True)
+            return False
+
+    def update_channel_notifications(self, channel_id: str, user_id: str,
+                                     enabled: bool) -> bool:
+        """Enable/disable notifications for a channel membership."""
+        try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT 1 FROM channel_members WHERE channel_id = ? AND user_id = ?",
+                    (channel_id, user_id)
+                ).fetchone()
+                if not row:
+                    return False
+                conn.execute(
+                    "UPDATE channel_members SET notifications_enabled = ? "
+                    "WHERE channel_id = ? AND user_id = ?",
+                    (1 if enabled else 0, channel_id, user_id)
+                )
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Failed to update channel notifications: {e}", exc_info=True)
+            return False
+
+    def _resolve_thread_root_id_conn(
+        self,
+        conn: Any,
+        channel_id: str,
+        message_id: str,
+    ) -> Optional[str]:
+        """Return the root message id for a message inside a channel thread."""
+        if not channel_id or not message_id:
+            return None
+
+        current_id = str(message_id).strip()
+        if not current_id:
+            return None
+
+        visited: set[str] = set()
+        max_hops = 64
+        hops = 0
+
+        while current_id and current_id not in visited and hops < max_hops:
+            visited.add(current_id)
+            row = conn.execute(
+                """
+                SELECT parent_message_id
+                FROM channel_messages
+                WHERE id = ? AND channel_id = ?
+                """,
+                (current_id, channel_id),
+            ).fetchone()
+            if not row:
+                return None
+            parent_id = str(row['parent_message_id']).strip() if row['parent_message_id'] else ''
+            if not parent_id:
+                return current_id
+            current_id = parent_id
+            hops += 1
+
+        return current_id if current_id else None
+
+    def resolve_thread_root_message_id(self, channel_id: str, message_id: str) -> Optional[str]:
+        """Resolve a message id to its thread root id."""
+        if not channel_id or not message_id:
+            return None
+        try:
+            with self.db.get_connection() as conn:
+                return self._resolve_thread_root_id_conn(conn, channel_id, message_id)
+        except Exception as e:
+            logger.debug(f"Failed to resolve thread root for {message_id}: {e}")
+            return None
+
+    def get_thread_root_author_id(self, channel_id: str, message_id: str) -> Optional[str]:
+        """Return the root-author user id for a thread message."""
+        if not channel_id or not message_id:
+            return None
+        try:
+            with self.db.get_connection() as conn:
+                root_id = self._resolve_thread_root_id_conn(conn, channel_id, message_id)
+                if not root_id:
+                    return None
+                row = conn.execute(
+                    """
+                    SELECT user_id
+                    FROM channel_messages
+                    WHERE id = ? AND channel_id = ?
+                    """,
+                    (root_id, channel_id),
+                ).fetchone()
+                if not row:
+                    return None
+                return str(row['user_id']).strip() if row['user_id'] else None
+        except Exception as e:
+            logger.debug(f"Failed to fetch thread root author for {message_id}: {e}")
+            return None
+
+    def get_thread_subscription_state(
+        self,
+        user_id: str,
+        channel_id: str,
+        message_id: str,
+    ) -> Dict[str, Any]:
+        """Return explicit thread subscription state for a user/message."""
+        result = {
+            'thread_root_message_id': None,
+            'root_author_id': None,
+            'is_root_author': False,
+            'explicit_subscribed': None,
+            'subscribed': None,
+        }
+        if not user_id or not channel_id or not message_id:
+            return result
+
+        try:
+            with self.db.get_connection() as conn:
+                root_id = self._resolve_thread_root_id_conn(conn, channel_id, message_id)
+                if not root_id:
+                    return result
+                result['thread_root_message_id'] = root_id
+
+                root_row = conn.execute(
+                    """
+                    SELECT user_id
+                    FROM channel_messages
+                    WHERE id = ? AND channel_id = ?
+                    """,
+                    (root_id, channel_id),
+                ).fetchone()
+                if root_row and root_row['user_id']:
+                    root_author_id = str(root_row['user_id']).strip()
+                    result['root_author_id'] = root_author_id
+                    result['is_root_author'] = bool(root_author_id and root_author_id == user_id)
+
+                sub_row = conn.execute(
+                    """
+                    SELECT subscribed
+                    FROM channel_thread_subscriptions
+                    WHERE thread_root_message_id = ? AND user_id = ?
+                    LIMIT 1
+                    """,
+                    (root_id, user_id),
+                ).fetchone()
+                if sub_row is not None:
+                    explicit = bool(sub_row['subscribed'])
+                    result['explicit_subscribed'] = explicit
+                    result['subscribed'] = explicit
+                return result
+        except Exception as e:
+            logger.debug(
+                f"Failed to fetch thread subscription state user={user_id} channel={channel_id} message={message_id}: {e}"
+            )
+            return result
+
+    def set_thread_subscription(
+        self,
+        user_id: str,
+        channel_id: str,
+        message_id: str,
+        subscribed: bool,
+        *,
+        source: str = 'manual',
+        require_membership: bool = True,
+    ) -> Dict[str, Any]:
+        """Persist a per-thread subscription preference for a user."""
+        result = {
+            'success': False,
+            'thread_root_message_id': None,
+            'subscribed': bool(subscribed),
+        }
+        if not user_id or not channel_id or not message_id:
+            return result
+
+        try:
+            with self.db.get_connection() as conn:
+                if require_membership:
+                    member_row = conn.execute(
+                        """
+                        SELECT 1
+                        FROM channel_members
+                        WHERE channel_id = ? AND user_id = ?
+                        LIMIT 1
+                        """,
+                        (channel_id, user_id),
+                    ).fetchone()
+                    if not member_row:
+                        return result
+
+                root_id = self._resolve_thread_root_id_conn(conn, channel_id, message_id)
+                if not root_id:
+                    return result
+
+                conn.execute(
+                    """
+                    INSERT INTO channel_thread_subscriptions
+                    (channel_id, thread_root_message_id, user_id, subscribed, source, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    ON CONFLICT(thread_root_message_id, user_id) DO UPDATE SET
+                        subscribed = excluded.subscribed,
+                        source = excluded.source,
+                        updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (
+                        channel_id,
+                        root_id,
+                        user_id,
+                        1 if subscribed else 0,
+                        source or 'manual',
+                    ),
+                )
+                conn.commit()
+                result['success'] = True
+                result['thread_root_message_id'] = root_id
+                return result
+        except Exception as e:
+            logger.error(
+                f"Failed to set thread subscription user={user_id} channel={channel_id} message={message_id}: {e}",
+                exc_info=True,
+            )
+            return result
+
+    def get_thread_subscriber_ids(self, channel_id: str, thread_root_message_id: str) -> List[str]:
+        """Return subscribed user ids for a channel thread root."""
+        if not channel_id or not thread_root_message_id:
+            return []
+        try:
+            with self.db.get_connection() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT ts.user_id
+                    FROM channel_thread_subscriptions ts
+                    INNER JOIN channel_members cm
+                      ON cm.channel_id = ts.channel_id
+                     AND cm.user_id = ts.user_id
+                    WHERE ts.channel_id = ?
+                      AND ts.thread_root_message_id = ?
+                      AND ts.subscribed = 1
+                    """,
+                    (channel_id, thread_root_message_id),
+                ).fetchall()
+                return [str(row['user_id']) for row in rows if row and row['user_id']]
+        except Exception as e:
+            logger.debug(
+                f"Failed to list thread subscribers channel={channel_id} root={thread_root_message_id}: {e}"
+            )
+            return []
+
+    @log_performance('channels')
+    def send_message(self, channel_id: str, user_id: str, content: str,
+                    message_type: MessageType = MessageType.TEXT,
+                    thread_id: Optional[str] = None, parent_message_id: Optional[str] = None,
+                    attachments: Optional[List[Dict[str, Any]]] = None,
+                    security: Optional[Dict[str, Any]] = None,
+                    expires_at: Optional[Any] = None,
+                    ttl_seconds: Optional[int] = None,
+                    ttl_mode: Optional[str] = None,
+                    origin_peer: Optional[str] = None) -> Optional[Message]:
+        """Send a message to a channel."""
+        logger.info(f"Sending message to channel {channel_id} by user {user_id}")
+        logger.debug(f"Content length: {len(content)}, type: {message_type.value}")
+        
+        try:
+            access = self.get_channel_access_decision(
+                channel_id=channel_id,
+                user_id=user_id,
+                require_membership=True,
+            )
+            if not access.get('allowed'):
+                logger.warning(
+                    f"Channel send denied for user={user_id}, channel={channel_id}, "
+                    f"reason={access.get('reason')}"
+                )
+                return None
+
+            security_clean, sec_error = self.validate_security_metadata(security, strict=False)
+            if sec_error:
+                logger.warning(f"Dropping invalid security metadata for channel {channel_id}: {sec_error}")
+            security = security_clean
+
+            normalized_attachments = Message.normalize_attachments(attachments)
+            if normalized_attachments:
+                message_type = MessageType.FILE
+            else:
+                normalized_attachments = None
+            
+            # Generate unique message ID
+            message_id = f"M{secrets.token_hex(12)}"
+            logger.debug(f"Generated message ID: {message_id}")
+
+            created_at = datetime.now(timezone.utc)
+            expires_dt = self._resolve_expiry(
+                expires_at=expires_at,
+                ttl_seconds=ttl_seconds,
+                ttl_mode=ttl_mode,
+                apply_default=True,
+                base_time=created_at,
+            )
+            created_db = self._format_db_timestamp(created_at)
+            expires_db = self._format_db_timestamp(expires_dt) if expires_dt else None
+            
+            # Create message object
+            message = Message(
+                id=message_id,
+                channel_id=channel_id,
+                user_id=user_id,
+                content=content,
+                message_type=message_type,
+                created_at=created_at,
+                thread_id=thread_id,
+                parent_message_id=parent_message_id,
+                attachments=normalized_attachments,
+                security=security,
+                expires_at=expires_dt,
+                origin_peer=origin_peer,
+            )
+            
+            # Persist ttl_seconds/ttl_mode so catchup can send them to other peers
+            ttl_sec_db = int(ttl_seconds) if ttl_seconds is not None else None
+            ttl_mode_db = (ttl_mode or '').strip() or None
+
+            with LogOperation(f"Database insert for message {message_id}"):
+                with self.db.get_connection() as conn:
+                    conn.execute("""
+                        INSERT INTO channel_messages 
+                        (id, channel_id, user_id, content, message_type, thread_id, parent_message_id, attachments, security, created_at, origin_peer, expires_at, ttl_seconds, ttl_mode)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        message_id, channel_id, user_id, content, message_type.value,
+                        thread_id, parent_message_id,
+                        json.dumps(normalized_attachments) if normalized_attachments else None,
+                        json.dumps(security) if security else None,
+                        created_db,
+                        origin_peer,
+                        expires_db,
+                        ttl_sec_db,
+                        ttl_mode_db,
+                    ))
+
+                    # Resurface parent message when this is a threaded reply
+                    # (6-hour cap per parent to prevent spam)
+                    if parent_message_id:
+                        try:
+                            conn.execute("""
+                                UPDATE channel_messages SET last_activity_at = CURRENT_TIMESTAMP
+                                WHERE id = ?
+                                  AND (last_activity_at IS NULL
+                                       OR last_activity_at < datetime('now', '-6 hours'))
+                            """, (parent_message_id,))
+                        except Exception as resurface_err:
+                            logger.debug(f"Reply resurfacing skipped: {resurface_err}")
+
+                    conn.commit()
+            
+            logger.info(f"Successfully sent message {message_id} to channel {channel_id}")
+            return message
+            
+        except Exception as e:
+            logger.error(f"Failed to send message: {e}", exc_info=True)
+            return None
+
+    def update_message(self, message_id: str, user_id: str, content: str,
+                       attachments: Optional[List[Dict[str, Any]]] = None,
+                       allow_admin: bool = False) -> bool:
+        """Update a channel message (author or admin)."""
+        try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT user_id, attachments, message_type FROM channel_messages WHERE id = ?",
+                    (message_id,)
+                ).fetchone()
+                if not row or (row['user_id'] != user_id and not allow_admin):
+                    logger.warning(f"User {user_id} cannot update channel message {message_id}")
+                    return False
+
+                final_attachments = attachments
+                if final_attachments is None:
+                    if row['attachments']:
+                        try:
+                            final_attachments = json.loads(row['attachments'])
+                        except Exception:
+                            final_attachments = None
+                final_attachments = Message.normalize_attachments(final_attachments) if final_attachments else None
+
+                if final_attachments:
+                    final_message_type = MessageType.FILE.value
+                else:
+                    final_message_type = MessageType.TEXT.value
+
+                edited_at = datetime.now(timezone.utc)
+                edited_db = self._format_db_timestamp(edited_at)
+
+                conn.execute(
+                    "UPDATE channel_messages SET content = ?, message_type = ?, attachments = ?, edited_at = ? WHERE id = ?",
+                    (
+                        content,
+                        final_message_type,
+                        json.dumps(final_attachments) if final_attachments else None,
+                        edited_db,
+                        message_id,
+                    )
+                )
+                conn.commit()
+                logger.info(f"Updated channel message {message_id}")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to update channel message: {e}", exc_info=True)
+            return False
+
+    def update_message_expiry(self, message_id: str, user_id: str,
+                              expires_at: Optional[Any] = None,
+                              ttl_seconds: Optional[int] = None,
+                              ttl_mode: Optional[str] = None,
+                              allow_admin: bool = False) -> Optional[datetime]:
+        """Update a channel message expiry (author or admin). Returns new expiry."""
+        try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT user_id FROM channel_messages WHERE id = ?",
+                    (message_id,)
+                ).fetchone()
+                if not row or (row['user_id'] != user_id and not allow_admin):
+                    logger.warning(f"User {user_id} cannot update expiry for message {message_id}")
+                    return None
+
+                base_time = datetime.now(timezone.utc)
+                expires_dt = self._resolve_expiry(
+                    expires_at=expires_at,
+                    ttl_seconds=ttl_seconds,
+                    ttl_mode=ttl_mode,
+                    apply_default=False,
+                    base_time=base_time,
+                )
+                expires_db = self._format_db_timestamp(expires_dt) if expires_dt else None
+                ttl_sec_db = int(ttl_seconds) if ttl_seconds is not None else None
+                ttl_mode_db = (ttl_mode or '').strip() or None
+
+                conn.execute(
+                    "UPDATE channel_messages SET expires_at = ?, ttl_seconds = ?, ttl_mode = ? WHERE id = ?",
+                    (expires_db, ttl_sec_db, ttl_mode_db, message_id)
+                )
+                conn.commit()
+                return expires_dt
+        except Exception as e:
+            logger.error(f"Failed to update channel message expiry: {e}")
+            return None
+    
+    # ------------------------------------------------------------------ #
+    # Channel role & membership management                                 #
+    # ------------------------------------------------------------------ #
+
+    def get_member_role(self, channel_id: str, user_id: str) -> Optional[str]:
+        """Return the role of a user in a channel ('admin' | 'member'), or None."""
+        decision = self.get_channel_access_decision(
+            channel_id=channel_id,
+            user_id=user_id,
+            require_membership=True,
+        )
+        if not decision.get('allowed'):
+            return None
+        role = decision.get('role')
+        return str(role) if role else None
+
+    def mark_channel_read(self, channel_id: str, user_id: str) -> None:
+        """Update last_read_at for a user in a channel to now, clearing its unread count."""
+        try:
+            with self.db.get_connection() as conn:
+                conn.execute(
+                    """UPDATE channel_members SET last_read_at = CURRENT_TIMESTAMP
+                       WHERE channel_id = ? AND user_id = ?""",
+                    (channel_id, user_id)
+                )
+                conn.commit()
+        except Exception as e:
+            logger.warning(f"Failed to mark channel {channel_id} as read for {user_id}: {e}")
+
+    def is_channel_admin(self, channel_id: str, user_id: str) -> bool:
+        """Check if a user is an admin (or creator) of a channel."""
+        role = self.get_member_role(channel_id, user_id)
+        if role == 'admin':
+            return True
+        # Channel creator is always treated as admin
+        try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT created_by FROM channels WHERE id = ?",
+                    (channel_id,)).fetchone()
+                if not row:
+                    return False
+                return cast(str, row['created_by']) == user_id
+        except Exception:
+            return False
+
+    def set_member_role(self, channel_id: str, target_user_id: str,
+                        new_role: str, requester_id: str) -> bool:
+        """Change a member's role. Only admins can do this."""
+        if new_role not in ('admin', 'member'):
+            return False
+        if not self.is_channel_admin(channel_id, requester_id):
+            logger.warning(f"Role change denied: {requester_id} is not admin of {channel_id}")
+            return False
+        try:
+            with self.db.get_connection() as conn:
+                cur = conn.execute(
+                    "UPDATE channel_members SET role = ? WHERE channel_id = ? AND user_id = ?",
+                    (new_role, channel_id, target_user_id))
+                conn.commit()
+                return cast(int, cur.rowcount) > 0
+        except Exception as e:
+            logger.error(f"Failed to set role: {e}")
+            return False
+
+    def add_member(self, channel_id: str, target_user_id: str,
+                   requester_id: str, role: str = 'member') -> bool:
+        """Add a user to a channel. Requester must be admin for guarded/targeted channels."""
+        try:
+            with self.db.get_connection() as conn:
+                ch = conn.execute(
+                    "SELECT channel_type, privacy_mode FROM channels WHERE id = ?",
+                    (channel_id,)).fetchone()
+                if not ch:
+                    return False
+
+                channel_type = ch['channel_type']
+                privacy_mode = ch['privacy_mode'] if 'privacy_mode' in ch.keys() else 'open'
+
+                # SECURITY: Guarded/private/confidential channels require admin to add members
+                requires_admin = (
+                    channel_type == 'private' or
+                    (privacy_mode and privacy_mode.lower() in {'guarded', 'private', 'confidential'})
+                )
+                if requires_admin:
+                    if not self.is_channel_admin(channel_id, requester_id):
+                        logger.warning(
+                            f"SECURITY: Add member denied for {channel_type}/{privacy_mode} channel: "
+                            f"{requester_id} not admin of {channel_id}"
+                        )
+                        return False
+
+                # SECURITY: Validate that target user exists
+                user_check = conn.execute(
+                    "SELECT id FROM users WHERE id = ?", (target_user_id,)
+                ).fetchone()
+                if not user_check:
+                    logger.warning(
+                        f"SECURITY: Add member denied: user {target_user_id} does not exist"
+                    )
+                    return False
+
+                target_policy = self._load_user_channel_governance(conn, target_user_id)
+                allowed, reason = self._is_channel_allowed_by_policy(
+                    policy=target_policy,
+                    channel_id=channel_id,
+                    channel_type=channel_type,
+                    privacy_mode=privacy_mode,
+                )
+                if not allowed:
+                    logger.warning(
+                        f"SECURITY: Add member denied by governance policy for user={target_user_id}, "
+                        f"channel={channel_id}, reason={reason}"
+                    )
+                    return False
+
+                conn.execute(
+                    "INSERT OR IGNORE INTO channel_members (channel_id, user_id, role) VALUES (?, ?, ?)",
+                    (channel_id, target_user_id, role))
+                conn.commit()
+                logger.info(f"Added member {target_user_id} to channel {channel_id} by {requester_id}")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to add member: {e}")
+            return False
+
+    def remove_member(self, channel_id: str, target_user_id: str,
+                      requester_id: str) -> bool:
+        """Remove a user from a channel. Admin or self-removal allowed."""
+        is_self = target_user_id == requester_id
+        if not is_self and not self.is_channel_admin(channel_id, requester_id):
+            logger.warning(f"Remove member denied: {requester_id} not admin")
+            return False
+        try:
+            with self.db.get_connection() as conn:
+                cur = conn.execute(
+                    "DELETE FROM channel_members WHERE channel_id = ? AND user_id = ?",
+                    (channel_id, target_user_id))
+                conn.commit()
+                return cast(int, cur.rowcount) > 0
+        except Exception as e:
+            logger.error(f"Failed to remove member: {e}")
+            return False
+
+    def get_member_peer_ids(self, channel_id: str, local_peer_id: Optional[str] = None) -> set:
+        """Return the set of peer IDs that have at least one member in this channel.
+
+        Queries channel_members JOIN users to get distinct origin_peer values.
+        Always includes the local peer (users with NULL origin_peer are local).
+        """
+        peers = set()
+        try:
+            with self.db.get_connection() as conn:
+                rows = conn.execute("""
+                    SELECT DISTINCT u.origin_peer
+                    FROM channel_members cm
+                    JOIN users u ON cm.user_id = u.id
+                    WHERE cm.channel_id = ?
+                """, (channel_id,)).fetchall()
+                for r in rows:
+                    op = r['origin_peer'] if isinstance(r, dict) or hasattr(r, 'keys') else r[0]
+                    if op:
+                        peers.add(str(op))
+        except Exception as e:
+            logger.error(f"Failed to get member peer IDs for {channel_id}: {e}")
+        # Always include local peer
+        if local_peer_id:
+            peers.add(local_peer_id)
+        return peers
+
+    def get_channel_members_list(self, channel_id: str) -> List[Dict[str, Any]]:
+        """Get all members of a channel with their roles."""
+        try:
+            with self.db.get_connection() as conn:
+                rows = conn.execute("""
+                    SELECT cm.user_id, cm.role, cm.joined_at,
+                           u.username, u.display_name
+                    FROM channel_members cm
+                    LEFT JOIN users u ON cm.user_id = u.id
+                    WHERE cm.channel_id = ?
+                    ORDER BY cm.role DESC, cm.joined_at ASC
+                """, (channel_id,)).fetchall()
+                return [{
+                    'user_id': r['user_id'],
+                    'role': r['role'],
+                    'joined_at': r['joined_at'],
+                    'username': r['username'],
+                    'display_name': r['display_name'] or r['username'],
+                } for r in rows]
+        except Exception as e:
+            logger.error(f"Failed to get channel members: {e}")
+            return []
+
+    def delete_message(self, channel_id: str, message_id: str, user_id: str,
+                       allow_admin: bool = False) -> bool:
+        """Delete a channel message. Only the author can delete (or channel admin if allow_admin)."""
+        try:
+            with self.db.get_connection() as conn:
+                cursor = conn.execute(
+                    "SELECT user_id FROM channel_messages WHERE id = ? AND channel_id = ?",
+                    (message_id, channel_id),
+                )
+                row = cursor.fetchone()
+                if not row:
+                    return False
+                if row['user_id'] != user_id and not allow_admin:
+                    logger.warning(f"User {user_id} cannot delete message {message_id}")
+                    return False
+                # Remove FK references: likes and parent_message_id on other messages
+                conn.execute("DELETE FROM likes WHERE message_id = ?", (message_id,))
+                conn.execute(
+                    "UPDATE channel_messages SET parent_message_id = NULL WHERE parent_message_id = ?",
+                    (message_id,),
+                )
+                conn.execute("DELETE FROM channel_messages WHERE id = ?", (message_id,))
+                conn.commit()
+                logger.info(f"Deleted channel message {message_id} from {channel_id}")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to delete channel message: {e}")
+            return False
+
+    def delete_channel(self, channel_id: str, requester_id: str) -> bool:
+        """Delete a channel. Only admins can do this."""
+        if not self.is_channel_admin(channel_id, requester_id):
+            logger.warning(f"Delete denied: {requester_id} not admin of {channel_id}")
+            return False
+        try:
+            with self.db.get_connection() as conn:
+                conn.execute(
+                    "UPDATE channel_messages SET parent_message_id = NULL WHERE channel_id = ?",
+                    (channel_id,),
+                )
+                conn.execute("DELETE FROM likes WHERE message_id IN (SELECT id FROM channel_messages WHERE channel_id = ?)", (channel_id,))
+                conn.execute("DELETE FROM channel_messages WHERE channel_id = ?", (channel_id,))
+                conn.execute("DELETE FROM channel_members WHERE channel_id = ?", (channel_id,))
+                conn.execute("DELETE FROM channels WHERE id = ?", (channel_id,))
+                conn.commit()
+                logger.info(f"Channel {channel_id} deleted by {requester_id}")
+                return True
+        except Exception as e:
+                logger.error(f"Failed to delete channel: {e}")
+                return False
+
+    def purge_expired_channel_messages(self) -> List[Dict[str, Any]]:
+        """Remove expired channel messages and related likes."""
+        purged: List[Dict[str, Any]] = []
+        try:
+            with self.db.get_connection() as conn:
+                rows = conn.execute("""
+                    SELECT id, user_id, channel_id, expires_at, attachments
+                    FROM channel_messages
+                    WHERE expires_at IS NOT NULL
+                      AND expires_at <= CURRENT_TIMESTAMP
+                """).fetchall()
+
+                if not rows:
+                    return purged
+
+                message_ids = [row['id'] for row in rows]
+                purged = []
+                for row in rows:
+                    attachment_ids: List[str] = []
+                    if row['attachments']:
+                        try:
+                            parsed = json.loads(row['attachments'])
+                            if isinstance(parsed, list):
+                                for att in parsed:
+                                    file_id = att.get('id') if isinstance(att, dict) else None
+                                    if file_id:
+                                        attachment_ids.append(file_id)
+                        except Exception:
+                            pass
+                    purged.append({
+                        'id': row['id'],
+                        'user_id': row['user_id'],
+                        'channel_id': row['channel_id'],
+                        'expires_at': row['expires_at'],
+                        'attachment_ids': attachment_ids,
+                    })
+
+                # Cleanup likes table if present
+                likes_table = conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='likes'"
+                ).fetchone()
+                if likes_table:
+                    placeholders = ",".join("?" for _ in message_ids)
+                    conn.execute(
+                        f"DELETE FROM likes WHERE message_id IN ({placeholders})",
+                        message_ids,
+                    )
+
+                # Null out parent_message_id in any message that references an expired one
+                # (avoids FOREIGN KEY constraint on parent_message_id -> channel_messages.id)
+                placeholders = ",".join("?" for _ in message_ids)
+                conn.execute(
+                    f"UPDATE channel_messages SET parent_message_id = NULL "
+                    f"WHERE parent_message_id IN ({placeholders})",
+                    message_ids,
+                )
+                conn.execute(
+                    f"DELETE FROM channel_messages WHERE id IN ({placeholders})",
+                    message_ids,
+                )
+                conn.commit()
+
+                logger.info(f"Purged {len(message_ids)} expired channel messages")
+        except Exception as e:
+            logger.error(f"Failed to purge expired channel messages: {e}", exc_info=True)
+
+        return purged
+
+    def get_channel_messages(self, channel_id: str, user_id: str, 
+                           limit: int = 50, before_message_id: Optional[str] = None) -> List[Message]:
+        """Get messages from a channel."""
+        logger.debug(f"Getting messages for channel {channel_id}, user {user_id}, limit {limit}")
+        
+        try:
+            access = self.get_channel_access_decision(
+                channel_id=channel_id,
+                user_id=user_id,
+                require_membership=True,
+            )
+            if not access.get('allowed'):
+                logger.warning(
+                    f"Channel read denied for user={user_id}, channel={channel_id}, "
+                    f"reason={access.get('reason')}"
+                )
+                return []
+
+            with self.db.get_connection() as conn:
+                # Build query — sort root messages by activity time
+                # (resurfaced parents appear at the bottom/newest position).
+                # Replies sort with their parent via COALESCE on the parent row.
+                sort_expr = """
+                    CASE
+                        WHEN m.parent_message_id IS NOT NULL THEN
+                            COALESCE(
+                                (SELECT p.last_activity_at FROM channel_messages p WHERE p.id = m.parent_message_id),
+                                (SELECT p.created_at FROM channel_messages p WHERE p.id = m.parent_message_id)
+                            )
+                        ELSE COALESCE(m.last_activity_at, m.created_at)
+                    END
+                """
+
+                before_sort_expr = """
+                    CASE
+                        WHEN b.parent_message_id IS NOT NULL THEN
+                            COALESCE(
+                                (SELECT p.last_activity_at FROM channel_messages p WHERE p.id = b.parent_message_id),
+                                (SELECT p.created_at FROM channel_messages p WHERE p.id = b.parent_message_id)
+                            )
+                        ELSE COALESCE(b.last_activity_at, b.created_at)
+                    END
+                """
+
+                query = f"""
+                    SELECT m.*, u.username as author_username,
+                           {sort_expr} AS sort_time
+                    FROM channel_messages m
+                    LEFT JOIN users u ON m.user_id = u.id
+                    WHERE m.channel_id = ?
+                      AND (m.expires_at IS NULL OR m.expires_at > CURRENT_TIMESTAMP)
+                """
+                params: List[Any] = [channel_id]
+                
+                if before_message_id:
+                    # Pagination must use the same sort tuple as ORDER BY to
+                    # avoid gaps/duplicates when old threads are resurfaced by
+                    # new replies.
+                    query += f"""
+                        AND (
+                            {sort_expr} < (
+                                SELECT {before_sort_expr}
+                                FROM channel_messages b
+                                WHERE b.id = ?
+                            )
+                            OR (
+                                {sort_expr} = (
+                                    SELECT {before_sort_expr}
+                                    FROM channel_messages b
+                                    WHERE b.id = ?
+                                )
+                                AND m.created_at < (
+                                    SELECT b.created_at
+                                    FROM channel_messages b
+                                    WHERE b.id = ?
+                                )
+                            )
+                        )
+                    """
+                    params.extend([
+                        before_message_id,
+                        before_message_id,
+                        before_message_id,
+                    ])
+                
+                query += " ORDER BY sort_time DESC, m.created_at DESC LIMIT ?"
+                params.append(limit)
+                
+                cursor = conn.execute(query, params)
+                rows = cursor.fetchall()
+                
+                def _row_to_message(row: Any, row_type: str = "message") -> Optional[Message]:
+                    """Best-effort row parser used for primary query rows and recursively fetched parents."""
+                    try:
+                        try:
+                            msg_type = MessageType(row['message_type'])
+                        except (ValueError, KeyError):
+                            msg_type = MessageType.TEXT
+
+                        created_at_raw = row['created_at'] or ''
+                        try:
+                            created_at = datetime.fromisoformat(created_at_raw.replace('Z', '+00:00'))
+                        except (ValueError, AttributeError):
+                            try:
+                                created_at = datetime.strptime(created_at_raw, '%Y-%m-%d %H:%M:%S')
+                            except Exception:
+                                created_at = datetime.now()
+
+                        edited_at = None
+                        if row['edited_at']:
+                            try:
+                                edited_at = datetime.fromisoformat(row['edited_at'].replace('Z', '+00:00'))
+                            except (ValueError, AttributeError):
+                                pass
+
+                        expires_at = self._parse_datetime(row['expires_at']) if 'expires_at' in row.keys() else None
+
+                        return Message(
+                            id=row['id'],
+                            channel_id=row['channel_id'],
+                            user_id=row['user_id'],
+                            content=row['content'] or '',
+                            message_type=msg_type,
+                            created_at=created_at,
+                            thread_id=row['thread_id'],
+                            parent_message_id=row['parent_message_id'],
+                            reactions=json.loads(row['reactions']) if row['reactions'] else None,
+                            attachments=json.loads(row['attachments']) if row['attachments'] else None,
+                            security=json.loads(row['security']) if row['security'] else None,
+                            edited_at=edited_at,
+                            expires_at=expires_at,
+                            origin_peer=row['origin_peer'] if 'origin_peer' in row.keys() else None,
+                        )
+                    except Exception as row_err:
+                        row_id = '?'
+                        try:
+                            row_id = row['id'] if 'id' in row.keys() else '?'
+                        except Exception:
+                            row_id = '?'
+                        logger.warning(f"Skipping corrupt {row_type} row {row_id}: {row_err}")
+                        return None
+
+                # Convert to Message objects (skip corrupt rows gracefully)
+                messages: List[Message] = []
+                for row in rows:
+                    message = _row_to_message(row, "message")
+                    if message:
+                        messages.append(message)
+                
+                # Reverse to get chronological order
+                messages.reverse()
+
+                # Include any missing parent/ancestor messages so replies render under the correct post.
+                # This walks parent chains recursively; one-level hydration can orphan deep reply chains.
+                msg_ids = {m.id for m in messages}
+                missing_parent_ids = {
+                    m.parent_message_id
+                    for m in messages
+                    if m.parent_message_id and m.parent_message_id not in msg_ids
+                }
+                while missing_parent_ids:
+                    placeholders = ",".join("?" * len(missing_parent_ids))
+                    parent_rows = conn.execute(
+                        f"""
+                        SELECT m.*, u.username as author_username
+                        FROM channel_messages m
+                        LEFT JOIN users u ON m.user_id = u.id
+                        WHERE m.channel_id = ? AND m.id IN ({placeholders})
+                          AND (m.expires_at IS NULL OR m.expires_at > CURRENT_TIMESTAMP)
+                        """,
+                        [channel_id] + list(missing_parent_ids),
+                    ).fetchall()
+                    if not parent_rows:
+                        break
+
+                    next_missing_parent_ids = set()
+                    for row in parent_rows:
+                        message = _row_to_message(row, "parent")
+                        if not message or message.id in msg_ids:
+                            continue
+                        messages.append(message)
+                        msg_ids.add(message.id)
+                        if message.parent_message_id and message.parent_message_id not in msg_ids:
+                            next_missing_parent_ids.add(message.parent_message_id)
+                    # Keep original page ordering stable for pagination cursors and only append ancestors.
+                    missing_parent_ids = next_missing_parent_ids
+
+                logger.debug(f"Retrieved {len(messages)} messages from channel {channel_id}")
+                return messages
+                
+        except Exception as e:
+            logger.error(f"Failed to get channel messages: {e}", exc_info=True)
+            return []
+
+    def get_channel_message(
+        self, channel_id: str, message_id: str, user_id: str
+    ) -> Optional[Message]:
+        """Get a single channel message by id. Returns None if not found or user not a member."""
+        if not channel_id or not message_id or not user_id:
+            return None
+        try:
+            access = self.get_channel_access_decision(
+                channel_id=channel_id,
+                user_id=user_id,
+                require_membership=True,
+            )
+            if not access.get('allowed'):
+                return None
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    """
+                    SELECT * FROM channel_messages
+                    WHERE channel_id = ? AND id = ?
+                      AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+                    """,
+                    (channel_id, message_id),
+                ).fetchone()
+                if not row:
+                    return None
+                try:
+                    msg_type = MessageType(row['message_type'])
+                except (ValueError, KeyError):
+                    msg_type = MessageType.TEXT
+                created_at_raw = row['created_at'] or ''
+                try:
+                    created_at = datetime.fromisoformat(created_at_raw.replace('Z', '+00:00'))
+                except (ValueError, AttributeError):
+                    try:
+                        created_at = datetime.strptime(created_at_raw, '%Y-%m-%d %H:%M:%S')
+                    except Exception:
+                        created_at = datetime.now()
+                edited_at = None
+                if row.get('edited_at'):
+                    try:
+                        edited_at = datetime.fromisoformat(str(row['edited_at']).replace('Z', '+00:00'))
+                    except (ValueError, AttributeError):
+                        pass
+                expires_at = self._parse_datetime(row['expires_at']) if row.get('expires_at') else None
+                return Message(
+                    id=row['id'],
+                    channel_id=row['channel_id'],
+                    user_id=row['user_id'],
+                    content=row['content'] or '',
+                    message_type=msg_type,
+                    created_at=created_at,
+                    thread_id=row.get('thread_id'),
+                    parent_message_id=row.get('parent_message_id'),
+                    reactions=json.loads(row['reactions']) if row.get('reactions') else None,
+                    attachments=json.loads(row['attachments']) if row.get('attachments') else None,
+                    security=json.loads(row['security']) if row.get('security') else None,
+                    edited_at=edited_at,
+                    expires_at=expires_at,
+                    origin_peer=row.get('origin_peer'),
+                )
+        except Exception as e:
+            logger.error(f"Failed to get channel message {message_id}: {e}", exc_info=True)
+            return None
+
+    def get_channel_activity_since(self, user_id: str, since: datetime, limit: int = 50) -> List[Dict[str, Any]]:
+        """Return per-channel activity since a timestamp (counts + latest preview)."""
+        if not user_id or not since:
+            return []
+
+        try:
+            limit_val = max(1, min(int(limit or 50), 200))
+        except Exception:
+            limit_val = 50
+
+        since_db = self._format_db_timestamp(since)
+        results: List[Dict[str, Any]] = []
+
+        try:
+            with self.db.get_connection() as conn:
+                policy = self._load_user_channel_governance(conn, user_id)
+                rows = conn.execute(
+                    """
+                    SELECT m.channel_id, c.name as channel_name,
+                           c.channel_type,
+                           COALESCE(c.privacy_mode, 'open') AS privacy_mode,
+                           COUNT(*) as new_messages,
+                           MAX(m.created_at) as latest_at
+                    FROM channel_messages m
+                    JOIN channel_members cm ON m.channel_id = cm.channel_id
+                    JOIN channels c ON c.id = m.channel_id
+                    WHERE cm.user_id = ?
+                      AND m.created_at > ?
+                      AND (m.expires_at IS NULL OR m.expires_at > CURRENT_TIMESTAMP)
+                    GROUP BY m.channel_id
+                    ORDER BY latest_at DESC
+                    LIMIT ?
+                    """,
+                    (user_id, since_db, limit_val),
+                ).fetchall()
+
+                for row in rows:
+                    channel_id = row['channel_id']
+                    allowed, _ = self._is_channel_allowed_by_policy(
+                        policy=policy,
+                        channel_id=channel_id,
+                        channel_type=row['channel_type'],
+                        privacy_mode=row['privacy_mode'],
+                    )
+                    if not allowed:
+                        continue
+                    latest = conn.execute(
+                        """
+                        SELECT m.id, m.user_id, m.content, m.created_at, u.username as author_username
+                        FROM channel_messages m
+                        LEFT JOIN users u ON m.user_id = u.id
+                        WHERE m.channel_id = ?
+                          AND m.created_at > ?
+                          AND (m.expires_at IS NULL OR m.expires_at > CURRENT_TIMESTAMP)
+                        ORDER BY m.created_at DESC
+                        LIMIT 1
+                        """,
+                        (channel_id, since_db),
+                    ).fetchone()
+                    latest_preview = ''
+                    latest_author_id = None
+                    latest_author_username = None
+                    latest_message_id = None
+                    latest_at = row['latest_at']
+                    if latest:
+                        latest_message_id = latest['id']
+                        latest_author_id = latest['user_id']
+                        latest_author_username = latest['author_username']
+                        latest_preview = latest['content'] or ''
+                        latest_at = latest['created_at'] or latest_at
+
+                    try:
+                        from .mentions import build_preview
+                        latest_preview = build_preview(latest_preview or '')
+                    except Exception:
+                        pass
+
+                    results.append({
+                        'channel_id': channel_id,
+                        'channel_name': row['channel_name'],
+                        'new_messages': row['new_messages'],
+                        'latest_at': latest_at,
+                        'latest_message_id': latest_message_id,
+                        'latest_author_id': latest_author_id,
+                        'latest_author_username': latest_author_username,
+                        'latest_preview': latest_preview,
+                    })
+            return results
+        except Exception as e:
+            logger.error(f"Failed to get channel activity: {e}", exc_info=True)
+            return []
+    
+    def get_user_channels(self, user_id: str) -> List[Channel]:
+        """Get all channels for a user."""
+        logger.debug(f"Getting channels for user {user_id}")
+        
+        try:
+            with self.db.get_connection() as conn:
+                policy = self._load_user_channel_governance(conn, user_id)
+                cursor = conn.execute("""
+                    SELECT c.*, cm.last_read_at, cm.notifications_enabled, cm.role as user_role,
+                           COUNT(DISTINCT cm2.user_id) as member_count,
+                           MAX(msg.created_at) as last_message_at,
+                           (SELECT COUNT(*)
+                            FROM channel_messages unread
+                            WHERE unread.channel_id = c.id
+                              AND (unread.expires_at IS NULL OR unread.expires_at > CURRENT_TIMESTAMP)
+                              AND (cm.last_read_at IS NULL OR unread.created_at > cm.last_read_at)
+                           ) as unread_count
+                    FROM channels c
+                    INNER JOIN channel_members cm ON c.id = cm.channel_id AND cm.user_id = ?
+                    LEFT JOIN channel_members cm2 ON c.id = cm2.channel_id
+                    LEFT JOIN channel_messages msg
+                        ON c.id = msg.channel_id
+                       AND (msg.expires_at IS NULL OR msg.expires_at > CURRENT_TIMESTAMP)
+                    GROUP BY c.id, cm.last_read_at, cm.notifications_enabled, cm.role
+                    ORDER BY COALESCE(last_message_at, c.created_at) DESC
+                """, (user_id,))
+                
+                channels = []
+                for row in cursor.fetchall():
+                    allowed, reason = self._is_channel_allowed_by_policy(
+                        policy=policy,
+                        channel_id=row['id'],
+                        channel_type=row['channel_type'],
+                        privacy_mode=(row['privacy_mode'] if 'privacy_mode' in row.keys() else 'open'),
+                    )
+                    if not allowed:
+                        logger.debug(
+                            f"Skipping channel {row['id']} for user {user_id} due to governance ({reason})"
+                        )
+                        continue
+                    # origin_peer may not exist in older DBs
+                    try:
+                        origin_peer = row['origin_peer']
+                    except (IndexError, KeyError):
+                        origin_peer = None
+                    # privacy_mode may not exist in older DBs
+                    try:
+                        privacy_mode = row['privacy_mode'] or 'open'
+                    except (IndexError, KeyError):
+                        privacy_mode = 'open'
+                    try:
+                        user_role = row['user_role'] or 'member'
+                    except (IndexError, KeyError):
+                        user_role = 'member'
+                    try:
+                        notifications_enabled = bool(row['notifications_enabled'])
+                    except (IndexError, KeyError, TypeError):
+                        notifications_enabled = True
+
+                    try:
+                        unread_count = int(row['unread_count'] or 0)
+                    except (IndexError, KeyError, TypeError):
+                        unread_count = 0
+
+                    channel = Channel(
+                        id=row['id'],
+                        name=row['name'],
+                        channel_type=ChannelType(row['channel_type']),
+                        created_by=row['created_by'],
+                        created_at=datetime.fromisoformat(row['created_at'].replace('Z', '+00:00')),
+                        description=row['description'],
+                        topic=row['topic'],
+                        member_count=row['member_count'],
+                        last_message_at=datetime.fromisoformat(row['last_message_at'].replace('Z', '+00:00')) if row['last_message_at'] else None,
+                        origin_peer=origin_peer,
+                        privacy_mode=privacy_mode,
+                        user_role=user_role,
+                        notifications_enabled=notifications_enabled,
+                        unread_count=unread_count,
+                    )
+                    channels.append(channel)
+                
+                logger.debug(f"Retrieved {len(channels)} channels for user {user_id}")
+                return channels
+                
+        except Exception as e:
+            logger.error(f"Failed to get user channels: {e}", exc_info=True)
+            return []
+
+    def get_channel_latest_timestamps(self) -> Dict[str, str]:
+        """Get the latest message timestamp for every channel.
+
+        Returns:
+            Dict mapping channel_id -> latest created_at string,
+            using only channels that have at least one message.
+        """
+        try:
+            with self.db.get_connection() as conn:
+                rows = conn.execute("""
+                    SELECT channel_id, MAX(created_at) as latest
+                    FROM channel_messages
+                    WHERE expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP
+                    GROUP BY channel_id
+                """).fetchall()
+                result = {row['channel_id']: row['latest'] for row in rows}
+                logger.debug(f"Latest timestamps for {len(result)} channels")
+                return result
+        except Exception as e:
+            logger.error(f"Failed to get channel latest timestamps: {e}",
+                         exc_info=True)
+            return {}
+
+    def get_messages_since(self, channel_id: str, since_timestamp: str,
+                           limit: int = 200) -> List[Dict[str, Any]]:
+        """Get messages in a channel created after *since_timestamp*.
+
+        Returns plain dicts (not Message objects) suitable for P2P
+        serialisation.  Attachments metadata is included but the
+        binary ``data`` field (used for inline file transfer) is
+        stripped to keep the payload small.
+
+        Args:
+            channel_id: Channel to query
+            since_timestamp: Only return messages after this timestamp
+            limit: Maximum messages to return (default 200)
+        """
+        try:
+            with self.db.get_connection() as conn:
+                rows = conn.execute("""
+                    SELECT id, channel_id, user_id, content,
+                           message_type, created_at, attachments, expires_at,
+                           origin_peer,
+                           ttl_seconds, ttl_mode, parent_message_id
+                    FROM channel_messages
+                    WHERE channel_id = ?
+                      AND created_at > ?
+                      AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+                    ORDER BY created_at ASC
+                    LIMIT ?
+                """, (channel_id, since_timestamp, limit)).fetchall()
+
+                messages = []
+                for row in rows:
+                    msg = {
+                        'id': row['id'],
+                        'channel_id': row['channel_id'],
+                        'user_id': row['user_id'],
+                        'content': row['content'],
+                        'message_type': row['message_type'],
+                        'created_at': row['created_at'],
+                        'expires_at': row['expires_at'],
+                        'origin_peer': row['origin_peer'] if 'origin_peer' in row.keys() else None,
+                        'ttl_seconds': row['ttl_seconds'] if 'ttl_seconds' in row.keys() else None,
+                        'ttl_mode': row['ttl_mode'] if 'ttl_mode' in row.keys() else None,
+                        'parent_message_id': row['parent_message_id'] if 'parent_message_id' in row.keys() else None,
+                    }
+                    # Include attachment metadata but strip heavy data
+                    if row['attachments']:
+                        try:
+                            atts = json.loads(row['attachments'])
+                            for att in atts:
+                                att.pop('data', None)
+                            msg['attachments'] = atts
+                        except Exception:
+                            pass
+                    messages.append(msg)
+
+                logger.debug(f"Catchup: {len(messages)} messages in "
+                             f"#{channel_id} since {since_timestamp}")
+                return messages
+        except Exception as e:
+            logger.error(f"Failed to get messages since {since_timestamp} "
+                         f"for #{channel_id}: {e}", exc_info=True)
+            return []
+
+    # ------------------------------------------------------------------ #
+    # Persistent message deduplication                                     #
+    # ------------------------------------------------------------------ #
+
+    def is_message_processed(self, message_id: str) -> bool:
+        """Check if a message has already been processed (dedup)."""
+        if not message_id:
+            return False
+        try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT 1 FROM processed_messages WHERE message_id = ?",
+                    (message_id,)
+                ).fetchone()
+                return row is not None
+        except Exception:
+            return False
+
+    def mark_message_processed(self, message_id: str) -> None:
+        """Record a message as processed so it won't be stored twice."""
+        if not message_id:
+            return
+        try:
+            with self.db.get_connection() as conn:
+                conn.execute(
+                    "INSERT OR IGNORE INTO processed_messages (message_id) VALUES (?)",
+                    (message_id,))
+                conn.commit()
+        except Exception as e:
+            logger.debug(f"Failed to mark message {message_id} as processed: {e}")
+
+    def prune_processed_messages(self, keep_days: int = 7) -> int:
+        """Remove old entries from the dedup table to save space."""
+        try:
+            with self.db.get_connection() as conn:
+                cur = conn.execute("""
+                    DELETE FROM processed_messages
+                    WHERE processed_at < datetime('now', ?)
+                """, (f'-{keep_days} days',))
+                conn.commit()
+                pruned = cast(int, cur.rowcount)
+                if pruned:
+                    logger.info(f"Pruned {pruned} old dedup records "
+                                f"(older than {keep_days} days)")
+                return pruned
+        except Exception as e:
+            logger.error(f"Failed to prune processed_messages: {e}")
+            return 0
+
+    # ------------------------------------------------------------------ #
+    # Channel message search                                               #
+    # ------------------------------------------------------------------ #
+
+    def search_channel_messages(self, channel_id: str, query: str,
+                                user_id: str, limit: int = 50) -> List[Message]:
+        """Search messages in a channel by content.
+
+        The caller must be a member of the channel.  Uses SQLite LIKE
+        for simple substring matching (case-insensitive).
+        """
+        if not query or not query.strip():
+            return []
+        try:
+            access = self.get_channel_access_decision(
+                channel_id=channel_id,
+                user_id=user_id,
+                require_membership=True,
+            )
+            if not access.get('allowed'):
+                return []
+            with self.db.get_connection() as conn:
+                search_term = f"%{query.strip()}%"
+                rows = conn.execute("""
+                    SELECT m.*, u.username as author_username
+                    FROM channel_messages m
+                    LEFT JOIN users u ON m.user_id = u.id
+                    WHERE m.channel_id = ?
+                      AND m.content LIKE ?
+                      AND (m.expires_at IS NULL OR m.expires_at > CURRENT_TIMESTAMP)
+                    ORDER BY m.created_at DESC
+                    LIMIT ?
+                """, (channel_id, search_term, limit)).fetchall()
+
+                messages = []
+                for row in rows:
+                    msg = Message(
+                        id=row['id'],
+                        channel_id=row['channel_id'],
+                        user_id=row['user_id'],
+                        content=row['content'],
+                        message_type=MessageType(row['message_type']),
+                        created_at=datetime.fromisoformat(
+                            row['created_at'].replace('Z', '+00:00')),
+                        thread_id=row['thread_id'],
+                        parent_message_id=row['parent_message_id'],
+                        reactions=json.loads(row['reactions']) if row['reactions'] else None,
+                        attachments=json.loads(row['attachments']) if row['attachments'] else None,
+                        edited_at=datetime.fromisoformat(
+                            row['edited_at'].replace('Z', '+00:00')) if row['edited_at'] else None,
+                        expires_at=self._parse_datetime(row['expires_at']) if 'expires_at' in row.keys() else None,
+                    )
+                    messages.append(msg)
+                return messages
+        except Exception as e:
+            logger.error(f"Failed to search messages in channel {channel_id}: {e}",
+                         exc_info=True)
+            return []
