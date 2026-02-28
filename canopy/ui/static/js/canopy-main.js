@@ -2229,6 +2229,7 @@
             const closeBtn = document.getElementById('sidebar-media-mini-close');
             const timeEl = document.getElementById('sidebar-media-mini-time');
             const mainScroller = document.querySelector('.main-content');
+            const miniVideoHost = document.getElementById('sidebar-media-mini-video');
 
             const state = {
                 current: null,
@@ -2236,7 +2237,9 @@
                 observer: null,
                 mutationObserver: null,
                 tickHandle: null,
-                ytApiPromise: null
+                ytApiPromise: null,
+                returnUrl: null,
+                dockedSubtitle: null
             };
 
             function mediaTypeFor(el) {
@@ -2458,9 +2461,14 @@
                 return !visible;
             }
 
+            function isDockedInMiniHost(el) {
+                return miniVideoHost && el && miniVideoHost.contains(el);
+            }
+
             function hideMini() {
                 mini.classList.remove('is-visible');
                 if (pipBtn) pipBtn.style.display = 'none';
+                if (miniVideoHost) miniVideoHost.style.display = 'none';
             }
 
             function showMini() {
@@ -2550,6 +2558,7 @@
                 const current = state.current;
                 const type = current.type;
                 const el = current.el;
+                const isDocked = isDockedInMiniHost(el);
                 const isResumablePause = (type === 'audio' || type === 'video') && !!el.paused && !el.ended;
 
                 if (state.dismissedEl && state.dismissedEl === el) {
@@ -2557,7 +2566,13 @@
                     return;
                 }
 
-                if (!isElementPlaying(el, type) && !isResumablePause) {
+                if (isDocked && type === 'youtube') {
+                    const ytState = Number(el.__canopyMiniYTState);
+                    if (ytState === 0) {
+                        hideMini();
+                        return;
+                    }
+                } else if (!isElementPlaying(el, type) && !isResumablePause) {
                     const fallback = findPlayingElement();
                     if (fallback && fallback !== el) {
                         setCurrent(fallback);
@@ -2567,13 +2582,18 @@
                     return;
                 }
 
-                if (!isOffscreen(el)) {
+                if (!isDocked && !isOffscreen(el)) {
                     hideMini();
                     return;
                 }
 
+                if (miniVideoHost) {
+                    miniVideoHost.style.display = isDocked ? 'block' : 'none';
+                }
+
                 const mediaTitle = titleFromMedia(el, type);
-                const subtitle = sourceSubtitle(el);
+                const subtitle = isDocked && state.dockedSubtitle
+                    ? state.dockedSubtitle : sourceSubtitle(el);
                 titleEl.textContent = mediaTitle;
                 subtitleEl.textContent = subtitle;
                 icon.innerHTML = `<i class="bi ${mediaIcon(type)}"></i>`;
@@ -2596,6 +2616,33 @@
                         timeEl.textContent = formatTime(currentTime);
                     }
                     updatePiPButton(el, type);
+                } else if (isDocked && type === 'youtube') {
+                    playBtn.style.display = '';
+                    const ytPlayer = el.__canopyMiniYTPlayer;
+                    const ytState = Number(el.__canopyMiniYTState);
+                    const isPaused = ytState === 2;
+                    playBtn.innerHTML = `<i class="bi bi-${isPaused ? 'play-fill' : 'pause-fill'} me-1"></i><span>${isPaused ? 'Play' : 'Pause'}</span>`;
+                    progressWrap.classList.remove('show');
+                    progressBar.style.width = '0%';
+                    if (ytPlayer && typeof ytPlayer.getCurrentTime === 'function') {
+                        try {
+                            const cur = ytPlayer.getCurrentTime();
+                            const dur = ytPlayer.getDuration();
+                            if (dur > 0) {
+                                const pct = Math.max(0, Math.min(100, (cur / dur) * 100));
+                                progressWrap.classList.add('show');
+                                progressBar.style.width = `${pct}%`;
+                                timeEl.textContent = `${formatTime(cur)} / ${formatTime(dur)}`;
+                            } else {
+                                timeEl.textContent = 'YouTube';
+                            }
+                        } catch (_) {
+                            timeEl.textContent = 'YouTube';
+                        }
+                    } else {
+                        timeEl.textContent = 'YouTube';
+                    }
+                    updatePiPButton(null, '');
                 } else {
                     playBtn.style.display = 'none';
                     progressWrap.classList.remove('show');
@@ -2654,9 +2701,13 @@
                 if (!state.current || !state.current.el) return;
                 const target = state.current.sourceEl && state.current.sourceEl.isConnected
                     ? state.current.sourceEl
-                    : state.current.el;
-                target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
-                applyFocusFlash(target);
+                    : null;
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+                    applyFocusFlash(target);
+                } else if (state.returnUrl) {
+                    window.location.href = state.returnUrl;
+                }
             }
 
             if (playBtn) {
@@ -2664,14 +2715,20 @@
                     if (!state.current || !state.current.el) return;
                     const el = state.current.el;
                     const type = state.current.type;
-                    if (!(type === 'audio' || type === 'video')) return;
-                    try {
-                        if (el.paused) {
-                            el.play();
-                        } else {
-                            el.pause();
-                        }
-                    } catch (_) {}
+                    if (type === 'audio' || type === 'video') {
+                        try {
+                            if (el.paused) el.play(); else el.pause();
+                        } catch (_) {}
+                    } else if (type === 'youtube' && isDockedInMiniHost(el)) {
+                        try {
+                            const player = el.__canopyMiniYTPlayer;
+                            if (player) {
+                                const s = player.getPlayerState();
+                                if (s === 1 || s === 3) player.pauseVideo();
+                                else player.playVideo();
+                            }
+                        } catch (_) {}
+                    }
                     setTimeout(updateMini, 50);
                 });
             }
@@ -2719,7 +2776,27 @@
             if (closeBtn) {
                 closeBtn.addEventListener('click', () => {
                     if (state.current && state.current.el) {
-                        state.dismissedEl = state.current.el;
+                        const el = state.current.el;
+                        const type = state.current.type;
+                        if (type === 'youtube') {
+                            try {
+                                const player = el.__canopyMiniYTPlayer;
+                                if (player && typeof player.pauseVideo === 'function') {
+                                    player.pauseVideo();
+                                }
+                            } catch (_) {}
+                            if (isDockedInMiniHost(el)) {
+                                const wrapper = el.closest('.youtube-embed') || el;
+                                wrapper.remove();
+                            }
+                        }
+                        state.dismissedEl = el;
+                    }
+                    state.returnUrl = null;
+                    state.dockedSubtitle = null;
+                    if (miniVideoHost) {
+                        miniVideoHost.style.display = 'none';
+                        miniVideoHost.innerHTML = '';
                     }
                     hideMini();
                 });
@@ -2760,6 +2837,48 @@
             document.addEventListener('visibilitychange', updateMini);
             state.tickHandle = setInterval(updateMini, 700);
             updateMini();
+
+            window.canopyPersistActiveMedia = function() {
+                if (!state.current || !state.current.el) return;
+                const el = state.current.el;
+                const type = state.current.type;
+                if (type !== 'youtube' || !miniVideoHost) return;
+
+                state.dockedSubtitle = sourceSubtitle(el);
+                const sourceEl = state.current.sourceEl;
+                const messageId = sourceEl && sourceEl.getAttribute('data-message-id');
+                state.returnUrl = messageId
+                    ? '/channels/locate?message_id=' + encodeURIComponent(messageId)
+                    : window.location.pathname + window.location.search;
+
+                const wrapper = el.closest('.youtube-embed');
+                if (wrapper) {
+                    miniVideoHost.innerHTML = '';
+                    miniVideoHost.appendChild(wrapper);
+                    miniVideoHost.style.display = 'block';
+
+                    try {
+                        const player = el.__canopyMiniYTPlayer;
+                        if (player && typeof player.playVideo === 'function') {
+                            player.playVideo();
+                        }
+                    } catch (_) {}
+
+                    var retries = 0;
+                    var retryId = setInterval(function() {
+                        retries++;
+                        if (retries > 6) { clearInterval(retryId); return; }
+                        try {
+                            var p = el.__canopyMiniYTPlayer;
+                            if (p && typeof p.getPlayerState === 'function') {
+                                var s = p.getPlayerState();
+                                if (s === 1 || s === 3) { clearInterval(retryId); return; }
+                                p.playVideo();
+                            }
+                        } catch (_) { clearInterval(retryId); }
+                    }, 800);
+                }
+            };
         }
         
         // Three-state Sidebar Toggle Functionality with Mobile Support
