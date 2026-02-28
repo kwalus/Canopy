@@ -1,0 +1,162 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE & Cursor
+.vscode/
+.idea/
+.cursor/
+.cursorrules
+*.swp
+*.swo
+*~
+
+# Canopy specific
+data/
+logs/
+*.db
+*.db-journal
+
+# Dropbox conflicted copies (never commit)
+*conflicted copy*
+*conflicted*
+
+# Configuration files with sensitive data
+config/production.ini
+config/secrets.env
+.env.local
+.env.production
+cursor-mcp-config.json
+tray_state.json
+
+# Agent note archives (local only — do not push)
+agent_note/
+
+# Other agent notes in root (local only — do not push)
+AGENT_NOTE_*.md
+AGENT_REPLY_*.md
+AGENT_COLLABORATION_ANALYSIS.md
+GITHUB_PUSH_GUIDE_FOR_WINDOWS_AGENT.md
+
+# GitHub push / MCP manager docs (local only — do not push)
+GITHUB_PUSH_RULES.md
+CURSOR_MCP_SETUP.md
+START_CANOPY_MCP.md
+QUICK_START.txt
+docs/DEPLOY_GITHUB.md
+docs/COPILOT_*.md
+docs/TRACE_*.md
+
+# Internal milestone / one-off announce docs (local only — do not push)
+P2P_MILESTONE.md
+scripts/announce_*.txt
+docs/P2P_ARCHITECTURE.md
+docs/P2P_IMPLEMENTATION.md
+build_handover_zip.py
+
+# Research / personal notes (local only — do not push)
+research and references/
+
+# Contributor list with full names (optional: keep local or replace with generic)
+
+# Agent identity folders (local only, synced via Dropbox not GitHub)
+agents/
+
+# Files containing real API keys (local only)
+API_KEY_SETUP.md
+
+# Temporary files
+*.tmp
+*.temp
+temp/
+tmp/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Network and mesh files
+peers/
+network_state/
+*.key
+*.pem
+*.cert
+
+# Backup files
+*.backup
+backup/
+backups/
+
+# Test coverage
+.coverage
+htmlcov/
+.tox/
+.pytest_cache/
+
+# Documentation builds
+docs/_build/
+site/
+
+# Flask session files
+flask_session/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
