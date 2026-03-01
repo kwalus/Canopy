@@ -1733,14 +1733,12 @@ class P2PNetworkManager:
             import base64
             p2p_attachments = []
             for att in attachments:
-                att_entry: Dict[str, Any] = dict(att or {}) if isinstance(att, dict) else {}
-                file_id = att_entry.get('id', att_entry.get('file_id'))
-                att_entry['name'] = att_entry.get('name', att_entry.get('original_name', 'file'))
-                att_entry['type'] = att_entry.get('type', att_entry.get('content_type', 'application/octet-stream'))
-                att_entry['size'] = att_entry.get('size', 0)
-                # Sender-side inline data should always be regenerated from local file
-                # state to prevent forwarding stale/untrusted payload blobs.
-                att_entry.pop('data', None)
+                file_id = att.get('id', att.get('file_id'))
+                att_entry = {
+                    'name': att.get('name', att.get('original_name', 'file')),
+                    'type': att.get('type', att.get('content_type', 'application/octet-stream')),
+                    'size': att.get('size', 0),
+                }
                 if file_id:
                     att_entry['id'] = file_id
                 # Read file bytes if we have a file_manager and a file id
@@ -1762,51 +1760,21 @@ class P2PNetworkManager:
             metadata['attachments'] = p2p_attachments
             metadata['message_type'] = 'file'
 
-        # For restricted channels with targeted peers, send to each peer individually.
+        # Broadcast all channel messages (including restricted) to the
+        # full mesh so intermediary peers can relay.  Content
+        # confidentiality for private channels will be enforced via
+        # E2E encryption; targeted-only sending was removed to fix
+        # relay gaps when member peers are not directly connected.
         timeout = 60.0 if attachments else 5.0
-        if target_peer_ids:
-            local_id = self.get_peer_id() if hasattr(self, 'get_peer_id') else None
-            remote_peers = {p for p in target_peer_ids if p != local_id}
-            if not remote_peers:
-                return True
-            logger.info(f"Targeted channel message for restricted channel "
-                        f"{channel_id} to {len(remote_peers)} peer(s)")
-            success = False
-            for peer in remote_peers:
-                future = asyncio.run_coroutine_threadsafe(
-                    self.message_router.send_channel_broadcast(content, metadata, to_peer=peer),
-                    self._event_loop
-                )
-                try:
-                    result = future.result(timeout=timeout)
-                    success = success or result
-                except Exception as e:
-                    logger.error(f"Error sending targeted channel msg to {peer}: {e}")
-            return success
-        else:
-            # SECURITY: Fail-closed for restricted channels — never broadcast without targets.
-            mode = ''
-            if security:
-                try:
-                    mode = str(security.get('privacy_mode') or '').lower()
-                except Exception:
-                    mode = ''
-            if mode in {'private', 'confidential'}:
-                logger.warning(
-                    f"SECURITY: Attempted to broadcast restricted channel message "
-                    f"without target_peer_ids for channel {channel_id}. Message not sent."
-                )
-                return False
-
-            future = asyncio.run_coroutine_threadsafe(
-                self.message_router.send_channel_broadcast(content, metadata),
-                self._event_loop
-            )
-            try:
-                return future.result(timeout=timeout)
-            except Exception as e:
-                logger.error(f"Error broadcasting channel message: {e}", exc_info=True)
-                return False
+        future = asyncio.run_coroutine_threadsafe(
+            self.message_router.send_channel_broadcast(content, metadata),
+            self._event_loop
+        )
+        try:
+            return future.result(timeout=timeout)
+        except Exception as e:
+            logger.error(f"Error broadcasting channel message: {e}", exc_info=True)
+            return False
 
     def broadcast_feed_post(self, post_id: str, author_id: str,
                              content: str, post_type: str = 'text',
@@ -2093,54 +2061,26 @@ class P2PNetworkManager:
         mode = str(privacy_mode or '').lower()
         is_private = mode in {'private', 'confidential'}
 
-        if is_private and member_peer_ids:
-            # Targeted announces to specific peers
-            target_peers = {p for p in member_peer_ids if p != peer_id}
-            if not target_peers:
-                logger.debug("Restricted channel %s: no remote peers to announce to", channel_id)
-                return True
-            logger.info(f"Targeted channel announce for restricted channel {channel_id} "
-                        f"to {len(target_peers)} peer(s): {target_peers}")
-            success = False
-            for target in target_peers:
-                members_for_peer = (initial_members_by_peer or {}).get(target, [])
-                future = asyncio.run_coroutine_threadsafe(
-                    self.message_router.send_channel_announce(
-                        channel_id=channel_id,
-                        name=name,
-                        channel_type=channel_type,
-                        description=description or '',
-                        privacy_mode=privacy_mode,
-                        created_by_peer=peer_id,
-                        to_peer=target,
-                        initial_members=members_for_peer,
-                    ),
-                    self._event_loop
-                )
-                try:
-                    result = future.result(timeout=5.0)
-                    success = success or result
-                except Exception as e:
-                    logger.error(f"Error sending targeted announce to {target}: {e}")
-            return success
-        else:
-            # Public channel: broadcast to all
-            future = asyncio.run_coroutine_threadsafe(
-                self.message_router.send_channel_announce(
-                    channel_id=channel_id,
-                    name=name,
-                    channel_type=channel_type,
-                    description=description or '',
-                    privacy_mode=privacy_mode,
-                    created_by_peer=peer_id,
-                ),
-                self._event_loop
-            )
-            try:
-                return future.result(timeout=5.0)
-            except Exception as e:
-                logger.error(f"Error broadcasting channel announce: {e}", exc_info=True)
-                return False
+        # Broadcast channel announces (including restricted) to all
+        # peers so the channel metadata propagates across the full
+        # mesh.  E2E encryption will protect message content; the
+        # announce itself only carries channel metadata.
+        future = asyncio.run_coroutine_threadsafe(
+            self.message_router.send_channel_announce(
+                channel_id=channel_id,
+                name=name,
+                channel_type=channel_type,
+                description=description or '',
+                privacy_mode=privacy_mode,
+                created_by_peer=peer_id,
+            ),
+            self._event_loop
+        )
+        try:
+            return future.result(timeout=5.0)
+        except Exception as e:
+            logger.error(f"Error broadcasting channel announce: {e}", exc_info=True)
+            return False
 
     def broadcast_member_sync(self, channel_id: str, target_user_id: str,
                                action: str, target_peer_id: str,

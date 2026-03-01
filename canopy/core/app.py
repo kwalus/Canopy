@@ -1643,44 +1643,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 # Get all local channels (peer may not know about some)
                 local_ts = channel_manager.get_channel_latest_timestamps()
 
-                # Build set of restricted channel IDs for filtering
-                local_peer_id = p2p_manager.get_peer_id() if p2p_manager else None
-                _private_channels = set()
-                try:
-                    with db_manager.get_connection() as conn:
-                        priv_rows = conn.execute(
-                            "SELECT id FROM channels "
-                            "WHERE COALESCE(privacy_mode, 'open') IN ('private', 'confidential')"
-                        ).fetchall()
-                        _private_channels = {r[0] for r in priv_rows}
-                except Exception:
-                    pass
+                # Relay all channels (including restricted) so messages
+                # can propagate through intermediary peers.  Content
+                # confidentiality will be enforced via E2E encryption;
+                # access-control filtering was removed to fix relay gaps.
 
                 for ch_id, local_latest in local_ts.items():
-                    # Skip restricted channels if the requesting peer has no members.
-                    if ch_id in _private_channels:
-                        member_peers = channel_manager.get_member_peer_ids(
-                            ch_id, local_peer_id)
-                        if from_peer not in member_peers:
-                            # SECURITY: Log denied catch-up access for audit, but
-                            # throttle repeats to avoid log floods during periodic
-                            # catch-up loops.
-                            deny_key = (from_peer, ch_id)
-                            now_ts = time.time()
-                            last_logged = denied_catchup_audit_ts.get(deny_key, 0.0)
-                            if now_ts - last_logged >= denied_catchup_audit_interval_s:
-                                denied_catchup_audit_ts[deny_key] = now_ts
-                                logger.info(
-                                    f"SECURITY: Denied catch-up for restricted channel {ch_id} "
-                                    f"to peer {from_peer} (no members from that peer)"
-                                )
-                            else:
-                                logger.debug(
-                                    f"SECURITY: Denied catch-up for restricted channel {ch_id} "
-                                    f"to peer {from_peer} (repeat suppressed)"
-                                )
-                            continue  # requesting peer has no members here
-
                     peer_latest = channel_timestamps.get(ch_id)
                     if peer_latest is None:
                         # Peer has no messages in this channel — send
