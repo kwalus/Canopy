@@ -481,6 +481,32 @@ class DatabaseManager:
             if cm_exists:
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_channel_messages_thread_id ON channel_messages(thread_id)")
 
+            # One-time retention hardening migration:
+            # Convert legacy evergreen content (expires_at IS NULL) into
+            # bounded retention so content growth remains finite.
+            retention_migration_key = 'retention_policy_bounded_v1'
+            retention_marker = conn.execute(
+                "SELECT value FROM system_state WHERE key = ?",
+                (retention_migration_key,),
+            ).fetchone()
+            if retention_marker is None:
+                logger.info("Migration: Converting legacy no-expiry content to bounded retention")
+                conn.execute("""
+                    UPDATE feed_posts
+                    SET expires_at = datetime(COALESCE(created_at, CURRENT_TIMESTAMP), '+365 days')
+                    WHERE expires_at IS NULL
+                """)
+                if cm_exists:
+                    conn.execute("""
+                        UPDATE channel_messages
+                        SET expires_at = datetime(COALESCE(created_at, CURRENT_TIMESTAMP), '+365 days')
+                        WHERE expires_at IS NULL
+                    """)
+                conn.execute(
+                    "INSERT OR REPLACE INTO system_state (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
+                    (retention_migration_key, datetime.now(timezone.utc).isoformat()),
+                )
+
             # Migration: Add violated_at column to delete_signals
             cursor = conn.execute("PRAGMA table_info(delete_signals)")
             ds_columns = [row[1] for row in cursor.fetchall()]

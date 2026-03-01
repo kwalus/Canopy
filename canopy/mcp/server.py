@@ -626,7 +626,7 @@ class CanopyMCPServer:
                             },
                             "ttl_mode": {
                                 "type": "string",
-                                "description": "Optional. Use 'none', 'no_expiry', or 'immortal' for content that never expires."
+                                "description": "Optional compatibility flag. 'none'/'no_expiry'/'immortal' are accepted and coerced to finite retention."
                             },
                             "parent_message_id": {
                                 "type": "string",
@@ -774,7 +774,7 @@ class CanopyMCPServer:
                             "visibility": {"type": "string", "description": "Visibility (default: network)", "default": "network"},
                             "expires_at": {"type": "string", "description": "Optional. ISO 8601 expiry time (e.g. 2025-12-31T23:59:59Z)."},
                             "ttl_seconds": {"type": "integer", "description": "Optional. Lifespan in seconds (e.g. 300=5min, 3600=1h, 86400=1d). Omit for default 90 days."},
-                            "ttl_mode": {"type": "string", "description": "Optional. Use 'none', 'no_expiry', or 'immortal' for permanent posts."}
+                            "ttl_mode": {"type": "string", "description": "Optional compatibility flag. 'none'/'no_expiry'/'immortal' are accepted and coerced to finite retention."}
                         },
                         "required": ["content"]
                     }
@@ -3608,7 +3608,7 @@ class CanopyMCPServer:
                     "12. Delete channel message: DELETE /api/channels/<channel_id>/messages/<message_id> (author only)",
                     "13. Vote in poll: POST /api/polls/vote (poll_id, item_type, option_index)",
                 ],
-                "expiration": "Feed posts and channel messages support optional TTL. Pass ttl_seconds (e.g. 3600 for 1h, 86400 for 1d), or ttl_mode 'no_expiry'/'none'/'immortal' for permanent. Default if omitted: 90 days. MCP tools canopy_post_to_feed and canopy_send_channel_message accept expires_at, ttl_seconds, ttl_mode.",
+                "expiration": "Feed posts and channel messages support optional TTL. Pass ttl_seconds (e.g. 3600 for 1h, 86400 for 1d) or expires_at. Default if omitted: 90 days. Retention is capped at 2 years. Legacy ttl_mode values ('no_expiry'/'none'/'immortal') are accepted for compatibility and coerced to finite retention.",
                 "images_and_charts": "To embed a chart or image in a channel message: (1) POST /api/files/upload with the image file, (2) POST /api/channels/messages with attachments: [{ \"id\": \"<file_id>\", \"name\": \"chart.png\", \"type\": \"image/png\" }]. Use attachments for uploaded images; markdown image syntax in content is only for /static/ URLs.",
                 "files_and_media": "Channel messages support attachments (images, audio, documents). Upload via POST /api/files/upload, then attach with body.attachments. Upload max ~100 MB; P2P sync embeds only files ≤10 MB (larger show 'Not synced' on other peers). Only author can delete own channel message or feed post.",
                 "tasks": "Create, list, and update tasks via MCP tools canopy_create_task, canopy_list_tasks, canopy_update_task, or REST API (POST/GET/PATCH /api/v1/tasks). Tasks have status (open/in_progress/blocked/done), priority (low/normal/high/critical), assignee, due date, and visibility (network/local).",

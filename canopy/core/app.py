@@ -30,7 +30,6 @@ from .profile import ProfileManager
 from .feed import FeedManager
 from .tasks import TaskManager
 from .search import SearchManager
-from .streams import StreamManager
 from ..security.api_keys import ApiKeyManager
 from ..security.trust import TrustManager
 from .messaging import MessageManager
@@ -42,7 +41,6 @@ from .mentions import (
     split_mention_targets,
     build_preview,
     record_mention_activity,
-    record_thread_reply_activity,
     broadcast_mention_interaction,
 )
 from ..network.manager import P2PNetworkManager
@@ -188,16 +186,6 @@ def create_app(config: Optional[Config] = None) -> Flask:
         inbox_manager = InboxManager(db_manager, trust_manager=trust_manager)
         app.config['INBOX_MANAGER'] = inbox_manager
         logger.info("Inbox manager initialized successfully")
-
-        logger.info("Initializing stream manager...")
-        streams_root = str(Path(config.storage.data_dir) if config.storage.data_dir else Path("./data"))
-        stream_manager = StreamManager(
-            db=db_manager,
-            channel_manager=channel_manager,
-            data_root=streams_root,
-        )
-        app.config['STREAM_MANAGER'] = stream_manager
-        logger.info("Stream manager initialized successfully")
         
         logger.info("Initializing P2P network manager...")
         p2p_manager = P2PNetworkManager(config, db_manager)
@@ -554,19 +542,13 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                 if file_info:
                                     if original_id:
                                         file_id_map[original_id] = file_info.id
-                                    extra_meta = {
-                                        k: v for k, v in att.items()
-                                        if k not in {'data', 'id', 'file_id', 'name', 'type', 'size', 'url'}
-                                    }
-                                    payload = {
+                                    processed_attachments.append({
                                         'id': file_info.id,
                                         'name': file_info.original_name,
                                         'type': file_info.content_type,
                                         'size': file_info.size,
                                         'url': file_info.url,
-                                    }
-                                    payload.update(extra_meta)
-                                    processed_attachments.append(payload)
+                                    })
                                     logger.info(f"Saved P2P attachment: {file_info.id} "
                                                 f"({file_info.original_name}, {file_info.size} bytes)")
                             except Exception as e:
@@ -574,12 +556,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         else:
                             # Attachment metadata without data (file too large
                             # or sender had no file_manager) — keep reference
-                            preserved = {k: v for k, v in att.items() if k != 'data'}
-                            preserved.setdefault('name', att.get('name', 'file'))
-                            preserved.setdefault('type', att.get('type', ''))
-                            preserved.setdefault('size', att.get('size', 0))
-                            preserved.setdefault('url', '')
-                            processed_attachments.append(preserved)
+                            processed_attachments.append({
+                                'name': att.get('name', 'file'),
+                                'type': att.get('type', ''),
+                                'size': att.get('size', 0),
+                                'url': '',
+                            })
 
                     if processed_attachments:
                         message_type = 'file'
@@ -844,28 +826,35 @@ def create_app(config: Optional[Config] = None) -> Flask:
                             source_content=content,
                         )
 
-                    # Notify thread subscribers for replies (including root
-                    # author auto-subscription unless explicitly muted).
+                    # Notify original author when their message is replied to
+                    # (parent_message_id set but author not already @mentioned).
                     if parent_message_id and inbox_manager:
                         try:
-                            record_thread_reply_activity(
-                                channel_manager=channel_manager,
-                                inbox_manager=inbox_manager,
-                                channel_id=channel_id,
-                                reply_message_id=mid,
-                                parent_message_id=parent_message_id,
-                                author_id=user_id,
-                                origin_peer=from_peer,
-                                source_content=content,
-                                preview=build_preview(content or ''),
-                                mentioned_user_ids=[
-                                    cast(str, t.get('user_id'))
-                                    for t in (targets or [])
-                                    if t.get('user_id')
-                                ],
-                            )
+                            with db_manager.get_connection() as conn:
+                                parent_row = conn.execute(
+                                    "SELECT user_id FROM channel_messages WHERE id = ?",
+                                    (parent_message_id,)
+                                ).fetchone()
+                            if parent_row:
+                                parent_author_id = parent_row['user_id'] if hasattr(parent_row, '__getitem__') else parent_row[0]
+                                already_mentioned = any(
+                                    t.get('user_id') == parent_author_id for t in (targets or [])
+                                )
+                                if not already_mentioned and parent_author_id != user_id:
+                                    preview = build_preview(content or '')
+                                    inbox_manager.record_mention_triggers(
+                                        target_ids=[parent_author_id],
+                                        source_type='channel_message',
+                                        source_id=mid,
+                                        author_id=user_id,
+                                        origin_peer=from_peer,
+                                        channel_id=channel_id,
+                                        preview=preview,
+                                        source_content=content,
+                                        trigger_type='reply',
+                                    )
                         except Exception as _reply_err:
-                            logger.debug(f"Thread reply inbox trigger skipped: {_reply_err}")
+                            logger.debug(f"Reply-to-author inbox trigger skipped: {_reply_err}")
 
                     # Inline tasks from [task] blocks
                     try:
@@ -2012,19 +2001,13 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                         uploaded_by=user_id,
                                     )
                                     if finfo:
-                                        extra_meta = {
-                                            k: v for k, v in att.items()
-                                            if k not in {'data', 'id', 'file_id', 'name', 'type', 'size', 'url'}
-                                        }
-                                        payload = {
+                                        processed_atts.append({
                                             'id': finfo.id,
                                             'name': finfo.original_name,
                                             'type': finfo.content_type,
                                             'size': finfo.size,
                                             'url': finfo.url,
-                                        }
-                                        payload.update(extra_meta)
-                                        processed_atts.append(payload)
+                                        })
                                         logger.info(f"Catchup: saved attachment {finfo.id} "
                                                     f"({finfo.original_name}, {finfo.size} bytes)")
                                         continue
@@ -2502,19 +2485,13 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                         uploaded_by=author_id,
                                     )
                                     if finfo:
-                                        extra_meta = {
-                                            k: v for k, v in att.items()
-                                            if k not in {'data', 'id', 'file_id', 'name', 'type', 'size', 'url'}
-                                        }
-                                        payload = {
+                                        processed_attachments.append({
                                             'id': finfo.id,
                                             'name': finfo.original_name,
                                             'type': finfo.content_type,
                                             'size': finfo.size,
                                             'url': finfo.url,
-                                        }
-                                        payload.update(extra_meta)
-                                        processed_attachments.append(payload)
+                                        })
                                         continue
                                 except Exception:
                                     pass
@@ -2531,39 +2508,23 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 metadata = dict(metadata)
                 metadata.setdefault('origin_peer', from_peer)
 
-                # Resolve expiry (prefer explicit expires_at, else ttl_seconds, else default)
+                # Resolve expiry through FeedManager so retention policy is
+                # consistent across local API/UI writes and P2P sync writes.
                 expires_raw = expires_at or (metadata or {}).get('expires_at')
                 ttl_raw = ttl_seconds if ttl_seconds is not None else (metadata or {}).get('ttl_seconds')
                 ttl_mode_val = ttl_mode or (metadata or {}).get('ttl_mode')
 
-                expires_dt = None
                 try:
-                    if ttl_mode_val in ('none', 'no_expiry', 'immortal'):
-                        expires_dt = None
-                    elif expires_raw:
-                        from datetime import datetime as _dt, timezone as _tz
-                        try:
-                            expires_dt = _dt.fromisoformat(str(expires_raw).replace('Z', '+00:00'))
-                        except Exception:
-                            try:
-                                expires_dt = _dt.strptime(str(expires_raw), '%Y-%m-%d %H:%M:%S')
-                            except Exception:
-                                expires_dt = None
-                        if expires_dt and expires_dt.tzinfo is None:
-                            expires_dt = expires_dt.replace(tzinfo=_tz.utc)
-                    elif ttl_raw is not None:
-                        try:
-                            ttl_val = int(ttl_raw)
-                        except (TypeError, ValueError):
-                            ttl_val = None
-                        if ttl_val is not None and ttl_val > 0:
-                            from datetime import timedelta as _td
-                            expires_dt = created_dt + _td(seconds=ttl_val)
-                    else:
-                        from datetime import timedelta as _td
-                        expires_dt = created_dt + _td(days=90)
+                    expires_dt = feed_manager._resolve_expiry(
+                        expires_at=expires_raw,
+                        ttl_seconds=ttl_raw,
+                        ttl_mode=ttl_mode_val,
+                        apply_default=True,
+                        base_time=created_dt,
+                    )
                 except Exception:
-                    expires_dt = None
+                    from datetime import timedelta as _td
+                    expires_dt = created_dt + _td(days=90)
 
                 if expires_dt:
                     from datetime import datetime as _dt
@@ -3473,19 +3434,13 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                         uploaded_by=sender_id,
                                     )
                                     if finfo:
-                                        extra_meta = {
-                                            k: v for k, v in att.items()
-                                            if k not in {'data', 'id', 'file_id', 'name', 'type', 'size', 'url'}
-                                        }
-                                        payload = {
+                                        processed_attachments.append({
                                             'id': finfo.id,
                                             'name': finfo.original_name,
                                             'type': finfo.content_type,
                                             'size': finfo.size,
                                             'url': finfo.url,
-                                        }
-                                        payload.update(extra_meta)
-                                        processed_attachments.append(payload)
+                                        })
                                         continue
                                 except Exception:
                                     pass
@@ -3858,7 +3813,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
             logger.info(f"TTL maintenance loop started (interval={interval}s)")
 
         _start_maintenance_loop()
-        
+
         logger.info("All core components initialized successfully")
         
     except Exception as e:
@@ -3976,10 +3931,6 @@ def _install_rate_limiting(app: Flask) -> None:
         elif '/files/upload' in path:
             key = _req.headers.get('X-API-Key', key)
             limiter = _upload_limiter
-        elif path.startswith('/api/') and '/streams/' in path and (
-            path.endswith('/manifest.m3u8') or '/segments/' in path or path.endswith('/events')
-        ):
-            return  # Stream playback endpoints are not rate-limited
         elif path.startswith('/api/'):
             key = _req.headers.get('X-API-Key', key)
             limiter = _api_limiter

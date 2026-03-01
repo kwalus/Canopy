@@ -246,6 +246,12 @@ class FeedManager:
 
     DEFAULT_TTL_DAYS = 90  # Quarterly default
     DEFAULT_TTL_SECONDS = DEFAULT_TTL_DAYS * 24 * 3600
+    # Upper bound on post retention to prevent unbounded growth.
+    MAX_TTL_DAYS = 730  # 2 years
+    MAX_TTL_SECONDS = MAX_TTL_DAYS * 24 * 3600
+    # Backward-compatibility window for legacy no-expiry semantics.
+    LEGACY_NO_EXPIRY_TTL_DAYS = 365  # 1 year
+    LEGACY_NO_EXPIRY_TTL_SECONDS = LEGACY_NO_EXPIRY_TTL_DAYS * 24 * 3600
     
     def __init__(self, db_manager: DatabaseManager, api_key_manager: ApiKeyManager,
                  data_encryptor: Any = None):
@@ -293,13 +299,22 @@ class FeedManager:
                         apply_default: bool = True,
                         base_time: Optional[datetime] = None) -> Optional[datetime]:
         """Resolve expiry for a post based on explicit expiry, TTL, or defaults."""
-        if ttl_mode in ('none', 'no_expiry', 'immortal'):
-            return None
+        base = base_time or datetime.now(timezone.utc)
+        if base.tzinfo is None:
+            base = base.replace(tzinfo=timezone.utc)
+
+        max_expiry = base + timedelta(seconds=self.MAX_TTL_SECONDS)
+        compatibility_no_expiry = base + timedelta(seconds=self.LEGACY_NO_EXPIRY_TTL_SECONDS)
+
+        ttl_mode_norm = str(ttl_mode or '').strip().lower()
+        if ttl_mode_norm in ('none', 'no_expiry', 'immortal'):
+            resolved = compatibility_no_expiry
+            return min(resolved, max_expiry)
 
         if expires_at:
-            return self._parse_datetime(expires_at)
-
-        base = base_time or datetime.now(timezone.utc)
+            parsed = self._parse_datetime(expires_at)
+            if parsed:
+                return min(parsed, max_expiry)
 
         if ttl_seconds is not None:
             try:
@@ -307,12 +322,18 @@ class FeedManager:
             except (TypeError, ValueError):
                 ttl_val = None
             if ttl_val is not None:
-                if ttl_val <= 0:
-                    return None
-                return base + timedelta(seconds=ttl_val)
+                if ttl_val > 0:
+                    return min(base + timedelta(seconds=ttl_val), max_expiry)
+                if apply_default:
+                    return min(base + timedelta(seconds=self.DEFAULT_TTL_SECONDS), max_expiry)
+                if ttl_mode_norm in ('none', 'no_expiry', 'immortal'):
+                    # Legacy clients can send ttl_seconds=0 with ttl_mode to
+                    # request no-expiry semantics.
+                    return min(compatibility_no_expiry, max_expiry)
+                return None
 
         if apply_default:
-            return base + timedelta(seconds=self.DEFAULT_TTL_SECONDS)
+            return min(base + timedelta(seconds=self.DEFAULT_TTL_SECONDS), max_expiry)
 
         return None
     

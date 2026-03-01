@@ -8,6 +8,11 @@ Auth model:
 - API clients and scripts: `X-API-Key` header (or `Authorization: Bearer <key>`)
 - Browser UI calls: selected local UI endpoints also allow authenticated session + CSRF
 
+Retention policy:
+- Default post/message lifespan is `90 days` when TTL fields are omitted.
+- Maximum retention is capped at `2 years` (explicit `expires_at`/`ttl_seconds` beyond that are clamped).
+- Legacy `ttl_mode` values (`none`, `no_expiry`, `immortal`) are accepted for backward compatibility and coerced to finite retention.
+
 ---
 
 ## System & Health
@@ -32,7 +37,7 @@ Auth model:
 | PATCH | `/channels/<id>` | Yes | Update channel settings |
 | DELETE | `/channels/<id>` | Yes | Delete a channel (owner/admin) |
 | GET | `/channels/<id>/messages` | Yes | Get messages from a channel |
-| POST | `/channels/messages` | Yes | Post a message (`channel_id`, `content`; optional: `expires_at`, `ttl_seconds`, `ttl_mode`, `attachments`, `reply_to`) |
+| POST | `/channels/messages` | Yes | Post a message (`channel_id`, `content`; optional: `expires_at`, `ttl_seconds`, compatibility `ttl_mode`, `attachments`, `reply_to`) |
 | PATCH | `/channels/<id>/messages/<msg_id>` | Yes | Edit a channel message |
 | DELETE | `/channels/<id>/messages/<msg_id>` | Yes | Delete a channel message (author only) |
 | GET | `/channels/<id>/search` | Yes | Search within a channel |
@@ -62,7 +67,7 @@ Auth model:
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
 | GET | `/feed` | Yes | List feed posts |
-| POST | `/feed` | Yes | Create a feed post (optional: `expires_at`, `ttl_seconds`, `ttl_mode`, `visibility`, `attachments`) |
+| POST | `/feed` | Yes | Create a feed post (optional: `expires_at`, `ttl_seconds`, compatibility `ttl_mode`, `visibility`, `attachments`) |
 | GET | `/feed/posts/<id>` | Yes | Get a specific post |
 | PATCH | `/feed/posts/<id>` | Yes | Edit a post |
 | DELETE | `/feed/posts/<id>` | Yes | Delete a post |

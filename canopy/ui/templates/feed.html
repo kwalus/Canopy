@@ -144,7 +144,6 @@
                         <option value="day">Short (1 day)</option>
                         <option value="week">Weekly (7 days)</option>
                         <option value="quarter" selected>Quarterly (3 months)</option>
-                        <option value="none">No Expiry</option>
                         <option value="custom">Custom…</option>
                     </select>
                     <small class="text-muted d-block mt-1">Default: Quarterly for healthier networks</small>
@@ -452,7 +451,6 @@
                                                         <li><a class="dropdown-item" href="#" onclick="setPostExpiry('{{ post.id }}','day'); return false;">Short (1 day)</a></li>
                                                         <li><a class="dropdown-item" href="#" onclick="setPostExpiry('{{ post.id }}','week'); return false;">Weekly (7 days)</a></li>
                                                         <li><a class="dropdown-item" href="#" onclick="setPostExpiry('{{ post.id }}','quarter'); return false;">Quarterly (3 months)</a></li>
-                                                        <li><a class="dropdown-item" href="#" onclick="setPostExpiry('{{ post.id }}','none'); return false;">No Expiry</a></li>
                                                         <li><a class="dropdown-item" href="#" onclick="openCustomExpiryModal('{{ post.id }}'); return false;">Custom…</a></li>
                                                     </ul>
                                                 </div>
@@ -4066,6 +4064,8 @@
 	        wrap.style.display = select.value === 'custom' ? '' : 'none';
 	    }
 
+	    const CANOPY_MAX_RETENTION_SECONDS = 730 * 24 * 3600;
+
 	    function resolveTtlSelection() {
 	        const select = document.getElementById('postExpiry');
 	        const mode = select ? select.value : 'quarter';
@@ -4087,7 +4087,11 @@
 	                weeks: 7 * 24 * 3600,
 	                months: 30 * 24 * 3600,
 	            }[unit] || (24 * 3600);
-	            const ttlSeconds = Math.max(0, val) * unitSeconds;
+	            const ttlSecondsRaw = Math.max(0, val) * unitSeconds;
+	            const ttlSeconds = Math.min(ttlSecondsRaw, CANOPY_MAX_RETENTION_SECONDS);
+	            if (ttlSecondsRaw > CANOPY_MAX_RETENTION_SECONDS) {
+	                showAlert('Custom lifespan is capped at 2 years.', 'info');
+	            }
 	            return { ttl_mode: 'custom', ttl_seconds: ttlSeconds };
 	        }
 
@@ -4159,16 +4163,16 @@
             updateExpiryBadges();
         }
 
-        function setPostExpiry(postId, mode) {
-            const secondsMap = {
-                day: 24 * 3600,
-                week: 7 * 24 * 3600,
-                quarter: 90 * 24 * 3600,
-            };
-            let ttl_seconds = secondsMap[mode] || 0;
-            if (mode === 'none') {
-                ttl_seconds = 0;
-            }
+	        function setPostExpiry(postId, mode) {
+	            const secondsMap = {
+	                day: 24 * 3600,
+	                week: 7 * 24 * 3600,
+	                quarter: 90 * 24 * 3600,
+	            };
+	            let ttl_seconds = Math.min(secondsMap[mode] || 0, CANOPY_MAX_RETENTION_SECONDS);
+	            if (mode === 'none') {
+	                ttl_seconds = 0;
+	            }
             apiCall('/ajax/update_post_expiry', {
                 method: 'POST',
                 body: JSON.stringify({
@@ -4234,8 +4238,11 @@
                     weeks: 7 * 24 * 3600,
                     months: 30 * 24 * 3600,
                 }[unit] || (24 * 3600);
-                const ttl_seconds = val * unitSeconds;
-                apiCall('/ajax/update_post_expiry', {
+	                const ttl_seconds = Math.min(val * unitSeconds, CANOPY_MAX_RETENTION_SECONDS);
+	                if ((val * unitSeconds) > CANOPY_MAX_RETENTION_SECONDS) {
+	                    showAlert('Custom lifespan is capped at 2 years.', 'info');
+	                }
+	                apiCall('/ajax/update_post_expiry', {
                     method: 'POST',
                     body: JSON.stringify({
                         post_id: postId,
@@ -5200,7 +5207,7 @@
             commentFiles[postId] = [];
         }
         
-        const maxSize = 10 * 1024 * 1024; // 10MB for comments
+        const maxSize = 100 * 1024 * 1024; // 100MB for comments
         const allowedMimeTypes = ['image/', 'video/', 'audio/', 'application/pdf', 'text/', 'application/msword',
                                   'application/json', 'application/xml', 'application/x-yaml',
                                   'application/javascript', 'application/typescript', 'application/octet-stream'];
@@ -5210,7 +5217,7 @@
         
         files.forEach(file => {
             if (file.size > maxSize) {
-                showAlert(`File ${file.name} is too large. Maximum size is 10MB for comments.`, 'warning');
+                showAlert(`File ${file.name} is too large. Maximum size is 100MB for comments.`, 'warning');
                 return;
             }
             

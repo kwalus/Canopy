@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ### Changed
 - **Icon-only post action controls** — Channel messages, feed posts, and direct-message posts now render tool/action buttons as icon-only controls (with tooltip/ARIA labels), keeping action rows compact while preserving visible counters.
+- **Bounded retention policy** — Feed posts and channel messages now use finite retention only. Default remains 90 days, explicit TTL is capped at 2 years, and legacy `ttl_mode` values (`none`/`no_expiry`/`immortal`) are accepted for backward compatibility but coerced to a finite window. A one-time migration converts existing `expires_at IS NULL` rows to finite expiry.
+- **Feed comment upload parity** — Feed comment attachments now use the same 100MB client-side cap as other post/message attachment flows (previously 10MB in the feed comment composer only).
 
 ### Fixed
 - **Mobile layout fit across Canopy** — On small screens, collapsed main sidebar no longer reserves horizontal width that clipped content panes (including channel lists). Mobile sidebar behavior now uses full-width content by default with explicit expanded/hidden toggle behavior.
