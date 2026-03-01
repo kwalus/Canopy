@@ -1357,6 +1357,45 @@ class P2PNetworkManager:
         self.message_router.update_routing_table(target_peer, relay_peer)
         self._active_relays[target_peer] = relay_peer
 
+        # Immediately attempt direct connection in the background.
+        # If it succeeds the relay route is replaced by a real link.
+        self._try_promote_direct(target_peer)
+
+    def _try_promote_direct(self, peer_id: str) -> None:
+        """Background task: try to upgrade a relay route to a direct connection."""
+        if not self._event_loop or self._event_loop.is_closed():
+            return
+        endpoints = list(self.identity_manager.peer_endpoints.get(peer_id, []))
+        if not endpoints:
+            return
+        connection_manager = self.connection_manager
+        if not connection_manager:
+            return
+
+        async def _promote():
+            await asyncio.sleep(2)  # brief delay to let relay settle
+            if connection_manager.is_connected(peer_id):
+                logger.debug(f"Promote: {peer_id} already directly connected")
+                return
+            for ep in endpoints:
+                try:
+                    addr = ep.replace('ws://', '').replace('wss://', '')
+                    host, port_str = addr.rsplit(':', 1)
+                    port = int(port_str)
+                    ok = await connection_manager.connect_to_peer(peer_id, host, port)
+                    if ok:
+                        self._active_relays.pop(peer_id, None)
+                        logger.info(
+                            f"Promoted {peer_id} from relay to direct via {ep}"
+                        )
+                        await self._run_post_connect_sync(peer_id)
+                        return
+                except Exception as e:
+                    logger.debug(f"Promote direct {ep} for {peer_id}: {e}")
+            logger.debug(f"Promote: could not establish direct to {peer_id}")
+
+        asyncio.run_coroutine_threadsafe(_promote(), self._event_loop)
+
     def _schedule_relay_offers(self, peer_a: str, peer_b: str) -> None:
         """Send RELAY_OFFER to both peers so they can route through us."""
         if not self._event_loop or self._event_loop.is_closed():

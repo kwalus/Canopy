@@ -334,13 +334,17 @@
                             <span class="badge bg-info" title="Relayed via {{ (viadev.display_name if viadev and viadev.display_name else relay[:12]) }}">
                                 <i class="bi bi-arrow-left-right"></i> Via {{ (viadev.display_name if viadev and viadev.display_name else relay[:12]) }}
                             </span>
+                            <button class="btn btn-sm btn-outline-success ms-1" title="Attempt direct connection"
+                                    onclick="promoteDirect('{{ dest }}', this); return false;">
+                                <i class="bi bi-lightning-charge"></i> Go Direct
+                            </button>
                             <div class="dropdown peer-controls">
                                 <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
                                     <i class="bi bi-gear"></i>
                                 </button>
                                 <ul class="dropdown-menu dropdown-menu-end">
                                     <li><a class="dropdown-item" href="#" onclick="copyPeerId('{{ dest }}'); return false;"><i class="bi bi-clipboard"></i> Copy ID</a></li>
-                                    <li><span class="dropdown-item-text text-muted"><i class="bi bi-arrow-left-right"></i> Relayed route</span></li>
+                                    <li><a class="dropdown-item" href="#" onclick="promoteDirect('{{ dest }}'); return false;"><i class="bi bi-lightning-charge"></i> Promote to Direct</a></li>
                                     <li><a class="dropdown-item text-danger" href="#" onclick="forgetPeer('{{ dest }}'); return false;"><i class="bi bi-trash"></i> Forget</a></li>
                                 </ul>
                             </div>
@@ -954,6 +958,33 @@ function disconnectPeer(peerId) {
         }
     })
     .catch((err) => showAlert('Disconnect failed: ' + buildConnectErrorMessage(err), 'danger'));
+}
+
+function promoteDirect(peerId, btn) {
+    if (!peerId) return;
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Connecting…';
+    }
+    apiJsonFetch('/api/v1/p2p/promote_direct', {
+        method: 'POST',
+        body: JSON.stringify({peer_id: peerId})
+    })
+    .then(data => {
+        if (data.status === 'direct') {
+            showAlert('Upgraded to direct connection via ' + (data.endpoint || 'unknown'), 'success');
+            setTimeout(refreshConnectPage, 500);
+        } else if (data.status === 'no_endpoints') {
+            showAlert('No known endpoints — cannot attempt direct connection.', 'warning');
+        } else {
+            showAlert(data.message || 'Could not establish direct connection.', 'warning');
+        }
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-lightning-charge"></i> Go Direct'; }
+    })
+    .catch(err => {
+        showAlert('Promote failed: ' + buildConnectErrorMessage(err), 'danger');
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-lightning-charge"></i> Go Direct'; }
+    });
 }
 
 function forgetPeer(peerId) {

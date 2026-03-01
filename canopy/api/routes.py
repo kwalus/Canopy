@@ -2382,6 +2382,85 @@ def create_api_blueprint() -> Blueprint:
             return jsonify({'error': 'P2P not running'}), 500
         return jsonify(p2p_manager.get_relay_status())
 
+    @api.route('/p2p/promote_direct', methods=['POST'])
+    @require_auth(allow_session=True)
+    def promote_direct():
+        """Drop relay route for a peer and attempt a direct connection."""
+        import asyncio as _asyncio
+        *_, p2p_manager = _get_app_components_any(current_app)
+        if not p2p_manager or not p2p_manager.connection_manager:
+            return jsonify({'error': 'P2P not running'}), 500
+
+        data = request.get_json(silent=True) or {}
+        peer_id = data.get('peer_id')
+        if not peer_id:
+            return jsonify({'error': 'peer_id required'}), 400
+
+        ev_loop = p2p_manager._event_loop
+        if not ev_loop or ev_loop.is_closed():
+            return jsonify({'error': 'P2P event loop unavailable'}), 500
+
+        was_relayed = peer_id in p2p_manager._active_relays
+
+        # Remove relay route so the mesh treats this peer as disconnected
+        p2p_manager._active_relays.pop(peer_id, None)
+        if p2p_manager.message_router:
+            p2p_manager.message_router.remove_route(peer_id)
+
+        # Gather known endpoints for this peer
+        endpoints = list(
+            p2p_manager.identity_manager.peer_endpoints.get(peer_id, [])
+        )
+        # Also check introduced peers
+        intro = getattr(p2p_manager, '_introduced_peers', {}).get(peer_id)
+        if intro:
+            for ep in intro.get('endpoints', []):
+                if ep not in endpoints:
+                    endpoints.append(ep)
+
+        if not endpoints:
+            return jsonify({
+                'status': 'no_endpoints',
+                'peer_id': peer_id,
+                'was_relayed': was_relayed,
+                'message': 'No known endpoints for direct connection attempt',
+            }), 400
+
+        # Try each endpoint
+        for ep in endpoints:
+            try:
+                addr = ep.replace('ws://', '').replace('wss://', '')
+                host, port_str = addr.rsplit(':', 1)
+                port = int(port_str)
+                future = _asyncio.run_coroutine_threadsafe(
+                    p2p_manager.connection_manager.connect_to_peer(
+                        peer_id, host, port),
+                    ev_loop,
+                )
+                connected = future.result(timeout=10.0)
+                if connected:
+                    try:
+                        p2p_manager.trigger_peer_sync(peer_id)
+                    except Exception:
+                        pass
+                    return jsonify({
+                        'status': 'direct',
+                        'peer_id': peer_id,
+                        'endpoint': ep,
+                        'was_relayed': was_relayed,
+                    })
+            except Exception as ce:
+                logger.warning(f"Promote direct {ep} failed: {ce}")
+                continue
+
+        return jsonify({
+            'status': 'failed',
+            'peer_id': peer_id,
+            'was_relayed': was_relayed,
+            'endpoints_tried': len(endpoints),
+            'message': 'Could not establish direct connection on any endpoint',
+        }), 502
+
     @api.route('/p2p/activity', methods=['GET'])
     @require_auth(allow_session=True)
     def p2p_activity():
