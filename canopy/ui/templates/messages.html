@@ -997,6 +997,9 @@
                 html = linkifyChannels(html);
             }
             el.innerHTML = html;
+            if (typeof renderMathInElementSafe === 'function') {
+                renderMathInElementSafe(el);
+            }
         });
     }
 

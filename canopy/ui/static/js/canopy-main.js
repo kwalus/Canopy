@@ -296,6 +296,65 @@
 	            }
 	        }
 
+            function containsMathDelimiters(text) {
+                if (!text) return false;
+                const value = String(text);
+                if (value.indexOf('$') !== -1) {
+                    let inlineCount = 0;
+                    let blockCount = 0;
+                    for (let i = 0; i < value.length; i++) {
+                        if (value[i] !== '$') continue;
+                        let slashCount = 0;
+                        for (let j = i - 1; j >= 0 && value[j] === '\\'; j--) {
+                            slashCount += 1;
+                        }
+                        if ((slashCount % 2) === 1) continue;
+                        if (value[i + 1] === '$') {
+                            blockCount += 1;
+                            i += 1;
+                        } else {
+                            inlineCount += 1;
+                        }
+                    }
+                    if (blockCount >= 2 || inlineCount >= 2) return true;
+                }
+                if (value.indexOf('\\(') !== -1 && value.indexOf('\\)') !== -1) return true;
+                if (value.indexOf('\\[') !== -1 && value.indexOf('\\]') !== -1) return true;
+                return false;
+            }
+
+            function renderMathInElementSafe(root) {
+                if (!root || typeof window === 'undefined' || typeof window.renderMathInElement !== 'function') {
+                    return false;
+                }
+                const scope = (root instanceof Element || root instanceof Document) ? root : null;
+                if (!scope) return false;
+                const sourceText = scope.textContent || '';
+                if (!containsMathDelimiters(sourceText)) return false;
+                try {
+                    window.renderMathInElement(scope, {
+                        delimiters: [
+                            { left: '$$', right: '$$', display: true },
+                            { left: '\\[', right: '\\]', display: true },
+                            { left: '\\(', right: '\\)', display: false },
+                            { left: '$', right: '$', display: false }
+                        ],
+                        throwOnError: false,
+                        strict: 'ignore',
+                        trust: false,
+                        ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code', 'a'],
+                        ignoredClasses: ['channel-code', 'no-katex']
+                    });
+                    return true;
+                } catch (e) {
+                    return false;
+                }
+            }
+            if (typeof window !== 'undefined') {
+                window.renderMathInElementSafe = renderMathInElementSafe;
+                window.containsMathDelimiters = containsMathDelimiters;
+            }
+
 	        function linkifyMentions(text) {
 	            if (!text || text.indexOf('@') === -1) return text;
 	            const map = (typeof window !== 'undefined' && window.mentionDisplayMap) || {};
@@ -366,7 +425,7 @@
                 });
             }
 
-	        function renderRichContent(text) {
+		        function renderRichContent(text) {
 	            if (!text) return '';
 
 	            // Escape HTML first to prevent XSS
@@ -511,13 +570,21 @@
                 html = html.replace(EMBED_PLACEHOLDER + '0\x00', embeds[0]);
             }
 
-            if (codeBlocks.length) {
-                for (let i = 0; i < codeBlocks.length; i++) {
-                    html = html.replace(CODE_PLACEHOLDER + i + '\x00', codeBlocks[i]);
-                }
-            }
+	            if (codeBlocks.length) {
+	                for (let i = 0; i < codeBlocks.length; i++) {
+	                    html = html.replace(CODE_PLACEHOLDER + i + '\x00', codeBlocks[i]);
+	                }
+	            }
 
-            // Wrap in paragraph or div (div if we have block elements like <pre> so markup stays valid)
+                // Render LaTeX-style equations when KaTeX is available.
+                if (containsMathDelimiters(html)) {
+                    const probe = document.createElement('div');
+                    probe.innerHTML = html;
+                    renderMathInElementSafe(probe);
+                    html = probe.innerHTML;
+                }
+
+	            // Wrap in paragraph or div (div if we have block elements like <pre> so markup stays valid)
             if (!html.includes('embed-preview') && !html.includes('embed-grid')) {
                 if (html.includes('<pre') || html.includes('<pre ')) {
                     html = '<div class="rich-content">' + html + '</div>';
@@ -532,15 +599,15 @@
 	        }
 
 	        // Helper to process all elements matching a selector through renderRichContent
-	        function processRichEmbeds(selector) {
-	            document.querySelectorAll(selector).forEach(function(el) {
-	                const rawText = el.textContent.trim();
-	                if (!rawText) return;
-	                // Process if it contains a URL worth embedding, markdown image, or code blocks
-	                var shouldProcess = /https?:\/\//.test(rawText) || /\]\(\/files\//.test(rawText) || /!\[/.test(rawText) || /```/.test(rawText);
-	                if (shouldProcess) {
-	                    const rendered = renderRichContent(rawText);
-	                    if (el.tagName === 'P') {
+		        function processRichEmbeds(selector) {
+		            document.querySelectorAll(selector).forEach(function(el) {
+		                const rawText = el.textContent.trim();
+		                if (!rawText) return;
+		                // Process if it contains a URL worth embedding, markdown image, or code blocks
+		                var shouldProcess = /https?:\/\//.test(rawText) || /\]\(\/files\//.test(rawText) || /!\[/.test(rawText) || /```/.test(rawText) || containsMathDelimiters(rawText);
+		                if (shouldProcess) {
+		                    const rendered = renderRichContent(rawText);
+		                    if (el.tagName === 'P') {
 	                        // Avoid invalid <p><div>... nesting once we add embeds.
 	                        const repl = document.createElement('div');
 	                        repl.className = el.className;

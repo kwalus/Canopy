@@ -4014,6 +4014,9 @@
                     return '<a href="/channels/locate?message_id=' + encodeURIComponent(messageId) + '" class="msg-link" style="color:var(--canopy-primary,#22c55e);">View message</a>';
                 });
                 el.innerHTML = html;
+                if (typeof renderMathInElementSafe === 'function') {
+                    renderMathInElementSafe(el);
+                }
             });
         }
 
