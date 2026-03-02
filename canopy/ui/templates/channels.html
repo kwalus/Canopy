@@ -38,6 +38,26 @@
     .channel-name {
         font-weight: 500;
     }
+
+    .icon-action-btn {
+        min-width: 2rem;
+        padding-left: 0.45rem;
+        padding-right: 0.45rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.3rem;
+    }
+
+    .icon-action-btn .action-label {
+        display: none !important;
+    }
+
+    .icon-action-btn .action-count {
+        font-size: 0.74rem;
+        font-weight: 600;
+        line-height: 1;
+    }
     
     .file-dropzone {
         border: 2px dashed var(--canopy-border);
@@ -140,7 +160,7 @@
         border: 1px solid var(--canopy-border);
         border-radius: 12px;
         box-shadow: 0 12px 28px rgba(0, 0, 0, 0.25);
-        max-height: 220px;
+        max-height: 360px;
         overflow-y: auto;
         display: none;
         z-index: 1000;
@@ -1024,6 +1044,10 @@
     }
 
     @media (max-width: 767.98px) {
+        .channel-shell {
+            width: 100%;
+            min-width: 0;
+        }
         #channel-emoji-picker {
             right: 0.5rem;
             left: 0.5rem;
@@ -1298,6 +1322,7 @@
                      data-channel-id="{{ channel.id }}"
                      data-privacy-mode="{{ channel.privacy_mode }}"
                      data-member-count="{{ channel.member_count if channel.member_count is not none else 0 }}"
+                     data-unread-count="{{ channel.unread_count if channel.unread_count is not none else 0 }}"
                      data-channel-type="{{ channel.channel_type }}"
                      data-user-role="{{ channel.user_role }}"
                      data-origin-peer="{{ channel.origin_peer or '' }}"
@@ -1310,7 +1335,7 @@
                         <span class="ms-auto d-flex align-items-center gap-1">
                             <i class="bi bi-bell-slash text-muted channel-muted-icon {% if channel.notifications_enabled %}d-none{% endif %}" title="Muted"></i>
                             {% if channel.unread_count > 0 %}
-                                <span class="badge bg-danger">{{ channel.unread_count }}</span>
+                                <span class="badge bg-danger channel-unread-badge">{{ channel.unread_count }}</span>
                             {% endif %}
                         </span>
                     </div>
@@ -1467,7 +1492,6 @@
                             <option value="day">1 day</option>
                             <option value="week">1 week</option>
                             <option value="quarter" selected>3 months</option>
-                            <option value="none">No expiry</option>
                             <option value="custom">Custom…</option>
                         </select>
                         <div id="channelCustomExpiryWrap" class="input-group input-group-sm channel-custom-expiry" style="display: none;">
@@ -1524,7 +1548,7 @@
                         <!-- Message Controls -->
                         <div class="input-group-append d-flex">
                             <input type="file" id="file-input" style="display: none;" multiple 
-                                   accept="image/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.yaml,.yml,.xml,.mp3,.mp4,.avi">
+                                   accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.avi,.mkv,.mov,.webm">
                             <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('file-input').click()">
                                 <i class="bi bi-paperclip"></i>
                             </button>
@@ -1536,6 +1560,28 @@
                                 <i class="bi bi-people"></i>
                             </button>
                             <div id="channel-mention-macro-buttons" class="mention-macro-buttons" style="display: none;"></div>
+                            <div class="btn-group">
+                                <button type="button"
+                                        class="btn btn-outline-danger dropdown-toggle"
+                                        id="channel-stream-quick-toggle"
+                                        data-bs-toggle="dropdown"
+                                        aria-expanded="false"
+                                        title="Create a live stream post">
+                                    <i class="bi bi-broadcast-pin"></i>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="channel-stream-quick-toggle">
+                                    <li>
+                                        <button type="button" class="dropdown-item" onclick="quickCreateLiveStream('audio')">
+                                            <i class="bi bi-mic-fill me-2"></i>Start audio stream card
+                                        </button>
+                                    </li>
+                                    <li>
+                                        <button type="button" class="dropdown-item" onclick="quickCreateLiveStream('video')">
+                                            <i class="bi bi-camera-video-fill me-2"></i>Start video stream card
+                                        </button>
+                                    </li>
+                                </ul>
+                            </div>
                             <button type="submit" class="btn btn-primary">
                                 <i class="bi bi-send"></i>
                             </button>
@@ -3233,6 +3279,7 @@ let modalMemberSelections = [];
 let selectedFiles = [];
 let editChannelSelectedFiles = [];
 let editChannelExistingAttachments = [];
+let channelSendInFlight = false;
 let replyToMessageId = null;   // threading: parent message we're replying to
 let replyToAuthor = '';
 let isSearchActive = false;
@@ -3255,6 +3302,37 @@ let channelMentionContext = null;
 let channelMentionBuilderFilter = 'all';
 const channelMentionBuilderSelection = new Map();
 const CHANNEL_MENTION_LISTS_STORAGE_KEY = 'canopy.channel_mention_lists.v1';
+const channelMessageRenderInFlight = new Set();
+const CHANNEL_FILE_ALLOWED_MIME_PREFIXES = ['image/', 'video/', 'audio/'];
+const CHANNEL_FILE_ALLOWED_MIME_EXACT = new Set([
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/json',
+    'application/xml',
+    'application/x-yaml',
+    'application/javascript',
+    'application/typescript',
+    'application/octet-stream',
+    'application/zip',
+    'application/x-zip-compressed',
+    'application/x-7z-compressed',
+    'application/vnd.rar',
+    'application/x-rar-compressed',
+    'application/x-tar',
+    'application/gzip',
+    'application/x-gzip',
+    'application/x-bzip2',
+    'application/x-xz',
+    'text/plain',
+    'text/markdown'
+]);
+const CHANNEL_FILE_ALLOWED_EXTENSIONS = [
+    '.md', '.txt', '.tex', '.json', '.py', '.js', '.ts', '.log',
+    '.csv', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
+    '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx',
+    '.zip', '.tar', '.gz', '.tgz', '.bz2', '.tbz2', '.xz', '.7z', '.rar'
+];
 const POLL_EDIT_WINDOW_SECONDS = {{ (poll_edit_window_seconds if poll_edit_window_seconds is defined else 0)|tojson }};
 const POLL_EDIT_WINDOW_LABEL = POLL_EDIT_WINDOW_SECONDS
     ? `Edits lock after ${Math.max(1, Math.round(POLL_EDIT_WINDOW_SECONDS / 60))}m or first vote`
@@ -3311,6 +3389,11 @@ function bindChannelItemHandlers() {
 
 // Channel management
 function selectChannel(channelId, channelName) {
+    if (typeof window.canopyPersistActiveMedia === 'function') {
+        try {
+            window.canopyPersistActiveMedia();
+        } catch (_) {}
+    }
     // On mobile, close the sidebar drawer after selecting
     if (window.innerWidth < 768) {
         const sidebar = document.getElementById('channel-sidebar');
@@ -3356,7 +3439,8 @@ function selectChannel(channelId, channelName) {
     });
     const activeItem = document.querySelector(`.channel-item[data-channel-id="${CSS.escape(targetChannelId)}"]`);
     if (activeItem) {
-        const badge = activeItem.querySelector('.badge.bg-danger');
+        activeItem.setAttribute('data-unread-count', '0');
+        const badge = activeItem.querySelector('.channel-unread-badge, .badge.bg-danger');
         if (badge) badge.remove();
     }
 
@@ -3817,7 +3901,6 @@ function renderMessage(message, userInfo, isReply) {
                     <li><a class="dropdown-item" href="#" onclick="setChannelMessageExpiry('${message.id}','day'); return false;">Daily (1 day)</a></li>
                     <li><a class="dropdown-item" href="#" onclick="setChannelMessageExpiry('${message.id}','week'); return false;">Weekly (7 days)</a></li>
                     <li><a class="dropdown-item" href="#" onclick="setChannelMessageExpiry('${message.id}','quarter'); return false;">Quarterly (3 months)</a></li>
-                    <li><a class="dropdown-item" href="#" onclick="setChannelMessageExpiry('${message.id}','none'); return false;">No Expiry</a></li>
                     <li><a class="dropdown-item" href="#" onclick="openChannelCustomExpiryModal('${message.id}'); return false;">Custom…</a></li>
                 </ul>
             </div>`;
@@ -3849,6 +3932,19 @@ function renderMessage(message, userInfo, isReply) {
            </span>`
         : '';
 
+    let cryptoBadge = '';
+    const cs = (message.crypto_state || '').toLowerCase();
+    const channelIsE2E = currentChannelType === 'private' || currentChannelPrivacy === 'private' || currentChannelPrivacy === 'confidential';
+    if (cs === 'decrypted' || cs === 'encrypted') {
+        cryptoBadge = `<span class="badge bg-success-subtle text-success border rounded-pill" title="End-to-end encrypted"><i class="bi bi-shield-lock-fill"></i></span>`;
+    } else if (cs === 'pending_decrypt') {
+        cryptoBadge = `<span class="badge bg-warning-subtle text-warning border rounded-pill" title="Encrypted — awaiting key"><i class="bi bi-shield-exclamation"></i></span>`;
+    } else if (cs === 'decrypt_failed') {
+        cryptoBadge = `<span class="badge bg-danger-subtle text-danger border rounded-pill" title="Decryption failed"><i class="bi bi-shield-x"></i></span>`;
+    } else if (channelIsE2E && (cs === 'plaintext' || !cs)) {
+        cryptoBadge = `<span class="badge bg-success-subtle text-success border rounded-pill" title="End-to-end encrypted"><i class="bi bi-shield-lock-fill"></i></span>`;
+    }
+
     return `
     <div class="message-item message-card ${replyClass}" data-message-id="${message.id}">
         <div class="d-flex align-items-start">
@@ -3873,6 +3969,7 @@ function renderMessage(message, userInfo, isReply) {
                     </small>
                     ${editedBadge}
                     ${expiryBadge}
+                    ${cryptoBadge}
                 </div>
                 <div class="message-content">
                     ${objectiveHtml}
@@ -3891,31 +3988,37 @@ function renderMessage(message, userInfo, isReply) {
                 <!-- Message Actions -->
                 <div class="message-actions mt-1" style="font-size: 0.85rem;">
                     <div class="d-flex gap-2 flex-wrap">
-                        <button class="btn btn-sm ${message.user_has_liked ? 'btn-primary' : 'btn-outline-primary'} like-btn" 
+                        <button class="btn btn-sm icon-action-btn ${message.user_has_liked ? 'btn-primary' : 'btn-outline-primary'} like-btn" 
                                 onclick="toggleLike('${message.id}')"
                                 data-item-id="${message.id}"
-                                data-liked="${message.user_has_liked ? 'true' : 'false'}">
+                                data-liked="${message.user_has_liked ? 'true' : 'false'}"
+                                title="${message.user_has_liked ? 'Unlike message' : 'Like message'}"
+                                aria-label="${message.user_has_liked ? 'Unlike message' : 'Like message'}">
                             <i class="bi bi-heart${message.user_has_liked ? '-fill' : ''}"></i> 
-                            <span class="like-text">${message.user_has_liked ? 'Liked' : 'Like'}</span> 
-                            <span class="like-count">${message.like_count || 0}</span>
+                            <span class="like-text action-label">${message.user_has_liked ? 'Liked' : 'Like'}</span> 
+                            <span class="like-count action-count">${message.like_count || 0}</span>
                         </button>
-                        <button class="btn btn-sm btn-outline-secondary"
-                                onclick="setReplyTo('${message.id}', '${user.display_name.replace(/'/g, "\\'")}', \`${escapeHtml(message.content || '').slice(0, 80).replace(/`/g, "'")}\`)">
-                            <i class="bi bi-reply"></i> Reply
+                        <button class="btn btn-sm btn-outline-secondary icon-action-btn"
+                                onclick="setReplyTo('${message.id}', '${user.display_name.replace(/'/g, "\\'")}', \`${escapeHtml(message.content || '').slice(0, 80).replace(/`/g, "'")}\`)"
+                                title="Reply in thread"
+                                aria-label="Reply in thread">
+                            <i class="bi bi-reply"></i><span class="action-label">Reply</span>
                         </button>
-                        <button class="btn btn-sm btn-outline-secondary"
+                        <button class="btn btn-sm btn-outline-secondary icon-action-btn"
                                 onclick="toggleThreadInboxSubscription('${message.id}')"
-                                title="Mute or unmute inbox notifications for this thread">
-                            <i class="bi bi-bell-slash"></i> Thread inbox
+                                title="Toggle thread inbox notifications"
+                                aria-label="Toggle thread inbox notifications">
+                            <i class="bi bi-bell-slash"></i><span class="action-label">Thread inbox</span>
                         </button>
                         ${(message.content || '').trim() ? `
                         <div class="btn-group">
-                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
+                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle icon-action-btn"
                                     type="button"
                                     data-bs-toggle="dropdown"
                                     aria-expanded="false"
-                                    title="Promote this message into a structured tool block">
-                                <i class="bi bi-magic me-1"></i>Promote
+                                    title="Promote into structured tool"
+                                    aria-label="Promote into structured tool">
+                                <i class="bi bi-magic"></i><span class="action-label">Promote</span>
                             </button>
                             <ul class="dropdown-menu dropdown-menu-end">
                                 <li><h6 class="dropdown-header">Promote to tool</h6></li>
@@ -3927,31 +4030,37 @@ function renderMessage(message, userInfo, isReply) {
                             </ul>
                         </div>` : ''}
                         ${message.user_id === currentUserId ? `
-                        <button class="btn btn-sm btn-outline-secondary"
+                        <button class="btn btn-sm btn-outline-secondary icon-action-btn"
                                 onclick="editChannelMessage('${message.id}')"
-                                title="Edit message">
-                            <i class="bi bi-pencil"></i> Edit
+                                title="Edit message"
+                                aria-label="Edit message">
+                            <i class="bi bi-pencil"></i><span class="action-label">Edit</span>
                         </button>` : ''}
-                        <button class="btn btn-sm btn-outline-secondary copy-btn"
+                        <button class="btn btn-sm btn-outline-secondary copy-btn icon-action-btn"
                                 onclick="copyToClipboard(this, \`${escapeHtml(message.content || '').replace(/`/g, "'")}\`)"
-                                title="Copy to clipboard">
+                                title="Copy message"
+                                aria-label="Copy message">
                             <i class="bi bi-clipboard"></i>
                         </button>
-                        <button class="btn btn-sm btn-outline-secondary context-insight-trigger"
+                        <button class="btn btn-sm btn-outline-secondary context-insight-trigger icon-action-btn"
                                 onclick="openContentContextModalFromAction('channel_message', '${message.id}'); return false;"
-                                title="Extract and review link context">
-                            <i class="bi bi-file-earmark-text"></i> Context
+                                title="Open context insights"
+                                aria-label="Open context insights">
+                            <i class="bi bi-file-earmark-text"></i><span class="action-label">Context</span>
                         </button>
-                        <button class="btn btn-sm btn-outline-info community-note-trigger"
+                        <button class="btn btn-sm btn-outline-info community-note-trigger icon-action-btn"
                                 onclick="openCommunityNoteModal('channel_message', '${message.id}')"
-                                title="Add community note">
+                                title="Open community notes"
+                                aria-label="Open community notes">
                             <i class="bi bi-journal-check"></i>
-                            Notes ${message.community_notes_count || 0}
+                            <span class="action-label">Notes</span>
+                            <span class="action-count">${message.community_notes_count || 0}</span>
                         </button>
                         ${message.user_id === currentUserId ? `
-                        <button class="btn btn-sm btn-outline-danger delete-btn"
+                        <button class="btn btn-sm btn-outline-danger delete-btn icon-action-btn"
                                 onclick="deleteChannelMessage('${message.id}')"
-                                title="Delete message">
+                                title="Delete message"
+                                aria-label="Delete message">
                             <i class="bi bi-trash"></i>
                         </button>` : ''}
                     </div>
@@ -5234,12 +5343,29 @@ function handleChannelComposerKeydown(e) {
     handleChannelMentionKeydown(e);
 }
 
+function resolveComposerContextRange(textarea, context, marker) {
+    if (!textarea) return null;
+    const value = textarea.value || '';
+    const live = marker === '@' ? getMentionContext(textarea) : getChannelHashContext(textarea);
+    const chosen = live || context;
+    if (!chosen || !Number.isInteger(chosen.start)) return null;
+    const start = Math.max(0, Math.min(chosen.start, value.length));
+    if (value.slice(start, start + 1) !== marker) return null;
+    const tokenPattern = marker === '@' ? /[A-Za-z0-9_.\-]/ : /[A-Za-z0-9_.-]/;
+    let end = Math.max(start + 1, Math.min(Number(chosen.end || start + 1), value.length));
+    while (end < value.length && tokenPattern.test(value.charAt(end))) {
+        end += 1;
+    }
+    return { start, end };
+}
+
 function insertChannelMention(handle, context) {
     const textarea = document.getElementById('message-input');
-    if (!textarea || !context) return;
+    const range = resolveComposerContextRange(textarea, context, '@');
+    if (!textarea || !range) return;
     const value = textarea.value;
-    const before = value.slice(0, context.start);
-    const after = value.slice(context.end);
+    const before = value.slice(0, range.start);
+    const after = value.slice(range.end);
     const insert = '@' + handle + ' ';
     textarea.value = before + insert + after;
     const newPos = before.length + insert.length;
@@ -5250,10 +5376,11 @@ function insertChannelMention(handle, context) {
 
 function insertChannelHash(name, context) {
     const textarea = document.getElementById('message-input');
-    if (!textarea || !context) return;
+    const range = resolveComposerContextRange(textarea, context, '#');
+    if (!textarea || !range) return;
     const value = textarea.value;
-    const before = value.slice(0, context.start);
-    const after = value.slice(context.end);
+    const before = value.slice(0, range.start);
+    const after = value.slice(range.end);
     const insert = '#' + name + ' ';
     textarea.value = before + insert + after;
     const newPos = before.length + insert.length;
@@ -5384,11 +5511,15 @@ function appendNewMessages(allMessages) {
     // Separate new root messages and new replies (grouped by thread root)
     const newRoots = [];
     const newReplies = {};
+    const reservedIds = new Set();
     allMessages.forEach(m => {
-        if (existingIds.has(m.id)) return; // already rendered
+        if (!m || !m.id) return;
+        if (existingIds.has(m.id) || channelMessageRenderInFlight.has(m.id)) return; // already rendered (or queued)
+        channelMessageRenderInFlight.add(m.id);
+        reservedIds.add(m.id);
         if (m.parent_message_id) {
             const root = findThreadRoot(m);
-            const rootId = root.id;
+            const rootId = root && root.id ? root.id : m.parent_message_id;
             if (!newReplies[rootId]) newReplies[rootId] = [];
             newReplies[rootId].push(m);
         } else {
@@ -5396,7 +5527,10 @@ function appendNewMessages(allMessages) {
         }
     });
 
-    if (newRoots.length === 0 && Object.keys(newReplies).length === 0) return false;
+    if (newRoots.length === 0 && Object.keys(newReplies).length === 0) {
+        reservedIds.forEach(id => channelMessageRenderInFlight.delete(id));
+        return false;
+    }
 
     const wasNearBottom = isNearBottom(scrollContainer);
 
@@ -5424,7 +5558,13 @@ function appendNewMessages(allMessages) {
             const fragment = document.createElement('div');
             fragment.innerHTML = html;
             while (fragment.firstChild) {
-                messagesContainer.appendChild(fragment.firstChild);
+                const node = fragment.firstChild;
+                const nodeId = node && node.getAttribute ? node.getAttribute('data-message-id') : null;
+                if (nodeId && messagesContainer.querySelector(`.message-item[data-message-id="${CSS.escape(nodeId)}"]`)) {
+                    fragment.removeChild(node);
+                    continue;
+                }
+                messagesContainer.appendChild(node);
             }
         }
 
@@ -5459,6 +5599,11 @@ function appendNewMessages(allMessages) {
 
             while (fragment.firstChild) {
                 const node = fragment.firstChild;
+                const nodeId = node && node.getAttribute ? node.getAttribute('data-message-id') : null;
+                if (nodeId && messagesContainer.querySelector(`.message-item[data-message-id="${CSS.escape(nodeId)}"]`)) {
+                    fragment.removeChild(node);
+                    continue;
+                }
                 if (insertAfter && insertAfter.nextSibling) {
                     messagesContainer.insertBefore(node, insertAfter.nextSibling);
                 } else {
@@ -5493,6 +5638,8 @@ function appendNewMessages(allMessages) {
         if (currentChannelId) {
             channelMessageSignature[currentChannelId] = getMessagesSignature(allMessages);
         }
+    }).finally(() => {
+        reservedIds.forEach(id => channelMessageRenderInFlight.delete(id));
     });
 
     return true;
@@ -5680,6 +5827,73 @@ function applyPendingChannelMessages() {
     if (currentChannelId) {
         loadChannelMessages(currentChannelId, { forceScroll: true });
     }
+}
+
+function applySidebarChannelState(channels) {
+    if (!Array.isArray(channels)) return;
+    const channelList = document.querySelector('.channel-list');
+    channels.forEach(ch => {
+        if (!ch || !ch.id) return;
+        let item = document.querySelector(`.channel-item[data-channel-id="${CSS.escape(String(ch.id))}"]`);
+        if (!item && channelList && ch.name) {
+            const ctype = ch.channel_type || 'public';
+            const icon = ctype === 'private' ? 'lock' : ctype === 'dm' ? 'person' : 'hash';
+            const div = document.createElement('div');
+            div.className = 'channel-item p-2 rounded mb-1';
+            div.setAttribute('data-channel-id', ch.id);
+            div.setAttribute('data-privacy-mode', ch.privacy_mode || 'open');
+            div.setAttribute('data-member-count', String(ch.member_count || 0));
+            div.setAttribute('data-unread-count', String(ch.unread_count || 0));
+            div.setAttribute('data-channel-type', ctype);
+            div.setAttribute('data-user-role', ch.user_role || 'member');
+            div.setAttribute('data-origin-peer', ch.origin_peer || '');
+            div.setAttribute('data-notifications-enabled', ch.notifications_enabled !== false ? 'true' : 'false');
+            div.setAttribute('data-channel-desc', '');
+            div.onclick = () => selectChannel(ch.id, ch.name);
+            const unread = Math.max(0, parseInt(ch.unread_count || 0, 10) || 0);
+            div.innerHTML = `
+                <div class="d-flex align-items-center">
+                    <i class="bi bi-${icon} me-2"></i>
+                    <span class="channel-name">${escapeHtml(ch.name)}</span>
+                    <span class="ms-auto d-flex align-items-center gap-1">
+                        <i class="bi bi-bell-slash text-muted channel-muted-icon ${ch.notifications_enabled !== false ? 'd-none' : ''}" title="Muted"></i>
+                        ${unread > 0 ? `<span class="badge bg-danger channel-unread-badge">${unread}</span>` : ''}
+                    </span>
+                </div>`;
+            channelList.appendChild(div);
+            item = div;
+        }
+        if (!item) return;
+        const unreadCount = Math.max(0, parseInt(ch.unread_count || 0, 10) || 0);
+        item.setAttribute('data-unread-count', String(unreadCount));
+        const badgeHost = item.querySelector('.ms-auto.d-flex.align-items-center.gap-1') || item;
+        let badge = item.querySelector('.channel-unread-badge');
+        if (unreadCount > 0 && String(currentChannelId) !== String(ch.id)) {
+            if (!badge) {
+                badge = document.createElement('span');
+                badge.className = 'badge bg-danger channel-unread-badge';
+                badgeHost.appendChild(badge);
+            }
+            badge.textContent = String(unreadCount);
+        } else if (badge) {
+            badge.remove();
+        }
+        if (Object.prototype.hasOwnProperty.call(ch, 'notifications_enabled')) {
+            const enabled = !!ch.notifications_enabled;
+            item.setAttribute('data-notifications-enabled', enabled ? 'true' : 'false');
+            const mutedIcon = item.querySelector('.channel-muted-icon');
+            if (mutedIcon) mutedIcon.classList.toggle('d-none', enabled);
+        }
+    });
+}
+
+function refreshSidebarChannelState() {
+    apiCall(`/ajax/channel_sidebar_state?_t=${Date.now()}`)
+        .then(data => {
+            if (!data || data.success === false) return;
+            applySidebarChannelState(data.channels || []);
+        })
+        .catch(() => {});
 }
 
 function pollChannelMessages() {
@@ -6066,7 +6280,8 @@ function displayAttachments(attachments) {
         return (parts.pop() || '').toLowerCase();
     };
 
-    // Separate images, audio, video, and other files
+    // Separate stream cards, images, audio, video, and other files
+    const streamCards = [];
     const images = [];
     const audioFiles = [];
     const videoFiles = [];
@@ -6074,11 +6289,16 @@ function displayAttachments(attachments) {
     attachments.forEach(att => {
         const mime = String((att && att.type) || '').toLowerCase();
         const ext = extOf((att && att.name) || (att && att.url) || '');
+        const streamKind = String((att && att.kind) || '').toLowerCase();
+        const hasStreamId = !!(att && att.stream_id);
+        const isStream = streamKind === 'stream' || hasStreamId || mime.indexOf('application/vnd.canopy.stream') === 0;
         const isImage = mime.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif'].includes(ext);
         const isAudio = mime.startsWith('audio/') || ['mp3', 'wav', 'aac', 'm4a', 'flac', 'oga', 'opus', 'weba'].includes(ext);
         const isVideo = mime.startsWith('video/') || ['mp4', 'webm', 'ogv', 'm4v', 'mov'].includes(ext);
 
-        if (isImage) {
+        if (isStream) {
+            streamCards.push(att);
+        } else if (isImage) {
             images.push(att);
         } else if (isAudio) {
             audioFiles.push(att);
@@ -6090,6 +6310,58 @@ function displayAttachments(attachments) {
     });
 
     let html = '<div class="attachments mt-2">';
+
+    // Render stream cards with one-click watch/listen session join.
+    streamCards.forEach((att, idx) => {
+        const streamId = String(att.stream_id || '').trim();
+        const streamKind = String(att.stream_kind || (String(att.protocol || '').toLowerCase() === 'events-json' ? 'telemetry' : 'media')).toLowerCase();
+        const mediaKindRaw = String(att.media_kind || 'audio').toLowerCase();
+        const mediaKind = mediaKindRaw === 'video' ? 'video' : (mediaKindRaw === 'data' ? 'data' : 'audio');
+        const status = String(att.status || 'created').toLowerCase();
+        const safeTitle = (att.title || att.name || 'Live stream').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+        const safeDesc = String(att.description || '').replace(/</g, '&lt;');
+        const slotId = `stream-slot-${Math.random().toString(36).slice(2, 10)}-${idx}`;
+        const statusLabel = status === 'live' ? 'LIVE' : (status === 'stopped' ? 'Stopped' : 'Preparing');
+        const statusClass = status === 'live' ? 'bg-danger' : 'bg-secondary';
+        const icon = streamKind === 'telemetry' ? 'cpu' : (mediaKind === 'video' ? 'camera-video' : 'broadcast');
+        const actionLabel = streamKind === 'telemetry' ? 'Open feed' : (mediaKind === 'video' ? 'Watch' : 'Listen');
+        const isOwner = att.created_by && att.created_by === currentUserId;
+        const goLiveBtn = isOwner && streamId && streamKind !== 'telemetry'
+            ? `<button class="btn btn-sm btn-outline-warning" onclick="openBroadcasterPanel('${streamId.replace(/'/g, "\\'")}', '${mediaKind}', '${slotId}')">
+                    <i class="bi bi-broadcast"></i> Go Live
+               </button>`
+            : '';
+        const streamBtn = streamId
+            ? `<button class="btn btn-sm btn-outline-success" onclick="openStreamAttachmentPlayer('${streamId.replace(/'/g, "\\'")}', '${mediaKind}', '${slotId}', '${streamKind}')">
+                    <i class="bi bi-play-fill"></i> ${actionLabel}
+               </button>`
+            : `<span class="small text-muted">Stream metadata incomplete</span>`;
+        html += `
+            <div class="attachment-item mb-2 p-2 border rounded" style="background: linear-gradient(145deg, rgba(19,36,58,0.95), rgba(16,22,34,0.94)); border-color: rgba(61, 84, 116, 0.65) !important;">
+                <div class="d-flex align-items-start justify-content-between gap-2">
+                    <div class="d-flex align-items-start gap-2">
+                        <div class="rounded-circle d-flex align-items-center justify-content-center" style="width:32px;height:32px;background:rgba(32,189,126,0.18);">
+                            <i class="bi bi-${icon}"></i>
+                        </div>
+                        <div>
+                            <div class="fw-semibold">${safeTitle}</div>
+                            <div class="small text-muted">${safeDesc || (streamKind === 'telemetry' ? 'Telemetry feed card' : (mediaKind === 'video' ? 'Video stream card' : 'Audio stream card'))}</div>
+                        </div>
+                    </div>
+                    <span class="badge ${statusClass}">${statusLabel}</span>
+                </div>
+                <div class="d-flex align-items-center justify-content-between mt-2">
+                    <span class="small text-muted">ID: ${streamId || 'n/a'}</span>
+                    <div class="d-flex align-items-center gap-2">
+                        ${streamBtn}
+                        ${goLiveBtn}
+                        ${streamId ? `<button class="btn btn-sm btn-outline-secondary" onclick="navigator.clipboard.writeText('${streamId.replace(/'/g, "\\'")}')"><i class="bi bi-clipboard"></i></button>` : ''}
+                    </div>
+                </div>
+                <div id="${slotId}" class="mt-2" style="display:none;"></div>
+            </div>
+        `;
+    });
 
     // Render image grid
     if (images.length > 0) {
@@ -6210,6 +6482,465 @@ function displayAttachments(attachments) {
 
     html += '</div>';
     return html;
+}
+
+function _escapeHtml(value) {
+    return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+async function _renderTelemetryStreamPanel(streamId, slot, sessionPayload) {
+    const eventsUrl = String((sessionPayload && sessionPayload.playback_url) || '');
+    if (!eventsUrl) {
+        throw new Error('Telemetry stream session did not return an events URL');
+    }
+    const response = await fetch(eventsUrl, {
+        method: 'GET',
+        credentials: 'same-origin',
+        cache: 'no-store',
+    });
+    let body = null;
+    try {
+        body = await response.json();
+    } catch (e) {
+        body = null;
+    }
+    if (!response.ok || !body || body.success === false) {
+        const reason = (body && (body.error || body.message)) || `HTTP ${response.status}`;
+        throw new Error(`Telemetry feed unavailable: ${reason}`);
+    }
+
+    const events = Array.isArray(body.events) ? body.events : [];
+    const rows = events.slice(-30).map((ev) => {
+        const seq = Number(ev && ev.seq ? ev.seq : 0);
+        const ts = _escapeHtml((ev && ev.event_ts) || '');
+        const ctype = _escapeHtml((ev && ev.content_type) || 'application/json');
+        const payload = (ev && Object.prototype.hasOwnProperty.call(ev, 'payload')) ? ev.payload : null;
+        const payloadPreview = typeof payload === 'string'
+            ? payload
+            : JSON.stringify(payload || {}, null, 2);
+        return `<tr>
+            <td class="text-muted small">#${Number.isFinite(seq) ? seq : 0}</td>
+            <td class="small text-muted">${ts}</td>
+            <td class="small">${ctype}</td>
+            <td><pre class="small mb-0" style="max-height: 160px; overflow:auto; white-space: pre-wrap;">${_escapeHtml(payloadPreview)}</pre></td>
+        </tr>`;
+    }).join('');
+
+    slot.style.display = 'block';
+    slot.innerHTML = `
+        <div class="border rounded p-2" style="background: rgba(13, 19, 30, 0.66); border-color: rgba(66, 92, 126, 0.6) !important;">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+                <div class="small fw-semibold"><i class="bi bi-cpu me-1"></i>Telemetry feed (latest ${events.length})</div>
+                <button class="btn btn-sm btn-outline-secondary" onclick="openStreamAttachmentPlayer('${streamId.replace(/'/g, "\\'")}', 'data', '${slot.id}', 'telemetry')">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                </button>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th scope="col">Seq</th>
+                            <th scope="col">Timestamp</th>
+                            <th scope="col">Type</th>
+                            <th scope="col">Payload</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows || '<tr><td colspan="4" class="small text-muted">No events yet.</td></tr>'}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+}
+
+// Lazily loads hls.js from CDN on first call; subsequent calls reuse the promise.
+let _hlsJsLoadPromise = null;
+function _loadHlsJs() {
+    if (!_hlsJsLoadPromise) {
+        _hlsJsLoadPromise = new Promise((resolve, reject) => {
+            if (window.Hls) { resolve(window.Hls); return; }
+            const s = document.createElement('script');
+            s.src = 'https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js';
+            s.crossOrigin = 'anonymous';
+            s.onload = () => resolve(window.Hls);
+            s.onerror = () => reject(new Error('Failed to load hls.js'));
+            document.head.appendChild(s);
+        });
+    }
+    return _hlsJsLoadPromise;
+}
+
+async function openStreamAttachmentPlayer(streamId, mediaKind, slotId, streamKind = 'media') {
+    if (!streamId) {
+        showAlert('Stream ID missing for this attachment', 'warning');
+        return;
+    }
+    const slot = document.getElementById(slotId);
+    if (!slot) return;
+    try {
+        const res = await apiCall(`/ajax/streams/${encodeURIComponent(streamId)}/session`, {
+            method: 'POST',
+            body: JSON.stringify({}),
+        });
+        if (!res || !res.success || !res.playback_url) {
+            throw new Error((res && (res.error || res.message)) || 'Unable to join stream');
+        }
+
+        const normalizedKind = String(streamKind || '').toLowerCase();
+        if (normalizedKind === 'telemetry' || String(mediaKind || '').toLowerCase() === 'data') {
+            await _renderTelemetryStreamPanel(streamId, slot, res);
+            return;
+        }
+
+        const playbackUrl = String(res.playback_url);
+        const safeUrl = playbackUrl.replace(/"/g, '&quot;');
+        const isVideo = String(mediaKind || '').toLowerCase() === 'video';
+        const tag = isVideo ? 'video' : 'audio';
+        const extraAttrs = isVideo
+            ? 'playsinline class="w-100" style="max-width:100%;border-radius:10px;background:#000;"'
+            : 'class="w-100" style="max-width:100%;"';
+        const mediaElId = `stream-player-${streamId.replace(/[^a-z0-9]/gi, '')}-${Date.now()}`;
+
+        slot.style.display = 'block';
+        slot.innerHTML = `
+            <${tag} id="${mediaElId}" controls autoplay preload="metadata" ${extraAttrs}></${tag}>
+            <div class="small text-muted mt-1">If playback does not start, <a href="${safeUrl}" target="_blank" rel="noopener">open stream URL</a> in VLC or Safari.</div>
+        `;
+
+        const mediaEl = document.getElementById(mediaElId);
+        if (!mediaEl) return;
+
+        // Live WebM streams use MSE instead of hls.js
+        const isWebm = String(res.live_format || '').toLowerCase() === 'webm' ||
+            playbackUrl.indexOf('/segments/') < 0 && playbackUrl.indexOf('webm') >= 0;
+        if (isWebm) {
+            await _startMSELiveViewer(streamId, playbackUrl, slot, mediaKind);
+            return;
+        }
+
+        if (mediaEl.canPlayType('application/vnd.apple.mpegurl')) {
+            // Safari / native HLS
+            mediaEl.src = playbackUrl;
+            mediaEl.play().catch(() => {});
+        } else {
+            // Chrome, Firefox, Edge — use hls.js; switch to MSE on media error (WebM segments)
+            try {
+                const HlsLib = await _loadHlsJs();
+                if (HlsLib && HlsLib.isSupported()) {
+                    const hls = new HlsLib({
+                        enableWorker: true,
+                        lowLatencyMode: true,
+                        liveSyncDurationCount: 1,
+                        liveMaxLatencyDurationCount: 3,
+                        maxBufferLength: 4,
+                        maxMaxBufferLength: 8,
+                    });
+                    hls.loadSource(playbackUrl);
+                    hls.attachMedia(mediaEl);
+                    hls.on(HlsLib.Events.MANIFEST_PARSED, () => mediaEl.play().catch(() => {}));
+                    hls.on(HlsLib.Events.ERROR, (_e, data) => {
+                        if (data.fatal) {
+                            console.warn('HLS fatal error', data.type, data.details);
+                            if (data.type === HlsLib.ErrorTypes.MEDIA_ERROR) {
+                                hls.destroy();
+                                _startMSELiveViewer(streamId, playbackUrl, slot, mediaKind).catch(() => {});
+                            }
+                        }
+                    });
+                } else {
+                    mediaEl.src = playbackUrl;
+                    mediaEl.play().catch(() => {});
+                }
+            } catch (hlsErr) {
+                console.warn('hls.js load failed, falling back to native src', hlsErr);
+                mediaEl.src = playbackUrl;
+                mediaEl.play().catch(() => {});
+            }
+        }
+    } catch (err) {
+        const serverMsg = err && (err.error || err.message || err.details);
+        const status = err && err.status ? ` [HTTP ${err.status}]` : '';
+        console.error('Stream error:', err);
+        if (err && err.status === 404) {
+            showAlert('Stream not found' + status + ' — this stream may live on another peer that is currently offline.', 'warning');
+        } else {
+            showAlert('Stream error' + status + ': ' + (serverMsg || 'Unable to start stream playback'), 'danger');
+        }
+    }
+}
+
+async function quickCreateLiveStream(mediaKind) {
+    const mode = String(mediaKind || 'audio').toLowerCase() === 'video' ? 'video' : 'audio';
+    if (!currentChannelId) {
+        showAlert('Select a channel before creating a stream post', 'warning');
+        return;
+    }
+    const titleHint = mode === 'video' ? 'Live camera feed' : 'Live audio feed';
+    const channelLabelEl = document.getElementById('current-channel-name');
+    const channelLabel = channelLabelEl ? channelLabelEl.textContent.trim() : String(currentChannelId);
+    const defaultTitle = `${titleHint} ${channelLabel}`.trim();
+    const title = window.prompt(`Stream title (${mode})`, defaultTitle);
+    if (title === null) return;
+    const cleanTitle = String(title || '').trim();
+    if (!cleanTitle) {
+        showAlert('Stream title is required', 'warning');
+        return;
+    }
+    const description = window.prompt('Optional stream description', '') || '';
+
+    try {
+        const payload = {
+            channel_id: currentChannelId,
+            title: cleanTitle,
+            description: String(description).trim(),
+            stream_kind: 'media',
+            media_kind: mode,
+            protocol: 'hls',
+            relay_allowed: currentChannelPrivacy === 'open',
+            auto_post: true,
+            start_now: true,
+            post_content: mode === 'video'
+                ? `Live video stream started: ${cleanTitle}`
+                : `Live audio stream started: ${cleanTitle}`,
+        };
+        const res = await apiCall('/ajax/streams', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+        if (!res || !res.success || !res.stream) {
+            throw new Error((res && (res.error || res.message)) || 'Failed to create stream');
+        }
+        showAlert(`Stream "${cleanTitle}" created — click Go Live on the card to start broadcasting`, 'success');
+        await loadChannelMessages(currentChannelId, { forceScroll: true });
+        // Auto-open broadcaster panel for the new stream
+        const newId = String(res.stream?.id || res.stream?.stream_id || '');
+        if (newId) {
+            setTimeout(() => {
+                document.querySelectorAll(`[onclick*="openBroadcasterPanel"]`).forEach(btn => {
+                    const m = btn.getAttribute('onclick')?.match(/openBroadcasterPanel\('([^']+)','([^']+)','([^']+)'\)/);
+                    if (m && m[1] === newId) { openBroadcasterPanel(m[1], m[2], m[3]); }
+                });
+            }, 700);
+        }
+    } catch (err) {
+        const msg = err && err.message ? err.message : 'Failed to create stream';
+        showAlert(msg, 'danger');
+    }
+}
+
+const _activeBroadcasters = {};
+
+async function openBroadcasterPanel(streamId, mediaKind, slotId) {
+    const slot = document.getElementById(slotId);
+    if (!slot) return;
+
+    // If already open, toggle it closed
+    if (slot.dataset.bcOpen === '1') {
+        slot.dataset.bcOpen = '0';
+        slot.style.display = 'none';
+        slot.innerHTML = '';
+        _stopLiveBroadcast(streamId);
+        return;
+    }
+
+    // Enumerate devices
+    let videoDevices = [], audioDevices = [];
+    try {
+        await navigator.mediaDevices.getUserMedia({ video: mediaKind === 'video', audio: true });
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        videoDevices = devices.filter(d => d.kind === 'videoinput');
+        audioDevices = devices.filter(d => d.kind === 'audioinput');
+    } catch (e) {
+        slot.style.display = 'block';
+        slot.innerHTML = `<p class="small text-danger mt-1">Camera/mic access denied: ${e.message}</p>`;
+        return;
+    }
+
+    const videoOpts = videoDevices.map((d, i) =>
+        `<option value="${d.deviceId}">${d.label || 'Camera ' + (i+1)}</option>`).join('');
+    const audioOpts = audioDevices.map((d, i) =>
+        `<option value="${d.deviceId}">${d.label || 'Mic ' + (i+1)}</option>`).join('');
+
+    slot.innerHTML = `
+        <div class="p-2 border rounded mt-1" style="background:rgba(0,0,0,0.3);">
+            ${mediaKind === 'video' ? `
+            <div class="mb-2">
+                <label class="small text-muted">Camera</label>
+                <select id="bc-cam-${streamId}" class="form-select form-select-sm">${videoOpts}</select>
+            </div>` : ''}
+            <div class="mb-2">
+                <label class="small text-muted">Microphone</label>
+                <select id="bc-mic-${streamId}" class="form-select form-select-sm">${audioOpts}</select>
+            </div>
+            ${mediaKind === 'video' ? `<video id="bc-preview-${streamId}" autoplay muted playsinline class="w-100 mb-2" style="max-height:160px;border-radius:6px;background:#000;"></video>` : ''}
+            <div class="d-flex gap-2 align-items-center">
+                <button id="bc-btn-${streamId}" class="btn btn-sm btn-success" onclick="_toggleBroadcast('${streamId}', '${mediaKind}')">
+                    <i class="bi bi-broadcast"></i> Start Broadcasting
+                </button>
+                <span id="bc-status-${streamId}" class="small text-muted"></span>
+            </div>
+        </div>`;
+    slot.style.display = 'block';
+    slot.dataset.bcOpen = '1';
+
+    // Live preview
+    if (mediaKind === 'video') {
+        try {
+            const camId = document.getElementById(`bc-cam-${streamId}`)?.value;
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: camId ? { deviceId: { exact: camId } } : true,
+                audio: false,
+            });
+            const preview = document.getElementById(`bc-preview-${streamId}`);
+            if (preview) preview.srcObject = stream;
+            document.getElementById(`bc-cam-${streamId}`)?.addEventListener('change', async (e) => {
+                stream.getTracks().forEach(t => t.stop());
+                const ns = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: e.target.value } }, audio: false });
+                if (preview) preview.srcObject = ns;
+            });
+        } catch (_) {}
+    }
+}
+
+async function _toggleBroadcast(streamId, mediaKind) {
+    if (_activeBroadcasters[streamId]) { _stopLiveBroadcast(streamId); } else { await _startLiveBroadcast(streamId, mediaKind); }
+}
+
+async function _startLiveBroadcast(streamId, mode) {
+    const btn = document.getElementById(`bc-btn-${streamId}`);
+    const statusEl = document.getElementById(`bc-status-${streamId}`);
+    if (btn) { btn.disabled = true; btn.textContent = 'Starting…'; }
+
+    let tok;
+    try {
+        const tr = await apiCall(`/ajax/streams/${encodeURIComponent(streamId)}/ingest-token`, { method: 'POST' });
+        tok = tr.token;
+        if (!tok) throw new Error(tr.error || 'No token returned');
+    } catch (e) {
+        if (statusEl) statusEl.textContent = 'Auth failed: ' + e.message;
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-broadcast"></i> Start Broadcasting'; }
+        return;
+    }
+
+    const camId = document.getElementById(`bc-cam-${streamId}`)?.value;
+    const micId = document.getElementById(`bc-mic-${streamId}`)?.value;
+    let mediaStream;
+    try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+            video: mode === 'video' ? (camId ? { deviceId: { exact: camId } } : true) : false,
+            audio: micId ? { deviceId: { exact: micId } } : true,
+        });
+    } catch (e) {
+        if (statusEl) statusEl.textContent = 'Media error: ' + e.message;
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-broadcast"></i> Start Broadcasting'; }
+        return;
+    }
+
+    // Prefer fMP4 (Chrome/Edge), fall back to WebM (Firefox)
+    const fmp4Mime = 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"';
+    const webmMime = 'video/webm; codecs=vp8,opus';
+    const useFmp4 = window.MediaRecorder && MediaRecorder.isTypeSupported(fmp4Mime);
+    const mimeType = useFmp4 ? fmp4Mime : webmMime;
+    const ext = useFmp4 ? 'mp4' : 'webm';
+
+    const rec = new MediaRecorder(mediaStream, { mimeType, videoBitsPerSecond: 1_500_000 });
+    let segIdx = 0, initSent = false, segNames = [], seqStart = 0;
+
+    _activeBroadcasters[streamId] = { rec, mediaStream, tok };
+
+    rec.ondataavailable = async (e) => {
+        if (!e.data || e.data.size === 0) return;
+        const buf = await e.data.arrayBuffer();
+        if (!initSent && ext === 'mp4') {
+            initSent = true;
+            await _pushBcSeg(streamId, tok, 'init.mp4', buf).catch(() => {});
+            return;
+        }
+        segIdx++;
+        const name = `seg${String(segIdx).padStart(4,'0')}.${ext}`;
+        segNames.push(name);
+        if (segNames.length > 5) { seqStart++; segNames.shift(); }
+        await _pushBcSeg(streamId, tok, name, buf).catch(() => {});
+        await _pushBcManifest(streamId, tok, _buildLiveMfst(ext, seqStart, segNames)).catch(() => {});
+    };
+
+    rec.start(1000);
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-stop-fill"></i> Stop'; btn.classList.replace('btn-success','btn-danger'); }
+    if (statusEl) statusEl.textContent = '● Live';
+}
+
+function _stopLiveBroadcast(streamId) {
+    const bc = _activeBroadcasters[streamId]; if (!bc) return;
+    try { bc.rec.stop(); } catch (_) {}
+    try { bc.mediaStream.getTracks().forEach(t => t.stop()); } catch (_) {}
+    delete _activeBroadcasters[streamId];
+    const btn = document.getElementById(`bc-btn-${streamId}`);
+    if (btn) { btn.innerHTML = '<i class="bi bi-broadcast"></i> Start Broadcasting'; btn.classList.replace('btn-danger','btn-success'); }
+    const s = document.getElementById(`bc-status-${streamId}`); if (s) s.textContent = 'Stopped';
+}
+
+async function _pushBcSeg(sid, tok, name, buf) {
+    const r = await fetch(`/api/v1/streams/${encodeURIComponent(sid)}/ingest/segments/${encodeURIComponent(name)}?token=${encodeURIComponent(tok)}`,
+        { method: 'PUT', body: buf, headers: { 'Content-Type': 'application/octet-stream' } });
+    if (!r.ok) throw new Error(`Segment push failed (${r.status})`);
+}
+async function _pushBcManifest(sid, tok, mfst) {
+    const r = await fetch(`/api/v1/streams/${encodeURIComponent(sid)}/ingest/manifest?token=${encodeURIComponent(tok)}`,
+        { method: 'PUT', body: mfst, headers: { 'Content-Type': 'application/vnd.apple.mpegurl' } });
+    if (!r.ok) throw new Error(`Manifest push failed (${r.status})`);
+}
+function _buildLiveMfst(ext, seqStart, names) {
+    const mp4 = ext === 'mp4';
+    const lines = ['#EXTM3U', `#EXT-X-VERSION:${mp4 ? 7 : 3}`, '#EXT-X-TARGETDURATION:2', `#EXT-X-MEDIA-SEQUENCE:${seqStart}`];
+    if (mp4) lines.push('#EXT-X-MAP:URI="init.mp4"');
+    names.forEach(n => lines.push('#EXTINF:1.000,', n));
+    return lines.join('\n') + '\n';
+}
+
+async function _startMSELiveViewer(streamId, playbackUrl, slot, mediaKind) {
+    const mime = 'video/webm; codecs=vp8,opus';
+    if (!window.MediaSource || !MediaSource.isTypeSupported(mime)) {
+        slot.innerHTML += '<p class="small text-warning mt-1">Live WebM not supported here. Try Chrome or Edge.</p>';
+        return;
+    }
+    const tag = mediaKind === 'video' ? 'video' : 'audio';
+    const el = document.createElement(tag);
+    el.controls = true; el.autoplay = true; el.className = 'w-100';
+    if (mediaKind === 'video') el.style.cssText = 'max-width:100%;border-radius:10px;background:#000;';
+    slot.innerHTML = ''; slot.appendChild(el); slot.style.display = 'block';
+    const ms = new MediaSource();
+    el.src = URL.createObjectURL(ms);
+    ms.addEventListener('sourceopen', () => {
+        const sb = ms.addSourceBuffer(mime);
+        let next = 1, stopped = false;
+        const base = playbackUrl.replace(/\/manifest\.m3u8.*$/, '');
+        const tm = playbackUrl.match(/[?&]token=([^&]+)/);
+        const tp = tm ? `?token=${tm[1]}` : '';
+        async function poll() {
+            if (stopped || ms.readyState !== 'open') return;
+            const seg = `seg${String(next).padStart(4,'0')}.webm`;
+            try {
+                const resp = await fetch(`${base}/segments/${encodeURIComponent(seg)}${tp}`);
+                if (resp.ok) {
+                    const buf = await resp.arrayBuffer();
+                    if (!sb.updating && ms.readyState === 'open') {
+                        sb.appendBuffer(buf);
+                        await new Promise(r => sb.addEventListener('updateend', r, { once: true }));
+                        next++; setTimeout(poll, 50);
+                    } else setTimeout(poll, 200);
+                } else { setTimeout(poll, resp.status === 404 ? 1500 : 3000); }
+            } catch (_) { setTimeout(poll, 3000); }
+        }
+        poll();
+        el.addEventListener('error', () => { stopped = true; });
+        ms.addEventListener('sourceclose', () => { stopped = true; });
+    });
 }
 
 function toggleFilePreview(previewId, url, isMarkdown) {
@@ -6589,9 +7320,23 @@ function updateChannelStructuredNudge() {
     wrap.style.display = 'flex';
 }
 
+function setChannelSendState(inFlight) {
+    channelSendInFlight = !!inFlight;
+    const sendBtn = document.querySelector('#message-form button[type="submit"]');
+    if (sendBtn) {
+        sendBtn.disabled = !!inFlight;
+        sendBtn.classList.toggle('disabled', !!inFlight);
+    }
+}
+
 // Message sending
 function sendMessage(event) {
-    event.preventDefault();
+    if (event && typeof event.preventDefault === 'function') {
+        event.preventDefault();
+    }
+    if (channelSendInFlight) {
+        return;
+    }
     hideChannelMentionSuggestions();
 
     const messageInput = document.getElementById('message-input');
@@ -6642,6 +7387,7 @@ function sendMessage(event) {
     console.log('Sending message data:', messageData);
     
     console.log('Making AJAX call to /ajax/send_channel_message...');
+    setChannelSendState(true);
     apiCall('/ajax/send_channel_message', {
         method: 'POST',
         body: JSON.stringify(messageData)
@@ -6678,6 +7424,9 @@ function sendMessage(event) {
     .catch(error => {
         console.error('Error sending message:', error);
         alert('Failed to send message: ' + (error.error || error.message || 'Unknown error'));
+    })
+    .finally(() => {
+        setChannelSendState(false);
     });
 }
 
@@ -6687,6 +7436,8 @@ function handleChannelExpiryChange() {
     if (!select || !wrap) return;
     wrap.style.display = select.value === 'custom' ? 'flex' : 'none';
 }
+
+const CANOPY_MAX_RETENTION_SECONDS = 730 * 24 * 3600;
 
 function updateChannelTaskToggle() {
     const input = document.getElementById('message-input');
@@ -6728,7 +7479,11 @@ function resolveChannelTtlSelection() {
             weeks: 7 * 24 * 3600,
             months: 30 * 24 * 3600,
         }[unit] || 60;
-        const ttlSeconds = Math.max(0, val) * unitSeconds;
+        const ttlSecondsRaw = Math.max(0, val) * unitSeconds;
+        const ttlSeconds = Math.min(ttlSecondsRaw, CANOPY_MAX_RETENTION_SECONDS);
+        if (ttlSecondsRaw > CANOPY_MAX_RETENTION_SECONDS) {
+            showAlert('Custom lifespan is capped at 2 years.', 'info');
+        }
         return { ttl_mode: 'custom', ttl_seconds: ttlSeconds };
     }
 
@@ -6809,7 +7564,7 @@ function setChannelMessageExpiry(messageId, mode) {
         week: 7 * 24 * 3600,
         quarter: 90 * 24 * 3600,
     };
-    let ttl_seconds = secondsMap[mode] || 0;
+    let ttl_seconds = Math.min(secondsMap[mode] || 0, CANOPY_MAX_RETENTION_SECONDS);
     if (mode === 'none') {
         ttl_seconds = 0;
     }
@@ -6880,7 +7635,10 @@ function openChannelCustomExpiryModal(messageId) {
             weeks: 7 * 24 * 3600,
             months: 30 * 24 * 3600,
         }[unit] || 60;
-        const ttl_seconds = val * unitSeconds;
+        const ttl_seconds = Math.min(val * unitSeconds, CANOPY_MAX_RETENTION_SECONDS);
+        if ((val * unitSeconds) > CANOPY_MAX_RETENTION_SECONDS) {
+            showAlert('Custom lifespan is capped at 2 years.', 'info');
+        }
         apiCall('/ajax/update_channel_message_expiry', {
             method: 'POST',
             body: JSON.stringify({
@@ -6953,28 +7711,28 @@ function setupFileUpload() {
     });
 }
 
+function isAllowedChannelAttachment(file) {
+    const name = String(file && file.name || '').toLowerCase();
+    const extIdx = name.lastIndexOf('.');
+    const ext = extIdx >= 0 ? name.slice(extIdx) : '';
+    const fileType = String(file && file.type || '').toLowerCase();
+    if (ext && CHANNEL_FILE_ALLOWED_EXTENSIONS.includes(ext)) return true;
+    if (CHANNEL_FILE_ALLOWED_MIME_PREFIXES.some(prefix => fileType.startsWith(prefix))) return true;
+    if (CHANNEL_FILE_ALLOWED_MIME_EXACT.has(fileType)) return true;
+    if (fileType.startsWith('text/')) return true;
+    return false;
+}
+
 function addFiles(files) {
     const maxSize = 100 * 1024 * 1024; // 100MB
-    const allowedMimeTypes = ['image/', 'video/', 'audio/', 'application/pdf', 'text/', 'application/msword',
-                              'application/json', 'application/xml', 'application/x-yaml',
-                              'application/javascript', 'application/typescript',
-                              'application/octet-stream'];
-    // Allow by file extension when MIME type is unreliable (e.g. .md on Windows)
-    const allowedExtensions = ['.md', '.txt', '.tex', '.json', '.py', '.js', '.ts', '.log',
-                               '.csv', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
-                               '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx'];
     
     files.forEach(file => {
         if (file.size > maxSize) {
             alert(`File ${file.name} is too large. Maximum size is 100MB.`);
             return;
         }
-        
-        const ext = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
-        const mimeOk = allowedMimeTypes.some(type => file.type.startsWith(type));
-        const extOk = allowedExtensions.includes(ext);
-        
-        if (!mimeOk && !extOk) {
+
+        if (!isAllowedChannelAttachment(file)) {
             alert(`File type ${file.type || 'unknown'} is not supported.`);
             return;
         }
@@ -7062,7 +7820,7 @@ function openEditChannelMessageModal(message) {
                     <div class="modal-footer">
                         <div class="me-auto">
                             <input type="file" id="edit-channel-file-input" style="display: none;" multiple 
-                                   accept="image/*,video/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.yaml,.yml,.xml">
+                                   accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mkv,.mov,.webm">
                             <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('edit-channel-file-input').click()">
                                 <i class="bi bi-paperclip"></i> Add Files
                             </button>
@@ -7106,23 +7864,13 @@ function setupEditChannelFileUpload() {
 
 function addEditChannelFiles(files) {
     const maxSize = 100 * 1024 * 1024;
-    const allowedMimeTypes = ['image/', 'video/', 'audio/', 'application/pdf', 'text/', 'application/msword',
-                              'application/json', 'application/xml', 'application/x-yaml',
-                              'application/javascript', 'application/typescript',
-                              'application/octet-stream'];
-    const allowedExtensions = ['.md', '.txt', '.tex', '.json', '.py', '.js', '.ts', '.log',
-                               '.csv', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
-                               '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx'];
 
     files.forEach(file => {
         if (file.size > maxSize) {
             alert(`File ${file.name} is too large. Maximum size is 100MB.`);
             return;
         }
-        const ext = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
-        const mimeOk = allowedMimeTypes.some(type => file.type.startsWith(type));
-        const extOk = allowedExtensions.includes(ext);
-        if (!mimeOk && !extOk) {
+        if (!isAllowedChannelAttachment(file)) {
             alert(`File type ${file.type || 'unknown'} is not supported.`);
             return;
         }
@@ -7267,8 +8015,8 @@ function updateCreateMemberPickerVisibility() {
     block.style.display = isPrivate ? 'block' : 'none';
 }
 
-function loadMemberDirectory() {
-    if (memberDirectory.length) return Promise.resolve(memberDirectory);
+function loadMemberDirectory(forceRefresh) {
+    if (!forceRefresh && memberDirectory.length) return Promise.resolve(memberDirectory);
     return apiCall('/ajax/mention_suggestions')
         .then(data => {
             memberDirectory = (data && data.users) ? data.users : [];
@@ -7321,7 +8069,7 @@ function filterMemberDirectory(query, selections) {
             || (u.username || '').toLowerCase().includes(needle)
             || (u.handle || '').toLowerCase().includes(needle)
             || (u.user_id || '').toLowerCase().includes(needle);
-    }).slice(0, 12);
+    }).slice(0, 50);
 }
 
 function setupCreateMemberPicker() {
@@ -7481,7 +8229,7 @@ function setupModalMemberPicker() {
     input.onfocus = () => refresh();
     input.onblur = () => setTimeout(() => { suggestions.style.display = 'none'; }, 200);
 
-    loadMemberDirectory().then(refresh);
+    loadMemberDirectory(true).then(refresh);
 }
 
 function selectModalMember(userId) {
@@ -8035,13 +8783,17 @@ function updateLikeButton(messageId, liked, interactions) {
     if (liked) {
         button.classList.remove('btn-outline-primary');
         button.classList.add('btn-primary');
-        likeText.textContent = 'Liked';
+        if (likeText) likeText.textContent = 'Liked';
+        button.setAttribute('title', 'Unlike message');
+        button.setAttribute('aria-label', 'Unlike message');
         icon.classList.remove('bi-heart');
         icon.classList.add('bi-heart-fill');
     } else {
         button.classList.remove('btn-primary');
         button.classList.add('btn-outline-primary');
-        likeText.textContent = 'Like';
+        if (likeText) likeText.textContent = 'Like';
+        button.setAttribute('title', 'Like message');
+        button.setAttribute('aria-label', 'Like message');
         icon.classList.remove('bi-heart-fill');
         icon.classList.add('bi-heart');
     }
@@ -8204,13 +8956,16 @@ document.addEventListener('DOMContentLoaded', function() {
             setupEmojiPicker();
 	        setInterval(updateChannelExpiryBadges, 60000);
 	        setInterval(pollChannelMessages, AUTO_REFRESH_MS);
+            setInterval(refreshSidebarChannelState, AUTO_REFRESH_MS);
             document.addEventListener('visibilitychange', () => {
                 if (!document.hidden) {
                     setTimeout(() => pollChannelMessages(), 100);
+                    setTimeout(() => refreshSidebarChannelState(), 120);
                 }
             });
             window.addEventListener('focus', () => {
                 setTimeout(() => pollChannelMessages(), 100);
+                setTimeout(() => refreshSidebarChannelState(), 120);
             });
 
             // Auto-load older messages when scrolling near the top
@@ -8284,20 +9039,22 @@ document.addEventListener('DOMContentLoaded', function() {
 	        }
 
 	        // Load messages for first channel (default) if we didn't deep-link.
-	        if (!didSelectFocus) {
+		        if (!didSelectFocus) {
                 if (currentChannelId) {
-                    console.log('Loading messages for channel:', currentChannelId);
-                    loadChannelMessages(currentChannelId);
-                    fetchChannelMentionCandidates(currentChannelId);
-                    applyChannelPrivacyFromSelection(currentChannelId);
-                    applyChannelNotificationsFromSelection(currentChannelId);
-                    hydrateCurrentChannelMeta();
-                } else {
-                    console.log('No current channel set');
-                }
-	        }
-	        
-	        console.log('Initialization completed successfully.');
+	                    console.log('Loading messages for channel:', currentChannelId);
+	                    loadChannelMessages(currentChannelId);
+	                    fetchChannelMentionCandidates(currentChannelId);
+                    refreshSidebarChannelState();
+	                    applyChannelPrivacyFromSelection(currentChannelId);
+	                    applyChannelNotificationsFromSelection(currentChannelId);
+	                    hydrateCurrentChannelMeta();
+	                } else {
+	                    console.log('No current channel set');
+	                }
+		        }
+                refreshSidebarChannelState();
+		        
+		        console.log('Initialization completed successfully.');
         
     } catch (e) {
         console.error('Error during initialization:', e);
