@@ -13,6 +13,7 @@ Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor I
 import logging
 import secrets
 import json
+import threading
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Any, Union, Tuple, cast
 from dataclasses import dataclass
@@ -21,6 +22,10 @@ from enum import Enum
 from .database import DatabaseManager
 from ..security.api_keys import ApiKeyManager, Permission
 from .logging_config import log_performance, LogOperation
+from ..network.routing import (
+    decode_channel_key_material as decode_channel_key_material_value,
+    encode_channel_key_material as encode_channel_key_material_value,
+)
 
 logger = logging.getLogger('canopy.channels')
 
@@ -61,6 +66,7 @@ class Channel:
     privacy_mode: str = 'open'
     user_role: str = 'member'
     notifications_enabled: bool = True
+    crypto_mode: str = 'legacy_plaintext'
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert channel to dictionary."""
@@ -79,6 +85,7 @@ class Channel:
             'privacy_mode': self.privacy_mode,
             'user_role': self.user_role,
             'notifications_enabled': self.notifications_enabled,
+            'crypto_mode': self.crypto_mode,
         }
 
 
@@ -99,6 +106,7 @@ class Message:
     edited_at: Optional[datetime] = None
     expires_at: Optional[datetime] = None
     origin_peer: Optional[str] = None
+    crypto_state: Optional[str] = None
 
     @staticmethod
     def normalize_attachment(attachment: Any) -> Optional[Dict[str, Any]]:
@@ -202,6 +210,7 @@ class Message:
             'security': self.security or {},
             'edited_at': self.edited_at.isoformat() if self.edited_at else None,
             'origin_peer': self.origin_peer,
+            'crypto_state': self.crypto_state,
         }
 
 
@@ -243,12 +252,22 @@ class ChannelManager:
     SECURITY_MAX_LIST_ITEMS = 64
     GOVERNANCE_MAX_ALLOWED_CHANNELS = 512
     GOVERNANCE_MAX_CHANNEL_ID_LENGTH = 128
+    CRYPTO_MODE_LEGACY = 'legacy_plaintext'
+    CRYPTO_MODE_E2E_OPTIONAL = 'e2e_optional'
+    CRYPTO_MODE_E2E_ENFORCED = 'e2e_enforced'
+    ALLOWED_CRYPTO_MODES = {
+        CRYPTO_MODE_LEGACY,
+        CRYPTO_MODE_E2E_OPTIONAL,
+        CRYPTO_MODE_E2E_ENFORCED,
+    }
     
     def __init__(self, db: DatabaseManager, api_key_manager: ApiKeyManager):
         """Initialize channel manager."""
         logger.info("Initializing ChannelManager")
         self.db = db
         self.api_key_manager = api_key_manager
+        self._channel_key_lock = threading.RLock()
+        self._channel_key_cache: Dict[Tuple[str, str], bytes] = {}
         
         # Ensure database tables exist
         with LogOperation("Channel tables initialization"):
@@ -399,6 +418,7 @@ class ChannelManager:
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         description TEXT,
                         topic TEXT,
+                        crypto_mode TEXT DEFAULT 'legacy_plaintext',
                         FOREIGN KEY (created_by) REFERENCES users (id)
                     );
                     
@@ -431,6 +451,10 @@ class ChannelManager:
                         reactions TEXT,  -- JSON blob
                         attachments TEXT,  -- JSON blob
                         security TEXT,  -- JSON blob for future encryption metadata
+                        encrypted_content TEXT,  -- future E2E payload storage
+                        crypto_state TEXT DEFAULT 'plaintext',  -- plaintext|encrypted|pending_key|decrypt_failed
+                        key_id TEXT,
+                        nonce TEXT,
                         edited_at TIMESTAMP,
                         FOREIGN KEY (channel_id) REFERENCES channels (id) ON DELETE CASCADE,
                         FOREIGN KEY (user_id) REFERENCES users (id),
@@ -443,9 +467,62 @@ class ChannelManager:
                     CREATE INDEX IF NOT EXISTS idx_channel_messages_channel ON channel_messages(channel_id);
                     CREATE INDEX IF NOT EXISTS idx_channel_messages_created_at ON channel_messages(created_at);
                     CREATE INDEX IF NOT EXISTS idx_channel_messages_thread ON channel_messages(thread_id);
-                    
                     -- Unique constraint for public channel names
                     CREATE UNIQUE INDEX IF NOT EXISTS idx_channels_public_name ON channels(name) WHERE channel_type = 'public';
+
+                    -- Private-channel E2E key state (phase-1 scaffolding).
+                    CREATE TABLE IF NOT EXISTS channel_keys (
+                        channel_id TEXT NOT NULL,
+                        key_id TEXT NOT NULL,
+                        key_material_enc TEXT NOT NULL,
+                        created_by_peer TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        revoked_at TIMESTAMP,
+                        metadata TEXT,
+                        PRIMARY KEY (channel_id, key_id),
+                        FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_channel_keys_channel_active
+                        ON channel_keys(channel_id, revoked_at, created_at DESC);
+
+                    CREATE TABLE IF NOT EXISTS channel_member_keys (
+                        channel_id TEXT NOT NULL,
+                        key_id TEXT NOT NULL,
+                        peer_id TEXT NOT NULL,
+                        delivery_state TEXT NOT NULL DEFAULT 'pending',
+                        last_error TEXT,
+                        delivered_at TIMESTAMP,
+                        acked_at TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (channel_id, key_id, peer_id),
+                        FOREIGN KEY (channel_id, key_id)
+                            REFERENCES channel_keys(channel_id, key_id)
+                            ON DELETE CASCADE
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_channel_member_keys_peer
+                        ON channel_member_keys(peer_id, delivery_state, updated_at DESC);
+
+                    CREATE TABLE IF NOT EXISTS channel_member_sync_deliveries (
+                        sync_id TEXT PRIMARY KEY,
+                        channel_id TEXT NOT NULL,
+                        target_user_id TEXT NOT NULL,
+                        action TEXT NOT NULL,
+                        role TEXT DEFAULT 'member',
+                        target_peer_id TEXT NOT NULL,
+                        payload_json TEXT,
+                        delivery_state TEXT NOT NULL DEFAULT 'pending',
+                        last_error TEXT,
+                        attempt_count INTEGER DEFAULT 0,
+                        last_attempt_at TIMESTAMP,
+                        acked_at TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_channel_member_sync_peer
+                        ON channel_member_sync_deliveries(target_peer_id, delivery_state, updated_at DESC);
+                    CREATE INDEX IF NOT EXISTS idx_channel_member_sync_channel
+                        ON channel_member_sync_deliveries(channel_id, target_user_id, action, updated_at DESC);
                 """)
 
                 # Add origin_peer column if it doesn't exist (migration)
@@ -461,6 +538,15 @@ class ChannelManager:
                 except Exception:
                     conn.execute("ALTER TABLE channels ADD COLUMN privacy_mode TEXT DEFAULT 'open'")
                     logger.info("Added privacy_mode column to channels table")
+
+                # Add crypto_mode column if missing (phase-1 E2E scaffolding)
+                try:
+                    conn.execute("SELECT crypto_mode FROM channels LIMIT 1")
+                except Exception:
+                    conn.execute(
+                        "ALTER TABLE channels ADD COLUMN crypto_mode TEXT DEFAULT 'legacy_plaintext'"
+                    )
+                    logger.info("Added crypto_mode column to channels table")
 
                 # Add expires_at column to channel_messages if missing
                 try:
@@ -501,6 +587,38 @@ class ChannelManager:
                     except Exception:
                         conn.execute(f"ALTER TABLE channel_messages ADD COLUMN {col} {typ}")
                         logger.info(f"Added {col} column to channel_messages table")
+
+                # Phase-1 E2E scaffolding columns on channel_messages
+                for col, typ, default_sql in [
+                    ('encrypted_content', 'TEXT', None),
+                    ('crypto_state', 'TEXT', "DEFAULT 'plaintext'"),
+                    ('key_id', 'TEXT', None),
+                    ('nonce', 'TEXT', None),
+                ]:
+                    try:
+                        conn.execute(f"SELECT {col} FROM channel_messages LIMIT 1")
+                    except Exception:
+                        if default_sql:
+                            conn.execute(
+                                f"ALTER TABLE channel_messages ADD COLUMN {col} {typ} {default_sql}"
+                            )
+                        else:
+                            conn.execute(
+                                f"ALTER TABLE channel_messages ADD COLUMN {col} {typ}"
+                            )
+                        logger.info(f"Added {col} column to channel_messages table")
+
+                try:
+                    conn.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_channel_messages_crypto_state
+                        ON channel_messages(crypto_state)
+                    """)
+                    conn.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_channel_messages_key_id
+                        ON channel_messages(key_id)
+                    """)
+                except Exception as idx_err:
+                    logger.debug(f"Could not create crypto indexes: {idx_err}")
 
                 # Add last_activity_at for reply resurfacing (Circle decision)
                 try:
@@ -1011,6 +1129,740 @@ class ChannelManager:
             return []
 
     # ------------------------------------------------------------------
+    #  Private-channel E2E scaffolding (phase 1)
+    # ------------------------------------------------------------------
+
+    def get_channel_crypto_mode(self, channel_id: str) -> str:
+        """Return a channel crypto mode (legacy_plaintext by default)."""
+        if not channel_id:
+            return self.CRYPTO_MODE_LEGACY
+        try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT COALESCE(crypto_mode, ?) AS crypto_mode FROM channels WHERE id = ?",
+                    (self.CRYPTO_MODE_LEGACY, channel_id),
+                ).fetchone()
+                if not row:
+                    return self.CRYPTO_MODE_LEGACY
+                mode = str(row['crypto_mode'] or self.CRYPTO_MODE_LEGACY).strip().lower()
+                return mode if mode in self.ALLOWED_CRYPTO_MODES else self.CRYPTO_MODE_LEGACY
+        except Exception as e:
+            logger.debug(f"Failed to get crypto mode for channel {channel_id}: {e}")
+            return self.CRYPTO_MODE_LEGACY
+
+    def set_channel_crypto_mode(self, channel_id: str, crypto_mode: str) -> bool:
+        """Set channel crypto mode for staged rollout."""
+        if not channel_id:
+            return False
+        mode = str(crypto_mode or '').strip().lower() or self.CRYPTO_MODE_LEGACY
+        if mode not in self.ALLOWED_CRYPTO_MODES:
+            return False
+        try:
+            with self.db.get_connection() as conn:
+                cur = conn.execute(
+                    "UPDATE channels SET crypto_mode = ? WHERE id = ?",
+                    (mode, channel_id),
+                )
+                conn.commit()
+                return cast(int, cur.rowcount) > 0
+        except Exception as e:
+            logger.error(f"Failed to set crypto mode for {channel_id}: {e}", exc_info=True)
+            return False
+
+    def encode_channel_key_material(self, key_material: bytes) -> str:
+        """Encode local channel key bytes for DB storage."""
+        return encode_channel_key_material_value(key_material)
+
+    def decode_channel_key_material(self, key_material_enc: Optional[str]) -> Optional[bytes]:
+        """Decode locally stored channel key bytes when available."""
+        return decode_channel_key_material_value(key_material_enc or '')
+
+    def _cache_channel_key(self, channel_id: str, key_id: str, key_material: Optional[bytes]) -> None:
+        """Update in-memory key cache for fast decrypt lookups."""
+        if not channel_id or not key_id:
+            return
+        cache_key = (channel_id, key_id)
+        with self._channel_key_lock:
+            if key_material:
+                self._channel_key_cache[cache_key] = key_material
+            else:
+                self._channel_key_cache.pop(cache_key, None)
+
+    def _cached_channel_key(self, channel_id: str, key_id: str) -> Optional[bytes]:
+        """Return cached channel key material if present."""
+        with self._channel_key_lock:
+            return self._channel_key_cache.get((channel_id, key_id))
+
+    def upsert_channel_key(
+        self,
+        channel_id: str,
+        key_id: str,
+        key_material_enc: str,
+        created_by_peer: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Store/update wrapped key material for a private channel."""
+        if not channel_id or not key_id or not key_material_enc:
+            return False
+        metadata_json = None
+        if metadata is not None:
+            try:
+                metadata_json = json.dumps(metadata)
+            except Exception:
+                metadata_json = None
+        try:
+            with self.db.get_connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO channel_keys (
+                        channel_id, key_id, key_material_enc, created_by_peer, metadata
+                    ) VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(channel_id, key_id) DO UPDATE SET
+                        key_material_enc = excluded.key_material_enc,
+                        created_by_peer = COALESCE(excluded.created_by_peer, channel_keys.created_by_peer),
+                        metadata = COALESCE(excluded.metadata, channel_keys.metadata),
+                        revoked_at = NULL
+                    """,
+                    (channel_id, key_id, key_material_enc, created_by_peer, metadata_json),
+                )
+                conn.commit()
+                key_bytes = self.decode_channel_key_material(key_material_enc)
+                self._cache_channel_key(channel_id, key_id, key_bytes)
+                return True
+        except Exception as e:
+            logger.error(f"Failed to upsert channel key for {channel_id}/{key_id}: {e}", exc_info=True)
+            return False
+
+    def list_channel_keys(self, channel_id: str, include_revoked: bool = False) -> List[Dict[str, Any]]:
+        """Return channel key rows for diagnostics/rotation workflows."""
+        if not channel_id:
+            return []
+        try:
+            with self.db.get_connection() as conn:
+                if include_revoked:
+                    rows = conn.execute(
+                        """
+                        SELECT channel_id, key_id, key_material_enc, created_by_peer, metadata,
+                               created_at, revoked_at
+                        FROM channel_keys
+                        WHERE channel_id = ?
+                        ORDER BY created_at DESC
+                        """,
+                        (channel_id,),
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        """
+                        SELECT channel_id, key_id, key_material_enc, created_by_peer, metadata,
+                               created_at, revoked_at
+                        FROM channel_keys
+                        WHERE channel_id = ? AND revoked_at IS NULL
+                        ORDER BY created_at DESC
+                        """,
+                        (channel_id,),
+                    ).fetchall()
+                out: List[Dict[str, Any]] = []
+                for row in rows:
+                    metadata_value = None
+                    if row['metadata']:
+                        try:
+                            metadata_value = json.loads(row['metadata'])
+                        except Exception:
+                            metadata_value = None
+                    out.append({
+                        'channel_id': row['channel_id'],
+                        'key_id': row['key_id'],
+                        'key_material_enc': row['key_material_enc'],
+                        'created_by_peer': row['created_by_peer'],
+                        'metadata': metadata_value,
+                        'created_at': row['created_at'],
+                        'revoked_at': row['revoked_at'],
+                    })
+                return out
+        except Exception as e:
+            logger.error(f"Failed to list channel keys for {channel_id}: {e}", exc_info=True)
+            return []
+
+    def get_active_channel_key(self, channel_id: str) -> Optional[Dict[str, Any]]:
+        """Return the latest non-revoked key for a channel."""
+        if not channel_id:
+            return None
+        try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    """
+                    SELECT channel_id, key_id, key_material_enc, created_by_peer, metadata,
+                           created_at, revoked_at
+                    FROM channel_keys
+                    WHERE channel_id = ? AND revoked_at IS NULL
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    (channel_id,),
+                ).fetchone()
+                if not row:
+                    return None
+                metadata_value = None
+                if row['metadata']:
+                    try:
+                        metadata_value = json.loads(row['metadata'])
+                    except Exception:
+                        metadata_value = None
+                return {
+                    'channel_id': row['channel_id'],
+                    'key_id': row['key_id'],
+                    'key_material_enc': row['key_material_enc'],
+                    'created_by_peer': row['created_by_peer'],
+                    'metadata': metadata_value,
+                    'created_at': row['created_at'],
+                    'revoked_at': row['revoked_at'],
+                }
+        except Exception as e:
+            logger.error(f"Failed to get active channel key for {channel_id}: {e}", exc_info=True)
+            return None
+
+    def get_channel_key(
+        self,
+        channel_id: str,
+        key_id: str,
+        include_revoked: bool = True,
+    ) -> Optional[Dict[str, Any]]:
+        """Return one channel key row by channel/key ID."""
+        if not channel_id or not key_id:
+            return None
+        try:
+            with self.db.get_connection() as conn:
+                if include_revoked:
+                    row = conn.execute(
+                        """
+                        SELECT channel_id, key_id, key_material_enc, created_by_peer, metadata,
+                               created_at, revoked_at
+                        FROM channel_keys
+                        WHERE channel_id = ? AND key_id = ?
+                        LIMIT 1
+                        """,
+                        (channel_id, key_id),
+                    ).fetchone()
+                else:
+                    row = conn.execute(
+                        """
+                        SELECT channel_id, key_id, key_material_enc, created_by_peer, metadata,
+                               created_at, revoked_at
+                        FROM channel_keys
+                        WHERE channel_id = ? AND key_id = ? AND revoked_at IS NULL
+                        LIMIT 1
+                        """,
+                        (channel_id, key_id),
+                    ).fetchone()
+            if not row:
+                return None
+            metadata_value = None
+            if row['metadata']:
+                try:
+                    metadata_value = json.loads(row['metadata'])
+                except Exception:
+                    metadata_value = None
+            return {
+                'channel_id': row['channel_id'],
+                'key_id': row['key_id'],
+                'key_material_enc': row['key_material_enc'],
+                'created_by_peer': row['created_by_peer'],
+                'metadata': metadata_value,
+                'created_at': row['created_at'],
+                'revoked_at': row['revoked_at'],
+            }
+        except Exception as e:
+            logger.error(f"Failed to get channel key for {channel_id}/{key_id}: {e}", exc_info=True)
+            return None
+
+    def get_channel_key_bytes(self, channel_id: str, key_id: str) -> Optional[bytes]:
+        """Return decoded key material for one key when locally available."""
+        cached = self._cached_channel_key(channel_id, key_id)
+        if cached:
+            return cached
+        key_row = self.get_channel_key(channel_id, key_id, include_revoked=True)
+        if not key_row:
+            return None
+        key_bytes = self.decode_channel_key_material(key_row.get('key_material_enc'))
+        self._cache_channel_key(channel_id, key_id, key_bytes)
+        return key_bytes
+
+    def get_active_channel_key_bytes(self, channel_id: str) -> Optional[Tuple[str, bytes]]:
+        """Return (key_id, key_bytes) for the active key when locally available."""
+        key_row = self.get_active_channel_key(channel_id)
+        if not key_row:
+            return None
+        key_id = key_row.get('key_id')
+        if not key_id:
+            return None
+        key_bytes = self.get_channel_key_bytes(channel_id, key_id)
+        if not key_bytes:
+            return None
+        return (key_id, key_bytes)
+
+    def revoke_channel_key(self, channel_id: str, key_id: str) -> bool:
+        """Mark a channel key as revoked (kept for historical decrypt)."""
+        if not channel_id or not key_id:
+            return False
+        try:
+            with self.db.get_connection() as conn:
+                cur = conn.execute(
+                    """
+                    UPDATE channel_keys
+                    SET revoked_at = CURRENT_TIMESTAMP
+                    WHERE channel_id = ? AND key_id = ? AND revoked_at IS NULL
+                    """,
+                    (channel_id, key_id),
+                )
+                conn.commit()
+                if cast(int, cur.rowcount) > 0:
+                    self._cache_channel_key(channel_id, key_id, None)
+                return cast(int, cur.rowcount) > 0
+        except Exception as e:
+            logger.error(f"Failed to revoke channel key {channel_id}/{key_id}: {e}", exc_info=True)
+            return False
+
+    def upsert_channel_member_key_state(
+        self,
+        channel_id: str,
+        key_id: str,
+        peer_id: str,
+        delivery_state: str = 'pending',
+        last_error: Optional[str] = None,
+        delivered: bool = False,
+        acked: bool = False,
+    ) -> bool:
+        """Persist per-peer key-delivery state for operational visibility."""
+        if not channel_id or not key_id or not peer_id:
+            return False
+        state = str(delivery_state or 'pending').strip().lower() or 'pending'
+        delivered_at = "CURRENT_TIMESTAMP" if delivered else "NULL"
+        acked_at = "CURRENT_TIMESTAMP" if acked else "NULL"
+        try:
+            with self.db.get_connection() as conn:
+                conn.execute(
+                    f"""
+                    INSERT INTO channel_member_keys (
+                        channel_id, key_id, peer_id, delivery_state, last_error,
+                        delivered_at, acked_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, {delivered_at}, {acked_at}, CURRENT_TIMESTAMP)
+                    ON CONFLICT(channel_id, key_id, peer_id) DO UPDATE SET
+                        delivery_state = excluded.delivery_state,
+                        last_error = excluded.last_error,
+                        delivered_at = CASE
+                            WHEN excluded.delivered_at IS NOT NULL THEN excluded.delivered_at
+                            ELSE channel_member_keys.delivered_at
+                        END,
+                        acked_at = CASE
+                            WHEN excluded.acked_at IS NOT NULL THEN excluded.acked_at
+                            ELSE channel_member_keys.acked_at
+                        END,
+                        updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (channel_id, key_id, peer_id, state, last_error),
+                )
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error(
+                f"Failed to upsert channel member key state {channel_id}/{key_id}/{peer_id}: {e}",
+                exc_info=True,
+            )
+            return False
+
+    def get_channel_member_key_states(self, channel_id: str, key_id: str) -> List[Dict[str, Any]]:
+        """Return per-peer key-delivery state for one channel key."""
+        if not channel_id or not key_id:
+            return []
+        try:
+            with self.db.get_connection() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT channel_id, key_id, peer_id, delivery_state, last_error,
+                           delivered_at, acked_at, updated_at
+                    FROM channel_member_keys
+                    WHERE channel_id = ? AND key_id = ?
+                    ORDER BY updated_at DESC
+                    """,
+                    (channel_id, key_id),
+                ).fetchall()
+                return [
+                    {
+                        'channel_id': row['channel_id'],
+                        'key_id': row['key_id'],
+                        'peer_id': row['peer_id'],
+                        'delivery_state': row['delivery_state'],
+                        'last_error': row['last_error'],
+                        'delivered_at': row['delivered_at'],
+                        'acked_at': row['acked_at'],
+                        'updated_at': row['updated_at'],
+                    }
+                    for row in rows
+                ]
+        except Exception as e:
+            logger.error(
+                f"Failed to get channel member key states for {channel_id}/{key_id}: {e}",
+                exc_info=True,
+            )
+            return []
+
+    def get_pending_decrypt_messages(
+        self,
+        channel_id: str,
+        key_id: Optional[str] = None,
+        limit: int = 500,
+    ) -> List[Dict[str, Any]]:
+        """Return encrypted messages waiting for key-driven decrypt backfill."""
+        if not channel_id:
+            return []
+        try:
+            with self.db.get_connection() as conn:
+                if key_id:
+                    rows = conn.execute(
+                        """
+                        SELECT id, channel_id, user_id, origin_peer, parent_message_id,
+                               encrypted_content, nonce, key_id, created_at
+                        FROM channel_messages
+                        WHERE channel_id = ?
+                          AND crypto_state = 'pending_decrypt'
+                          AND key_id = ?
+                          AND encrypted_content IS NOT NULL
+                          AND nonce IS NOT NULL
+                        ORDER BY created_at ASC
+                        LIMIT ?
+                        """,
+                        (channel_id, key_id, limit),
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        """
+                        SELECT id, channel_id, user_id, origin_peer, parent_message_id,
+                               encrypted_content, nonce, key_id, created_at
+                        FROM channel_messages
+                        WHERE channel_id = ?
+                          AND crypto_state = 'pending_decrypt'
+                          AND encrypted_content IS NOT NULL
+                          AND nonce IS NOT NULL
+                        ORDER BY created_at ASC
+                        LIMIT ?
+                        """,
+                        (channel_id, limit),
+                    ).fetchall()
+            return [
+                {
+                    'id': row['id'],
+                    'channel_id': row['channel_id'],
+                    'user_id': row['user_id'],
+                    'origin_peer': row['origin_peer'],
+                    'parent_message_id': row['parent_message_id'],
+                    'encrypted_content': row['encrypted_content'],
+                    'nonce': row['nonce'],
+                    'key_id': row['key_id'],
+                    'created_at': row['created_at'],
+                }
+                for row in rows
+            ]
+        except Exception as e:
+            logger.error(
+                f"Failed to load pending decrypt messages for channel {channel_id}: {e}",
+                exc_info=True,
+            )
+            return []
+
+    def get_retryable_channel_member_key_states(
+        self,
+        peer_id: str,
+        limit: int = 200,
+    ) -> List[Dict[str, Any]]:
+        """Return key-delivery rows that should be retried for a connected peer."""
+        if not peer_id:
+            return []
+        try:
+            with self.db.get_connection() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT cmk.channel_id, cmk.key_id, cmk.peer_id, cmk.delivery_state,
+                           cmk.last_error, cmk.updated_at,
+                           ck.key_material_enc, ck.metadata
+                    FROM channel_member_keys cmk
+                    JOIN channel_keys ck
+                      ON ck.channel_id = cmk.channel_id
+                     AND ck.key_id = cmk.key_id
+                    WHERE cmk.peer_id = ?
+                      AND cmk.acked_at IS NULL
+                      AND cmk.delivery_state IN ('pending', 'failed', 'delivered')
+                      AND ck.revoked_at IS NULL
+                    ORDER BY cmk.updated_at ASC
+                    LIMIT ?
+                    """,
+                    (peer_id, int(limit)),
+                ).fetchall()
+            out: List[Dict[str, Any]] = []
+            for row in rows:
+                metadata: Dict[str, Any] = {}
+                if row['metadata']:
+                    try:
+                        metadata = json.loads(row['metadata'])
+                    except Exception:
+                        metadata = {}
+                out.append({
+                    'channel_id': row['channel_id'],
+                    'key_id': row['key_id'],
+                    'peer_id': row['peer_id'],
+                    'delivery_state': row['delivery_state'],
+                    'last_error': row['last_error'],
+                    'updated_at': row['updated_at'],
+                    'key_material_enc': row['key_material_enc'],
+                    'metadata': metadata,
+                })
+            return out
+        except Exception as e:
+            logger.error(
+                f"Failed to get retryable key states for peer {peer_id}: {e}",
+                exc_info=True,
+            )
+            return []
+
+    def queue_member_sync_delivery(
+        self,
+        sync_id: str,
+        channel_id: str,
+        target_user_id: str,
+        action: str,
+        role: str,
+        target_peer_id: str,
+        payload: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Persist a member_sync delivery record for ack/retry handling."""
+        if not sync_id or not channel_id or not target_user_id or not action or not target_peer_id:
+            return False
+        payload_json = None
+        if payload is not None:
+            try:
+                payload_json = json.dumps(payload)
+            except Exception:
+                payload_json = None
+        try:
+            with self.db.get_connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO channel_member_sync_deliveries (
+                        sync_id, channel_id, target_user_id, action, role, target_peer_id,
+                        payload_json, delivery_state, last_error, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', NULL, CURRENT_TIMESTAMP)
+                    ON CONFLICT(sync_id) DO UPDATE SET
+                        channel_id = excluded.channel_id,
+                        target_user_id = excluded.target_user_id,
+                        action = excluded.action,
+                        role = excluded.role,
+                        target_peer_id = excluded.target_peer_id,
+                        payload_json = excluded.payload_json,
+                        updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (
+                        sync_id,
+                        channel_id,
+                        target_user_id,
+                        action,
+                        role or 'member',
+                        target_peer_id,
+                        payload_json,
+                    ),
+                )
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.error(
+                f"Failed to queue member sync delivery {sync_id} ({channel_id}->{target_peer_id}): {e}",
+                exc_info=True,
+            )
+            return False
+
+    def mark_member_sync_delivery_attempt(
+        self,
+        sync_id: str,
+        sent: bool,
+        error: Optional[str] = None,
+    ) -> bool:
+        """Record one member_sync send attempt."""
+        if not sync_id:
+            return False
+        state = 'sent' if sent else 'failed'
+        try:
+            with self.db.get_connection() as conn:
+                cur = conn.execute(
+                    """
+                    UPDATE channel_member_sync_deliveries
+                    SET attempt_count = COALESCE(attempt_count, 0) + 1,
+                        last_attempt_at = CURRENT_TIMESTAMP,
+                        delivery_state = ?,
+                        last_error = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE sync_id = ?
+                    """,
+                    (state, None if sent else error, sync_id),
+                )
+                conn.commit()
+                return cast(int, cur.rowcount) > 0
+        except Exception as e:
+            logger.error(f"Failed to mark member sync attempt {sync_id}: {e}", exc_info=True)
+            return False
+
+    def mark_member_sync_delivery_acked(
+        self,
+        sync_id: str,
+        status: str = 'ok',
+        error: Optional[str] = None,
+    ) -> bool:
+        """Mark member_sync delivery as acknowledged (or failed with explicit reason)."""
+        if not sync_id:
+            return False
+        ok = str(status or '').strip().lower() == 'ok'
+        new_state = 'acked' if ok else 'failed'
+        try:
+            with self.db.get_connection() as conn:
+                cur = conn.execute(
+                    """
+                    UPDATE channel_member_sync_deliveries
+                    SET delivery_state = ?,
+                        acked_at = CASE WHEN ? = 'acked' THEN CURRENT_TIMESTAMP ELSE acked_at END,
+                        last_error = CASE WHEN ? = 'acked' THEN NULL ELSE ? END,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE sync_id = ?
+                    """,
+                    (new_state, new_state, new_state, error, sync_id),
+                )
+                conn.commit()
+                return cast(int, cur.rowcount) > 0
+        except Exception as e:
+            logger.error(f"Failed to mark member sync ack {sync_id}: {e}", exc_info=True)
+            return False
+
+    def get_retryable_member_sync_deliveries(
+        self,
+        peer_id: str,
+        limit: int = 200,
+        min_retry_seconds: int = 10,
+        max_attempts: int = 8,
+    ) -> List[Dict[str, Any]]:
+        """Return pending/unacked member_sync items that are eligible for resend."""
+        if not peer_id:
+            return []
+        retry_window = f"-{max(0, int(min_retry_seconds))} seconds"
+        try:
+            with self.db.get_connection() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT sync_id, channel_id, target_user_id, action, role, target_peer_id,
+                           payload_json, delivery_state, last_error, attempt_count,
+                           last_attempt_at, acked_at, created_at, updated_at
+                    FROM channel_member_sync_deliveries
+                    WHERE target_peer_id = ?
+                      AND acked_at IS NULL
+                      AND COALESCE(attempt_count, 0) < ?
+                      AND delivery_state IN ('pending', 'sent', 'failed')
+                      AND (
+                           last_attempt_at IS NULL
+                           OR last_attempt_at <= datetime('now', ?)
+                      )
+                    ORDER BY created_at ASC
+                    LIMIT ?
+                    """,
+                    (peer_id, max(1, int(max_attempts)), retry_window, int(limit)),
+                ).fetchall()
+            out: List[Dict[str, Any]] = []
+            for row in rows:
+                payload: Dict[str, Any] = {}
+                payload_json = row['payload_json']
+                if payload_json:
+                    try:
+                        payload = json.loads(payload_json)
+                    except Exception:
+                        payload = {}
+                out.append({
+                    'sync_id': row['sync_id'],
+                    'channel_id': row['channel_id'],
+                    'target_user_id': row['target_user_id'],
+                    'action': row['action'],
+                    'role': row['role'],
+                    'target_peer_id': row['target_peer_id'],
+                    'payload': payload,
+                    'delivery_state': row['delivery_state'],
+                    'last_error': row['last_error'],
+                    'attempt_count': row['attempt_count'],
+                    'last_attempt_at': row['last_attempt_at'],
+                    'created_at': row['created_at'],
+                    'updated_at': row['updated_at'],
+                })
+            return out
+        except Exception as e:
+            logger.error(f"Failed to get retryable member sync deliveries for {peer_id}: {e}", exc_info=True)
+            return []
+
+    def mark_stale_pending_decrypt(
+        self,
+        max_age_hours: int = 24,
+        limit: int = 1000,
+    ) -> int:
+        """Mark old pending_decrypt messages as decrypt_failed to avoid indefinite limbo."""
+        max_age = max(1, int(max_age_hours))
+        max_rows = max(1, int(limit))
+        cutoff_expr = f"-{max_age} hours"
+        try:
+            with self.db.get_connection() as conn:
+                ids = conn.execute(
+                    """
+                    SELECT id
+                    FROM channel_messages
+                    WHERE crypto_state = 'pending_decrypt'
+                      AND created_at <= datetime('now', ?)
+                    ORDER BY created_at ASC
+                    LIMIT ?
+                    """,
+                    (cutoff_expr, max_rows),
+                ).fetchall()
+                if not ids:
+                    return 0
+                placeholders = ",".join("?" for _ in ids)
+                cur = conn.execute(
+                    f"""
+                    UPDATE channel_messages
+                    SET crypto_state = 'decrypt_failed',
+                        edited_at = CURRENT_TIMESTAMP
+                    WHERE id IN ({placeholders})
+                    """,
+                    [row['id'] if hasattr(row, 'keys') and 'id' in row.keys() else row[0] for row in ids],
+                )
+                conn.commit()
+                return cast(int, cur.rowcount)
+        except Exception as e:
+            logger.error(f"Failed to mark stale pending_decrypt messages: {e}", exc_info=True)
+            return 0
+
+    def update_message_decrypt(self, message_id: str, content: str, new_state: str) -> bool:
+        """Update decrypted content/state for one channel message."""
+        if not message_id:
+            return False
+        state = str(new_state or '').strip().lower() or 'decrypt_failed'
+        if state not in {'decrypted', 'decrypt_failed', 'pending_decrypt', 'encrypted', 'plaintext'}:
+            state = 'decrypt_failed'
+        try:
+            with self.db.get_connection() as conn:
+                cur = conn.execute(
+                    """
+                    UPDATE channel_messages
+                    SET content = ?, crypto_state = ?, edited_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (content or '', state, message_id),
+                )
+                conn.commit()
+                return cast(int, cur.rowcount) > 0
+        except Exception as e:
+            logger.error(f"Failed to update decrypt state for message {message_id}: {e}", exc_info=True)
+            return False
+
+    # ------------------------------------------------------------------
     #  Peer device profile helpers
     # ------------------------------------------------------------------
 
@@ -1110,9 +1962,31 @@ class ChannelManager:
         new_rank = cls.PRIVACY_ORDER.get(cls._normalize_privacy_mode(new_mode), 0)
         return new_rank < old_rank
 
-    def _resolve_sync_channel_creator(self, conn: Any,
-                                      local_user_id: Optional[str]) -> str:
-        """Resolve a valid local user ID for FK-safe synced channel creation."""
+    def _resolve_sync_channel_creator(
+        self,
+        conn: Any,
+        local_user_id: Optional[str],
+        origin_peer: Optional[str] = None,
+    ) -> str:
+        """Resolve a valid user ID for FK-safe synced channel creation.
+
+        Preference order:
+        1) A shadow/local user that matches the channel origin peer (if provided)
+        2) explicit local_user_id hint
+        3) system/local bootstrap users
+        4) first available user row
+        """
+        if origin_peer and isinstance(origin_peer, str):
+            origin_row = conn.execute(
+                "SELECT id FROM users WHERE origin_peer = ? ORDER BY id ASC LIMIT 1",
+                (origin_peer,),
+            ).fetchone()
+            if origin_row:
+                return cast(
+                    str,
+                    origin_row[0] if not hasattr(origin_row, 'keys') else origin_row['id'],
+                )
+
         candidates: list[str] = []
         if local_user_id and isinstance(local_user_id, str):
             candidates.append(local_user_id)
@@ -1202,6 +2076,7 @@ class ChannelManager:
                 origin_peer=origin_peer,
                 privacy_mode=privacy_mode or 'open',
                 user_role='admin',
+                crypto_mode=self.CRYPTO_MODE_LEGACY,
             )
             
             with LogOperation(f"Database insert for channel {channel_id}"):
@@ -1337,7 +2212,11 @@ class ChannelManager:
                     logger.debug(f"Channel {channel_id} already exists, skipping sync-create")
                     return None
 
-                sync_creator_id = self._resolve_sync_channel_creator(conn, local_user_id)
+                sync_creator_id = self._resolve_sync_channel_creator(
+                    conn,
+                    local_user_id,
+                    origin_peer=origin_peer,
+                )
 
                 conn.execute("""
                     INSERT INTO channels (id, name, channel_type, created_by,
@@ -1441,6 +2320,7 @@ class ChannelManager:
                 created_at=datetime.now(timezone.utc),
                 description=description,
                 privacy_mode=privacy_mode or 'open',
+                crypto_mode=self.CRYPTO_MODE_LEGACY,
             )
             logger.info(f"Created synced channel {channel_id}: {name}")
             return channel
@@ -1575,7 +2455,11 @@ class ChannelManager:
                     if msg_count == 0:
                         # Local channel is empty — adopt remote ID
                         # Move members to the new channel, delete old one
-                        sync_creator_id = self._resolve_sync_channel_creator(conn, local_user_id)
+                        sync_creator_id = self._resolve_sync_channel_creator(
+                            conn,
+                            local_user_id,
+                            origin_peer=from_peer,
+                        )
                         members = conn.execute(
                             "SELECT user_id, role FROM channel_members WHERE channel_id = ?",
                             (local_id,)
@@ -2599,12 +3483,21 @@ class ChannelManager:
                                 pass
 
                         expires_at = self._parse_datetime(row['expires_at']) if 'expires_at' in row.keys() else None
+                        content_text = row['content'] or ''
+                        try:
+                            crypto_state = (row['crypto_state'] or '').strip().lower()
+                        except Exception:
+                            crypto_state = ''
+                        if not content_text and crypto_state == 'pending_decrypt':
+                            content_text = '[Encrypted message pending key]'
+                        elif not content_text and crypto_state == 'decrypt_failed':
+                            content_text = '[Encrypted message could not be decrypted]'
 
                         return Message(
                             id=row['id'],
                             channel_id=row['channel_id'],
                             user_id=row['user_id'],
-                            content=row['content'] or '',
+                            content=content_text,
                             message_type=msg_type,
                             created_at=created_at,
                             thread_id=row['thread_id'],
@@ -2615,6 +3508,7 @@ class ChannelManager:
                             edited_at=edited_at,
                             expires_at=expires_at,
                             origin_peer=row['origin_peer'] if 'origin_peer' in row.keys() else None,
+                            crypto_state=row['crypto_state'] if 'crypto_state' in row.keys() else None,
                         )
                     except Exception as row_err:
                         row_id = '?'
@@ -2736,6 +3630,7 @@ class ChannelManager:
                     edited_at=edited_at,
                     expires_at=expires_at,
                     origin_peer=row.get('origin_peer'),
+                    crypto_state=row.get('crypto_state'),
                 )
         except Exception as e:
             logger.error(f"Failed to get channel message {message_id}: {e}", exc_info=True)
@@ -2912,6 +3807,11 @@ class ChannelManager:
                         user_role=user_role,
                         notifications_enabled=notifications_enabled,
                         unread_count=unread_count,
+                        crypto_mode=(
+                            row['crypto_mode']
+                            if 'crypto_mode' in row.keys() and row['crypto_mode']
+                            else self.CRYPTO_MODE_LEGACY
+                        ),
                     )
                     channels.append(channel)
                 
@@ -2965,7 +3865,8 @@ class ChannelManager:
                     SELECT id, channel_id, user_id, content,
                            message_type, created_at, attachments, expires_at,
                            origin_peer,
-                           ttl_seconds, ttl_mode, parent_message_id
+                           ttl_seconds, ttl_mode, parent_message_id,
+                           encrypted_content, crypto_state, key_id, nonce
                     FROM channel_messages
                     WHERE channel_id = ?
                       AND created_at > ?
@@ -2988,6 +3889,14 @@ class ChannelManager:
                         'ttl_seconds': row['ttl_seconds'] if 'ttl_seconds' in row.keys() else None,
                         'ttl_mode': row['ttl_mode'] if 'ttl_mode' in row.keys() else None,
                         'parent_message_id': row['parent_message_id'] if 'parent_message_id' in row.keys() else None,
+                        'encrypted_content': (
+                            row['encrypted_content'] if 'encrypted_content' in row.keys() else None
+                        ),
+                        'crypto_state': (
+                            row['crypto_state'] if 'crypto_state' in row.keys() else None
+                        ),
+                        'key_id': row['key_id'] if 'key_id' in row.keys() else None,
+                        'nonce': row['nonce'] if 'nonce' in row.keys() else None,
                     }
                     # Include attachment metadata but strip heavy data
                     if row['attachments']:

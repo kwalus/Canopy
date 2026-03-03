@@ -10,17 +10,120 @@ License: Apache 2.0
 Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
+import base64
 import logging
 import secrets
 import time
 import json
 from collections import OrderedDict
-from typing import Dict, List, Optional, Any, Set, cast
+from typing import Dict, List, Optional, Any, Set, Tuple, cast
 from enum import Enum
 from dataclasses import dataclass, asdict
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 
 logger = logging.getLogger('canopy.network.routing')
+
+
+# ---------------------------------------------------------------------------
+# Channel E2E crypto helpers (used by ChannelManager and P2P key distribution)
+# ---------------------------------------------------------------------------
+
+def encrypt_with_channel_key(plaintext: str, key_material: bytes) -> Tuple[str, str]:
+    """Encrypt channel content with a symmetric channel key.
+
+    Returns:
+        Tuple of (ciphertext_b64, nonce_b64)
+    """
+    nonce = secrets.token_bytes(12)
+    cipher = ChaCha20Poly1305(key_material)
+    ciphertext = cipher.encrypt(nonce, (plaintext or '').encode('utf-8'), None)
+    return (
+        base64.b64encode(ciphertext).decode('ascii'),
+        base64.b64encode(nonce).decode('ascii'),
+    )
+
+
+def decrypt_with_channel_key(
+    encrypted_content_b64: str,
+    key_material: bytes,
+    nonce_b64: str,
+) -> str:
+    """Decrypt channel content with a symmetric channel key."""
+    ciphertext = base64.b64decode(encrypted_content_b64.encode('ascii'))
+    nonce = base64.b64decode(nonce_b64.encode('ascii'))
+    cipher = ChaCha20Poly1305(key_material)
+    plaintext = cipher.decrypt(nonce, ciphertext, None)
+    return plaintext.decode('utf-8')
+
+
+def encrypt_key_for_peer(
+    key_material: bytes,
+    local_identity: Any,
+    recipient_identity: Any,
+) -> str:
+    """Wrap a channel key for one peer using X25519-derived shared secret."""
+    if not local_identity or not recipient_identity:
+        raise ValueError("Local and recipient identities are required")
+    shared_secret = local_identity.derive_shared_secret(recipient_identity.x25519_public_key)
+    nonce = secrets.token_bytes(12)
+    cipher = ChaCha20Poly1305(shared_secret)
+    ciphertext = cipher.encrypt(nonce, key_material, None)
+    return (nonce + ciphertext).hex()
+
+
+def decrypt_key_from_peer(
+    wrapped_key_hex: str,
+    local_identity: Any,
+    sender_identity: Any,
+) -> bytes:
+    """Unwrap a channel key received from a peer."""
+    if not local_identity or not sender_identity:
+        raise ValueError("Local and sender identities are required")
+    try:
+        wrapped = bytes.fromhex((wrapped_key_hex or '').strip())
+    except (ValueError, TypeError) as exc:
+        raise ValueError("Wrapped key payload is not valid hex") from exc
+    if len(wrapped) < 13:
+        raise ValueError("Wrapped key payload is too short")
+    nonce = wrapped[:12]
+    ciphertext = wrapped[12:]
+    shared_secret = local_identity.derive_shared_secret(sender_identity.x25519_public_key)
+    cipher = ChaCha20Poly1305(shared_secret)
+    return cipher.decrypt(nonce, ciphertext, None)
+
+
+def decode_channel_key_material(key_material_enc: str) -> Optional[bytes]:
+    """Decode stored channel-key material when it is locally unwrapped.
+
+    Supported formats:
+    - raw:<base64-bytes>
+    - hex:<hex-bytes>
+    - <legacy hex-bytes>
+    """
+    if not key_material_enc:
+        return None
+    raw = str(key_material_enc).strip()
+    if not raw:
+        return None
+    try:
+        if raw.startswith('raw:'):
+            payload = raw[4:].strip()
+            if not payload:
+                return None
+            return base64.b64decode(payload.encode('ascii'))
+        if raw.startswith('hex:'):
+            payload = raw[4:].strip()
+            if not payload:
+                return None
+            return bytes.fromhex(payload)
+        return bytes.fromhex(raw)
+    except Exception:
+        return None
+
+
+def encode_channel_key_material(key_material: bytes) -> str:
+    """Encode locally available channel-key bytes for DB storage."""
+    return f"raw:{base64.b64encode(key_material).decode('ascii')}"
 
 # Maximum messages queued for a single offline peer.
 # Prevents a misbehaving or permanently-offline peer from exhausting RAM.
@@ -58,7 +161,11 @@ class MessageType(Enum):
     
     # Private channel membership
     MEMBER_SYNC = "member_sync"                  # Add/remove member on remote peer
+    MEMBER_SYNC_ACK = "member_sync_ack"          # Ack member sync delivery/apply
     PRIVATE_CHANNEL_INVITE = "private_channel_invite"  # Invite peer to private channel
+    CHANNEL_KEY_DISTRIBUTION = "channel_key_distribution"  # Wrapped channel key delivery
+    CHANNEL_KEY_REQUEST = "channel_key_request"            # Request key delivery/re-send
+    CHANNEL_KEY_ACK = "channel_key_ack"                    # Ack key import result
 
     # Connection brokering and relay
     BROKER_REQUEST = "broker_request"   # Ask intermediary to help connect
@@ -132,6 +239,18 @@ class P2PMessage:
 
 class MessageRouter:
     """Routes messages between peers in the P2P network."""
+
+    # Targeted message classes that should still reach peers through indirect
+    # topologies when no direct/next-hop route currently exists.
+    _TARGETED_MESH_RELAY_TYPES: Set[MessageType] = {
+        MessageType.CHANNEL_ANNOUNCE,
+        MessageType.MEMBER_SYNC,
+        MessageType.MEMBER_SYNC_ACK,
+        MessageType.CHANNEL_KEY_DISTRIBUTION,
+        MessageType.CHANNEL_KEY_REQUEST,
+        MessageType.CHANNEL_KEY_ACK,
+        MessageType.DELETE_SIGNAL,
+    }
     
     def __init__(self, local_peer_id: str, identity_manager: Any, connection_manager: Any):
         """
@@ -192,7 +311,11 @@ class MessageRouter:
         self.on_catchup_request: Optional[Any] = None
         self.on_catchup_response: Optional[Any] = None
         self.on_member_sync: Optional[Any] = None
+        self.on_member_sync_ack: Optional[Any] = None
         self.on_private_channel_invite: Optional[Any] = None
+        self.on_channel_key_distribution: Optional[Any] = None
+        self.on_channel_key_request: Optional[Any] = None
+        self.on_channel_key_ack: Optional[Any] = None
         self.on_profile_sync: Optional[Any] = None
         self.on_peer_announcement: Optional[Any] = None
         self.on_delete_signal: Optional[Any] = None
@@ -543,9 +666,13 @@ class MessageRouter:
     async def _route_broadcast(self, message: P2PMessage) -> bool:
         """Route broadcast message to all connected peers."""
         connected_peers = self.connection_manager.get_connected_peers()
-        
-        # Don't send back to sender
-        peers_to_send = [p for p in connected_peers if p != message.from_peer]
+
+        # Don't send back to sender or immediate upstream relay.
+        via_peer = str(getattr(message, '_via_peer', '') or '')
+        excluded = {message.from_peer}
+        if via_peer:
+            excluded.add(via_peer)
+        peers_to_send = [p for p in connected_peers if p not in excluded]
         
         logger.info(f"Broadcasting {message.type.value} {message.id} to {len(peers_to_send)} peers: {peers_to_send}")
         
@@ -569,6 +696,7 @@ class MessageRouter:
     async def _route_to_peer(self, message: P2PMessage) -> bool:
         """Route message to specific peer."""
         target_peer = cast(str, message.to_peer)
+        via_peer = str(getattr(message, '_via_peer', '') or '')
         
         # Check if directly connected
         if self.connection_manager.is_connected(target_peer):
@@ -580,12 +708,32 @@ class MessageRouter:
         
         # Check routing table for next hop
         next_hop = self.routing_table.get(target_peer)
-        if next_hop and self.connection_manager.is_connected(next_hop):
+        if (
+            next_hop
+            and next_hop != via_peer
+            and self.connection_manager.is_connected(next_hop)
+        ):
             logger.debug(f"Forwarding message {message.id} to {target_peer} via {next_hop}")
             return bool(await self.connection_manager.send_to_peer(
                 next_hop,
                 {'type': 'p2p_message', 'message': message.to_dict()}
             ))
+
+        # Hybrid targeted relay fallback: flood only selected control-plane
+        # messages through the mesh so indirect peers can still receive them.
+        if message.type in self._TARGETED_MESH_RELAY_TYPES and message.ttl > 0:
+            relayed = await self._relay_targeted_via_mesh(
+                message=message,
+                exclude_peers={via_peer, target_peer},
+            )
+            if relayed:
+                logger.info(
+                    "Relayed targeted %s %s toward %s via mesh fallback",
+                    message.type.value,
+                    message.id,
+                    target_peer,
+                )
+                return True
         
         # Store for later delivery (store-and-forward)
         logger.debug(f"Peer {target_peer} not reachable, queueing message {message.id}")
@@ -601,6 +749,30 @@ class MessageRouter:
         queue.append(message)
         
         return False
+
+    async def _relay_targeted_via_mesh(
+        self,
+        message: P2PMessage,
+        exclude_peers: Optional[Set[str]] = None,
+    ) -> bool:
+        """Best-effort relay of targeted traffic through connected peers."""
+        connected_peers = self.connection_manager.get_connected_peers()
+        excluded = {p for p in (exclude_peers or set()) if p}
+        excluded.add(self.local_peer_id)
+        excluded.add(message.from_peer)
+        peers_to_send = [p for p in connected_peers if p not in excluded]
+
+        if not peers_to_send:
+            return False
+
+        sent_any = False
+        for peer_id in peers_to_send:
+            sent = await self.connection_manager.send_to_peer(
+                peer_id,
+                {'type': 'p2p_message', 'message': message.to_dict()},
+            )
+            sent_any = sent_any or bool(sent)
+        return sent_any
     
     async def _deliver_local(self, message: P2PMessage) -> bool:
         """Deliver message to local application."""
@@ -708,6 +880,10 @@ class MessageRouter:
                     origin_peer=meta.get('origin_peer'),
                     parent_message_id=meta.get('parent_message_id'),
                     edited_at=meta.get('edited_at'),
+                    encrypted_content=meta.get('encrypted_content'),
+                    crypto_state=meta.get('crypto_state'),
+                    key_id=meta.get('key_id'),
+                    nonce=meta.get('nonce'),
                 )
             except Exception as e:
                 logger.error(f"Error delivering channel message locally: {e}", exc_info=True)
@@ -721,6 +897,7 @@ class MessageRouter:
                     channel_type=meta.get('channel_type', 'public'),
                     description=meta.get('description', ''),
                     created_by_peer=meta.get('created_by_peer', message.from_peer),
+                    created_by_user_id=meta.get('created_by_user_id'),
                     privacy_mode=meta.get('privacy_mode'),
                     from_peer=message.from_peer,
                     initial_members=meta.get('initial_members'),
@@ -750,11 +927,67 @@ class MessageRouter:
                     channel_type=meta.get('channel_type', 'private'),
                     channel_description=meta.get('channel_description', ''),
                     privacy_mode=meta.get('privacy_mode', 'private'),
+                    sync_id=meta.get('sync_id'),
                     from_peer=message.from_peer,
                 )
             except Exception as e:
                 logger.error(f"Error delivering member sync locally: {e}", exc_info=True)
 
+        elif message.type == MessageType.MEMBER_SYNC_ACK and self.on_member_sync_ack:
+            try:
+                meta = payload.get('metadata', {})
+                self.on_member_sync_ack(
+                    sync_id=meta.get('sync_id'),
+                    status=meta.get('status', 'ok'),
+                    error=meta.get('error'),
+                    channel_id=meta.get('channel_id'),
+                    target_user_id=meta.get('target_user_id'),
+                    action=meta.get('action'),
+                    from_peer=message.from_peer,
+                )
+            except Exception as e:
+                logger.error(f"Error delivering member sync ack locally: {e}", exc_info=True)
+        
+        elif message.type == MessageType.CHANNEL_KEY_DISTRIBUTION and self.on_channel_key_distribution:
+            try:
+                meta = payload.get('metadata', {})
+                self.on_channel_key_distribution(
+                    channel_id=meta.get('channel_id'),
+                    key_id=meta.get('key_id'),
+                    encrypted_key=meta.get('encrypted_key'),
+                    key_version=meta.get('key_version'),
+                    rotated_from=meta.get('rotated_from'),
+                    from_peer=message.from_peer,
+                )
+            except Exception as e:
+                logger.error(f"Error delivering channel key distribution locally: {e}", exc_info=True)
+
+        elif message.type == MessageType.CHANNEL_KEY_REQUEST and self.on_channel_key_request:
+            try:
+                meta = payload.get('metadata', {})
+                self.on_channel_key_request(
+                    channel_id=meta.get('channel_id'),
+                    requesting_peer=meta.get('requesting_peer') or message.from_peer,
+                    reason=meta.get('reason'),
+                    key_id=meta.get('key_id'),
+                    from_peer=message.from_peer,
+                )
+            except Exception as e:
+                logger.error(f"Error delivering channel key request locally: {e}", exc_info=True)
+
+        elif message.type == MessageType.CHANNEL_KEY_ACK and self.on_channel_key_ack:
+            try:
+                meta = payload.get('metadata', {})
+                self.on_channel_key_ack(
+                    channel_id=meta.get('channel_id'),
+                    key_id=meta.get('key_id'),
+                    status=meta.get('status'),
+                    error=meta.get('error'),
+                    from_peer=message.from_peer,
+                )
+            except Exception as e:
+                logger.error(f"Error delivering channel key ack locally: {e}", exc_info=True)
+        
         elif message.type == MessageType.CHANNEL_CATCHUP_REQUEST and self.on_catchup_request:
             try:
                 meta = payload.get('metadata', {})
@@ -1011,6 +1244,7 @@ class MessageRouter:
     async def send_channel_announce(self, channel_id: str, name: str,
                                      channel_type: str, description: str,
                                      created_by_peer: str,
+                                     created_by_user_id: Optional[str] = None,
                                      privacy_mode: Optional[str] = None,
                                      to_peer: Optional[str] = None,
                                      initial_members: Optional[list[Any]] = None) -> bool:
@@ -1030,6 +1264,8 @@ class MessageRouter:
             'created_by_peer': created_by_peer,
             'privacy_mode': privacy_mode,
         }
+        if created_by_user_id:
+            metadata['created_by_user_id'] = str(created_by_user_id)
         if initial_members:
             metadata['initial_members'] = initial_members
 
@@ -1050,7 +1286,8 @@ class MessageRouter:
                                 channel_name: str = '',
                                 channel_type: str = 'private',
                                 channel_description: str = '',
-                                privacy_mode: str = 'private') -> bool:
+                                privacy_mode: str = 'private',
+                                sync_id: Optional[str] = None) -> bool:
         """
         Send a targeted member sync to a specific peer.
         
@@ -1069,10 +1306,112 @@ class MessageRouter:
                 'channel_type': channel_type,
                 'channel_description': channel_description,
                 'privacy_mode': privacy_mode,
+                'sync_id': sync_id,
             }
         }
 
         message = self.create_message(MessageType.MEMBER_SYNC, to_peer, payload)
+        self.sign_message(message)
+        return await self._route_to_peer(message)
+
+    async def send_member_sync_ack(
+        self,
+        to_peer: str,
+        sync_id: str,
+        status: str = 'ok',
+        error: Optional[str] = None,
+        channel_id: Optional[str] = None,
+        target_user_id: Optional[str] = None,
+        action: Optional[str] = None,
+    ) -> bool:
+        """Acknowledge member-sync delivery/application status."""
+        payload = {
+            'content': '',
+            'metadata': {
+                'type': 'member_sync_ack',
+                'sync_id': sync_id,
+                'status': status,
+                'error': error,
+                'channel_id': channel_id,
+                'target_user_id': target_user_id,
+                'action': action,
+            }
+        }
+        message = self.create_message(MessageType.MEMBER_SYNC_ACK, to_peer, payload)
+        self.sign_message(message)
+        return await self._route_to_peer(message)
+
+    async def send_channel_key_distribution(
+        self,
+        to_peer: str,
+        channel_id: str,
+        key_id: str,
+        encrypted_key: str,
+        key_version: int = 1,
+        rotated_from: Optional[str] = None,
+    ) -> bool:
+        """Send a wrapped channel key to a specific peer."""
+        payload = {
+            'content': '',
+            'metadata': {
+                'type': 'channel_key_distribution',
+                'channel_id': channel_id,
+                'key_id': key_id,
+                'encrypted_key': encrypted_key,
+                'key_version': key_version,
+                'rotated_from': rotated_from,
+            }
+        }
+
+        message = self.create_message(MessageType.CHANNEL_KEY_DISTRIBUTION, to_peer, payload)
+        self.sign_message(message)
+        return await self._route_to_peer(message)
+
+    async def send_channel_key_request(
+        self,
+        to_peer: str,
+        channel_id: str,
+        requesting_peer: Optional[str] = None,
+        reason: Optional[str] = None,
+        key_id: Optional[str] = None,
+    ) -> bool:
+        """Request channel-key distribution/re-send for a channel."""
+        payload = {
+            'content': '',
+            'metadata': {
+                'type': 'channel_key_request',
+                'channel_id': channel_id,
+                'requesting_peer': requesting_peer or self.local_peer_id,
+                'reason': reason or 'missing_key',
+                'key_id': key_id,
+            }
+        }
+
+        message = self.create_message(MessageType.CHANNEL_KEY_REQUEST, to_peer, payload)
+        self.sign_message(message)
+        return await self._route_to_peer(message)
+
+    async def send_channel_key_ack(
+        self,
+        to_peer: str,
+        channel_id: str,
+        key_id: str,
+        status: str = 'ok',
+        error: Optional[str] = None,
+    ) -> bool:
+        """Acknowledge channel key receipt/import status."""
+        payload = {
+            'content': '',
+            'metadata': {
+                'type': 'channel_key_ack',
+                'channel_id': channel_id,
+                'key_id': key_id,
+                'status': status,
+                'error': error,
+            }
+        }
+
+        message = self.create_message(MessageType.CHANNEL_KEY_ACK, to_peer, payload)
         self.sign_message(message)
         return await self._route_to_peer(message)
 

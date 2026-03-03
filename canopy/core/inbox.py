@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_INBOX_CONFIG: Dict[str, Any] = {
     "channels": [],
     "allowed_senders": [],
-    "allowed_trigger_types": ["mention", "dm", "reply"],
+    "allowed_trigger_types": ["mention", "dm", "reply", "channel_added"],
     "thread_reply_notifications": True,
     "auto_subscribe_own_threads": True,
     "min_trust_score": 50,
@@ -53,7 +53,7 @@ DEFAULT_INBOX_CONFIG: Dict[str, Any] = {
 DEFAULT_AGENT_INBOX_CONFIG: Dict[str, Any] = {
     "channels": [],
     "allowed_senders": [],
-    "allowed_trigger_types": ["mention", "dm", "reply"],
+    "allowed_trigger_types": ["mention", "dm", "reply", "channel_added"],
     "thread_reply_notifications": True,
     "auto_subscribe_own_threads": True,
     # Mesh peers are implicitly trusted; TrustManager default_trust_score=100

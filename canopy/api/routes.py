@@ -58,6 +58,10 @@ from ..security.csrf import validate_csrf_request
 from ..core.messaging import MessageType
 from ..security.trust import TrustEvent
 from ..security.file_access import evaluate_file_access
+from ..network.routing import (
+    encrypt_key_for_peer,
+    encode_channel_key_material,
+)
 from .agent_instructions_data import build_agent_instructions_payload
 
 logger = logging.getLogger(__name__)
@@ -8339,6 +8343,280 @@ def create_api_blueprint() -> Blueprint:
             logger.error(f"Channel search failed: {e}")
             return jsonify({'error': 'Internal server error'}), 500
 
+    def _api_e2e_private_enabled() -> bool:
+        cfg = current_app.config.get('CANOPY_CONFIG')
+        sec = getattr(cfg, 'security', None)
+        return bool(getattr(sec, 'e2e_private_channels', False))
+
+    def _api_normalize_crypto_mode(raw_mode: Any) -> str:
+        mode = str(raw_mode or '').strip().lower()
+        if mode in {'legacy_plaintext', 'e2e_optional', 'e2e_enforced'}:
+            return mode
+        return 'legacy_plaintext'
+
+    def _api_channel_targets_e2e(privacy_mode: str, crypto_mode: str) -> bool:
+        return (
+            str(privacy_mode or '').strip().lower() in {'private', 'confidential'}
+            and str(crypto_mode or '').strip().lower() in {'e2e_optional', 'e2e_enforced'}
+        )
+
+    def _api_send_channel_key_to_peer(channel_manager: Any, p2p_manager: Any,
+                                      channel_id: str, key_payload: dict[str, Any],
+                                      peer_id: str, rotated_from: Optional[str] = None) -> bool:
+        if not p2p_manager or not peer_id:
+            return False
+        local_peer = p2p_manager.get_peer_id() if p2p_manager else None
+        if not local_peer or peer_id == local_peer:
+            return False
+        recipient_identity = p2p_manager.identity_manager.get_peer(peer_id)
+        local_identity = p2p_manager.identity_manager.local_identity
+        if not recipient_identity or not local_identity:
+            channel_manager.upsert_channel_member_key_state(
+                channel_id=channel_id,
+                key_id=key_payload['key_id'],
+                peer_id=peer_id,
+                delivery_state='failed',
+                last_error='unknown_peer_identity',
+            )
+            return False
+        try:
+            wrapped = encrypt_key_for_peer(
+                key_material=key_payload['key_material'],
+                local_identity=local_identity,
+                recipient_identity=recipient_identity,
+            )
+        except Exception as err:
+            channel_manager.upsert_channel_member_key_state(
+                channel_id=channel_id,
+                key_id=key_payload['key_id'],
+                peer_id=peer_id,
+                delivery_state='failed',
+                last_error=f'wrap_failed:{err}',
+            )
+            return False
+
+        channel_manager.upsert_channel_member_key_state(
+            channel_id=channel_id,
+            key_id=key_payload['key_id'],
+            peer_id=peer_id,
+            delivery_state='pending',
+            last_error=None,
+        )
+        sent = p2p_manager.send_channel_key_distribution(
+            to_peer=peer_id,
+            channel_id=channel_id,
+            key_id=key_payload['key_id'],
+            encrypted_key=wrapped,
+            key_version=int((key_payload.get('metadata') or {}).get('key_version') or 1),
+            rotated_from=rotated_from or (key_payload.get('metadata') or {}).get('rotated_from'),
+        )
+        channel_manager.upsert_channel_member_key_state(
+            channel_id=channel_id,
+            key_id=key_payload['key_id'],
+            peer_id=peer_id,
+            delivery_state='delivered' if sent else 'failed',
+            delivered=sent,
+            last_error=None if sent else 'send_failed',
+        )
+        return bool(sent)
+
+    def _api_ensure_channel_key(channel_manager: Any, channel_id: str,
+                                origin_peer: Optional[str], rotated_from: Optional[str] = None) -> Optional[dict[str, Any]]:
+        active = channel_manager.get_active_channel_key(channel_id)
+        if active:
+            key_bytes = channel_manager.decode_channel_key_material(active.get('key_material_enc'))
+            if key_bytes:
+                return {'key_id': active.get('key_id'), 'key_material': key_bytes, 'metadata': active.get('metadata') or {}}
+        key_bytes = secrets.token_bytes(32)
+        key_id = f"K{secrets.token_hex(8)}"
+        metadata = {
+            'algorithm': 'chacha20poly1305',
+            'key_version': 1,
+            'rotated_from': rotated_from,
+            'generated_at': datetime.now(timezone.utc).isoformat(),
+        }
+        ok = channel_manager.upsert_channel_key(
+            channel_id=channel_id,
+            key_id=key_id,
+            key_material_enc=encode_channel_key_material(key_bytes),
+            created_by_peer=origin_peer,
+            metadata=metadata,
+        )
+        if not ok:
+            return None
+        return {'key_id': key_id, 'key_material': key_bytes, 'metadata': metadata}
+
+    def _api_rotate_channel_key(channel_manager: Any, channel_id: str,
+                                origin_peer: Optional[str], rotated_from: Optional[str]) -> Optional[dict[str, Any]]:
+        key_bytes = secrets.token_bytes(32)
+        key_id = f"K{secrets.token_hex(8)}"
+        metadata = {
+            'algorithm': 'chacha20poly1305',
+            'key_version': 1,
+            'rotated_from': rotated_from,
+            'generated_at': datetime.now(timezone.utc).isoformat(),
+        }
+        ok = channel_manager.upsert_channel_key(
+            channel_id=channel_id,
+            key_id=key_id,
+            key_material_enc=encode_channel_key_material(key_bytes),
+            created_by_peer=origin_peer,
+            metadata=metadata,
+        )
+        if not ok:
+            return None
+        if rotated_from:
+            channel_manager.revoke_channel_key(channel_id, rotated_from)
+        return {'key_id': key_id, 'key_material': key_bytes, 'metadata': metadata}
+
+    def _api_distribute_channel_key_to_members(channel_manager: Any, p2p_manager: Any,
+                                               channel_id: str, key_payload: dict[str, Any],
+                                               rotated_from: Optional[str] = None) -> int:
+        if not p2p_manager:
+            return 0
+        local_peer = p2p_manager.get_peer_id() if p2p_manager else None
+        peers = channel_manager.get_member_peer_ids(channel_id, local_peer)
+        sent = 0
+        for peer_id in sorted(peers):
+            if _api_send_channel_key_to_peer(
+                channel_manager=channel_manager,
+                p2p_manager=p2p_manager,
+                channel_id=channel_id,
+                key_payload=key_payload,
+                peer_id=peer_id,
+                rotated_from=rotated_from,
+            ):
+                sent += 1
+        return sent
+
+    def _api_trigger_member_sync(db_manager: Any, channel_manager: Any, p2p_manager: Any,
+                                 channel_id: str, target_user_id: str, action: str, role: str = 'member') -> None:
+        if not p2p_manager or not p2p_manager.is_running():
+            return
+        try:
+            with db_manager.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT privacy_mode, name, channel_type, description, crypto_mode, created_by FROM channels WHERE id = ?",
+                    (channel_id,),
+                ).fetchone()
+            if not row:
+                return
+            mode = (row['privacy_mode'] or 'open').strip().lower()
+            if mode not in {'private', 'confidential'}:
+                return
+            local_peer = p2p_manager.get_peer_id()
+            target_peer = ''
+            try:
+                user = db_manager.get_user(target_user_id)
+                target_peer = (user.get('origin_peer') or '') if user else ''
+            except Exception:
+                target_peer = ''
+
+            sync_payload_base = {
+                'channel_name': row['name'] or '',
+                'channel_type': row['channel_type'] or 'private',
+                'channel_description': row['description'] or '',
+                'privacy_mode': mode,
+            }
+
+            def _queue_and_send(target_peer_id: Optional[str]) -> bool:
+                peer_id = str(target_peer_id or '').strip()
+                if not peer_id or peer_id == local_peer:
+                    return False
+                sync_id = f"MS{secrets.token_hex(10)}"
+                try:
+                    channel_manager.queue_member_sync_delivery(
+                        sync_id=sync_id,
+                        channel_id=channel_id,
+                        target_user_id=target_user_id,
+                        action=action,
+                        role=role,
+                        target_peer_id=peer_id,
+                        payload=sync_payload_base,
+                    )
+                except Exception:
+                    pass
+                sent = p2p_manager.broadcast_member_sync(
+                    channel_id=channel_id,
+                    target_user_id=target_user_id,
+                    action=action,
+                    target_peer_id=peer_id,
+                    role=role,
+                    channel_name=sync_payload_base['channel_name'],
+                    channel_type=sync_payload_base['channel_type'],
+                    channel_description=sync_payload_base['channel_description'],
+                    privacy_mode=sync_payload_base['privacy_mode'],
+                    sync_id=sync_id,
+                )
+                try:
+                    channel_manager.mark_member_sync_delivery_attempt(
+                        sync_id=sync_id,
+                        sent=bool(sent),
+                        error=None if sent else 'send_failed',
+                    )
+                except Exception:
+                    pass
+                return bool(sent)
+
+            candidates: list[str] = []
+            if target_peer and target_peer != local_peer:
+                candidates.append(target_peer)
+            try:
+                member_peers = channel_manager.get_member_peer_ids(channel_id, local_peer)
+                for member_peer in sorted(member_peers):
+                    member_peer_s = str(member_peer or '').strip()
+                    if member_peer_s and member_peer_s != local_peer and member_peer_s not in candidates:
+                        candidates.append(member_peer_s)
+            except Exception:
+                pass
+            try:
+                connected = p2p_manager.get_connected_peers() or []
+                for cp in connected:
+                    pid = cp if isinstance(cp, str) else getattr(cp, 'peer_id', None)
+                    pid_s = str(pid or '').strip()
+                    if pid_s and pid_s != local_peer and pid_s not in candidates:
+                        candidates.append(pid_s)
+            except Exception:
+                pass
+
+            max_attempts = 3
+            attempts = 0
+            for candidate_peer in candidates:
+                if attempts >= max_attempts:
+                    break
+                attempts += 1
+                if _queue_and_send(candidate_peer):
+                    break
+
+            if action == 'add':
+                p2p_manager.broadcast_channel_announce(
+                    channel_id=channel_id,
+                    name=row['name'] or '',
+                    channel_type=row['channel_type'] or 'private',
+                    description=row['description'] or '',
+                    privacy_mode=mode,
+                    created_by_user_id=row['created_by'] if row and 'created_by' in row.keys() else None,
+                )
+                crypto_mode = _api_normalize_crypto_mode(row['crypto_mode'])
+                if _api_e2e_private_enabled() and _api_channel_targets_e2e(mode, crypto_mode) and target_peer and target_peer != local_peer:
+                    active_key = channel_manager.get_active_channel_key(channel_id)
+                    if active_key:
+                        key_bytes = channel_manager.decode_channel_key_material(active_key.get('key_material_enc'))
+                        if key_bytes:
+                            _api_send_channel_key_to_peer(
+                                channel_manager=channel_manager,
+                                p2p_manager=p2p_manager,
+                                channel_id=channel_id,
+                                key_payload={
+                                    'key_id': active_key['key_id'],
+                                    'key_material': key_bytes,
+                                    'metadata': active_key.get('metadata') or {},
+                                },
+                                peer_id=target_peer,
+                            )
+        except Exception as e:
+            logger.warning(f"API member sync trigger failed (non-fatal): {e}")
+
     @api.route('/channels', methods=['GET'])
     @require_auth(Permission.READ_FEED)
     def get_user_channels_api():
@@ -8372,6 +8650,7 @@ def create_api_blueprint() -> Blueprint:
             description = data.get('description', '').strip()
             privacy_mode = (data.get('privacy_mode') or 'open').strip().lower()
             channel_type_str = data.get('type', 'public')
+            requested_crypto_mode = _api_normalize_crypto_mode(data.get('crypto_mode'))
             if privacy_mode not in {'open', 'guarded', 'private', 'confidential'}:
                 return jsonify({'error': 'Invalid privacy mode'}), 400
             
@@ -8438,11 +8717,37 @@ def create_api_blueprint() -> Blueprint:
                             channel_type=channel.channel_type.value,
                             description=channel.description or '',
                             privacy_mode=channel.privacy_mode,
+                            created_by_user_id=channel.created_by,
                             member_peer_ids=_api_mpids,
                             initial_members_by_peer=_api_mbp,
                         )
                     except Exception as ann_err:
                         logger.warning(f"P2P channel announce failed (non-fatal): {ann_err}")
+
+                # Phase-2 E2E bootstrap for targeted channels.
+                try:
+                    if _api_e2e_private_enabled() and (channel.privacy_mode or '').lower() in {'private', 'confidential'}:
+                        crypto_mode = requested_crypto_mode
+                        if crypto_mode == 'legacy_plaintext':
+                            crypto_mode = 'e2e_optional'
+                        channel_manager.set_channel_crypto_mode(channel.id, crypto_mode)
+                        channel.crypto_mode = crypto_mode
+                        if _api_channel_targets_e2e(channel.privacy_mode, crypto_mode):
+                            key_payload = _api_ensure_channel_key(
+                                channel_manager=channel_manager,
+                                channel_id=channel.id,
+                                origin_peer=(p2p_manager.get_peer_id() if p2p_manager else None),
+                                rotated_from=None,
+                            )
+                            if key_payload and p2p_manager and p2p_manager.is_running():
+                                _api_distribute_channel_key_to_members(
+                                    channel_manager=channel_manager,
+                                    p2p_manager=p2p_manager,
+                                    channel_id=channel.id,
+                                    key_payload=key_payload,
+                                )
+                except Exception as key_err:
+                    logger.warning(f"API E2E key bootstrap failed for {channel.id}: {key_err}")
 
                 return jsonify({
                     'success': True,
@@ -8492,7 +8797,7 @@ def create_api_blueprint() -> Blueprint:
                 try:
                     with db_manager.get_connection() as conn:
                         row = conn.execute(
-                            "SELECT name, channel_type, description FROM channels WHERE id = ?",
+                            "SELECT name, channel_type, description, created_by FROM channels WHERE id = ?",
                             (channel_id,)
                         ).fetchone()
                     if row:
@@ -8520,6 +8825,7 @@ def create_api_blueprint() -> Blueprint:
                             channel_type=row['channel_type'],
                             description=row['description'] or '',
                             privacy_mode=privacy_mode,
+                            created_by_user_id=row['created_by'] if row and 'created_by' in row.keys() else None,
                             member_peer_ids=member_peer_ids,
                             initial_members_by_peer=members_by_peer,
                         )
@@ -8562,7 +8868,7 @@ def create_api_blueprint() -> Blueprint:
     @require_auth(Permission.WRITE_FEED)
     def add_channel_member_api(channel_id):
         """Add a user to a channel."""
-        _, _, _, _, channel_manager, _, _, _, _, _, _ = _get_app_components_any(current_app)
+        db_manager, _, _, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
         try:
             data = request.get_json() or {}
             target_user_id = data.get('user_id')
@@ -8572,6 +8878,15 @@ def create_api_blueprint() -> Blueprint:
             ok = channel_manager.add_member(channel_id, target_user_id,
                                             g.api_key_info.user_id, role)
             if ok:
+                _api_trigger_member_sync(
+                    db_manager=db_manager,
+                    channel_manager=channel_manager,
+                    p2p_manager=p2p_manager,
+                    channel_id=channel_id,
+                    target_user_id=target_user_id,
+                    action='add',
+                    role=role,
+                )
                 return jsonify({'success': True})
             return jsonify({'error': 'Permission denied or user not found'}), 403
         except Exception as e:
@@ -8582,11 +8897,50 @@ def create_api_blueprint() -> Blueprint:
     @require_auth(Permission.WRITE_FEED)
     def remove_channel_member_api(channel_id, user_id):
         """Remove a user from a channel."""
-        _, _, _, _, channel_manager, _, _, _, _, _, _ = _get_app_components_any(current_app)
+        db_manager, _, _, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
         try:
             ok = channel_manager.remove_member(channel_id, user_id,
                                                g.api_key_info.user_id)
             if ok:
+                _api_trigger_member_sync(
+                    db_manager=db_manager,
+                    channel_manager=channel_manager,
+                    p2p_manager=p2p_manager,
+                    channel_id=channel_id,
+                    target_user_id=user_id,
+                    action='remove',
+                    role='member',
+                )
+                try:
+                    if _api_e2e_private_enabled() and p2p_manager and p2p_manager.is_running():
+                        with db_manager.get_connection() as conn:
+                            row = conn.execute(
+                                "SELECT privacy_mode, crypto_mode FROM channels WHERE id = ?",
+                                (channel_id,),
+                            ).fetchone()
+                        privacy_mode = (row['privacy_mode'] if row and 'privacy_mode' in row.keys() else 'open') or 'open'
+                        crypto_mode = _api_normalize_crypto_mode(
+                            row['crypto_mode'] if row and 'crypto_mode' in row.keys() else 'legacy_plaintext'
+                        )
+                        if _api_channel_targets_e2e(privacy_mode, crypto_mode):
+                            prev_key = channel_manager.get_active_channel_key(channel_id)
+                            prev_key_id = prev_key.get('key_id') if prev_key else None
+                            new_key_payload = _api_rotate_channel_key(
+                                channel_manager=channel_manager,
+                                channel_id=channel_id,
+                                origin_peer=p2p_manager.get_peer_id(),
+                                rotated_from=prev_key_id,
+                            )
+                            if new_key_payload:
+                                _api_distribute_channel_key_to_members(
+                                    channel_manager=channel_manager,
+                                    p2p_manager=p2p_manager,
+                                    channel_id=channel_id,
+                                    key_payload=new_key_payload,
+                                    rotated_from=prev_key_id,
+                                )
+                except Exception as rotate_err:
+                    logger.warning(f"API E2E key rotation failed for channel {channel_id}: {rotate_err}")
                 return jsonify({'success': True})
             return jsonify({'error': 'Permission denied or user not found'}), 403
         except Exception as e:
@@ -8616,10 +8970,86 @@ def create_api_blueprint() -> Blueprint:
     @require_auth(Permission.DELETE_DATA)
     def delete_channel_api(channel_id):
         """Delete a channel (admin only)."""
-        _, _, _, _, channel_manager, _, _, _, _, _, _ = _get_app_components_any(current_app)
+        db_manager, _, _, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
         try:
+            if channel_id == 'general':
+                return jsonify({'error': 'General cannot be deleted'}), 403
+
+            local_peer_id = None
+            if p2p_manager:
+                try:
+                    local_peer_id = p2p_manager.get_peer_id()
+                except Exception:
+                    local_peer_id = None
+
+            with db_manager.get_connection() as conn:
+                channel_row = conn.execute(
+                    "SELECT origin_peer, privacy_mode FROM channels WHERE id = ?",
+                    (channel_id,),
+                ).fetchone()
+            if not channel_row:
+                return jsonify({'error': 'Channel not found'}), 404
+
+            origin_peer = str(
+                channel_row['origin_peer']
+                if hasattr(channel_row, 'keys') and 'origin_peer' in channel_row.keys()
+                else channel_row[0]
+            ).strip()
+            privacy_mode = str(
+                channel_row['privacy_mode']
+                if hasattr(channel_row, 'keys') and 'privacy_mode' in channel_row.keys()
+                else channel_row[1]
+            ).strip().lower() or 'open'
+            is_origin_local = (not origin_peer) or (
+                local_peer_id is not None and origin_peer == local_peer_id
+            )
+            if not is_origin_local:
+                return jsonify({'error': 'Only the channel origin can delete this channel'}), 403
+
+            target_peers: set[str] = set()
+            if (
+                p2p_manager
+                and p2p_manager.is_running()
+                and privacy_mode in {'private', 'confidential'}
+            ):
+                try:
+                    target_peers = set(channel_manager.get_member_peer_ids(channel_id, local_peer_id))
+                    if local_peer_id:
+                        target_peers.discard(local_peer_id)
+                except Exception:
+                    target_peers = set()
+
             ok = channel_manager.delete_channel(channel_id, g.api_key_info.user_id)
             if ok:
+                if p2p_manager and p2p_manager.is_running():
+                    reason = 'channel_deleted_by_origin'
+                    if privacy_mode in {'private', 'confidential'}:
+                        for peer_id in sorted(target_peers):
+                            try:
+                                p2p_manager.broadcast_delete_signal(
+                                    signal_id=f"DS{secrets.token_hex(8)}",
+                                    data_type='channel',
+                                    data_id=channel_id,
+                                    reason=reason,
+                                    target_peer=peer_id,
+                                )
+                            except Exception as p2p_err:
+                                logger.warning(
+                                    f"Failed to send targeted channel delete signal for {channel_id} "
+                                    f"to {peer_id}: {p2p_err}"
+                                )
+                    else:
+                        try:
+                            p2p_manager.broadcast_delete_signal(
+                                signal_id=f"DS{secrets.token_hex(8)}",
+                                data_type='channel',
+                                data_id=channel_id,
+                                reason=reason,
+                            )
+                        except Exception as p2p_err:
+                            logger.warning(
+                                f"Failed to broadcast channel delete signal for {channel_id}: {p2p_err}"
+                            )
                 return jsonify({'success': True})
             return jsonify({'error': 'Permission denied — admin role required'}), 403
         except Exception as e:

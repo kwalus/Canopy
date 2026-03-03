@@ -17,7 +17,7 @@ import ssl
 import time
 import websockets
 from pathlib import Path
-from typing import Dict, Optional, Callable, Any, Awaitable
+from typing import Dict, Optional, Callable, Any, Awaitable, List
 from enum import Enum
 from dataclasses import dataclass, field
 
@@ -165,7 +165,8 @@ class ConnectionManager:
                  host: str = "0.0.0.0", port: int = 7771,
                  tls_cert_path: Optional[str] = None,
                  tls_key_path: Optional[str] = None,
-                 enable_tls: bool = False):
+                 enable_tls: bool = False,
+                 handshake_capabilities: Optional[List[str]] = None):
         """
         Initialize connection manager.
         
@@ -182,6 +183,11 @@ class ConnectionManager:
         self.identity_manager = identity_manager
         self.host = host
         self.port = port
+        base_capabilities = handshake_capabilities or ['chat', 'files', 'voice']
+        self.handshake_capabilities = [
+            cap for cap in (str(item).strip() for item in base_capabilities)
+            if cap
+        ] or ['chat', 'files', 'voice']
         
         # TLS configuration
         self.enable_tls = enable_tls
@@ -222,6 +228,32 @@ class ConnectionManager:
         tls_tag = ' (TLS)' if self.enable_tls else ''
         logger.info(f"Initialized ConnectionManager for {local_peer_id} "
                      f"on {host}:{port}{tls_tag}")
+
+    def _get_handshake_capabilities(self) -> List[str]:
+        """Return deduplicated capability list advertised in handshakes."""
+        return self._normalize_capabilities(self.handshake_capabilities)
+
+    @staticmethod
+    def _normalize_capabilities(raw: Any) -> List[str]:
+        """Normalize capability payloads to a list of non-empty strings."""
+        if raw is None:
+            return []
+        values: List[Any]
+        if isinstance(raw, str):
+            values = [part.strip() for part in raw.split(',')]
+        elif isinstance(raw, (list, tuple, set)):
+            values = list(raw)
+        else:
+            values = []
+        out: List[str] = []
+        seen = set()
+        for cap in values:
+            cap = str(cap).strip()
+            if cap in seen:
+                continue
+            seen.add(cap)
+            out.append(cap)
+        return out
     
     async def start(self) -> None:
         """Start connection manager and WebSocket server."""
@@ -456,7 +488,9 @@ class ConnectionManager:
                 'ed25519_public_key': ed25519_pub_b58,
                 'x25519_public_key': x25519_pub_b58,
                 'version': handshake_data.get('version', '0.1.0'),
-                'capabilities': handshake_data.get('capabilities', []),
+                'capabilities': self._normalize_capabilities(
+                    handshake_data.get('capabilities', [])
+                ),
                 'timestamp': handshake_data.get('timestamp', 0)
             }
             payload_bytes = json.dumps(payload, sort_keys=True).encode('utf-8')
@@ -571,7 +605,7 @@ class ConnectionManager:
                 'ed25519_public_key': identity['ed25519_public_key'],
                 'x25519_public_key': identity['x25519_public_key'],
                 'version': '0.1.0',
-                'capabilities': ['chat', 'files', 'voice'],
+                'capabilities': self._get_handshake_capabilities(),
                 'timestamp': timestamp
             }
             
@@ -619,7 +653,9 @@ class ConnectionManager:
                 'ed25519_public_key': resp_ed25519_pub,
                 'x25519_public_key': resp_x25519_pub,
                 'version': response.get('version', '0.1.0'),
-                'capabilities': response.get('capabilities', []),
+                'capabilities': self._normalize_capabilities(
+                    response.get('capabilities', [])
+                ),
                 'timestamp': response.get('timestamp', 0)
             }
             resp_payload_bytes = json.dumps(resp_payload, sort_keys=True).encode('utf-8')
@@ -666,7 +702,11 @@ class ConnectionManager:
             # Store the verified peer identity
             self.identity_manager.add_known_peer(remote_identity)
             
-            connection.capabilities = {cap: True for cap in response.get('capabilities', [])}
+            connection.capabilities = {
+                cap: True for cap in self._normalize_capabilities(
+                    response.get('capabilities', [])
+                )
+            }
             
             logger.info(f"Handshake completed and verified with {connection.peer_id}")
             return True
@@ -700,7 +740,7 @@ class ConnectionManager:
                 'ed25519_public_key': identity['ed25519_public_key'],
                 'x25519_public_key': identity['x25519_public_key'],
                 'version': '0.1.0',
-                'capabilities': ['chat', 'files', 'voice'],
+                'capabilities': self._get_handshake_capabilities(),
                 'timestamp': timestamp
             }
             

@@ -11,7 +11,7 @@ License: Apache 2.0
 Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
-__version__ = "0.4.26"
+__version__ = "0.4.28-e2e.16"
 __author__ = "Canopy Contributors"
 __license__ = "Apache-2.0"
 

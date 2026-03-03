@@ -45,6 +45,9 @@ class SecurityConfig:
     max_key_age: int = 86400 * 30  # 30 days
     trust_threshold: int = 50
     require_login: bool = True  # Require PIN/password to access web UI
+    allow_unverified_relay_messages: bool = False  # Mixed-version compatibility switch
+    e2e_private_channels: bool = False  # Phase 1 scaffold; disabled by default
+    e2e_private_channels_enforce: bool = False  # Enforce only when all peers support it
 
 
 @dataclass
@@ -180,10 +183,28 @@ class Config:
     def from_env(cls) -> 'Config':
         """Create configuration from environment variables."""
         config = cls()
+
+        def _env_bool(name: str, default: bool) -> bool:
+            raw = os.getenv(name)
+            if raw is None:
+                return default
+            return raw.strip().lower() in {'1', 'true', 'yes', 'on'}
         
         # Override with environment variables if present
         config.debug = os.getenv('CANOPY_DEBUG', 'false').lower() == 'true'
         config.testing = os.getenv('CANOPY_TESTING', 'false').lower() == 'true'
+        config.security.allow_unverified_relay_messages = _env_bool(
+            'CANOPY_ALLOW_UNVERIFIED_RELAY_MESSAGES',
+            config.security.allow_unverified_relay_messages,
+        )
+        config.security.e2e_private_channels = _env_bool(
+            'CANOPY_E2E_PRIVATE_CHANNELS',
+            config.security.e2e_private_channels,
+        )
+        config.security.e2e_private_channels_enforce = _env_bool(
+            'CANOPY_E2E_PRIVATE_CHANNELS_ENFORCE',
+            config.security.e2e_private_channels_enforce,
+        )
             
         # Network configuration
         if host := os.getenv('CANOPY_HOST'):
@@ -246,6 +267,9 @@ class Config:
                 'encryption_algorithm': self.security.encryption_algorithm,
                 'session_timeout': self.security.session_timeout,
                 'trust_threshold': self.security.trust_threshold,
+                'allow_unverified_relay_messages': self.security.allow_unverified_relay_messages,
+                'e2e_private_channels': self.security.e2e_private_channels,
+                'e2e_private_channels_enforce': self.security.e2e_private_channels_enforce,
             },
             'storage': {
                 'database_path': self.storage.database_path,

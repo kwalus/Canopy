@@ -15,6 +15,7 @@ import logging
 import os
 import threading
 import time
+import json
 from collections import deque
 from typing import Optional, Callable, Dict, Any, Union, Tuple, Deque
 from pathlib import Path
@@ -22,7 +23,13 @@ from pathlib import Path
 from .identity import IdentityManager, PeerIdentity
 from .discovery import PeerDiscovery, DiscoveredPeer
 from .connection import ConnectionManager, PeerConnection
-from .routing import MessageRouter, P2PMessage, MessageType
+from .routing import (
+    MessageRouter,
+    P2PMessage,
+    MessageType,
+    encrypt_with_channel_key,
+    decode_channel_key_material,
+)
 
 logger = logging.getLogger('canopy.network.manager')
 
@@ -71,6 +78,10 @@ class P2PNetworkManager:
         self.on_channel_announce: Optional[Callable] = None
         self.on_channel_sync: Optional[Callable] = None
         self.on_member_sync: Optional[Callable] = None
+        self.on_member_sync_ack: Optional[Callable] = None
+        self.on_channel_key_distribution: Optional[Callable] = None
+        self.on_channel_key_request: Optional[Callable] = None
+        self.on_channel_key_ack: Optional[Callable] = None
 
         # Recent peer activity events for UI (thread-safe; event-loop thread writes, Flask reads).
         self._activity_lock = threading.Lock()
@@ -116,6 +127,7 @@ class P2PNetworkManager:
         
         # Relay policy: 'off', 'broker_only' (default), 'full_relay'
         self.relay_policy: str = 'broker_only'
+        self._local_capabilities = self._build_local_capabilities()
         
         # Track active relay routes (destination_peer -> relay_peer)
         self._active_relays: Dict[str, str] = {}
@@ -155,6 +167,38 @@ class P2PNetworkManager:
         self._load_persisted_relay_policy()
         
         logger.info("P2PNetworkManager initialized")
+
+    def _build_local_capabilities(self) -> list[str]:
+        """Compute P2P capability advertisement for this node."""
+        caps = ['chat', 'files', 'voice']
+        sec_cfg = getattr(self.config, 'security', None)
+        if bool(getattr(sec_cfg, 'e2e_private_channels', False)):
+            caps.append('e2e_channel_v1')
+        if bool(getattr(sec_cfg, 'e2e_private_channels_enforce', False)):
+            caps.append('e2e_channel_enforce')
+
+        out: list[str] = []
+        seen = set()
+        for cap in caps:
+            c = str(cap).strip()
+            if not c or c in seen:
+                continue
+            seen.add(c)
+            out.append(c)
+        return out
+
+    def get_local_capabilities(self) -> list[str]:
+        """Return local advertised P2P capabilities."""
+        return list(self._local_capabilities)
+
+    def peer_supports_capability(self, peer_id: str, capability: str) -> bool:
+        """Return True when a connected peer advertises the given capability."""
+        if not peer_id or not capability or not self.connection_manager:
+            return False
+        conn = self.connection_manager.connections.get(peer_id)
+        if not conn or not conn.capabilities:
+            return False
+        return bool(conn.capabilities.get(capability))
 
     def _record_activity_event(self, event: Dict[str, Any]) -> None:
         """Record a user-facing activity event from the message router."""
@@ -340,6 +384,7 @@ class P2PNetworkManager:
                 enable_tls=getattr(network_config, 'enable_tls', False),
                 tls_cert_path=getattr(network_config, 'tls_cert_path', None),
                 tls_key_path=getattr(network_config, 'tls_key_path', None),
+                handshake_capabilities=self._local_capabilities,
             )
             
             # Initialize message router
@@ -358,6 +403,14 @@ class P2PNetworkManager:
                 self.message_router.on_channel_sync = self.on_channel_sync
             if self.on_member_sync:
                 self.message_router.on_member_sync = self.on_member_sync
+            if self.on_member_sync_ack:
+                self.message_router.on_member_sync_ack = self.on_member_sync_ack
+            if self.on_channel_key_distribution:
+                self.message_router.on_channel_key_distribution = self.on_channel_key_distribution
+            if self.on_channel_key_request:
+                self.message_router.on_channel_key_request = self.on_channel_key_request
+            if self.on_channel_key_ack:
+                self.message_router.on_channel_key_ack = self.on_channel_key_ack
             if self.on_catchup_request:
                 self.message_router.on_catchup_request = self.on_catchup_request
             if self.on_catchup_response:
@@ -411,7 +464,8 @@ class P2PNetworkManager:
                     self.discovery = PeerDiscovery(
                         local_peer_id=local_identity.peer_id,
                         service_port=network_config.mesh_port,
-                        service_name=f"canopy-{local_identity.peer_id}"
+                        service_name=f"canopy-{local_identity.peer_id}",
+                        capabilities=self._local_capabilities,
                     )
                     self.discovery.on_peer_discovered(self._on_peer_discovered)
                     self.discovery.start()
@@ -1590,6 +1644,9 @@ class P2PNetworkManager:
             
             # Parse message
             message = P2PMessage.from_dict(message_dict)
+            # Keep the immediate upstream peer on the in-memory message object
+            # so routing can avoid noisy bounce-backs while relaying.
+            setattr(message, '_via_peer', connection.peer_id)
             
             logger.debug(f"Received {message.type.value} message from "
                          f"{message.from_peer} via {connection.peer_id}")
@@ -1708,6 +1765,94 @@ class P2PNetworkManager:
         except Exception as e:
             logger.error(f"Error broadcasting message: {e}", exc_info=True)
             return False
+
+    def _get_channel_send_context(self, channel_id: str) -> Dict[str, Any]:
+        """Load privacy + crypto settings for one channel."""
+        context: Dict[str, Any] = {
+            'privacy_mode': 'open',
+            'origin_peer': None,
+            'crypto_mode': 'legacy_plaintext',
+        }
+        if not channel_id:
+            return context
+        try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT privacy_mode, origin_peer, crypto_mode FROM channels WHERE id = ?",
+                    (channel_id,),
+                ).fetchone()
+            if row:
+                context['privacy_mode'] = (row['privacy_mode'] or 'open').strip().lower()
+                context['origin_peer'] = row['origin_peer']
+                context['crypto_mode'] = (row['crypto_mode'] or 'legacy_plaintext').strip().lower()
+        except Exception as e:
+            logger.debug(f"Could not load channel context for {channel_id}: {e}")
+        return context
+
+    def _get_active_channel_key_bytes(self, channel_id: str) -> Optional[Dict[str, Any]]:
+        """Return active channel key as raw bytes (if locally available)."""
+        if not channel_id:
+            return None
+        try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    """
+                    SELECT key_id, key_material_enc, metadata
+                    FROM channel_keys
+                    WHERE channel_id = ? AND revoked_at IS NULL
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    (channel_id,),
+                ).fetchone()
+            if not row:
+                return None
+            key_bytes = decode_channel_key_material(row['key_material_enc'])
+            if not key_bytes:
+                return None
+            meta = {}
+            if row['metadata']:
+                try:
+                    meta = json.loads(row['metadata'])
+                except Exception:
+                    meta = {}
+            return {
+                'key_id': row['key_id'],
+                'key_material': key_bytes,
+                'metadata': meta,
+            }
+        except Exception as e:
+            logger.debug(f"Could not load active key for {channel_id}: {e}")
+            return None
+
+    def _persist_local_encrypted_message(
+        self,
+        message_id: str,
+        encrypted_content: str,
+        nonce: str,
+        key_id: str,
+    ) -> None:
+        """Store encrypted payload metadata for local catch-up replay."""
+        if not message_id:
+            return
+        try:
+            with self.db.get_connection() as conn:
+                conn.execute(
+                    """
+                    UPDATE channel_messages
+                    SET encrypted_content = ?,
+                        crypto_state = 'decrypted',
+                        key_id = ?,
+                        nonce = ?
+                    WHERE id = ?
+                    """,
+                    (encrypted_content, key_id, nonce, message_id),
+                )
+                conn.commit()
+        except Exception as e:
+            logger.debug(
+                f"Could not persist encrypted metadata for message {message_id}: {e}"
+            )
     
     def broadcast_channel_message(self, channel_id: str, user_id: str,
                                    content: str, message_id: str,
@@ -1736,6 +1881,68 @@ class P2PNetworkManager:
 
         if not self.message_router:
             return False
+
+        sec_cfg = getattr(self.config, 'security', None)
+        e2e_enabled = bool(getattr(sec_cfg, 'e2e_private_channels', False))
+        e2e_enforce = bool(getattr(sec_cfg, 'e2e_private_channels_enforce', False))
+
+        channel_ctx = self._get_channel_send_context(channel_id)
+        privacy_mode = str(channel_ctx.get('privacy_mode') or 'open').lower()
+        channel_crypto_mode = str(channel_ctx.get('crypto_mode') or 'legacy_plaintext').lower()
+        targeted_channel = privacy_mode in {'private', 'confidential'}
+        e2e_channel_mode = channel_crypto_mode in {'e2e_optional', 'e2e_enforced'}
+        should_encrypt = bool(e2e_enabled and targeted_channel and e2e_channel_mode)
+
+        outbound_content = content
+        encrypted_content: Optional[str] = None
+        nonce_b64: Optional[str] = None
+        key_id: Optional[str] = None
+        if should_encrypt:
+            active_key = self._get_active_channel_key_bytes(channel_id)
+            if not active_key:
+                if e2e_enforce:
+                    logger.warning(
+                        "Rejecting private channel message %s in %s: missing E2E channel key",
+                        message_id,
+                        channel_id,
+                    )
+                    return False
+                logger.warning(
+                    "Sending plaintext fallback for private channel message %s in %s (missing E2E key)",
+                    message_id,
+                    channel_id,
+                )
+            else:
+                try:
+                    encrypted_content, nonce_b64 = encrypt_with_channel_key(
+                        content or '',
+                        active_key['key_material'],
+                    )
+                    key_id = active_key['key_id']
+                    outbound_content = ''
+                    if message_id and encrypted_content and nonce_b64 and key_id:
+                        self._persist_local_encrypted_message(
+                            message_id=message_id,
+                            encrypted_content=encrypted_content,
+                            nonce=nonce_b64,
+                            key_id=key_id,
+                        )
+                except Exception as enc_err:
+                    if e2e_enforce:
+                        logger.warning(
+                            "Rejecting private channel message %s in %s: encryption failed (%s)",
+                            message_id,
+                            channel_id,
+                            enc_err,
+                        )
+                        return False
+                    logger.warning(
+                        "Falling back to plaintext for private channel message %s in %s after encryption error: %s",
+                        message_id,
+                        channel_id,
+                        enc_err,
+                    )
+
         metadata: Dict[str, Any] = {
             'type': 'channel_message',
             'channel_id': channel_id,
@@ -1745,7 +1952,14 @@ class P2PNetworkManager:
             'expires_at': expires_at,
             'ttl_seconds': ttl_seconds,
             'ttl_mode': ttl_mode,
+            'privacy_mode': privacy_mode,
+            'crypto_mode': channel_crypto_mode,
         }
+        if should_encrypt and encrypted_content and nonce_b64 and key_id:
+            metadata['encrypted_content'] = encrypted_content
+            metadata['nonce'] = nonce_b64
+            metadata['key_id'] = key_id
+            metadata['crypto_state'] = 'encrypted'
         if parent_message_id:
             metadata['parent_message_id'] = parent_message_id
         if 'origin_peer' not in metadata or not metadata.get('origin_peer'):
@@ -1806,7 +2020,7 @@ class P2PNetworkManager:
         # relay gaps when member peers are not directly connected.
         timeout = 60.0 if attachments else 5.0
         future = asyncio.run_coroutine_threadsafe(
-            self.message_router.send_channel_broadcast(content, metadata),
+            self.message_router.send_channel_broadcast(outbound_content, metadata),
             self._event_loop
         )
         try:
@@ -2075,6 +2289,7 @@ class P2PNetworkManager:
     def broadcast_channel_announce(self, channel_id: str, name: str,
                                      channel_type: str, description: str,
                                      privacy_mode: Optional[str] = None,
+                                     created_by_user_id: Optional[str] = None,
                                      member_peer_ids: Optional[set[Any]] = None,
                                      initial_members_by_peer: Optional[dict[Any, Any]] = None) -> bool:
         """
@@ -2099,11 +2314,80 @@ class P2PNetworkManager:
         peer_id = self.local_identity.peer_id if self.local_identity else 'unknown'
         mode = str(privacy_mode or '').lower()
         is_private = mode in {'private', 'confidential'}
+        if is_private:
+            target_peers: set[str] = set(member_peer_ids or set())
+            target_peers.discard(peer_id)
+            if not target_peers:
+                try:
+                    with self.db.get_connection() as conn:
+                        rows = conn.execute(
+                            """
+                            SELECT DISTINCT u.origin_peer
+                            FROM channel_members cm
+                            JOIN users u ON cm.user_id = u.id
+                            WHERE cm.channel_id = ?
+                              AND u.origin_peer IS NOT NULL
+                              AND u.origin_peer != ''
+                              AND u.origin_peer != ?
+                            """,
+                            (channel_id, peer_id),
+                        ).fetchall()
+                    for row in rows or []:
+                        op = row['origin_peer'] if hasattr(row, 'keys') and 'origin_peer' in row.keys() else row[0]
+                        if op:
+                            target_peers.add(str(op))
+                except Exception as e:
+                    logger.debug(f"Could not derive member peers for targeted announce {channel_id}: {e}")
 
-        # Broadcast channel announces (including restricted) to all
-        # peers so the channel metadata propagates across the full
-        # mesh.  E2E encryption will protect message content; the
-        # announce itself only carries channel metadata.
+            if not target_peers:
+                logger.debug(
+                    "Skipping targeted channel announce for %s (no remote member peers)",
+                    channel_id,
+                )
+                return True
+
+            ok = True
+            sent_count = 0
+            for target_peer in sorted(target_peers):
+                initial_members = None
+                if initial_members_by_peer:
+                    initial_members = initial_members_by_peer.get(target_peer)
+                future = asyncio.run_coroutine_threadsafe(
+                    self.message_router.send_channel_announce(
+                        channel_id=channel_id,
+                        name=name,
+                        channel_type=channel_type,
+                        description=description or '',
+                        privacy_mode=privacy_mode,
+                        created_by_peer=peer_id,
+                        created_by_user_id=created_by_user_id,
+                        to_peer=target_peer,
+                        initial_members=initial_members,
+                    ),
+                    self._event_loop
+                )
+                try:
+                    sent = future.result(timeout=5.0)
+                    ok = ok and bool(sent)
+                    if sent:
+                        sent_count += 1
+                except Exception as e:
+                    ok = False
+                    logger.error(
+                        "Error sending targeted channel announce %s to %s: %s",
+                        channel_id,
+                        target_peer,
+                        e,
+                        exc_info=True,
+                    )
+            logger.info(
+                "Targeted channel announce for %s sent to %d peer(s) privacy=%s",
+                channel_id,
+                sent_count,
+                mode,
+            )
+            return ok
+
         future = asyncio.run_coroutine_threadsafe(
             self.message_router.send_channel_announce(
                 channel_id=channel_id,
@@ -2112,6 +2396,7 @@ class P2PNetworkManager:
                 description=description or '',
                 privacy_mode=privacy_mode,
                 created_by_peer=peer_id,
+                created_by_user_id=created_by_user_id,
             ),
             self._event_loop
         )
@@ -2127,7 +2412,8 @@ class P2PNetworkManager:
                                channel_name: str = '',
                                channel_type: str = 'private',
                                channel_description: str = '',
-                               privacy_mode: str = 'private') -> bool:
+                               privacy_mode: str = 'private',
+                               sync_id: Optional[str] = None) -> bool:
         """
         Send a targeted MEMBER_SYNC to a specific peer when a member
         is added/removed from a private channel.
@@ -2151,6 +2437,7 @@ class P2PNetworkManager:
                 channel_type=channel_type,
                 channel_description=channel_description,
                 privacy_mode=privacy_mode,
+                sync_id=sync_id,
             ),
             self._event_loop
         )
@@ -2158,6 +2445,117 @@ class P2PNetworkManager:
             return future.result(timeout=5.0)
         except Exception as e:
             logger.error(f"Error sending member sync: {e}", exc_info=True)
+            return False
+
+    def send_channel_key_distribution(self, to_peer: str, channel_id: str,
+                                       key_id: str, encrypted_key: str,
+                                       key_version: int = 1,
+                                       rotated_from: Optional[str] = None) -> bool:
+        """Send wrapped channel-key material to one peer (phase-1 scaffold)."""
+        if not self._running or not self._event_loop:
+            logger.warning("P2P network not running, cannot send channel key distribution")
+            return False
+        if not self.message_router:
+            return False
+
+        future = asyncio.run_coroutine_threadsafe(
+            self.message_router.send_channel_key_distribution(
+                to_peer=to_peer,
+                channel_id=channel_id,
+                key_id=key_id,
+                encrypted_key=encrypted_key,
+                key_version=key_version,
+                rotated_from=rotated_from,
+            ),
+            self._event_loop,
+        )
+        try:
+            return future.result(timeout=5.0)
+        except Exception as e:
+            logger.error(f"Error sending channel key distribution: {e}", exc_info=True)
+            return False
+
+    def send_channel_key_request(self, to_peer: str, channel_id: str,
+                                  reason: Optional[str] = None,
+                                  key_id: Optional[str] = None) -> bool:
+        """Request channel-key distribution/re-send from a peer."""
+        if not self._running or not self._event_loop:
+            logger.warning("P2P network not running, cannot send channel key request")
+            return False
+        if not self.message_router:
+            return False
+
+        future = asyncio.run_coroutine_threadsafe(
+            self.message_router.send_channel_key_request(
+                to_peer=to_peer,
+                channel_id=channel_id,
+                requesting_peer=self.get_peer_id(),
+                reason=reason,
+                key_id=key_id,
+            ),
+            self._event_loop,
+        )
+        try:
+            return future.result(timeout=5.0)
+        except Exception as e:
+            logger.error(f"Error sending channel key request: {e}", exc_info=True)
+            return False
+
+    def send_channel_key_ack(self, to_peer: str, channel_id: str,
+                              key_id: str, status: str = 'ok',
+                              error: Optional[str] = None) -> bool:
+        """Acknowledge channel-key import/delivery status."""
+        if not self._running or not self._event_loop:
+            logger.warning("P2P network not running, cannot send channel key ack")
+            return False
+        if not self.message_router:
+            return False
+
+        future = asyncio.run_coroutine_threadsafe(
+            self.message_router.send_channel_key_ack(
+                to_peer=to_peer,
+                channel_id=channel_id,
+                key_id=key_id,
+                status=status,
+                error=error,
+            ),
+            self._event_loop,
+        )
+        try:
+            return future.result(timeout=5.0)
+        except Exception as e:
+            logger.error(f"Error sending channel key ack: {e}", exc_info=True)
+            return False
+
+    def send_member_sync_ack(self, to_peer: str, sync_id: str,
+                              status: str = 'ok',
+                              error: Optional[str] = None,
+                              channel_id: Optional[str] = None,
+                              target_user_id: Optional[str] = None,
+                              action: Optional[str] = None) -> bool:
+        """Acknowledge member-sync processing status."""
+        if not self._running or not self._event_loop:
+            logger.warning("P2P network not running, cannot send member sync ack")
+            return False
+        if not self.message_router:
+            return False
+
+        future = asyncio.run_coroutine_threadsafe(
+            self.message_router.send_member_sync_ack(
+                to_peer=to_peer,
+                sync_id=sync_id,
+                status=status,
+                error=error,
+                channel_id=channel_id,
+                target_user_id=target_user_id,
+                action=action,
+            ),
+            self._event_loop,
+        )
+        try:
+            return future.result(timeout=5.0)
+        except Exception as e:
+            logger.error(f"Error sending member sync ack: {e}", exc_info=True)
             return False
 
     async def _send_channel_sync_to_peer(self, peer_id: str) -> None:

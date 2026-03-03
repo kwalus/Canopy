@@ -1006,13 +1006,54 @@ class DatabaseManager:
         """Delete a user and all data that references them. System/local_user cannot be deleted.
 
         With PRAGMA foreign_keys = ON, the DB has FKs from api_keys, user_keys, messages,
-        feed_posts, post_permissions, agent_inbox, agent_inbox_config, user_feed_preferences.
-        We must remove or reassign all dependent rows before deleting the user row.
+        feed_posts, post_permissions, agent_inbox, agent_inbox_config, user_feed_preferences,
+        and channels(created_by). We remove dependent rows and reassign channel ownership
+        before deleting the user row.
         """
         if user_id in ('system', 'local_user'):
             return False
         try:
             with self.get_connection() as conn:
+                exists = conn.execute(
+                    "SELECT 1 FROM users WHERE id = ?",
+                    (user_id,),
+                ).fetchone()
+                if not exists:
+                    return False
+
+                # Ensure fallback system user exists for ownership reassignment.
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO users (id, username, public_key)
+                    VALUES ('system', 'System', 'system_public_key')
+                    """
+                )
+
+                replacement_owner = 'system'
+                owner_row = conn.execute(
+                    "SELECT value FROM system_state WHERE key = 'instance_owner_id'"
+                ).fetchone()
+                if owner_row:
+                    candidate = str(
+                        owner_row['value']
+                        if hasattr(owner_row, 'keys') and 'value' in owner_row.keys()
+                        else owner_row[0]
+                    ).strip()
+                    if candidate and candidate != user_id:
+                        owner_exists = conn.execute(
+                            "SELECT 1 FROM users WHERE id = ?",
+                            (candidate,),
+                        ).fetchone()
+                        if owner_exists:
+                            replacement_owner = candidate
+
+                # Channels.created_by has a user FK without ON DELETE CASCADE.
+                # Reassign ownership first so user deletion cannot fail on FK.
+                conn.execute(
+                    "UPDATE channels SET created_by = ? WHERE created_by = ?",
+                    (replacement_owner, user_id),
+                )
+
                 # API and channel membership
                 conn.execute("DELETE FROM api_keys WHERE user_id = ?", (user_id,))
                 conn.execute("DELETE FROM user_keys WHERE user_id = ?", (user_id,))
@@ -1044,9 +1085,9 @@ class DatabaseManager:
                     if "no such table" not in str(e).lower():
                         raise
                 # Finally remove the user (must be last due to FKs)
-                conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+                deleted = conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
                 conn.commit()
-                return True
+                return cast(int, deleted.rowcount) > 0
         except Exception as e:
             logger.error(f"Failed to delete user: {e}")
             return False

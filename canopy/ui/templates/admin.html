@@ -506,6 +506,78 @@
     </div>
 </div>
 
+<div class="card mb-4 border-warning">
+    <div class="card-header bg-warning bg-opacity-10">
+        <h5 class="mb-0"><i class="bi bi-trash3"></i> Channel Replica Reconciliation</h5>
+    </div>
+    <div class="card-body">
+        <p class="text-muted small mb-2">
+            Re-broadcast channel delete signals to clean up stale replicas on peers.
+            Use this when a channel was deleted on the origin peer but still appears elsewhere.
+        </p>
+        <div class="row g-2">
+            <div class="col-12">
+                <label for="admin-reconcile-channel-ids" class="form-label small mb-1">Channel IDs (comma/newline separated)</label>
+                <textarea class="form-control form-control-sm font-monospace" id="admin-reconcile-channel-ids" rows="3" placeholder="Cabc123..., Cdef456..."></textarea>
+            </div>
+            <div class="col-md-4">
+                <label for="admin-reconcile-target-peer" class="form-label small mb-1">Target peer</label>
+                <input type="text" class="form-control form-control-sm font-monospace" id="admin-reconcile-target-peer" placeholder="all">
+                <div class="small text-muted mt-1">Use <code>all</code> (default) or a specific peer ID.</div>
+            </div>
+            <div class="col-md-5">
+                <label for="admin-reconcile-reason" class="form-label small mb-1">Reason</label>
+                <input type="text" class="form-control form-control-sm" id="admin-reconcile-reason" value="admin_channel_reconcile_delete" maxlength="160">
+            </div>
+            <div class="col-md-3 d-flex align-items-end">
+                <button type="button" class="btn btn-outline-warning btn-sm w-100" id="admin-reconcile-run-btn">
+                    <i class="bi bi-send me-1"></i>Send Delete Signals
+                </button>
+            </div>
+        </div>
+        <div id="admin-reconcile-status" class="small mt-2 text-muted"></div>
+        <pre id="admin-reconcile-output" class="small mt-2 p-2 rounded border bg-dark text-light" style="display: none; max-height: 220px; overflow: auto;"></pre>
+    </div>
+</div>
+
+<div class="card mb-4 border-info">
+    <div class="card-header bg-info bg-opacity-10">
+        <h5 class="mb-0"><i class="bi bi-diagram-3"></i> Private Channel Membership Diagnostics</h5>
+    </div>
+    <div class="card-body">
+        <p class="text-muted small mb-2">
+            Inspect membership propagation for one channel, including member peer mapping, sync delivery states,
+            and warnings about stale or missing origin metadata.
+        </p>
+        <div class="row g-2">
+            <div class="col-md-5">
+                <label for="admin-member-sync-channel-id" class="form-label small mb-1">Channel ID</label>
+                <input type="text" class="form-control form-control-sm font-monospace" id="admin-member-sync-channel-id" placeholder="Cabc123...">
+            </div>
+            <div class="col-md-4">
+                <label for="admin-member-sync-target-user-id" class="form-label small mb-1">Target user (optional)</label>
+                <input type="text" class="form-control form-control-sm font-monospace" id="admin-member-sync-target-user-id" placeholder="user_...">
+            </div>
+            <div class="col-md-2">
+                <label for="admin-member-sync-limit" class="form-label small mb-1">Records</label>
+                <select class="form-select form-select-sm" id="admin-member-sync-limit">
+                    <option value="100">100</option>
+                    <option value="200" selected>200</option>
+                    <option value="300">300</option>
+                    <option value="500">500</option>
+                </select>
+            </div>
+            <div class="col-md-1 d-flex align-items-end">
+                <button type="button" class="btn btn-outline-info btn-sm w-100" id="admin-member-sync-run-btn" title="Load diagnostics">
+                    <i class="bi bi-search"></i>
+                </button>
+            </div>
+        </div>
+        <div id="admin-member-sync-status" class="small mt-2 text-muted"></div>
+        <pre id="admin-member-sync-output" class="small mt-2 p-2 rounded border bg-dark text-light" style="display: none; max-height: 320px; overflow: auto;"></pre>
+    </div>
+</div>
+
 <div class="card directive-shell mb-4">
     <div class="card-header">
         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
@@ -1016,6 +1088,116 @@
             } else {
                 transferMsg.textContent = data.error || 'Transfer failed';
                 transferMsg.style.display = 'block';
+            }
+        });
+    }
+
+    const reconcileChannelIds = document.getElementById('admin-reconcile-channel-ids');
+    const reconcileTargetPeer = document.getElementById('admin-reconcile-target-peer');
+    const reconcileReason = document.getElementById('admin-reconcile-reason');
+    const reconcileRunBtn = document.getElementById('admin-reconcile-run-btn');
+    const reconcileStatus = document.getElementById('admin-reconcile-status');
+    const reconcileOutput = document.getElementById('admin-reconcile-output');
+
+    function setReconcileStatus(text, isError = false) {
+        if (!reconcileStatus) return;
+        reconcileStatus.textContent = text || '';
+        reconcileStatus.classList.toggle('text-danger', !!isError);
+        reconcileStatus.classList.toggle('text-success', !isError && !!text);
+        reconcileStatus.classList.toggle('text-muted', !text);
+    }
+
+    if (reconcileRunBtn) {
+        reconcileRunBtn.addEventListener('click', async () => {
+            const idsText = (reconcileChannelIds?.value || '').trim();
+            const targetPeer = (reconcileTargetPeer?.value || '').trim() || 'all';
+            const reason = (reconcileReason?.value || '').trim() || 'admin_channel_reconcile_delete';
+
+            if (!idsText) {
+                setReconcileStatus('Enter at least one channel ID first.', true);
+                if (reconcileOutput) reconcileOutput.style.display = 'none';
+                return;
+            }
+
+            setReconcileStatus('Sending delete signals...');
+            if (reconcileOutput) reconcileOutput.style.display = 'none';
+            const { ok, data } = await api('POST', '/ajax/admin/channels/reconcile-delete', {
+                channel_ids_text: idsText,
+                target_peer_id: targetPeer,
+                reason,
+            });
+
+            if (!ok) {
+                setReconcileStatus(data.error || 'Failed to send delete signals.', true);
+                if (reconcileOutput) reconcileOutput.style.display = 'none';
+                return;
+            }
+
+            setReconcileStatus(data.message || 'Delete signals sent.');
+            if (reconcileOutput) {
+                reconcileOutput.textContent = JSON.stringify({
+                    requested: data.requested,
+                    sent: data.sent,
+                    skipped: data.skipped,
+                    failed: data.failed,
+                    target_peer: data.target_peer,
+                    details: data.details || [],
+                }, null, 2);
+                reconcileOutput.style.display = 'block';
+            }
+        });
+    }
+
+    const memberSyncChannelId = document.getElementById('admin-member-sync-channel-id');
+    const memberSyncTargetUserId = document.getElementById('admin-member-sync-target-user-id');
+    const memberSyncLimit = document.getElementById('admin-member-sync-limit');
+    const memberSyncRunBtn = document.getElementById('admin-member-sync-run-btn');
+    const memberSyncStatus = document.getElementById('admin-member-sync-status');
+    const memberSyncOutput = document.getElementById('admin-member-sync-output');
+
+    function setMemberSyncStatus(text, isError = false) {
+        if (!memberSyncStatus) return;
+        memberSyncStatus.textContent = text || '';
+        memberSyncStatus.classList.toggle('text-danger', !!isError);
+        memberSyncStatus.classList.toggle('text-success', !isError && !!text);
+        memberSyncStatus.classList.toggle('text-muted', !text);
+    }
+
+    if (memberSyncRunBtn) {
+        memberSyncRunBtn.addEventListener('click', async () => {
+            const channelId = (memberSyncChannelId?.value || '').trim();
+            const targetUserId = (memberSyncTargetUserId?.value || '').trim();
+            const limit = parseInt((memberSyncLimit?.value || '200'), 10) || 200;
+
+            if (!channelId) {
+                setMemberSyncStatus('Enter a channel ID first.', true);
+                if (memberSyncOutput) memberSyncOutput.style.display = 'none';
+                return;
+            }
+
+            const params = new URLSearchParams();
+            params.set('channel_id', channelId);
+            params.set('limit', String(limit));
+            if (targetUserId) params.set('target_user_id', targetUserId);
+
+            setMemberSyncStatus('Loading diagnostics...');
+            if (memberSyncOutput) memberSyncOutput.style.display = 'none';
+
+            const { ok, data } = await api('GET', `/ajax/admin/channels/member-sync-diagnostics?${params.toString()}`);
+            if (!ok) {
+                setMemberSyncStatus(data.error || 'Failed to load diagnostics.', true);
+                if (memberSyncOutput) memberSyncOutput.style.display = 'none';
+                return;
+            }
+
+            const diagnostics = data.diagnostics || {};
+            const sync = diagnostics.member_sync || {};
+            setMemberSyncStatus(
+                `Loaded diagnostics: records=${sync.total_records || 0}, pending=${sync.pending_count || 0}, failed=${sync.failed_count || 0}, warnings=${(diagnostics.warnings || []).length}`
+            );
+            if (memberSyncOutput) {
+                memberSyncOutput.textContent = JSON.stringify(diagnostics, null, 2);
+                memberSyncOutput.style.display = 'block';
             }
         });
     }

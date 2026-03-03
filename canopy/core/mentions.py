@@ -1064,31 +1064,74 @@ def record_mention_activity(
             with mention_manager.db.get_connection() as conn:
                 placeholders = ",".join("?" for _ in resolved_target_ids)
                 if placeholders:
-                    rows = conn.execute(
-                        f"""
-                        SELECT user_id
-                        FROM channel_members
-                        WHERE channel_id = ? AND user_id IN ({placeholders})
-                        """,
-                        [channel_id] + resolved_target_ids,
-                    ).fetchall()
+                    try:
+                        rows = conn.execute(
+                            f"""
+                            SELECT user_id, notifications_enabled
+                            FROM channel_members
+                            WHERE channel_id = ? AND user_id IN ({placeholders})
+                            """,
+                            [channel_id] + resolved_target_ids,
+                        ).fetchall()
+                    except Exception:
+                        # Backward compatibility with legacy schemas that may
+                        # not yet have channel_members.notifications_enabled.
+                        rows = conn.execute(
+                            f"""
+                            SELECT user_id, 1 AS notifications_enabled
+                            FROM channel_members
+                            WHERE channel_id = ? AND user_id IN ({placeholders})
+                            """,
+                            [channel_id] + resolved_target_ids,
+                        ).fetchall()
                 else:
                     rows = []
-            allowed_user_ids = {
-                (row['user_id'] if hasattr(row, 'keys') and 'user_id' in row.keys() else row[0])
-                for row in rows
-            }
+            member_user_ids: set[str] = set()
+            muted_user_ids: set[str] = set()
+            for row in rows:
+                if hasattr(row, 'keys'):
+                    uid = row['user_id']
+                    enabled_raw = row['notifications_enabled'] if 'notifications_enabled' in row.keys() else 1
+                else:
+                    uid = row[0]
+                    enabled_raw = row[1] if len(row) > 1 else 1
+                uid_s = str(uid or '').strip()
+                if not uid_s:
+                    continue
+                member_user_ids.add(uid_s)
+                if enabled_raw is None:
+                    enabled = True
+                elif isinstance(enabled_raw, str):
+                    enabled = enabled_raw.strip().lower() not in {'0', 'false', 'off', 'no'}
+                else:
+                    enabled = bool(enabled_raw)
+                if not enabled:
+                    muted_user_ids.add(uid_s)
+
+            allowed_user_ids = member_user_ids - muted_user_ids
             filtered_ids = [uid for uid in resolved_target_ids if uid in allowed_user_ids]
             dropped_ids = [uid for uid in resolved_target_ids if uid not in allowed_user_ids]
             if dropped_ids:
-                logger.info(
-                    "Dropped %d mention target(s) without channel membership "
-                    "(source_id=%s channel_id=%s users=%s)",
-                    len(dropped_ids),
-                    source_id,
-                    channel_id,
-                    dropped_ids,
-                )
+                dropped_nonmembers = [uid for uid in dropped_ids if uid not in member_user_ids]
+                dropped_muted = [uid for uid in dropped_ids if uid in muted_user_ids]
+                if dropped_nonmembers:
+                    logger.info(
+                        "Dropped %d mention target(s) without channel membership "
+                        "(source_id=%s channel_id=%s users=%s)",
+                        len(dropped_nonmembers),
+                        source_id,
+                        channel_id,
+                        dropped_nonmembers,
+                    )
+                if dropped_muted:
+                    logger.info(
+                        "Dropped %d mention target(s) due to channel mute "
+                        "(source_id=%s channel_id=%s users=%s)",
+                        len(dropped_muted),
+                        source_id,
+                        channel_id,
+                        dropped_muted,
+                    )
             resolved_target_ids = filtered_ids
         except Exception as e:
             logger.warning(
@@ -1247,10 +1290,53 @@ def record_thread_reply_activity(
                     if upsert.get('success'):
                         target_ids.add(root_author_id)
 
+        channel_mute_map: Dict[str, bool] = {}
+        try:
+            candidate_ids = sorted({str(uid).strip() for uid in target_ids if str(uid).strip()})
+            if candidate_ids:
+                placeholders = ",".join("?" for _ in candidate_ids)
+                with channel_manager.db.get_connection() as conn:
+                    try:
+                        pref_rows = conn.execute(
+                            f"""
+                            SELECT user_id, notifications_enabled
+                            FROM channel_members
+                            WHERE channel_id = ? AND user_id IN ({placeholders})
+                            """,
+                            [channel_id] + candidate_ids,
+                        ).fetchall()
+                    except Exception:
+                        pref_rows = conn.execute(
+                            f"""
+                            SELECT user_id, 1 AS notifications_enabled
+                            FROM channel_members
+                            WHERE channel_id = ? AND user_id IN ({placeholders})
+                            """,
+                            [channel_id] + candidate_ids,
+                        ).fetchall()
+                for row in pref_rows:
+                    uid = row['user_id'] if hasattr(row, 'keys') and 'user_id' in row.keys() else row[0]
+                    enabled_raw = (
+                        row['notifications_enabled']
+                        if hasattr(row, 'keys') and 'notifications_enabled' in row.keys()
+                        else (row[1] if len(row) > 1 else 1)
+                    )
+                    if enabled_raw is None:
+                        enabled = True
+                    elif isinstance(enabled_raw, str):
+                        enabled = enabled_raw.strip().lower() not in {'0', 'false', 'off', 'no'}
+                    else:
+                        enabled = bool(enabled_raw)
+                    channel_mute_map[str(uid).strip()] = enabled
+        except Exception:
+            channel_mute_map = {}
+
         final_targets: List[str] = []
         for uid in sorted(target_ids):
             clean_uid = str(uid).strip()
             if not clean_uid or clean_uid == author or clean_uid in mentioned:
+                continue
+            if clean_uid in channel_mute_map and not channel_mute_map.get(clean_uid, True):
                 continue
             cfg = inbox_manager.get_config(clean_uid)
             if not bool(cfg.get('thread_reply_notifications', True)):

@@ -36,7 +36,8 @@ class PeerDiscovery:
     """Manages peer discovery on local and remote networks."""
     
     def __init__(self, local_peer_id: str, service_port: int = 7771, 
-                 service_name: Optional[str] = None):
+                 service_name: Optional[str] = None,
+                 capabilities: Optional[List[str]] = None):
         """
         Initialize peer discovery.
         
@@ -49,6 +50,11 @@ class PeerDiscovery:
         self.service_port = service_port
         self.service_name = service_name or f"canopy-{local_peer_id}"
         self.service_type = "_canopy._tcp.local."
+        base_capabilities = capabilities or ['chat', 'files', 'voice']
+        self.capabilities = [
+            cap for cap in (str(item).strip() for item in base_capabilities)
+            if cap
+        ] or ['chat', 'files', 'voice']
         
         # State
         self.discovered_peers: Dict[str, DiscoveredPeer] = {}
@@ -138,7 +144,7 @@ class PeerDiscovery:
                 properties={
                     'peer_id': self.local_peer_id,
                     'version': '0.1.0',
-                    'capabilities': 'chat,files,voice'
+                    'capabilities': ','.join(self.capabilities),
                 },
                 server=f"{self.service_name}.local."
             )

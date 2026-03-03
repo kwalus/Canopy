@@ -2040,6 +2040,12 @@
 	                        window.location.href = url.toString();
 	                        return;
 	                    }
+	                    if (kind === 'channel_added' && ref.channel_id) {
+	                        const url = new URL(routes.channels, window.location.origin);
+	                        url.searchParams.set('focus_channel', ref.channel_id);
+	                        window.location.href = url.toString();
+	                        return;
+	                    }
 	                    if (kind === 'interaction') {
 	                        // Best-effort: route to the affected post when possible.
 	                        if (ref.item_type === 'post' && ref.item_id) {
