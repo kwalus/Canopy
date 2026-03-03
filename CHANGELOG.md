@@ -6,9 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
-## [Unreleased]
+## [0.4.28-e2e.16] - 2026-03-03
+
+### Added
+- **End-to-end encrypted private channels (Phase 2)** — Private and confidential channels now support full E2E encryption with channel key distribution, request/ack lifecycle, and member-only access enforcement over the P2P mesh.
+- **Routing-level targeted relay fallback** — Targeted messages (member sync, key exchange, channel announce, delete signal) now relay through mesh peers when no direct path exists. Controlled by `_TARGETED_MESH_RELAY_TYPES` with TTL-bounded propagation and `_via_peer` bounce-back prevention.
+- **Profile sync avatar recovery** — When a profile hash is unchanged but the local avatar file is physically missing (e.g. after migration), profile sync re-applies to recover the avatar from the peer payload automatically.
+- **Admin diagnostics panels** — New Channel Replica Reconciliation and Private Channel Membership Diagnostics panels in the admin UI for inspecting sync health and stale channel cleanup.
+- **Channel ownership preservation** — `_resolve_sync_channel_creator` now uses `origin_peer` matching to preserve creator identity across sync, preventing ownership drift on remote peers.
+- **Mobile-responsive UI improvements** — Touch-friendly tap targets (44px), 16px inputs to prevent iOS zoom, single-column embed grid on mobile, message content word-wrapping, and responsive feed header/action buttons via CSS media queries.
 
 ### Changed
+- **Member sync bounded fanout** — Member sync candidate selection now uses a prioritized list (target origin → member peers → connected peers) with `max_attempts=3` and stop-on-success, replacing the previous fan-out-to-all approach.
+- **Private channel announce privacy hardening** — Removed mesh-wide broadcast of private channel member lists. Private announces now rely on targeted delivery plus routing-level relay fallback, reducing metadata exposure.
+- **Channel message FK race fix** — Channel membership insert now occurs after channel existence/auto-create path, eliminating FOREIGN KEY constraint errors when messages arrive before channel metadata.
+- **Member picker improvements** — Force-refresh on open, client-side deduplication by user ID, manual entry via Enter key with `resolveTypedMember()`, and "No users found" feedback.
+- **Channel header compact redesign** — Single-line title with inline E2E badge, compact ID copy button, and responsive behavior.
 - **Icon-only post action controls** — Channel messages, feed posts, and direct-message posts now render tool/action buttons as icon-only controls (with tooltip/ARIA labels), keeping action rows compact while preserving visible counters.
 - **Bounded retention policy** — Feed posts and channel messages now use finite retention only. Default remains 90 days, explicit TTL is capped at 2 years, and legacy `ttl_mode` values (`none`/`no_expiry`/`immortal`) are accepted for backward compatibility but coerced to a finite window. A one-time migration converts existing `expires_at IS NULL` rows to finite expiry.
 - **Feed comment upload parity** — Feed comment attachments now use the same 100MB client-side cap as other post/message attachment flows (previously 10MB in the feed comment composer only).
@@ -16,6 +29,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ### Fixed
 - **Mobile layout fit across Canopy** — On small screens, collapsed main sidebar no longer reserves horizontal width that clipped content panes (including channel lists). Mobile sidebar behavior now uses full-width content by default with explicit expanded/hidden toggle behavior.
+
+### Security
+- **Relay transit privacy** — Targeted control messages may transit intermediary peers during relay fallback; payload signatures remain enforced and key material remains recipient-wrapped (encrypted for target only).
 
 ---
 
