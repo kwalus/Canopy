@@ -22,7 +22,13 @@ TESTNET_DIR="$SCRIPT_DIR/data/testnet"
 TESTNET_DB="$TESTNET_DIR/canopy.db"
 TESTNET_PORT=7780
 # Stable secret key — sessions survive restarts during a test session.
-TESTNET_SECRET_KEY="0cc6b6d05b9c6cb3b2d369dcfeae2d83d3b00d95ad47d03b9f857c5c6b0793ac"
+# Generate a persistent key the first time and reuse it across restarts.
+TESTNET_KEY_FILE="$TESTNET_DIR/.testnet_secret_key"
+mkdir -p "$TESTNET_DIR"
+if [[ ! -f "$TESTNET_KEY_FILE" ]]; then
+    (umask 077; python3 -c "import secrets; print(secrets.token_hex(32))" > "$TESTNET_KEY_FILE")
+fi
+IFS= read -r TESTNET_SECRET_KEY < "$TESTNET_KEY_FILE"
 
 # --reset flag: wipe the testnet database and start fresh
 if [[ "${1:-}" == "--reset" ]]; then

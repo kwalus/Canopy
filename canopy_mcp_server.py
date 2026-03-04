@@ -7,7 +7,7 @@ This allows agents to access Canopy via MCP Manager (port 8000).
 
 Usage:
     python canopy_mcp_server.py --port 8030
-    python canopy_mcp_server.py --host 0.0.0.0 --port 8030   # For WSL/remote access (e.g. OpenClaw)
+    python canopy_mcp_server.py --host 0.0.0.0 --port 8030   # For WSL/remote access
 """
 
 import argparse

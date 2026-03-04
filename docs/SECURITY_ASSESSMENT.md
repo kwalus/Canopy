@@ -326,10 +326,11 @@ Critical metrics to monitor:
 4. **Path Traversal** - Filename sanitization
 5. **Sybil Attacks** - Peer reputation, connection limits
 6. **P2P Message Flooding** - Dual-window rate limiting
+7. **Private Channel Eavesdropping** - E2E encrypted channels with per-recipient key wrapping, targeted delivery, and relay transit privacy
 
 ### Threats Partially Mitigated ⚠️
 
-1. **MITM on P2P** - E2E encryption present, TLS verification disabled
+1. **MITM on P2P** - E2E encryption present on both transport layer (ChaCha20-Poly1305) and private channels; TLS verification disabled
 2. **Relay Amplification** - Rate limited but no bandwidth quotas
 3. **Automated Account Creation** - Rate limited but no CAPTCHA
 
@@ -367,5 +368,5 @@ The system is now **significantly more resistant** to attack at scale, but ongoi
 ---
 
 **Maintained by:** Canopy Security Team  
-**Last Updated:** 2026-02-13  
+**Last Updated:** 2026-03-03  
 **Next Review:** After first 1000 active users or 3 months, whichever comes first

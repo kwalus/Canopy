@@ -8,6 +8,8 @@
 
 This document summarizes the security hardening work performed on Canopy in preparation for potential viral growth. The assessment identified 6 critical/high-severity vulnerabilities that would cause immediate network failure and trust loss at scale. All have been addressed.
 
+A subsequent phase added **end-to-end encrypted private channels** (channel key distribution, request/ack lifecycle, and member-only access enforcement over the P2P mesh) and **routing-level targeted relay fallback** with relay transit privacy guarantees. See section 7 below for details.
+
 ## Vulnerabilities Fixed
 
 ### 1. Weak Password Hashing ⚠️ CRITICAL → ✅ FIXED
@@ -254,7 +256,20 @@ These are **optional enhancements** that can be added iteratively:
 
 ---
 
+## 7. E2E Encrypted Private Channels ✅ ADDED
+
+**Implementation:**
+- Private and confidential channels now use full end-to-end encryption with channel-specific key material.
+- Channel key distribution uses a request/ack lifecycle over the P2P mesh — key material is wrapped per-recipient and never transmitted in plaintext.
+- Member-only access is enforced at the channel layer: non-members cannot decrypt channel content even if they receive relayed packets.
+- Private channel announce privacy hardened: member lists are no longer broadcast mesh-wide; delivery relies on targeted relay fallback.
+- Relay transit privacy: targeted control messages (member sync, key exchange, channel announce, delete signal) may transit intermediary peers during relay fallback; payload signatures are enforced and key material remains recipient-wrapped (encrypted for target only).
+
+**Files:** `canopy/security/encryption.py`, `canopy/network/`, `canopy/core/`
+
+---
+
 **Next Review:** After 1000 active users or 3 months, whichever comes first
 
 **Maintained by:** Canopy Security Team  
-**Last Updated:** 2026-02-13
+**Last Updated:** 2026-03-03

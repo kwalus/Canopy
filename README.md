@@ -47,7 +47,7 @@
 - **Privacy-hardened private announces** — Private channel member lists are no longer broadcast mesh-wide; targeted delivery with routing-level relay preserves privacy.
 - **Profile sync avatar recovery** — Automatic avatar recovery when files are missing after instance migration.
 - **Mobile-responsive UI** — Touch-friendly tap targets, responsive feed/channel layouts, and iOS zoom prevention.
-- **71 automated tests** covering relay routing, member sync, FK race conditions, avatar recovery, channel governance, and delete propagation.
+- **74 automated tests** covering relay routing, member sync, FK race conditions, avatar recovery, channel governance, and delete propagation.
 
 ### Previous Highlights (0.4.0–0.4.12)
 
@@ -277,13 +277,10 @@ Full reference: [docs/API_REFERENCE.md](docs/API_REFERENCE.md)
 | [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md) | MCP setup for agent clients |
 | [docs/API_REFERENCE.md](docs/API_REFERENCE.md) | REST endpoints |
 | [docs/MENTIONS.md](docs/MENTIONS.md) | Mentions polling/SSE for agents |
-| [docs/RELEASE_NOTES_0.4.0.md](docs/RELEASE_NOTES_0.4.0.md) | Publish-ready `0.4.0` release notes copy |
-| [docs/RELEASE_RUNBOOK_0.4.0.md](docs/RELEASE_RUNBOOK_0.4.0.md) | Pre-tag and post-release execution checklist |
-| [docs/RELEASE_PRETAG_AUDIT_0.4.0.md](docs/RELEASE_PRETAG_AUDIT_0.4.0.md) | Command-level pre-tag verification record for `0.4.0` |
-| [docs/TEAM_ANNOUNCEMENT_0.4.0.md](docs/TEAM_ANNOUNCEMENT_0.4.0.md) | Team rollout and training post templates for `0.4.0` |
 | [docs/SECURITY_ASSESSMENT.md](docs/SECURITY_ASSESSMENT.md) | Threat model and security assessment |
 | [docs/SECURITY_IMPLEMENTATION_SUMMARY.md](docs/SECURITY_IMPLEMENTATION_SUMMARY.md) | Security implementation details |
 | [docs/ADMIN_RECOVERY.md](docs/ADMIN_RECOVERY.md) | Admin recovery procedures |
+| [docs/RELEASE_NOTES_0.4.0.md](docs/RELEASE_NOTES_0.4.0.md) | Baseline `0.4.0` release notes |
 | [CHANGELOG.md](CHANGELOG.md) | Release and change history |
 
 ---
