@@ -12122,6 +12122,24 @@ def create_ui_blueprint() -> Blueprint:
             logger.error(f"Get user display info error: {e}")
             return jsonify({'error': 'Internal server error'}), 500
 
+    @ui.route('/ajax/resync_user_avatar', methods=['POST'])
+    @require_login
+    def ajax_resync_user_avatar():
+        """Trigger a profile re-sync for a user to recover their avatar."""
+        try:
+            _, _, _, _, _, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+            data = request.get_json(silent=True) or {}
+            user_id = data.get('user_id', '').strip()
+            if not user_id:
+                return jsonify({'error': 'user_id required'}), 400
+            if not p2p_manager or not hasattr(p2p_manager, 'resync_user_avatar'):
+                return jsonify({'error': 'P2P manager not available'}), 503
+            result = p2p_manager.resync_user_avatar(user_id)
+            return jsonify(result)
+        except Exception as e:
+            logger.error(f"Resync user avatar error: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     def _clean_mention_handle(display_name, username, user_id):
         """Derive a mention-safe handle from user info.
 

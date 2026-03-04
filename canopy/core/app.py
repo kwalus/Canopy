@@ -3308,6 +3308,39 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
         p2p_manager.on_profile_sync = _on_profile_sync
 
+        def _resync_user_avatar(user_id: str) -> dict:
+            """Invalidate profile hash cache for a user and trigger re-sync from their origin peer."""
+            if not user_id:
+                return {"ok": False, "reason": "no user_id"}
+            origin_peer = None
+            try:
+                with db_manager.get_connection() as conn:
+                    row = conn.execute(
+                        "SELECT origin_peer FROM users WHERE id = ?", (user_id,)
+                    ).fetchone()
+                    if row:
+                        origin_peer = row[0] if isinstance(row, (tuple, list)) else row.get('origin_peer', row[0])
+            except Exception as e:
+                logger.warning(f"resync_user_avatar: DB lookup failed for {user_id}: {e}")
+
+            if not origin_peer:
+                return {"ok": False, "reason": "no origin_peer for user"}
+
+            cleared = 0
+            keys_to_clear = [k for k in _seen_profile_hashes if k[1] == user_id]
+            for k in keys_to_clear:
+                del _seen_profile_hashes[k]
+                cleared += 1
+
+            synced = p2p_manager.trigger_peer_sync(origin_peer) if p2p_manager else False
+            logger.info(
+                f"resync_user_avatar: user={user_id} origin_peer={origin_peer} "
+                f"hashes_cleared={cleared} sync_triggered={synced}"
+            )
+            return {"ok": True, "origin_peer": origin_peer, "hashes_cleared": cleared, "sync_triggered": synced}
+
+        setattr(p2p_manager, 'resync_user_avatar', _resync_user_avatar)  # dynamic; route checks hasattr()
+
         # --- Provide local profile card for sync ---
         def _get_local_profile_sync_user_ids():
             """Return local user IDs that should be included in profile sync.

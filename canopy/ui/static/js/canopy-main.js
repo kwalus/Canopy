@@ -795,6 +795,9 @@
                                         <button type="button" class="btn btn-outline-success btn-sm" id="user-identity-copy-mention">
                                             <i class="bi bi-at me-1"></i>Copy @mention
                                         </button>
+                                        <button type="button" class="btn btn-outline-info btn-sm" id="user-identity-resync-avatar" title="Re-download avatar from the network">
+                                            <i class="bi bi-arrow-repeat me-1"></i>Resync Avatar
+                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -816,6 +819,42 @@
                 if (copyMentionBtn) {
                     copyMentionBtn.addEventListener('click', () => {
                         _copyTextToClipboard(copyMentionBtn.getAttribute('data-copy-value') || '', '@mention');
+                    });
+                }
+                const resyncBtn = modalEl.querySelector('#user-identity-resync-avatar');
+                if (resyncBtn) {
+                    resyncBtn.addEventListener('click', () => {
+                        const uid = resyncBtn.getAttribute('data-user-id') || '';
+                        if (!uid) return;
+                        resyncBtn.disabled = true;
+                        resyncBtn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Syncing...';
+                        apiCall('/ajax/resync_user_avatar', {
+                            method: 'POST',
+                            body: JSON.stringify({ user_id: uid }),
+                        })
+                        .then(data => {
+                            if (data && data.ok) {
+                                resyncBtn.innerHTML = '<i class="bi bi-check-circle me-1"></i>Requested';
+                                resyncBtn.classList.replace('btn-outline-info', 'btn-outline-success');
+                                showAlert('Avatar resync requested — it may take a moment to arrive from the network.', 'success');
+                            } else {
+                                resyncBtn.innerHTML = '<i class="bi bi-x-circle me-1"></i>Failed';
+                                resyncBtn.classList.replace('btn-outline-info', 'btn-outline-warning');
+                                showAlert(data.reason || data.error || 'Resync failed', 'warning');
+                            }
+                        })
+                        .catch(() => {
+                            resyncBtn.innerHTML = '<i class="bi bi-x-circle me-1"></i>Error';
+                            resyncBtn.classList.replace('btn-outline-info', 'btn-outline-danger');
+                            showAlert('Avatar resync request failed.', 'danger');
+                        })
+                        .finally(() => {
+                            setTimeout(() => {
+                                resyncBtn.disabled = false;
+                                resyncBtn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Resync Avatar';
+                                resyncBtn.className = 'btn btn-outline-info btn-sm';
+                            }, 5000);
+                        });
                     });
                 }
             }
@@ -972,6 +1011,15 @@
                 const mention = info.username ? `@${info.username}` : '';
                 copyMentionBtn.setAttribute('data-copy-value', mention);
                 copyMentionBtn.disabled = !mention;
+            }
+
+            const resyncBtn = modalEl.querySelector('#user-identity-resync-avatar');
+            if (resyncBtn) {
+                resyncBtn.setAttribute('data-user-id', info.user_id || '');
+                resyncBtn.disabled = !info.user_id || !info.is_remote;
+                resyncBtn.title = info.is_remote
+                    ? 'Re-download avatar from the network'
+                    : 'Only available for remote users';
             }
 
             if (fieldsEl) {
