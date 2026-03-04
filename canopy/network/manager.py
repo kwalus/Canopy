@@ -101,6 +101,7 @@ class P2PNetworkManager:
         self.on_catchup_request: Optional[Callable] = None
         self.on_catchup_response: Optional[Callable] = None
         self.get_channel_latest_timestamps: Optional[Callable] = None
+        self.get_channel_sync_digests: Optional[Callable] = None
         self.get_feed_latest_timestamp: Optional[Callable[[], Optional[str]]] = None
         self.get_circle_entries_latest_timestamp: Optional[Callable[[], Optional[str]]] = None
         self.get_circle_votes_latest_timestamp: Optional[Callable[[], Optional[str]]] = None
@@ -169,6 +170,24 @@ class P2PNetworkManager:
         self._active_catchups: set = set()
         self._MAX_CONCURRENT_CATCHUPS_STARTUP = 2
         self._MAX_CONCURRENT_CATCHUPS_NORMAL = 5
+        self.sync_digest_enabled = bool(
+            getattr(cfg_security, 'sync_digest_enabled', False)
+        )
+        self.sync_digest_require_capability = bool(
+            getattr(cfg_security, 'sync_digest_require_capability', True)
+        )
+        self.sync_digest_max_channels_per_request = max(
+            1,
+            int(getattr(cfg_security, 'sync_digest_max_channels_per_request', 200) or 200),
+        )
+        self._sync_digest_stats: Dict[str, Any] = {
+            'channels_checked': 0,
+            'channels_matched': 0,
+            'channels_mismatched': 0,
+            'fallbacks': 0,
+            'requests_with_digest': 0,
+            'last_used_at': None,
+        }
 
         # Load persisted relay policy (overrides default)
         self._load_persisted_relay_policy()
@@ -183,6 +202,8 @@ class P2PNetworkManager:
             caps.append('e2e_channel_v1')
         if bool(getattr(sec_cfg, 'e2e_private_channels_enforce', False)):
             caps.append('e2e_channel_enforce')
+        if bool(getattr(sec_cfg, 'sync_digest_enabled', False)):
+            caps.append('sync_digest_v1')
 
         out: list[str] = []
         seen = set()
@@ -2887,6 +2908,32 @@ class P2PNetworkManager:
                     except Exception:
                         pass
 
+            digest_payload = None
+            if self.sync_digest_enabled and self.get_channel_sync_digests:
+                try:
+                    can_use_digest = True
+                    if self.sync_digest_require_capability:
+                        can_use_digest = self.peer_supports_capability(peer_id, 'sync_digest_v1')
+                    if can_use_digest:
+                        digest_channels = self.get_channel_sync_digests(
+                            channel_ids=list(channel_timestamps.keys()),
+                            max_channels=self.sync_digest_max_channels_per_request,
+                        ) or {}
+                        if isinstance(digest_channels, dict) and digest_channels:
+                            digest_payload = {
+                                'version': 1,
+                                'channels': digest_channels,
+                            }
+                            self._sync_digest_stats['requests_with_digest'] = int(
+                                self._sync_digest_stats.get('requests_with_digest') or 0
+                            ) + 1
+                            self._sync_digest_stats['last_used_at'] = time.time()
+                except Exception as digest_err:
+                    self._sync_digest_stats['fallbacks'] = int(
+                        self._sync_digest_stats.get('fallbacks') or 0
+                    ) + 1
+                    logger.debug(f"Catchup digest payload generation failed for {peer_id}: {digest_err}")
+
             # Even if we have no messages yet, send an empty map so the
             # peer can send us everything.
             logger.debug(f"Sending catchup request ({len(channel_timestamps)} "
@@ -2894,10 +2941,33 @@ class P2PNetworkManager:
                          f"to {peer_id}")
             await self.message_router.send_catchup_request(
                 peer_id, channel_timestamps,
-                extra_timestamps=extra_timestamps if extra_timestamps else None)
+                extra_timestamps=extra_timestamps if extra_timestamps else None,
+                digest=digest_payload,
+            )
         except Exception as e:
             logger.error(f"Error sending catchup request to {peer_id}: {e}",
                          exc_info=True)
+
+    def record_sync_digest_stats(self, checked: int = 0, matched: int = 0,
+                                 mismatched: int = 0, fallbacks: int = 0) -> None:
+        """Record Merkle-assisted catch-up accounting for diagnostics."""
+        try:
+            self._sync_digest_stats['channels_checked'] = int(
+                self._sync_digest_stats.get('channels_checked') or 0
+            ) + max(0, int(checked or 0))
+            self._sync_digest_stats['channels_matched'] = int(
+                self._sync_digest_stats.get('channels_matched') or 0
+            ) + max(0, int(matched or 0))
+            self._sync_digest_stats['channels_mismatched'] = int(
+                self._sync_digest_stats.get('channels_mismatched') or 0
+            ) + max(0, int(mismatched or 0))
+            self._sync_digest_stats['fallbacks'] = int(
+                self._sync_digest_stats.get('fallbacks') or 0
+            ) + max(0, int(fallbacks or 0))
+            if (checked or matched or mismatched or fallbacks):
+                self._sync_digest_stats['last_used_at'] = time.time()
+        except Exception:
+            pass
 
     def send_catchup_response(self, peer_id: str,
                                messages: list) -> bool:
@@ -2980,15 +3050,27 @@ class P2PNetworkManager:
         # message is fine.
         if extra_data:
             total_extra = sum(len(v) for v in extra_data.values() if isinstance(v, list))
-            if total_extra > 0:
+            has_non_list_payload = any(
+                (not isinstance(v, list)) and v not in (None, '', {}, [])
+                for v in extra_data.values()
+            )
+            if total_extra > 0 or has_non_list_payload:
                 try:
                     ok = await asyncio.wait_for(
                         self.message_router.send_catchup_response(
                             peer_id, [], extra_data=extra_data),
                         timeout=30.0)
                     if ok:
+                        parts = [
+                            f"{k}={len(v)}"
+                            for k, v in extra_data.items()
+                            if isinstance(v, list) and v
+                        ]
+                        for k, v in extra_data.items():
+                            if isinstance(v, dict) and v:
+                                parts.append(f"{k}=1")
                         logger.info(f"Catchup to {peer_id}: sent extra data "
-                                    f"({', '.join(f'{k}={len(v)}' for k, v in extra_data.items() if isinstance(v, list) and v)})")
+                                    f"({', '.join(parts)})")
                     else:
                         logger.warning(f"Catchup to {peer_id}: failed to send extra data")
                 except asyncio.TimeoutError:
@@ -3101,6 +3183,12 @@ class P2PNetworkManager:
                 'queue_depth': sync_queue_depth,
                 'active_catchups': list(self._active_catchups),
                 'startup_grace': self._in_startup_grace_period(),
+                'digest': {
+                    'enabled': bool(self.sync_digest_enabled),
+                    'require_capability': bool(self.sync_digest_require_capability),
+                    'max_channels_per_request': int(self.sync_digest_max_channels_per_request),
+                    'stats': dict(self._sync_digest_stats),
+                },
             },
             'security': {
                 'allow_unverified_relay_messages': bool(
@@ -3162,6 +3250,12 @@ class P2PNetworkManager:
             'peers': self.get_discovered_peers(),
             'peer_versions': self.get_peer_versions(),
             'relay_policy': getattr(self, 'relay_policy', 'broker_only'),
+            'sync_digest': {
+                'enabled': bool(self.sync_digest_enabled),
+                'require_capability': bool(self.sync_digest_require_capability),
+                'max_channels_per_request': int(self.sync_digest_max_channels_per_request),
+                'stats': dict(self._sync_digest_stats),
+            },
             'security': {
                 'allow_unverified_relay_messages': bool(
                     getattr(self, 'allow_unverified_relay_messages', False)

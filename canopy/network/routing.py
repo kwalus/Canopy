@@ -1021,15 +1021,29 @@ class MessageRouter:
         elif message.type == MessageType.CHANNEL_CATCHUP_REQUEST and self.on_catchup_request:
             try:
                 meta = payload.get('metadata', {})
-                self.on_catchup_request(
-                    channel_timestamps=meta.get('channel_timestamps', {}),
-                    from_peer=message.from_peer,
-                    feed_latest=meta.get('feed_latest'),
-                    circle_entries_latest=meta.get('circle_entries_latest'),
-                    circle_votes_latest=meta.get('circle_votes_latest'),
-                    circles_latest=meta.get('circles_latest'),
-                    tasks_latest=meta.get('tasks_latest'),
-                )
+                try:
+                    self.on_catchup_request(
+                        channel_timestamps=meta.get('channel_timestamps', {}),
+                        from_peer=message.from_peer,
+                        feed_latest=meta.get('feed_latest'),
+                        circle_entries_latest=meta.get('circle_entries_latest'),
+                        circle_votes_latest=meta.get('circle_votes_latest'),
+                        circles_latest=meta.get('circles_latest'),
+                        tasks_latest=meta.get('tasks_latest'),
+                        digest=meta.get('digest'),
+                    )
+                except TypeError:
+                    # Backward-compatibility for callbacks that predate
+                    # digest metadata support.
+                    self.on_catchup_request(
+                        channel_timestamps=meta.get('channel_timestamps', {}),
+                        from_peer=message.from_peer,
+                        feed_latest=meta.get('feed_latest'),
+                        circle_entries_latest=meta.get('circle_entries_latest'),
+                        circle_votes_latest=meta.get('circle_votes_latest'),
+                        circles_latest=meta.get('circles_latest'),
+                        tasks_latest=meta.get('tasks_latest'),
+                    )
             except Exception as e:
                 logger.error(f"Error handling catchup request: {e}", exc_info=True)
         
@@ -1515,7 +1529,8 @@ class MessageRouter:
 
     async def send_catchup_request(self, to_peer: str,
                                     channel_timestamps: Dict[str, str],
-                                    extra_timestamps: Optional[Dict[str, str]] = None) -> bool:
+                                    extra_timestamps: Optional[Dict[str, str]] = None,
+                                    digest: Optional[Dict[str, Any]] = None) -> bool:
         """
         Send a catch-up request to a specific peer.
 
@@ -1524,6 +1539,7 @@ class MessageRouter:
             channel_timestamps: {channel_id: last_message_timestamp} pairs
             extra_timestamps: Optional dict with feed_latest, circle_entries_latest,
                               circle_votes_latest, tasks_latest
+            digest: Optional channel digest envelope for sync optimization
         """
         meta: Dict[str, Any] = {
             'type': 'channel_catchup_request',
@@ -1531,6 +1547,8 @@ class MessageRouter:
         }
         if extra_timestamps:
             meta.update(extra_timestamps)
+        if digest:
+            meta['digest'] = digest
 
         payload = {
             'content': '',

@@ -48,6 +48,9 @@ class SecurityConfig:
     allow_unverified_relay_messages: bool = False  # Mixed-version compatibility switch
     e2e_private_channels: bool = False  # Phase 1 scaffold; disabled by default
     e2e_private_channels_enforce: bool = False  # Enforce only when all peers support it
+    sync_digest_enabled: bool = False  # Optional Merkle-assisted catch-up optimization
+    sync_digest_require_capability: bool = True  # Only use when peer advertises support
+    sync_digest_max_channels_per_request: int = 200
 
 
 @dataclass
@@ -205,6 +208,23 @@ class Config:
             'CANOPY_E2E_PRIVATE_CHANNELS_ENFORCE',
             config.security.e2e_private_channels_enforce,
         )
+        config.security.sync_digest_enabled = _env_bool(
+            'CANOPY_SYNC_DIGEST_ENABLED',
+            config.security.sync_digest_enabled,
+        )
+        config.security.sync_digest_require_capability = _env_bool(
+            'CANOPY_SYNC_DIGEST_REQUIRE_CAPABILITY',
+            config.security.sync_digest_require_capability,
+        )
+        if digest_max := os.getenv('CANOPY_SYNC_DIGEST_MAX_CHANNELS'):
+            try:
+                config.security.sync_digest_max_channels_per_request = max(1, int(digest_max))
+            except Exception:
+                logger.warning(
+                    "Invalid CANOPY_SYNC_DIGEST_MAX_CHANNELS value '%s'; using default %s",
+                    digest_max,
+                    config.security.sync_digest_max_channels_per_request,
+                )
             
         # Network configuration
         if host := os.getenv('CANOPY_HOST'):
@@ -270,6 +290,9 @@ class Config:
                 'allow_unverified_relay_messages': self.security.allow_unverified_relay_messages,
                 'e2e_private_channels': self.security.e2e_private_channels,
                 'e2e_private_channels_enforce': self.security.e2e_private_channels_enforce,
+                'sync_digest_enabled': self.security.sync_digest_enabled,
+                'sync_digest_require_capability': self.security.sync_digest_require_capability,
+                'sync_digest_max_channels_per_request': self.security.sync_digest_max_channels_per_request,
             },
             'storage': {
                 'database_path': self.storage.database_path,

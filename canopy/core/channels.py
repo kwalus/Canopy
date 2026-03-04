@@ -13,6 +13,7 @@ Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor I
 import logging
 import secrets
 import json
+import hashlib
 import threading
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Any, Union, Tuple, cast
@@ -260,6 +261,10 @@ class ChannelManager:
         CRYPTO_MODE_E2E_OPTIONAL,
         CRYPTO_MODE_E2E_ENFORCED,
     }
+    SYNC_DIGEST_VERSION = 1
+    SYNC_DIGEST_EMPTY_ROOT = hashlib.sha256(
+        b"canopy:sync_digest:v1:empty"
+    ).hexdigest()
     
     def __init__(self, db: DatabaseManager, api_key_manager: ApiKeyManager):
         """Initialize channel manager."""
@@ -523,6 +528,17 @@ class ChannelManager:
                         ON channel_member_sync_deliveries(target_peer_id, delivery_state, updated_at DESC);
                     CREATE INDEX IF NOT EXISTS idx_channel_member_sync_channel
                         ON channel_member_sync_deliveries(channel_id, target_user_id, action, updated_at DESC);
+
+                    -- Optional catch-up digest cache for Merkle-assisted sync.
+                    CREATE TABLE IF NOT EXISTS channel_sync_digests (
+                        channel_id TEXT PRIMARY KEY,
+                        digest_version INTEGER NOT NULL,
+                        root_hash TEXT NOT NULL,
+                        live_count INTEGER NOT NULL,
+                        max_created_at TIMESTAMP,
+                        computed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE
+                    );
                 """)
 
                 # Add origin_peer column if it doesn't exist (migration)
@@ -3973,6 +3989,230 @@ class ChannelManager:
         except Exception as e:
             logger.error(f"Failed to get channel latest timestamps: {e}",
                          exc_info=True)
+            return {}
+
+    @staticmethod
+    def _stable_json(value: Any) -> str:
+        """Serialize JSON deterministically for hashing."""
+        return json.dumps(
+            value,
+            sort_keys=True,
+            separators=(',', ':'),
+            ensure_ascii=True,
+        )
+
+    def _build_merkle_root(self, leaves: List[str]) -> str:
+        """Compute a deterministic binary Merkle root from leaf hashes."""
+        if not leaves:
+            return self.SYNC_DIGEST_EMPTY_ROOT
+
+        level = [str(item).strip().lower() for item in leaves if str(item).strip()]
+        if not level:
+            return self.SYNC_DIGEST_EMPTY_ROOT
+
+        while len(level) > 1:
+            next_level: List[str] = []
+            idx = 0
+            while idx < len(level):
+                left = level[idx]
+                right = level[idx + 1] if idx + 1 < len(level) else left
+                next_level.append(
+                    hashlib.sha256(f"{left}{right}".encode('utf-8')).hexdigest()
+                )
+                idx += 2
+            level = next_level
+        return level[0]
+
+    def _canonical_attachment_hash(self, attachments_raw: Any) -> str:
+        """Hash attachment metadata using peer-stable fields only."""
+        if not attachments_raw:
+            return hashlib.sha256(b'[]').hexdigest()
+        try:
+            parsed = attachments_raw
+            if isinstance(attachments_raw, str):
+                parsed = json.loads(attachments_raw)
+            if not isinstance(parsed, list):
+                parsed = []
+
+            canon: List[Dict[str, Any]] = []
+            for att in parsed:
+                if not isinstance(att, dict):
+                    continue
+                size_val = att.get('size')
+                try:
+                    size_val = int(size_val) if size_val is not None else 0
+                except Exception:
+                    size_val = 0
+                canon.append({
+                    'name': str(att.get('name') or ''),
+                    'type': str(att.get('type') or att.get('content_type') or ''),
+                    'size': size_val,
+                    'sha256': str(att.get('sha256') or att.get('checksum') or att.get('hash') or ''),
+                })
+
+            canon.sort(
+                key=lambda item: (
+                    item.get('name') or '',
+                    item.get('type') or '',
+                    item.get('size') or 0,
+                    item.get('sha256') or '',
+                )
+            )
+            blob = self._stable_json(canon).encode('utf-8')
+            return hashlib.sha256(blob).hexdigest()
+        except Exception:
+            return hashlib.sha256(b'[]').hexdigest()
+
+    def _channel_message_fingerprint(self, row: Any) -> str:
+        """Compute a message-level canonical hash for sync digesting."""
+        payload_obj: Dict[str, Any]
+        encrypted_content = row['encrypted_content'] if 'encrypted_content' in row.keys() else None
+        if encrypted_content:
+            payload_obj = {
+                'encrypted_content': str(encrypted_content),
+                'nonce': str((row['nonce'] if 'nonce' in row.keys() else '') or ''),
+                'key_id': str((row['key_id'] if 'key_id' in row.keys() else '') or ''),
+            }
+        else:
+            payload_obj = {'content': str(row['content'] or '')}
+
+        payload_hash = hashlib.sha256(
+            self._stable_json(payload_obj).encode('utf-8')
+        ).hexdigest()
+        attachments_hash = self._canonical_attachment_hash(
+            row['attachments'] if 'attachments' in row.keys() else None
+        )
+
+        envelope = {
+            'id': str(row['id'] or ''),
+            'created_at': str(row['created_at'] or ''),
+            'edited_at': str((row['edited_at'] if 'edited_at' in row.keys() else '') or ''),
+            'message_type': str((row['message_type'] if 'message_type' in row.keys() else '') or ''),
+            'parent_message_id': str((row['parent_message_id'] if 'parent_message_id' in row.keys() else '') or ''),
+            'expires_at': str((row['expires_at'] if 'expires_at' in row.keys() else '') or ''),
+            'crypto_state': str((row['crypto_state'] if 'crypto_state' in row.keys() else '') or ''),
+            'key_id': str((row['key_id'] if 'key_id' in row.keys() else '') or ''),
+            'payload_hash': payload_hash,
+            'attachments_hash': attachments_hash,
+        }
+        return hashlib.sha256(self._stable_json(envelope).encode('utf-8')).hexdigest()
+
+    def compute_channel_sync_digest(self, channel_id: str, conn: Optional[Any] = None) -> Dict[str, Any]:
+        """Compute and cache sync digest metadata for one channel."""
+        if not channel_id:
+            return {
+                'root': self.SYNC_DIGEST_EMPTY_ROOT,
+                'live_count': 0,
+                'max_created_at': None,
+            }
+        if conn is None:
+            with self.db.get_connection() as conn_ctx:
+                return self.compute_channel_sync_digest(channel_id, conn=conn_ctx)
+
+        try:
+            rows = conn.execute(
+                """
+                SELECT id, content, created_at, edited_at, message_type, parent_message_id,
+                       expires_at, attachments, encrypted_content, crypto_state, key_id, nonce
+                FROM channel_messages
+                WHERE channel_id = ?
+                  AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+                ORDER BY id ASC
+                """,
+                (channel_id,),
+            ).fetchall()
+            leaves = [self._channel_message_fingerprint(row) for row in rows]
+            root_hash = self._build_merkle_root(leaves)
+            live_count = len(rows)
+            max_created_at = None
+            if rows:
+                max_created_at = max((row['created_at'] for row in rows if row['created_at']), default=None)
+
+            conn.execute(
+                """
+                INSERT INTO channel_sync_digests
+                    (channel_id, digest_version, root_hash, live_count, max_created_at, computed_at)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(channel_id) DO UPDATE SET
+                    digest_version = excluded.digest_version,
+                    root_hash = excluded.root_hash,
+                    live_count = excluded.live_count,
+                    max_created_at = excluded.max_created_at,
+                    computed_at = CURRENT_TIMESTAMP
+                """,
+                (
+                    channel_id,
+                    self.SYNC_DIGEST_VERSION,
+                    root_hash,
+                    live_count,
+                    max_created_at,
+                ),
+            )
+            conn.commit()
+
+            return {
+                'root': root_hash,
+                'live_count': int(live_count),
+                'max_created_at': max_created_at,
+            }
+        except Exception as e:
+            logger.debug(f"Failed to compute sync digest for channel {channel_id}: {e}")
+            return {
+                'root': self.SYNC_DIGEST_EMPTY_ROOT,
+                'live_count': 0,
+                'max_created_at': None,
+            }
+
+    def get_channel_sync_digests(
+        self,
+        channel_ids: Optional[List[str]] = None,
+        max_channels: int = 200,
+    ) -> Dict[str, Dict[str, Any]]:
+        """Return per-channel digest metadata for catch-up optimization."""
+        try:
+            cap = max(1, int(max_channels or 200))
+        except Exception:
+            cap = 200
+
+        result: Dict[str, Dict[str, Any]] = {}
+        try:
+            with self.db.get_connection() as conn:
+                ids: List[str] = []
+                if channel_ids:
+                    seen = set()
+                    for raw in channel_ids:
+                        cid = str(raw or '').strip()
+                        if not cid or cid in seen:
+                            continue
+                        seen.add(cid)
+                        ids.append(cid)
+                        if len(ids) >= cap:
+                            break
+                else:
+                    rows = conn.execute(
+                        """
+                        SELECT channel_id
+                        FROM channel_messages
+                        WHERE expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP
+                        GROUP BY channel_id
+                        ORDER BY MAX(created_at) DESC
+                        LIMIT ?
+                        """,
+                        (cap,),
+                    ).fetchall()
+                    ids = [str(row['channel_id']) for row in rows if row['channel_id']]
+
+                for cid in ids:
+                    digest = self.compute_channel_sync_digest(cid, conn=conn)
+                    result[cid] = {
+                        'root': str(digest.get('root') or self.SYNC_DIGEST_EMPTY_ROOT),
+                        'live_count': int(digest.get('live_count') or 0),
+                        'max_created_at': digest.get('max_created_at'),
+                    }
+
+            return result
+        except Exception as e:
+            logger.debug(f"Failed to collect channel sync digests: {e}")
             return {}
 
     def get_messages_since(self, channel_id: str, since_timestamp: str,

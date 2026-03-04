@@ -448,6 +448,77 @@
     </div>
 </div>
 
+<div class="card subsystem-shell mb-4">
+    <div class="card-header">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div>
+                <h5 class="mb-0"><i class="bi bi-diagram-2 me-1"></i> Mesh Sync Diagnostics</h5>
+                <div class="small text-muted">Live digest-assisted catch-up telemetry and mesh health counters.</div>
+            </div>
+            <button type="button" class="btn btn-outline-info btn-sm" id="mesh-diag-refresh-btn">
+                <i class="bi bi-arrow-clockwise me-1"></i>Refresh Mesh
+            </button>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="ops-grid mb-3">
+            <div class="ops-tile">
+                <div class="ops-label">Connected Peers</div>
+                <div class="ops-value" id="mesh-diag-connected">—</div>
+            </div>
+            <div class="ops-tile">
+                <div class="ops-label">Known Peers</div>
+                <div class="ops-value" id="mesh-diag-known">—</div>
+            </div>
+            <div class="ops-tile">
+                <div class="ops-label">Sync Queue Depth</div>
+                <div class="ops-value" id="mesh-diag-queue">—</div>
+            </div>
+            <div class="ops-tile">
+                <div class="ops-label">Digest Enabled</div>
+                <div class="ops-value" id="mesh-diag-enabled">—</div>
+            </div>
+            <div class="ops-tile">
+                <div class="ops-label">Capability Gate</div>
+                <div class="ops-value" id="mesh-diag-capability">—</div>
+            </div>
+            <div class="ops-tile">
+                <div class="ops-label">Max Channels/Req</div>
+                <div class="ops-value" id="mesh-diag-max-channels">—</div>
+            </div>
+            <div class="ops-tile">
+                <div class="ops-label">Digest Requests</div>
+                <div class="ops-value" id="mesh-diag-requests">—</div>
+            </div>
+            <div class="ops-tile">
+                <div class="ops-label">Channels Checked</div>
+                <div class="ops-value" id="mesh-diag-checked">—</div>
+            </div>
+            <div class="ops-tile">
+                <div class="ops-label">Channels Matched</div>
+                <div class="ops-value" id="mesh-diag-matched">—</div>
+            </div>
+            <div class="ops-tile">
+                <div class="ops-label">Channels Mismatched</div>
+                <div class="ops-value" id="mesh-diag-mismatched">—</div>
+            </div>
+            <div class="ops-tile">
+                <div class="ops-label">Digest Fallbacks</div>
+                <div class="ops-value" id="mesh-diag-fallbacks">—</div>
+            </div>
+            <div class="ops-tile">
+                <div class="ops-label">Digest Match Rate</div>
+                <div class="ops-value" id="mesh-diag-match-rate">—</div>
+                <div class="ops-meta">Last used: <span id="mesh-diag-last-used">—</span></div>
+            </div>
+        </div>
+        <h6 class="mb-2">Recent failures / security blocks</h6>
+        <div id="mesh-diag-failures" class="small text-muted">
+            No recent failures.
+        </div>
+    </div>
+</div>
+
 {% if pending_count > 0 %}
 <div class="card mb-4 border-warning">
     <div class="card-header bg-warning bg-opacity-25">
@@ -1026,11 +1097,94 @@
         hashEl.textContent = hb.directives_hash || 'none';
     }
 
+    function setMeshDiagValue(id, value) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.textContent = value;
+    }
+
+    function formatUnixTimestamp(ts) {
+        const n = Number(ts || 0);
+        if (!Number.isFinite(n) || n <= 0) return '—';
+        const date = new Date(n * 1000);
+        if (!Number.isFinite(date.getTime())) return '—';
+        return date.toLocaleString();
+    }
+
+    function renderMeshFailures(events) {
+        const container = document.getElementById('mesh-diag-failures');
+        if (!container) return;
+        const list = Array.isArray(events) ? events : [];
+        if (!list.length) {
+            container.className = 'small text-muted';
+            container.textContent = 'No recent failures.';
+            return;
+        }
+        container.className = '';
+        const ul = document.createElement('ul');
+        ul.className = 'list-group list-group-flush';
+        list.slice(-8).reverse().forEach(event => {
+            const li = document.createElement('li');
+            li.className = 'list-group-item py-2 px-1';
+            li.style.background = 'transparent';
+            li.style.color = 'var(--canopy-text-primary)';
+            li.style.borderColor = 'var(--canopy-border)';
+            const peer = event?.peer_id || 'unknown-peer';
+            const kind = event?.kind || 'event';
+            const detail = event?.detail || event?.status || 'unknown';
+            li.textContent = `${kind} • ${peer} • ${detail} • ${formatUnixTimestamp(event?.timestamp)}`;
+            ul.appendChild(li);
+        });
+        container.replaceChildren(ul);
+    }
+
+    async function refreshMeshDiagnostics() {
+        const { ok, data } = await api('GET', '/ajax/p2p/diagnostics');
+        if (!ok || !data.diagnostics) return;
+        const diag = data.diagnostics || {};
+        const sync = diag.sync || {};
+        const digest = sync.digest || {};
+        const stats = digest.stats || {};
+
+        const connected = Array.isArray(diag.connected_peers) ? diag.connected_peers.length : 0;
+        const known = Number(diag.known_peers_count || 0);
+        const queueDepth = Number(sync.queue_depth || 0);
+        const maxChannels = Number(digest.max_channels_per_request || 0);
+        const requests = Number(stats.requests_with_digest || 0);
+        const checked = Number(stats.channels_checked || 0);
+        const matched = Number(stats.channels_matched || 0);
+        const mismatched = Number(stats.channels_mismatched || 0);
+        const fallbacks = Number(stats.fallbacks || 0);
+        const matchRate = checked > 0 ? `${((matched / checked) * 100).toFixed(1)}%` : '—';
+
+        setMeshDiagValue('mesh-diag-connected', String(connected));
+        setMeshDiagValue('mesh-diag-known', String(known));
+        setMeshDiagValue('mesh-diag-queue', String(queueDepth));
+        setMeshDiagValue('mesh-diag-enabled', digest.enabled ? 'yes' : 'no');
+        setMeshDiagValue('mesh-diag-capability', digest.require_capability ? 'required' : 'optional');
+        setMeshDiagValue('mesh-diag-max-channels', String(maxChannels));
+        setMeshDiagValue('mesh-diag-requests', String(requests));
+        setMeshDiagValue('mesh-diag-checked', String(checked));
+        setMeshDiagValue('mesh-diag-matched', String(matched));
+        setMeshDiagValue('mesh-diag-mismatched', String(mismatched));
+        setMeshDiagValue('mesh-diag-fallbacks', String(fallbacks));
+        setMeshDiagValue('mesh-diag-match-rate', matchRate);
+        setMeshDiagValue('mesh-diag-last-used', formatUnixTimestamp(stats.last_used_at));
+        renderMeshFailures(diag.recent_failures || []);
+    }
+
     const heartbeatRefreshBtn = document.getElementById('heartbeat-refresh-btn');
     if (heartbeatRefreshBtn) {
         heartbeatRefreshBtn.addEventListener('click', () => refreshHeartbeat());
         setInterval(refreshHeartbeat, 20000);
     }
+
+    const meshDiagRefreshBtn = document.getElementById('mesh-diag-refresh-btn');
+    if (meshDiagRefreshBtn) {
+        meshDiagRefreshBtn.addEventListener('click', () => refreshMeshDiagnostics());
+    }
+    refreshMeshDiagnostics();
+    setInterval(refreshMeshDiagnostics, 20000);
 
     document.querySelectorAll('.approve-btn').forEach(btn => {
         btn.addEventListener('click', async () => {

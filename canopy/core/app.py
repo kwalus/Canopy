@@ -2726,6 +2726,18 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
         p2p_manager.get_channel_latest_timestamps = _get_channel_latest_timestamps
 
+        def _get_channel_sync_digests(
+            channel_ids: Optional[list[str]] = None,
+            max_channels: int = 200,
+        ):
+            """Return channel digest map for optional Merkle-assisted catch-up."""
+            return channel_manager.get_channel_sync_digests(
+                channel_ids=channel_ids,
+                max_channels=max_channels,
+            )
+
+        p2p_manager.get_channel_sync_digests = _get_channel_sync_digests
+
         # Extra timestamp callbacks for extended catch-up (circles, tasks, feed)
         def _get_feed_latest_timestamp():
             try:
@@ -2762,7 +2774,8 @@ def create_app(config: Optional[Config] = None) -> Flask:
         def _on_catchup_request(channel_timestamps, from_peer,
                                 feed_latest=None, circle_entries_latest=None,
                                 circle_votes_latest=None, circles_latest=None,
-                                tasks_latest=None):
+                                tasks_latest=None,
+                                digest=None):
             """A peer is asking us for messages it missed.
 
             For each channel, query messages newer than the timestamp
@@ -2778,6 +2791,34 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 all_messages = []
                 # Get all local channels (peer may not know about some)
                 local_ts = channel_manager.get_channel_latest_timestamps()
+                digest_checked = 0
+                digest_matched = 0
+                digest_mismatched = 0
+                digest_fallbacks = 0
+                digest_meta: Dict[str, Any] = {}
+                remote_digest_channels: Dict[str, Any] = {}
+                local_digest_channels: Dict[str, Any] = {}
+
+                try:
+                    if (
+                        getattr(p2p_manager, 'sync_digest_enabled', False)
+                        and isinstance(digest, dict)
+                        and int(digest.get('version') or 0) == 1
+                        and isinstance(digest.get('channels'), dict)
+                    ):
+                        remote_digest_channels = cast(Dict[str, Any], digest.get('channels') or {})
+                        if remote_digest_channels:
+                            local_digest_channels = channel_manager.get_channel_sync_digests(
+                                channel_ids=list(remote_digest_channels.keys()),
+                                max_channels=getattr(
+                                    p2p_manager,
+                                    'sync_digest_max_channels_per_request',
+                                    200,
+                                ),
+                            ) or {}
+                except Exception as dig_err:
+                    digest_fallbacks += 1
+                    logger.debug(f"Catchup digest comparison setup failed: {dig_err}")
 
                 # Relay all channels (including restricted) so messages
                 # can propagate through intermediary peers.  Content
@@ -2785,6 +2826,39 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 # access-control filtering was removed to fix relay gaps.
 
                 for ch_id, local_latest in local_ts.items():
+                    remote_digest = remote_digest_channels.get(ch_id)
+                    local_digest = local_digest_channels.get(ch_id)
+                    if remote_digest is not None:
+                        digest_checked += 1
+                        try:
+                            local_root = str((local_digest or {}).get('root') or '')
+                            remote_root = str((remote_digest or {}).get('root') or '')
+                            local_count = int((local_digest or {}).get('live_count') or 0)
+                            remote_count_raw = (remote_digest or {}).get('live_count')
+                            remote_count = (
+                                int(remote_count_raw)
+                                if remote_count_raw is not None else None
+                            )
+                            count_matches = (
+                                True if remote_count is None else (local_count == remote_count)
+                            )
+                            if local_root and remote_root and local_root == remote_root and count_matches:
+                                digest_matched += 1
+                                digest_meta[ch_id] = {
+                                    'remote_root': local_root,
+                                    'remote_live_count': local_count,
+                                    'status': 'match',
+                                }
+                                continue
+                            digest_mismatched += 1
+                            digest_meta[ch_id] = {
+                                'remote_root': local_root,
+                                'remote_live_count': local_count,
+                                'status': 'mismatch',
+                            }
+                        except Exception:
+                            digest_fallbacks += 1
+
                     peer_latest = channel_timestamps.get(ch_id)
                     if peer_latest is None:
                         # Peer has no messages in this channel — send
@@ -2797,6 +2871,17 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
                     msgs = channel_manager.get_messages_since(ch_id, since)
                     all_messages.extend(msgs)
+
+                if remote_digest_channels:
+                    for ch_id in remote_digest_channels.keys():
+                        if ch_id in digest_meta:
+                            continue
+                        local_digest = local_digest_channels.get(ch_id) or {}
+                        digest_meta[ch_id] = {
+                            'remote_root': str(local_digest.get('root') or ''),
+                            'remote_live_count': int(local_digest.get('live_count') or 0),
+                            'status': 'missing',
+                        }
 
                 if all_messages:
                     # Enrich each message with the author's display_name
@@ -2880,6 +2965,30 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
                 # ---- Gather extra catch-up data (circles, tasks, feed) ----
                 extra_data = {}
+                if digest_meta:
+                    extra_data['digest'] = {
+                        'version': 1,
+                        'channels': digest_meta,
+                    }
+                if (
+                    p2p_manager
+                    and (
+                        digest_checked > 0
+                        or digest_matched > 0
+                        or digest_mismatched > 0
+                        or digest_fallbacks > 0
+                    )
+                    and hasattr(p2p_manager, 'record_sync_digest_stats')
+                ):
+                    try:
+                        p2p_manager.record_sync_digest_stats(
+                            checked=digest_checked,
+                            matched=digest_matched,
+                            mismatched=digest_mismatched,
+                            fallbacks=digest_fallbacks,
+                        )
+                    except Exception:
+                        pass
 
                 # Feed posts newer than what the peer has
                 try:
