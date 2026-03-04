@@ -825,12 +825,13 @@
                 if (resyncBtn) {
                     resyncBtn.addEventListener('click', () => {
                         const uid = resyncBtn.getAttribute('data-user-id') || '';
+                        const peer = resyncBtn.getAttribute('data-origin-peer') || '';
                         if (!uid) return;
                         resyncBtn.disabled = true;
                         resyncBtn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Syncing...';
                         apiCall('/ajax/resync_user_avatar', {
                             method: 'POST',
-                            body: JSON.stringify({ user_id: uid }),
+                            body: JSON.stringify({ user_id: uid, origin_peer: peer }),
                         })
                         .then(data => {
                             if (data && data.ok) {
@@ -1016,6 +1017,7 @@
             const resyncBtn = modalEl.querySelector('#user-identity-resync-avatar');
             if (resyncBtn) {
                 resyncBtn.setAttribute('data-user-id', info.user_id || '');
+                resyncBtn.setAttribute('data-origin-peer', info.origin_peer || '');
                 resyncBtn.disabled = !info.user_id || !info.is_remote;
                 resyncBtn.title = info.is_remote
                     ? 'Re-download avatar from the network'

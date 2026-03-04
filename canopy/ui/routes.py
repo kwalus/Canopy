@@ -12130,11 +12130,12 @@ def create_ui_blueprint() -> Blueprint:
             _, _, _, _, _, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
             data = request.get_json(silent=True) or {}
             user_id = data.get('user_id', '').strip()
+            hint_peer = data.get('origin_peer', '').strip()
             if not user_id:
                 return jsonify({'error': 'user_id required'}), 400
             if not p2p_manager or not hasattr(p2p_manager, 'resync_user_avatar'):
                 return jsonify({'error': 'P2P manager not available'}), 503
-            result = p2p_manager.resync_user_avatar(user_id)
+            result = p2p_manager.resync_user_avatar(user_id, hint_peer=hint_peer)
             return jsonify(result)
         except Exception as e:
             logger.error(f"Resync user avatar error: {e}", exc_info=True)

@@ -3308,7 +3308,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
         p2p_manager.on_profile_sync = _on_profile_sync
 
-        def _resync_user_avatar(user_id: str) -> dict:
+        def _resync_user_avatar(user_id: str, hint_peer: str = "") -> dict:
             """Invalidate profile hash cache for a user and trigger re-sync from their origin peer."""
             if not user_id:
                 return {"ok": False, "reason": "no user_id"}
@@ -3320,11 +3320,28 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     ).fetchone()
                     if row:
                         origin_peer = row[0] if isinstance(row, (tuple, list)) else row.get('origin_peer', row[0])
+                    if not origin_peer:
+                        msg_row = conn.execute(
+                            "SELECT origin_peer FROM channel_messages WHERE user_id = ? AND origin_peer IS NOT NULL AND origin_peer != '' LIMIT 1",
+                            (user_id,)
+                        ).fetchone()
+                        if msg_row:
+                            origin_peer = msg_row[0] if isinstance(msg_row, (tuple, list)) else msg_row.get('origin_peer', msg_row[0])
             except Exception as e:
                 logger.warning(f"resync_user_avatar: DB lookup failed for {user_id}: {e}")
 
+            if not origin_peer and hint_peer:
+                origin_peer = hint_peer
+
             if not origin_peer:
-                return {"ok": False, "reason": "no origin_peer for user"}
+                if p2p_manager:
+                    connected = p2p_manager.get_connected_peers() or []
+                    if connected:
+                        origin_peer = connected[0]
+                        logger.info(f"resync_user_avatar: no origin_peer for {user_id}, broadcasting to first connected peer {origin_peer}")
+
+            if not origin_peer:
+                return {"ok": False, "reason": "no origin_peer for user and no connected peers"}
 
             cleared = 0
             keys_to_clear = [k for k in _seen_profile_hashes if k[1] == user_id]
