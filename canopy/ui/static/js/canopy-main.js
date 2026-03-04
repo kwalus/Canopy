@@ -296,6 +296,65 @@
 	            }
 	        }
 
+            function containsMathDelimiters(text) {
+                if (!text) return false;
+                const value = String(text);
+                if (value.indexOf('$') !== -1) {
+                    let inlineCount = 0;
+                    let blockCount = 0;
+                    for (let i = 0; i < value.length; i++) {
+                        if (value[i] !== '$') continue;
+                        let slashCount = 0;
+                        for (let j = i - 1; j >= 0 && value[j] === '\\'; j--) {
+                            slashCount += 1;
+                        }
+                        if ((slashCount % 2) === 1) continue;
+                        if (value[i + 1] === '$') {
+                            blockCount += 1;
+                            i += 1;
+                        } else {
+                            inlineCount += 1;
+                        }
+                    }
+                    if (blockCount >= 2 || inlineCount >= 2) return true;
+                }
+                if (value.indexOf('\\(') !== -1 && value.indexOf('\\)') !== -1) return true;
+                if (value.indexOf('\\[') !== -1 && value.indexOf('\\]') !== -1) return true;
+                return false;
+            }
+
+            function renderMathInElementSafe(root) {
+                if (!root || typeof window === 'undefined' || typeof window.renderMathInElement !== 'function') {
+                    return false;
+                }
+                const scope = (root instanceof Element || root instanceof Document) ? root : null;
+                if (!scope) return false;
+                const sourceText = scope.textContent || '';
+                if (!containsMathDelimiters(sourceText)) return false;
+                try {
+                    window.renderMathInElement(scope, {
+                        delimiters: [
+                            { left: '$$', right: '$$', display: true },
+                            { left: '\\[', right: '\\]', display: true },
+                            { left: '\\(', right: '\\)', display: false },
+                            { left: '$', right: '$', display: false }
+                        ],
+                        throwOnError: false,
+                        strict: 'ignore',
+                        trust: false,
+                        ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code', 'a'],
+                        ignoredClasses: ['channel-code', 'no-katex']
+                    });
+                    return true;
+                } catch (e) {
+                    return false;
+                }
+            }
+            if (typeof window !== 'undefined') {
+                window.renderMathInElementSafe = renderMathInElementSafe;
+                window.containsMathDelimiters = containsMathDelimiters;
+            }
+
 	        function linkifyMentions(text) {
 	            if (!text || text.indexOf('@') === -1) return text;
 	            const map = (typeof window !== 'undefined' && window.mentionDisplayMap) || {};
@@ -366,7 +425,7 @@
                 });
             }
 
-	        function renderRichContent(text) {
+		        function renderRichContent(text) {
 	            if (!text) return '';
 
 	            // Escape HTML first to prevent XSS
@@ -428,7 +487,7 @@
             const EMBED_PLACEHOLDER = '\x00EMB_';
 
             // --- YouTube embeds ---
-            const ytRegex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)([\w-]{11})(?:[&?]\S*)?/g;
+            const ytRegex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/|youtube\.com\/live\/)([\w-]{11})(?:[&?]\S*)?/g;
             html = html.replace(ytRegex, function(match, videoId) {
                 const idx = embeds.length;
                 embeds.push('<div class="embed-preview youtube-embed" data-video-id="' + videoId + '">' +
@@ -511,13 +570,21 @@
                 html = html.replace(EMBED_PLACEHOLDER + '0\x00', embeds[0]);
             }
 
-            if (codeBlocks.length) {
-                for (let i = 0; i < codeBlocks.length; i++) {
-                    html = html.replace(CODE_PLACEHOLDER + i + '\x00', codeBlocks[i]);
-                }
-            }
+	            if (codeBlocks.length) {
+	                for (let i = 0; i < codeBlocks.length; i++) {
+	                    html = html.replace(CODE_PLACEHOLDER + i + '\x00', codeBlocks[i]);
+	                }
+	            }
 
-            // Wrap in paragraph or div (div if we have block elements like <pre> so markup stays valid)
+                // Render LaTeX-style equations when KaTeX is available.
+                if (containsMathDelimiters(html)) {
+                    const probe = document.createElement('div');
+                    probe.innerHTML = html;
+                    renderMathInElementSafe(probe);
+                    html = probe.innerHTML;
+                }
+
+	            // Wrap in paragraph or div (div if we have block elements like <pre> so markup stays valid)
             if (!html.includes('embed-preview') && !html.includes('embed-grid')) {
                 if (html.includes('<pre') || html.includes('<pre ')) {
                     html = '<div class="rich-content">' + html + '</div>';
@@ -532,15 +599,15 @@
 	        }
 
 	        // Helper to process all elements matching a selector through renderRichContent
-	        function processRichEmbeds(selector) {
-	            document.querySelectorAll(selector).forEach(function(el) {
-	                const rawText = el.textContent.trim();
-	                if (!rawText) return;
-	                // Process if it contains a URL worth embedding, markdown image, or code blocks
-	                var shouldProcess = /https?:\/\//.test(rawText) || /\]\(\/files\//.test(rawText) || /!\[/.test(rawText) || /```/.test(rawText);
-	                if (shouldProcess) {
-	                    const rendered = renderRichContent(rawText);
-	                    if (el.tagName === 'P') {
+		        function processRichEmbeds(selector) {
+		            document.querySelectorAll(selector).forEach(function(el) {
+		                const rawText = el.textContent.trim();
+		                if (!rawText) return;
+		                // Process if it contains a URL worth embedding, markdown image, or code blocks
+		                var shouldProcess = /https?:\/\//.test(rawText) || /\]\(\/files\//.test(rawText) || /!\[/.test(rawText) || /```/.test(rawText) || containsMathDelimiters(rawText);
+		                if (shouldProcess) {
+		                    const rendered = renderRichContent(rawText);
+		                    if (el.tagName === 'P') {
 	                        // Avoid invalid <p><div>... nesting once we add embeds.
 	                        const repl = document.createElement('div');
 	                        repl.className = el.className;
@@ -728,6 +795,9 @@
                                         <button type="button" class="btn btn-outline-success btn-sm" id="user-identity-copy-mention">
                                             <i class="bi bi-at me-1"></i>Copy @mention
                                         </button>
+                                        <button type="button" class="btn btn-outline-info btn-sm" id="user-identity-resync-avatar" title="Re-download avatar from the network">
+                                            <i class="bi bi-arrow-repeat me-1"></i>Resync Avatar
+                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -749,6 +819,42 @@
                 if (copyMentionBtn) {
                     copyMentionBtn.addEventListener('click', () => {
                         _copyTextToClipboard(copyMentionBtn.getAttribute('data-copy-value') || '', '@mention');
+                    });
+                }
+                const resyncBtn = modalEl.querySelector('#user-identity-resync-avatar');
+                if (resyncBtn) {
+                    resyncBtn.addEventListener('click', () => {
+                        const uid = resyncBtn.getAttribute('data-user-id') || '';
+                        if (!uid) return;
+                        resyncBtn.disabled = true;
+                        resyncBtn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Syncing...';
+                        apiCall('/ajax/resync_user_avatar', {
+                            method: 'POST',
+                            body: JSON.stringify({ user_id: uid }),
+                        })
+                        .then(data => {
+                            if (data && data.ok) {
+                                resyncBtn.innerHTML = '<i class="bi bi-check-circle me-1"></i>Requested';
+                                resyncBtn.classList.replace('btn-outline-info', 'btn-outline-success');
+                                showAlert('Avatar resync requested — it may take a moment to arrive from the network.', 'success');
+                            } else {
+                                resyncBtn.innerHTML = '<i class="bi bi-x-circle me-1"></i>Failed';
+                                resyncBtn.classList.replace('btn-outline-info', 'btn-outline-warning');
+                                showAlert(data.reason || data.error || 'Resync failed', 'warning');
+                            }
+                        })
+                        .catch(() => {
+                            resyncBtn.innerHTML = '<i class="bi bi-x-circle me-1"></i>Error';
+                            resyncBtn.classList.replace('btn-outline-info', 'btn-outline-danger');
+                            showAlert('Avatar resync request failed.', 'danger');
+                        })
+                        .finally(() => {
+                            setTimeout(() => {
+                                resyncBtn.disabled = false;
+                                resyncBtn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Resync Avatar';
+                                resyncBtn.className = 'btn btn-outline-info btn-sm';
+                            }, 5000);
+                        });
                     });
                 }
             }
@@ -905,6 +1011,15 @@
                 const mention = info.username ? `@${info.username}` : '';
                 copyMentionBtn.setAttribute('data-copy-value', mention);
                 copyMentionBtn.disabled = !mention;
+            }
+
+            const resyncBtn = modalEl.querySelector('#user-identity-resync-avatar');
+            if (resyncBtn) {
+                resyncBtn.setAttribute('data-user-id', info.user_id || '');
+                resyncBtn.disabled = !info.user_id || !info.is_remote;
+                resyncBtn.title = info.is_remote
+                    ? 'Re-download avatar from the network'
+                    : 'Only available for remote users';
             }
 
             if (fieldsEl) {
@@ -1973,6 +2088,12 @@
 	                        window.location.href = url.toString();
 	                        return;
 	                    }
+	                    if (kind === 'channel_added' && ref.channel_id) {
+	                        const url = new URL(routes.channels, window.location.origin);
+	                        url.searchParams.set('focus_channel', ref.channel_id);
+	                        window.location.href = url.toString();
+	                        return;
+	                    }
 	                    if (kind === 'interaction') {
 	                        // Best-effort: route to the affected post when possible.
 	                        if (ref.item_type === 'post' && ref.item_id) {
@@ -2229,6 +2350,7 @@
             const closeBtn = document.getElementById('sidebar-media-mini-close');
             const timeEl = document.getElementById('sidebar-media-mini-time');
             const mainScroller = document.querySelector('.main-content');
+            const miniVideoHost = document.getElementById('sidebar-media-mini-video');
 
             const state = {
                 current: null,
@@ -2236,7 +2358,9 @@
                 observer: null,
                 mutationObserver: null,
                 tickHandle: null,
-                ytApiPromise: null
+                ytApiPromise: null,
+                returnUrl: null,
+                dockedSubtitle: null
             };
 
             function mediaTypeFor(el) {
@@ -2458,9 +2582,14 @@
                 return !visible;
             }
 
+            function isDockedInMiniHost(el) {
+                return miniVideoHost && el && miniVideoHost.contains(el);
+            }
+
             function hideMini() {
                 mini.classList.remove('is-visible');
                 if (pipBtn) pipBtn.style.display = 'none';
+                if (miniVideoHost) miniVideoHost.style.display = 'none';
             }
 
             function showMini() {
@@ -2536,6 +2665,66 @@
                 }, 1700);
             }
 
+            function undockYouTube(el) {
+                if (!el) return;
+                const ph = el.__canopyAutoDockPlaceholder;
+                if (ph && ph.isConnected && ph.parentNode) {
+                    const wrapper = el.closest('.youtube-embed');
+                    if (wrapper) {
+                        ph.parentNode.insertBefore(wrapper, ph);
+                        ph.remove();
+                    }
+                }
+                delete el.__canopyAutoDockPlaceholder;
+                if (!state.returnUrl) state.dockedSubtitle = null;
+                if (miniVideoHost) {
+                    miniVideoHost.style.display = 'none';
+                    miniVideoHost.innerHTML = '';
+                }
+            }
+
+            function autoDockYouTube(el) {
+                if (!miniVideoHost) return;
+                const wrapper = el.closest('.youtube-embed');
+                if (!wrapper || !wrapper.parentNode) return;
+                if (isDockedInMiniHost(el)) return;
+
+                var placeholder = document.createElement('div');
+                placeholder.className = 'canopy-yt-mini-placeholder';
+                placeholder.style.cssText = 'width:' + wrapper.offsetWidth + 'px;height:' + wrapper.offsetHeight + 'px;';
+                wrapper.parentNode.insertBefore(placeholder, wrapper);
+                el.__canopyAutoDockPlaceholder = placeholder;
+
+                if (!state.dockedSubtitle) state.dockedSubtitle = sourceSubtitle(el);
+
+                miniVideoHost.innerHTML = '';
+                miniVideoHost.appendChild(wrapper);
+                miniVideoHost.style.display = 'block';
+
+                if (state.observer) state.observer.observe(placeholder);
+
+                try {
+                    var player = el.__canopyMiniYTPlayer;
+                    if (player && typeof player.playVideo === 'function') {
+                        player.playVideo();
+                    }
+                } catch (_) {}
+
+                var retries = 0;
+                var retryId = setInterval(function() {
+                    retries++;
+                    if (retries > 6) { clearInterval(retryId); return; }
+                    try {
+                        var p = el.__canopyMiniYTPlayer;
+                        if (p && typeof p.getPlayerState === 'function') {
+                            var s = p.getPlayerState();
+                            if (s === 1 || s === 3) { clearInterval(retryId); return; }
+                            p.playVideo();
+                        }
+                    } catch (_) { clearInterval(retryId); }
+                }, 800);
+            }
+
             function updateMini() {
                 if (!state.current || !state.current.el || !state.current.el.isConnected) {
                     const fallback = findPlayingElement();
@@ -2550,6 +2739,7 @@
                 const current = state.current;
                 const type = current.type;
                 const el = current.el;
+                const isDocked = isDockedInMiniHost(el);
                 const isResumablePause = (type === 'audio' || type === 'video') && !!el.paused && !el.ended;
 
                 if (state.dismissedEl && state.dismissedEl === el) {
@@ -2557,7 +2747,13 @@
                     return;
                 }
 
-                if (!isElementPlaying(el, type) && !isResumablePause) {
+                if (isDocked && type === 'youtube') {
+                    const ytState = Number(el.__canopyMiniYTState);
+                    if (ytState === 0) {
+                        hideMini();
+                        return;
+                    }
+                } else if (!isElementPlaying(el, type) && !isResumablePause) {
                     const fallback = findPlayingElement();
                     if (fallback && fallback !== el) {
                         setCurrent(fallback);
@@ -2567,13 +2763,22 @@
                     return;
                 }
 
-                if (!isOffscreen(el)) {
+                if (!isDocked && !isOffscreen(el)) {
+                    if (state.dismissedEl === el) state.dismissedEl = null;
                     hideMini();
                     return;
                 }
 
+                if (type === 'youtube' && !isDocked && miniVideoHost) {
+                    autoDockYouTube(el);
+                }
+
+                if (miniVideoHost) {
+                    miniVideoHost.style.display = isDockedInMiniHost(el) ? 'block' : 'none';
+                }
+
                 const mediaTitle = titleFromMedia(el, type);
-                const subtitle = sourceSubtitle(el);
+                const subtitle = state.dockedSubtitle || sourceSubtitle(el);
                 titleEl.textContent = mediaTitle;
                 subtitleEl.textContent = subtitle;
                 icon.innerHTML = `<i class="bi ${mediaIcon(type)}"></i>`;
@@ -2596,6 +2801,33 @@
                         timeEl.textContent = formatTime(currentTime);
                     }
                     updatePiPButton(el, type);
+                } else if (isDockedInMiniHost(el) && type === 'youtube') {
+                    playBtn.style.display = '';
+                    const ytPlayer = el.__canopyMiniYTPlayer;
+                    const ytState = Number(el.__canopyMiniYTState);
+                    const isPaused = ytState === 2;
+                    playBtn.innerHTML = `<i class="bi bi-${isPaused ? 'play-fill' : 'pause-fill'} me-1"></i><span>${isPaused ? 'Play' : 'Pause'}</span>`;
+                    progressWrap.classList.remove('show');
+                    progressBar.style.width = '0%';
+                    if (ytPlayer && typeof ytPlayer.getCurrentTime === 'function') {
+                        try {
+                            const cur = ytPlayer.getCurrentTime();
+                            const dur = ytPlayer.getDuration();
+                            if (dur > 0) {
+                                const pct = Math.max(0, Math.min(100, (cur / dur) * 100));
+                                progressWrap.classList.add('show');
+                                progressBar.style.width = `${pct}%`;
+                                timeEl.textContent = `${formatTime(cur)} / ${formatTime(dur)}`;
+                            } else {
+                                timeEl.textContent = 'YouTube';
+                            }
+                        } catch (_) {
+                            timeEl.textContent = 'YouTube';
+                        }
+                    } else {
+                        timeEl.textContent = 'YouTube';
+                    }
+                    updatePiPButton(null, '');
                 } else {
                     playBtn.style.display = 'none';
                     progressWrap.classList.remove('show');
@@ -2652,11 +2884,34 @@
 
             function jumpToCurrentSource() {
                 if (!state.current || !state.current.el) return;
+                const el = state.current.el;
+
+                if (el.__canopyAutoDockPlaceholder) {
+                    undockYouTube(el);
+                    state.dismissedEl = null;
+                    state.dockedSubtitle = null;
+                    const container = sourceContainer(el);
+                    const scrollTarget = container && container.isConnected ? container : el;
+                    if (scrollTarget.isConnected) {
+                        scrollTarget.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+                        applyFocusFlash(scrollTarget);
+                    }
+                    hideMini();
+                    return;
+                }
+
+                if (state.returnUrl) {
+                    window.location.href = state.returnUrl;
+                    return;
+                }
+
                 const target = state.current.sourceEl && state.current.sourceEl.isConnected
                     ? state.current.sourceEl
-                    : state.current.el;
-                target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
-                applyFocusFlash(target);
+                    : null;
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+                    applyFocusFlash(target);
+                }
             }
 
             if (playBtn) {
@@ -2664,14 +2919,25 @@
                     if (!state.current || !state.current.el) return;
                     const el = state.current.el;
                     const type = state.current.type;
-                    if (!(type === 'audio' || type === 'video')) return;
-                    try {
-                        if (el.paused) {
-                            el.play();
-                        } else {
-                            el.pause();
-                        }
-                    } catch (_) {}
+                    if (type === 'audio' || type === 'video') {
+                        try {
+                            if (el.paused) el.play(); else el.pause();
+                        } catch (_) {}
+                    } else if (type === 'youtube' && isDockedInMiniHost(el)) {
+                        try {
+                            const player = el.__canopyMiniYTPlayer;
+                            if (player) {
+                                const s = player.getPlayerState();
+                                if (s === 1 || s === 3) {
+                                    player.pauseVideo();
+                                    el.__canopyMiniYTState = 2;
+                                } else {
+                                    player.playVideo();
+                                    el.__canopyMiniYTState = 1;
+                                }
+                            }
+                        } catch (_) {}
+                    }
                     setTimeout(updateMini, 50);
                 });
             }
@@ -2719,7 +2985,30 @@
             if (closeBtn) {
                 closeBtn.addEventListener('click', () => {
                     if (state.current && state.current.el) {
-                        state.dismissedEl = state.current.el;
+                        const el = state.current.el;
+                        const type = state.current.type;
+                        if (type === 'youtube') {
+                            try {
+                                const player = el.__canopyMiniYTPlayer;
+                                if (player && typeof player.pauseVideo === 'function') {
+                                    player.pauseVideo();
+                                    el.__canopyMiniYTState = 2;
+                                }
+                            } catch (_) {}
+                            if (el.__canopyAutoDockPlaceholder) {
+                                undockYouTube(el);
+                            } else if (isDockedInMiniHost(el)) {
+                                const wrapper = el.closest('.youtube-embed') || el;
+                                wrapper.remove();
+                            }
+                        }
+                        state.dismissedEl = el;
+                    }
+                    state.returnUrl = null;
+                    state.dockedSubtitle = null;
+                    if (miniVideoHost) {
+                        miniVideoHost.style.display = 'none';
+                        miniVideoHost.innerHTML = '';
                     }
                     hideMini();
                 });
@@ -2760,6 +3049,56 @@
             document.addEventListener('visibilitychange', updateMini);
             state.tickHandle = setInterval(updateMini, 700);
             updateMini();
+
+            window.canopyPersistActiveMedia = function() {
+                if (!state.current || !state.current.el) return;
+                const el = state.current.el;
+                const type = state.current.type;
+                if (type !== 'youtube' || !miniVideoHost) return;
+
+                if (!state.dockedSubtitle) state.dockedSubtitle = sourceSubtitle(el);
+                const sourceEl = state.current.sourceEl;
+                const messageId = sourceEl && sourceEl.getAttribute('data-message-id');
+                state.returnUrl = messageId
+                    ? '/channels/locate?message_id=' + encodeURIComponent(messageId)
+                    : window.location.pathname + window.location.search;
+
+                if (el.__canopyAutoDockPlaceholder) {
+                    var ph = el.__canopyAutoDockPlaceholder;
+                    if (ph.isConnected) ph.remove();
+                    delete el.__canopyAutoDockPlaceholder;
+                }
+
+                if (!isDockedInMiniHost(el)) {
+                    var wrapper = el.closest('.youtube-embed');
+                    if (wrapper) {
+                        miniVideoHost.innerHTML = '';
+                        miniVideoHost.appendChild(wrapper);
+                        miniVideoHost.style.display = 'block';
+                    }
+                }
+
+                try {
+                    var player = el.__canopyMiniYTPlayer;
+                    if (player && typeof player.playVideo === 'function') {
+                        player.playVideo();
+                    }
+                } catch (_) {}
+
+                var retries = 0;
+                var retryId = setInterval(function() {
+                    retries++;
+                    if (retries > 6) { clearInterval(retryId); return; }
+                    try {
+                        var p = el.__canopyMiniYTPlayer;
+                        if (p && typeof p.getPlayerState === 'function') {
+                            var s = p.getPlayerState();
+                            if (s === 1 || s === 3) { clearInterval(retryId); return; }
+                            p.playVideo();
+                        }
+                    } catch (_) { clearInterval(retryId); }
+                }, 800);
+            };
         }
         
         // Three-state Sidebar Toggle Functionality with Mobile Support

@@ -17,6 +17,7 @@ import re
 import secrets
 import threading
 import time
+from datetime import datetime, timezone
 from flask import Flask, jsonify
 from pathlib import Path
 from typing import Any, Optional, cast
@@ -41,10 +42,16 @@ from .mentions import (
     split_mention_targets,
     build_preview,
     record_mention_activity,
-    record_thread_reply_activity,
     broadcast_mention_interaction,
 )
 from ..network.manager import P2PNetworkManager
+from ..network.routing import (
+    decrypt_with_channel_key,
+    decrypt_key_from_peer,
+    encode_channel_key_material,
+    decode_channel_key_material,
+    encrypt_key_for_peer,
+)
 from ..security.encryption import DataEncryptor
 from ..api.routes import create_api_blueprint
 from ..ui.routes import create_ui_blueprint
@@ -255,32 +262,104 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 source_content=source_content,
             )
 
+        def _notify_channel_added(user_id: str, channel_id: str,
+                                   channel_name: str, added_by: Optional[str] = None,
+                                   origin_peer: Optional[str] = None) -> None:
+            """Fire inbox + mention_event notifications when a user is added to a channel."""
+            if not user_id or not channel_id:
+                return
+            import secrets as _sec
+            source_id = f"channel_add_{channel_id}_{user_id}_{_sec.token_hex(4)}"
+            preview = f"You were added to #{channel_name or channel_id[:12]}"
+            if added_by:
+                try:
+                    with db_manager.get_connection() as conn:
+                        adder = conn.execute(
+                            "SELECT display_name, username FROM users WHERE id = ?",
+                            (added_by,),
+                        ).fetchone()
+                    if adder:
+                        adder_name = (adder['display_name'] or adder['username'] or added_by[:12])
+                        preview = f"{adder_name} added you to #{channel_name or channel_id[:12]}"
+                except Exception:
+                    pass
+
+            if mention_manager:
+                try:
+                    mention_manager.record_mentions(
+                        user_ids=[user_id],
+                        source_type='channel_added',
+                        source_id=source_id,
+                        author_id=added_by,
+                        origin_peer=origin_peer,
+                        channel_id=channel_id,
+                        preview=preview,
+                    )
+                except Exception as e:
+                    logger.debug(f"Channel-added mention_event failed: {e}")
+
+            if inbox_manager:
+                try:
+                    inbox_manager.record_mention_triggers(
+                        target_ids=[user_id],
+                        source_type='channel_added',
+                        source_id=source_id,
+                        author_id=added_by,
+                        origin_peer=origin_peer,
+                        channel_id=channel_id,
+                        preview=preview,
+                        trigger_type='channel_added',
+                    )
+                except Exception as e:
+                    logger.debug(f"Channel-added inbox trigger failed: {e}")
+
+            if p2p_manager:
+                try:
+                    p2p_manager.record_activity_event({
+                        'id': f"ch_add:{source_id}",
+                        'peer_id': origin_peer or '',
+                        'kind': 'channel_added',
+                        'timestamp': __import__('time').time(),
+                        'preview': preview,
+                        'ref': {
+                            'channel_id': channel_id,
+                            'channel_name': channel_name,
+                            'user_id': user_id,
+                            'added_by': added_by,
+                        },
+                    })
+                except Exception:
+                    pass
+
         def _ensure_origin_peer(user_id: str, peer_id: str) -> None:
-            """Store origin_peer for shadow users (and only overwrite when missing)."""
+            """Update origin_peer for remote users when they send from a new peer.
+
+            Protects local users (origin_peer is NULL/empty or matches our
+            own peer) from being overwritten, but allows remote users to
+            migrate between peers so member_sync reaches the right place.
+            """
             if not user_id or not peer_id:
                 return
             try:
+                local_peer = p2p_manager.get_peer_id() if p2p_manager else None
                 with db_manager.get_connection() as conn:
                     row = conn.execute(
-                        "SELECT origin_peer, public_key FROM users WHERE id = ?",
+                        "SELECT origin_peer FROM users WHERE id = ?",
                         (user_id,)
                     ).fetchone()
                     if not row:
                         return
-                    current_peer = row['origin_peer'] if 'origin_peer' in row.keys() else None
-                    public_key = row['public_key'] if 'public_key' in row.keys() else ''
+                    current_peer = (row['origin_peer'] if 'origin_peer' in row.keys() else None) or ''
                     if current_peer == peer_id:
                         return
-                    # Avoid overwriting local users with real public keys.
-                    if public_key and current_peer:
-                        return
-                    if current_peer and public_key:
+                    if not current_peer or current_peer == local_peer:
                         return
                     conn.execute(
                         "UPDATE users SET origin_peer = ? WHERE id = ?",
                         (peer_id, user_id)
                     )
                     conn.commit()
+                    logger.info(f"Updated origin_peer for {user_id}: {current_peer} -> {peer_id}")
             except Exception:
                 pass
 
@@ -365,6 +444,64 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 _ensure_origin_peer(user_id, from_peer)
             except Exception as e:
                 logger.warning(f"Shadow user ensure failed for {user_id}: {e}")
+
+        def _resolve_incoming_channel_content(
+            channel_id: str,
+            from_peer: str,
+            content: str,
+            encrypted_content: Optional[str],
+            crypto_state: Optional[str],
+            key_id: Optional[str],
+            nonce: Optional[str],
+        ) -> tuple[str, str, Optional[str], Optional[str], Optional[str], bool]:
+            """Resolve/decrypt incoming channel content for E2E private channels.
+
+            Returns:
+                (content_out, crypto_state_out, encrypted_content_out, key_id_out, nonce_out, key_missing)
+            """
+            state = str(crypto_state or '').strip().lower()
+            if state != 'encrypted' and encrypted_content and key_id and nonce:
+                state = 'encrypted'
+            if state != 'encrypted' or not encrypted_content or not key_id or not nonce:
+                return (content or '', 'plaintext', None, None, None, False)
+
+            key_bytes = channel_manager.get_channel_key_bytes(channel_id, key_id)
+            if not key_bytes:
+                # Ask the channel origin peer for key re-send (best effort).
+                try:
+                    with db_manager.get_connection() as conn:
+                        row = conn.execute(
+                            "SELECT origin_peer FROM channels WHERE id = ?",
+                            (channel_id,),
+                        ).fetchone()
+                    origin_peer = row['origin_peer'] if row and 'origin_peer' in row.keys() else None
+                    if origin_peer and origin_peer != (p2p_manager.get_peer_id() if p2p_manager else None):
+                        p2p_manager.send_channel_key_request(
+                            to_peer=origin_peer,
+                            channel_id=channel_id,
+                            reason='missing_key_for_decrypt',
+                            key_id=key_id,
+                        )
+                except Exception:
+                    pass
+                return ('', 'pending_decrypt', encrypted_content, key_id, nonce, True)
+
+            try:
+                plaintext = decrypt_with_channel_key(
+                    encrypted_content_b64=encrypted_content,
+                    key_material=key_bytes,
+                    nonce_b64=nonce,
+                )
+                return (plaintext, 'decrypted', encrypted_content, key_id, nonce, False)
+            except Exception as dec_err:
+                logger.warning(
+                    "Failed to decrypt channel message for %s key=%s from %s: %s",
+                    channel_id,
+                    key_id,
+                    from_peer,
+                    dec_err,
+                )
+                return ('', 'decrypt_failed', encrypted_content, key_id, nonce, False)
         
         # Wire up P2P <-> channel sync: incoming P2P channel messages
         # get stored in the local channel DB so they appear in the UI.
@@ -377,7 +514,11 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                      update_only: bool = False,
                                      origin_peer: Optional[str] = None,
                                      parent_message_id: Optional[str] = None,
-                                     edited_at: Optional[str] = None) -> None:
+                                     edited_at: Optional[str] = None,
+                                     encrypted_content: Optional[str] = None,
+                                     crypto_state: Optional[str] = None,
+                                     key_id: Optional[str] = None,
+                                     nonce: Optional[str] = None) -> None:
             """Store an incoming P2P channel message locally.
             
             If attachments with embedded 'data' (base64) are present,
@@ -403,7 +544,28 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     # local agent users that were mentioned but whose inbox item
                     # was lost (e.g. due to rate-limiting or the bot being offline
                     # when the message was first processed).
+                    # Skip for private channels with no local members.
+                    _dedup_skip = False
                     if inbox_manager and content:
+                        try:
+                            with db_manager.get_connection() as conn:
+                                _ch = conn.execute(
+                                    "SELECT privacy_mode FROM channels WHERE id = ?",
+                                    (channel_id,)).fetchone()
+                                if _ch and (_ch['privacy_mode'] or 'open').lower() in ('private', 'confidential'):
+                                    _lp = p2p_manager.get_peer_id() if p2p_manager else None
+                                    if not conn.execute(
+                                        "SELECT 1 FROM channel_members cm "
+                                        "JOIN users u ON cm.user_id = u.id "
+                                        "WHERE cm.channel_id = ? "
+                                        "AND (u.origin_peer IS NULL OR u.origin_peer = '' "
+                                        "     OR u.origin_peer = ?) LIMIT 1",
+                                        (channel_id, _lp or ''),
+                                    ).fetchone():
+                                        _dedup_skip = True
+                        except Exception:
+                            pass
+                    if inbox_manager and content and not _dedup_skip:
                         try:
                             mentions = extract_mentions(content)
                             if mentions:
@@ -460,17 +622,6 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 # appear with their own display names.
                 _ensure_shadow_user(user_id, display_name, from_peer)
 
-                # Add to channel
-                try:
-                    with db_manager.get_connection() as conn:
-                        conn.execute("""
-                            INSERT OR IGNORE INTO channel_members
-                            (channel_id, user_id, role) VALUES (?, ?, 'member')
-                        """, (channel_id, user_id))
-                        conn.commit()
-                except Exception:
-                    pass
-
                 # Ensure the channel exists locally (auto-create if received
                 # from a peer who has a channel we don't know about yet).
                 # Fail closed: unknown channels start as private until an
@@ -524,7 +675,22 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 # --- Process file attachments from P2P ---
                 import base64 as _b64
                 processed_attachments = None
-                content_rewritten = content or ''
+                (
+                    content_rewritten,
+                    crypto_state_db,
+                    encrypted_content_db,
+                    key_id_db,
+                    nonce_db,
+                    _key_missing,
+                ) = _resolve_incoming_channel_content(
+                    channel_id=channel_id,
+                    from_peer=from_peer,
+                    content=content,
+                    encrypted_content=encrypted_content,
+                    crypto_state=crypto_state,
+                    key_id=key_id,
+                    nonce=nonce,
+                )
                 if attachments:
                     processed_attachments = []
                     file_id_map = {}  # sender file_id -> local file_id (so we can fix /files/ in content)
@@ -567,7 +733,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     if processed_attachments:
                         message_type = 'file'
                     # Rewrite /files/SENDER_ID in content to /files/LOCAL_ID so inline images load
-                    if content and file_id_map:
+                    if content_rewritten and file_id_map and crypto_state_db in {'plaintext', 'decrypted'}:
                         for orig_id, local_id in file_id_map.items():
                             if orig_id and local_id and orig_id != local_id:
                                 content_rewritten = content_rewritten.replace(
@@ -663,17 +829,34 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     stored_attachments = attachments_json
                     stored_message_type = message_type or 'text'
                     stored_security = security_json
+                    stored_encrypted = encrypted_content_db
+                    stored_crypto_state = crypto_state_db
+                    stored_key_id = key_id_db
+                    stored_nonce = nonce_db
                     if attachments_json is None:
                         try:
                             with db_manager.get_connection() as conn:
                                 row = conn.execute(
-                                    "SELECT attachments, message_type, security FROM channel_messages WHERE id = ?",
+                                    "SELECT attachments, message_type, security, encrypted_content, crypto_state, key_id, nonce "
+                                    "FROM channel_messages WHERE id = ?",
                                     (message_id,)
                                 ).fetchone()
                                 if row:
                                     stored_attachments = row['attachments']
                                     stored_message_type = row['message_type'] or stored_message_type
                                     stored_security = row['security']
+                                    if stored_encrypted is None:
+                                        stored_encrypted = row['encrypted_content']
+                                    if (not stored_key_id) and row['key_id']:
+                                        stored_key_id = row['key_id']
+                                    if (not stored_nonce) and row['nonce']:
+                                        stored_nonce = row['nonce']
+                                    if (
+                                        stored_crypto_state in {'plaintext', 'decrypted'}
+                                        and row['crypto_state'] in {'encrypted', 'pending_decrypt', 'decrypt_failed'}
+                                        and stored_encrypted
+                                    ):
+                                        stored_crypto_state = row['crypto_state']
                         except Exception:
                             pass
 
@@ -681,7 +864,8 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         conn.execute(
                             "UPDATE channel_messages "
                             "SET content = ?, message_type = ?, attachments = ?, security = ?, edited_at = ?, "
-                            "expires_at = ?, ttl_seconds = ?, ttl_mode = ? "
+                            "expires_at = ?, ttl_seconds = ?, ttl_mode = ?, "
+                            "encrypted_content = ?, crypto_state = ?, key_id = ?, nonce = ? "
                             "WHERE id = ?",
                             (
                                 content_rewritten,
@@ -692,6 +876,10 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                 expires_db,
                                 ttl_sec_db,
                                 ttl_mode_db,
+                                stored_encrypted,
+                                stored_crypto_state,
+                                stored_key_id,
+                                stored_nonce,
                                 message_id,
                             )
                         )
@@ -704,15 +892,20 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     conn.execute("""
                         INSERT OR IGNORE INTO channel_messages
                         (id, channel_id, user_id, content, message_type,
-                         attachments, security, created_at, origin_peer, expires_at, ttl_seconds, ttl_mode, parent_message_id)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?, ?, ?, ?, ?)
+                         attachments, security, created_at, origin_peer, expires_at, ttl_seconds, ttl_mode,
+                         parent_message_id, encrypted_content, crypto_state, key_id, nonce)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (mid, channel_id, user_id, content_rewritten,
                           message_type, attachments_json, security_json, normalised_ts,
                           effective_origin_peer,
                           expires_db,
                           int(ttl_seconds) if ttl_seconds is not None else None,
                           (ttl_mode or '').strip() or None,
-                          (parent_message_id or '').strip() or None))
+                          (parent_message_id or '').strip() or None,
+                          encrypted_content_db,
+                          crypto_state_db,
+                          key_id_db,
+                          nonce_db))
                     conn.commit()
 
                 # Mark as processed so catch-up won't re-insert after restart
@@ -725,7 +918,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 try:
                     from .circles import parse_circle_blocks, derive_circle_id
                     if circle_manager:
-                        circle_specs = parse_circle_blocks(content or '')
+                        circle_specs = parse_circle_blocks(content_rewritten or '')
                         if circle_specs:
                             # Messages received over P2P are inherently 'network' —
                             # they already traversed the mesh.  Only downgrade to
@@ -808,47 +1001,92 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     logger.warning(f"Inline circle creation (P2P channel) failed: {circle_err}")
 
                 if not update_only:
-                    mentions = extract_mentions(content or '')
-                    targets = _resolve_local_mentions(
-                        mentions,
-                        channel_id=channel_id,
-                        author_id=user_id,
-                    )
-                    if targets:
-                        preview = build_preview(content or '')
-                        _record_local_mention_events(
-                            targets=targets,
-                            source_type='channel_message',
-                            source_id=mid,
-                            author_id=user_id,
-                            from_peer=from_peer,
-                            channel_id=channel_id,
-                            preview=preview,
-                            source_content=content,
-                        )
-
-                    # Notify thread subscribers for replies (including root
-                    # author auto-subscription unless explicitly muted).
-                    if parent_message_id and inbox_manager:
+                    # For private/confidential channels, only record mentions
+                    # for users who are actual members of the channel.
+                    _skip_mentions = False
+                    if channel_privacy_mode in ('private', 'confidential'):
                         try:
-                            record_thread_reply_activity(
-                                channel_manager=channel_manager,
-                                inbox_manager=inbox_manager,
-                                channel_id=channel_id,
-                                reply_message_id=mid,
-                                parent_message_id=parent_message_id,
-                                author_id=user_id,
-                                origin_peer=from_peer,
-                                source_content=content,
-                                preview=build_preview(content or ''),
-                                mentioned_user_ids=[
-                                    cast(str, t.get('user_id'))
-                                    for t in (targets or [])
-                                    if t.get('user_id')
-                                ],
-                            )
+                            with db_manager.get_connection() as conn:
+                                _local_peer = (p2p_manager.get_peer_id()
+                                               if p2p_manager else None)
+                                _has_local_member = conn.execute(
+                                    "SELECT 1 FROM channel_members cm "
+                                    "JOIN users u ON cm.user_id = u.id "
+                                    "WHERE cm.channel_id = ? "
+                                    "AND (u.origin_peer IS NULL OR u.origin_peer = '' "
+                                    "     OR u.origin_peer = ?) LIMIT 1",
+                                    (channel_id, _local_peer or ''),
+                                ).fetchone()
+                            if not _has_local_member:
+                                _skip_mentions = True
+                        except Exception:
+                            pass
+
+                    if not _skip_mentions:
+                        mentions = extract_mentions(content_rewritten or '')
+                        targets = _resolve_local_mentions(
+                            mentions,
+                            channel_id=channel_id,
+                            author_id=user_id,
+                        )
+                        if targets:
+                            # Further filter: only keep targets who are members
+                            if channel_privacy_mode in ('private', 'confidential'):
+                                member_ids = set()
+                                try:
+                                    with db_manager.get_connection() as conn:
+                                        rows = conn.execute(
+                                            "SELECT user_id FROM channel_members "
+                                            "WHERE channel_id = ?", (channel_id,)
+                                        ).fetchall()
+                                        member_ids = {r['user_id'] for r in rows}
+                                except Exception:
+                                    pass
+                                targets = [t for t in targets
+                                           if t.get('user_id') in member_ids]
+
+                            if targets:
+                                preview = build_preview(content_rewritten or '')
+                                _record_local_mention_events(
+                                    targets=targets,
+                                    source_type='channel_message',
+                                    source_id=mid,
+                                    author_id=user_id,
+                                    from_peer=from_peer,
+                                    channel_id=channel_id,
+                                    preview=preview,
+                                    source_content=content_rewritten,
+                                )
+
+                    # Notify original author when their message is replied to
+                    # (parent_message_id set but author not already @mentioned).
+                    if parent_message_id and inbox_manager and not _skip_mentions:
+                        try:
+                            with db_manager.get_connection() as conn:
+                                parent_row = conn.execute(
+                                    "SELECT user_id FROM channel_messages WHERE id = ?",
+                                    (parent_message_id,)
+                                ).fetchone()
+                            if parent_row:
+                                parent_author_id = parent_row['user_id'] if hasattr(parent_row, '__getitem__') else parent_row[0]
+                                already_mentioned = any(
+                                    t.get('user_id') == parent_author_id for t in (targets or [])
+                                )
+                                if not already_mentioned and parent_author_id != user_id:
+                                    preview = build_preview(content_rewritten or '')
+                                    inbox_manager.record_mention_triggers(
+                                        target_ids=[parent_author_id],
+                                        source_type='channel_message',
+                                        source_id=mid,
+                                        author_id=user_id,
+                                        origin_peer=from_peer,
+                                        channel_id=channel_id,
+                                        preview=preview,
+                                        source_content=content_rewritten,
+                                        trigger_type='reply',
+                                    )
                         except Exception as _reply_err:
-                            logger.debug(f"Thread reply inbox trigger skipped: {_reply_err}")
+                            logger.debug(f"Reply-to-author inbox trigger skipped: {_reply_err}")
 
                     # Inline tasks from [task] blocks
                     try:
@@ -1116,7 +1354,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     from .contracts import parse_contract_blocks, derive_contract_id
                     contract_manager = app.config.get('CONTRACT_MANAGER')
                     if contract_manager:
-                        contract_specs = parse_contract_blocks(content or '')
+                        contract_specs = parse_contract_blocks(content_rewritten or '')
                         if contract_specs:
                             contract_visibility = 'network'
                             try:
@@ -1198,7 +1436,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     from .requests import parse_request_blocks, derive_request_id
                     request_manager = app.config.get('REQUEST_MANAGER')
                     if request_manager:
-                        req_specs = parse_request_blocks(content or '')
+                        req_specs = parse_request_blocks(content_rewritten or '')
                         if req_specs:
                             req_visibility = 'network'
                             try:
@@ -1249,7 +1487,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     from .handoffs import parse_handoff_blocks, derive_handoff_id
                     handoff_manager = app.config.get('HANDOFF_MANAGER')
                     if handoff_manager:
-                        handoff_specs = parse_handoff_blocks(content or '')
+                        handoff_specs = parse_handoff_blocks(content_rewritten or '')
                         if handoff_specs:
                             handoff_visibility = 'network'
                             try:
@@ -1294,7 +1532,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     skill_manager = app.config.get('SKILL_MANAGER')
                     if skill_manager:
                         from .skills import parse_skill_blocks
-                        skill_specs = parse_skill_blocks(content or '')
+                        skill_specs = parse_skill_blocks(content_rewritten or '')
                         for skill_spec in skill_specs:
                             skill_manager.register_skill(
                                 skill_spec,
@@ -1314,7 +1552,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
         # --- Channel announce callback ---
         def _on_channel_announce(channel_id, name, channel_type,
-                                  description, created_by_peer, privacy_mode,
+                                  description, created_by_peer, created_by_user_id, privacy_mode,
                                   from_peer, initial_members=None):
             """Handle a CHANNEL_ANNOUNCE from a connected peer.
 
@@ -1343,26 +1581,73 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     initial_members = None
 
                 if is_targeted:
-                    # Targeted channel announce — create with specific members
+                    # Targeted channel announce — create with specific members.
+                    # Filter initial_members to only users that are genuinely
+                    # local to this peer (origin_peer matches or is empty/null).
+                    # This prevents relay peers from adding shadow-user members
+                    # for users that actually live on a different machine.
                     targeted_mode = mode if mode in {'private', 'confidential'} else 'private'
+                    creator_hint = str(created_by_user_id or '').strip() or None
+
+                    local_members: list[str] = []
+                    if initial_members:
+                        local_peer_id = ''
+                        try:
+                            local_peer_id = str(p2p_manager.get_peer_id() or '').strip() if p2p_manager else ''
+                        except Exception:
+                            pass
+                        with db_manager.get_connection() as conn:
+                            for uid in initial_members:
+                                uid_s = str(uid).strip()
+                                if not uid_s:
+                                    continue
+                                urow = conn.execute(
+                                    "SELECT origin_peer FROM users WHERE id = ?",
+                                    (uid_s,),
+                                ).fetchone()
+                                if not urow:
+                                    continue
+                                u_origin = str((urow['origin_peer'] if hasattr(urow, 'keys') and 'origin_peer' in urow.keys() else '') or '').strip()
+                                if not u_origin or u_origin == local_peer_id:
+                                    local_members.append(uid_s)
+
+                    if not local_members and initial_members:
+                        logger.debug(
+                            f"Targeted channel announce {channel_id} from {from_peer}: "
+                            f"none of {len(initial_members)} member(s) are local, skipping"
+                        )
+                        return
+
                     logger.info(f"Targeted channel announce {channel_id} ('{name}') from {from_peer}, "
-                                f"initial_members={initial_members}")
+                                f"initial_members={initial_members}, local_members={local_members}")
                     result = channel_manager.create_channel_from_sync(
                         channel_id=channel_id,
                         name=name,
                         channel_type=channel_type,
                         description=description,
-                        local_user_id=cast(str, None),
+                        local_user_id=creator_hint,
                         origin_peer=from_peer,
                         privacy_mode=targeted_mode,
-                        initial_members=initial_members or [],
+                        initial_members=local_members,
                     )
                     if result:
                         logger.info(f"Created targeted channel {channel_id} from {from_peer} "
-                                    f"with {len(initial_members or [])} targeted member(s)")
+                                    f"with {len(local_members)} local member(s)")
                     else:
-                        logger.debug(f"Targeted channel announce from {from_peer}: "
-                                     f"'{name}' ({channel_id}) already exists, skipped")
+                        # Channel exists — add any local members not yet in it
+                        if local_members:
+                            with db_manager.get_connection() as conn:
+                                for uid in local_members:
+                                    conn.execute(
+                                        "INSERT OR IGNORE INTO channel_members "
+                                        "(channel_id, user_id, role) VALUES (?, ?, 'member')",
+                                        (channel_id, uid),
+                                    )
+                                conn.commit()
+                            logger.info(
+                                f"Targeted channel announce {channel_id}: added {len(local_members)} "
+                                f"local member(s) to existing channel"
+                            )
                     return
 
                 # Public channel — existing merge/adopt logic
@@ -1378,12 +1663,13 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 except Exception:
                     pass
 
+                creator_hint = str(created_by_user_id or '').strip() or None
                 merge_result = channel_manager.merge_or_adopt_channel(
                     remote_id=channel_id,
                     remote_name=name,
                     remote_type=channel_type,
                     remote_desc=description,
-                    local_user_id=local_user,
+                    local_user_id=creator_hint or local_user,
                     from_peer=from_peer,
                     privacy_mode=mode,
                 )
@@ -1399,10 +1685,33 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
         p2p_manager.on_channel_announce = _on_channel_announce
 
+        def _send_member_sync_ack(sync_id: Optional[str], to_peer: Optional[str],
+                                  status: str = 'ok', error: Optional[str] = None,
+                                  channel_id: Optional[str] = None,
+                                  target_user_id: Optional[str] = None,
+                                  action: Optional[str] = None) -> None:
+            """Best-effort ack for member_sync delivery/application."""
+            sid = str(sync_id or '').strip()
+            peer = str(to_peer or '').strip()
+            if not sid or not peer or not p2p_manager:
+                return
+            try:
+                p2p_manager.send_member_sync_ack(
+                    to_peer=peer,
+                    sync_id=sid,
+                    status=status,
+                    error=error,
+                    channel_id=channel_id,
+                    target_user_id=target_user_id,
+                    action=action,
+                )
+            except Exception:
+                pass
+
         # --- Member sync callback (private channel membership propagation) ---
         def _on_member_sync(channel_id, target_user_id, action, role,
                             channel_name, channel_type, channel_description,
-                            privacy_mode, from_peer):
+                            privacy_mode, sync_id, from_peer):
             """Handle a MEMBER_SYNC from a remote peer.
 
             When a member is added/removed from a private channel on a remote
@@ -1410,14 +1719,29 @@ def create_app(config: Optional[Config] = None) -> Flask:
             the specified user.
             """
             try:
+                channel_id = str(channel_id or '').strip()
+                target_user_id = str(target_user_id or '').strip()
+                action = str(action or '').strip().lower()
+                role = str(role or 'member').strip().lower() or 'member'
                 logger.info(f"Member sync from {from_peer}: {action} user {target_user_id} "
                             f"in channel {channel_id}")
 
+                if not channel_id or not target_user_id or action not in {'add', 'remove'}:
+                    _send_member_sync_ack(
+                        sync_id=sync_id,
+                        to_peer=from_peer,
+                        status='error',
+                        error='invalid_payload',
+                        channel_id=channel_id or None,
+                        target_user_id=target_user_id or None,
+                        action=action or None,
+                    )
+                    return
+
                 # SECURITY: Validate that target_user_id exists locally
-                # and belongs to the sending peer (prevents spoofing)
                 with db_manager.get_connection() as conn:
                     user_check = conn.execute(
-                        "SELECT id, origin_peer FROM users WHERE id = ?",
+                        "SELECT id FROM users WHERE id = ?",
                         (target_user_id,)
                     ).fetchone()
 
@@ -1426,16 +1750,43 @@ def create_app(config: Optional[Config] = None) -> Flask:
                             f"SECURITY: Rejected member_sync from {from_peer}: "
                             f"user {target_user_id} does not exist locally"
                         )
-                        return
-
-                    # Verify the user belongs to the sending peer
-                    user_origin = user_check['origin_peer'] if 'origin_peer' in user_check.keys() else None
-                    if user_origin and user_origin != from_peer:
-                        logger.warning(
-                            f"SECURITY: Rejected member_sync from {from_peer}: "
-                            f"user {target_user_id} belongs to peer {user_origin}, not {from_peer}"
+                        _send_member_sync_ack(
+                            sync_id=sync_id,
+                            to_peer=from_peer,
+                            status='error',
+                            error='unknown_target_user',
+                            channel_id=channel_id,
+                            target_user_id=target_user_id,
+                            action=action,
                         )
                         return
+
+                    # Verify sender has authority over the channel.
+                    # If the channel exists locally, its origin_peer must
+                    # match the sending peer.  For new channels (not yet
+                    # created locally) we accept — create_channel_from_sync
+                    # will record from_peer as origin.
+                    ch_row = conn.execute(
+                        "SELECT origin_peer FROM channels WHERE id = ?",
+                        (channel_id,)
+                    ).fetchone()
+                    if ch_row:
+                        ch_origin = ch_row['origin_peer'] if 'origin_peer' in ch_row.keys() else None
+                        if ch_origin and ch_origin != from_peer:
+                            logger.warning(
+                                f"SECURITY: Rejected member_sync from {from_peer}: "
+                                f"channel {channel_id} belongs to peer {ch_origin}"
+                            )
+                            _send_member_sync_ack(
+                                sync_id=sync_id,
+                                to_peer=from_peer,
+                                status='error',
+                                error='unauthorized_sender',
+                                channel_id=channel_id,
+                                target_user_id=target_user_id,
+                                action=action,
+                            )
+                            return
 
                 if action == 'add':
                     # Ensure channel exists locally
@@ -1464,6 +1815,14 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                 (channel_id, target_user_id, role or 'member'))
                             conn.commit()
                     logger.info(f"Member sync: added {target_user_id} to {channel_id}")
+
+                    _notify_channel_added(
+                        user_id=target_user_id,
+                        channel_id=channel_id,
+                        channel_name=channel_name or '',
+                        added_by=None,
+                        origin_peer=from_peer,
+                    )
 
                     # Recover any mention inbox items that may have raced ahead
                     # of membership sync delivery for this user/channel.
@@ -1513,10 +1872,624 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         conn.commit()
                     logger.info(f"Member sync: removed {target_user_id} from {channel_id}")
 
+                _send_member_sync_ack(
+                    sync_id=sync_id,
+                    to_peer=from_peer,
+                    status='ok',
+                    error=None,
+                    channel_id=channel_id,
+                    target_user_id=target_user_id,
+                    action=action,
+                )
+
             except Exception as e:
                 logger.error(f"Failed to handle member sync: {e}", exc_info=True)
+                _send_member_sync_ack(
+                    sync_id=sync_id,
+                    to_peer=from_peer,
+                    status='error',
+                    error='internal_error',
+                    channel_id=str(channel_id or '').strip() or None,
+                    target_user_id=str(target_user_id or '').strip() or None,
+                    action=str(action or '').strip().lower() or None,
+                )
 
         p2p_manager.on_member_sync = _on_member_sync
+
+        def _on_member_sync_ack(sync_id, status, error, channel_id, target_user_id, action, from_peer):
+            """Persist member_sync acknowledgement for retry/audit handling."""
+            sid = str(sync_id or '').strip()
+            if not sid:
+                return
+            ok = channel_manager.mark_member_sync_delivery_acked(
+                sync_id=sid,
+                status=status or 'ok',
+                error=error,
+            )
+            if not ok:
+                logger.debug(
+                    "Member sync ack received for unknown sync_id=%s from %s",
+                    sid,
+                    from_peer,
+                )
+
+        p2p_manager.on_member_sync_ack = _on_member_sync_ack
+
+        # --- Channel key callbacks (phase-2 E2E implementation) ---
+        def _backfill_pending_decrypt_for_key(channel_id: str, key_id: str, key_bytes: bytes) -> None:
+            """Decrypt and backfill messages waiting on a newly received key."""
+            pending_rows = channel_manager.get_pending_decrypt_messages(channel_id, key_id)
+            if not pending_rows:
+                return
+            for pending in pending_rows:
+                message_id = pending.get('id')
+                encrypted_blob = pending.get('encrypted_content')
+                nonce_blob = pending.get('nonce')
+                if not message_id or not encrypted_blob or not nonce_blob:
+                    channel_manager.update_message_decrypt(
+                        message_id=message_id or '',
+                        content='',
+                        new_state='decrypt_failed',
+                    )
+                    continue
+                try:
+                    plaintext = decrypt_with_channel_key(
+                        encrypted_content_b64=encrypted_blob,
+                        key_material=key_bytes,
+                        nonce_b64=nonce_blob,
+                    )
+                    channel_manager.update_message_decrypt(
+                        message_id=message_id,
+                        content=plaintext,
+                        new_state='decrypted',
+                    )
+                    author_id = str(pending.get('user_id') or '').strip()
+                    origin_for_event = str(pending.get('origin_peer') or '').strip()
+                    parent_message_id = str(pending.get('parent_message_id') or '').strip()
+
+                    mentions = extract_mentions(plaintext or '')
+                    local_targets = _resolve_local_mentions(
+                        mentions,
+                        channel_id=channel_id,
+                        author_id=author_id or None,
+                    )
+                    if local_targets:
+                        _record_local_mention_events(
+                            targets=local_targets,
+                            source_type='channel_message',
+                            source_id=message_id,
+                            author_id=author_id,
+                            from_peer=origin_for_event,
+                            channel_id=channel_id,
+                            preview=build_preview(plaintext or ''),
+                            source_content=plaintext,
+                        )
+
+                    if parent_message_id and inbox_manager:
+                        try:
+                            with db_manager.get_connection() as conn:
+                                parent_row = conn.execute(
+                                    "SELECT user_id FROM channel_messages WHERE id = ?",
+                                    (parent_message_id,),
+                                ).fetchone()
+                            if parent_row:
+                                parent_author_id = (
+                                    parent_row['user_id']
+                                    if hasattr(parent_row, 'keys') and 'user_id' in parent_row.keys()
+                                    else parent_row[0]
+                                )
+                                already_mentioned = any(
+                                    t.get('user_id') == parent_author_id for t in (local_targets or [])
+                                )
+                                if (
+                                    parent_author_id
+                                    and parent_author_id != author_id
+                                    and not already_mentioned
+                                ):
+                                    inbox_manager.record_mention_triggers(
+                                        target_ids=[parent_author_id],
+                                        source_type='channel_message',
+                                        source_id=message_id,
+                                        author_id=author_id or None,
+                                        origin_peer=origin_for_event or None,
+                                        channel_id=channel_id,
+                                        preview=build_preview(plaintext or ''),
+                                        source_content=plaintext,
+                                        trigger_type='reply',
+                                    )
+                        except Exception as reply_err:
+                            logger.debug(
+                                "Pending decrypt reply trigger skipped for %s in %s: %s",
+                                message_id,
+                                channel_id,
+                                reply_err,
+                            )
+                except Exception as dec_err:
+                    logger.debug(
+                        "Pending decrypt failed for %s in %s key=%s: %s",
+                        message_id,
+                        channel_id,
+                        key_id,
+                        dec_err,
+                    )
+                    channel_manager.update_message_decrypt(
+                        message_id=message_id,
+                        content='',
+                        new_state='decrypt_failed',
+                    )
+
+        def _on_channel_key_distribution(channel_id, key_id, encrypted_key,
+                                         key_version, rotated_from, from_peer):
+            """Unwrap, store, and apply a channel key received from a trusted origin."""
+            try:
+                if not channel_id or not key_id or not encrypted_key:
+                    logger.warning(
+                        "Ignoring invalid channel key distribution from %s (channel=%s key=%s)",
+                        from_peer, channel_id, key_id,
+                    )
+                    return
+
+                # Sender must be channel authority (origin peer) when channel exists.
+                ch_origin = None
+                with db_manager.get_connection() as conn:
+                    ch_row = conn.execute(
+                        "SELECT origin_peer FROM channels WHERE id = ?",
+                        (channel_id,),
+                    ).fetchone()
+                if ch_row:
+                    ch_origin = ch_row['origin_peer'] if 'origin_peer' in ch_row.keys() else None
+                    if ch_origin and ch_origin != from_peer:
+                        logger.warning(
+                            "SECURITY: Rejected channel key distribution for %s from %s (origin=%s)",
+                            channel_id,
+                            from_peer,
+                            ch_origin,
+                        )
+                        p2p_manager.send_channel_key_ack(
+                            to_peer=from_peer,
+                            channel_id=channel_id,
+                            key_id=key_id,
+                            status='error',
+                            error='unauthorized_sender',
+                        )
+                        return
+                else:
+                    # Channel metadata may race with key delivery. Create a safe placeholder.
+                    channel_manager.create_channel_from_sync(
+                        channel_id=channel_id,
+                        name=f'private-{channel_id[:8]}',
+                        channel_type='private',
+                        description='Auto-created from channel key distribution',
+                        local_user_id=cast(str, None),
+                        origin_peer=from_peer,
+                        privacy_mode='private',
+                        initial_members=None,
+                    )
+
+                sender_identity = p2p_manager.identity_manager.get_peer(from_peer)
+                local_identity = p2p_manager.identity_manager.local_identity
+                key_bytes = None
+                if sender_identity and local_identity:
+                    try:
+                        key_bytes = decrypt_key_from_peer(
+                            wrapped_key_hex=encrypted_key,
+                            local_identity=local_identity,
+                            sender_identity=sender_identity,
+                        )
+                    except Exception:
+                        key_bytes = None
+                if key_bytes is None:
+                    # Backward compatibility with scaffold payloads.
+                    key_bytes = decode_channel_key_material(encrypted_key)
+                if key_bytes is None:
+                    logger.warning(
+                        "Failed to decrypt channel key distribution %s/%s from %s",
+                        channel_id,
+                        key_id,
+                        from_peer,
+                    )
+                    p2p_manager.send_channel_key_ack(
+                        to_peer=from_peer,
+                        channel_id=channel_id,
+                        key_id=key_id,
+                        status='error',
+                        error='decrypt_failed',
+                    )
+                    return
+
+                metadata = {
+                    'key_version': key_version,
+                    'rotated_from': rotated_from,
+                    'received_from_peer': from_peer,
+                    'received_at': datetime.now(timezone.utc).isoformat(),
+                    'algorithm': 'chacha20poly1305',
+                }
+                stored = channel_manager.upsert_channel_key(
+                    channel_id=channel_id,
+                    key_id=key_id,
+                    key_material_enc=encode_channel_key_material(key_bytes),
+                    created_by_peer=from_peer,
+                    metadata=metadata,
+                )
+                if not stored:
+                    logger.warning(
+                        "Failed to store channel key distribution %s/%s from %s",
+                        channel_id,
+                        key_id,
+                        from_peer,
+                    )
+                    p2p_manager.send_channel_key_ack(
+                        to_peer=from_peer,
+                        channel_id=channel_id,
+                        key_id=key_id,
+                        status='error',
+                        error='store_failed',
+                    )
+                    return
+
+                # Receiving a valid channel key implies E2E mode for this channel.
+                try:
+                    channel_manager.set_channel_crypto_mode(channel_id, ChannelManager.CRYPTO_MODE_E2E_OPTIONAL)
+                except Exception:
+                    pass
+
+                channel_manager.upsert_channel_member_key_state(
+                    channel_id=channel_id,
+                    key_id=key_id,
+                    peer_id=from_peer,
+                    delivery_state='received',
+                    delivered=True,
+                )
+                _backfill_pending_decrypt_for_key(channel_id, key_id, key_bytes)
+                p2p_manager.send_channel_key_ack(
+                    to_peer=from_peer,
+                    channel_id=channel_id,
+                    key_id=key_id,
+                    status='ok',
+                )
+                logger.info(
+                    "Imported channel key for %s key=%s from peer %s",
+                    channel_id,
+                    key_id,
+                    from_peer,
+                )
+            except Exception as e:
+                logger.error(f"Failed to handle channel key distribution: {e}", exc_info=True)
+
+        p2p_manager.on_channel_key_distribution = _on_channel_key_distribution
+
+        def _on_channel_key_request(channel_id, requesting_peer, reason, key_id, from_peer):
+            """Respond to key requests when this peer is the channel authority."""
+            try:
+                if not channel_id:
+                    return
+                req_peer = requesting_peer or from_peer
+                logger.info(
+                    "Channel key request for %s from peer %s (requesting=%s reason=%s key_id=%s)",
+                    channel_id, from_peer, req_peer, reason or 'missing_key', key_id,
+                )
+
+                requested_key_id = str(key_id or '').strip()
+
+                def _send_request_error(error_code: str) -> None:
+                    if not requested_key_id:
+                        return
+                    try:
+                        p2p_manager.send_channel_key_ack(
+                            to_peer=from_peer,
+                            channel_id=channel_id,
+                            key_id=requested_key_id,
+                            status='error',
+                            error=error_code,
+                        )
+                    except Exception:
+                        pass
+
+                if not req_peer:
+                    _send_request_error('missing_requester_peer')
+                    return
+                local_peer = p2p_manager.get_peer_id() if p2p_manager else None
+                if not local_peer:
+                    _send_request_error('local_peer_unavailable')
+                    return
+                with db_manager.get_connection() as conn:
+                    row = conn.execute(
+                        "SELECT origin_peer FROM channels WHERE id = ?",
+                        (channel_id,),
+                    ).fetchone()
+                    member_peer = conn.execute(
+                        "SELECT 1 FROM channel_members cm "
+                        "JOIN users u ON cm.user_id = u.id "
+                        "WHERE cm.channel_id = ? AND u.origin_peer = ? LIMIT 1",
+                        (channel_id, req_peer),
+                    ).fetchone()
+                channel_origin = row['origin_peer'] if row and 'origin_peer' in row.keys() else None
+                if channel_origin and channel_origin != local_peer:
+                    _send_request_error('not_channel_origin')
+                    return
+                if not member_peer:
+                    _send_request_error('requester_not_member')
+                    return
+
+                active_key = channel_manager.get_active_channel_key(channel_id)
+                if not active_key:
+                    _send_request_error('active_key_missing')
+                    return
+                key_bytes = channel_manager.decode_channel_key_material(
+                    active_key.get('key_material_enc')
+                )
+                if not key_bytes:
+                    _send_request_error('key_decode_failed')
+                    return
+                recipient_identity = p2p_manager.identity_manager.get_peer(req_peer)
+                local_identity = p2p_manager.identity_manager.local_identity
+                if not recipient_identity or not local_identity:
+                    _send_request_error('unknown_requester_identity')
+                    return
+                wrapped_key = encrypt_key_for_peer(
+                    key_material=key_bytes,
+                    local_identity=local_identity,
+                    recipient_identity=recipient_identity,
+                )
+                sent = p2p_manager.send_channel_key_distribution(
+                    to_peer=req_peer,
+                    channel_id=channel_id,
+                    key_id=active_key['key_id'],
+                    encrypted_key=wrapped_key,
+                    key_version=int((active_key.get('metadata') or {}).get('key_version') or 1),
+                    rotated_from=(active_key.get('metadata') or {}).get('rotated_from'),
+                )
+                state = 'delivered' if sent else 'failed'
+                channel_manager.upsert_channel_member_key_state(
+                    channel_id=channel_id,
+                    key_id=active_key['key_id'],
+                    peer_id=req_peer,
+                    delivery_state=state,
+                    delivered=sent,
+                    last_error=None if sent else 'send_failed',
+                )
+                if not sent:
+                    _send_request_error('send_failed')
+            except Exception as e:
+                logger.error(f"Failed to handle channel key request: {e}", exc_info=True)
+
+        p2p_manager.on_channel_key_request = _on_channel_key_request
+
+        def _on_channel_key_ack(channel_id, key_id, status, error, from_peer):
+            """Persist key-delivery acknowledgement state."""
+            try:
+                if not channel_id or not key_id or not from_peer:
+                    return
+                if not channel_manager.get_channel_key(channel_id, key_id):
+                    logger.debug(
+                        "Ignoring channel key ack for unknown key %s/%s from %s (status=%s)",
+                        channel_id,
+                        key_id,
+                        from_peer,
+                        status,
+                    )
+                    return
+                state = 'acked' if str(status or '').lower() == 'ok' else 'failed'
+                channel_manager.upsert_channel_member_key_state(
+                    channel_id=channel_id,
+                    key_id=key_id,
+                    peer_id=from_peer,
+                    delivery_state=state,
+                    last_error=error,
+                    delivered=True,
+                    acked=(state == 'acked'),
+                )
+            except Exception as e:
+                logger.error(f"Failed to handle channel key ack: {e}", exc_info=True)
+
+        p2p_manager.on_channel_key_ack = _on_channel_key_ack
+
+        def _mark_stale_pending_decrypt() -> None:
+            """Bound pending_decrypt backlog so old ciphertext does not linger forever."""
+            try:
+                max_age_hours = int(os.getenv('CANOPY_PENDING_DECRYPT_MAX_AGE_HOURS', '24'))
+            except Exception:
+                max_age_hours = 24
+            try:
+                sweep_limit = int(os.getenv('CANOPY_PENDING_DECRYPT_SWEEP_LIMIT', '1000'))
+            except Exception:
+                sweep_limit = 1000
+
+            marked = channel_manager.mark_stale_pending_decrypt(
+                max_age_hours=max_age_hours,
+                limit=sweep_limit,
+            )
+            if marked:
+                logger.info(
+                    "Marked %d stale pending_decrypt message(s) as decrypt_failed (max_age=%sh)",
+                    marked,
+                    max_age_hours,
+                )
+
+        def _retry_member_sync_delivery_for_peer(peer_id: str) -> None:
+            """Retry pending member-sync deliveries when a peer reconnects."""
+            if not peer_id or not p2p_manager:
+                return
+
+            try:
+                min_retry_seconds = int(os.getenv('CANOPY_MEMBER_SYNC_RETRY_MIN_SECONDS', '10'))
+            except Exception:
+                min_retry_seconds = 10
+            try:
+                max_attempts = int(os.getenv('CANOPY_MEMBER_SYNC_RETRY_MAX_ATTEMPTS', '8'))
+            except Exception:
+                max_attempts = 8
+
+            retries = channel_manager.get_retryable_member_sync_deliveries(
+                peer_id=peer_id,
+                limit=256,
+                min_retry_seconds=max(1, min_retry_seconds),
+                max_attempts=max(1, max_attempts),
+            )
+            if not retries:
+                return
+
+            sent_count = 0
+            for item in retries:
+                sync_id = str(item.get('sync_id') or '').strip()
+                channel_id_retry = str(item.get('channel_id') or '').strip()
+                target_user_id_retry = str(item.get('target_user_id') or '').strip()
+                action_retry = str(item.get('action') or '').strip().lower()
+                role_retry = str(item.get('role') or 'member').strip().lower() or 'member'
+                if not sync_id or not channel_id_retry or not target_user_id_retry or action_retry not in {'add', 'remove'}:
+                    if sync_id:
+                        channel_manager.mark_member_sync_delivery_attempt(
+                            sync_id=sync_id,
+                            sent=False,
+                            error='invalid_retry_payload',
+                        )
+                    continue
+
+                payload = item.get('payload') or {}
+                sent = p2p_manager.broadcast_member_sync(
+                    channel_id=channel_id_retry,
+                    target_user_id=target_user_id_retry,
+                    action=action_retry,
+                    target_peer_id=peer_id,
+                    role=role_retry,
+                    channel_name=str(payload.get('channel_name') or ''),
+                    channel_type=str(payload.get('channel_type') or 'private'),
+                    channel_description=str(payload.get('channel_description') or ''),
+                    privacy_mode=str(payload.get('privacy_mode') or 'private'),
+                    sync_id=sync_id,
+                )
+                channel_manager.mark_member_sync_delivery_attempt(
+                    sync_id=sync_id,
+                    sent=sent,
+                    error=None if sent else 'send_failed',
+                )
+                if sent:
+                    sent_count += 1
+
+            if sent_count:
+                logger.info(
+                    "Retried %d member-sync delivery item(s) to peer %s",
+                    sent_count,
+                    peer_id,
+                )
+
+        def _retry_channel_key_delivery_for_peer(peer_id: str) -> None:
+            """Retry pending/failed channel-key deliveries when a peer reconnects."""
+            if not peer_id:
+                return
+            retries = channel_manager.get_retryable_channel_member_key_states(peer_id, limit=256)
+            if not retries:
+                return
+
+            local_identity = p2p_manager.identity_manager.local_identity if p2p_manager else None
+            recipient_identity = (
+                p2p_manager.identity_manager.get_peer(peer_id)
+                if p2p_manager and p2p_manager.identity_manager
+                else None
+            )
+            if not local_identity or not recipient_identity:
+                for item in retries:
+                    channel_manager.upsert_channel_member_key_state(
+                        channel_id=item['channel_id'],
+                        key_id=item['key_id'],
+                        peer_id=peer_id,
+                        delivery_state='failed',
+                        last_error='unknown_peer_identity',
+                    )
+                return
+
+            sent_count = 0
+            for item in retries:
+                channel_id_retry = str(item.get('channel_id') or '').strip()
+                key_id_retry = str(item.get('key_id') or '').strip()
+                key_material_enc = item.get('key_material_enc')
+                metadata_retry = item.get('metadata') or {}
+                if not channel_id_retry or not key_id_retry or not key_material_enc:
+                    continue
+                key_bytes_retry = channel_manager.decode_channel_key_material(key_material_enc)
+                if not key_bytes_retry:
+                    channel_manager.upsert_channel_member_key_state(
+                        channel_id=channel_id_retry,
+                        key_id=key_id_retry,
+                        peer_id=peer_id,
+                        delivery_state='failed',
+                        last_error='decode_failed',
+                    )
+                    continue
+                try:
+                    wrapped_retry = encrypt_key_for_peer(
+                        key_material=key_bytes_retry,
+                        local_identity=local_identity,
+                        recipient_identity=recipient_identity,
+                    )
+                except Exception as wrap_err:
+                    channel_manager.upsert_channel_member_key_state(
+                        channel_id=channel_id_retry,
+                        key_id=key_id_retry,
+                        peer_id=peer_id,
+                        delivery_state='failed',
+                        last_error=f'wrap_failed:{wrap_err}',
+                    )
+                    continue
+
+                channel_manager.upsert_channel_member_key_state(
+                    channel_id=channel_id_retry,
+                    key_id=key_id_retry,
+                    peer_id=peer_id,
+                    delivery_state='pending',
+                    last_error=None,
+                )
+                sent_retry = p2p_manager.send_channel_key_distribution(
+                    to_peer=peer_id,
+                    channel_id=channel_id_retry,
+                    key_id=key_id_retry,
+                    encrypted_key=wrapped_retry,
+                    key_version=int(metadata_retry.get('key_version') or 1),
+                    rotated_from=metadata_retry.get('rotated_from'),
+                )
+                channel_manager.upsert_channel_member_key_state(
+                    channel_id=channel_id_retry,
+                    key_id=key_id_retry,
+                    peer_id=peer_id,
+                    delivery_state='delivered' if sent_retry else 'failed',
+                    delivered=sent_retry,
+                    last_error=None if sent_retry else 'send_failed',
+                )
+                if sent_retry:
+                    sent_count += 1
+
+            if sent_count:
+                logger.info(
+                    "Retried %d channel-key delivery item(s) to peer %s",
+                    sent_count,
+                    peer_id,
+                )
+
+        def _on_peer_connected(peer_id: str) -> None:
+            """Schedule non-blocking key-delivery retry when a peer connects."""
+            if not peer_id:
+                return
+
+            def _worker() -> None:
+                try:
+                    _mark_stale_pending_decrypt()
+                    _retry_member_sync_delivery_for_peer(peer_id)
+                    _retry_channel_key_delivery_for_peer(peer_id)
+                except Exception as retry_err:
+                    logger.debug(
+                        "Peer-connect retry worker failed for %s: %s",
+                        peer_id,
+                        retry_err,
+                    )
+
+            threading.Thread(
+                target=_worker,
+                name=f"canopy-key-retry-{peer_id[:8]}",
+                daemon=True,
+            ).start()
+
+        p2p_manager.on_peer_connected = _on_peer_connected
+        _mark_stale_pending_decrypt()
 
         # --- Channel sync callback ---
         def _on_channel_sync(channels, from_peer):
@@ -1637,44 +2610,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 # Get all local channels (peer may not know about some)
                 local_ts = channel_manager.get_channel_latest_timestamps()
 
-                # Build set of restricted channel IDs for filtering
-                local_peer_id = p2p_manager.get_peer_id() if p2p_manager else None
-                _private_channels = set()
-                try:
-                    with db_manager.get_connection() as conn:
-                        priv_rows = conn.execute(
-                            "SELECT id FROM channels "
-                            "WHERE COALESCE(privacy_mode, 'open') IN ('private', 'confidential')"
-                        ).fetchall()
-                        _private_channels = {r[0] for r in priv_rows}
-                except Exception:
-                    pass
+                # Relay all channels (including restricted) so messages
+                # can propagate through intermediary peers.  Content
+                # confidentiality will be enforced via E2E encryption;
+                # access-control filtering was removed to fix relay gaps.
 
                 for ch_id, local_latest in local_ts.items():
-                    # Skip restricted channels if the requesting peer has no members.
-                    if ch_id in _private_channels:
-                        member_peers = channel_manager.get_member_peer_ids(
-                            ch_id, local_peer_id)
-                        if from_peer not in member_peers:
-                            # SECURITY: Log denied catch-up access for audit, but
-                            # throttle repeats to avoid log floods during periodic
-                            # catch-up loops.
-                            deny_key = (from_peer, ch_id)
-                            now_ts = time.time()
-                            last_logged = denied_catchup_audit_ts.get(deny_key, 0.0)
-                            if now_ts - last_logged >= denied_catchup_audit_interval_s:
-                                denied_catchup_audit_ts[deny_key] = now_ts
-                                logger.info(
-                                    f"SECURITY: Denied catch-up for restricted channel {ch_id} "
-                                    f"to peer {from_peer} (no members from that peer)"
-                                )
-                            else:
-                                logger.debug(
-                                    f"SECURITY: Denied catch-up for restricted channel {ch_id} "
-                                    f"to peer {from_peer} (repeat suppressed)"
-                                )
-                            continue  # requesting peer has no members here
-
                     peer_latest = channel_timestamps.get(ch_id)
                     if peer_latest is None:
                         # Peer has no messages in this channel — send
@@ -1703,6 +2644,30 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                         msg['display_name'] = dn
                             except Exception:
                                 pass
+
+                    # Prevent plaintext leakage of encrypted private-channel
+                    # content during catch-up relay. Members can decrypt via
+                    # encrypted_content/key_id/nonce metadata.
+                    privacy_cache: dict[str, str] = {}
+                    for msg in all_messages:
+                        ch_id = str(msg.get('channel_id') or '')
+                        if not ch_id:
+                            continue
+                        mode = privacy_cache.get(ch_id)
+                        if mode is None:
+                            try:
+                                with db_manager.get_connection() as conn:
+                                    row = conn.execute(
+                                        "SELECT privacy_mode FROM channels WHERE id = ?",
+                                        (ch_id,),
+                                    ).fetchone()
+                                mode = str((row['privacy_mode'] if row else 'open') or 'open').strip().lower()
+                            except Exception:
+                                mode = 'open'
+                            privacy_cache[ch_id] = mode
+                        if mode in {'private', 'confidential'} and msg.get('encrypted_content'):
+                            msg['content'] = ''
+                            msg['crypto_state'] = 'encrypted'
 
                     # Embed file data for small attachments (<=10MB per file,
                     # cap total embedded size) so peers that receive the message
@@ -1878,6 +2843,26 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     channel_id = msg.get('channel_id', 'general')
                     user_id = msg.get('user_id', f'peer_{from_peer}')
                     content = msg.get('content', '')
+                    incoming_encrypted = msg.get('encrypted_content')
+                    incoming_crypto_state = msg.get('crypto_state')
+                    incoming_key_id = msg.get('key_id')
+                    incoming_nonce = msg.get('nonce')
+                    (
+                        content,
+                        crypto_state_db,
+                        encrypted_content_db,
+                        key_id_db,
+                        nonce_db,
+                        _key_missing,
+                    ) = _resolve_incoming_channel_content(
+                        channel_id=channel_id,
+                        from_peer=from_peer,
+                        content=content,
+                        encrypted_content=incoming_encrypted,
+                        crypto_state=incoming_crypto_state,
+                        key_id=incoming_key_id,
+                        nonce=incoming_nonce,
+                    )
                     message_type = msg.get('message_type', 'text')
                     timestamp = msg.get('created_at')
 
@@ -1937,16 +2922,16 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     # Ensure channel exists
                     with db_manager.get_connection() as conn:
                         existing_ch = conn.execute(
-                            "SELECT 1 FROM channels WHERE id = ?",
+                            "SELECT privacy_mode FROM channels WHERE id = ?",
                             (channel_id,)
                         ).fetchone()
                         if not existing_ch:
                             conn.execute(
                                 "INSERT OR IGNORE INTO channels "
                                 "(id, name, channel_type, created_by, "
-                                "description, origin_peer, created_at) "
-                                "VALUES (?, ?, 'public', ?, "
-                                "'Auto-created from P2P catchup', ?, "
+                                "description, origin_peer, privacy_mode, created_at) "
+                                "VALUES (?, ?, 'private', ?, "
+                                "'Auto-created from P2P catchup', ?, 'private', "
                                 "datetime('now'))",
                                 (channel_id,
                                  f"peer-channel-{channel_id[:8]}",
@@ -1961,19 +2946,6 @@ def create_app(config: Optional[Config] = None) -> Flask:
                             "VALUES (?, ?, 'member')",
                             (channel_id, user_id)
                         )
-                        human_users = conn.execute(
-                            "SELECT id FROM users "
-                            "WHERE id != 'system' AND id != 'local_user' "
-                            "AND password_hash IS NOT NULL "
-                            "AND password_hash != ''",
-                        ).fetchall()
-                        for (uid,) in human_users:
-                            conn.execute(
-                                "INSERT OR IGNORE INTO channel_members "
-                                "(channel_id, user_id, role) "
-                                "VALUES (?, ?, 'member')",
-                                (channel_id, uid)
-                            )
                         conn.commit()
 
                     # Process file attachments — decode base64 data and
@@ -2021,12 +2993,14 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         conn.execute("""
                             INSERT OR IGNORE INTO channel_messages
                             (id, channel_id, user_id, content,
-                             message_type, attachments, created_at, origin_peer, expires_at, parent_message_id)
+                             message_type, attachments, created_at, origin_peer, expires_at,
+                             parent_message_id, encrypted_content, crypto_state, key_id, nonce)
                             VALUES (?, ?, ?, ?, ?, ?,
-                                    COALESCE(?, datetime('now')), ?, ?, ?)
+                                    COALESCE(?, datetime('now')), ?, ?, ?, ?, ?, ?, ?)
                         """, (mid, channel_id, user_id, content,
                               message_type, attachments_json,
-                              normalised_ts, origin_peer, expires_db, parent_message_id))
+                              normalised_ts, origin_peer, expires_db, parent_message_id,
+                              encrypted_content_db, crypto_state_db, key_id_db, nonce_db))
                         conn.commit()
 
                     channel_manager.mark_message_processed(mid)
@@ -2164,14 +3138,55 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 remote_peer_id = profile_data.get('peer_id', from_peer)
 
                 # ---- Skip unchanged profiles (version hash dedup) ----
+                # Exception: if our copy of this user's avatar file is missing (e.g. after
+                # migration or DB copy), do not skip so we re-save the avatar from the payload.
+                def _avatar_file_missing_for_user(uid: str, peer_id: str) -> bool:
+                    if not uid or not getattr(profile_manager, 'file_manager', None):
+                        return False
+                    try:
+                        with db_manager.get_connection() as conn:
+                            r = conn.execute(
+                                "SELECT id, avatar_file_id FROM users WHERE id = ?", (uid,)
+                            ).fetchone()
+                            if not r:
+                                for pattern in (
+                                    f"peer-{peer_id[:8]}",
+                                    f"peer-{peer_id[:8]}-%",
+                                    f"peer-%-{uid[-8:] if len(uid) >= 8 else ''}",
+                                ):
+                                    r = conn.execute(
+                                        "SELECT id, avatar_file_id FROM users WHERE username LIKE ?",
+                                        (pattern,),
+                                    ).fetchone()
+                                    if r:
+                                        break
+                            if not r or not (r.get('avatar_file_id') or '').strip():
+                                return False
+                            fid = (r.get('avatar_file_id') or '').strip()
+                        profile_manager.file_manager.get_file_data(fid)
+                        return False  # file exists
+                    except Exception:
+                        return True  # no user, no file_id, or get_file_data failed
+
                 incoming_hash = profile_data.get('profile_hash')
                 if incoming_hash:
                     hash_key = (remote_peer_id, profile_data.get('user_id', ''))
                     if _seen_profile_hashes.get(hash_key) == incoming_hash:
-                        logger.debug(
-                            f"Profile from {from_peer} unchanged (hash={incoming_hash[:8]}), "
-                            f"skipping")
-                        return
+                        need_avatar = (
+                            profile_data.get('avatar_thumbnail')
+                            and _avatar_file_missing_for_user(
+                                profile_data.get('user_id', ''), remote_peer_id
+                            )
+                        )
+                        if not need_avatar:
+                            logger.debug(
+                                f"Profile from {from_peer} unchanged (hash={incoming_hash[:8]}), "
+                                f"skipping")
+                            return
+                        logger.info(
+                            "Profile hash unchanged but our avatar file is missing; "
+                            "re-applying to recover avatar from peer"
+                        )
                     _seen_profile_hashes[hash_key] = incoming_hash
 
                 # ---- Store device profile FIRST (independent of user) ----
@@ -2292,6 +3307,39 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 logger.error(f"Failed to handle profile sync: {e}", exc_info=True)
 
         p2p_manager.on_profile_sync = _on_profile_sync
+
+        def _resync_user_avatar(user_id: str) -> dict:
+            """Invalidate profile hash cache for a user and trigger re-sync from their origin peer."""
+            if not user_id:
+                return {"ok": False, "reason": "no user_id"}
+            origin_peer = None
+            try:
+                with db_manager.get_connection() as conn:
+                    row = conn.execute(
+                        "SELECT origin_peer FROM users WHERE id = ?", (user_id,)
+                    ).fetchone()
+                    if row:
+                        origin_peer = row[0] if isinstance(row, (tuple, list)) else row.get('origin_peer', row[0])
+            except Exception as e:
+                logger.warning(f"resync_user_avatar: DB lookup failed for {user_id}: {e}")
+
+            if not origin_peer:
+                return {"ok": False, "reason": "no origin_peer for user"}
+
+            cleared = 0
+            keys_to_clear = [k for k in _seen_profile_hashes if k[1] == user_id]
+            for k in keys_to_clear:
+                del _seen_profile_hashes[k]
+                cleared += 1
+
+            synced = p2p_manager.trigger_peer_sync(origin_peer) if p2p_manager else False
+            logger.info(
+                f"resync_user_avatar: user={user_id} origin_peer={origin_peer} "
+                f"hashes_cleared={cleared} sync_triggered={synced}"
+            )
+            return {"ok": True, "origin_peer": origin_peer, "hashes_cleared": cleared, "sync_triggered": synced}
+
+        p2p_manager.resync_user_avatar = _resync_user_avatar
 
         # --- Provide local profile card for sync ---
         def _get_local_profile_sync_user_ids():
@@ -2502,39 +3550,23 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 metadata = dict(metadata)
                 metadata.setdefault('origin_peer', from_peer)
 
-                # Resolve expiry (prefer explicit expires_at, else ttl_seconds, else default)
+                # Resolve expiry through FeedManager so retention policy is
+                # consistent across local API/UI writes and P2P sync writes.
                 expires_raw = expires_at or (metadata or {}).get('expires_at')
                 ttl_raw = ttl_seconds if ttl_seconds is not None else (metadata or {}).get('ttl_seconds')
                 ttl_mode_val = ttl_mode or (metadata or {}).get('ttl_mode')
 
-                expires_dt = None
                 try:
-                    if ttl_mode_val in ('none', 'no_expiry', 'immortal'):
-                        expires_dt = None
-                    elif expires_raw:
-                        from datetime import datetime as _dt, timezone as _tz
-                        try:
-                            expires_dt = _dt.fromisoformat(str(expires_raw).replace('Z', '+00:00'))
-                        except Exception:
-                            try:
-                                expires_dt = _dt.strptime(str(expires_raw), '%Y-%m-%d %H:%M:%S')
-                            except Exception:
-                                expires_dt = None
-                        if expires_dt and expires_dt.tzinfo is None:
-                            expires_dt = expires_dt.replace(tzinfo=_tz.utc)
-                    elif ttl_raw is not None:
-                        try:
-                            ttl_val = int(ttl_raw)
-                        except (TypeError, ValueError):
-                            ttl_val = None
-                        if ttl_val is not None and ttl_val > 0:
-                            from datetime import timedelta as _td
-                            expires_dt = created_dt + _td(seconds=ttl_val)
-                    else:
-                        from datetime import timedelta as _td
-                        expires_dt = created_dt + _td(days=90)
+                    expires_dt = feed_manager._resolve_expiry(
+                        expires_at=expires_raw,
+                        ttl_seconds=ttl_raw,
+                        ttl_mode=ttl_mode_val,
+                        apply_default=True,
+                        base_time=created_dt,
+                    )
                 except Exception:
-                    expires_dt = None
+                    from datetime import timedelta as _td
+                    expires_dt = created_dt + _td(days=90)
 
                 if expires_dt:
                     from datetime import datetime as _dt
@@ -3302,8 +4334,29 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         logger.info(f"Applied P2P poll closure for {poll_id} ({poll_kind}) by {user_id}")
                         return
 
+                    if action in ('like', 'unlike') and item_type != 'post':
+                        _ch_row = conn.execute(
+                            "SELECT channel_id FROM channel_messages WHERE id = ?",
+                            (item_id,),
+                        ).fetchone()
+                        if _ch_row:
+                            _priv = conn.execute(
+                                "SELECT privacy_mode FROM channels WHERE id = ?",
+                                (_ch_row['channel_id'],),
+                            ).fetchone()
+                            if _priv and (_priv['privacy_mode'] or 'open').lower() in ('private', 'confidential'):
+                                _lp = p2p_manager.get_peer_id() if p2p_manager else None
+                                if not conn.execute(
+                                    "SELECT 1 FROM channel_members cm "
+                                    "JOIN users u ON cm.user_id = u.id "
+                                    "WHERE cm.channel_id = ? "
+                                    "AND (u.origin_peer IS NULL OR u.origin_peer = '' "
+                                    "     OR u.origin_peer = ?) LIMIT 1",
+                                    (_ch_row['channel_id'], _lp or ''),
+                                ).fetchone():
+                                    return
+
                     if action == 'like':
-                        # Idempotent like: INSERT OR IGNORE
                         import secrets as _sec2
                         like_id = f"L{_sec2.token_hex(8)}"
                         conn.execute("""
@@ -3311,15 +4364,11 @@ def create_app(config: Optional[Config] = None) -> Flask:
                             VALUES (?, ?, ?, 'like')
                         """, (like_id, item_id, user_id))
 
-                        # Update the counter in the appropriate table
                         if item_type == 'post':
                             conn.execute(
                                 "UPDATE feed_posts SET likes = likes + 1 WHERE id = ? AND "
                                 "NOT EXISTS (SELECT 1 FROM likes WHERE message_id = ? AND user_id = ? AND id != ?)",
                                 (item_id, item_id, user_id, like_id))
-                        else:
-                            # For channel messages, likes counter is in the likes table itself
-                            pass
 
                     elif action == 'unlike':
                         conn.execute("""
@@ -3618,22 +4667,63 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         logger.error(f"Failed to delete channel message {data_id}: {del_err}")
 
                 elif data_type == 'channel':
-                    # Delete all messages in a channel (drastic). Clear FK refs first.
+                    # Delete an entire channel on replicas.
+                    # Security: only allow the channel origin peer to request this.
                     try:
                         with db_manager.get_connection() as conn:
-                            conn.execute(
-                                "UPDATE channel_messages SET parent_message_id = NULL WHERE channel_id = ?",
+                            ch_row = conn.execute(
+                                "SELECT origin_peer FROM channels WHERE id = ?",
                                 (data_id,),
-                            )
-                            conn.execute(
-                                "DELETE FROM likes WHERE message_id IN (SELECT id FROM channel_messages WHERE channel_id = ?)",
-                                (data_id,),
-                            )
-                            conn.execute(
-                                "DELETE FROM channel_messages WHERE channel_id = ?",
-                                (data_id,))
-                            conn.commit()
-                            deleted = True
+                            ).fetchone()
+                            if not ch_row:
+                                deleted = True  # Idempotent: already gone.
+                            else:
+                                origin_peer = (
+                                    ch_row['origin_peer']
+                                    if hasattr(ch_row, 'keys') and 'origin_peer' in ch_row.keys()
+                                    else ch_row[0]
+                                ) or ''
+                                requester = str(requester_peer or from_peer or '').strip()
+                                local_peer = p2p_manager.get_peer_id() if p2p_manager else None
+                                authorized = bool(requester) and (
+                                    (origin_peer and requester == origin_peer)
+                                    or (not origin_peer and local_peer and requester == local_peer)
+                                )
+                                if str(data_id) == 'general':
+                                    authorized = False
+                                if not authorized:
+                                    logger.warning(
+                                        "SECURITY: Rejected channel delete signal for %s "
+                                        "(requester=%s, origin=%s, from=%s)",
+                                        data_id,
+                                        requester,
+                                        origin_peer,
+                                        from_peer,
+                                    )
+                                    deleted = False
+                                else:
+                                    conn.execute(
+                                        "UPDATE channel_messages SET parent_message_id = NULL WHERE channel_id = ?",
+                                        (data_id,),
+                                    )
+                                    conn.execute(
+                                        "DELETE FROM likes WHERE message_id IN (SELECT id FROM channel_messages WHERE channel_id = ?)",
+                                        (data_id,),
+                                    )
+                                    conn.execute(
+                                        "DELETE FROM channel_messages WHERE channel_id = ?",
+                                        (data_id,),
+                                    )
+                                    conn.execute(
+                                        "DELETE FROM channel_members WHERE channel_id = ?",
+                                        (data_id,),
+                                    )
+                                    cur = conn.execute(
+                                        "DELETE FROM channels WHERE id = ?",
+                                        (data_id,),
+                                    )
+                                    conn.commit()
+                                    deleted = cur.rowcount > 0
                     except Exception as del_err:
                         logger.error(f"Failed to purge channel {data_id}: {del_err}")
 
@@ -3674,6 +4764,61 @@ def create_app(config: Optional[Config] = None) -> Flask:
             logger.info("Starting P2P network...")
             p2p_manager.start()
             logger.info("P2P network started successfully")
+
+            # Override the activity event recorder to suppress notifications
+            # for private/confidential channels where no local user is a
+            # member.  Without E2E encryption the messages still relay through
+            # this peer, but non-members should not see them in the bell.
+            _orig_record_activity = p2p_manager._record_activity_event
+
+            def _filtered_activity_event(event):
+                try:
+                    kind = event.get('kind', '')
+                    ref = event.get('ref') or {}
+                    ch_id: Optional[str] = None
+                    if kind == 'channel_message':
+                        ch_id = ref.get('channel_id')
+                    elif kind == 'interaction':
+                        ch_id = ref.get('channel_id')
+                        if not ch_id:
+                            item_id = ref.get('item_id')
+                            if item_id:
+                                try:
+                                    with db_manager.get_connection() as conn:
+                                        r = conn.execute(
+                                            "SELECT channel_id FROM channel_messages WHERE id = ?",
+                                            (item_id,),
+                                        ).fetchone()
+                                    if r:
+                                        ch_id = r['channel_id']
+                                except Exception:
+                                    pass
+                    if ch_id:
+                        with db_manager.get_connection() as conn:
+                            row = conn.execute(
+                                "SELECT privacy_mode FROM channels WHERE id = ?",
+                                (ch_id,),
+                            ).fetchone()
+                            if row:
+                                mode = (row['privacy_mode'] or 'open').strip().lower()
+                                if mode in ('private', 'confidential'):
+                                    local_peer = p2p_manager.get_peer_id()
+                                    has_local = conn.execute(
+                                        "SELECT 1 FROM channel_members cm "
+                                        "JOIN users u ON cm.user_id = u.id "
+                                        "WHERE cm.channel_id = ? "
+                                        "AND (u.origin_peer IS NULL OR u.origin_peer = '' "
+                                        "     OR u.origin_peer = ?) "
+                                        "LIMIT 1",
+                                        (ch_id, local_peer or ''),
+                                    ).fetchone()
+                                    if not has_local:
+                                        return
+                except Exception:
+                    pass
+                _orig_record_activity(event)
+
+            p2p_manager._record_activity_event = _filtered_activity_event
         
         # Initialize data-at-rest encryption using the peer identity
         logger.info("Initializing data-at-rest encryption...")
