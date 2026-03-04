@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.31] - 2026-03-04
+
+### Fixed
+- **Backward-compatible handshake signature** — Version negotiation fields (`canopy_version`, `protocol_version`) are now unsigned metadata instead of part of the Ed25519 signed payload, restoring connectivity with pre-0.4.30 peers that rejected the extended signature.
+- **mDNS discovery version** — Discovery now advertises the real Canopy version instead of hardcoded `0.1.0`.
+
+### Changed
+- **Connect page compact layout** — Peer lists are scroll-bounded, lower-priority sections (Connection History, Mesh Diagnostics, Recent Failed Connections, Troubleshooting, How-to guide) are now collapsible panels. Primary controls stay visible.
+- **Inline edit mode** — Channel messages, feed posts, and DMs now edit inline within the card instead of opening a modal. Enter saves, Shift+Enter for newlines, Esc cancels. Single-active-editor guard prevents collisions.
+
+---
+
 ## [0.4.30] - 2026-03-04
 
 ### Added
