@@ -102,6 +102,34 @@
         opacity: 1;
     }
 
+    .channel-inline-editor {
+        margin-top: 0.55rem;
+        padding: 0.65rem;
+        border-radius: 12px;
+        border: 1px solid var(--canopy-border);
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 72%, transparent);
+    }
+
+    .channel-inline-editor textarea {
+        min-height: 96px;
+        resize: vertical;
+    }
+
+    .channel-inline-editor .inline-edit-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        margin-top: 0.5rem;
+    }
+
+    .channel-inline-editor .inline-edit-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+    }
+
     .member-picker {
         display: flex;
         flex-wrap: wrap;
@@ -3377,8 +3405,8 @@ let memberDirectory = [];
 let createMemberSelections = [];
 let modalMemberSelections = [];
 let selectedFiles = [];
-let editChannelSelectedFiles = [];
-let editChannelExistingAttachments = [];
+const channelInlineEditStates = {};
+let activeInlineEditMessageId = null;
 let channelSendInFlight = false;
 let replyToMessageId = null;   // threading: parent message we're replying to
 let replyToAuthor = '';
@@ -4063,7 +4091,7 @@ function renderMessage(message, userInfo, isReply) {
     const notesHtml = renderCommunityNotesBlock('channel_message', message.id, message.community_notes || []);
     const displayContent = (message.display_content !== undefined && message.display_content !== null) ? message.display_content : (message.content || '');
     const editedBadge = message.edited_at
-        ? `<span class="badge bg-secondary-subtle text-light border rounded-pill" title="Edited ${message.edited_at}">
+        ? `<span class="badge bg-secondary-subtle text-light border rounded-pill channel-edited-badge" data-edited-badge="1" title="Edited ${message.edited_at}">
                 <i class="bi bi-pencil-square me-1"></i> Edited
            </span>`
         : '';
@@ -7960,200 +7988,313 @@ function editChannelMessage(messageId) {
         showAlert('Message not found for editing', 'warning');
         return;
     }
-    openEditChannelMessageModal(msg);
+    beginInlineChannelMessageEdit(msg);
 }
 
-function openEditChannelMessageModal(message) {
-    editChannelSelectedFiles = [];
-    editChannelExistingAttachments = Array.isArray(message.attachments) ? [...message.attachments] : [];
+function getChannelMessageElement(messageId) {
+    return document.querySelector(`.message-item[data-message-id="${messageId}"]`);
+}
 
-    const modalHtml = `
-        <div class="modal fade" id="editChannelMessageModal" tabindex="-1">
-            <div class="modal-dialog modal-lg">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title">Edit Message</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                    </div>
-                    <div class="modal-body">
-                        <input type="hidden" id="editChannelMessageId" value="${message.id}">
-                        <div class="mb-3">
-                            <label for="editChannelMessageContent" class="form-label">Content</label>
-                            <textarea class="form-control" id="editChannelMessageContent" rows="4" required>${message.content || ''}</textarea>
-                        </div>
-                        <div class="mb-2">
-                            <div id="edit-channel-existing-attachments" class="existing-attachments"></div>
-                            <div id="edit-channel-file-preview" class="file-preview mt-2" style="display: none;"></div>
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <div class="me-auto">
-                            <input type="file" id="edit-channel-file-input" style="display: none;" multiple 
-                                   accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mkv,.mov,.webm">
-                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('edit-channel-file-input').click()">
-                                <i class="bi bi-paperclip"></i> Add Files
-                            </button>
-                        </div>
-                        <div>
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                            <button type="button" class="btn btn-primary" onclick="updateChannelMessage()">Update Message</button>
-                        </div>
-                    </div>
-                </div>
+function getChannelInlineEditState(messageId) {
+    if (!channelInlineEditStates[messageId]) {
+        const message = channelMessageCache[messageId] || {};
+        channelInlineEditStates[messageId] = {
+            existingAttachments: Array.isArray(message.attachments) ? [...message.attachments] : [],
+            newAttachments: [],
+            saving: false,
+        };
+    }
+    return channelInlineEditStates[messageId];
+}
+
+function clearChannelInlineEditState(messageId) {
+    delete channelInlineEditStates[messageId];
+}
+
+function cancelAllInlineChannelEdits(exceptMessageId) {
+    document.querySelectorAll('.channel-inline-editor[data-inline-edit-for]').forEach(panel => {
+        const mid = panel.getAttribute('data-inline-edit-for');
+        if (!exceptMessageId || mid !== exceptMessageId) {
+            cancelInlineChannelMessageEdit(mid, true);
+        }
+    });
+}
+
+function beginInlineChannelMessageEdit(message) {
+    const messageId = message && message.id;
+    if (!messageId) return;
+
+    cancelAllInlineChannelEdits(messageId);
+
+    const msgEl = getChannelMessageElement(messageId);
+    if (!msgEl) {
+        showAlert('Message card is not available in this view.', 'warning');
+        return;
+    }
+
+    const existingPanel = msgEl.querySelector('.channel-inline-editor');
+    if (existingPanel) {
+        const textarea = existingPanel.querySelector('textarea[data-inline-edit-content]');
+        if (textarea) textarea.focus();
+        return;
+    }
+
+    const state = getChannelInlineEditState(messageId);
+    state.existingAttachments = Array.isArray(message.attachments) ? [...message.attachments] : [];
+    state.newAttachments = [];
+    state.saving = false;
+
+    const contentWrap = msgEl.querySelector('.message-content');
+    if (contentWrap) contentWrap.classList.add('d-none');
+    const actionsWrap = msgEl.querySelector('.message-actions');
+    if (actionsWrap) actionsWrap.classList.add('d-none');
+
+    const panel = document.createElement('div');
+    panel.className = 'channel-inline-editor';
+    panel.setAttribute('data-inline-edit-for', messageId);
+    panel.innerHTML = `
+        <textarea class="form-control mb-2" data-inline-edit-content placeholder="Edit message"></textarea>
+        <div data-inline-existing-attachments></div>
+        <div class="file-preview mt-2" data-inline-new-attachments style="display:none;"></div>
+        <div class="inline-edit-toolbar">
+            <div>
+                <input type="file"
+                       data-inline-file-input
+                       style="display:none;"
+                       multiple
+                       accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mkv,.mov,.webm">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-inline-add-files>
+                    <i class="bi bi-paperclip"></i> Add Files
+                </button>
+            </div>
+            <div class="inline-edit-actions">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-inline-cancel>Cancel</button>
+                <button type="button" class="btn btn-sm btn-primary" data-inline-save>
+                    <i class="bi bi-check2"></i> Save
+                </button>
             </div>
         </div>
     `;
 
-    const existingModal = document.getElementById('editChannelMessageModal');
-    if (existingModal) existingModal.remove();
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    const host = msgEl.querySelector('.flex-grow-1');
+    if (!host) return;
+    host.appendChild(panel);
 
-    updateEditChannelExistingAttachments();
-    setupEditChannelFileUpload();
+    const textarea = panel.querySelector('textarea[data-inline-edit-content]');
+    if (textarea) {
+        textarea.value = message.content || '';
+        textarea.focus();
+        textarea.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                saveInlineChannelMessageEdit(messageId);
+                return;
+            }
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                cancelInlineChannelMessageEdit(messageId);
+            }
+        });
+    }
 
-    const modal = new bootstrap.Modal(document.getElementById('editChannelMessageModal'));
-    modal.show();
+    const addBtn = panel.querySelector('[data-inline-add-files]');
+    const input = panel.querySelector('input[data-inline-file-input]');
+    if (addBtn && input) {
+        addBtn.addEventListener('click', () => input.click());
+        input.addEventListener('change', (event) => {
+            const files = Array.from((event.target && event.target.files) || []);
+            addInlineChannelEditFiles(messageId, files);
+            input.value = '';
+        });
+    }
 
-    document.getElementById('editChannelMessageModal').addEventListener('hidden.bs.modal', function() {
-        editChannelSelectedFiles = [];
-        editChannelExistingAttachments = [];
-        this.remove();
-    });
+    const cancelBtn = panel.querySelector('[data-inline-cancel]');
+    if (cancelBtn) {
+        cancelBtn.addEventListener('click', () => cancelInlineChannelMessageEdit(messageId));
+    }
+    const saveBtn = panel.querySelector('[data-inline-save]');
+    if (saveBtn) {
+        saveBtn.addEventListener('click', () => saveInlineChannelMessageEdit(messageId));
+    }
+
+    renderInlineChannelEditAttachments(messageId);
+    activeInlineEditMessageId = messageId;
 }
 
-function setupEditChannelFileUpload() {
-    const fileInput = document.getElementById('edit-channel-file-input');
-    if (!fileInput) return;
-    fileInput.addEventListener('change', (e) => {
-        const files = Array.from(e.target.files || []);
-        addEditChannelFiles(files);
-        e.target.value = '';
-    });
+function renderInlineChannelEditAttachments(messageId) {
+    const msgEl = getChannelMessageElement(messageId);
+    if (!msgEl) return;
+    const panel = msgEl.querySelector('.channel-inline-editor');
+    if (!panel) return;
+    const state = getChannelInlineEditState(messageId);
+
+    const existingWrap = panel.querySelector('[data-inline-existing-attachments]');
+    if (existingWrap) {
+        if (!state.existingAttachments.length) {
+            existingWrap.innerHTML = '';
+        } else {
+            existingWrap.innerHTML = `
+                <div class="mb-2"><strong>Current Files:</strong></div>
+                ${state.existingAttachments.map((attachment, index) => `
+                    <div class="file-preview-item d-inline-flex align-items-center gap-2 me-2 mb-2 p-2 rounded" style="background: var(--canopy-bg-secondary); border: 1px solid var(--canopy-border);">
+                        <i class="bi bi-${getFileIcon((attachment && attachment.type) || '')}"></i>
+                        <span class="small">${escapeHtml((attachment && attachment.name) || 'file')}</span>
+                        <button type="button" class="btn-close btn-sm" onclick="removeInlineChannelExistingAttachment('${messageId}', ${index})" style="font-size: 0.7rem;"></button>
+                    </div>
+                `).join('')}
+            `;
+        }
+    }
+
+    const newWrap = panel.querySelector('[data-inline-new-attachments]');
+    if (newWrap) {
+        if (!state.newAttachments.length) {
+            newWrap.style.display = 'none';
+            newWrap.innerHTML = '';
+        } else {
+            newWrap.style.display = 'block';
+            newWrap.innerHTML = state.newAttachments.map((file, index) => `
+                <div class="file-preview-item">
+                    <i class="bi bi-${getFileIcon(file.type)}"></i>
+                    <span>${escapeHtml(file.name)}</span>
+                    <button type="button" class="btn-close" onclick="removeInlineChannelEditFile('${messageId}', ${index})"></button>
+                </div>
+            `).join('');
+        }
+    }
 }
 
-function addEditChannelFiles(files) {
+function addInlineChannelEditFiles(messageId, files) {
+    const state = getChannelInlineEditState(messageId);
     const maxSize = 100 * 1024 * 1024;
-
     files.forEach(file => {
+        if (!file) return;
         if (file.size > maxSize) {
-            alert(`File ${file.name} is too large. Maximum size is 100MB.`);
+            showAlert(`File ${file.name} is too large. Maximum size is 100MB.`, 'warning');
             return;
         }
         if (!isAllowedChannelAttachment(file)) {
-            alert(`File type ${file.type || 'unknown'} is not supported.`);
+            showAlert(`File type ${(file.type || 'unknown')} is not supported.`, 'warning');
             return;
         }
-
         const reader = new FileReader();
-        reader.onload = function(e) {
-            const base64Data = e.target.result.split(',')[1];
-            editChannelSelectedFiles.push({
+        reader.onload = function(event) {
+            const raw = (event && event.target && event.target.result) || '';
+            const base64Data = String(raw).split(',')[1];
+            if (!base64Data) return;
+            state.newAttachments.push({
                 name: file.name,
                 type: file.type,
                 size: file.size,
                 data: base64Data,
-                file: file
+                file: file,
             });
-            updateEditChannelFilePreview();
+            renderInlineChannelEditAttachments(messageId);
         };
         reader.onerror = function() {
-            alert(`Failed to read file: ${file.name}`);
+            showAlert(`Failed to read file: ${file.name}`, 'danger');
         };
         reader.readAsDataURL(file);
     });
 }
 
-function updateEditChannelFilePreview() {
-    const preview = document.getElementById('edit-channel-file-preview');
-    if (!preview) return;
-    if (editChannelSelectedFiles.length === 0) {
-        preview.style.display = 'none';
-        return;
+function removeInlineChannelEditFile(messageId, index) {
+    const state = getChannelInlineEditState(messageId);
+    state.newAttachments.splice(index, 1);
+    renderInlineChannelEditAttachments(messageId);
+}
+
+function removeInlineChannelExistingAttachment(messageId, index) {
+    const state = getChannelInlineEditState(messageId);
+    state.existingAttachments.splice(index, 1);
+    renderInlineChannelEditAttachments(messageId);
+}
+
+function setInlineChannelEditSaving(messageId, saving) {
+    const msgEl = getChannelMessageElement(messageId);
+    if (!msgEl) return;
+    const panel = msgEl.querySelector('.channel-inline-editor');
+    if (!panel) return;
+    const textarea = panel.querySelector('textarea[data-inline-edit-content]');
+    const saveBtn = panel.querySelector('[data-inline-save]');
+    const cancelBtn = panel.querySelector('[data-inline-cancel]');
+    const addBtn = panel.querySelector('[data-inline-add-files]');
+    if (textarea) textarea.disabled = !!saving;
+    if (cancelBtn) cancelBtn.disabled = !!saving;
+    if (addBtn) addBtn.disabled = !!saving;
+    if (saveBtn) {
+        if (saving) {
+            saveBtn.dataset.originalHtml = saveBtn.innerHTML;
+            saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving...';
+            saveBtn.disabled = true;
+        } else {
+            saveBtn.innerHTML = saveBtn.dataset.originalHtml || '<i class="bi bi-check2"></i> Save';
+            saveBtn.disabled = false;
+        }
     }
-    preview.style.display = 'block';
-    preview.innerHTML = editChannelSelectedFiles.map((file, index) => `
-        <div class="file-preview-item">
-            <i class="bi bi-${getFileIcon(file.type)}"></i>
-            <span>${file.name}</span>
-            <button type="button" class="btn-close" onclick="removeEditChannelFile(${index})"></button>
-        </div>
-    `).join('');
 }
 
-function removeEditChannelFile(index) {
-    editChannelSelectedFiles.splice(index, 1);
-    updateEditChannelFilePreview();
-}
-
-function updateEditChannelExistingAttachments() {
-    const container = document.getElementById('edit-channel-existing-attachments');
-    if (!container) return;
-    if (editChannelExistingAttachments.length === 0) {
-        container.innerHTML = '';
-        return;
+function cancelInlineChannelMessageEdit(messageId, silent) {
+    const msgEl = getChannelMessageElement(messageId);
+    if (!msgEl) return;
+    const panel = msgEl.querySelector('.channel-inline-editor');
+    if (panel) panel.remove();
+    const contentWrap = msgEl.querySelector('.message-content');
+    if (contentWrap) contentWrap.classList.remove('d-none');
+    const actionsWrap = msgEl.querySelector('.message-actions');
+    if (actionsWrap) actionsWrap.classList.remove('d-none');
+    clearChannelInlineEditState(messageId);
+    if (activeInlineEditMessageId === messageId) {
+        activeInlineEditMessageId = null;
     }
-    container.innerHTML = `
-        <div class="mb-2"><strong>Current Files:</strong></div>
-        ${editChannelExistingAttachments.map((attachment, index) => `
-            <div class="file-preview-item d-inline-flex align-items-center gap-2 me-2 mb-2 p-2 rounded" style="background: var(--canopy-bg-secondary); border: 1px solid var(--canopy-border);">
-                <i class="bi bi-${getFileIcon(attachment.type || '')}"></i>
-                <span class="small">${attachment.name || 'file'}</span>
-                <button type="button" class="btn-close btn-sm" onclick="removeEditChannelExistingAttachment(${index})" style="font-size: 0.7rem;"></button>
-            </div>
-        `).join('')}
-    `;
+    if (!silent) {
+        showAlert('Edit canceled', 'info');
+    }
 }
 
-function removeEditChannelExistingAttachment(index) {
-    editChannelExistingAttachments.splice(index, 1);
-    updateEditChannelExistingAttachments();
-}
+function saveInlineChannelMessageEdit(messageId) {
+    const msgEl = getChannelMessageElement(messageId);
+    if (!msgEl) return;
+    const panel = msgEl.querySelector('.channel-inline-editor');
+    if (!panel) return;
+    const state = getChannelInlineEditState(messageId);
+    if (state.saving) return;
 
-function updateChannelMessage() {
-    const messageId = document.getElementById('editChannelMessageId').value;
-    const content = document.getElementById('editChannelMessageContent').value.trim();
-
-    if (!content && editChannelExistingAttachments.length === 0 && editChannelSelectedFiles.length === 0) {
+    const textarea = panel.querySelector('textarea[data-inline-edit-content]');
+    const content = ((textarea && textarea.value) || '').trim();
+    if (!content && state.existingAttachments.length === 0 && state.newAttachments.length === 0) {
         showAlert('Message content or attachments are required', 'warning');
         return;
     }
+
+    state.saving = true;
+    setInlineChannelEditSaving(messageId, true);
 
     apiCall('/ajax/update_channel_message', {
         method: 'POST',
         body: JSON.stringify({
             message_id: messageId,
             content: content,
-            attachments: editChannelExistingAttachments,
-            new_attachments: editChannelSelectedFiles
-        })
+            attachments: state.existingAttachments,
+            new_attachments: state.newAttachments,
+        }),
     })
     .then(() => {
-        showAlert('Message updated successfully!', 'success');
-        const modalEl = document.getElementById('editChannelMessageModal');
-        if (modalEl) bootstrap.Modal.getInstance(modalEl).hide();
-        // Update the edited message in-place instead of full reload
-        setTimeout(() => {
-            const msgEl = document.querySelector(`.message-item[data-message-id="${messageId}"]`);
-            if (msgEl) {
-                const contentEl = msgEl.querySelector('.message-content');
-                if (contentEl && content) {
-                    contentEl.innerHTML = renderRichContent(content);
-                    if (typeof hydrateXEmbeds === 'function') {
-                        hydrateXEmbeds(msgEl);
-                    }
-                    // Update cache
-                    if (channelMessageCache[messageId]) {
-                        channelMessageCache[messageId].content = content;
-                    }
-                    return;
-                }
-            }
-            // Fallback: full reload if element not found
-            loadChannelMessages(currentChannelId, { forceScroll: false });
-        }, 300);
+        if (channelMessageCache[messageId]) {
+            channelMessageCache[messageId].content = content;
+            channelMessageCache[messageId].display_content = content;
+            channelMessageCache[messageId].edited_at = new Date().toISOString();
+        }
+        cancelInlineChannelMessageEdit(messageId, true);
+        showAlert('Message updated successfully', 'success');
+        loadChannelMessages(currentChannelId, { forceScroll: false });
     })
     .catch(error => {
-        showAlert(error.error || 'Failed to update message', 'danger');
+        showAlert(error.error || error.message || 'Failed to update message', 'danger');
+    })
+    .finally(() => {
+        state.saving = false;
+        setInlineChannelEditSaving(messageId, false);
     });
 }
 

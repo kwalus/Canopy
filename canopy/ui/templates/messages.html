@@ -234,6 +234,34 @@
         font-weight: 600;
         line-height: 1;
     }
+
+    .dm-inline-editor {
+        margin-top: 0.6rem;
+        padding: 0.65rem;
+        border-radius: 12px;
+        border: 1px solid var(--canopy-border);
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 72%, transparent);
+    }
+
+    .dm-inline-editor textarea {
+        min-height: 90px;
+        resize: vertical;
+    }
+
+    .dm-inline-toolbar {
+        margin-top: 0.55rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.45rem;
+        flex-wrap: wrap;
+    }
+
+    .dm-inline-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+    }
 </style>
 {% endblock %}
 
@@ -376,7 +404,7 @@
                                             {% endif %}
                                         </small>
                                     </div>
-                                    <div class="dropdown">
+                                    <div class="dropdown" data-message-actions="1">
                                         <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" 
                                                 data-bs-toggle="dropdown">
                                             <i class="bi bi-three-dots"></i>
@@ -396,7 +424,7 @@
                                         </ul>
                                     </div>
                                 </div>
-                                <div class="message-content mt-2">
+                                <div class="message-content mt-2" data-message-content="1">
                                     {% if message.content %}
                                         <p class="mb-0 dm-message-text">{{ message.content }}</p>
                                     {% endif %}
@@ -662,8 +690,8 @@
     }
     
     let messageSelectedFiles = [];
-    let editMessageSelectedFiles = [];
-    let editMessageExistingAttachments = [];
+    const dmInlineEditStates = {};
+    let activeDmInlineEditId = null;
     let recipientDirectory = [];
     let recipientDirectoryLoading = false;
     let recipientDirectoryFetchedAt = 0;
@@ -1324,7 +1352,7 @@
         apiCall(`/ajax/get_message_data/${messageId}`)
             .then(data => {
                 if (data.success && data.message) {
-                    openEditMessageModal(data.message);
+                    beginInlineMessageEdit(data.message);
                 } else {
                     showAlert(data.error || 'Could not load message for editing', 'danger');
                 }
@@ -1334,115 +1362,215 @@
             });
     }
 
-    function openEditMessageModal(message) {
-        editMessageSelectedFiles = [];
-        editMessageExistingAttachments = Array.isArray(message.metadata && message.metadata.attachments)
+    function getDmMessageElement(messageId) {
+        return document.querySelector(`.message-item[data-message-id="${messageId}"]`);
+    }
+
+    function isAllowedDmEditAttachment(file) {
+        if (!file) return false;
+        const maxSize = 100 * 1024 * 1024;
+        if (file.size > maxSize) return false;
+        const allowedMimeTypes = [
+            'image/', 'video/', 'audio/', 'application/pdf', 'text/', 'application/msword',
+            'application/json', 'application/xml', 'application/x-yaml',
+            'application/javascript', 'application/typescript', 'application/octet-stream',
+        ];
+        const allowedExtensions = [
+            '.md', '.txt', '.tex', '.json', '.py', '.js', '.ts', '.log',
+            '.csv', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
+            '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx',
+        ];
+        const fileType = String(file.type || '').toLowerCase();
+        const name = String(file.name || '').toLowerCase();
+        const ext = name.includes('.') ? name.slice(name.lastIndexOf('.')) : '';
+        return allowedMimeTypes.some(type => fileType.startsWith(type)) || allowedExtensions.includes(ext);
+    }
+
+    function getDmInlineEditState(messageId) {
+        if (!dmInlineEditStates[messageId]) {
+            dmInlineEditStates[messageId] = {
+                existingAttachments: [],
+                newAttachments: [],
+                saving: false,
+            };
+        }
+        return dmInlineEditStates[messageId];
+    }
+
+    function clearDmInlineEditState(messageId) {
+        delete dmInlineEditStates[messageId];
+    }
+
+    function cancelAllDmInlineEdits(exceptMessageId) {
+        document.querySelectorAll('.dm-inline-editor[data-inline-dm-for]').forEach(panel => {
+            const mid = panel.getAttribute('data-inline-dm-for');
+            if (!exceptMessageId || mid !== exceptMessageId) {
+                cancelInlineMessageEdit(mid, true);
+            }
+        });
+    }
+
+    function beginInlineMessageEdit(message) {
+        const messageId = message && message.id;
+        if (!messageId) return;
+        cancelAllDmInlineEdits(messageId);
+
+        const msgEl = getDmMessageElement(messageId);
+        if (!msgEl) {
+            showAlert('Message card not available in this view', 'warning');
+            return;
+        }
+
+        const existingPanel = msgEl.querySelector('.dm-inline-editor');
+        if (existingPanel) {
+            const textarea = existingPanel.querySelector('textarea[data-inline-dm-content]');
+            if (textarea) textarea.focus();
+            return;
+        }
+
+        const state = getDmInlineEditState(messageId);
+        state.existingAttachments = Array.isArray(message.metadata && message.metadata.attachments)
             ? [...message.metadata.attachments]
             : [];
+        state.newAttachments = [];
+        state.saving = false;
 
-        const modalHtml = `
-            <div class="modal fade" id="editMessageModal" tabindex="-1">
-                <div class="modal-dialog modal-lg">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h5 class="modal-title">Edit Message</h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                        </div>
-                        <div class="modal-body">
-                            <input type="hidden" id="editMessageId" value="${message.id}">
-                            <div class="mb-3">
-                                <label for="editMessageContent" class="form-label">Content</label>
-                                <textarea class="form-control" id="editMessageContent" rows="4" required></textarea>
-                            </div>
-                            <div class="mb-2">
-                                <div id="edit-message-existing-attachments" class="existing-attachments"></div>
-                                <div id="edit-message-file-preview" class="file-preview mt-2" style="display: none;"></div>
-                            </div>
-                        </div>
-                        <div class="modal-footer">
-                            <div class="me-auto">
-                                <input type="file" id="edit-message-file-input" style="display: none;" multiple
-                                       accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.yaml,.yml,.xml">
-                                <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('edit-message-file-input').click()">
-                                    <i class="bi bi-paperclip"></i> Add Files
-                                </button>
-                            </div>
-                            <div>
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                                <button type="button" class="btn btn-primary" onclick="updateMessage()">Update Message</button>
-                            </div>
-                        </div>
-                    </div>
+        const contentWrap = msgEl.querySelector('[data-message-content]');
+        const actionsWrap = msgEl.querySelector('[data-message-actions]');
+        if (contentWrap) contentWrap.classList.add('d-none');
+        if (actionsWrap) actionsWrap.classList.add('d-none');
+
+        const panel = document.createElement('div');
+        panel.className = 'dm-inline-editor';
+        panel.setAttribute('data-inline-dm-for', messageId);
+        panel.innerHTML = `
+            <textarea class="form-control mb-2" data-inline-dm-content placeholder="Edit message"></textarea>
+            <div data-inline-dm-existing-attachments></div>
+            <div class="file-preview mt-2" data-inline-dm-new-attachments style="display:none;"></div>
+            <div class="dm-inline-toolbar">
+                <div>
+                    <input type="file"
+                           data-inline-dm-file-input
+                           style="display:none;"
+                           multiple
+                           accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-inline-dm-add-files>
+                        <i class="bi bi-paperclip"></i> Add Files
+                    </button>
+                </div>
+                <div class="dm-inline-actions">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-inline-dm-cancel>Cancel</button>
+                    <button type="button" class="btn btn-sm btn-primary" data-inline-dm-save>
+                        <i class="bi bi-check2"></i> Save
+                    </button>
                 </div>
             </div>
         `;
 
-        const existingModal = document.getElementById('editMessageModal');
-        if (existingModal) existingModal.remove();
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        const host = msgEl.querySelector('.flex-grow-1');
+        if (!host) return;
+        host.appendChild(panel);
 
-        const contentEl = document.getElementById('editMessageContent');
-        if (contentEl) {
-            contentEl.value = message.content || '';
+        const textarea = panel.querySelector('textarea[data-inline-dm-content]');
+        if (textarea) {
+            textarea.value = message.content || '';
+            textarea.focus();
+            textarea.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    saveInlineMessageEdit(messageId);
+                    return;
+                }
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    cancelInlineMessageEdit(messageId);
+                }
+            });
         }
 
-        updateEditMessageExistingAttachments();
-        setupEditMessageFileUpload();
+        const addBtn = panel.querySelector('[data-inline-dm-add-files]');
+        const fileInput = panel.querySelector('input[data-inline-dm-file-input]');
+        if (addBtn && fileInput) {
+            addBtn.addEventListener('click', () => fileInput.click());
+            fileInput.addEventListener('change', (event) => {
+                const files = Array.from((event.target && event.target.files) || []);
+                addInlineMessageEditFiles(messageId, files);
+                fileInput.value = '';
+            });
+        }
 
-        const modal = new bootstrap.Modal(document.getElementById('editMessageModal'));
-        modal.show();
+        const cancelBtn = panel.querySelector('[data-inline-dm-cancel]');
+        if (cancelBtn) cancelBtn.addEventListener('click', () => cancelInlineMessageEdit(messageId));
+        const saveBtn = panel.querySelector('[data-inline-dm-save]');
+        if (saveBtn) saveBtn.addEventListener('click', () => saveInlineMessageEdit(messageId));
 
-        document.getElementById('editMessageModal').addEventListener('hidden.bs.modal', function() {
-            editMessageSelectedFiles = [];
-            editMessageExistingAttachments = [];
-            this.remove();
-        });
+        renderInlineMessageEditAttachments(messageId);
+        activeDmInlineEditId = messageId;
     }
 
-    function setupEditMessageFileUpload() {
-        const fileInput = document.getElementById('edit-message-file-input');
-        if (!fileInput) return;
-        fileInput.addEventListener('change', (e) => {
-            const files = Array.from(e.target.files || []);
-            addEditMessageFiles(files);
-            e.target.value = '';
-        });
+    function renderInlineMessageEditAttachments(messageId) {
+        const msgEl = getDmMessageElement(messageId);
+        if (!msgEl) return;
+        const panel = msgEl.querySelector('.dm-inline-editor');
+        if (!panel) return;
+        const state = getDmInlineEditState(messageId);
+
+        const existingWrap = panel.querySelector('[data-inline-dm-existing-attachments]');
+        if (existingWrap) {
+            if (!state.existingAttachments.length) {
+                existingWrap.innerHTML = '';
+            } else {
+                existingWrap.innerHTML = `
+                    <div class="mb-2"><strong>Current Files:</strong></div>
+                    ${state.existingAttachments.map((attachment, index) => `
+                        <div class="file-preview-item d-inline-flex align-items-center gap-2 me-2 mb-2 p-2 rounded" style="background: var(--canopy-bg-secondary); border: 1px solid var(--canopy-border);">
+                            <i class="bi bi-${getFileIcon((attachment && attachment.type) || '')}"></i>
+                            <span class="small">${escapeHtml((attachment && attachment.name) || 'file')}</span>
+                            <button type="button" class="btn-close btn-sm" onclick="removeInlineMessageExistingAttachment('${messageId}', ${index})" style="font-size: 0.7rem;"></button>
+                        </div>
+                    `).join('')}
+                `;
+            }
+        }
+
+        const newWrap = panel.querySelector('[data-inline-dm-new-attachments]');
+        if (newWrap) {
+            if (!state.newAttachments.length) {
+                newWrap.style.display = 'none';
+                newWrap.innerHTML = '';
+            } else {
+                newWrap.style.display = 'block';
+                newWrap.innerHTML = state.newAttachments.map((file, index) => `
+                    <div class="file-preview-item d-inline-flex align-items-center gap-2 me-2 mb-2 p-2 rounded" style="background: var(--canopy-bg-tertiary); border: 1px solid var(--canopy-border);">
+                        <i class="bi bi-${getFileIcon(file.type)}"></i>
+                        <span class="small">${escapeHtml(file.name)}</span>
+                        <button type="button" class="btn-close btn-sm" onclick="removeInlineMessageEditFile('${messageId}', ${index})" style="font-size: 0.7rem;"></button>
+                    </div>
+                `).join('');
+            }
+        }
     }
 
-    function addEditMessageFiles(files) {
-        const maxSize = 100 * 1024 * 1024;
-        const allowedMimeTypes = ['image/', 'video/', 'audio/', 'application/pdf', 'text/', 'application/msword',
-                                  'application/json', 'application/xml', 'application/x-yaml',
-                                  'application/javascript', 'application/typescript', 'application/octet-stream'];
-        const allowedExtensions = ['.md', '.txt', '.tex', '.json', '.py', '.js', '.ts', '.log',
-                                   '.csv', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
-                                   '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx'];
-
+    function addInlineMessageEditFiles(messageId, files) {
+        const state = getDmInlineEditState(messageId);
         files.forEach(file => {
-            if (file.size > maxSize) {
-                showAlert(`File ${file.name} is too large. Maximum size is 100MB.`, 'danger');
+            if (!isAllowedDmEditAttachment(file)) {
+                showAlert(`File type ${(file && file.type) || 'unknown'} is not supported, or file is too large.`, 'warning');
                 return;
             }
-
-            const ext = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
-            const mimeOk = allowedMimeTypes.some(type => file.type.startsWith(type));
-            const extOk = allowedExtensions.includes(ext);
-            if (!mimeOk && !extOk) {
-                showAlert(`File type ${file.type || 'unknown'} is not supported.`, 'danger');
-                return;
-            }
-
             const reader = new FileReader();
-            reader.onload = function(e) {
-                const base64Data = e.target.result.split(',')[1];
-                editMessageSelectedFiles.push({
+            reader.onload = function(event) {
+                const raw = (event && event.target && event.target.result) || '';
+                const base64Data = String(raw).split(',')[1];
+                if (!base64Data) return;
+                state.newAttachments.push({
                     name: file.name,
                     type: file.type,
                     size: file.size,
                     data: base64Data,
-                    file: file
+                    file: file,
                 });
-                updateEditMessageFilePreview();
+                renderInlineMessageEditAttachments(messageId);
             };
             reader.onerror = function() {
                 showAlert(`Failed to read file: ${file.name}`, 'danger');
@@ -1451,78 +1579,95 @@
         });
     }
 
-    function updateEditMessageFilePreview() {
-        const preview = document.getElementById('edit-message-file-preview');
-        if (!preview) return;
-        if (editMessageSelectedFiles.length === 0) {
-            preview.style.display = 'none';
-            return;
+    function removeInlineMessageEditFile(messageId, index) {
+        const state = getDmInlineEditState(messageId);
+        state.newAttachments.splice(index, 1);
+        renderInlineMessageEditAttachments(messageId);
+    }
+
+    function removeInlineMessageExistingAttachment(messageId, index) {
+        const state = getDmInlineEditState(messageId);
+        state.existingAttachments.splice(index, 1);
+        renderInlineMessageEditAttachments(messageId);
+    }
+
+    function setInlineMessageEditSaving(messageId, saving) {
+        const msgEl = getDmMessageElement(messageId);
+        if (!msgEl) return;
+        const panel = msgEl.querySelector('.dm-inline-editor');
+        if (!panel) return;
+        const textarea = panel.querySelector('textarea[data-inline-dm-content]');
+        const saveBtn = panel.querySelector('[data-inline-dm-save]');
+        const cancelBtn = panel.querySelector('[data-inline-dm-cancel]');
+        const addBtn = panel.querySelector('[data-inline-dm-add-files]');
+
+        if (textarea) textarea.disabled = !!saving;
+        if (cancelBtn) cancelBtn.disabled = !!saving;
+        if (addBtn) addBtn.disabled = !!saving;
+        if (saveBtn) {
+            if (saving) {
+                saveBtn.dataset.originalHtml = saveBtn.innerHTML;
+                saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving...';
+                saveBtn.disabled = true;
+            } else {
+                saveBtn.innerHTML = saveBtn.dataset.originalHtml || '<i class="bi bi-check2"></i> Save';
+                saveBtn.disabled = false;
+            }
         }
-        preview.style.display = 'block';
-        preview.innerHTML = editMessageSelectedFiles.map((file, index) => `
-            <div class="file-preview-item d-inline-flex align-items-center gap-2 me-2 mb-2 p-2 rounded" style="background: var(--canopy-bg-tertiary); border: 1px solid var(--canopy-border);">
-                <i class="bi bi-${getFileIcon(file.type)}"></i>
-                <span class="small">${file.name}</span>
-                <button type="button" class="btn-close btn-sm" onclick="removeEditMessageFile(${index})" style="font-size: 0.7rem;"></button>
-            </div>
-        `).join('');
     }
 
-    function removeEditMessageFile(index) {
-        editMessageSelectedFiles.splice(index, 1);
-        updateEditMessageFilePreview();
+    function cancelInlineMessageEdit(messageId, silent) {
+        const msgEl = getDmMessageElement(messageId);
+        if (!msgEl) return;
+        const panel = msgEl.querySelector('.dm-inline-editor');
+        if (panel) panel.remove();
+        const contentWrap = msgEl.querySelector('[data-message-content]');
+        const actionsWrap = msgEl.querySelector('[data-message-actions]');
+        if (contentWrap) contentWrap.classList.remove('d-none');
+        if (actionsWrap) actionsWrap.classList.remove('d-none');
+        clearDmInlineEditState(messageId);
+        if (activeDmInlineEditId === messageId) activeDmInlineEditId = null;
+        if (!silent) showAlert('Edit canceled', 'info');
     }
 
-    function updateEditMessageExistingAttachments() {
-        const container = document.getElementById('edit-message-existing-attachments');
-        if (!container) return;
-        if (editMessageExistingAttachments.length === 0) {
-            container.innerHTML = '';
-            return;
-        }
-        container.innerHTML = `
-            <div class="mb-2"><strong>Current Files:</strong></div>
-            ${editMessageExistingAttachments.map((attachment, index) => `
-                <div class="file-preview-item d-inline-flex align-items-center gap-2 me-2 mb-2 p-2 rounded" style="background: var(--canopy-bg-secondary); border: 1px solid var(--canopy-border);">
-                    <i class="bi bi-${getFileIcon(attachment.type || '')}"></i>
-                    <span class="small">${attachment.name || 'file'}</span>
-                    <button type="button" class="btn-close btn-sm" onclick="removeEditMessageExistingAttachment(${index})" style="font-size: 0.7rem;"></button>
-                </div>
-            `).join('')}
-        `;
-    }
+    function saveInlineMessageEdit(messageId) {
+        const msgEl = getDmMessageElement(messageId);
+        if (!msgEl) return;
+        const panel = msgEl.querySelector('.dm-inline-editor');
+        if (!panel) return;
+        const state = getDmInlineEditState(messageId);
+        if (state.saving) return;
 
-    function removeEditMessageExistingAttachment(index) {
-        editMessageExistingAttachments.splice(index, 1);
-        updateEditMessageExistingAttachments();
-    }
-
-    function updateMessage() {
-        const messageId = document.getElementById('editMessageId').value;
-        const content = document.getElementById('editMessageContent').value.trim();
-
-        if (!content && editMessageExistingAttachments.length === 0 && editMessageSelectedFiles.length === 0) {
+        const textarea = panel.querySelector('textarea[data-inline-dm-content]');
+        const content = ((textarea && textarea.value) || '').trim();
+        if (!content && state.existingAttachments.length === 0 && state.newAttachments.length === 0) {
             showAlert('Message content or attachments are required', 'warning');
             return;
         }
+
+        state.saving = true;
+        setInlineMessageEditSaving(messageId, true);
 
         apiCall('/ajax/update_message', {
             method: 'POST',
             body: JSON.stringify({
                 message_id: messageId,
                 content: content,
-                attachments: editMessageExistingAttachments,
-                new_attachments: editMessageSelectedFiles
-            })
+                attachments: state.existingAttachments,
+                new_attachments: state.newAttachments,
+            }),
         })
         .then(() => {
+            cancelInlineMessageEdit(messageId, true);
             showAlert('Message updated successfully!', 'success');
-            const modalEl = document.getElementById('editMessageModal');
-            if (modalEl) bootstrap.Modal.getInstance(modalEl).hide();
-            setTimeout(refreshMessages, 600);
+            setTimeout(refreshMessages, 300);
         })
         .catch(error => {
-            showAlert(error.error || 'Failed to update message', 'danger');
+            showAlert(error.error || error.message || 'Failed to update message', 'danger');
+        })
+        .finally(() => {
+            state.saving = false;
+            setInlineMessageEditSaving(messageId, false);
         });
     }
     

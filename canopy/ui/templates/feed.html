@@ -511,7 +511,7 @@
                             </div>
                             
                             <!-- Post Content (shown once per type in the if/elif/else below) -->
-                            <div class="post-content mb-3">
+                            <div class="post-content mb-3" data-post-content="1">
                                 <!-- Display attachments from metadata -->
                                 {% if post.metadata and post.metadata.attachments %}
                                     {% set images = [] %}
@@ -1185,7 +1185,7 @@
                             </div>
                             
                             <!-- Post Actions -->
-                            <div class="d-flex justify-content-between align-items-center pt-2 border-top">
+                            <div class="d-flex justify-content-between align-items-center pt-2 border-top" data-post-actions="1">
                                 <div class="d-flex gap-2 flex-wrap">
                                     <button class="btn btn-sm icon-action-btn {% if post.user_has_liked %}btn-primary{% else %}btn-outline-primary{% endif %} like-btn" 
                                             onclick="toggleLike('{{ post.id }}')"
@@ -3200,6 +3200,34 @@
     background: rgba(34, 197, 94, 0.08);
 }
 
+.feed-inline-editor {
+    margin-top: 0.65rem;
+    padding: 0.7rem;
+    border-radius: 12px;
+    border: 1px solid var(--canopy-border);
+    background: color-mix(in srgb, var(--canopy-bg-tertiary) 72%, transparent);
+}
+
+.feed-inline-editor textarea {
+    min-height: 96px;
+    resize: vertical;
+}
+
+.feed-inline-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-top: 0.6rem;
+}
+
+.feed-inline-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
 /* Responsive embed constraints */
 .embed-preview {
     max-width: 100%;
@@ -4634,356 +4662,387 @@
         });
     }
     
+    const postInlineEditStates = {};
+    let activeInlinePostEditId = null;
+
+    function getPostCardElement(postId) {
+        return document.querySelector(`.post-card[data-post-id="${postId}"]`);
+    }
+
+    function isAllowedFeedEditAttachment(file) {
+        if (!file) return false;
+        const maxSize = 100 * 1024 * 1024;
+        if (file.size > maxSize) return false;
+        const allowedMimeTypes = [
+            'image/', 'video/', 'audio/', 'application/pdf', 'text/', 'application/msword',
+            'application/json', 'application/xml', 'application/x-yaml',
+            'application/javascript', 'application/typescript', 'application/octet-stream',
+        ];
+        const allowedExtensions = [
+            '.md', '.txt', '.tex', '.json', '.py', '.js', '.ts', '.log',
+            '.csv', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
+            '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx',
+        ];
+        const fileType = String(file.type || '').toLowerCase();
+        const name = String(file.name || '').toLowerCase();
+        const ext = name.includes('.') ? name.slice(name.lastIndexOf('.')) : '';
+        return allowedMimeTypes.some(type => fileType.startsWith(type)) || allowedExtensions.includes(ext);
+    }
+
+    function getInlinePostEditState(postId) {
+        if (!postInlineEditStates[postId]) {
+            postInlineEditStates[postId] = {
+                existingAttachments: [],
+                newAttachments: [],
+                saving: false,
+            };
+        }
+        return postInlineEditStates[postId];
+    }
+
+    function clearInlinePostEditState(postId) {
+        delete postInlineEditStates[postId];
+    }
+
+    function cancelAllInlinePostEdits(exceptPostId) {
+        document.querySelectorAll('.feed-inline-editor[data-inline-post-for]').forEach(panel => {
+            const pid = panel.getAttribute('data-inline-post-for');
+            if (!exceptPostId || pid !== exceptPostId) {
+                cancelInlinePostEdit(pid, true);
+            }
+        });
+    }
+
     function editPost(postId) {
-        // First, get the current post data
         apiCall(`/ajax/get_post_data/${postId}`)
             .then(data => {
                 if (data.success && data.post) {
-                    openEditPostModal(data.post);
-                } else {
-                    // Fallback: extract data from the current DOM
-                    const postElement = document.querySelector(`[data-post-id="${postId}"]`);
-                    if (postElement) {
-                        const contentElement = postElement.querySelector('.post-content');
-                        const currentContent = contentElement ? contentElement.textContent.trim() : '';
-                        openEditPostModal({
-                            id: postId,
-                            content: currentContent,
-                            post_type: 'text', // Default
-                            visibility: 'network' // Default
-                        });
-                    } else {
-                        showAlert('Could not load post data for editing', 'danger');
-                    }
+                    beginInlinePostEdit(data.post);
+                    return;
                 }
+                const postElement = getPostCardElement(postId);
+                if (!postElement) {
+                    showAlert('Could not load post data for editing', 'danger');
+                    return;
+                }
+                const contentElement = postElement.querySelector('.post-content');
+                const currentContent = contentElement ? contentElement.textContent.trim() : '';
+                beginInlinePostEdit({
+                    id: postId,
+                    content: currentContent,
+                    post_type: 'text',
+                    visibility: 'network',
+                    metadata: {},
+                });
             })
             .catch(error => {
                 console.error('Failed to get post data:', error);
-                // Fallback to DOM extraction
-                const postElement = document.querySelector(`[data-post-id="${postId}"]`);
-                if (postElement) {
-                    const contentElement = postElement.querySelector('.post-content');
-                    const currentContent = contentElement ? contentElement.textContent.trim() : '';
-                    openEditPostModal({
-                        id: postId,
-                        content: currentContent,
-                        post_type: 'text',
-                        visibility: 'network'
-                    });
-                } else {
-                    showAlert('Could not load post data for editing', 'danger');
-                }
+                showAlert('Could not load post data for editing', 'danger');
             });
     }
-    
-    // Global variable for edit modal file handling
-    let editSelectedFiles = [];
-    let existingEditAttachments = [];
 
-    function openEditPostModal(post) {
-        // Initialize edit file arrays
-        editSelectedFiles = [];
-        existingEditAttachments = post.metadata && post.metadata.attachments ? [...post.metadata.attachments] : [];
-        
-        // Create edit modal dynamically
-        const modalHtml = `
-            <div class="modal fade" id="editPostModal" tabindex="-1">
-                <div class="modal-dialog modal-lg">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h5 class="modal-title">Edit Post</h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                        </div>
-                        <div class="modal-body">
-                            <form id="editPostForm">
-                                <input type="hidden" id="editPostId" value="${post.id}">
-                                <div class="mb-3">
-                                    <label for="editPostContent" class="form-label">Content</label>
-                                    <div class="position-relative">
-                                        <!-- File Upload Dropzone -->
-                                        <div id="edit-file-dropzone" class="file-dropzone">
-                                            <textarea class="form-control" id="editPostContent" rows="4" required>${post.content}</textarea>
-                                            <div class="dropzone-overlay">
-                                                <i class="bi bi-cloud-upload fs-1"></i>
-                                                <p>Drop files here to upload</p>
-                                            </div>
-                                        </div>
-                                        
-                                        <!-- File Upload Preview -->
-                                        <div id="edit-file-preview" class="file-preview mt-2" style="display: none;">
-                                            <!-- File previews will appear here -->
-                                        </div>
-                                        
-                                        <!-- Existing Attachments -->
-                                        <div id="existing-attachments" class="existing-attachments mt-2">
-                                            <!-- Existing attachments will appear here -->
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="row mb-3">
-                                    <div class="col-md-6">
-                                        <label for="editPostType" class="form-label">Post Type</label>
-                                        <select class="form-select" id="editPostType">
-                                            ${post.post_type === 'poll' ? '<option value="poll" selected>Poll</option>' : ''}
-                                            <option value="text" ${post.post_type === 'text' ? 'selected' : ''}>Text Post</option>
-                                            <option value="link" ${post.post_type === 'link' ? 'selected' : ''}>Link/URL</option>
-                                            <option value="image" ${post.post_type === 'image' ? 'selected' : ''}>Image</option>
-                                            <option value="video" ${post.post_type === 'video' ? 'selected' : ''}>Video</option>
-                                            <option value="audio" ${post.post_type === 'audio' ? 'selected' : ''}>Audio</option>
-                                        </select>
-                                        ${post.post_type === 'poll' ? '<div class="form-text text-muted">Poll edits are allowed only before votes are cast.</div>' : ''}
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label for="editPostVisibility" class="form-label">Who can see this?</label>
-                                        <select class="form-select" id="editPostVisibility">
-                                            <option value="network" ${post.visibility === 'network' ? 'selected' : ''}>Local Network</option>
-                                            <option value="trusted" ${post.visibility === 'trusted' ? 'selected' : ''}>Trusted Peers Only</option>
-                                            <option value="public" ${post.visibility === 'public' ? 'selected' : ''}>Everyone</option>
-                                            <option value="private" ${post.visibility === 'private' ? 'selected' : ''}>Only Me</option>
-                                            <option value="custom" ${post.visibility === 'custom' ? 'selected' : ''}>Custom Permissions</option>
-                                        </select>
-                                    </div>
-                                </div>
-                            </form>
-                        </div>
-                        <div class="modal-footer">
-                            <div class="me-auto">
-                                <input type="file" id="edit-file-input" style="display: none;" multiple 
-                                       accept="image/*,video/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.yaml,.yml,.xml">
-                                <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('edit-file-input').click()">
-                                    <i class="bi bi-paperclip"></i> Add Files
-                                </button>
-                            </div>
-                            <div>
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                                <button type="button" class="btn btn-primary" onclick="updatePost()">Update Post</button>
-                            </div>
-                        </div>
-                    </div>
+    function beginInlinePostEdit(post) {
+        const postId = post && post.id;
+        if (!postId) return;
+        cancelAllInlinePostEdits(postId);
+
+        const postCard = getPostCardElement(postId);
+        if (!postCard) {
+            showAlert('Post card not available in this view', 'warning');
+            return;
+        }
+
+        const existingPanel = postCard.querySelector('.feed-inline-editor');
+        if (existingPanel) {
+            const textarea = existingPanel.querySelector('textarea[data-inline-post-content]');
+            if (textarea) textarea.focus();
+            return;
+        }
+
+        const contentWrap = postCard.querySelector('[data-post-content]');
+        const actionsWrap = postCard.querySelector('[data-post-actions]');
+        if (contentWrap) contentWrap.classList.add('d-none');
+        if (actionsWrap) actionsWrap.classList.add('d-none');
+
+        const state = getInlinePostEditState(postId);
+        state.existingAttachments = Array.isArray(post.metadata && post.metadata.attachments)
+            ? [...post.metadata.attachments]
+            : [];
+        state.newAttachments = [];
+        state.saving = false;
+
+        const panel = document.createElement('div');
+        panel.className = 'feed-inline-editor';
+        panel.setAttribute('data-inline-post-for', postId);
+        panel.innerHTML = `
+            <textarea class="form-control mb-2" data-inline-post-content placeholder="Edit post"></textarea>
+            <div class="row g-2">
+                <div class="col-md-6">
+                    <label class="form-label small mb-1">Post Type</label>
+                    <select class="form-select form-select-sm" data-inline-post-type>
+                        <option value="text">Text Post</option>
+                        <option value="link">Link/URL</option>
+                        <option value="image">Image</option>
+                        <option value="video">Video</option>
+                        <option value="audio">Audio</option>
+                        <option value="poll">Poll</option>
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label small mb-1">Visibility</label>
+                    <select class="form-select form-select-sm" data-inline-post-visibility>
+                        <option value="network">Local Network</option>
+                        <option value="trusted">Trusted Peers Only</option>
+                        <option value="public">Everyone</option>
+                        <option value="private">Only Me</option>
+                        <option value="custom">Custom Permissions</option>
+                    </select>
+                </div>
+            </div>
+            <div class="mt-2" data-inline-post-existing-attachments></div>
+            <div class="file-preview mt-2" data-inline-post-new-attachments style="display:none;"></div>
+            <div class="feed-inline-toolbar">
+                <div>
+                    <input type="file"
+                           data-inline-post-file-input
+                           style="display:none;"
+                           multiple
+                           accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-inline-post-add-files>
+                        <i class="bi bi-paperclip"></i> Add Files
+                    </button>
+                </div>
+                <div class="feed-inline-actions">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-inline-post-cancel>Cancel</button>
+                    <button type="button" class="btn btn-sm btn-primary" data-inline-post-save>
+                        <i class="bi bi-check2"></i> Save
+                    </button>
                 </div>
             </div>
         `;
-        
-        // Remove existing modal if any
-        const existingModal = document.getElementById('editPostModal');
-        if (existingModal) {
-            existingModal.remove();
+
+        if (contentWrap && contentWrap.parentNode) {
+            contentWrap.parentNode.insertBefore(panel, contentWrap.nextSibling);
+        } else {
+            const body = postCard.querySelector('.card-body');
+            if (body) body.appendChild(panel);
         }
-        
-        // Add modal to page
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
-        
-        // Set up file upload for edit modal
-        setupEditFileUpload();
-        
-        // Display existing attachments
-        updateExistingAttachments();
-        
-        // Show modal
-        const modal = new bootstrap.Modal(document.getElementById('editPostModal'));
-        modal.show();
-        
-        // Clean up when modal is hidden
-        document.getElementById('editPostModal').addEventListener('hidden.bs.modal', function() {
-            editSelectedFiles = [];
-            existingEditAttachments = [];
-            this.remove();
-        });
-    }
-    
-    // File upload functions for edit modal
-    function setupEditFileUpload() {
-        const dropzone = document.getElementById('edit-file-dropzone');
-        const fileInput = document.getElementById('edit-file-input');
-        const editContent = document.getElementById('editPostContent');
-        
-        if (!dropzone || !fileInput) return;
-        
-        // Drag and drop
-        dropzone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            dropzone.classList.add('dragover');
-        });
-        
-        dropzone.addEventListener('dragleave', (e) => {
-            e.preventDefault();
-            dropzone.classList.remove('dragover');
-        });
-        
-        dropzone.addEventListener('drop', (e) => {
-            e.preventDefault();
-            dropzone.classList.remove('dragover');
-            
-            const files = Array.from(e.dataTransfer.files);
-            addEditFiles(files);
-        });
-        
-        // File input change
-        fileInput.addEventListener('change', (e) => {
-            const files = Array.from(e.target.files);
-            addEditFiles(files);
-            e.target.value = ''; // Reset input
-        });
-        
-        // Paste handler for edit modal
-        editContent.addEventListener('paste', handleEditPaste);
-        document.getElementById('editPostModal').addEventListener('paste', handleEditPaste);
-    }
-    
-    function handleEditPaste(e) {
-        const items = e.clipboardData?.items;
-        if (!items) return;
-        
-        let hasImage = false;
-        for (let i = 0; i < items.length; i++) {
-            const item = items[i];
-            
-            if (item.type.indexOf('image') !== -1) {
-                hasImage = true;
-                const file = item.getAsFile();
-                if (file) {
-                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-                    const newFile = new File([file], `pasted-image-${timestamp}.png`, { type: file.type });
-                    
-                    addEditFiles([newFile]);
-                    showAlert('Image pasted successfully!', 'success');
+
+        const textarea = panel.querySelector('textarea[data-inline-post-content]');
+        if (textarea) {
+            textarea.value = post.content || '';
+            textarea.focus();
+            textarea.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    saveInlinePostEdit(postId);
+                    return;
                 }
-                break;
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    cancelInlinePostEdit(postId);
+                }
+            });
+        }
+
+        const typeSelect = panel.querySelector('select[data-inline-post-type]');
+        if (typeSelect) {
+            const typeValue = String(post.post_type || 'text');
+            if (typeSelect.querySelector(`option[value="${typeValue}"]`)) {
+                typeSelect.value = typeValue;
             }
         }
-        
-        if (hasImage) {
-            e.preventDefault();
+        const visibilitySelect = panel.querySelector('select[data-inline-post-visibility]');
+        if (visibilitySelect) {
+            const visibilityValue = String(post.visibility || 'network');
+            if (visibilitySelect.querySelector(`option[value="${visibilityValue}"]`)) {
+                visibilitySelect.value = visibilityValue;
+            }
+        }
+
+        const addBtn = panel.querySelector('[data-inline-post-add-files]');
+        const fileInput = panel.querySelector('input[data-inline-post-file-input]');
+        if (addBtn && fileInput) {
+            addBtn.addEventListener('click', () => fileInput.click());
+            fileInput.addEventListener('change', (event) => {
+                const files = Array.from((event.target && event.target.files) || []);
+                addInlinePostEditFiles(postId, files);
+                fileInput.value = '';
+            });
+        }
+
+        const cancelBtn = panel.querySelector('[data-inline-post-cancel]');
+        if (cancelBtn) cancelBtn.addEventListener('click', () => cancelInlinePostEdit(postId));
+        const saveBtn = panel.querySelector('[data-inline-post-save]');
+        if (saveBtn) saveBtn.addEventListener('click', () => saveInlinePostEdit(postId));
+
+        renderInlinePostEditAttachments(postId);
+        activeInlinePostEditId = postId;
+    }
+
+    function renderInlinePostEditAttachments(postId) {
+        const postCard = getPostCardElement(postId);
+        if (!postCard) return;
+        const panel = postCard.querySelector('.feed-inline-editor');
+        if (!panel) return;
+        const state = getInlinePostEditState(postId);
+
+        const existingWrap = panel.querySelector('[data-inline-post-existing-attachments]');
+        if (existingWrap) {
+            if (!state.existingAttachments.length) {
+                existingWrap.innerHTML = '';
+            } else {
+                existingWrap.innerHTML = `
+                    <div class="mb-2"><strong>Current Files:</strong></div>
+                    ${state.existingAttachments.map((attachment, index) => `
+                        <div class="file-preview-item d-inline-flex align-items-center gap-2 me-2 mb-2 p-2 rounded" style="background: var(--canopy-bg-secondary); border: 1px solid var(--canopy-border);">
+                            <i class="bi bi-${getPostFileIcon((attachment && attachment.type) || '')}"></i>
+                            <span class="small">${escapeHtml((attachment && attachment.name) || 'file')}</span>
+                            <button type="button" class="btn-close btn-sm" onclick="removeInlinePostExistingAttachment('${postId}', ${index})" style="font-size: 0.7rem;"></button>
+                        </div>
+                    `).join('')}
+                `;
+            }
+        }
+
+        const newWrap = panel.querySelector('[data-inline-post-new-attachments]');
+        if (newWrap) {
+            if (!state.newAttachments.length) {
+                newWrap.style.display = 'none';
+                newWrap.innerHTML = '';
+            } else {
+                newWrap.style.display = 'block';
+                newWrap.innerHTML = `
+                    <div class="mb-2"><strong>New Files:</strong></div>
+                    ${state.newAttachments.map((file, index) => `
+                        <div class="file-preview-item d-inline-flex align-items-center gap-2 me-2 mb-2 p-2 rounded" style="background: var(--canopy-bg-tertiary); border: 1px solid var(--canopy-border);">
+                            <i class="bi bi-${getPostFileIcon(file.type)}"></i>
+                            <span class="small">${escapeHtml(file.name)}</span>
+                            <button type="button" class="btn-close btn-sm" onclick="removeInlinePostEditFile('${postId}', ${index})" style="font-size: 0.7rem;"></button>
+                        </div>
+                    `).join('')}
+                `;
+            }
         }
     }
-    
-    function addEditFiles(files) {
-        const maxSize = 100 * 1024 * 1024; // 100MB
-        const allowedMimeTypes = ['image/', 'video/', 'audio/', 'application/pdf', 'text/', 'application/msword',
-                                  'application/json', 'application/xml', 'application/x-yaml',
-                                  'application/javascript', 'application/typescript', 'application/octet-stream'];
-        const allowedExtensions = ['.md', '.txt', '.tex', '.json', '.py', '.js', '.ts', '.log',
-                                   '.csv', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
-                                   '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx'];
-        
+
+    function addInlinePostEditFiles(postId, files) {
+        const state = getInlinePostEditState(postId);
         files.forEach(file => {
-            if (file.size > maxSize) {
-                alert(`File ${file.name} is too large. Maximum size is 100MB.`);
+            if (!isAllowedFeedEditAttachment(file)) {
+                showAlert(`File type ${(file && file.type) || 'unknown'} is not supported, or file is too large.`, 'warning');
                 return;
             }
-            
-            const ext = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
-            if (!allowedMimeTypes.some(type => file.type.startsWith(type)) && !allowedExtensions.includes(ext)) {
-                alert(`File type ${file.type || 'unknown'} is not supported.`);
-                return;
-            }
-            
-            // Read file as base64 for upload
             const reader = new FileReader();
-            reader.onload = function(e) {
-                const base64Data = e.target.result.split(',')[1]; // Remove data: prefix
-                
-                editSelectedFiles.push({
+            reader.onload = function(event) {
+                const raw = (event && event.target && event.target.result) || '';
+                const base64Data = String(raw).split(',')[1];
+                if (!base64Data) return;
+                state.newAttachments.push({
                     name: file.name,
                     type: file.type,
                     size: file.size,
                     data: base64Data,
-                    file: file
+                    file: file,
                 });
-                
-                updateEditFilePreview();
+                renderInlinePostEditAttachments(postId);
             };
-            
             reader.onerror = function() {
-                alert(`Failed to read file: ${file.name}`);
+                showAlert(`Failed to read file: ${file.name}`, 'danger');
             };
-            
             reader.readAsDataURL(file);
         });
     }
-    
-    function updateEditFilePreview() {
-        const preview = document.getElementById('edit-file-preview');
-        
-        if (editSelectedFiles.length === 0) {
-            preview.style.display = 'none';
-            return;
-        }
-        
-        preview.style.display = 'block';
-        preview.innerHTML = `
-            <div class="mb-2"><strong>New Files:</strong></div>
-            ${editSelectedFiles.map((file, index) => `
-                <div class="file-preview-item d-inline-flex align-items-center gap-2 me-2 mb-2 p-2 rounded" style="background: var(--canopy-bg-tertiary); border: 1px solid var(--canopy-border);">
-                    <i class="bi bi-${getPostFileIcon(file.type)}"></i>
-                    <span class="small">${file.name}</span>
-                    <button type="button" class="btn-close btn-sm" onclick="removeEditFile(${index})" style="font-size: 0.7rem;"></button>
-                </div>
-            `).join('')}
-        `;
-    }
-    
-    function removeEditFile(index) {
-        editSelectedFiles.splice(index, 1);
-        updateEditFilePreview();
-    }
-    
-    function updateExistingAttachments() {
-        const container = document.getElementById('existing-attachments');
-        
-        if (existingEditAttachments.length === 0) {
-            container.style.display = 'none';
-            return;
-        }
-        
-        container.style.display = 'block';
-        container.innerHTML = `
-            <div class="mb-2"><strong>Current Files:</strong></div>
-            ${existingEditAttachments.map((attachment, index) => `
-                <div class="file-preview-item d-inline-flex align-items-center gap-2 me-2 mb-2 p-2 rounded" style="background: var(--canopy-bg-secondary); border: 1px solid var(--canopy-border);">
-                    <i class="bi bi-${getPostFileIcon(attachment.type)}"></i>
-                    <span class="small">${attachment.name}</span>
-                    <button type="button" class="btn-close btn-sm" onclick="removeExistingAttachment(${index})" style="font-size: 0.7rem;"></button>
-                </div>
-            `).join('')}
-        `;
-    }
-    
-    function removeExistingAttachment(index) {
-        existingEditAttachments.splice(index, 1);
-        updateExistingAttachments();
+
+    function removeInlinePostEditFile(postId, index) {
+        const state = getInlinePostEditState(postId);
+        state.newAttachments.splice(index, 1);
+        renderInlinePostEditAttachments(postId);
     }
 
-    function updatePost() {
-        const postId = document.getElementById('editPostId').value;
-        const content = document.getElementById('editPostContent').value.trim();
-        const postType = document.getElementById('editPostType').value;
-        const visibility = document.getElementById('editPostVisibility').value;
-        
-        if (!content && existingEditAttachments.length === 0 && editSelectedFiles.length === 0) {
+    function removeInlinePostExistingAttachment(postId, index) {
+        const state = getInlinePostEditState(postId);
+        state.existingAttachments.splice(index, 1);
+        renderInlinePostEditAttachments(postId);
+    }
+
+    function setInlinePostEditSaving(postId, saving) {
+        const postCard = getPostCardElement(postId);
+        if (!postCard) return;
+        const panel = postCard.querySelector('.feed-inline-editor');
+        if (!panel) return;
+        const textarea = panel.querySelector('textarea[data-inline-post-content]');
+        const saveBtn = panel.querySelector('[data-inline-post-save]');
+        const cancelBtn = panel.querySelector('[data-inline-post-cancel]');
+        const addBtn = panel.querySelector('[data-inline-post-add-files]');
+        const typeSelect = panel.querySelector('select[data-inline-post-type]');
+        const visibilitySelect = panel.querySelector('select[data-inline-post-visibility]');
+
+        if (textarea) textarea.disabled = !!saving;
+        if (cancelBtn) cancelBtn.disabled = !!saving;
+        if (addBtn) addBtn.disabled = !!saving;
+        if (typeSelect) typeSelect.disabled = !!saving;
+        if (visibilitySelect) visibilitySelect.disabled = !!saving;
+        if (saveBtn) {
+            if (saving) {
+                saveBtn.dataset.originalHtml = saveBtn.innerHTML;
+                saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving...';
+                saveBtn.disabled = true;
+            } else {
+                saveBtn.innerHTML = saveBtn.dataset.originalHtml || '<i class="bi bi-check2"></i> Save';
+                saveBtn.disabled = false;
+            }
+        }
+    }
+
+    function cancelInlinePostEdit(postId, silent) {
+        const postCard = getPostCardElement(postId);
+        if (!postCard) return;
+        const panel = postCard.querySelector('.feed-inline-editor');
+        if (panel) panel.remove();
+        const contentWrap = postCard.querySelector('[data-post-content]');
+        const actionsWrap = postCard.querySelector('[data-post-actions]');
+        if (contentWrap) contentWrap.classList.remove('d-none');
+        if (actionsWrap) actionsWrap.classList.remove('d-none');
+        clearInlinePostEditState(postId);
+        if (activeInlinePostEditId === postId) activeInlinePostEditId = null;
+        if (!silent) showAlert('Edit canceled', 'info');
+    }
+
+    function saveInlinePostEdit(postId) {
+        const postCard = getPostCardElement(postId);
+        if (!postCard) return;
+        const panel = postCard.querySelector('.feed-inline-editor');
+        if (!panel) return;
+        const state = getInlinePostEditState(postId);
+        if (state.saving) return;
+
+        const textarea = panel.querySelector('textarea[data-inline-post-content]');
+        const typeSelect = panel.querySelector('select[data-inline-post-type]');
+        const visibilitySelect = panel.querySelector('select[data-inline-post-visibility]');
+        const content = ((textarea && textarea.value) || '').trim();
+        const postType = ((typeSelect && typeSelect.value) || 'text').trim();
+        const visibility = ((visibilitySelect && visibilitySelect.value) || 'network').trim();
+
+        if (!content && state.existingAttachments.length === 0 && state.newAttachments.length === 0) {
             showAlert('Post content or attachments are required', 'warning');
             return;
         }
-        
-        // Combine existing and new attachments
-        const allAttachments = [...existingEditAttachments];
-        
-        // Prepare metadata with attachments
-        let metadata = {};
+
+        const allAttachments = [...state.existingAttachments];
+        const metadata = {};
         if (allAttachments.length > 0) {
             metadata.attachments = allAttachments;
-            
-            // Set primary media URLs for display
-            const firstAttachment = allAttachments[0];
-            if (firstAttachment.type.startsWith('image/')) {
-                metadata.image_url = firstAttachment.url;
-            } else if (firstAttachment.type.startsWith('video/')) {
-                metadata.video_url = firstAttachment.url;
-            } else if (firstAttachment.type.startsWith('audio/')) {
-                metadata.audio_url = firstAttachment.url;
-            }
+            const first = allAttachments[0] || {};
+            const firstType = String(first.type || '');
+            if (firstType.startsWith('image/')) metadata.image_url = first.url;
+            else if (firstType.startsWith('video/')) metadata.video_url = first.url;
+            else if (firstType.startsWith('audio/')) metadata.audio_url = first.url;
         }
-        
+
+        state.saving = true;
+        setInlinePostEditSaving(postId, true);
+
         apiCall('/ajax/update_post', {
             method: 'POST',
             body: JSON.stringify({
@@ -4992,16 +5051,20 @@
                 post_type: postType,
                 visibility: visibility,
                 metadata: metadata,
-                new_attachments: editSelectedFiles  // New files to be processed
-            })
+                new_attachments: state.newAttachments,
+            }),
         })
-        .then(response => {
+        .then(() => {
+            cancelInlinePostEdit(postId, true);
             showAlert('Post updated successfully!', 'success');
-            bootstrap.Modal.getInstance(document.getElementById('editPostModal')).hide();
-            setTimeout(refreshFeed, 1000);
+            setTimeout(refreshFeed, 500);
         })
         .catch(error => {
-            showAlert(error.error || 'Failed to update post', 'danger');
+            showAlert(error.error || error.message || 'Failed to update post', 'danger');
+        })
+        .finally(() => {
+            state.saving = false;
+            setInlinePostEditSaving(postId, false);
         });
     }
     

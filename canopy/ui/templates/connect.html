@@ -139,10 +139,46 @@
         color: var(--canopy-text-secondary);
         font-size: 0.8rem;
     }
+    .connect-page .card {
+        margin-bottom: 0.85rem;
+    }
+    .connect-scroll-list {
+        max-height: 420px;
+        overflow-y: auto;
+    }
+    .connect-scroll-table {
+        max-height: 360px;
+        overflow-y: auto;
+    }
+    .connect-section-toggle {
+        border: none;
+        background: transparent;
+        color: var(--canopy-text-primary);
+        font-weight: 600;
+        padding: 0;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+    }
+    .connect-section-toggle:hover {
+        color: var(--canopy-text-primary);
+        opacity: 0.9;
+    }
+    .connect-section-toggle .bi-chevron-down {
+        transition: transform 0.2s ease;
+    }
+    .connect-section-toggle[aria-expanded="true"] .bi-chevron-down {
+        transform: rotate(180deg);
+    }
     @media (max-width: 767.98px) {
         .peer-actions {
             width: 100%;
             justify-content: flex-start;
+        }
+        .connect-scroll-list,
+        .connect-scroll-table {
+            max-height: 300px;
         }
     }
 </style>
@@ -155,6 +191,7 @@
     </h1>
 </div>
 
+<div class="connect-page">
 <div class="row">
     <!-- Your Invite Code -->
     <div class="col-lg-6 mb-4">
@@ -259,7 +296,7 @@
                     </div>
                 </div>
             </div>
-            <div class="card-body">
+            <div class="card-body connect-scroll-list">
                 {% if connected_peers or (relay_status and relay_status.active_relays) %}
                 <ul class="list-group list-group-flush">
                     {% for pid in connected_peers %}
@@ -365,7 +402,7 @@
             <div class="card-header">
                 <h5 class="mb-0"><i class="bi bi-broadcast"></i> Discovered Peers (LAN)</h5>
             </div>
-            <div class="card-body">
+            <div class="card-body connect-scroll-list">
                 {% if discovered_peers %}
                 <ul class="list-group list-group-flush">
                     {% for peer in discovered_peers %}
@@ -410,7 +447,7 @@
             </div>
             <div class="card-body">
                 <p class="text-muted small">These peers were introduced by your connected contacts. Click <strong>Connect</strong> to establish a direct link.</p>
-                <div class="table-responsive">
+                <div class="table-responsive connect-scroll-table">
                     <table class="table table-sm" style="color:var(--canopy-text-primary);">
                         <thead>
                             <tr>
@@ -488,7 +525,7 @@
                     </div>
                 </div>
             </div>
-            <div class="card-body">
+            <div class="card-body connect-scroll-list">
                 <p class="text-muted small">Previously connected peers. Click <strong>Reconnect</strong> to try reaching them again.</p>
                 <ul class="list-group list-group-flush">
                     {% for peer in known_peers %}
@@ -552,15 +589,25 @@
     <div class="col-12 mb-4">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-activity"></i> Connection History</h5>
+                <button class="connect-section-toggle"
+                        type="button"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#connectionHistoryPanel"
+                        aria-expanded="false"
+                        aria-controls="connectionHistoryPanel">
+                    <span><i class="bi bi-activity"></i> Connection History</span>
+                    <i class="bi bi-chevron-down"></i>
+                </button>
                 <button class="btn btn-sm btn-outline-secondary" onclick="clearConnectionHistory()">
                     <i class="bi bi-x-circle"></i> Clear
                 </button>
             </div>
-            <div class="card-body">
-                <ul class="list-group list-group-flush" id="connection-history-list">
-                    <li class="list-group-item text-muted">No connection events yet.</li>
-                </ul>
+            <div class="collapse" id="connectionHistoryPanel">
+                <div class="card-body connect-scroll-list">
+                    <ul class="list-group list-group-flush" id="connection-history-list">
+                        <li class="list-group-item text-muted">No connection events yet.</li>
+                    </ul>
+                </div>
             </div>
         </div>
     </div>
@@ -571,7 +618,15 @@
     <div class="col-12 mb-4">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-                <h5 class="mb-0"><i class="bi bi-shield-check"></i> Mesh Diagnostics</h5>
+                <button class="connect-section-toggle"
+                        type="button"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#meshDiagnosticsPanel"
+                        aria-expanded="false"
+                        aria-controls="meshDiagnosticsPanel">
+                    <span><i class="bi bi-shield-check"></i> Mesh Diagnostics</span>
+                    <i class="bi bi-chevron-down"></i>
+                </button>
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                     <span id="mesh-security-badge" class="badge bg-success peer-pill">Signature strict</span>
                     {% if is_admin %}
@@ -584,48 +639,50 @@
                     </button>
                 </div>
             </div>
-            <div class="card-body">
-                <div class="mesh-diag-grid mb-3">
-                    <div class="mesh-kpi">
-                        <div class="mesh-kpi-label">Connected</div>
-                        <div class="mesh-kpi-value" id="diag-connected-count">—</div>
-                    </div>
-                    <div class="mesh-kpi">
-                        <div class="mesh-kpi-label">Known Peers</div>
-                        <div class="mesh-kpi-value" id="diag-known-count">—</div>
-                    </div>
-                    <div class="mesh-kpi">
-                        <div class="mesh-kpi-label">Pending Queue</div>
-                        <div class="mesh-kpi-value" id="diag-pending-total">—</div>
-                    </div>
-                    <div class="mesh-kpi">
-                        <div class="mesh-kpi-label">Reconnect Tasks</div>
-                        <div class="mesh-kpi-value" id="diag-reconnect-count">—</div>
-                    </div>
-                    <div class="mesh-kpi">
-                        <div class="mesh-kpi-label">Sync Queue</div>
-                        <div class="mesh-kpi-value" id="diag-sync-queue">—</div>
-                    </div>
-                    <div class="mesh-kpi">
-                        <div class="mesh-kpi-label">Active Catch-ups</div>
-                        <div class="mesh-kpi-value" id="diag-catchups">—</div>
-                    </div>
-                </div>
-                <div class="row g-3">
-                    <div class="col-lg-6">
-                        <div class="mesh-muted mb-2">Pending by peer</div>
-                        <div id="diag-pending-by-peer" class="mesh-list">
-                            <div class="mesh-muted">No pending messages.</div>
+            <div class="collapse" id="meshDiagnosticsPanel">
+                <div class="card-body">
+                    <div class="mesh-diag-grid mb-3">
+                        <div class="mesh-kpi">
+                            <div class="mesh-kpi-label">Connected</div>
+                            <div class="mesh-kpi-value" id="diag-connected-count">—</div>
+                        </div>
+                        <div class="mesh-kpi">
+                            <div class="mesh-kpi-label">Known Peers</div>
+                            <div class="mesh-kpi-value" id="diag-known-count">—</div>
+                        </div>
+                        <div class="mesh-kpi">
+                            <div class="mesh-kpi-label">Pending Queue</div>
+                            <div class="mesh-kpi-value" id="diag-pending-total">—</div>
+                        </div>
+                        <div class="mesh-kpi">
+                            <div class="mesh-kpi-label">Reconnect Tasks</div>
+                            <div class="mesh-kpi-value" id="diag-reconnect-count">—</div>
+                        </div>
+                        <div class="mesh-kpi">
+                            <div class="mesh-kpi-label">Sync Queue</div>
+                            <div class="mesh-kpi-value" id="diag-sync-queue">—</div>
+                        </div>
+                        <div class="mesh-kpi">
+                            <div class="mesh-kpi-label">Active Catch-ups</div>
+                            <div class="mesh-kpi-value" id="diag-catchups">—</div>
                         </div>
                     </div>
-                    <div class="col-lg-6">
-                        <div class="mesh-muted mb-2">Recent failures / security blocks</div>
-                        <div id="diag-recent-failures" class="mesh-list">
-                            <div class="mesh-muted">No recent failures.</div>
+                    <div class="row g-3">
+                        <div class="col-lg-6">
+                            <div class="mesh-muted mb-2">Pending by peer</div>
+                            <div id="diag-pending-by-peer" class="mesh-list">
+                                <div class="mesh-muted">No pending messages.</div>
+                            </div>
+                        </div>
+                        <div class="col-lg-6">
+                            <div class="mesh-muted mb-2">Recent failures / security blocks</div>
+                            <div id="diag-recent-failures" class="mesh-list">
+                                <div class="mesh-muted">No recent failures.</div>
+                            </div>
                         </div>
                     </div>
+                    <div id="diag-last-updated" class="mesh-muted mt-3">Last updated: —</div>
                 </div>
-                <div id="diag-last-updated" class="mesh-muted mt-3">Last updated: —</div>
             </div>
         </div>
     </div>
@@ -636,14 +693,24 @@
     <div class="col-12 mb-4">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-x-circle"></i> Recent Failed Connections</h5>
+                <button class="connect-section-toggle"
+                        type="button"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#failedConnectionsPanel"
+                        aria-expanded="false"
+                        aria-controls="failedConnectionsPanel">
+                    <span><i class="bi bi-x-circle"></i> Recent Failed Connections</span>
+                    <i class="bi bi-chevron-down"></i>
+                </button>
                 <button class="btn btn-sm btn-outline-secondary" onclick="pollConnectionDiagnostics()" title="Refresh">
                     <i class="bi bi-arrow-clockwise"></i>
                 </button>
             </div>
-            <div class="card-body p-0">
-                <div id="conn-diag-failures">
-                    <div class="p-3 text-muted small"><i class="bi bi-hourglass-split"></i> Loading…</div>
+            <div class="collapse" id="failedConnectionsPanel">
+                <div class="card-body p-0">
+                    <div id="conn-diag-failures">
+                        <div class="p-3 text-muted small"><i class="bi bi-hourglass-split"></i> Loading…</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -728,24 +795,35 @@
 <!-- How it works -->
 <div class="card mb-4">
     <div class="card-header">
-        <h5 class="mb-0"><i class="bi bi-question-circle"></i> How to connect with a friend</h5>
+        <button class="connect-section-toggle"
+                type="button"
+                data-bs-toggle="collapse"
+                data-bs-target="#connectHowToPanel"
+                aria-expanded="false"
+                aria-controls="connectHowToPanel">
+            <span><i class="bi bi-question-circle"></i> How to connect with a friend</span>
+            <i class="bi bi-chevron-down"></i>
+        </button>
     </div>
-    <div class="card-body">
-        <div class="row">
-            <div class="col-md-4 mb-3">
-                <h6><span class="badge bg-primary me-1">1</span> Same network (LAN)</h6>
-                <p class="small text-muted mb-0">Both on the same WiFi? Canopy discovers peers automatically — no invite needed.</p>
-            </div>
-            <div class="col-md-4 mb-3">
-                <h6><span class="badge bg-primary me-1">2</span> Different location</h6>
-                <p class="small text-muted mb-0">One person port-forwards <code>{{ mesh_port }}</code> on their router, enters their public IP above, then sends the invite code to the friend.</p>
-            </div>
-            <div class="col-md-4 mb-3">
-                <h6><span class="badge bg-primary me-1">3</span> Friend imports the code</h6>
-                <p class="small text-muted mb-0">The friend pastes the invite code and clicks <strong>Connect</strong>. Canopy verifies the identity and establishes an encrypted channel.</p>
+    <div class="collapse" id="connectHowToPanel">
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <h6><span class="badge bg-primary me-1">1</span> Same network (LAN)</h6>
+                    <p class="small text-muted mb-0">Both on the same WiFi? Canopy discovers peers automatically — no invite needed.</p>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <h6><span class="badge bg-primary me-1">2</span> Different location</h6>
+                    <p class="small text-muted mb-0">One person port-forwards <code>{{ mesh_port }}</code> on their router, enters their public IP above, then sends the invite code to the friend.</p>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <h6><span class="badge bg-primary me-1">3</span> Friend imports the code</h6>
+                    <p class="small text-muted mb-0">The friend pastes the invite code and clicks <strong>Connect</strong>. Canopy verifies the identity and establishes an encrypted channel.</p>
+                </div>
             </div>
         </div>
     </div>
+</div>
 </div>
 
 <script>
