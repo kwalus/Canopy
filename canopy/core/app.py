@@ -3339,7 +3339,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
             )
             return {"ok": True, "origin_peer": origin_peer, "hashes_cleared": cleared, "sync_triggered": synced}
 
-        p2p_manager.resync_user_avatar = _resync_user_avatar
+        setattr(p2p_manager, 'resync_user_avatar', _resync_user_avatar)  # dynamic; route checks hasattr()
 
         # --- Provide local profile card for sync ---
         def _get_local_profile_sync_user_ids():
