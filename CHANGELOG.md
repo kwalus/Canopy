@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.30] - 2026-03-04
+
+### Added
+- **Private channel membership recovery protocol** — New `CHANNEL_MEMBERSHIP_QUERY`/`CHANNEL_MEMBERSHIP_RESPONSE` message types allow peers to recover missed private channel invites on reconnect, creating shadow channels and triggering key requests for E2E channels.
+- **Version negotiation on peer handshake** — Peers now exchange `canopy_version` and `protocol_version` during WebSocket handshake, with optional `CANOPY_REJECT_PROTOCOL_MISMATCH` enforcement. Peer versions exposed via `/api/v1/p2p/peers` and network status.
+- **Channel key retry on reconnect** — Automatic retry of missing E2E channel key requests when a peer reconnects, recovering from transient delivery failures.
+- **Connection diagnostics UI** — New `/ajax/connection_diagnostics` endpoint and Connect page panel showing per-peer latency, relay topology, recent failures, and local mesh config.
+- **Agent onboarding quickstart** — New `docs/AGENT_ONBOARDING.md` with 8-step bootstrap guide for AI agents joining the network.
+
+### Changed
+- **README rewrite** — Restructured for public-facing clarity, leading with agent-equality value proposition and featuring reorganized feature sections.
+- **Keepalive latency tracking** — Ping RTT now measured and stored per-connection for diagnostics.
+
+## [0.4.29] - 2026-03-04
+
+### Changed
+- **Version bump to 0.4.29** — E2E Phase 2 merged to main. Dropped `-e2e` suffix for stable release.
+- **Security audit** — Removed hardcoded testnet secret key (now auto-generated), stripped internal machine names from MCP server comments.
+- **Documentation refresh** — Updated API reference with missing endpoints (contracts, thread subscriptions, message likes, promote_direct, inbox/rebuild), added E2E section to security docs, created baseline RELEASE_NOTES_0.4.0.md, corrected test count and broken doc links in README.
+- **`.gitignore` hardening** — Added `*.env` glob pattern to catch all env file variants.
+
+---
+
 ## [0.4.28-e2e.16] - 2026-03-03
 
 ### Added

@@ -12141,6 +12141,104 @@ def create_ui_blueprint() -> Blueprint:
             logger.error(f"Resync user avatar error: {e}", exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
+    @ui.route('/ajax/connection_diagnostics', methods=['GET'])
+    @require_login
+    def ajax_connection_diagnostics():
+        """Connection diagnostics: per-peer health, recent failures, and local config."""
+        try:
+            _, _, _, _, _, _, _, _, _, config, p2p_manager = _get_app_components_any(current_app)
+            from ..network.invite import generate_invite
+
+            if not p2p_manager:
+                return jsonify({'success': False, 'error': 'P2P network unavailable'}), 503
+
+            im = p2p_manager.identity_manager
+            conn_mgr = getattr(p2p_manager, 'connection_manager', None)
+            active_relays = dict(getattr(p2p_manager, '_active_relays', {}))
+
+            peers: list[dict[str, Any]] = []
+            for peer_id in p2p_manager.get_connected_peers():
+                is_relayed = peer_id in active_relays
+                relay_via = active_relays.get(peer_id)
+                relay_via_name: Optional[str] = None
+                if relay_via:
+                    relay_via_name = (
+                        im.peer_display_names.get(relay_via)
+                        or relay_via[:12]
+                    )
+                conn = conn_mgr.get_connection(peer_id) if conn_mgr else None
+                latency_ms = getattr(conn, 'last_ping_latency_ms', None) if conn else None
+                peers.append({
+                    'peer_id': peer_id,
+                    'display_name': im.peer_display_names.get(peer_id, ''),
+                    'connection_type': 'relayed' if is_relayed else 'direct',
+                    'relay_via': relay_via,
+                    'relay_via_name': relay_via_name,
+                    'latency_ms': latency_ms,
+                    'connected_at': conn.connected_at if conn else None,
+                    'last_activity': conn.last_activity if conn else None,
+                    'endpoints': list(im.peer_endpoints.get(peer_id, [])),
+                })
+
+            direct_set = {p['peer_id'] for p in peers}
+            for dest_peer, relay_peer in active_relays.items():
+                if dest_peer not in direct_set:
+                    relay_name = (
+                        im.peer_display_names.get(relay_peer)
+                        or relay_peer[:12]
+                    )
+                    peers.append({
+                        'peer_id': dest_peer,
+                        'display_name': im.peer_display_names.get(dest_peer, ''),
+                        'connection_type': 'relayed',
+                        'relay_via': relay_peer,
+                        'relay_via_name': relay_name,
+                        'latency_ms': None,
+                        'connected_at': None,
+                        'last_activity': None,
+                        'endpoints': list(im.peer_endpoints.get(dest_peer, [])),
+                    })
+
+            recent_failures: list[dict[str, Any]] = []
+            try:
+                for event in p2p_manager.get_activity_events(limit=200):
+                    kind = event.get('kind')
+                    status = (event.get('status') or '').lower()
+                    if kind == 'connection' and status in {'failed', 'disconnected'}:
+                        recent_failures.append({
+                            'peer_id': event.get('peer_id', ''),
+                            'endpoint': event.get('endpoint', ''),
+                            'reason': event.get('detail', ''),
+                            'timestamp': event.get('timestamp'),
+                        })
+                    if len(recent_failures) >= 5:
+                        break
+            except Exception:
+                pass
+
+            mesh_port = config.network.mesh_port if config else 7771
+            relay_status = p2p_manager.get_relay_status() if p2p_manager else {}
+            local_endpoints: list[str] = []
+            try:
+                invite = generate_invite(im, mesh_port)
+                local_endpoints = list(invite.endpoints)
+            except Exception:
+                pass
+
+            return jsonify({
+                'success': True,
+                'peers': peers,
+                'recent_failures': recent_failures,
+                'local': {
+                    'mesh_port': mesh_port,
+                    'endpoints': local_endpoints,
+                    'relay_policy': relay_status.get('relay_policy', 'broker_only'),
+                },
+            })
+        except Exception as e:
+            logger.error(f"Connection diagnostics error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Failed to load diagnostics'}), 500
+
     def _clean_mention_handle(display_name, username, user_id):
         """Derive a mention-safe handle from user info.
 

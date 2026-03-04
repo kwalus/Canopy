@@ -135,6 +135,7 @@ class PeerConnection:
     last_outbound_activity: Optional[float] = None
     is_outbound: bool = True  # True if we initiated connection
     capabilities: Optional[Dict[str, bool]] = None
+    last_ping_latency_ms: Optional[float] = None  # RTT from last keepalive ping
     handshake_version: Optional[str] = None
     canopy_version: Optional[str] = None
     protocol_version: Optional[int] = None
@@ -1054,6 +1055,7 @@ class ConnectionManager:
                     # Send keepalive ping through the send lock to avoid
                     # concurrent write assertions in the websockets library.
                     try:
+                        t_ping = time.time()
                         async with connection._send_lock:
                             websocket = connection.websocket
                             if websocket is None:
@@ -1061,6 +1063,7 @@ class ConnectionManager:
                                 continue
                             pong = await websocket.ping()
                         await asyncio.wait_for(pong, timeout=30)
+                        connection.last_ping_latency_ms = round((time.time() - t_ping) * 1000, 1)
                     except asyncio.TimeoutError:
                         logger.warning(f"Keepalive ping to {peer_id} timed out — disconnecting")
                         await self.disconnect_peer(peer_id)

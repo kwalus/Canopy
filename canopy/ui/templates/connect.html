@@ -294,7 +294,8 @@
                             {% else %}
                             <span class="badge bg-secondary" title="Trust score: {{ tscore }}/100" style="opacity:0.6;"><i class="bi bi-shield-check"></i> {{ tscore }}</span>
                             {% endif %}
-                            <span class="badge bg-success" title="Direct connection"><i class="bi bi-lightning-charge"></i> Direct</span>
+                            <span class="badge bg-success" title="Direct connection" data-peer-conn-type><i class="bi bi-lightning-charge"></i> Direct</span>
+                            <span class="badge bg-secondary peer-pill" data-peer-latency style="display:none;" title="Round-trip latency"></span>
                             <div class="dropdown peer-controls">
                                 <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
                                     <i class="bi bi-gear"></i>
@@ -625,6 +626,100 @@
                     </div>
                 </div>
                 <div id="diag-last-updated" class="mesh-muted mt-3">Last updated: —</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Failed Connection Log -->
+<div class="row">
+    <div class="col-12 mb-4">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-x-circle"></i> Recent Failed Connections</h5>
+                <button class="btn btn-sm btn-outline-secondary" onclick="pollConnectionDiagnostics()" title="Refresh">
+                    <i class="bi bi-arrow-clockwise"></i>
+                </button>
+            </div>
+            <div class="card-body p-0">
+                <div id="conn-diag-failures">
+                    <div class="p-3 text-muted small"><i class="bi bi-hourglass-split"></i> Loading…</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Connection Troubleshooting Panel -->
+<div class="row">
+    <div class="col-12 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <button class="btn btn-link text-decoration-none w-100 text-start p-0 d-flex align-items-center justify-content-between"
+                        type="button" data-bs-toggle="collapse" data-bs-target="#troubleshootingPanel"
+                        aria-expanded="false" aria-controls="troubleshootingPanel"
+                        style="color:var(--canopy-text-primary);">
+                    <h5 class="mb-0"><i class="bi bi-tools"></i> Connection Troubleshooting</h5>
+                    <i class="bi bi-chevron-down" id="troubleshootingChevron"></i>
+                </button>
+            </div>
+            <div class="collapse" id="troubleshootingPanel">
+                <div class="card-body">
+                    <!-- Local node info -->
+                    <div class="row g-3 mb-4">
+                        <div class="col-md-4">
+                            <div class="mesh-kpi">
+                                <div class="mesh-kpi-label">Mesh Port</div>
+                                <div class="mesh-kpi-value" id="ts-mesh-port">{{ mesh_port }}</div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mesh-kpi">
+                                <div class="mesh-kpi-label">Relay Policy</div>
+                                <div class="mesh-kpi-value" id="ts-relay-policy">—</div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mesh-kpi">
+                                <div class="mesh-kpi-label">Advertised Endpoints</div>
+                                <div class="mesh-kpi-value" id="ts-endpoint-count">{{ endpoints|length }}</div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Advertised endpoints list -->
+                    <div class="mb-4">
+                        <div class="mesh-muted mb-2">Advertised endpoints</div>
+                        <div id="ts-endpoints-list">
+                            {% for ep in endpoints %}
+                            <span class="badge bg-secondary me-1 mb-1">{{ ep }}</span>
+                            {% else %}
+                            <span class="text-muted small">None detected</span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    <!-- Common issue checklist -->
+                    <div>
+                        <div class="mesh-muted mb-2">Common issue checklist</div>
+                        <ul class="list-unstyled mb-0">
+                            <li class="mb-2">
+                                <i class="bi bi-router text-info me-2"></i>
+                                <strong>Port forwarding</strong> — Make sure port <code id="ts-port-hint">{{ mesh_port }}</code> is forwarded on your router if connecting over the internet.
+                            </li>
+                            <li class="mb-2">
+                                <i class="bi bi-shield-lock text-warning me-2"></i>
+                                <strong>Firewall</strong> — Check that your OS firewall allows inbound connections on port <code>{{ mesh_port }}</code>.
+                            </li>
+                            <li class="mb-2">
+                                <i class="bi bi-diagram-3 text-primary me-2"></i>
+                                <strong>Relay policy</strong> — Set to <code id="ts-relay-hint">—</code>. Use <code>broker_only</code> to allow brokered connections, or <code>full_relay</code> to also relay traffic for other peers.
+                            </li>
+                            <li class="mb-2">
+                                <i class="bi bi-globe text-success me-2"></i>
+                                <strong>Public endpoint</strong> — Use the "Regenerate" button above with your public IP to create an invite that works over the internet.
+                            </li>
+                        </ul>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -1054,13 +1149,6 @@ function pollPeerActivity() {
         .catch(() => {});
 }
 
-document.addEventListener('DOMContentLoaded', function() {
-    pollPeerActivity();
-    setInterval(pollPeerActivity, 8000);
-    pollMeshDiagnostics();
-    setInterval(pollMeshDiagnostics, 12000);
-});
-
 function getPeerLabel(peerId) {
     if (!peerId) return 'Unknown peer';
     return PEER_LABELS[peerId] || peerId;
@@ -1264,5 +1352,125 @@ function clearConnectionHistory() {
     connectionEvents.clear();
     renderConnectionHistory();
 }
+
+// --- Connection Diagnostics (new endpoint) ---
+
+function renderConnDiagFailures(failures) {
+    const container = document.getElementById('conn-diag-failures');
+    if (!container) return;
+    const list = Array.isArray(failures) ? failures : [];
+    if (!list.length) {
+        container.innerHTML = '<div class="p-3 text-muted small"><i class="bi bi-check-circle text-success"></i> No recent failed connection attempts.</div>';
+        return;
+    }
+    container.innerHTML = '<ul class="list-group list-group-flush">' + list.map(f => {
+        const peer = _escapeHtml(getPeerLabel(f.peer_id));
+        const endpoint = f.endpoint ? `<code class="me-1">${_escapeHtml(f.endpoint)}</code>` : '';
+        const reason = _escapeHtml(f.reason || 'Unknown error');
+        const age = f.timestamp ? formatRelativeTime((Date.now() / 1000) - f.timestamp) : '—';
+        return `
+            <li class="list-group-item connection-history-item" style="background:transparent;color:var(--canopy-text-primary);border-color:var(--canopy-border);">
+                <div class="history-icon text-danger"><i class="bi bi-x-circle"></i></div>
+                <div class="history-detail">
+                    <div class="history-title">${peer} ${endpoint}</div>
+                    <div class="history-meta">${reason}</div>
+                </div>
+                <div class="history-meta">${_escapeHtml(age)}</div>
+            </li>
+        `;
+    }).join('') + '</ul>';
+}
+
+function updatePeerConnDiag(peers) {
+    (peers || []).forEach(info => {
+        const rows = document.querySelectorAll(`[data-peer-id="${info.peer_id}"]`);
+        rows.forEach(row => {
+            // Update connection type badge
+            const connTypeBadge = row.querySelector('[data-peer-conn-type]');
+            if (connTypeBadge) {
+                if (info.connection_type === 'relayed') {
+                    const viaName = _escapeHtml(info.relay_via_name || (info.relay_via ? info.relay_via.substring(0, 12) : 'relay'));
+                    connTypeBadge.className = 'badge bg-info peer-pill';
+                    connTypeBadge.title = `Relayed via ${viaName}`;
+                    connTypeBadge.innerHTML = `<i class="bi bi-arrow-left-right"></i> Via ${viaName}`;
+                } else {
+                    connTypeBadge.className = 'badge bg-success peer-pill';
+                    connTypeBadge.title = 'Direct connection';
+                    connTypeBadge.innerHTML = '<i class="bi bi-lightning-charge"></i> Direct';
+                }
+            }
+            // Update latency badge
+            const latBadge = row.querySelector('[data-peer-latency]');
+            if (latBadge) {
+                if (info.latency_ms != null) {
+                    latBadge.style.display = '';
+                    latBadge.title = 'Round-trip latency';
+                    latBadge.innerHTML = `<i class="bi bi-activity"></i> ${info.latency_ms} ms`;
+                } else {
+                    latBadge.style.display = 'none';
+                }
+            }
+        });
+    });
+}
+
+function updateTroubleshootingPanel(local) {
+    if (!local) return;
+    const relayPolicyEl = document.getElementById('ts-relay-policy');
+    const relayHintEl = document.getElementById('ts-relay-hint');
+    if (relayPolicyEl) relayPolicyEl.textContent = local.relay_policy || '—';
+    if (relayHintEl) relayHintEl.textContent = local.relay_policy || '—';
+
+    const endpointsList = document.getElementById('ts-endpoints-list');
+    const endpointCount = document.getElementById('ts-endpoint-count');
+    if (endpointsList && Array.isArray(local.endpoints)) {
+        if (local.endpoints.length) {
+            endpointsList.innerHTML = local.endpoints.map(ep =>
+                `<span class="badge bg-secondary me-1 mb-1">${_escapeHtml(ep)}</span>`
+            ).join('');
+        } else {
+            endpointsList.innerHTML = '<span class="text-muted small">None detected</span>';
+        }
+        if (endpointCount) endpointCount.textContent = local.endpoints.length;
+    }
+}
+
+function pollConnectionDiagnostics() {
+    fetch('/ajax/connection_diagnostics')
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) return;
+            renderConnDiagFailures(data.recent_failures || []);
+            updatePeerConnDiag(data.peers || []);
+            updateTroubleshootingPanel(data.local || null);
+        })
+        .catch(() => {
+            const c = document.getElementById('conn-diag-failures');
+            if (c) c.innerHTML = '<div class="p-3 text-muted small">Could not load diagnostics.</div>';
+        });
+}
+
+// Update DOMContentLoaded to also poll new endpoint and toggle chevron
+document.addEventListener('DOMContentLoaded', function() {
+    pollPeerActivity();
+    setInterval(pollPeerActivity, 8000);
+    pollMeshDiagnostics();
+    setInterval(pollMeshDiagnostics, 12000);
+    pollConnectionDiagnostics();
+    setInterval(pollConnectionDiagnostics, 15000);
+
+    // Animate chevron for troubleshooting panel
+    const panel = document.getElementById('troubleshootingPanel');
+    if (panel) {
+        panel.addEventListener('show.bs.collapse', function() {
+            const chevron = document.getElementById('troubleshootingChevron');
+            if (chevron) chevron.style.transform = 'rotate(180deg)';
+        });
+        panel.addEventListener('hide.bs.collapse', function() {
+            const chevron = document.getElementById('troubleshootingChevron');
+            if (chevron) chevron.style.transform = '';
+        });
+    }
+});
 </script>
 {% endblock %}
