@@ -89,6 +89,17 @@ class TestTargetedMeshRelayRouting(unittest.IsolatedAsyncioTestCase):
         peers = {peer for peer, _ in conn.sent}
         self.assertEqual(peers, {"peer-relay-a", "peer-relay-b"})
 
+    async def test_route_to_peer_mesh_relays_membership_query(self):
+        conn = _DummyConnectionManager(["peer-relay-a", "peer-relay-b"])
+        router = MessageRouter("peer-local", _DummyIdentityManager(), conn)
+
+        sent = await router._route_to_peer(_targeted_message(MessageType.CHANNEL_MEMBERSHIP_QUERY))
+
+        self.assertTrue(sent)
+        self.assertNotIn("peer-target", router.pending_messages)
+        peers = {peer for peer, _ in conn.sent}
+        self.assertEqual(peers, {"peer-relay-a", "peer-relay-b"})
+
     async def test_mesh_fallback_excludes_immediate_upstream_peer(self):
         conn = _DummyConnectionManager(["peer-relay-a", "peer-relay-b"])
         router = MessageRouter("peer-local", _DummyIdentityManager(), conn)

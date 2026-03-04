@@ -1850,10 +1850,26 @@ def create_api_blueprint() -> Blueprint:
         try:
             discovered_peers = p2p_manager.get_discovered_peers()
             connected_peers = p2p_manager.get_connected_peers()
+            peer_versions = (
+                p2p_manager.get_peer_versions()
+                if hasattr(p2p_manager, 'get_peer_versions')
+                else {}
+            )
+            connected_peer_details = []
+            for peer_id in connected_peers:
+                ver = peer_versions.get(peer_id, {}) if isinstance(peer_versions, dict) else {}
+                connected_peer_details.append({
+                    'peer_id': peer_id,
+                    'canopy_version': ver.get('canopy_version'),
+                    'protocol_version': ver.get('protocol_version'),
+                    'compatible_protocol': ver.get('compatible_protocol'),
+                })
             
             return jsonify({
                 'discovered_peers': discovered_peers,
                 'connected_peers': connected_peers,
+                'connected_peer_details': connected_peer_details,
+                'peer_versions': peer_versions,
                 'total_discovered': len(discovered_peers),
                 'total_connected': len(connected_peers)
             })

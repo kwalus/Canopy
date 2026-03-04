@@ -20,6 +20,8 @@ from collections import deque
 from typing import Optional, Callable, Dict, Any, Union, Tuple, Deque
 from pathlib import Path
 
+from .. import __version__ as CANOPY_VERSION
+from .. import __protocol_version__ as CANOPY_PROTOCOL_VERSION
 from .identity import IdentityManager, PeerIdentity
 from .discovery import PeerDiscovery, DiscoveredPeer
 from .connection import ConnectionManager, PeerConnection
@@ -79,9 +81,14 @@ class P2PNetworkManager:
         self.on_channel_sync: Optional[Callable] = None
         self.on_member_sync: Optional[Callable] = None
         self.on_member_sync_ack: Optional[Callable] = None
+        self.on_channel_membership_query: Optional[Callable] = None
+        self.on_channel_membership_response: Optional[Callable] = None
         self.on_channel_key_distribution: Optional[Callable] = None
         self.on_channel_key_request: Optional[Callable] = None
         self.on_channel_key_ack: Optional[Callable] = None
+        self.peer_versions: Dict[str, Dict[str, Any]] = {}
+        self.local_canopy_version = str(CANOPY_VERSION or '0.1.0')
+        self.local_protocol_version = int(CANOPY_PROTOCOL_VERSION or 1)
 
         # Recent peer activity events for UI (thread-safe; event-loop thread writes, Flask reads).
         self._activity_lock = threading.Lock()
@@ -385,6 +392,11 @@ class P2PNetworkManager:
                 tls_cert_path=getattr(network_config, 'tls_cert_path', None),
                 tls_key_path=getattr(network_config, 'tls_key_path', None),
                 handshake_capabilities=self._local_capabilities,
+                canopy_version=self.local_canopy_version,
+                protocol_version=self.local_protocol_version,
+                reject_protocol_mismatch=bool(
+                    os.getenv('CANOPY_REJECT_PROTOCOL_MISMATCH', '').strip().lower() in ('1', 'true', 'yes', 'on')
+                ),
             )
             
             # Initialize message router
@@ -405,6 +417,10 @@ class P2PNetworkManager:
                 self.message_router.on_member_sync = self.on_member_sync
             if self.on_member_sync_ack:
                 self.message_router.on_member_sync_ack = self.on_member_sync_ack
+            if self.on_channel_membership_query:
+                self.message_router.on_channel_membership_query = self.on_channel_membership_query
+            if self.on_channel_membership_response:
+                self.message_router.on_channel_membership_response = self.on_channel_membership_response
             if self.on_channel_key_distribution:
                 self.message_router.on_channel_key_distribution = self.on_channel_key_distribution
             if self.on_channel_key_request:
@@ -866,7 +882,40 @@ class P2PNetworkManager:
     #  Post-connect sync (channel sync + catch-up) for ANY new connection #
     # ------------------------------------------------------------------ #
 
-    def _on_incoming_peer_authenticated(self, peer_id: str) -> None:
+    def _refresh_peer_version_info(self, peer_id: str) -> None:
+        """Refresh cached peer version/protocol metadata from live connection."""
+        if not peer_id or not self.connection_manager:
+            return
+        conn = self.connection_manager.get_connection(peer_id)
+        if not conn:
+            return
+        canopy_version = str(getattr(conn, 'canopy_version', '') or getattr(conn, 'handshake_version', '') or 'unknown')
+        protocol_version = int(getattr(conn, 'protocol_version', 1) or 1)
+        entry = {
+            'canopy_version': canopy_version,
+            'protocol_version': protocol_version,
+            'version': str(getattr(conn, 'handshake_version', '') or '0.1.0'),
+            'compatible_protocol': protocol_version == self.local_protocol_version,
+        }
+        self.peer_versions[peer_id] = entry
+
+        if protocol_version != self.local_protocol_version:
+            logger.warning(
+                "Connected peer %s protocol mismatch: local=%s remote=%s (canopy=%s)",
+                peer_id,
+                self.local_protocol_version,
+                protocol_version,
+                canopy_version,
+            )
+        elif canopy_version not in {'', 'unknown'} and canopy_version != self.local_canopy_version:
+            logger.info(
+                "Connected peer %s version differs: local=%s remote=%s",
+                peer_id,
+                self.local_canopy_version,
+                canopy_version,
+            )
+
+    def _on_incoming_peer_authenticated(self, peer_id: str, peer_meta: Optional[Dict[str, Any]] = None) -> None:
         """
         Called (from ConnectionManager) when a remote peer successfully
         authenticates on an *incoming* WebSocket.  Schedules channel
@@ -883,6 +932,20 @@ class P2PNetworkManager:
         if conn:
             ep = f"{self.ws_scheme}://{conn.address}:{self.config.network.mesh_port}"
             self.identity_manager.record_endpoint(peer_id, ep, claim=True)
+        try:
+            self._refresh_peer_version_info(peer_id)
+            if peer_meta and peer_id in self.peer_versions:
+                self.peer_versions[peer_id].update({
+                    'canopy_version': str(peer_meta.get('canopy_version') or self.peer_versions[peer_id].get('canopy_version') or 'unknown'),
+                    'protocol_version': int(peer_meta.get('protocol_version') or self.peer_versions[peer_id].get('protocol_version') or 1),
+                    'version': str(peer_meta.get('version') or self.peer_versions[peer_id].get('version') or '0.1.0'),
+                })
+                self.peer_versions[peer_id]['compatible_protocol'] = (
+                    int(self.peer_versions[peer_id].get('protocol_version') or 1) == self.local_protocol_version
+                )
+        except Exception:
+            pass
+
         if self._event_loop and not self._event_loop.is_closed():
             asyncio.run_coroutine_threadsafe(
                 self._run_post_connect_sync(peer_id),
@@ -914,6 +977,7 @@ class P2PNetworkManager:
         try:
             # Cancel any pending auto-reconnect task for this peer
             self._cancel_reconnect(peer_id)
+            self._refresh_peer_version_info(peer_id)
 
             # Notify application layer
             if self.on_peer_connected:
@@ -921,6 +985,14 @@ class P2PNetworkManager:
 
             # Channel metadata sync
             await self._send_channel_sync_to_peer(peer_id)
+
+            # Ask connected peer for private-channel memberships relevant
+            # to local users on this instance (missed announce/member-sync recovery).
+            await self._send_membership_recovery_query(peer_id)
+
+            # Retry key requests for E2E private channels where this instance
+            # still lacks active key material and the connected peer may provide it.
+            await self._retry_missing_channel_key_requests_for_peer(peer_id)
 
             # Exchange profile cards
             await self._send_profile_to_peer(peer_id)
@@ -1542,6 +1614,7 @@ class P2PNetworkManager:
 
     def on_peer_disconnected_cleanup(self, peer_id: str) -> None:
         """Clean up routing table entries when a peer disconnects, then schedule auto-reconnect."""
+        self.peer_versions.pop(peer_id, None)
         self._record_connection_event(
             peer_id,
             status='disconnected',
@@ -2558,6 +2631,60 @@ class P2PNetworkManager:
             logger.error(f"Error sending member sync ack: {e}", exc_info=True)
             return False
 
+    def send_channel_membership_query(
+        self,
+        to_peer: str,
+        local_user_ids: list[str],
+        limit: int = 200,
+        query_id: Optional[str] = None,
+    ) -> bool:
+        """Request private-channel membership recovery data from a peer."""
+        if not self._running or not self._event_loop:
+            return False
+        if not self.message_router:
+            return False
+        future = asyncio.run_coroutine_threadsafe(
+            self.message_router.send_channel_membership_query(
+                to_peer=to_peer,
+                local_user_ids=local_user_ids,
+                limit=limit,
+                query_id=query_id,
+            ),
+            self._event_loop,
+        )
+        try:
+            return bool(future.result(timeout=5.0))
+        except Exception as e:
+            logger.error(f"Error sending channel membership query: {e}", exc_info=True)
+            return False
+
+    def send_channel_membership_response(
+        self,
+        to_peer: str,
+        query_id: Optional[str],
+        channels: list[Dict[str, Any]],
+        truncated: bool = False,
+    ) -> bool:
+        """Respond to private membership recovery query with channel metadata."""
+        if not self._running or not self._event_loop:
+            return False
+        if not self.message_router:
+            return False
+        future = asyncio.run_coroutine_threadsafe(
+            self.message_router.send_channel_membership_response(
+                to_peer=to_peer,
+                query_id=query_id,
+                channels=channels,
+                truncated=truncated,
+            ),
+            self._event_loop,
+        )
+        try:
+            return bool(future.result(timeout=8.0))
+        except Exception as e:
+            logger.error(f"Error sending channel membership response: {e}", exc_info=True)
+            return False
+
     async def _send_channel_sync_to_peer(self, peer_id: str) -> None:
         """
         Send all local public channels to a newly connected peer.
@@ -2580,6 +2707,114 @@ class P2PNetworkManager:
             await self.message_router.send_channel_sync(peer_id, channels)
         except Exception as e:
             logger.error(f"Error sending channel sync to {peer_id}: {e}", exc_info=True)
+
+    def _get_local_user_ids_for_membership_recovery(self, limit: int = 256) -> list[str]:
+        """Return local user IDs hosted on this peer for membership recovery."""
+        local_peer = str(self.get_peer_id() or '').strip()
+        if not local_peer:
+            return []
+        try:
+            with self.db.get_connection() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT id
+                    FROM users
+                    WHERE id != 'system'
+                      AND (
+                        origin_peer IS NULL
+                        OR origin_peer = ''
+                        OR origin_peer = ?
+                      )
+                    ORDER BY id ASC
+                    LIMIT ?
+                    """,
+                    (local_peer, int(limit)),
+                ).fetchall()
+            return [
+                str(row['id'] if hasattr(row, 'keys') and 'id' in row.keys() else row[0])
+                for row in (rows or [])
+            ]
+        except Exception as e:
+            logger.debug(f"Failed to load local users for membership recovery: {e}")
+            return []
+
+    async def _send_membership_recovery_query(self, peer_id: str) -> None:
+        """Send targeted membership-recovery query to a connected peer."""
+        if not self.message_router:
+            return
+        local_user_ids = self._get_local_user_ids_for_membership_recovery(limit=256)
+        if not local_user_ids:
+            return
+        try:
+            await self.message_router.send_channel_membership_query(
+                to_peer=peer_id,
+                local_user_ids=local_user_ids,
+                limit=200,
+            )
+        except Exception as e:
+            logger.debug(f"Membership recovery query to {peer_id} failed: {e}")
+
+    async def _retry_missing_channel_key_requests_for_peer(self, peer_id: str) -> None:
+        """Request missing E2E channel keys from a newly connected peer."""
+        if not self.message_router or not peer_id:
+            return
+        local_peer = str(self.get_peer_id() or '').strip()
+        if not local_peer or peer_id == local_peer:
+            return
+        try:
+            with self.db.get_connection() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT DISTINCT c.id AS channel_id
+                    FROM channels c
+                    JOIN channel_members cm_local ON cm_local.channel_id = c.id
+                    JOIN users u_local ON u_local.id = cm_local.user_id
+                    LEFT JOIN channel_keys ck
+                      ON ck.channel_id = c.id
+                     AND ck.revoked_at IS NULL
+                    WHERE COALESCE(c.privacy_mode, 'open') IN ('private', 'confidential')
+                      AND COALESCE(c.crypto_mode, 'legacy_plaintext') IN ('e2e_optional', 'e2e_enforced')
+                      AND (
+                        u_local.origin_peer IS NULL
+                        OR u_local.origin_peer = ''
+                        OR u_local.origin_peer = ?
+                      )
+                      AND ck.key_id IS NULL
+                      AND (
+                        c.origin_peer = ?
+                        OR EXISTS (
+                            SELECT 1
+                            FROM channel_members cm_remote
+                            JOIN users u_remote ON u_remote.id = cm_remote.user_id
+                            WHERE cm_remote.channel_id = c.id
+                              AND u_remote.origin_peer = ?
+                        )
+                      )
+                    ORDER BY c.created_at DESC
+                    LIMIT 128
+                    """,
+                    (local_peer, peer_id, peer_id),
+                ).fetchall()
+            requested = 0
+            for row in rows or []:
+                channel_id = str(row['channel_id'] if hasattr(row, 'keys') and 'channel_id' in row.keys() else row[0])
+                ok = await self.message_router.send_channel_key_request(
+                    to_peer=peer_id,
+                    channel_id=channel_id,
+                    requesting_peer=local_peer,
+                    reason='post_connect_missing_key',
+                    key_id=None,
+                )
+                if ok:
+                    requested += 1
+            if requested:
+                logger.info(
+                    "Post-connect key retry requested %d missing key(s) from %s",
+                    requested,
+                    peer_id,
+                )
+        except Exception as e:
+            logger.debug(f"Post-connect key retry for {peer_id} failed: {e}")
 
     PERIODIC_CATCHUP_INTERVAL = 180  # seconds (3 minutes)
 
@@ -2766,6 +3001,14 @@ class P2PNetworkManager:
         if not self.connection_manager:
             return []
         return self.connection_manager.get_connected_peers()
+
+    def get_peer_versions(self) -> Dict[str, Dict[str, Any]]:
+        """Return cached per-peer version/protocol metadata."""
+        # Refresh cache opportunistically from current live connections.
+        if self.connection_manager:
+            for peer_id in self.connection_manager.get_connected_peers():
+                self._refresh_peer_version_info(peer_id)
+        return dict(self.peer_versions)
     
     def get_discovered_peers(self) -> list[Dict[str, Any]]:
         """Get list of discovered peers."""
@@ -2911,10 +3154,13 @@ class P2PNetworkManager:
         return {
             'running': self._running,
             'peer_id': self.get_peer_id(),
+            'canopy_version': self.local_canopy_version,
+            'protocol_version': self.local_protocol_version,
             'connected_peers': len(self.get_connected_peers()),
             'connected_peers_list': self.get_connected_peers(),
             'discovered_peers': len(self.get_discovered_peers()),
             'peers': self.get_discovered_peers(),
+            'peer_versions': self.get_peer_versions(),
             'relay_policy': getattr(self, 'relay_policy', 'broker_only'),
             'security': {
                 'allow_unverified_relay_messages': bool(

@@ -135,6 +135,9 @@ class PeerConnection:
     last_outbound_activity: Optional[float] = None
     is_outbound: bool = True  # True if we initiated connection
     capabilities: Optional[Dict[str, bool]] = None
+    handshake_version: Optional[str] = None
+    canopy_version: Optional[str] = None
+    protocol_version: Optional[int] = None
     _send_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
     
     def is_connected(self) -> bool:
@@ -166,7 +169,10 @@ class ConnectionManager:
                  tls_cert_path: Optional[str] = None,
                  tls_key_path: Optional[str] = None,
                  enable_tls: bool = False,
-                 handshake_capabilities: Optional[List[str]] = None):
+                 handshake_capabilities: Optional[List[str]] = None,
+                 canopy_version: str = "0.1.0",
+                 protocol_version: int = 1,
+                 reject_protocol_mismatch: bool = False):
         """
         Initialize connection manager.
         
@@ -188,6 +194,9 @@ class ConnectionManager:
             cap for cap in (str(item).strip() for item in base_capabilities)
             if cap
         ] or ['chat', 'files', 'voice']
+        self.local_canopy_version = str(canopy_version or '0.1.0').strip() or '0.1.0'
+        self.local_protocol_version = self._coerce_protocol_version(protocol_version, default=1)
+        self.reject_protocol_mismatch = bool(reject_protocol_mismatch)
         
         # TLS configuration
         self.enable_tls = enable_tls
@@ -216,7 +225,7 @@ class ConnectionManager:
         self.message_handlers: Dict[str, Callable[[PeerConnection, Dict[str, Any]], Awaitable[None]]] = {}
         
         # Callback fired when an incoming peer completes authentication
-        self.on_peer_authenticated: Optional[Callable[[str], None]] = None
+        self.on_peer_authenticated: Optional[Callable[..., None]] = None
         
         # Callback fired when a peer disconnects
         self.on_peer_disconnected: Optional[Callable[[str], None]] = None
@@ -254,6 +263,25 @@ class ConnectionManager:
             seen.add(cap)
             out.append(cap)
         return out
+
+    @staticmethod
+    def _coerce_protocol_version(raw: Any, default: int = 1) -> int:
+        """Parse protocol version from mixed payloads safely."""
+        try:
+            value = int(raw)
+            return value if value > 0 else int(default)
+        except Exception:
+            return int(default)
+
+    @staticmethod
+    def _signed_optional_handshake_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Return optional handshake fields exactly as signed on wire."""
+        extra: Dict[str, Any] = {}
+        if 'canopy_version' in payload:
+            extra['canopy_version'] = payload.get('canopy_version')
+        if 'protocol_version' in payload:
+            extra['protocol_version'] = payload.get('protocol_version')
+        return extra
     
     async def start(self) -> None:
         """Start connection manager and WebSocket server."""
@@ -493,6 +521,7 @@ class ConnectionManager:
                 ),
                 'timestamp': handshake_data.get('timestamp', 0)
             }
+            payload.update(self._signed_optional_handshake_fields(handshake_data))
             payload_bytes = json.dumps(payload, sort_keys=True).encode('utf-8')
             
             # Decode public key and verify peer_id matches
@@ -528,8 +557,44 @@ class ConnectionManager:
                 port=websocket.remote_address[1],
                 state=ConnectionState.HANDSHAKING,
                 websocket=websocket,
-                is_outbound=False
+                is_outbound=False,
+                handshake_version=str(handshake_data.get('version', '0.1.0') or '0.1.0'),
+                canopy_version=str(handshake_data.get('canopy_version') or handshake_data.get('version', '0.1.0') or '0.1.0'),
+                protocol_version=self._coerce_protocol_version(
+                    handshake_data.get('protocol_version', 1),
+                    default=1,
+                ),
             )
+            connection.capabilities = {
+                cap: True for cap in self._normalize_capabilities(
+                    handshake_data.get('capabilities', [])
+                )
+            }
+
+            remote_protocol = connection.protocol_version or 1
+            remote_canopy = str(connection.canopy_version or '0.1.0')
+            if remote_protocol != self.local_protocol_version:
+                logger.warning(
+                    "Protocol version mismatch with %s: local=%s remote=%s (canopy=%s)",
+                    peer_id,
+                    self.local_protocol_version,
+                    remote_protocol,
+                    remote_canopy,
+                )
+                if self.reject_protocol_mismatch:
+                    logger.warning(
+                        "Rejecting %s due to protocol mismatch (reject_protocol_mismatch enabled)",
+                        peer_id,
+                    )
+                    await websocket.close()
+                    return
+            elif remote_canopy != self.local_canopy_version:
+                logger.info(
+                    "Canopy version difference with %s: local=%s remote=%s",
+                    peer_id,
+                    self.local_canopy_version,
+                    remote_canopy,
+                )
             
             # Complete handshake (send our signed ack)
             success = await self._complete_handshake(connection, handshake_data)
@@ -551,6 +616,14 @@ class ConnectionManager:
                 # Notify manager so it can run channel-sync + catch-up
                 if self.on_peer_authenticated:
                     try:
+                        peer_meta = {
+                            'version': connection.handshake_version,
+                            'canopy_version': connection.canopy_version,
+                            'protocol_version': connection.protocol_version,
+                            'capabilities': list(connection.capabilities or {}),
+                        }
+                        self.on_peer_authenticated(peer_id, peer_meta)
+                    except TypeError:
                         self.on_peer_authenticated(peer_id)
                     except Exception as cb_err:
                         logger.error(f"on_peer_authenticated callback error for {peer_id}: {cb_err}", exc_info=True)
@@ -605,6 +678,8 @@ class ConnectionManager:
                 'ed25519_public_key': identity['ed25519_public_key'],
                 'x25519_public_key': identity['x25519_public_key'],
                 'version': '0.1.0',
+                'canopy_version': self.local_canopy_version,
+                'protocol_version': self.local_protocol_version,
                 'capabilities': self._get_handshake_capabilities(),
                 'timestamp': timestamp
             }
@@ -658,6 +733,7 @@ class ConnectionManager:
                 ),
                 'timestamp': response.get('timestamp', 0)
             }
+            resp_payload.update(self._signed_optional_handshake_fields(response))
             resp_payload_bytes = json.dumps(resp_payload, sort_keys=True).encode('utf-8')
             
             # Decode the peer's public key and verify their signature
@@ -701,12 +777,43 @@ class ConnectionManager:
             
             # Store the verified peer identity
             self.identity_manager.add_known_peer(remote_identity)
-            
+
+            connection.handshake_version = str(response.get('version', '0.1.0') or '0.1.0')
+            connection.canopy_version = str(response.get('canopy_version') or response.get('version', '0.1.0') or '0.1.0')
+            connection.protocol_version = self._coerce_protocol_version(
+                response.get('protocol_version', 1),
+                default=1,
+            )
+
             connection.capabilities = {
                 cap: True for cap in self._normalize_capabilities(
                     response.get('capabilities', [])
                 )
             }
+
+            remote_protocol = connection.protocol_version or 1
+            remote_canopy = str(connection.canopy_version or '0.1.0')
+            if remote_protocol != self.local_protocol_version:
+                logger.warning(
+                    "Protocol version mismatch with %s: local=%s remote=%s (canopy=%s)",
+                    connection.peer_id,
+                    self.local_protocol_version,
+                    remote_protocol,
+                    remote_canopy,
+                )
+                if self.reject_protocol_mismatch:
+                    logger.warning(
+                        "Rejecting %s due to protocol mismatch (reject_protocol_mismatch enabled)",
+                        connection.peer_id,
+                    )
+                    return False
+            elif remote_canopy != self.local_canopy_version:
+                logger.info(
+                    "Canopy version difference with %s: local=%s remote=%s",
+                    connection.peer_id,
+                    self.local_canopy_version,
+                    remote_canopy,
+                )
             
             logger.info(f"Handshake completed and verified with {connection.peer_id}")
             return True
@@ -740,6 +847,8 @@ class ConnectionManager:
                 'ed25519_public_key': identity['ed25519_public_key'],
                 'x25519_public_key': identity['x25519_public_key'],
                 'version': '0.1.0',
+                'canopy_version': self.local_canopy_version,
+                'protocol_version': self.local_protocol_version,
                 'capabilities': self._get_handshake_capabilities(),
                 'timestamp': timestamp
             }

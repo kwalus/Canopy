@@ -162,6 +162,8 @@ class MessageType(Enum):
     # Private channel membership
     MEMBER_SYNC = "member_sync"                  # Add/remove member on remote peer
     MEMBER_SYNC_ACK = "member_sync_ack"          # Ack member sync delivery/apply
+    CHANNEL_MEMBERSHIP_QUERY = "channel_membership_query"      # Ask peer for private channel memberships
+    CHANNEL_MEMBERSHIP_RESPONSE = "channel_membership_response"  # Recovery response with channel metadata
     PRIVATE_CHANNEL_INVITE = "private_channel_invite"  # Invite peer to private channel
     CHANNEL_KEY_DISTRIBUTION = "channel_key_distribution"  # Wrapped channel key delivery
     CHANNEL_KEY_REQUEST = "channel_key_request"            # Request key delivery/re-send
@@ -246,6 +248,8 @@ class MessageRouter:
         MessageType.CHANNEL_ANNOUNCE,
         MessageType.MEMBER_SYNC,
         MessageType.MEMBER_SYNC_ACK,
+        MessageType.CHANNEL_MEMBERSHIP_QUERY,
+        MessageType.CHANNEL_MEMBERSHIP_RESPONSE,
         MessageType.CHANNEL_KEY_DISTRIBUTION,
         MessageType.CHANNEL_KEY_REQUEST,
         MessageType.CHANNEL_KEY_ACK,
@@ -312,6 +316,8 @@ class MessageRouter:
         self.on_catchup_response: Optional[Any] = None
         self.on_member_sync: Optional[Any] = None
         self.on_member_sync_ack: Optional[Any] = None
+        self.on_channel_membership_query: Optional[Any] = None
+        self.on_channel_membership_response: Optional[Any] = None
         self.on_private_channel_invite: Optional[Any] = None
         self.on_channel_key_distribution: Optional[Any] = None
         self.on_channel_key_request: Optional[Any] = None
@@ -947,7 +953,31 @@ class MessageRouter:
                 )
             except Exception as e:
                 logger.error(f"Error delivering member sync ack locally: {e}", exc_info=True)
-        
+
+        elif message.type == MessageType.CHANNEL_MEMBERSHIP_QUERY and self.on_channel_membership_query:
+            try:
+                meta = payload.get('metadata', {})
+                self.on_channel_membership_query(
+                    query_id=meta.get('query_id'),
+                    local_user_ids=meta.get('local_user_ids') or [],
+                    limit=meta.get('limit'),
+                    from_peer=message.from_peer,
+                )
+            except Exception as e:
+                logger.error(f"Error delivering channel membership query locally: {e}", exc_info=True)
+
+        elif message.type == MessageType.CHANNEL_MEMBERSHIP_RESPONSE and self.on_channel_membership_response:
+            try:
+                meta = payload.get('metadata', {})
+                self.on_channel_membership_response(
+                    query_id=meta.get('query_id'),
+                    channels=meta.get('channels') or [],
+                    truncated=bool(meta.get('truncated')),
+                    from_peer=message.from_peer,
+                )
+            except Exception as e:
+                logger.error(f"Error delivering channel membership response locally: {e}", exc_info=True)
+
         elif message.type == MessageType.CHANNEL_KEY_DISTRIBUTION and self.on_channel_key_distribution:
             try:
                 meta = payload.get('metadata', {})
@@ -1338,6 +1368,48 @@ class MessageRouter:
             }
         }
         message = self.create_message(MessageType.MEMBER_SYNC_ACK, to_peer, payload)
+        self.sign_message(message)
+        return await self._route_to_peer(message)
+
+    async def send_channel_membership_query(
+        self,
+        to_peer: str,
+        local_user_ids: list[str],
+        limit: int = 200,
+        query_id: Optional[str] = None,
+    ) -> bool:
+        """Request targeted private-channel membership recovery data."""
+        payload = {
+            'content': '',
+            'metadata': {
+                'type': 'channel_membership_query',
+                'query_id': query_id or f"MCQ{secrets.token_hex(8)}",
+                'local_user_ids': list(local_user_ids or []),
+                'limit': max(1, min(int(limit or 200), 500)),
+            },
+        }
+        message = self.create_message(MessageType.CHANNEL_MEMBERSHIP_QUERY, to_peer, payload)
+        self.sign_message(message)
+        return await self._route_to_peer(message)
+
+    async def send_channel_membership_response(
+        self,
+        to_peer: str,
+        query_id: Optional[str],
+        channels: list[Dict[str, Any]],
+        truncated: bool = False,
+    ) -> bool:
+        """Respond to a targeted membership query."""
+        payload = {
+            'content': '',
+            'metadata': {
+                'type': 'channel_membership_response',
+                'query_id': query_id,
+                'channels': channels or [],
+                'truncated': bool(truncated),
+            },
+        }
+        message = self.create_message(MessageType.CHANNEL_MEMBERSHIP_RESPONSE, to_peer, payload)
         self.sign_message(message)
         return await self._route_to_peer(message)
 

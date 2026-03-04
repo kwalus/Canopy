@@ -184,6 +184,68 @@ class TestChannelKeyRouting(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(seen.get('target_user_id'), 'user123')
         self.assertEqual(seen.get('action'), 'add')
 
+    async def test_channel_membership_query_callback(self) -> None:
+        seen = {}
+
+        def _cb(**kwargs):
+            seen.update(kwargs)
+
+        self.router.on_channel_membership_query = _cb
+        msg = P2PMessage(
+            id='MMEMQ1',
+            type=MessageType.CHANNEL_MEMBERSHIP_QUERY,
+            from_peer='peer-remote',
+            to_peer='peer-local',
+            timestamp=1000.0,
+            ttl=5,
+            payload={
+                'content': '',
+                'metadata': {
+                    'query_id': 'Q123',
+                    'local_user_ids': ['user-a', 'user-b'],
+                    'limit': 80,
+                },
+            },
+        )
+
+        ok = await self.router._deliver_local(msg)
+        self.assertTrue(ok)
+        self.assertEqual(seen.get('query_id'), 'Q123')
+        self.assertEqual(seen.get('local_user_ids'), ['user-a', 'user-b'])
+        self.assertEqual(seen.get('limit'), 80)
+        self.assertEqual(seen.get('from_peer'), 'peer-remote')
+
+    async def test_channel_membership_response_callback(self) -> None:
+        seen = {}
+
+        def _cb(**kwargs):
+            seen.update(kwargs)
+
+        self.router.on_channel_membership_response = _cb
+        msg = P2PMessage(
+            id='MMEMR1',
+            type=MessageType.CHANNEL_MEMBERSHIP_RESPONSE,
+            from_peer='peer-remote',
+            to_peer='peer-local',
+            timestamp=1000.0,
+            ttl=5,
+            payload={
+                'content': '',
+                'metadata': {
+                    'query_id': 'Q123',
+                    'channels': [{'channel_id': 'Cprivate'}],
+                    'truncated': True,
+                },
+            },
+        )
+
+        ok = await self.router._deliver_local(msg)
+        self.assertTrue(ok)
+        self.assertEqual(seen.get('query_id'), 'Q123')
+        self.assertEqual(seen.get('channels'), [{'channel_id': 'Cprivate'}])
+        self.assertTrue(seen.get('truncated'))
+        self.assertEqual(seen.get('from_peer'), 'peer-remote')
+
 
 if __name__ == '__main__':
     unittest.main()

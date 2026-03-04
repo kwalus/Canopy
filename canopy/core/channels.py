@@ -3248,6 +3248,136 @@ class ChannelManager:
             logger.error(f"Failed to get channel members: {e}")
             return []
 
+    def get_private_channel_recovery_payload(
+        self,
+        query_user_ids: List[str],
+        requester_peer_id: str,
+        limit: int = 200,
+        max_members_per_channel: int = 200,
+    ) -> Dict[str, Any]:
+        """Return private/confidential channels relevant to querying peer users."""
+        requester = str(requester_peer_id or '').strip()
+        if not requester:
+            return {'channels': [], 'truncated': False, 'queried_users': []}
+
+        user_ids: List[str] = []
+        seen_users = set()
+        for uid in query_user_ids or []:
+            u = str(uid or '').strip()
+            if not u or u in seen_users:
+                continue
+            seen_users.add(u)
+            user_ids.append(u)
+        if not user_ids:
+            return {'channels': [], 'truncated': False, 'queried_users': []}
+
+        try:
+            with self.db.get_connection() as conn:
+                user_placeholders = ','.join('?' for _ in user_ids)
+                valid_rows = conn.execute(
+                    f"""
+                    SELECT id
+                    FROM users
+                    WHERE id IN ({user_placeholders})
+                      AND origin_peer = ?
+                    """,
+                    tuple(user_ids) + (requester,),
+                ).fetchall()
+                valid_user_ids = [
+                    str(row['id'] if hasattr(row, 'keys') and 'id' in row.keys() else row[0])
+                    for row in (valid_rows or [])
+                ]
+                if not valid_user_ids:
+                    return {'channels': [], 'truncated': False, 'queried_users': []}
+
+                valid_placeholders = ','.join('?' for _ in valid_user_ids)
+                channel_rows = conn.execute(
+                    f"""
+                    SELECT c.id, c.name, c.channel_type, c.description, c.origin_peer,
+                           c.created_by, c.created_at,
+                           COALESCE(c.privacy_mode, 'open') AS privacy_mode,
+                           COALESCE(c.crypto_mode, '{self.CRYPTO_MODE_LEGACY}') AS crypto_mode,
+                           MAX(cm.joined_at) AS membership_joined_at
+                    FROM channels c
+                    JOIN channel_members cm ON cm.channel_id = c.id
+                    WHERE cm.user_id IN ({valid_placeholders})
+                      AND (
+                        COALESCE(c.privacy_mode, 'open') IN ('private', 'confidential')
+                        OR c.channel_type = 'private'
+                      )
+                      AND NOT EXISTS (
+                        SELECT 1
+                        FROM channel_member_sync_deliveries d
+                        WHERE d.channel_id = c.id
+                          AND d.target_user_id = cm.user_id
+                          AND d.target_peer_id = ?
+                          AND d.action = 'remove'
+                          AND d.acked_at IS NULL
+                          AND d.delivery_state IN ('pending', 'sent', 'failed')
+                      )
+                    GROUP BY c.id, c.name, c.channel_type, c.description,
+                             c.origin_peer, c.created_by, c.created_at,
+                             COALESCE(c.privacy_mode, 'open'),
+                             COALESCE(c.crypto_mode, '{self.CRYPTO_MODE_LEGACY}')
+                    ORDER BY COALESCE(MAX(cm.joined_at), c.created_at) DESC
+                    LIMIT ?
+                    """,
+                    tuple(valid_user_ids) + (requester, int(limit) + 1),
+                ).fetchall()
+
+                truncated = len(channel_rows) > int(limit)
+                channel_rows = channel_rows[: int(limit)]
+                channels: List[Dict[str, Any]] = []
+                member_limit = max(1, int(max_members_per_channel))
+                for row in channel_rows:
+                    channel_id = str(row['id'])
+                    member_rows = conn.execute(
+                        """
+                        SELECT cm.user_id, cm.role, cm.joined_at,
+                               u.origin_peer, u.username, u.display_name
+                        FROM channel_members cm
+                        LEFT JOIN users u ON cm.user_id = u.id
+                        WHERE cm.channel_id = ?
+                        ORDER BY cm.role DESC, cm.joined_at ASC
+                        LIMIT ?
+                        """,
+                        (channel_id, member_limit),
+                    ).fetchall()
+                    members = []
+                    for mrow in member_rows or []:
+                        members.append({
+                            'user_id': mrow['user_id'],
+                            'role': mrow['role'] or 'member',
+                            'origin_peer': mrow['origin_peer'],
+                            'username': mrow['username'],
+                            'display_name': mrow['display_name'] or mrow['username'],
+                            'joined_at': mrow['joined_at'],
+                        })
+
+                    channels.append({
+                        'channel_id': channel_id,
+                        'name': row['name'],
+                        'channel_type': row['channel_type'],
+                        'description': row['description'] or '',
+                        'origin_peer': row['origin_peer'],
+                        'created_by_user_id': row['created_by'],
+                        'privacy_mode': row['privacy_mode'] or 'private',
+                        'crypto_mode': row['crypto_mode'] or self.CRYPTO_MODE_LEGACY,
+                        'members': members,
+                    })
+
+                return {
+                    'channels': channels,
+                    'truncated': truncated,
+                    'queried_users': valid_user_ids,
+                }
+        except Exception as e:
+            logger.error(
+                f"Failed to build private channel recovery payload for peer {requester}: {e}",
+                exc_info=True,
+            )
+            return {'channels': [], 'truncated': False, 'queried_users': []}
+
     def delete_message(self, channel_id: str, message_id: str, user_id: str,
                        allow_admin: bool = False) -> bool:
         """Delete a channel message. Only the author can delete (or channel admin if allow_admin)."""

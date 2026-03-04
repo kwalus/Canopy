@@ -1915,6 +1915,175 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
         p2p_manager.on_member_sync_ack = _on_member_sync_ack
 
+        def _on_channel_membership_query(query_id, local_user_ids, limit, from_peer):
+            """Respond with private-channel metadata for querying peer users."""
+            try:
+                qid = str(query_id or '').strip() or None
+                user_ids = []
+                seen_users = set()
+                for uid in (local_user_ids or []):
+                    uid_s = str(uid or '').strip()
+                    if not uid_s or uid_s in seen_users:
+                        continue
+                    seen_users.add(uid_s)
+                    user_ids.append(uid_s)
+                if not user_ids:
+                    return
+                try:
+                    max_channels = max(1, min(int(limit or 200), 300))
+                except Exception:
+                    max_channels = 200
+
+                payload = channel_manager.get_private_channel_recovery_payload(
+                    query_user_ids=user_ids,
+                    requester_peer_id=str(from_peer or '').strip(),
+                    limit=max_channels,
+                    max_members_per_channel=250,
+                )
+                channels_payload = list(payload.get('channels') or [])
+                truncated = bool(payload.get('truncated'))
+                if p2p_manager and p2p_manager.is_running():
+                    p2p_manager.send_channel_membership_response(
+                        to_peer=str(from_peer or '').strip(),
+                        query_id=qid,
+                        channels=channels_payload,
+                        truncated=truncated,
+                    )
+            except Exception as e:
+                logger.error(f"Failed to handle channel membership query: {e}", exc_info=True)
+
+        p2p_manager.on_channel_membership_query = _on_channel_membership_query
+
+        def _on_channel_membership_response(query_id, channels, truncated, from_peer):
+            """Recover missing private-channel metadata/membership after reconnect."""
+            try:
+                local_peer = str((p2p_manager.get_peer_id() if p2p_manager else '') or '').strip()
+                imported_channels = 0
+                for item in (channels or []):
+                    if not isinstance(item, dict):
+                        continue
+                    channel_id = str(item.get('channel_id') or '').strip()
+                    if not channel_id:
+                        continue
+                    name = str(item.get('name') or f'private-{channel_id[:8]}').strip() or f'private-{channel_id[:8]}'
+                    channel_type = str(item.get('channel_type') or 'private').strip().lower() or 'private'
+                    description = str(item.get('description') or '')
+                    origin_peer = str(item.get('origin_peer') or from_peer or '').strip() or str(from_peer or '').strip()
+                    created_by_user_id = str(item.get('created_by_user_id') or '').strip() or None
+                    privacy_mode = str(item.get('privacy_mode') or 'private').strip().lower() or 'private'
+                    crypto_mode = _normalize_channel_crypto_mode(item.get('crypto_mode') or 'legacy_plaintext')
+                    members = item.get('members') if isinstance(item.get('members'), list) else []
+                    sender_is_member = False
+
+                    local_member_ids: list[str] = []
+                    seen_local = set()
+                    for member in members:
+                        if not isinstance(member, dict):
+                            continue
+                        uid = str(member.get('user_id') or '').strip()
+                        if not uid:
+                            continue
+                        m_origin = str(member.get('origin_peer') or '').strip()
+                        if m_origin and str(from_peer or '').strip() and m_origin == str(from_peer).strip():
+                            sender_is_member = True
+                        # Ensure user exists locally (shadow rows for remote peers).
+                        _ensure_shadow_user(
+                            uid,
+                            member.get('display_name'),
+                            m_origin or origin_peer or from_peer,
+                        )
+                        if (not m_origin or m_origin == local_peer) and uid not in seen_local:
+                            seen_local.add(uid)
+                            local_member_ids.append(uid)
+
+                    # Ignore responses that do not include any local users.
+                    if not local_member_ids:
+                        continue
+                    if str(from_peer or '').strip() and not sender_is_member and origin_peer != str(from_peer).strip():
+                        logger.warning(
+                            "SECURITY: Ignoring membership recovery for %s from %s (sender not in member list)",
+                            channel_id,
+                            from_peer,
+                        )
+                        continue
+
+                    with db_manager.get_connection() as conn:
+                        existing = conn.execute(
+                            "SELECT origin_peer FROM channels WHERE id = ?",
+                            (channel_id,),
+                        ).fetchone()
+                    if existing:
+                        existing_origin = str((existing['origin_peer'] if 'origin_peer' in existing.keys() else '') or '').strip()
+                        if existing_origin and existing_origin not in {origin_peer, str(from_peer or '').strip()}:
+                            logger.warning(
+                                "SECURITY: Ignoring membership recovery for %s from %s (origin mismatch existing=%s remote=%s hint=%s)",
+                                channel_id,
+                                from_peer,
+                                existing_origin,
+                                str(from_peer or '').strip(),
+                                origin_peer,
+                            )
+                            continue
+                    if not existing:
+                        channel_manager.create_channel_from_sync(
+                            channel_id=channel_id,
+                            name=name,
+                            channel_type=channel_type,
+                            description=description,
+                            local_user_id=created_by_user_id,
+                            origin_peer=origin_peer,
+                            privacy_mode=privacy_mode,
+                            initial_members=local_member_ids,
+                        )
+                        imported_channels += 1
+
+                    # Merge member list (best effort; unknown rows are shadow-created above).
+                    with db_manager.get_connection() as conn:
+                        for member in members:
+                            if not isinstance(member, dict):
+                                continue
+                            uid = str(member.get('user_id') or '').strip()
+                            if not uid:
+                                continue
+                            role = str(member.get('role') or 'member').strip().lower() or 'member'
+                            conn.execute(
+                                "INSERT OR IGNORE INTO channel_members (channel_id, user_id, role) VALUES (?, ?, ?)",
+                                (channel_id, uid, role),
+                            )
+                        conn.commit()
+
+                    # Trigger key request if this is an E2E channel and we still lack a key.
+                    if _e2e_private_enabled() and _channel_targets_e2e(privacy_mode, crypto_mode):
+                        active_key = channel_manager.get_active_channel_key(channel_id)
+                        key_bytes = channel_manager.decode_channel_key_material(
+                            active_key.get('key_material_enc')
+                        ) if active_key else None
+                        if not key_bytes:
+                            request_peer = ''
+                            if origin_peer and origin_peer != local_peer:
+                                request_peer = origin_peer
+                            elif from_peer and str(from_peer).strip() != local_peer:
+                                request_peer = str(from_peer).strip()
+                            if request_peer:
+                                p2p_manager.send_channel_key_request(
+                                    to_peer=request_peer,
+                                    channel_id=channel_id,
+                                    reason='membership_recovery_missing_key',
+                                )
+
+                if imported_channels:
+                    logger.info(
+                        "Membership recovery imported %d channel(s) from %s (query=%s, truncated=%s)",
+                        imported_channels,
+                        from_peer,
+                        query_id,
+                        bool(truncated),
+                    )
+            except Exception as e:
+                logger.error(f"Failed to handle channel membership response: {e}", exc_info=True)
+
+        p2p_manager.on_channel_membership_response = _on_channel_membership_response
+
         # --- Channel key callbacks (phase-2 E2E implementation) ---
         def _backfill_pending_decrypt_for_key(channel_id: str, key_id: str, key_bytes: bytes) -> None:
             """Decrypt and backfill messages waiting on a newly received key."""
