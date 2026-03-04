@@ -511,7 +511,8 @@ class ConnectionManager:
                 await websocket.close()
                 return
             
-            # Reconstruct the signed payload (everything except type and signature)
+            # Reconstruct the signed payload using base fields only.
+            # canopy_version/protocol_version are unsigned metadata, NOT part of the signature.
             payload = {
                 'peer_id': peer_id,
                 'ed25519_public_key': ed25519_pub_b58,
@@ -522,7 +523,6 @@ class ConnectionManager:
                 ),
                 'timestamp': handshake_data.get('timestamp', 0)
             }
-            payload.update(self._signed_optional_handshake_fields(handshake_data))
             payload_bytes = json.dumps(payload, sort_keys=True).encode('utf-8')
             
             # Decode public key and verify peer_id matches
@@ -541,7 +541,14 @@ class ConnectionManager:
             )
             
             signature = bytes.fromhex(signature_hex)
-            if not remote_identity.verify(payload_bytes, signature):
+            verified = remote_identity.verify(payload_bytes, signature)
+            if not verified:
+                # Fallback: peer may be running unpatched 0.4.30 that signed optional fields
+                fallback_payload = dict(payload)
+                fallback_payload.update(self._signed_optional_handshake_fields(handshake_data))
+                fallback_bytes = json.dumps(fallback_payload, sort_keys=True).encode('utf-8')
+                verified = remote_identity.verify(fallback_bytes, signature)
+            if not verified:
                 logger.warning(f"Handshake signature verification FAILED for {peer_id} - rejecting")
                 await websocket.close()
                 return
@@ -674,24 +681,25 @@ class ConnectionManager:
             identity = self.identity_manager.export_public_identity()
             timestamp = time.time()
             
-            handshake_payload = {
+            # Base fields are signed (backward compatible with all versions).
+            # canopy_version and protocol_version are sent as unsigned metadata.
+            signed_payload = {
                 'peer_id': self.local_peer_id,
                 'ed25519_public_key': identity['ed25519_public_key'],
                 'x25519_public_key': identity['x25519_public_key'],
                 'version': '0.1.0',
-                'canopy_version': self.local_canopy_version,
-                'protocol_version': self.local_protocol_version,
                 'capabilities': self._get_handshake_capabilities(),
                 'timestamp': timestamp
             }
             
-            # Sign the handshake payload with our Ed25519 key
-            payload_bytes = json.dumps(handshake_payload, sort_keys=True).encode('utf-8')
+            payload_bytes = json.dumps(signed_payload, sort_keys=True).encode('utf-8')
             signature = self.identity_manager.local_identity.sign(payload_bytes)
             
             handshake = {
                 'type': 'handshake',
-                **handshake_payload,
+                **signed_payload,
+                'canopy_version': self.local_canopy_version,
+                'protocol_version': self.local_protocol_version,
                 'signature': signature.hex()
             }
             
@@ -724,6 +732,7 @@ class ConnectionManager:
                 logger.warning("Handshake response missing required identity fields")
                 return False
             
+            # Base fields only for signature verification (backward compatible).
             resp_payload = {
                 'peer_id': resp_peer_id,
                 'ed25519_public_key': resp_ed25519_pub,
@@ -734,7 +743,6 @@ class ConnectionManager:
                 ),
                 'timestamp': response.get('timestamp', 0)
             }
-            resp_payload.update(self._signed_optional_handshake_fields(response))
             resp_payload_bytes = json.dumps(resp_payload, sort_keys=True).encode('utf-8')
             
             # Decode the peer's public key and verify their signature
@@ -746,14 +754,10 @@ class ConnectionManager:
                 return False
 
             # Verify the responding peer is who we expected to connect to.
-            # A different (valid) peer could have taken the socket; reject
-            # that to prevent identity substitution attacks.
             if resp_peer_id != connection.peer_id:
                 logger.warning(
                     f"Handshake peer-id mismatch! Expected {connection.peer_id}, "
                     f"got {resp_peer_id}. Rejecting connection.")
-                # This endpoint is no longer associated with the requested peer_id;
-                # drop it so we don't thrash reconnect attempts forever.
                 try:
                     host = connection.address
                     port = connection.port
@@ -772,7 +776,14 @@ class ConnectionManager:
             )
             
             resp_signature = bytes.fromhex(resp_signature_hex)
-            if not remote_identity.verify(resp_payload_bytes, resp_signature):
+            verified = remote_identity.verify(resp_payload_bytes, resp_signature)
+            if not verified:
+                # Fallback: peer may be running unpatched 0.4.30 that signed optional fields
+                fallback_payload = dict(resp_payload)
+                fallback_payload.update(self._signed_optional_handshake_fields(response))
+                fallback_bytes = json.dumps(fallback_payload, sort_keys=True).encode('utf-8')
+                verified = remote_identity.verify(fallback_bytes, resp_signature)
+            if not verified:
                 logger.warning(f"Handshake signature verification FAILED for {resp_peer_id}")
                 return False
             
@@ -843,24 +854,24 @@ class ConnectionManager:
             identity = self.identity_manager.export_public_identity()
             timestamp = time.time()
             
-            ack_payload = {
+            # Sign base fields only (backward compatible with all peer versions).
+            signed_payload = {
                 'peer_id': self.local_peer_id,
                 'ed25519_public_key': identity['ed25519_public_key'],
                 'x25519_public_key': identity['x25519_public_key'],
                 'version': '0.1.0',
-                'canopy_version': self.local_canopy_version,
-                'protocol_version': self.local_protocol_version,
                 'capabilities': self._get_handshake_capabilities(),
                 'timestamp': timestamp
             }
             
-            # Sign the ack payload
-            payload_bytes = json.dumps(ack_payload, sort_keys=True).encode('utf-8')
+            payload_bytes = json.dumps(signed_payload, sort_keys=True).encode('utf-8')
             signature = self.identity_manager.local_identity.sign(payload_bytes)
             
             ack = {
                 'type': 'handshake_ack',
-                **ack_payload,
+                **signed_payload,
+                'canopy_version': self.local_canopy_version,
+                'protocol_version': self.local_protocol_version,
                 'signature': signature.hex()
             }
             

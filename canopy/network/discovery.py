@@ -68,7 +68,15 @@ class PeerDiscovery:
         self.browser: Optional[ServiceBrowser] = None
         
         logger.info(f"Initialized PeerDiscovery for {local_peer_id}")
-    
+
+    @staticmethod
+    def _get_canopy_version() -> str:
+        try:
+            from canopy import __version__
+            return str(__version__)
+        except Exception:
+            return '0.1.0'
+
     def start(self) -> None:
         """Start peer discovery service."""
         if self._running:
@@ -143,7 +151,7 @@ class PeerDiscovery:
                 port=self.service_port,
                 properties={
                     'peer_id': self.local_peer_id,
-                    'version': '0.1.0',
+                    'version': self._get_canopy_version(),
                     'capabilities': ','.join(self.capabilities),
                 },
                 server=f"{self.service_name}.local."
