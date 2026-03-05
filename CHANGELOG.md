@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.35] - 2026-03-05
+
+### Fixed
+- **Z-stack dropdown layering audit** — Systematic fix for dropdown menus rendering below neighboring content across all major UI pages (channels, connect, feed, messages). Added explicit stacking contexts, elevated z-index on open dropdowns, and JS fallback class toggling for cross-browser `:has()` compatibility.
+
+---
+
 ## [0.4.34] - 2026-03-05
 
 ### Fixed

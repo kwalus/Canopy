@@ -722,6 +722,8 @@
     
     #messages-container {
         background: transparent;
+        position: relative;
+        z-index: 1;
     }
 
     #load-older-banner {
@@ -807,6 +809,18 @@
         border-color: var(--canopy-border) !important;
         padding: 0.44rem 0.68rem !important;
         backdrop-filter: blur(5px);
+        position: relative;
+        z-index: 60;
+        overflow: visible !important;
+    }
+    .channel-header .dropdown {
+        position: relative;
+    }
+    .channel-header .dropdown.show {
+        z-index: 70;
+    }
+    .channel-header .dropdown-menu {
+        z-index: 2050;
     }
     .channel-header-row {
         display: flex;

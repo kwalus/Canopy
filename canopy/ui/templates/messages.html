@@ -214,6 +214,21 @@
         overflow-wrap: break-word;
         max-width: 100%;
     }
+    .message-item {
+        position: relative;
+        z-index: 0;
+        overflow: visible;
+    }
+    .message-item.dropdown-open {
+        z-index: 30;
+    }
+    .message-item .dropdown {
+        position: relative;
+        z-index: 2;
+    }
+    .message-item .dropdown-menu {
+        z-index: 2000;
+    }
 
     .icon-action-btn {
         min-width: 2rem;
@@ -2092,6 +2107,17 @@
         setupMessageFileUpload();
         setupMessagePasteHandler();
         setupRecipientPicker();
+        // Dropdown stacking fallback for DM cards (cross-browser).
+        document.addEventListener('shown.bs.dropdown', (event) => {
+            const trigger = event.target instanceof Element ? event.target : null;
+            const msgRow = trigger ? trigger.closest('.message-item') : null;
+            if (msgRow) msgRow.classList.add('dropdown-open');
+        });
+        document.addEventListener('hidden.bs.dropdown', (event) => {
+            const trigger = event.target instanceof Element ? event.target : null;
+            const msgRow = trigger ? trigger.closest('.message-item') : null;
+            if (msgRow) msgRow.classList.remove('dropdown-open');
+        });
         const messageContent = document.getElementById('messageContent');
         if (messageContent) {
             messageContent.addEventListener('input', handleDmChannelInput);

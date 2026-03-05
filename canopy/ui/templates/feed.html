@@ -2005,6 +2005,9 @@
 .post-card:has(.dropdown.show) {
     z-index: 10;
 }
+.post-card.dropdown-open {
+    z-index: 10;
+}
 
 .post-card .dropdown {
     position: relative;
@@ -5746,6 +5749,18 @@
 	        focusPostFromQuery();
 	        handleExpiryChange();
 	        updateExpiryBadges();
+            // Dropdown stacking fallback for browsers where :has() support is
+            // partial/inconsistent.
+            document.addEventListener('shown.bs.dropdown', (event) => {
+                const trigger = event.target instanceof Element ? event.target : null;
+                const card = trigger ? trigger.closest('.post-card') : null;
+                if (card) card.classList.add('dropdown-open');
+            });
+            document.addEventListener('hidden.bs.dropdown', (event) => {
+                const trigger = event.target instanceof Element ? event.target : null;
+                const card = trigger ? trigger.closest('.post-card') : null;
+                if (card) card.classList.remove('dropdown-open');
+            });
 	        setInterval(updateExpiryBadges, 60000);
 	        Promise.all([
                 fetchFeedMentionCandidates(),
