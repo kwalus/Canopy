@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.32] - 2026-03-05
+
+### Fixed
+- **Membership recovery security check relaxed** — Non-member relay peers can now forward `CHANNEL_MEMBERSHIP_RESPONSE` messages. Previously, valid responses were rejected when the relay peer wasn't in the channel's member list, breaking private channel propagation over relay connections.
+- **Membership response timeout bumped 8s → 30s** — Fixes `TimeoutError` when sending large membership response payloads over relay connections.
+- **sqlite3.Row attribute access** — Fixed `AttributeError: 'sqlite3.Row' object has no attribute 'get'` in avatar recovery.
+- **`_normalize_channel_crypto_mode` NameError** — Defined E2E crypto helpers in `app.py` scope so `_on_channel_membership_response` can normalize `crypto_mode` without crashing.
+
+### Added
+- **Merkle digest-assisted catch-up (Phase 1)** — Deterministic per-channel Merkle digests for sync optimization. Feature-flagged (`CANOPY_SYNC_DIGEST_ENABLED`), fail-open design falls back to timestamp catch-up. Admin diagnostics panel for telemetry.
+- **New tests** — `test_channel_sync_digest`, `test_routing_catchup_digest_metadata`, `test_manager_catchup_digest_response`, `test_p2p_diagnostics_endpoint`.
+- **Merkle Sync Phase 1 spec** — `docs/MERKLE_SYNC_PHASE1_SPEC.md`.
+
+---
+
 ## [0.4.31] - 2026-03-04
 
 ### Fixed
