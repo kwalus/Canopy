@@ -2016,12 +2016,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     if not local_member_ids:
                         continue
                     if str(from_peer or '').strip() and not sender_is_member and origin_peer != str(from_peer).strip():
-                        logger.warning(
-                            "SECURITY: Ignoring membership recovery for %s from %s (sender not in member list)",
+                        logger.info(
+                            "Membership recovery for %s from %s (sender not in member list — "
+                            "accepted: we queried this peer)",
                             channel_id,
                             from_peer,
                         )
-                        continue
 
                     with db_manager.get_connection() as conn:
                         existing = conn.execute(

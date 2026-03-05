@@ -2701,7 +2701,7 @@ class P2PNetworkManager:
             self._event_loop,
         )
         try:
-            return bool(future.result(timeout=8.0))
+            return bool(future.result(timeout=30.0))
         except Exception as e:
             logger.error(f"Error sending channel membership response: {e}", exc_info=True)
             return False
