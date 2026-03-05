@@ -18,14 +18,13 @@
     .channel-item {
         color: var(--canopy-text-secondary);
         cursor: pointer;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        transition: background-color 0.15s ease, color 0.15s ease;
         border: 1px solid transparent;
     }
     
     .channel-item:hover {
         background: var(--canopy-bg-tertiary) !important;
         color: var(--canopy-text-primary);
-        transform: translateX(2px);
     }
     
     .channel-item.active {
@@ -1161,6 +1160,23 @@
     }
     .channel-item .channel-name {
         font-size: 0.88rem;
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .channel-item-head {
+        min-width: 0;
+        width: 100%;
+        gap: 0.35rem;
+    }
+    .channel-item-head > i.bi {
+        flex: 0 0 auto;
+    }
+    .channel-row-actions {
+        flex: 0 0 auto;
+        min-width: fit-content;
     }
     .channel-muted-icon {
         font-size: 0.75rem;
@@ -1359,6 +1375,61 @@
         }
     }
 
+    @media (max-width: 430px) {
+        .channel-header {
+            padding: 0.34rem 0.38rem !important;
+        }
+
+        .channel-header-row {
+            gap: 0.16rem;
+            flex-wrap: wrap;
+        }
+
+        .channel-header-left {
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+
+        .channel-header-right {
+            width: 100%;
+            justify-content: space-between;
+            gap: 0.14rem;
+        }
+
+        .channel-header-title h4 {
+            font-size: 0.82rem;
+            max-width: min(52vw, 142px);
+        }
+
+        .channel-header-search {
+            flex: 1 1 auto;
+            min-width: 70px;
+        }
+
+        .channel-header .btn.btn-sm {
+            padding: 0.16rem 0.3rem;
+        }
+
+        #message-input {
+            min-height: 28px !important;
+            max-height: 21vh;
+            font-size: 0.84rem;
+            padding-top: 0.28rem;
+            padding-bottom: 0.28rem;
+        }
+
+        #message-form .input-group-append {
+            gap: 0.16rem;
+            margin-top: 0.18rem;
+        }
+
+        #message-form .input-group .btn,
+        #message-form .input-group-append .btn-group .btn {
+            min-height: 30px;
+            padding: 0.22rem 0.18rem;
+        }
+    }
+
     /* Desktop: collapse support */
     @media (min-width: 768px) {
         #channel-sidebar.collapsed {
@@ -1454,11 +1525,48 @@
                      data-origin-peer="{{ channel.origin_peer or '' }}"
                      data-notifications-enabled="{{ 'true' if channel.notifications_enabled else 'false' }}"
                      data-channel-desc="{{ channel.description|e }}"
-                     onclick="selectChannel({{ channel.id|tojson }}, {{ channel.name|tojson }})">
-                    <div class="d-flex align-items-center">
+                    onclick="selectChannel({{ channel.id|tojson }}, {{ channel.name|tojson }})">
+                    <div class="d-flex align-items-center channel-item-head">
                         <i class="bi bi-{% if channel.channel_type == 'private' %}lock{% elif channel.channel_type == 'dm' %}person{% elif channel.privacy_mode == 'guarded' %}shield-check{% else %}hash{% endif %} me-2"></i>
                         <span class="channel-name">{{ channel.name }}</span>
-                        <span class="ms-auto d-flex align-items-center gap-1">
+                        <span class="ms-auto d-flex align-items-center gap-1 channel-row-actions">
+                            <button type="button"
+                                    class="btn btn-link btn-sm p-0 channel-pin-btn"
+                                    data-channel-id="{{ channel.id }}"
+                                    data-action-label="Pin"
+                                    title="Pin channel"
+                                    aria-label="Pin channel">
+                                <i class="bi bi-pin-angle"></i>
+                            </button>
+                            <div class="dropdown channel-tools-dropdown">
+                                <button type="button"
+                                        class="btn btn-link btn-sm p-0 channel-tools-toggle"
+                                        data-channel-id="{{ channel.id }}"
+                                        data-action-label="Tools"
+                                        title="Channel tools"
+                                        aria-label="Channel tools"
+                                        aria-expanded="false">
+                                    <i class="bi bi-three-dots"></i>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end channel-tools-menu">
+                                    <li>
+                                        <button type="button"
+                                                class="dropdown-item channel-copy-btn"
+                                                data-channel-id="{{ channel.id }}"
+                                                title="Copy ID">
+                                            <i class="bi bi-clipboard"></i>
+                                        </button>
+                                    </li>
+                                    <li>
+                                        <button type="button"
+                                                class="dropdown-item text-danger channel-delete-btn d-none"
+                                                data-channel-id="{{ channel.id }}"
+                                                title="Delete">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </li>
+                                </ul>
+                            </div>
                             <i class="bi bi-bell-slash text-muted channel-muted-icon {% if channel.notifications_enabled %}d-none{% endif %}" title="Muted"></i>
                             {% if channel.unread_count > 0 %}
                                 <span class="badge bg-danger channel-unread-badge">{{ channel.unread_count }}</span>
@@ -1509,16 +1617,6 @@
                                 <span id="channel-e2e-badge" class="badge bg-success-subtle text-success border rounded-pill d-none" title="End-to-end encrypted channel">
                                     <i class="bi bi-shield-lock-fill me-1"></i>E2E
                                 </span>
-                                <button
-                                    class="btn btn-outline-secondary btn-sm"
-                                    id="copy-channel-id-btn"
-                                    onclick="copyCurrentChannelId(this)"
-                                    data-channel-id="{% if channels %}{{ channels[0].id }}{% endif %}"
-                                    title="{% if channels %}Copy channel ID: {{ channels[0].id }}{% else %}Copy channel ID{% endif %}"
-                                    aria-label="Copy channel ID">
-                                    <i class="bi bi-clipboard"></i>
-                                    <span class="copy-channel-id-label">ID</span>
-                                </button>
                             </div>
                         </div>
                     </div>
@@ -1576,18 +1674,6 @@
                                 <span class="channel-members-label">Members</span>
                                 <span class="channel-members-count">({{ channels[0].member_count if channels else 0 }})</span>
                             </button>
-                            <div class="dropdown">
-                                <button class="btn btn-outline-secondary btn-sm" id="channel-actions-toggle" data-bs-toggle="dropdown" aria-expanded="false" title="Channel actions">
-                                    <i class="bi bi-three-dots-vertical"></i>
-                                </button>
-                                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="channel-actions-toggle">
-                                    <li>
-                                        <button class="dropdown-item text-danger" id="channel-delete-item" onclick="confirmDeleteChannel()">
-                                            <i class="bi bi-trash me-2"></i>Delete channel
-                                        </button>
-                                    </li>
-                                </ul>
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -1823,7 +1909,6 @@
 .channel-item:hover {
     background: var(--canopy-bg-tertiary) !important;
     color: var(--canopy-text-primary);
-    transform: translateX(2px);
 }
 
 .channel-item.active {
@@ -1833,6 +1918,156 @@
 
 .channel-item.active .text-muted {
     color: rgba(255, 255, 255, 0.8) !important;
+}
+
+.channel-item.channel-pinned {
+    border-left: 2px solid rgba(255, 193, 7, 0.65);
+    padding-left: calc(0.5rem - 2px);
+}
+
+.channel-pin-btn {
+    line-height: 1;
+    text-decoration: none !important;
+    color: var(--canopy-text-muted);
+    opacity: 0.72;
+}
+
+.channel-row-actions {
+    opacity: 0.45;
+    transition: opacity 150ms ease;
+}
+.channel-item:hover .channel-row-actions,
+.channel-item.tools-menu-open .channel-row-actions {
+    opacity: 1;
+}
+
+.channel-row-actions .btn {
+    position: relative;
+    line-height: 1;
+    text-decoration: none !important;
+    color: var(--canopy-text-muted);
+    opacity: 0.7;
+    transition: opacity 120ms ease, color 120ms ease;
+    min-width: 1.4rem;
+    min-height: 1.4rem;
+    font-size: 0.82rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.3rem;
+}
+.channel-row-actions .btn:hover,
+.channel-row-actions .btn:focus {
+    opacity: 1;
+}
+.channel-pin-btn:hover,
+.channel-pin-btn:focus {
+    color: #ffd166;
+}
+.channel-item.channel-pinned .channel-row-actions {
+    opacity: 1;
+    pointer-events: auto;
+}
+.channel-item.channel-pinned .channel-pin-btn {
+    color: #ffc107;
+    opacity: 1;
+}
+
+#channel-tools-portal {
+    position: fixed;
+    z-index: 9999;
+    display: none;
+    flex-direction: column;
+    padding: 0.2rem;
+    border-radius: 0.4rem;
+    background: var(--canopy-bg-card, #2b2d31);
+    border: 1px solid var(--canopy-border, rgba(255,255,255,0.1));
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    min-width: 2rem;
+}
+#channel-tools-portal.show {
+    display: flex;
+}
+#channel-tools-portal .portal-tool-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.35rem 0.5rem;
+    font-size: 0.85rem;
+    border: none;
+    background: transparent;
+    color: var(--canopy-text-muted, #aaa);
+    border-radius: 0.25rem;
+    cursor: pointer;
+    transition: background 100ms ease, color 100ms ease;
+}
+#channel-tools-portal .portal-tool-btn:hover,
+#channel-tools-portal .portal-tool-btn:focus {
+    background: var(--canopy-bg-tertiary, rgba(255,255,255,0.08));
+    color: var(--canopy-text-primary, #fff);
+}
+#channel-tools-portal .portal-tool-btn.portal-delete-btn:hover,
+#channel-tools-portal .portal-tool-btn.portal-delete-btn:focus {
+    color: #ff6b6b;
+}
+.channel-item.tools-menu-open {
+    background: var(--canopy-bg-tertiary) !important;
+    color: var(--canopy-text-primary);
+}
+
+.channel-item.channel-pinned .channel-pin-btn {
+    color: #ffd166;
+    opacity: 1;
+}
+
+.channel-item.active .channel-pin-btn {
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.channel-item.active .channel-tools-toggle {
+    color: rgba(255, 255, 255, 0.86);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .channel-row-actions .btn[data-action-label]::after {
+        content: attr(data-action-label);
+        position: absolute;
+        left: 50%;
+        bottom: calc(100% + 5px);
+        transform: translateX(-50%) translateY(2px);
+        font-size: 0.64rem;
+        line-height: 1;
+        letter-spacing: 0.01em;
+        white-space: nowrap;
+        color: #eff6ff;
+        background: rgba(7, 14, 28, 0.92);
+        border: 1px solid rgba(110, 136, 190, 0.5);
+        border-radius: 999px;
+        padding: 0.2rem 0.38rem;
+        box-shadow: 0 8px 18px rgba(0, 0, 0, 0.32);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 120ms ease, transform 120ms ease;
+        z-index: 20;
+    }
+
+    .channel-row-actions .btn[data-action-label]:hover::after,
+    .channel-row-actions .btn[data-action-label]:focus-visible::after {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+}
+
+@media (max-width: 768px) {
+    .channel-row-actions .btn {
+        min-width: 1.48rem;
+        min-height: 1.48rem;
+    }
+
+    .channel-tools-menu .dropdown-item {
+        font-size: 0.82rem;
+        padding: 0.44rem 0.68rem;
+    }
 }
 
 .message-item {
@@ -3444,7 +3679,11 @@ let channelMentionContext = null;
 let channelMentionBuilderFilter = 'all';
 const channelMentionBuilderSelection = new Map();
 const CHANNEL_MENTION_LISTS_STORAGE_KEY = 'canopy.channel_mention_lists.v1';
+const CHANNEL_PIN_STORAGE_KEY = `canopy.channel_pins.v1.${currentUserId || 'anon'}`;
+const pinnedChannelIds = new Set();
+let channelSortIndexCounter = 0;
 const channelMessageRenderInFlight = new Set();
+const channelLikeInFlight = new Set();
 const CHANNEL_FILE_ALLOWED_MIME_PREFIXES = ['image/', 'video/', 'audio/'];
 const CHANNEL_FILE_ALLOWED_MIME_EXACT = new Set([
     'application/pdf',
@@ -3527,6 +3766,263 @@ function bindChannelItemHandlers() {
         });
         item.dataset.boundClick = '1';
     });
+}
+
+function ensureChannelSortIndex(item) {
+    if (!item) return 0;
+    const raw = parseInt(item.dataset.sortIndex || '', 10);
+    if (Number.isFinite(raw) && raw >= 0) {
+        if (raw >= channelSortIndexCounter) channelSortIndexCounter = raw + 1;
+        return raw;
+    }
+    const next = channelSortIndexCounter++;
+    item.dataset.sortIndex = String(next);
+    return next;
+}
+
+function loadPinnedChannelIds() {
+    pinnedChannelIds.clear();
+    try {
+        const raw = localStorage.getItem(CHANNEL_PIN_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(parsed)) {
+            parsed.forEach(id => {
+                const normalized = String(id || '').trim();
+                if (normalized) pinnedChannelIds.add(normalized);
+            });
+        }
+    } catch (_) {}
+}
+
+function savePinnedChannelIds() {
+    try {
+        localStorage.setItem(CHANNEL_PIN_STORAGE_KEY, JSON.stringify(Array.from(pinnedChannelIds)));
+    } catch (_) {}
+}
+
+function isChannelPinned(channelId) {
+    return pinnedChannelIds.has(String(channelId || '').trim());
+}
+
+function canDeleteChannelFromItem(item) {
+    if (!item) return false;
+    const channelId = String(item.dataset.channelId || '').trim();
+    if (!channelId || channelId === 'general') return false;
+    const role = String(item.dataset.userRole || 'member').toLowerCase();
+    return !!(isAdmin || role === 'admin');
+}
+
+function applyChannelQuickActionState(item) {
+    if (!item) return;
+    const channelId = String(item.dataset.channelId || '').trim();
+    const copyBtn = item.querySelector('.channel-copy-btn');
+    if (copyBtn) {
+        copyBtn.dataset.channelId = channelId;
+        copyBtn.setAttribute('title', `Copy channel ID: ${channelId}`);
+        copyBtn.setAttribute('aria-label', 'Copy channel ID');
+    }
+    const deleteBtn = item.querySelector('.channel-delete-btn');
+    if (deleteBtn) {
+        deleteBtn.dataset.channelId = channelId;
+        const canDelete = canDeleteChannelFromItem(item);
+        deleteBtn.classList.toggle('d-none', !canDelete);
+        deleteBtn.setAttribute('aria-hidden', canDelete ? 'false' : 'true');
+    }
+}
+
+function applyAllChannelQuickActionStates() {
+    document.querySelectorAll('.channel-item').forEach(item => applyChannelQuickActionState(item));
+}
+
+function copyChannelIdFromList(event, button, channelId) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    const normalized = String(channelId || button?.dataset?.channelId || '').trim();
+    if (!normalized) return;
+    navigator.clipboard.writeText(normalized).then(() => {
+        closeChannelToolsDropdownForElement(button);
+        const icon = button?.querySelector('i');
+        if (!icon) return;
+        icon.classList.remove('bi-clipboard');
+        icon.classList.add('bi-clipboard-check');
+        setTimeout(() => {
+            icon.classList.remove('bi-clipboard-check');
+            icon.classList.add('bi-clipboard');
+        }, 1200);
+    }).catch(() => {
+        showAlert('Failed to copy channel ID', 'danger');
+    });
+}
+
+let _toolsPortal = null;
+let _toolsPortalChannelId = null;
+let _toolsPortalToggle = null;
+
+function getToolsPortal() {
+    if (_toolsPortal) return _toolsPortal;
+    const el = document.createElement('div');
+    el.id = 'channel-tools-portal';
+    el.innerHTML = '<button type="button" class="portal-tool-btn portal-copy-btn" title="Copy ID"><i class="bi bi-clipboard"></i></button>'
+        + '<button type="button" class="portal-tool-btn portal-delete-btn" title="Delete"><i class="bi bi-trash"></i></button>';
+    document.body.appendChild(el);
+
+    el.querySelector('.portal-copy-btn').addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!_toolsPortalChannelId) return;
+        navigator.clipboard.writeText(_toolsPortalChannelId).then(() => {
+            const icon = this.querySelector('i');
+            if (icon) { icon.classList.replace('bi-clipboard', 'bi-clipboard-check'); setTimeout(() => icon.classList.replace('bi-clipboard-check', 'bi-clipboard'), 1200); }
+            closeAllChannelToolsMenus();
+        }).catch(() => { showAlert('Failed to copy channel ID', 'danger'); });
+    });
+
+    el.querySelector('.portal-delete-btn').addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!_toolsPortalChannelId) return;
+        const item = document.querySelector('.channel-item[data-channel-id="' + CSS.escape(_toolsPortalChannelId) + '"]');
+        if (item && !canDeleteChannelFromItem(item)) {
+            showAlert('You do not have permission to delete this channel', 'warning');
+            closeAllChannelToolsMenus();
+            return;
+        }
+        const channelName = item?.querySelector('.channel-name')?.textContent || _toolsPortalChannelId;
+        closeAllChannelToolsMenus();
+        confirmDeleteChannelById(_toolsPortalChannelId, channelName);
+    });
+
+    el.addEventListener('click', function(e) { e.stopPropagation(); });
+    _toolsPortal = el;
+    return el;
+}
+
+function closeAllChannelToolsMenus() {
+    const portal = document.getElementById('channel-tools-portal');
+    if (portal) portal.classList.remove('show');
+    if (_toolsPortalToggle) _toolsPortalToggle.setAttribute('aria-expanded', 'false');
+    document.querySelectorAll('.channel-item.tools-menu-open').forEach(item => item.classList.remove('tools-menu-open'));
+    _toolsPortalChannelId = null;
+    _toolsPortalToggle = null;
+}
+
+function closeChannelToolsDropdownForElement(element) {
+    closeAllChannelToolsMenus();
+}
+
+function showToolsPortal(toggleBtn) {
+    const portal = getToolsPortal();
+    const isOpen = portal.classList.contains('show') && _toolsPortalToggle === toggleBtn;
+    closeAllChannelToolsMenus();
+    if (isOpen) return;
+
+    const channelItem = toggleBtn.closest('.channel-item');
+    const channelId = String(toggleBtn.dataset.channelId || channelItem?.dataset?.channelId || '').trim();
+    if (!channelId) return;
+
+    _toolsPortalChannelId = channelId;
+    _toolsPortalToggle = toggleBtn;
+    if (channelItem) channelItem.classList.add('tools-menu-open');
+    toggleBtn.setAttribute('aria-expanded', 'true');
+
+    const canDelete = channelItem ? canDeleteChannelFromItem(channelItem) : false;
+    portal.querySelector('.portal-delete-btn').style.display = canDelete ? '' : 'none';
+
+    portal.classList.add('show');
+    const rect = toggleBtn.getBoundingClientRect();
+    let top = rect.bottom + 2;
+    let left = rect.left + (rect.width / 2) - (portal.offsetWidth / 2);
+    if (left < 4) left = 4;
+    if (left + portal.offsetWidth > window.innerWidth - 4) left = window.innerWidth - portal.offsetWidth - 4;
+    if (top + portal.offsetHeight > window.innerHeight - 4) {
+        top = rect.top - portal.offsetHeight - 2;
+    }
+    portal.style.top = top + 'px';
+    portal.style.left = left + 'px';
+}
+
+document.addEventListener('click', function(e) {
+    if (e.target.closest('#channel-tools-portal')) return;
+    if (e.target.closest('.channel-tools-toggle')) return;
+    closeAllChannelToolsMenus();
+});
+document.addEventListener('scroll', function() { closeAllChannelToolsMenus(); }, true);
+
+function bindChannelQuickActionHandlers() {
+    document.querySelectorAll('.channel-tools-toggle').forEach(btn => {
+        if (btn.dataset.boundToolsToggleClick === '1') return;
+        btn.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            showToolsPortal(btn);
+        });
+        btn.dataset.boundToolsToggleClick = '1';
+    });
+}
+
+function applyChannelPinState(item) {
+    if (!item) return;
+    ensureChannelSortIndex(item);
+    const channelId = String(item.dataset.channelId || '').trim();
+    const pinned = !!(channelId && pinnedChannelIds.has(channelId));
+    item.dataset.pinned = pinned ? 'true' : 'false';
+    item.classList.toggle('channel-pinned', pinned);
+    let btn = item.querySelector('.channel-pin-btn');
+    if (!btn) {
+        const host = item.querySelector('.channel-row-actions');
+        if (host) {
+            btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn btn-link btn-sm p-0 channel-pin-btn';
+            btn.dataset.actionLabel = 'Pin';
+            host.prepend(btn);
+        }
+    }
+    if (!btn) return;
+    btn.dataset.channelId = channelId;
+    btn.setAttribute('title', pinned ? 'Unpin channel' : 'Pin channel');
+    btn.setAttribute('aria-label', pinned ? 'Unpin channel' : 'Pin channel');
+    btn.innerHTML = `<i class="bi bi-pin-angle${pinned ? '-fill' : ''}"></i>`;
+}
+
+function bindChannelPinHandlers() {
+    document.querySelectorAll('.channel-pin-btn').forEach(btn => {
+        if (btn.dataset.boundPinClick === '1') return;
+        btn.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const channelId = btn.dataset.channelId || btn.closest('.channel-item')?.dataset.channelId;
+            if (!channelId) return;
+            if (pinnedChannelIds.has(String(channelId))) pinnedChannelIds.delete(String(channelId));
+            else pinnedChannelIds.add(String(channelId));
+            savePinnedChannelIds();
+            applyAllChannelPinStates();
+            sortChannelListByPins();
+        });
+        btn.dataset.boundPinClick = '1';
+    });
+}
+
+function applyAllChannelPinStates() {
+    document.querySelectorAll('.channel-item').forEach(item => applyChannelPinState(item));
+}
+
+function sortChannelListByPins() {
+    const list = document.querySelector('.channel-list');
+    if (!list) return;
+    const items = Array.from(list.querySelectorAll('.channel-item'));
+    items.forEach(item => ensureChannelSortIndex(item));
+    items.sort((a, b) => {
+        const aPinned = a.dataset.pinned === 'true' ? 0 : 1;
+        const bPinned = b.dataset.pinned === 'true' ? 0 : 1;
+        if (aPinned !== bPinned) return aPinned - bPinned;
+        const aIdx = parseInt(a.dataset.sortIndex || '0', 10) || 0;
+        const bIdx = parseInt(b.dataset.sortIndex || '0', 10) || 0;
+        return aIdx - bIdx;
+    });
+    items.forEach(item => list.appendChild(item));
 }
 
 // Channel management
@@ -3730,14 +4226,7 @@ function hydrateCurrentChannelMeta() {
 }
 
 function updateChannelActionVisibility() {
-    const deleteItem = document.getElementById('channel-delete-item');
-    const actionsToggle = document.getElementById('channel-actions-toggle');
-    if (!deleteItem || !actionsToggle) return;
-    const isGeneral = String(currentChannelId) === 'general';
-    const isOriginLocal = !currentChannelOriginPeer || (localPeerId && currentChannelOriginPeer === localPeerId);
-    const canDelete = !isGeneral && isOriginLocal && (isAdmin || currentChannelRole === 'admin');
-    deleteItem.style.display = canDelete ? 'flex' : 'none';
-    actionsToggle.style.display = canDelete ? 'inline-flex' : 'none';
+    applyAllChannelQuickActionStates();
 }
 
 function setChannelPrivacy(mode) {
@@ -6030,15 +6519,54 @@ function applySidebarChannelState(channels) {
             div.setAttribute('data-channel-desc', ch.description || '');
             div.onclick = () => selectChannel(ch.id, ch.name);
             const unread = Math.max(0, parseInt(ch.unread_count || 0, 10) || 0);
+            const channelIdAttr = escapeHtml(String(ch.id));
             div.innerHTML = `
-                <div class="d-flex align-items-center">
+                <div class="d-flex align-items-center channel-item-head">
                     <i class="bi bi-${icon} me-2"></i>
                     <span class="channel-name">${escapeHtml(ch.name)}</span>
-                    <span class="ms-auto d-flex align-items-center gap-1">
+                    <span class="ms-auto d-flex align-items-center gap-1 channel-row-actions">
+                        <button type="button"
+                                class="btn btn-link btn-sm p-0 channel-pin-btn"
+                                data-channel-id="${channelIdAttr}"
+                                data-action-label="Pin"
+                                title="Pin channel"
+                                aria-label="Pin channel">
+                            <i class="bi bi-pin-angle"></i>
+                        </button>
+                        <div class="dropdown channel-tools-dropdown">
+                            <button type="button"
+                                    class="btn btn-link btn-sm p-0 channel-tools-toggle"
+                                    data-channel-id="${channelIdAttr}"
+                                    data-action-label="Tools"
+                                    title="Channel tools"
+                                    aria-label="Channel tools"
+                                    aria-expanded="false">
+                                <i class="bi bi-three-dots"></i>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end channel-tools-menu">
+                                <li>
+                                    <button type="button"
+                                            class="dropdown-item channel-copy-btn"
+                                            data-channel-id="${channelIdAttr}"
+                                            title="Copy ID">
+                                        <i class="bi bi-clipboard"></i>
+                                    </button>
+                                </li>
+                                <li>
+                                    <button type="button"
+                                            class="dropdown-item text-danger channel-delete-btn d-none"
+                                            data-channel-id="${channelIdAttr}"
+                                            title="Delete">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </li>
+                            </ul>
+                        </div>
                         <i class="bi bi-bell-slash text-muted channel-muted-icon ${ch.notifications_enabled !== false ? 'd-none' : ''}" title="Muted"></i>
                         ${unread > 0 ? `<span class="badge bg-danger channel-unread-badge">${unread}</span>` : ''}
                     </span>
                 </div>`;
+            ensureChannelSortIndex(div);
             channelList.appendChild(div);
             item = div;
         }
@@ -6064,7 +6592,7 @@ function applySidebarChannelState(channels) {
         }
         const unreadCount = Math.max(0, parseInt(ch.unread_count || 0, 10) || 0);
         item.setAttribute('data-unread-count', String(unreadCount));
-        const badgeHost = item.querySelector('.ms-auto.d-flex.align-items-center.gap-1') || item;
+        const badgeHost = item.querySelector('.channel-row-actions') || item;
         let badge = item.querySelector('.channel-unread-badge');
         if (unreadCount > 0 && String(currentChannelId) !== String(ch.id)) {
             if (!badge) {
@@ -6096,6 +6624,12 @@ function applySidebarChannelState(channels) {
             updateChannelE2EBadge();
         }
     });
+    applyAllChannelQuickActionStates();
+    applyAllChannelPinStates();
+    bindChannelItemHandlers();
+    bindChannelQuickActionHandlers();
+    bindChannelPinHandlers();
+    sortChannelListByPins();
 }
 
 function refreshSidebarChannelState() {
@@ -6591,7 +7125,7 @@ function displayAttachments(attachments) {
                     <button class="btn btn-sm btn-outline-secondary" onclick="openFileAccessInspector('${escapedUrl}')" title="Inspect access"><i class="bi bi-shield-lock"></i></button>
                </div>`
             : notOnDeviceMsg;
-        const audioPlayer = hasUrl ? `<audio controls preload="metadata" class="mt-1" style="max-width:100%;min-width:200px;"><source src="${att.url.replace(/"/g, '&quot;')}" type="${(att.type || 'audio/mpeg').replace(/"/g, '&quot;')}">Your browser does not support the audio element.</audio>` : '';
+        const audioPlayer = hasUrl ? `<audio controls preload="metadata" class="mt-1 w-100" style="max-width:100%;"><source src="${att.url.replace(/"/g, '&quot;')}" type="${(att.type || 'audio/mpeg').replace(/"/g, '&quot;')}">Your browser does not support the audio element.</audio>` : '';
         html += `
             <div class="attachment-item mb-2 p-2 border rounded">
                 <div class="d-flex align-items-center flex-wrap">
@@ -8703,10 +9237,23 @@ function removeMemberFromChannel(userId) {
 
 function confirmDeleteChannel() {
     if (!currentChannelId) return;
-    if (String(currentChannelId) === 'general') {
+    const selectedItem = document.querySelector(`.channel-item[data-channel-id="${CSS.escape(String(currentChannelId))}"]`);
+    const channelName = selectedItem?.querySelector('.channel-name')?.textContent || String(currentChannelId);
+    confirmDeleteChannelById(String(currentChannelId), channelName);
+}
+
+function confirmDeleteChannelById(channelId, channelName) {
+    const normalizedId = String(channelId || '').trim();
+    if (!normalizedId) return;
+    if (normalizedId === 'general') {
         showAlert('General cannot be deleted.', 'warning');
         return;
     }
+    const safeName = (channelName || normalizedId).replace(/[<>&]/g, (m) => ({
+        '<': '&lt;',
+        '>': '&gt;',
+        '&': '&amp;'
+    }[m]));
     const modalHtml = `
         <div class="modal fade" id="deleteChannelModal" tabindex="-1">
             <div class="modal-dialog">
@@ -8716,7 +9263,8 @@ function confirmDeleteChannel() {
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body">
-                        <p class="mb-2">This will permanently delete the channel and its messages on this node.</p>
+                        <p class="mb-2">This will permanently delete <strong>#${safeName}</strong> and its messages on this node.</p>
+                        <p class="mb-1 small"><code>${normalizedId}</code></p>
                         <p class="mb-2 text-muted small">If mesh networking is active, Canopy will also send delete signals to connected peers so they can remove their replica.</p>
                         <div class="alert alert-warning mb-0">
                             This action cannot be undone.
@@ -8736,19 +9284,39 @@ function confirmDeleteChannel() {
     modalEl.addEventListener('hidden.bs.modal', function() {
         modalEl.remove();
     });
-    document.getElementById('confirm-delete-channel-btn').onclick = () => deleteCurrentChannel(modal);
+    document.getElementById('confirm-delete-channel-btn').onclick = () => deleteChannelById(normalizedId, modal);
 }
 
 function deleteCurrentChannel(modal) {
     if (!currentChannelId) return;
+    deleteChannelById(String(currentChannelId), modal);
+}
+
+function deleteChannelById(channelId, modal) {
+    const normalizedId = String(channelId || '').trim();
+    if (!normalizedId) return;
     apiCall('/ajax/delete_channel', {
         method: 'POST',
-        body: JSON.stringify({ channel_id: currentChannelId })
+        body: JSON.stringify({ channel_id: normalizedId })
     })
-    .then(() => {
-        showAlert('Channel deleted', 'success');
+    .then((data) => {
+        const msg = data && data.local_only
+            ? 'Channel removed from this node (replica only — other peers still have it)'
+            : 'Channel deleted';
+        showAlert(msg, 'success');
         if (modal) modal.hide();
-        setTimeout(() => location.reload(), 400);
+        pinnedChannelIds.delete(normalizedId);
+        savePinnedChannelIds();
+        const item = document.querySelector(`.channel-item[data-channel-id="${CSS.escape(normalizedId)}"]`);
+        if (item) item.remove();
+        if (String(currentChannelId) === normalizedId) {
+            setTimeout(() => location.reload(), 350);
+            return;
+        }
+        applyAllChannelQuickActionStates();
+        applyAllChannelPinStates();
+        sortChannelListByPins();
+        setTimeout(() => refreshSidebarChannelState(), 120);
     })
     .catch(error => {
         showAlert(error.error || 'Failed to delete channel', 'danger');
@@ -9138,26 +9706,51 @@ function fetchUserDisplayInfo(userIds) {
 
 // Like and Comment functions (same as feed template)
 function toggleLike(messageId) {
+    const normalizedId = String(messageId || '').trim();
+    if (!normalizedId) return;
+    if (channelLikeInFlight.has(normalizedId)) return;
+
+    const button = document.querySelector(`.like-btn[data-item-id="${CSS.escape(normalizedId)}"]`);
+    if (!button) return;
+    const currentLiked = button.dataset.liked === 'true';
+    const countEl = button.querySelector('.like-count');
+    const currentCount = Math.max(0, parseInt(countEl?.textContent || '0', 10) || 0);
+    const optimisticLiked = !currentLiked;
+    const optimisticCount = Math.max(0, currentCount + (optimisticLiked ? 1 : -1));
+
+    updateLikeButton(normalizedId, optimisticLiked, { total_likes: optimisticCount });
+    button.disabled = true;
+    button.classList.add('opacity-75');
+    channelLikeInFlight.add(normalizedId);
+
     apiCall('/ajax/toggle_like', {
         method: 'POST',
         body: JSON.stringify({
-            message_id: messageId,
+            message_id: normalizedId,
             reaction_type: 'like'
         })
     })
     .then(data => {
         if (data.success) {
-            updateLikeButton(messageId, data.liked, data.interactions);
+            updateLikeButton(normalizedId, data.liked, data.interactions || { total_likes: optimisticCount });
+        } else {
+            throw new Error(data?.error || 'Like update failed');
         }
     })
     .catch(error => {
         console.error('Error toggling like:', error);
-        alert('Failed to update like');
+        updateLikeButton(normalizedId, currentLiked, { total_likes: currentCount });
+        showAlert('Failed to update like', 'danger');
+    })
+    .finally(() => {
+        channelLikeInFlight.delete(normalizedId);
+        button.disabled = false;
+        button.classList.remove('opacity-75');
     });
 }
 
 function updateLikeButton(messageId, liked, interactions) {
-    const button = document.querySelector(`.like-btn[data-item-id="${messageId}"]`);
+    const button = document.querySelector(`.like-btn[data-item-id="${CSS.escape(String(messageId))}"]`);
     if (!button) return;
     
     const likeText = button.querySelector('.like-text');
@@ -9179,12 +9772,13 @@ function updateLikeButton(messageId, liked, interactions) {
         button.classList.add('btn-outline-primary');
         if (likeText) likeText.textContent = 'Like';
         button.setAttribute('title', 'Like message');
-        button.setAttribute('aria-label', 'Like message');
-        icon.classList.remove('bi-heart-fill');
-        icon.classList.add('bi-heart');
-    }
-    
-    likeCount.textContent = interactions.total_likes;
+            button.setAttribute('aria-label', 'Like message');
+            icon.classList.remove('bi-heart-fill');
+            icon.classList.add('bi-heart');
+        }
+
+    const totalLikes = Math.max(0, parseInt(interactions?.total_likes ?? likeCount?.textContent ?? '0', 10) || 0);
+    if (likeCount) likeCount.textContent = String(totalLikes);
 }
 
 // --- Copy to clipboard ---
@@ -9334,7 +9928,13 @@ document.addEventListener('DOMContentLoaded', function() {
             input.addEventListener('change', updateCreateMemberPickerVisibility);
         });
         updateCreateMemberPickerVisibility();
+        loadPinnedChannelIds();
         bindChannelItemHandlers();
+        bindChannelQuickActionHandlers();
+        applyAllChannelQuickActionStates();
+        applyAllChannelPinStates();
+        bindChannelPinHandlers();
+        sortChannelListByPins();
 
 	        setupFileUpload();
 	        setupChannelPasteHandler();

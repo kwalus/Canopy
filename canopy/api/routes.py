@@ -9004,7 +9004,7 @@ def create_api_blueprint() -> Blueprint:
     @api.route('/channels/<channel_id>', methods=['DELETE'])
     @require_auth(Permission.DELETE_DATA)
     def delete_channel_api(channel_id):
-        """Delete a channel (admin only)."""
+        """Delete a channel. API keys with DELETE_DATA can force-remove any local replica."""
         db_manager, _, _, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
         try:
             if channel_id == 'general':
@@ -9030,6 +9030,8 @@ def create_api_blueprint() -> Blueprint:
                 if hasattr(channel_row, 'keys') and 'origin_peer' in channel_row.keys()
                 else channel_row[0]
             ).strip()
+            if origin_peer.lower() == 'none':
+                origin_peer = ''
             privacy_mode = str(
                 channel_row['privacy_mode']
                 if hasattr(channel_row, 'keys') and 'privacy_mode' in channel_row.keys()
@@ -9038,12 +9040,11 @@ def create_api_blueprint() -> Blueprint:
             is_origin_local = (not origin_peer) or (
                 local_peer_id is not None and origin_peer == local_peer_id
             )
-            if not is_origin_local:
-                return jsonify({'error': 'Only the channel origin can delete this channel'}), 403
 
             target_peers: set[str] = set()
             if (
-                p2p_manager
+                is_origin_local
+                and p2p_manager
                 and p2p_manager.is_running()
                 and privacy_mode in {'private', 'confidential'}
             ):
@@ -9054,9 +9055,9 @@ def create_api_blueprint() -> Blueprint:
                 except Exception:
                     target_peers = set()
 
-            ok = channel_manager.delete_channel(channel_id, g.api_key_info.user_id)
+            ok = channel_manager.delete_channel(channel_id, g.api_key_info.user_id, force=True)
             if ok:
-                if p2p_manager and p2p_manager.is_running():
+                if is_origin_local and p2p_manager and p2p_manager.is_running():
                     reason = 'channel_deleted_by_origin'
                     if privacy_mode in {'private', 'confidential'}:
                         for peer_id in sorted(target_peers):
@@ -9085,7 +9086,10 @@ def create_api_blueprint() -> Blueprint:
                             logger.warning(
                                 f"Failed to broadcast channel delete signal for {channel_id}: {p2p_err}"
                             )
-                return jsonify({'success': True})
+                return jsonify({
+                    'success': True,
+                    'local_only': not is_origin_local,
+                })
             return jsonify({'error': 'Permission denied — admin role required'}), 403
         except Exception as e:
             logger.error(f"Delete channel failed: {e}")

@@ -11488,10 +11488,11 @@ def create_ui_blueprint() -> Blueprint:
     @ui.route('/ajax/delete_channel', methods=['POST'])
     @require_login
     def ajax_delete_channel():
-        """Delete a channel (admin/creator only)."""
+        """Delete a channel. Node-level admins can force-remove any replica."""
         try:
             db_manager, _, _, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
             user_id = get_current_user()
+            node_admin = _is_admin()
             data = request.get_json() or {}
             channel_id = data.get('channel_id')
             if not channel_id:
@@ -11531,12 +11532,11 @@ def create_ui_blueprint() -> Blueprint:
             is_origin_local = (not origin_peer) or (
                 local_peer_id is not None and origin_peer == local_peer_id
             )
-            if not is_origin_local:
-                return jsonify({'error': 'Only the channel origin can delete this channel'}), 403
 
             target_peers: set[str] = set()
             if (
-                p2p_manager
+                is_origin_local
+                and p2p_manager
                 and p2p_manager.is_running()
                 and privacy_mode in {'private', 'confidential'}
             ):
@@ -11547,9 +11547,9 @@ def create_ui_blueprint() -> Blueprint:
                 except Exception:
                     target_peers = set()
 
-            ok = channel_manager.delete_channel(channel_id, user_id)
+            ok = channel_manager.delete_channel(channel_id, user_id, force=node_admin)
             if ok:
-                if p2p_manager and p2p_manager.is_running():
+                if is_origin_local and p2p_manager and p2p_manager.is_running():
                     reason = 'channel_deleted_by_origin'
                     if privacy_mode in {'private', 'confidential'}:
                         for peer_id in sorted(target_peers):
@@ -11578,7 +11578,10 @@ def create_ui_blueprint() -> Blueprint:
                             logger.warning(
                                 f"Failed to broadcast channel delete signal for {channel_id}: {p2p_err}"
                             )
-                return jsonify({'success': True})
+                return jsonify({
+                    'success': True,
+                    'local_only': not is_origin_local,
+                })
             return jsonify({'error': 'Not authorized to delete channel'}), 403
         except Exception as e:
             logger.error(f"Delete channel (ui) failed: {e}")

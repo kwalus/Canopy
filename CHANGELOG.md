@@ -6,6 +6,62 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.43] - 2026-03-05
+
+### Fixed
+- **Channel delete now works for non-origin replicas** — Node-level admins can now delete any channel replica from their local node, not just channels they originated. Previously the delete button silently failed with a 403 for channels created on other peers. The backend now passes `force=True` for node admins, bypassing the channel-admin membership check. P2P delete signals are only broadcast when the channel is locally originated; non-origin deletes are local-only replica removals. The delete button in the sidebar Tools dropdown is now visible for all channels (not just local-origin ones). Success message indicates when it's a local-only removal. Same fix applied to the REST API endpoint.
+
+---
+
+## [0.4.42] - 2026-03-05
+
+### Improved
+- **Channel sidebar polish** — Tools dropdown now shows compact icon-only buttons (clipboard + trash) in a horizontal pill instead of a text menu. Row action buttons (pin, tools) are always visible at soft opacity (45%), brightening to full on hover for better discoverability. Pinned channels show a persistent gold pin icon.
+
+### Fixed
+- **Tools dropdown visibility and flicker** — Removed Bootstrap auto-init (`data-bs-toggle`) and replaced with manual fixed-position dropdown using `getBoundingClientRect()`. Removed `transform: translateX(2px)` from channel row hover (CSS transforms create containing blocks that break `position: fixed` descendants). Added `tools-menu-open` class to lock row highlight while dropdown is open, eliminating hover flicker. Fixed `display: flex !important` override that was making all dropdown menus permanently visible.
+
+---
+
+## [0.4.41] - 2026-03-05
+
+### Improved
+- **Channel row compaction** — Reduced sidebar action clutter by keeping Pin as the only always-visible icon and moving Copy ID + Delete into a per-row overflow dropdown (three-dots "Tools" menu). Added proper channel name truncation with ellipsis for long names. Dropdown closes automatically after Copy/Delete actions. Applied to both server-rendered and dynamically generated rows.
+
+### Fixed
+- **Channel Tools dropdown not visible** — Dropdown menu was clipped by `overflow: hidden` on `#channel-sidebar` and `overflow-y: auto` on `.channel-list`. Fixed by using `position: fixed` for the dropdown menu and passing `popperConfig: { strategy: 'fixed' }` to Bootstrap's Dropdown constructor.
+
+---
+
+## [0.4.40] - 2026-03-05
+
+### Improved
+- **Channel row action tooltips + tap targets** — CSS-only hover tooltips (`Pin`, `Copy ID`, `Delete`) on channel sidebar action buttons using `data-action-label`, scoped to pointer/hover devices only. Increased tap target size on mobile. Copy ID and Delete actions moved from channel header to per-channel row for direct access. Delete modal now shows channel name and ID. Dynamic sidebar sync preserves quick-action state.
+
+---
+
+## [0.4.39] - 2026-03-05
+
+### Added
+- **Channel pinning** — Pin/unpin channels in the sidebar; pinned channels float to top with a gold border indicator. Per-user localStorage persistence, deterministic sort preserving relative order, pin state survives sidebar refresh/sync updates. Pin click uses `stopPropagation` to avoid accidental channel switching.
+- **Optimistic like responsiveness** — Like/unlike across Channels, Feed, and Messages now updates instantly (optimistic UI). In-flight deduplication prevents double-clicks, button shows busy state during request, server response reconciles final state, errors roll back to prior state.
+
+---
+
+## [0.4.38] - 2026-03-05
+
+### Improved
+- **UI responsiveness second pass** — Comprehensive responsive audit across all major templates:
+  - `base.html`: Tighter mobile navbar spacing, extra compact breakpoint at 420px, brand text hidden on very small screens.
+  - `channels.html`: Tighter controls at 430px, reduced composer footprint, responsive audio player (removed forced min-width).
+  - `connect.html`: Responsive peer rows, input groups, action clusters; reduced scrolling pressure on mobile.
+  - `messages.html`: Responsive header, action bars, attachment rows, avatar sizing; breakpoint-specific adjustments.
+  - `feed.html`: Structured responsive hooks for page header, composer, feed controls, algorithm panel; breakpoints at 768px, 576px, 430px.
+  - `admin.html`: Responsive page header, summary metrics, user search, action clusters, API key panel.
+  - `settings.html`: Dedicated responsive block for landing, device profile, relay, advanced actions, health grid.
+
+---
+
 ## [0.4.37] - 2026-03-05
 
 ### Added

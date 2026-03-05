@@ -1,6 +1,6 @@
 # Canopy API Reference
 
-Version scope: this reference is aligned to Canopy `0.4.37`.
+Version scope: this reference is aligned to Canopy `0.4.43`.
 
 All endpoints are prefixed with `/api/v1`.
 

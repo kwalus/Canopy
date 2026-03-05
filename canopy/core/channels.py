@@ -3423,9 +3423,9 @@ class ChannelManager:
             logger.error(f"Failed to delete channel message: {e}")
             return False
 
-    def delete_channel(self, channel_id: str, requester_id: str) -> bool:
-        """Delete a channel. Only admins can do this."""
-        if not self.is_channel_admin(channel_id, requester_id):
+    def delete_channel(self, channel_id: str, requester_id: str, *, force: bool = False) -> bool:
+        """Delete a channel. Only channel admins can do this unless *force* is True (node-level admin)."""
+        if not force and not self.is_channel_admin(channel_id, requester_id):
             logger.warning(f"Delete denied: {requester_id} not admin of {channel_id}")
             return False
         try:
