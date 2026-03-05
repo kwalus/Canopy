@@ -6,11 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.33] - 2026-03-05
+
+### Fixed
+- **Async deadlock in routing callbacks** — Seven `manager.py` send methods (`send_channel_membership_response`, `send_member_sync_ack`, `send_channel_key_ack`, `send_channel_key_distribution`, `send_channel_key_request`, `send_delete_signal_ack`, `send_channel_membership_query`) were blocking the event loop with `future.result()` when called from routing callbacks running on the same thread. Converted to fire-and-forget with `add_done_callback` error logging. This was causing 5–30s event loop freezes on every membership query, key exchange, and delete ack.
+
+---
+
 ## [0.4.32] - 2026-03-05
 
 ### Fixed
 - **Membership recovery security check relaxed** — Non-member relay peers can now forward `CHANNEL_MEMBERSHIP_RESPONSE` messages. Previously, valid responses were rejected when the relay peer wasn't in the channel's member list, breaking private channel propagation over relay connections.
-- **Membership response timeout bumped 8s → 30s** — Fixes `TimeoutError` when sending large membership response payloads over relay connections.
 - **sqlite3.Row attribute access** — Fixed `AttributeError: 'sqlite3.Row' object has no attribute 'get'` in avatar recovery.
 - **`_normalize_channel_crypto_mode` NameError** — Defined E2E crypto helpers in `app.py` scope so `_on_channel_membership_response` can normalize `crypto_mode` without crashing.
 
