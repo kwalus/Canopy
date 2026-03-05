@@ -58,6 +58,10 @@ from ..core.agent_presence import (
     get_agent_presence_records,
     build_agent_presence_payload,
 )
+from ..network.routing import (
+    encrypt_key_for_peer,
+    encode_channel_key_material,
+)
 
 logger = logging.getLogger(__name__)
 _CUSTOM_EMOJI_LOCK = threading.Lock()
@@ -65,6 +69,93 @@ _CUSTOM_EMOJI_LOCK = threading.Lock()
 
 def _get_app_components_any(app: Any) -> tuple[Any, ...]:
     return cast(tuple[Any, ...], get_app_components(app))
+
+
+def _is_private_ip(host: str) -> bool:
+    """Return True if host is an RFC-1918 private IP address."""
+    import ipaddress
+    try:
+        addr = ipaddress.ip_address(host)
+        return addr.is_private
+    except ValueError:
+        return False
+
+
+def _resolve_p2p_stream(stream_id: str, db_manager: Any, p2p_manager: Any) -> Optional[dict[str, Any]]:
+    """Find the origin peer for a stream not stored locally and return a remote playback URL.
+
+    Scans channel_messages for a stream attachment matching stream_id, then looks up
+    the origin peer's HTTP address, preferring RFC-1918 private IPs for LAN routing.
+    Returns a dict with 'playback_url' on success, or None if not found.
+    """
+    import json as _json
+    try:
+        with db_manager.get_connection() as conn:
+            rows = conn.execute(
+                "SELECT origin_peer, attachments FROM channel_messages "
+                "WHERE attachments IS NOT NULL AND attachments != '[]' "
+                "ORDER BY created_at DESC LIMIT 200"
+            ).fetchall()
+
+        origin_peer: Optional[str] = None
+        host_addrs: list[str] = []
+        for row in rows:
+            try:
+                atts = _json.loads(row['attachments'] if hasattr(row, 'keys') else row[1])
+            except Exception:
+                continue
+            for att in atts:
+                if not isinstance(att, dict):
+                    continue
+                if str(att.get('stream_id') or '') == stream_id:
+                    origin_peer = str(row['origin_peer'] if hasattr(row, 'keys') else row[0] or '')
+                    host_addrs = att.get('host_addrs') or []
+                    break
+            if origin_peer:
+                break
+
+        if not origin_peer:
+            return None
+
+        # Build candidate URLs: prefer host_addrs embedded in the stream card attachment,
+        # fall back to peer_endpoints from the identity manager.
+        candidates: list[str] = list(host_addrs)
+        if p2p_manager and hasattr(p2p_manager, 'identity_manager'):
+            endpoints = p2p_manager.identity_manager.peer_endpoints.get(origin_peer, [])
+            for ep in endpoints:
+                # ep is typically "host:port" (ws/tcp), convert to http
+                try:
+                    parts = str(ep).rsplit(':', 1)
+                    host = parts[0].lstrip('/')
+                    port = int(parts[1]) if len(parts) > 1 else 7771
+                    http_port = port - 1 if port > 7770 else 7770
+                    candidates.append(f"http://{host}:{http_port}")
+                except Exception:
+                    continue
+
+        if not candidates:
+            return None
+
+        # Sort: private IPs first, then others
+        def _sort_key(url: str) -> int:
+            try:
+                from urllib.parse import urlparse as _up
+                host = _up(url).hostname or ''
+                return 0 if _is_private_ip(host) else 1
+            except Exception:
+                return 2
+
+        candidates.sort(key=_sort_key)
+        base_url = candidates[0].rstrip('/')
+        remote_url = f"{base_url}/api/v1/streams/{stream_id}/manifest.m3u8"
+        # Return a local proxy URL so the browser never has to reach the remote IP directly
+        # (Chrome blocks cross-origin requests to private IPs from localhost pages)
+        proxy_url = f"/api/v1/stream-proxy/{stream_id}/manifest.m3u8"
+        logger.info(f"P2P stream resolved: stream_id={stream_id} origin_peer={origin_peer} remote={remote_url} proxy={proxy_url}")
+        return {'playback_url': proxy_url, 'origin_peer': origin_peer, 'remote_base': base_url}
+    except Exception as e:
+        logger.warning(f"_resolve_p2p_stream error: {e}")
+        return None
 
 
 def create_ui_blueprint() -> Blueprint:
@@ -2849,9 +2940,25 @@ def create_ui_blueprint() -> Blueprint:
             skill_manager = current_app.config.get('SKILL_MANAGER')
             users = db_manager.get_all_users_for_admin()
             _annotate_user_presence(users, db_manager)
-            pending = [u for u in users if (u.get('status') or 'active') == 'pending_approval']
-            active_agents = [u for u in users if (u.get('account_type') or 'human') == 'agent' and (u.get('status') or 'active') == 'active']
+            pending = [
+                u for u in users
+                if u.get('is_registered') and (u.get('status') or 'active') == 'pending_approval'
+            ]
+            active_agents = [
+                u for u in users
+                if u.get('is_registered')
+                and (u.get('account_type') or 'human') == 'agent'
+                and (u.get('status') or 'active') == 'active'
+            ]
             for u in users:
+                if not u.get('is_registered'):
+                    u['agent_directives_source'] = 'n/a'
+                    u['agent_directives_effective'] = ''
+                    u['agent_directives_custom'] = ''
+                    u['agent_directives_default'] = ''
+                    u['agent_directives_preview'] = 'Unregistered shadow/replica user.'
+                    u['agent_directives_length'] = 0
+                    continue
                 state = _effective_agent_directive_state(u)
                 u['agent_directives_source'] = state['source']
                 u['agent_directives_effective'] = state['effective']
@@ -2873,14 +2980,15 @@ def create_ui_blueprint() -> Blueprint:
                 return not u.get('origin_peer')
             agent_users = [
                 u for u in users
-                if _is_local(u) and (
+                if u.get('is_registered') and _is_local(u) and (
                     (u.get('account_type') or 'human') == 'agent'
                     or u.get('agent_directives')
                     or _looks_like_agent(u)
                 )
             ]
+            workspace_seed = [u for u in users if u.get('is_registered')]
             workspace_users = sorted(
-                users,
+                workspace_seed,
                 key=lambda u: (
                     0 if (u.get('account_type') or 'human') == 'agent' else 1,
                     0 if (u.get('status') or 'active') == 'active' else 1,
@@ -2996,23 +3104,36 @@ def create_ui_blueprint() -> Blueprint:
             # Peers introduced by contacts
             introduced_peers = p2p_manager.get_introduced_peers() if p2p_manager else []
 
+            # Relay status
+            relay_status = p2p_manager.get_relay_status() if p2p_manager else {}
+            active_relays = {}
+            try:
+                active_relays = dict((relay_status or {}).get('active_relays') or {})
+            except Exception:
+                active_relays = {}
+
             # Known peers (for reconnect)
             known_peers = []
             if p2p_manager:
                 im = p2p_manager.identity_manager
                 connected_set = set(connected_peers)
+                relayed_set = set(active_relays.keys())
                 for pid, identity in im.known_peers.items():
                     if identity.is_local():
                         continue
+                    connection_type = 'offline'
+                    if pid in connected_set:
+                        connection_type = 'direct'
+                    elif pid in relayed_set:
+                        connection_type = 'relayed'
                     known_peers.append({
                         'peer_id': pid,
                         'display_name': im.peer_display_names.get(pid, ''),
                         'endpoints': im.peer_endpoints.get(pid, []),
-                        'connected': pid in connected_set,
+                        'connected': connection_type in {'direct', 'relayed'},
+                        'connection_type': connection_type,
+                        'relay_via': active_relays.get(pid),
                     })
-
-            # Relay status
-            relay_status = p2p_manager.get_relay_status() if p2p_manager else {}
 
             # Device profiles for peer identification
             _, _, trust_manager, _, channel_manager, _, _, _, _, _, _ = _get_app_components_any(current_app)
@@ -3656,6 +3777,11 @@ def create_ui_blueprint() -> Blueprint:
             users = db_manager.get_all_users_for_admin()
             _annotate_user_presence(users, db_manager)
             for u in users:
+                if not u.get('is_registered'):
+                    u['agent_directives_source'] = 'n/a'
+                    u['agent_directives_preview'] = 'Unregistered shadow/replica user.'
+                    u['agent_directives_length'] = 0
+                    continue
                 state = _effective_agent_directive_state(u)
                 u['agent_directives_source'] = state['source']
                 u['agent_directives_preview'] = (state['effective'] or '')[:140]
@@ -3664,6 +3790,267 @@ def create_ui_blueprint() -> Blueprint:
         except Exception as e:
             logger.error(f"Admin list users error: {e}")
             return jsonify({'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/admin/identity-portability/status', methods=['GET'])
+    @require_login
+    @require_admin
+    def ajax_admin_identity_portability_status():
+        """Admin diagnostics for distributed identity portability."""
+        try:
+            mgr = current_app.config.get('IDENTITY_PORTABILITY_MANAGER')
+            if not mgr:
+                return jsonify({'success': False, 'error': 'Identity portability manager unavailable'}), 503
+            snapshot = mgr.get_status_snapshot()
+            return jsonify({'success': True, 'status': snapshot})
+        except Exception as e:
+            logger.error(f"Identity portability status error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/admin/identity-portability/capable-peers', methods=['GET'])
+    @require_login
+    @require_admin
+    def ajax_admin_identity_portability_capable_peers():
+        """List connected peers that advertise identity portability capability."""
+        try:
+            mgr = current_app.config.get('IDENTITY_PORTABILITY_MANAGER')
+            if not mgr or not mgr.enabled:
+                return jsonify({'success': True, 'enabled': False, 'peers': []})
+
+            snapshot = mgr.get_status_snapshot()
+            capable_ids = [str(p or '').strip() for p in (snapshot.get('connected_capable_peers') or [])]
+            capable_ids = [p for p in capable_ids if p]
+            capable_set = set(capable_ids)
+
+            *_, p2p_manager = _get_app_components_any(current_app)
+            connected_set: set[str] = set()
+            display_names: dict[str, str] = {}
+            endpoint_map: dict[str, list[str]] = {}
+            if p2p_manager:
+                try:
+                    connected_set = {
+                        str(pid or '').strip()
+                        for pid in (p2p_manager.get_connected_peers() or [])
+                        if str(pid or '').strip()
+                    }
+                except Exception:
+                    connected_set = set()
+                identity_manager = getattr(p2p_manager, 'identity_manager', None)
+                if identity_manager:
+                    try:
+                        raw_names = getattr(identity_manager, 'peer_display_names', {}) or {}
+                        display_names = {
+                            str(k or '').strip(): str(v or '').strip()
+                            for k, v in raw_names.items()
+                            if str(k or '').strip()
+                        }
+                    except Exception:
+                        display_names = {}
+                    try:
+                        raw_endpoints = getattr(identity_manager, 'peer_endpoints', {}) or {}
+                        endpoint_map = {}
+                        for peer_id, values in raw_endpoints.items():
+                            pid = str(peer_id or '').strip()
+                            if not pid:
+                                continue
+                            eps = []
+                            for endpoint in (values or []):
+                                text = str(endpoint or '').strip()
+                                if text:
+                                    eps.append(text)
+                            endpoint_map[pid] = eps
+                    except Exception:
+                        endpoint_map = {}
+
+            peers = []
+            for peer_id in sorted(capable_set):
+                peers.append({
+                    'peer_id': peer_id,
+                    'display_name': display_names.get(peer_id) or '',
+                    'connected': peer_id in connected_set,
+                    'endpoints': endpoint_map.get(peer_id, [])[:5],
+                })
+
+            return jsonify({
+                'success': True,
+                'enabled': True,
+                'local_peer_id': snapshot.get('local_peer_id'),
+                'peers': peers,
+                'count': len(peers),
+            })
+        except Exception as e:
+            logger.error(f"Identity portability capable peers error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/admin/identity-portability/principals', methods=['GET'])
+    @require_login
+    @require_admin
+    def ajax_admin_identity_portability_principals():
+        """List principals and key metadata for admin review."""
+        try:
+            mgr = current_app.config.get('IDENTITY_PORTABILITY_MANAGER')
+            if not mgr or not mgr.enabled:
+                return jsonify({'success': True, 'principals': [], 'enabled': False})
+            try:
+                limit = int(request.args.get('limit', 200))
+            except Exception:
+                limit = 200
+            principals = mgr.list_principals(limit=limit)
+            return jsonify({'success': True, 'enabled': True, 'principals': principals, 'count': len(principals)})
+        except Exception as e:
+            logger.error(f"Identity portability principal list error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/admin/identity-portability/grants', methods=['GET'])
+    @require_login
+    @require_admin
+    def ajax_admin_identity_portability_grants():
+        """List bootstrap grants for admin review."""
+        try:
+            mgr = current_app.config.get('IDENTITY_PORTABILITY_MANAGER')
+            if not mgr or not mgr.enabled:
+                return jsonify({'success': True, 'grants': [], 'enabled': False})
+            try:
+                limit = int(request.args.get('limit', 200))
+            except Exception:
+                limit = 200
+            status_filter = str(request.args.get('status') or '').strip() or None
+            grants = mgr.list_grants(limit=limit, status=status_filter)
+            return jsonify({'success': True, 'enabled': True, 'grants': grants, 'count': len(grants)})
+        except Exception as e:
+            logger.error(f"Identity portability grant list error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/admin/identity-portability/grants', methods=['POST'])
+    @require_login
+    @require_admin
+    def ajax_admin_identity_portability_create_grant():
+        """Create a signed bootstrap grant (Phase 1: role is clamped to 'user')."""
+        try:
+            mgr = current_app.config.get('IDENTITY_PORTABILITY_MANAGER')
+            if not mgr or not mgr.enabled:
+                return jsonify({'success': False, 'error': 'Identity portability is disabled'}), 400
+            data = request.get_json(silent=True) or {}
+            local_user_id = str(data.get('local_user_id') or '').strip()
+            if not local_user_id:
+                return jsonify({'success': False, 'error': 'local_user_id is required'}), 400
+            audience_peer = str(data.get('audience_peer') or '').strip() or None
+            target_peer_id = str(data.get('target_peer_id') or '').strip() or None
+            try:
+                expires_in_hours = int(data.get('expires_in_hours', 24))
+            except Exception:
+                expires_in_hours = 24
+            try:
+                max_uses = int(data.get('max_uses', 1))
+            except Exception:
+                max_uses = 1
+            sync_to_mesh = bool(data.get('sync_to_mesh', True))
+
+            result = mgr.create_bootstrap_grant(
+                local_user_id=local_user_id,
+                acting_user_id=get_current_user(),
+                audience_peer=audience_peer,
+                expires_in_hours=expires_in_hours,
+                max_uses=max_uses,
+                sync_to_mesh=sync_to_mesh,
+                target_peer_id=target_peer_id,
+            )
+            return jsonify({'success': True, **result})
+        except Exception as e:
+            logger.error(f"Identity portability create grant error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': str(e)}), 400
+
+    @ui.route('/ajax/admin/identity-portability/grants/import', methods=['POST'])
+    @require_login
+    @require_admin
+    def ajax_admin_identity_portability_import_grant():
+        """Import a grant artifact and optionally apply it to a local user."""
+        try:
+            mgr = current_app.config.get('IDENTITY_PORTABILITY_MANAGER')
+            if not mgr or not mgr.enabled:
+                return jsonify({'success': False, 'error': 'Identity portability is disabled'}), 400
+            data = request.get_json(silent=True) or {}
+            artifact = data.get('artifact')
+            if not isinstance(artifact, dict):
+                return jsonify({'success': False, 'error': 'artifact object is required'}), 400
+            source_peer = str(data.get('source_peer') or '').strip() or None
+            sync_to_mesh = bool(data.get('sync_to_mesh', False))
+            import_result = mgr.import_bootstrap_grant(
+                artifact=artifact,
+                source_peer=source_peer,
+                actor_user_id=get_current_user(),
+                sync_to_mesh=sync_to_mesh,
+            )
+            response: dict[str, Any] = {'success': bool(import_result.get('imported')), 'import': import_result}
+
+            apply_local_user_id = str(data.get('apply_local_user_id') or '').strip()
+            if apply_local_user_id and import_result.get('imported'):
+                apply_result = mgr.apply_bootstrap_grant(
+                    grant_id=str(import_result.get('grant_id') or artifact.get('grant_id') or ''),
+                    local_user_id=apply_local_user_id,
+                    actor_user_id=get_current_user(),
+                    source_peer=source_peer,
+                )
+                response['apply'] = apply_result
+                response['success'] = bool(apply_result.get('applied'))
+
+            if not response['success']:
+                return jsonify(response), 400
+            return jsonify(response)
+        except Exception as e:
+            logger.error(f"Identity portability import grant error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': str(e)}), 400
+
+    @ui.route('/ajax/admin/identity-portability/grants/<grant_id>/apply', methods=['POST'])
+    @require_login
+    @require_admin
+    def ajax_admin_identity_portability_apply_grant(grant_id: str):
+        """Apply an imported grant to a local user."""
+        try:
+            mgr = current_app.config.get('IDENTITY_PORTABILITY_MANAGER')
+            if not mgr or not mgr.enabled:
+                return jsonify({'success': False, 'error': 'Identity portability is disabled'}), 400
+            data = request.get_json(silent=True) or {}
+            local_user_id = str(data.get('local_user_id') or '').strip()
+            if not local_user_id:
+                return jsonify({'success': False, 'error': 'local_user_id is required'}), 400
+            source_peer = str(data.get('source_peer') or '').strip() or None
+            result = mgr.apply_bootstrap_grant(
+                grant_id=grant_id,
+                local_user_id=local_user_id,
+                actor_user_id=get_current_user(),
+                source_peer=source_peer,
+            )
+            if not result.get('applied'):
+                return jsonify({'success': False, **result}), 400
+            return jsonify({'success': True, **result})
+        except Exception as e:
+            logger.error(f"Identity portability apply grant error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': str(e)}), 400
+
+    @ui.route('/ajax/admin/identity-portability/grants/<grant_id>/revoke', methods=['POST'])
+    @require_login
+    @require_admin
+    def ajax_admin_identity_portability_revoke_grant(grant_id: str):
+        """Revoke a bootstrap grant and propagate a revocation marker."""
+        try:
+            mgr = current_app.config.get('IDENTITY_PORTABILITY_MANAGER')
+            if not mgr or not mgr.enabled:
+                return jsonify({'success': False, 'error': 'Identity portability is disabled'}), 400
+            data = request.get_json(silent=True) or {}
+            reason = str(data.get('reason') or '').strip() or 'revoked_by_admin'
+            sync_to_mesh = bool(data.get('sync_to_mesh', True))
+            result = mgr.revoke_bootstrap_grant(
+                grant_id=grant_id,
+                actor_user_id=get_current_user(),
+                reason=reason,
+                sync_to_mesh=sync_to_mesh,
+            )
+            if not result.get('revoked'):
+                return jsonify({'success': False, **result}), 400
+            return jsonify({'success': True, **result})
+        except Exception as e:
+            logger.error(f"Identity portability revoke grant error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': str(e)}), 400
 
     @ui.route('/ajax/admin/agent-directives/presets', methods=['GET'])
     @require_login
@@ -3767,6 +4154,12 @@ def create_ui_blueprint() -> Blueprint:
             updated_ids = []
             skipped_ids = []
             for user in users:
+                if not user.get('is_registered'):
+                    skipped_ids.append(user.get('id'))
+                    continue
+                if user.get('origin_peer'):
+                    skipped_ids.append(user.get('id'))
+                    continue
                 if (user.get('account_type') or 'human') != 'agent':
                     continue
                 if (user.get('status') or 'active') == 'suspended':
@@ -3832,6 +4225,61 @@ def create_ui_blueprint() -> Blueprint:
             logger.error(f"Admin suspend error: {e}")
             return jsonify({'error': 'Internal server error'}), 500
 
+    @ui.route('/ajax/admin/users/<user_id>/classification', methods=['POST'])
+    @require_login
+    @require_admin
+    def ajax_admin_update_user_classification(user_id: str):
+        """Admin: update account_type/status for local or remote user records."""
+        try:
+            db_manager, _, _, _, _, _, _, _, _, _, _ = _get_app_components_any(current_app)
+            user = db_manager.get_user(user_id)
+            if not user:
+                return jsonify({'error': 'User not found'}), 404
+            if user_id in {'system', 'local_user'}:
+                return jsonify({'error': 'Reserved system users cannot be modified'}), 400
+
+            data = request.get_json(silent=True) or {}
+            account_type = data.get('account_type', None)
+            status = data.get('status', None)
+            display_name = data.get('display_name', None)
+
+            if account_type is not None:
+                account_type = str(account_type or '').strip().lower()
+                if account_type not in {'human', 'agent'}:
+                    return jsonify({'error': "account_type must be 'human' or 'agent'"}), 400
+            if status is not None:
+                status = str(status or '').strip().lower()
+                if status not in {'active', 'pending_approval', 'suspended'}:
+                    return jsonify({'error': "status must be 'active', 'pending_approval', or 'suspended'"}), 400
+
+            owner_id = db_manager.get_instance_owner_user_id()
+            if user_id == owner_id and status in {'suspended', 'pending_approval'}:
+                return jsonify({'error': 'Cannot change instance owner to non-active status'}), 400
+
+            updated = db_manager.update_user_admin_fields(
+                user_id,
+                account_type=account_type,
+                status=status,
+                display_name=display_name,
+            )
+            if not updated:
+                return jsonify({'error': 'No valid classification updates were applied'}), 400
+
+            refreshed = db_manager.get_user(user_id) or user
+            payload = {
+                'id': refreshed.get('id'),
+                'username': refreshed.get('username'),
+                'display_name': refreshed.get('display_name') or refreshed.get('username'),
+                'account_type': refreshed.get('account_type') or 'human',
+                'status': refreshed.get('status') or 'active',
+                'origin_peer': refreshed.get('origin_peer'),
+                'is_registered': bool(refreshed.get('password_hash')),
+            }
+            return jsonify({'success': True, 'user': payload})
+        except Exception as e:
+            logger.error(f"Admin classification update error: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @ui.route('/ajax/admin/users/<user_id>', methods=['DELETE'])
     @require_login
     @require_admin
@@ -3839,11 +4287,21 @@ def create_ui_blueprint() -> Blueprint:
         """Delete a user account (and their keys, channel memberships)."""
         try:
             db_manager, _, _, _, _, _, _, _, _, _, _ = _get_app_components_any(current_app)
+            user_row = db_manager.get_user(user_id)
+            if not user_row:
+                return jsonify({'error': 'User not found'}), 404
+            if user_id in {'system', 'local_user'}:
+                return jsonify({'error': 'Reserved system users cannot be deleted'}), 400
             owner_id = db_manager.get_instance_owner_user_id()
             if user_id == owner_id:
                 return jsonify({'error': 'Cannot delete the instance owner'}), 400
             if db_manager.delete_user(user_id):
-                return jsonify({'success': True})
+                return jsonify({
+                    'success': True,
+                    'deleted_user_id': user_id,
+                    'was_remote': bool(str(user_row.get('origin_peer') or '').strip()),
+                    'was_registered': bool(user_row.get('password_hash')),
+                })
             return jsonify({'error': 'User not found or delete failed (check server logs for details)'}), 400
         except Exception as e:
             logger.error(f"Admin delete user error: {e}", exc_info=True)
@@ -4248,6 +4706,459 @@ def create_ui_blueprint() -> Blueprint:
             logger.error(f"Admin inbox rebuild error: {e}", exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
+    @ui.route('/ajax/admin/channels/reconcile-delete', methods=['POST'])
+    @require_login
+    @require_admin
+    def ajax_admin_reconcile_channel_delete():
+        """Admin: rebroadcast channel delete signals to reconcile stale replicas."""
+        try:
+            db_manager, _, _, _, _, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+            if not p2p_manager or not p2p_manager.is_running():
+                return jsonify({'error': 'P2P mesh is not running on this peer'}), 503
+
+            data = request.get_json(silent=True) or {}
+            raw_ids = data.get('channel_ids')
+            raw_text = data.get('channel_ids_text')
+            raw_target_peer = str(data.get('target_peer_id') or '').strip()
+            raw_reason = str(data.get('reason') or '').strip()
+
+            tokens: list[str] = []
+            if isinstance(raw_ids, list):
+                for value in raw_ids:
+                    token = str(value or '').strip()
+                    if token:
+                        tokens.append(token)
+            if isinstance(raw_text, str):
+                tokens.extend([part.strip() for part in re.split(r'[\s,;]+', raw_text) if part.strip()])
+
+            seen: set[str] = set()
+            channel_ids: list[str] = []
+            for token in tokens:
+                if token in seen:
+                    continue
+                seen.add(token)
+                channel_ids.append(token)
+
+            if not channel_ids:
+                return jsonify({'error': 'Provide at least one channel ID'}), 400
+            if len(channel_ids) > 200:
+                return jsonify({'error': 'Too many channel IDs (max 200 per request)'}), 400
+
+            local_peer_id = ''
+            try:
+                local_peer_id = str(p2p_manager.get_peer_id() or '').strip()
+            except Exception:
+                local_peer_id = ''
+
+            target_peer = None if raw_target_peer.lower() in {'', '*', 'all'} else raw_target_peer
+            reason = raw_reason or 'admin_channel_reconcile_delete'
+
+            placeholders = ','.join('?' for _ in channel_ids)
+            channel_rows: dict[str, Any] = {}
+            if placeholders:
+                with db_manager.get_connection() as conn:
+                    rows = conn.execute(
+                        f"SELECT id, origin_peer FROM channels WHERE id IN ({placeholders})",
+                        tuple(channel_ids),
+                    ).fetchall()
+                channel_rows = {str(row['id']): row for row in rows or []}
+
+            sent = 0
+            skipped = 0
+            failed = 0
+            details: list[dict[str, Any]] = []
+
+            for channel_id in channel_ids:
+                if channel_id == 'general':
+                    skipped += 1
+                    details.append({
+                        'channel_id': channel_id,
+                        'status': 'skipped',
+                        'reason': 'protected_channel',
+                    })
+                    continue
+
+                row = channel_rows.get(channel_id)
+                origin_peer = str((row['origin_peer'] if row else '') or '').strip()
+                if row and origin_peer:
+                    if not local_peer_id:
+                        skipped += 1
+                        details.append({
+                            'channel_id': channel_id,
+                            'status': 'skipped',
+                            'reason': 'local_peer_unknown',
+                            'origin_peer': origin_peer,
+                        })
+                        continue
+                    if origin_peer != local_peer_id:
+                        skipped += 1
+                        details.append({
+                            'channel_id': channel_id,
+                            'status': 'skipped',
+                            'reason': 'not_local_origin',
+                            'origin_peer': origin_peer,
+                        })
+                        continue
+
+                signal_id = f"DS{secrets.token_hex(8)}"
+                try:
+                    ok = bool(
+                        p2p_manager.broadcast_delete_signal(
+                            signal_id=signal_id,
+                            data_type='channel',
+                            data_id=channel_id,
+                            reason=reason,
+                            target_peer=target_peer,
+                        )
+                    )
+                    if ok:
+                        sent += 1
+                        details.append({
+                            'channel_id': channel_id,
+                            'status': 'sent',
+                            'signal_id': signal_id,
+                            'origin_peer': origin_peer or None,
+                            'local_row_found': bool(row),
+                        })
+                    else:
+                        failed += 1
+                        details.append({
+                            'channel_id': channel_id,
+                            'status': 'failed',
+                            'reason': 'broadcast_failed',
+                            'origin_peer': origin_peer or None,
+                            'local_row_found': bool(row),
+                        })
+                except Exception as bcast_err:
+                    failed += 1
+                    details.append({
+                        'channel_id': channel_id,
+                        'status': 'failed',
+                        'reason': f'broadcast_error: {bcast_err}',
+                        'origin_peer': origin_peer or None,
+                        'local_row_found': bool(row),
+                    })
+
+            return jsonify({
+                'success': failed == 0,
+                'requested': len(channel_ids),
+                'sent': sent,
+                'skipped': skipped,
+                'failed': failed,
+                'target_peer': target_peer or 'all',
+                'reason': reason,
+                'details': details,
+                'message': f"Delete signal reconciliation complete: sent={sent}, skipped={skipped}, failed={failed}.",
+            })
+        except Exception as e:
+            logger.error(f"Admin channel delete reconcile error: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/admin/channels/member-sync-diagnostics', methods=['GET'])
+    @require_login
+    @require_admin
+    def ajax_admin_channel_member_sync_diagnostics():
+        """Admin: inspect private-channel membership propagation and sync delivery health."""
+        try:
+            db_manager, _, _, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+
+            channel_id = str(request.args.get('channel_id') or '').strip()
+            target_user_id = str(request.args.get('target_user_id') or '').strip()
+            try:
+                limit = int(request.args.get('limit', 200))
+            except Exception:
+                limit = 200
+            limit = max(20, min(limit, 500))
+
+            if not channel_id:
+                return jsonify({'error': 'channel_id query parameter is required'}), 400
+
+            def _table_columns(conn: Any, table_name: str) -> set[str]:
+                cols: set[str] = set()
+                try:
+                    rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+                    for row in rows or []:
+                        if hasattr(row, 'keys'):
+                            name = str(row['name'] or '').strip()
+                        else:
+                            name = str(row[1] or '').strip()
+                        if name:
+                            cols.add(name)
+                except Exception:
+                    return set()
+                return cols
+
+            local_peer_id = ''
+            connected_peers: list[str] = []
+            if p2p_manager:
+                try:
+                    local_peer_id = str(p2p_manager.get_peer_id() or '').strip()
+                except Exception:
+                    local_peer_id = ''
+                try:
+                    raw_connected = p2p_manager.get_connected_peers() or []
+                    for cp in raw_connected:
+                        pid = cp if isinstance(cp, str) else getattr(cp, 'peer_id', None)
+                        pid_text = str(pid or '').strip()
+                        if pid_text:
+                            connected_peers.append(pid_text)
+                except Exception:
+                    connected_peers = []
+            connected_peers = sorted(set(connected_peers))
+
+            with db_manager.get_connection() as conn:
+                channel_cols = _table_columns(conn, 'channels')
+                if not channel_cols:
+                    return jsonify({'error': 'Channel metadata is unavailable on this peer'}), 500
+
+                channel_select = [
+                    f"c.{col} AS {col}"
+                    for col in (
+                        'id',
+                        'name',
+                        'channel_type',
+                        'description',
+                        'privacy_mode',
+                        'origin_peer',
+                        'created_by',
+                        'crypto_mode',
+                        'created_at',
+                    )
+                    if col in channel_cols
+                ]
+                channel_row = conn.execute(
+                    f"SELECT {', '.join(channel_select)} FROM channels c WHERE c.id = ?",
+                    (channel_id,),
+                ).fetchone()
+                if not channel_row:
+                    return jsonify({'error': f'Channel not found: {channel_id}'}), 404
+                channel_payload = dict(channel_row)
+
+                member_cols = _table_columns(conn, 'channel_members')
+                user_cols = _table_columns(conn, 'users')
+                member_select = ['cm.user_id AS user_id']
+                for col in ('role', 'notifications_enabled', 'joined_at'):
+                    if col in member_cols:
+                        member_select.append(f"cm.{col} AS {col}")
+                for col in ('username', 'display_name', 'origin_peer', 'account_type', 'status'):
+                    if col in user_cols:
+                        member_select.append(f"u.{col} AS {col}")
+
+                member_rows = conn.execute(
+                    f"""
+                    SELECT {', '.join(member_select)}
+                    FROM channel_members cm
+                    LEFT JOIN users u ON u.id = cm.user_id
+                    WHERE cm.channel_id = ?
+                    ORDER BY
+                        CASE WHEN cm.role = 'admin' THEN 0 ELSE 1 END,
+                        COALESCE(cm.joined_at, '') ASC
+                    """,
+                    (channel_id,),
+                ).fetchall()
+
+                sync_table_exists = bool(
+                    conn.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'channel_member_sync_deliveries'"
+                    ).fetchone()
+                )
+                delivery_rows: list[Any] = []
+                total_records = 0
+                if sync_table_exists:
+                    where_clauses = ["d.channel_id = ?"]
+                    where_params: list[Any] = [channel_id]
+                    if target_user_id:
+                        where_clauses.append("d.target_user_id = ?")
+                        where_params.append(target_user_id)
+                    where_sql = " AND ".join(where_clauses)
+
+                    count_row = conn.execute(
+                        f"SELECT COUNT(*) AS cnt FROM channel_member_sync_deliveries d WHERE {where_sql}",
+                        tuple(where_params),
+                    ).fetchone()
+                    total_records = int((count_row['cnt'] if count_row and 'cnt' in count_row.keys() else 0) or 0)
+
+                    delivery_rows = conn.execute(
+                        f"""
+                        SELECT d.sync_id, d.channel_id, d.target_user_id, d.action, d.role,
+                               d.target_peer_id, d.payload_json, d.delivery_state, d.last_error,
+                               d.attempt_count, d.last_attempt_at, d.acked_at,
+                               d.created_at, d.updated_at
+                        FROM channel_member_sync_deliveries d
+                        WHERE {where_sql}
+                        ORDER BY COALESCE(d.updated_at, d.created_at) DESC
+                        LIMIT ?
+                        """,
+                        tuple(where_params + [limit]),
+                    ).fetchall()
+
+            members: list[dict[str, Any]] = []
+            member_user_ids: set[str] = set()
+            for row in member_rows or []:
+                row_dict = dict(row)
+                user_id = str(row_dict.get('user_id') or '').strip()
+                if not user_id:
+                    continue
+                member_user_ids.add(user_id)
+                member_origin = str(row_dict.get('origin_peer') or '').strip()
+                is_local_member = (not member_origin) or bool(local_peer_id and member_origin == local_peer_id)
+                members.append({
+                    'user_id': user_id,
+                    'role': row_dict.get('role') or 'member',
+                    'notifications_enabled': bool(int(row_dict.get('notifications_enabled') or 0)) if row_dict.get('notifications_enabled') is not None else True,
+                    'joined_at': row_dict.get('joined_at'),
+                    'username': row_dict.get('username'),
+                    'display_name': row_dict.get('display_name'),
+                    'origin_peer': member_origin or None,
+                    'account_type': row_dict.get('account_type'),
+                    'status': row_dict.get('status'),
+                    'is_local_member': is_local_member,
+                })
+
+            member_peer_ids: set[str] = set()
+            if channel_manager:
+                try:
+                    member_peer_ids = set(channel_manager.get_member_peer_ids(channel_id, local_peer_id or None) or set())
+                except Exception:
+                    member_peer_ids = set()
+            if not member_peer_ids:
+                member_peer_ids = {
+                    str(m.get('origin_peer') or '').strip()
+                    for m in members
+                    if str(m.get('origin_peer') or '').strip()
+                }
+                if local_peer_id:
+                    member_peer_ids.add(local_peer_id)
+
+            state_counts: dict[str, int] = {}
+            target_peer_counts: dict[str, int] = {}
+            pending_count = 0
+            failed_count = 0
+            acked_count = 0
+            recent_records: list[dict[str, Any]] = []
+            for row in delivery_rows or []:
+                row_dict = dict(row)
+                state = str(row_dict.get('delivery_state') or 'pending').strip().lower() or 'pending'
+                state_counts[state] = int(state_counts.get(state, 0) + 1)
+                if state == 'failed':
+                    failed_count += 1
+                if row_dict.get('acked_at'):
+                    acked_count += 1
+                elif state in {'pending', 'sent', 'failed'}:
+                    pending_count += 1
+
+                peer = str(row_dict.get('target_peer_id') or '').strip()
+                if peer:
+                    target_peer_counts[peer] = int(target_peer_counts.get(peer, 0) + 1)
+
+                payload_summary: dict[str, Any] = {}
+                payload_raw = row_dict.get('payload_json')
+                if payload_raw:
+                    try:
+                        payload_data = json.loads(payload_raw)
+                        if isinstance(payload_data, dict):
+                            for key in ('channel_name', 'channel_type', 'privacy_mode'):
+                                if key in payload_data:
+                                    payload_summary[key] = payload_data.get(key)
+                    except Exception:
+                        payload_summary = {}
+
+                recent_records.append({
+                    'sync_id': row_dict.get('sync_id'),
+                    'target_user_id': row_dict.get('target_user_id'),
+                    'action': row_dict.get('action'),
+                    'role': row_dict.get('role'),
+                    'target_peer_id': row_dict.get('target_peer_id'),
+                    'delivery_state': state,
+                    'attempt_count': int(row_dict.get('attempt_count') or 0),
+                    'last_error': row_dict.get('last_error'),
+                    'last_attempt_at': row_dict.get('last_attempt_at'),
+                    'acked_at': row_dict.get('acked_at'),
+                    'created_at': row_dict.get('created_at'),
+                    'updated_at': row_dict.get('updated_at'),
+                    'payload_summary': payload_summary,
+                })
+
+            warnings: list[str] = []
+            privacy_mode = str(channel_payload.get('privacy_mode') or 'open').strip().lower()
+            if privacy_mode not in {'private', 'confidential'}:
+                warnings.append(
+                    f"Channel privacy_mode='{privacy_mode}' is not targeted; member-sync diagnostics are mostly relevant for private/confidential channels."
+                )
+            if not sync_table_exists:
+                warnings.append(
+                    "channel_member_sync_deliveries table not found on this peer; delivery tracing is unavailable."
+                )
+            if privacy_mode in {'private', 'confidential'} and not connected_peers:
+                warnings.append("No connected peers on this node; membership updates cannot propagate right now.")
+            if privacy_mode in {'private', 'confidential'} and len(member_peer_ids) <= 1:
+                warnings.append("Only one member peer is visible for this channel; cross-peer propagation may be limited.")
+            if failed_count > 0:
+                warnings.append(f"{failed_count} delivery record(s) are in failed state.")
+            if pending_count > 0:
+                warnings.append(f"{pending_count} delivery record(s) are pending/unacked.")
+
+            target_user_payload = None
+            if target_user_id:
+                target_user_payload = {
+                    'user_id': target_user_id,
+                    'is_channel_member': target_user_id in member_user_ids,
+                    'origin_peer': None,
+                    'is_connected_peer': False,
+                }
+                try:
+                    user_row = db_manager.get_user(target_user_id)
+                except Exception:
+                    user_row = None
+                target_origin = str((user_row or {}).get('origin_peer') or '').strip() if user_row else ''
+                target_user_payload['origin_peer'] = target_origin or None
+                target_user_payload['is_connected_peer'] = bool(target_origin and target_origin in connected_peers)
+
+                if target_user_id not in member_user_ids:
+                    warnings.append(f"Target user {target_user_id} is not currently a member of channel {channel_id}.")
+                if not target_origin:
+                    warnings.append(
+                        f"Target user {target_user_id} has no origin_peer; sync delivery relies on connected-peer fallback."
+                    )
+                elif local_peer_id and target_origin == local_peer_id:
+                    warnings.append(
+                        f"Target user {target_user_id} resolves to local peer ({local_peer_id}); if that user is remote, origin metadata is stale."
+                    )
+                elif target_origin not in connected_peers:
+                    warnings.append(
+                        f"Target user {target_user_id} origin peer ({target_origin}) is not currently connected."
+                    )
+                if total_records == 0:
+                    warnings.append(
+                        f"No member-sync delivery records found for {channel_id} and target user {target_user_id}."
+                    )
+
+            diagnostics = {
+                'channel': channel_payload,
+                'target_user': target_user_payload,
+                'local_peer_id': local_peer_id or None,
+                'connected_peers': connected_peers,
+                'member_peer_ids': sorted(member_peer_ids),
+                'members': members,
+                'member_sync': {
+                    'table_available': sync_table_exists,
+                    'total_records': total_records,
+                    'returned_records': len(recent_records),
+                    'state_counts': state_counts,
+                    'pending_count': pending_count,
+                    'failed_count': failed_count,
+                    'acked_count': acked_count,
+                    'target_peer_counts': target_peer_counts,
+                    'recent_records': recent_records,
+                },
+                'warnings': warnings,
+            }
+
+            return jsonify({'success': True, 'diagnostics': diagnostics})
+        except Exception as e:
+            logger.error(f"Admin member-sync diagnostics error: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @ui.route('/ajax/get_messages', methods=['GET'])
     @require_login
     def ajax_get_messages():
@@ -4309,6 +5220,41 @@ def create_ui_blueprint() -> Blueprint:
             return jsonify({'success': True, 'channels': results, 'count': len(results)})
         except Exception as e:
             logger.error(f"Channel suggestions error: {e}")
+            return jsonify({'success': False, 'channels': [], 'count': 0})
+
+    @ui.route('/ajax/channel_sidebar_state', methods=['GET'])
+    @require_login
+    def ajax_channel_sidebar_state():
+        """Return lightweight per-channel sidebar state (unread + mute).
+
+        Includes full metadata so the frontend can dynamically insert
+        channels that were added after page load (e.g. via member_sync).
+        """
+        try:
+            _, _, _, _, channel_manager, _, _, _, _, _, _ = _get_app_components_any(current_app)
+            user_id = get_current_user()
+            channels = channel_manager.get_user_channels(user_id)
+            payload = []
+            for ch in channels:
+                ctype = ch.channel_type
+                if hasattr(ctype, 'value'):
+                    ctype = ctype.value
+                payload.append({
+                    'id': ch.id,
+                    'name': ch.name,
+                    'description': getattr(ch, 'description', '') or '',
+                    'channel_type': str(ctype or 'public'),
+                    'privacy_mode': getattr(ch, 'privacy_mode', 'open') or 'open',
+                    'origin_peer': getattr(ch, 'origin_peer', '') or '',
+                    'user_role': getattr(ch, 'user_role', 'member') or 'member',
+                    'member_count': int(getattr(ch, 'member_count', 0) or 0),
+                    'unread_count': int(getattr(ch, 'unread_count', 0) or 0),
+                    'notifications_enabled': bool(getattr(ch, 'notifications_enabled', True)),
+                    'crypto_mode': getattr(ch, 'crypto_mode', '') or '',
+                })
+            return jsonify({'success': True, 'channels': payload, 'count': len(payload)})
+        except Exception as e:
+            logger.error(f"Channel sidebar state error: {e}")
             return jsonify({'success': False, 'channels': [], 'count': 0})
 
     @ui.route('/ajax/content_contexts/extract', methods=['POST'])
@@ -8124,6 +9070,381 @@ def create_ui_blueprint() -> Blueprint:
             logger.error(f"Channel search error: {e}")
             return jsonify({'error': 'Internal server error'}), 500
 
+    @ui.route('/ajax/streams', methods=['GET'])
+    @require_login
+    def ajax_list_streams():
+        """List streams visible to the current user."""
+        try:
+            stream_manager = current_app.config.get('STREAM_MANAGER')
+            if not stream_manager:
+                return jsonify({'success': False, 'error': 'Streaming unavailable'}), 503
+            user_id = get_current_user()
+            channel_id = str(request.args.get('channel_id') or '').strip() or None
+            status = str(request.args.get('status') or '').strip().lower() or None
+            try:
+                limit = int(request.args.get('limit', 100))
+            except Exception:
+                limit = 100
+            streams = stream_manager.list_streams_for_user(
+                user_id=user_id,
+                channel_id=channel_id,
+                status=status,
+                limit=limit,
+            )
+            return jsonify({'success': True, 'streams': streams, 'count': len(streams)})
+        except Exception as e:
+            logger.error(f"List streams UI failed: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/streams', methods=['POST'])
+    @require_login
+    def ajax_create_stream():
+        """Create a stream, optionally post a stream card into the channel."""
+        try:
+            db_manager, _, _, _, channel_manager, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+            stream_manager = current_app.config.get('STREAM_MANAGER')
+            if not stream_manager:
+                return jsonify({'success': False, 'error': 'Streaming unavailable'}), 503
+
+            user_id = get_current_user()
+            data = request.get_json(silent=True) or {}
+            channel_id = str(data.get('channel_id') or '').strip()
+            title = str(data.get('title') or '').strip()
+            description = str(data.get('description') or '').strip()
+            stream_kind = str(data.get('stream_kind') or '').strip().lower() or None
+            media_kind = str(data.get('media_kind') or 'audio').strip().lower()
+            protocol_default = 'events-json' if stream_kind == 'telemetry' else 'hls'
+            protocol = str(data.get('protocol') or protocol_default).strip().lower()
+            relay_allowed = str(data.get('relay_allowed') or '').strip().lower() in {'1', 'true', 'yes', 'on'}
+            auto_post = True if data.get('auto_post') is None else str(data.get('auto_post')).strip().lower() in {'1', 'true', 'yes', 'on'}
+            start_now = str(data.get('start_now') or '').strip().lower() in {'1', 'true', 'yes', 'on'}
+
+            stream_row, error = stream_manager.create_stream(
+                channel_id=channel_id,
+                created_by=user_id,
+                title=title,
+                description=description,
+                stream_kind=stream_kind,
+                media_kind=media_kind,
+                protocol=protocol,
+                relay_allowed=relay_allowed,
+                origin_peer=(p2p_manager.get_peer_id() if p2p_manager else None),
+                metadata={'created_via': 'ui'},
+            )
+            if error:
+                if error in {'channel_not_found', 'not_channel_member'}:
+                    return jsonify({'success': False, 'error': 'Channel not found'}), 404
+                return jsonify({'success': False, 'error': error}), 400
+
+            posted_message_id = None
+            if auto_post and stream_row:
+                from ..core.channels import MessageType as ChannelMessageType
+
+                # Embed LAN HTTP addresses so remote peers can route directly to us
+                _local_port = current_app.config.get('PORT', 7770)
+                _host_addrs: list[str] = []
+                try:
+                    import socket as _socket
+                    _hostname = _socket.gethostname()
+                    _local_ips = [i[4][0] for i in _socket.getaddrinfo(_hostname, None)
+                                  if i[0].name == 'AF_INET' and not i[4][0].startswith('127.')]
+                    _host_addrs = [f"http://{ip}:{_local_port}" for ip in _local_ips]
+                except Exception:
+                    pass
+
+                attachment = {
+                    'name': str(stream_row.get('title') or title or 'Live stream'),
+                    'type': 'application/vnd.canopy.stream+json',
+                    'kind': 'stream',
+                    'stream_id': str(stream_row.get('id') or ''),
+                    'title': str(stream_row.get('title') or title or ''),
+                    'description': str(stream_row.get('description') or description or ''),
+                    'media_kind': str(stream_row.get('media_kind') or media_kind or 'audio'),
+                    'stream_kind': str(stream_row.get('stream_kind') or stream_kind or 'media'),
+                    'protocol': str(stream_row.get('protocol') or protocol or 'hls'),
+                    'status': str(stream_row.get('status') or 'created'),
+                    'channel_id': str(stream_row.get('channel_id') or channel_id),
+                    'created_by': str(stream_row.get('created_by') or user_id),
+                    'relay_allowed': bool(stream_row.get('relay_allowed')),
+                    'host_addrs': _host_addrs,
+                }
+                post_content = str(data.get('post_content') or '').strip()
+                if not post_content:
+                    stream_kind_value = str(stream_row.get('stream_kind') or stream_kind or 'media').lower()
+                    if stream_kind_value == 'telemetry':
+                        label = "Telemetry stream"
+                    else:
+                        label = "Live video stream" if media_kind == "video" else "Live audio stream"
+                    post_content = f"{label}: {stream_row.get('title') or title}"
+                message = channel_manager.send_message(
+                    channel_id=channel_id,
+                    user_id=user_id,
+                    content=post_content,
+                    message_type=ChannelMessageType.FILE,
+                    attachments=[attachment],
+                    origin_peer=(p2p_manager.get_peer_id() if p2p_manager else None),
+                )
+                if message:
+                    posted_message_id = message.id
+                    try:
+                        if p2p_manager:
+                            display_name = None
+                            if profile_manager:
+                                profile = profile_manager.get_profile(user_id)
+                                if profile:
+                                    display_name = profile.display_name or profile.username
+                            mode_row = None
+                            with db_manager.get_connection() as conn:
+                                mode_row = conn.execute(
+                                    "SELECT privacy_mode FROM channels WHERE id = ?",
+                                    (channel_id,),
+                                ).fetchone()
+                            channel_mode = str(mode_row['privacy_mode'] if mode_row else 'open').lower()
+                            target_peers = None
+                            if channel_mode in {'private', 'confidential'}:
+                                target_peers = channel_manager.get_target_peer_ids_for_channel(channel_id)
+                            p2p_manager.broadcast_channel_message(
+                                channel_id=channel_id,
+                                user_id=user_id,
+                                content=post_content,
+                                message_id=message.id,
+                                timestamp=message.created_at.isoformat() if getattr(message, 'created_at', None) else datetime.now(timezone.utc).isoformat(),
+                                attachments=[attachment],
+                                display_name=display_name,
+                                security={'privacy_mode': channel_mode},
+                                target_peer_ids=target_peers,
+                            )
+                    except Exception as bcast_err:
+                        logger.warning(f"Failed to broadcast stream post card: {bcast_err}")
+
+            if start_now and stream_row:
+                started, start_err = stream_manager.start_stream(stream_row['id'], user_id)
+                if not start_err and started:
+                    stream_row = started
+
+            payload = {'success': True, 'stream': stream_row}
+            if posted_message_id:
+                payload['posted_message_id'] = posted_message_id
+            return jsonify(payload), 201
+        except Exception as e:
+            logger.error(f"Create stream UI failed: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/streams/<stream_id>', methods=['GET'])
+    @require_login
+    def ajax_get_stream(stream_id):
+        try:
+            stream_manager = current_app.config.get('STREAM_MANAGER')
+            if not stream_manager:
+                return jsonify({'success': False, 'error': 'Streaming unavailable'}), 503
+            user_id = get_current_user()
+            stream_row = stream_manager.get_stream_for_user(stream_id, user_id)
+            if not stream_row:
+                return jsonify({'success': False, 'error': 'Not found'}), 404
+            return jsonify({'success': True, 'stream': stream_row})
+        except Exception as e:
+            logger.error(f"Get stream UI failed: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/streams/<stream_id>/start', methods=['POST'])
+    @require_login
+    def ajax_start_stream(stream_id):
+        try:
+            stream_manager = current_app.config.get('STREAM_MANAGER')
+            if not stream_manager:
+                return jsonify({'success': False, 'error': 'Streaming unavailable'}), 503
+            user_id = get_current_user()
+            stream_row, error = stream_manager.start_stream(stream_id, user_id)
+            if error in {'not_found', 'not_authorized'}:
+                return jsonify({'success': False, 'error': 'Not found'}), 404
+            if error:
+                return jsonify({'success': False, 'error': error}), 400
+            return jsonify({'success': True, 'stream': stream_row})
+        except Exception as e:
+            logger.error(f"Start stream UI failed: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/streams/<stream_id>/stop', methods=['POST'])
+    @require_login
+    def ajax_stop_stream(stream_id):
+        try:
+            stream_manager = current_app.config.get('STREAM_MANAGER')
+            if not stream_manager:
+                return jsonify({'success': False, 'error': 'Streaming unavailable'}), 503
+            user_id = get_current_user()
+            stream_row, error = stream_manager.stop_stream(stream_id, user_id)
+            if error in {'not_found', 'not_authorized'}:
+                return jsonify({'success': False, 'error': 'Not found'}), 404
+            if error:
+                return jsonify({'success': False, 'error': error}), 400
+            return jsonify({'success': True, 'stream': stream_row})
+        except Exception as e:
+            logger.error(f"Stop stream UI failed: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/streams/<stream_id>/session', methods=['POST'])
+    @require_login
+    def ajax_stream_session(stream_id):
+        """Issue a short-lived stream playback token for the current user."""
+        try:
+            stream_manager = current_app.config.get('STREAM_MANAGER')
+            if not stream_manager:
+                return jsonify({'success': False, 'error': 'Streaming unavailable'}), 503
+            user_id = get_current_user()
+            logger.info(f"Stream session request: stream_id={stream_id} user_id={user_id} ip={request.remote_addr}")
+            data = request.get_json(silent=True) or {}
+            ttl_seconds = data.get('ttl_seconds')
+            token_payload, error = stream_manager.issue_token(
+                stream_id=stream_id,
+                user_id=user_id,
+                scope='view',
+                ttl_seconds=ttl_seconds,
+                metadata={'issued_via': 'ui_session'},
+            )
+            logger.info(f"Stream session result: stream_id={stream_id} user_id={user_id} error={error} token_ok={bool(token_payload)}")
+            if error in {'not_found', 'not_authorized'}:
+                # Try to route to the peer that owns this stream
+                db_manager, _, _, _, _, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+                remote = _resolve_p2p_stream(stream_id, db_manager, p2p_manager)
+                if remote:
+                    return jsonify({
+                        'success': True,
+                        'stream_kind': 'media',
+                        'playback_url': remote['playback_url'],
+                        'transport_url': remote['playback_url'],
+                        'remote': True,
+                        'origin_peer': remote.get('origin_peer'),
+                    })
+                return jsonify({'success': False, 'error': 'Not found'}), 404
+            if error or not token_payload:
+                return jsonify({'success': False, 'error': error or 'token_issue_failed'}), 400
+
+            stream_row = stream_manager.get_stream_for_user(stream_id, user_id)
+            token_q = quote_plus(str(token_payload.get('token') or ''))
+            stream_kind = str((stream_row or {}).get('stream_kind') or 'media').lower()
+            protocol = str((stream_row or {}).get('protocol') or 'hls').lower()
+            if stream_kind == 'telemetry' or protocol == 'events-json':
+                playback_url = f"/api/v1/streams/{stream_id}/events?token={token_q}"
+            else:
+                playback_url = f"/api/v1/streams/{stream_id}/manifest.m3u8?token={token_q}"
+            return jsonify({
+                'success': True,
+                'stream': stream_row,
+                'stream_kind': stream_kind,
+                'token': token_payload.get('token'),
+                'expires_at': token_payload.get('expires_at'),
+                'playback_url': playback_url,
+                'transport_url': playback_url,
+            })
+        except Exception as e:
+            logger.error(f"Create stream session failed: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/streams/<stream_id>/ingest-token', methods=['POST'])
+    @require_login
+    def ajax_stream_ingest_token(stream_id):
+        """Issue a short-lived ingest token for the stream owner (used by browser broadcaster)."""
+        try:
+            stream_manager = current_app.config.get('STREAM_MANAGER')
+            if not stream_manager:
+                return jsonify({'success': False, 'error': 'Streaming unavailable'}), 503
+            user_id = get_current_user()
+            token_payload, error = stream_manager.issue_token(
+                stream_id=stream_id,
+                user_id=user_id,
+                scope='ingest',
+                ttl_seconds=4 * 3600,
+                metadata={'issued_via': 'browser_broadcaster'},
+            )
+            if error in {'not_found', 'not_authorized'}:
+                return jsonify({'success': False, 'error': 'Not found'}), 404
+            if error or not token_payload:
+                return jsonify({'success': False, 'error': error or 'token_issue_failed'}), 400
+            return jsonify({'success': True, 'token': token_payload.get('token'), 'expires_at': token_payload.get('expires_at')})
+        except Exception as e:
+            logger.error(f"Ingest token failed: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/streams/<stream_id>/setup', methods=['POST'])
+    @require_login
+    def ajax_stream_setup(stream_id):
+        """Return a setup bundle for stream operators: ingest/view tokens, URLs, and ffmpeg command templates."""
+        try:
+            stream_manager = current_app.config.get('STREAM_MANAGER')
+            if not stream_manager:
+                return jsonify({'success': False, 'error': 'Streaming unavailable'}), 503
+
+            user_id = get_current_user()
+            data = request.get_json(silent=True) or {}
+            ingest_ttl = data.get('ingest_ttl_seconds', 4 * 3600)
+            view_ttl = data.get('view_ttl_seconds', 3600)
+
+            ingest_payload, ingest_err = stream_manager.issue_token(
+                stream_id=stream_id,
+                user_id=user_id,
+                scope='ingest',
+                ttl_seconds=ingest_ttl,
+                metadata={'issued_via': 'ui_setup'},
+            )
+            if ingest_err in {'not_found', 'not_authorized'}:
+                return jsonify({'success': False, 'error': 'Not found'}), 404
+            if ingest_err or not ingest_payload:
+                return jsonify({'success': False, 'error': ingest_err or 'token_issue_failed'}), 400
+
+            view_payload, view_err = stream_manager.issue_token(
+                stream_id=stream_id,
+                user_id=user_id,
+                scope='view',
+                ttl_seconds=view_ttl,
+                metadata={'issued_via': 'ui_setup'},
+            )
+            if view_err or not view_payload:
+                return jsonify({'success': False, 'error': view_err or 'view_token_failed'}), 400
+
+            stream_row = stream_manager.get_stream_for_user(stream_id, user_id) or {}
+            stream_kind = str(stream_row.get('stream_kind') or 'media').lower()
+            protocol = str(stream_row.get('protocol') or 'hls').lower()
+
+            ingest_tok = quote_plus(str(ingest_payload.get('token') or ''))
+            view_tok = quote_plus(str(view_payload.get('token') or ''))
+            base = f"/api/v1/streams/{stream_id}"
+
+            if stream_kind == 'telemetry' or protocol == 'events-json':
+                ingest_bundle = {'events_url': f"{base}/ingest/events?token={ingest_tok}"}
+                playback = {'url': f"{base}/events?token={view_tok}"}
+                posix_cmd = f"# curl -X POST '{base}/ingest/events?token={ingest_tok}' -H 'Content-Type: application/json' -d '{{\"value\": 1}}'"
+                ps_cmd = posix_cmd
+            else:
+                ingest_bundle = {
+                    'manifest_url': f"{base}/ingest/manifest?token={ingest_tok}",
+                    'segment_url_template': f"{base}/ingest/segments/seg%06d.ts?token={ingest_tok}",
+                }
+                playback = {'url': f"{base}/manifest.m3u8?token={view_tok}"}
+                posix_cmd = (
+                    f"ffmpeg -re -i INPUT -c:v libx264 -preset veryfast -tune zerolatency"
+                    f" -c:a aac -b:a 128k -f hls -hls_time 2 -hls_list_size 5"
+                    f" -hls_flags delete_segments"
+                    f" -hls_segment_filename '{base}/ingest/segments/seg%06d.ts?token={ingest_tok}'"
+                    f" '{base}/ingest/manifest?token={ingest_tok}'"
+                )
+                ps_cmd = posix_cmd.replace("'", '"')
+
+            return jsonify({
+                'success': True,
+                'setup': {
+                    'stream_id': stream_id,
+                    'stream_kind': stream_kind,
+                    'ingest': ingest_bundle,
+                    'playback': playback,
+                    'commands': {'posix': posix_cmd, 'powershell': ps_cmd},
+                    'ingest_expires_at': ingest_payload.get('expires_at'),
+                    'view_expires_at': view_payload.get('expires_at'),
+                },
+            })
+        except Exception as e:
+            logger.error(f"Stream setup failed: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
     @ui.route('/ajax/send_channel_message', methods=['POST'])
     @require_login
     def ajax_send_channel_message():
@@ -9003,7 +10324,7 @@ def create_ui_blueprint() -> Blueprint:
                 try:
                     with db_manager.get_connection() as conn:
                         row = conn.execute(
-                            "SELECT name, channel_type, description FROM channels WHERE id = ?",
+                            "SELECT name, channel_type, description, created_by FROM channels WHERE id = ?",
                             (channel_id,)
                         ).fetchone()
                     if row:
@@ -9031,6 +10352,7 @@ def create_ui_blueprint() -> Blueprint:
                             channel_type=row['channel_type'],
                             description=row['description'] or '',
                             privacy_mode=privacy_mode,
+                            created_by_user_id=row['created_by'] if row and 'created_by' in row.keys() else None,
                             member_peer_ids=member_peer_ids,
                             initial_members_by_peer=members_by_peer,
                         )
@@ -9530,6 +10852,169 @@ def create_ui_blueprint() -> Blueprint:
             logger.error(f"Update channel message expiry error: {e}")
             return jsonify({'error': 'Internal server error'}), 500
 
+    def _e2e_private_enabled() -> bool:
+        cfg = current_app.config.get('CANOPY_CONFIG')
+        sec = getattr(cfg, 'security', None)
+        return bool(getattr(sec, 'e2e_private_channels', False))
+
+    def _normalize_channel_crypto_mode(raw_mode: Any) -> str:
+        mode = str(raw_mode or '').strip().lower()
+        if mode in {'e2e_optional', 'e2e_enforced', 'legacy_plaintext'}:
+            return mode
+        return 'legacy_plaintext'
+
+    def _channel_targets_e2e(privacy_mode: str, crypto_mode: str) -> bool:
+        return (
+            str(privacy_mode or '').strip().lower() in {'private', 'confidential'}
+            and str(crypto_mode or '').strip().lower() in {'e2e_optional', 'e2e_enforced'}
+        )
+
+    def _ensure_channel_key_material(channel_manager: Any, channel_id: str,
+                                     origin_peer: Optional[str], rotated_from: Optional[str] = None) -> Optional[dict[str, Any]]:
+        """Ensure one active local key exists and return it as {'key_id','key_material','metadata'}."""
+        active = channel_manager.get_active_channel_key(channel_id)
+        if active:
+            key_bytes = channel_manager.decode_channel_key_material(active.get('key_material_enc'))
+            if key_bytes:
+                return {
+                    'key_id': active.get('key_id'),
+                    'key_material': key_bytes,
+                    'metadata': active.get('metadata') or {},
+                }
+
+        key_bytes = secrets.token_bytes(32)
+        key_id = f"K{secrets.token_hex(8)}"
+        metadata = {
+            'algorithm': 'chacha20poly1305',
+            'key_version': 1,
+            'rotated_from': rotated_from,
+            'generated_at': datetime.now(timezone.utc).isoformat(),
+        }
+        stored = channel_manager.upsert_channel_key(
+            channel_id=channel_id,
+            key_id=key_id,
+            key_material_enc=encode_channel_key_material(key_bytes),
+            created_by_peer=origin_peer,
+            metadata=metadata,
+        )
+        if not stored:
+            return None
+        return {'key_id': key_id, 'key_material': key_bytes, 'metadata': metadata}
+
+    def _rotate_channel_key_material(channel_manager: Any, channel_id: str,
+                                     origin_peer: Optional[str], rotated_from: Optional[str]) -> Optional[dict[str, Any]]:
+        """Create a brand-new channel key for rotation workflows."""
+        key_bytes = secrets.token_bytes(32)
+        key_id = f"K{secrets.token_hex(8)}"
+        previous = rotated_from or None
+        metadata = {
+            'algorithm': 'chacha20poly1305',
+            'key_version': 1,
+            'rotated_from': previous,
+            'generated_at': datetime.now(timezone.utc).isoformat(),
+        }
+        stored = channel_manager.upsert_channel_key(
+            channel_id=channel_id,
+            key_id=key_id,
+            key_material_enc=encode_channel_key_material(key_bytes),
+            created_by_peer=origin_peer,
+            metadata=metadata,
+        )
+        if not stored:
+            return None
+        if previous:
+            channel_manager.revoke_channel_key(channel_id, previous)
+        return {'key_id': key_id, 'key_material': key_bytes, 'metadata': metadata}
+
+    def _send_channel_key_to_peer(
+        channel_manager: Any,
+        p2p_mgr: Any,
+        channel_id: str,
+        key_payload: dict[str, Any],
+        peer_id: str,
+        rotated_from: Optional[str] = None,
+    ) -> bool:
+        if not p2p_mgr or not peer_id:
+            return False
+        local_peer = p2p_mgr.get_peer_id() if p2p_mgr else None
+        if not local_peer or peer_id == local_peer:
+            return False
+        recipient_identity = p2p_mgr.identity_manager.get_peer(peer_id)
+        local_identity = p2p_mgr.identity_manager.local_identity
+        if not recipient_identity or not local_identity:
+            channel_manager.upsert_channel_member_key_state(
+                channel_id=channel_id,
+                key_id=key_payload['key_id'],
+                peer_id=peer_id,
+                delivery_state='failed',
+                last_error='unknown_peer_identity',
+            )
+            return False
+        try:
+            wrapped = encrypt_key_for_peer(
+                key_material=key_payload['key_material'],
+                local_identity=local_identity,
+                recipient_identity=recipient_identity,
+            )
+        except Exception as e:
+            channel_manager.upsert_channel_member_key_state(
+                channel_id=channel_id,
+                key_id=key_payload['key_id'],
+                peer_id=peer_id,
+                delivery_state='failed',
+                last_error=f'wrap_failed:{e}',
+            )
+            return False
+
+        channel_manager.upsert_channel_member_key_state(
+            channel_id=channel_id,
+            key_id=key_payload['key_id'],
+            peer_id=peer_id,
+            delivery_state='pending',
+            last_error=None,
+        )
+        sent = p2p_mgr.send_channel_key_distribution(
+            to_peer=peer_id,
+            channel_id=channel_id,
+            key_id=key_payload['key_id'],
+            encrypted_key=wrapped,
+            key_version=int((key_payload.get('metadata') or {}).get('key_version') or 1),
+            rotated_from=rotated_from or (key_payload.get('metadata') or {}).get('rotated_from'),
+        )
+        channel_manager.upsert_channel_member_key_state(
+            channel_id=channel_id,
+            key_id=key_payload['key_id'],
+            peer_id=peer_id,
+            delivery_state='delivered' if sent else 'failed',
+            delivered=sent,
+            last_error=None if sent else 'send_failed',
+        )
+        return bool(sent)
+
+    def _distribute_channel_key_to_member_peers(
+        channel_manager: Any,
+        p2p_mgr: Any,
+        channel_id: str,
+        key_payload: dict[str, Any],
+        rotated_from: Optional[str] = None,
+    ) -> int:
+        if not p2p_mgr:
+            return 0
+        local_peer = p2p_mgr.get_peer_id() if p2p_mgr else None
+        member_peers = channel_manager.get_member_peer_ids(channel_id, local_peer)
+        sent_count = 0
+        for peer_id in sorted(member_peers):
+            if _send_channel_key_to_peer(
+                channel_manager=channel_manager,
+                p2p_mgr=p2p_mgr,
+                channel_id=channel_id,
+                key_payload=key_payload,
+                peer_id=peer_id,
+                rotated_from=rotated_from,
+            ):
+                sent_count += 1
+        return sent_count
+
     @ui.route('/ajax/create_channel', methods=['POST'])
     @require_login
     def ajax_create_channel():
@@ -9545,6 +11030,7 @@ def create_ui_blueprint() -> Blueprint:
             description = data.get('description', '').strip()
             channel_type_str = data.get('type', 'public')
             privacy_mode = (data.get('privacy_mode') or ('private' if channel_type_str == 'private' else 'open')).strip().lower()
+            requested_crypto_mode = _normalize_channel_crypto_mode(data.get('crypto_mode'))
             if privacy_mode not in {'open', 'guarded', 'private', 'confidential'}:
                 return jsonify({'error': 'Invalid privacy mode'}), 400
             initial_members = data.get('initial_members') or []
@@ -9622,11 +11108,37 @@ def create_ui_blueprint() -> Blueprint:
                             channel_type=channel.channel_type.value,
                             description=channel.description or '',
                             privacy_mode=channel.privacy_mode,
+                            created_by_user_id=channel.created_by,
                             member_peer_ids=m_peer_ids,
                             initial_members_by_peer=m_by_peer,
                         )
                     except Exception as ann_err:
                         logger.warning(f"P2P channel announce failed (non-fatal): {ann_err}")
+
+                # Phase-2 E2E: targeted channels default to e2e_optional when enabled.
+                try:
+                    if _e2e_private_enabled() and (channel.privacy_mode or '').lower() in {'private', 'confidential'}:
+                        crypto_mode = requested_crypto_mode
+                        if crypto_mode == 'legacy_plaintext':
+                            crypto_mode = 'e2e_optional'
+                        channel_manager.set_channel_crypto_mode(channel.id, crypto_mode)
+                        channel.crypto_mode = crypto_mode
+                        if _channel_targets_e2e(channel.privacy_mode, crypto_mode):
+                            key_payload = _ensure_channel_key_material(
+                                channel_manager=channel_manager,
+                                channel_id=channel.id,
+                                origin_peer=(p2p_manager.get_peer_id() if p2p_manager else None),
+                                rotated_from=None,
+                            )
+                            if key_payload and p2p_manager and p2p_manager.is_running():
+                                _distribute_channel_key_to_member_peers(
+                                    channel_manager=channel_manager,
+                                    p2p_mgr=p2p_manager,
+                                    channel_id=channel.id,
+                                    key_payload=key_payload,
+                                )
+                except Exception as key_err:
+                    logger.warning(f"E2E channel key bootstrap failed for {channel.id}: {key_err}")
 
                 return jsonify({
                     'success': True,
@@ -9671,7 +11183,7 @@ def create_ui_blueprint() -> Blueprint:
             # Check if this is a targeted channel.
             with db_mgr.get_connection() as conn:
                 row = conn.execute(
-                    "SELECT privacy_mode, name, channel_type, description "
+                    "SELECT privacy_mode, name, channel_type, description, crypto_mode, created_by "
                     "FROM channels WHERE id = ?", (channel_id,)
                 ).fetchone()
             mode = (row['privacy_mode'] or 'open') if row else 'open'
@@ -9684,38 +11196,219 @@ def create_ui_blueprint() -> Blueprint:
             except Exception:
                 target_peer = ''
             local_peer = p2p_mgr.get_peer_id() if p2p_mgr else None
-            # If user is local (no origin_peer), we need to send to all remote
-            # member peers so they know about this local user
-            if not target_peer or target_peer == local_peer:
-                member_peers = ch_mgr.get_member_peer_ids(channel_id, local_peer)
-                remote_peers = {p for p in member_peers if p != local_peer}
-                for rp in remote_peers:
-                    p2p_mgr.broadcast_member_sync(
+
+            sync_payload_base = {
+                'channel_name': row['name'] or '',
+                'channel_type': row['channel_type'] or 'private',
+                'channel_description': row['description'] or '',
+                'privacy_mode': mode,
+            }
+
+            def _queue_and_send(target_peer_id: Optional[str]) -> bool:
+                peer_id = str(target_peer_id or '').strip()
+                if not peer_id or peer_id == local_peer:
+                    return False
+                sync_id = f"MS{secrets.token_hex(10)}"
+                try:
+                    ch_mgr.queue_member_sync_delivery(
+                        sync_id=sync_id,
                         channel_id=channel_id,
                         target_user_id=target_user_id,
                         action=action,
-                        target_peer_id=rp,
                         role=role,
-                        channel_name=row['name'] or '',
-                        channel_type=row['channel_type'] or 'private',
-                        channel_description=row['description'] or '',
-                        privacy_mode=mode,
+                        target_peer_id=peer_id,
+                        payload=sync_payload_base,
                     )
-            else:
-                # Remote user — send to their peer
-                p2p_mgr.broadcast_member_sync(
+                except Exception:
+                    pass
+                sent = p2p_mgr.broadcast_member_sync(
                     channel_id=channel_id,
                     target_user_id=target_user_id,
                     action=action,
-                    target_peer_id=target_peer,
+                    target_peer_id=peer_id,
                     role=role,
-                    channel_name=row['name'] or '',
-                    channel_type=row['channel_type'] or 'private',
-                    channel_description=row['description'] or '',
-                    privacy_mode=mode,
+                    channel_name=sync_payload_base['channel_name'],
+                    channel_type=sync_payload_base['channel_type'],
+                    channel_description=sync_payload_base['channel_description'],
+                    privacy_mode=sync_payload_base['privacy_mode'],
+                    sync_id=sync_id,
                 )
+                try:
+                    ch_mgr.mark_member_sync_delivery_attempt(
+                        sync_id=sync_id,
+                        sent=bool(sent),
+                        error=None if sent else 'send_failed',
+                    )
+                except Exception:
+                    pass
+                return bool(sent)
+
+            # Build bounded fallback candidates: target origin first, then
+            # known member peers, then currently connected peers.
+            # We intentionally cap attempts to avoid burst storms.
+            candidates: list[str] = []
+            if target_peer and target_peer != local_peer:
+                candidates.append(target_peer)
+            try:
+                member_peers = ch_mgr.get_member_peer_ids(channel_id, local_peer)
+                for mp in sorted(member_peers):
+                    mp_s = str(mp or '').strip()
+                    if mp_s and mp_s != local_peer and mp_s not in candidates:
+                        candidates.append(mp_s)
+            except Exception:
+                pass
+            try:
+                connected = p2p_mgr.get_connected_peers() or []
+                for cp in connected:
+                    pid = cp if isinstance(cp, str) else getattr(cp, 'peer_id', None)
+                    pid_s = str(pid or '').strip()
+                    if pid_s and pid_s != local_peer and pid_s not in candidates:
+                        candidates.append(pid_s)
+            except Exception:
+                pass
+
+            max_attempts = 3
+            attempts = 0
+            for candidate_peer in candidates:
+                if attempts >= max_attempts:
+                    break
+                attempts += 1
+                if _queue_and_send(candidate_peer):
+                    break
+            # Also broadcast a channel announce so all peers (including
+            # the newly added member's peer) discover/refresh the channel
+            # metadata.  This is belt-and-suspenders alongside the member
+            # sync which also carries channel info.
+            if action == 'add':
+                try:
+                    p2p_mgr.broadcast_channel_announce(
+                        channel_id=channel_id,
+                        name=row['name'] or '',
+                        channel_type=row['channel_type'] or 'private',
+                        description=row['description'] or '',
+                        privacy_mode=mode,
+                        created_by_user_id=row['created_by'] if row and 'created_by' in row.keys() else None,
+                    )
+                except Exception:
+                    pass
+
+                # For E2E private channels, deliver current key to the new
+                # remote member peer after membership sync.
+                try:
+                    crypto_mode = _normalize_channel_crypto_mode(
+                        row['crypto_mode'] if row and 'crypto_mode' in row.keys() else 'legacy_plaintext'
+                    )
+                    if (
+                        _e2e_private_enabled()
+                        and _channel_targets_e2e(mode, crypto_mode)
+                        and target_peer
+                        and target_peer != local_peer
+                    ):
+                        active_key = ch_mgr.get_active_channel_key(channel_id)
+                        if active_key:
+                            key_bytes = ch_mgr.decode_channel_key_material(
+                                active_key.get('key_material_enc')
+                            )
+                            if key_bytes:
+                                key_payload = {
+                                    'key_id': active_key['key_id'],
+                                    'key_material': key_bytes,
+                                    'metadata': active_key.get('metadata') or {},
+                                }
+                                _send_channel_key_to_peer(
+                                    channel_manager=ch_mgr,
+                                    p2p_mgr=p2p_mgr,
+                                    channel_id=channel_id,
+                                    key_payload=key_payload,
+                                    peer_id=target_peer,
+                                )
+                except Exception as key_err:
+                    logger.warning(f"E2E member key sync failed for {channel_id}: {key_err}")
         except Exception as e:
             logger.warning(f"Member sync trigger failed (non-fatal): {e}")
+
+    def _notify_channel_added_local(channel_id, target_user_id, added_by):
+        """Fire inbox + mention_event notifications for a locally-added channel member."""
+        try:
+            import secrets as _sec
+            db_mgr = current_app.config.get('DB_MANAGER')
+            inbox_mgr = current_app.config.get('INBOX_MANAGER')
+            mention_mgr = current_app.config.get('MENTION_MANAGER')
+            p2p_mgr = current_app.config.get('P2P_MANAGER')
+            if not db_mgr:
+                return
+            with db_mgr.get_connection() as conn:
+                ch = conn.execute(
+                    "SELECT name FROM channels WHERE id = ?", (channel_id,)
+                ).fetchone()
+            ch_name = ch['name'] if ch else channel_id[:12]
+
+            source_id = f"channel_add_{channel_id}_{target_user_id}_{_sec.token_hex(4)}"
+            preview = f"You were added to #{ch_name}"
+            if added_by:
+                try:
+                    with db_mgr.get_connection() as conn:
+                        adder = conn.execute(
+                            "SELECT display_name, username FROM users WHERE id = ?",
+                            (added_by,),
+                        ).fetchone()
+                    if adder:
+                        adder_name = adder['display_name'] or adder['username'] or added_by[:12]
+                        preview = f"{adder_name} added you to #{ch_name}"
+                except Exception:
+                    pass
+
+            local_peer = p2p_mgr.get_peer_id() if p2p_mgr else None
+
+            if mention_mgr:
+                try:
+                    mention_mgr.record_mentions(
+                        user_ids=[target_user_id],
+                        source_type='channel_added',
+                        source_id=source_id,
+                        author_id=added_by,
+                        origin_peer=local_peer,
+                        channel_id=channel_id,
+                        preview=preview,
+                    )
+                except Exception:
+                    pass
+
+            if inbox_mgr:
+                try:
+                    inbox_mgr.record_mention_triggers(
+                        target_ids=[target_user_id],
+                        source_type='channel_added',
+                        source_id=source_id,
+                        author_id=added_by,
+                        origin_peer=local_peer,
+                        channel_id=channel_id,
+                        preview=preview,
+                        trigger_type='channel_added',
+                    )
+                except Exception:
+                    pass
+
+            if p2p_mgr:
+                try:
+                    import time as _time
+                    p2p_mgr.record_activity_event({
+                        'id': f"ch_add:{source_id}",
+                        'peer_id': local_peer or '',
+                        'kind': 'channel_added',
+                        'timestamp': _time.time(),
+                        'preview': preview,
+                        'ref': {
+                            'channel_id': channel_id,
+                            'channel_name': ch_name,
+                            'user_id': target_user_id,
+                            'added_by': added_by,
+                        },
+                    })
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.debug(f"Channel-added notification failed (non-fatal): {e}")
 
     @ui.route('/ajax/channel_members/<channel_id>', methods=['POST'])
     @require_login
@@ -9734,6 +11427,7 @@ def create_ui_blueprint() -> Blueprint:
                 # Trigger P2P member sync for private channels
                 _trigger_member_sync(db_manager, channel_manager, channel_id,
                                      target_user_id, 'add', role)
+                _notify_channel_added_local(channel_id, target_user_id, user_id)
                 return jsonify({'success': True})
             return jsonify({'error': 'Permission denied or user not found'}), 403
         except Exception as e:
@@ -9752,6 +11446,39 @@ def create_ui_blueprint() -> Blueprint:
                 # Trigger P2P member sync for private channels
                 _trigger_member_sync(db_manager, channel_manager, channel_id,
                                      member_id, 'remove')
+
+                # Phase-2 E2E: rotate channel key after member removal.
+                try:
+                    _, _, _, _, _, _, _, _, _, _, p2p_mgr = _get_app_components_any(current_app)
+                    if _e2e_private_enabled() and p2p_mgr and p2p_mgr.is_running():
+                        with db_manager.get_connection() as conn:
+                            row = conn.execute(
+                                "SELECT privacy_mode, crypto_mode FROM channels WHERE id = ?",
+                                (channel_id,),
+                            ).fetchone()
+                        privacy_mode = (row['privacy_mode'] if row and 'privacy_mode' in row.keys() else 'open') or 'open'
+                        crypto_mode = _normalize_channel_crypto_mode(
+                            row['crypto_mode'] if row and 'crypto_mode' in row.keys() else 'legacy_plaintext'
+                        )
+                        if _channel_targets_e2e(privacy_mode, crypto_mode):
+                            prev_key = channel_manager.get_active_channel_key(channel_id)
+                            prev_key_id = prev_key.get('key_id') if prev_key else None
+                            new_key_payload = _rotate_channel_key_material(
+                                channel_manager=channel_manager,
+                                channel_id=channel_id,
+                                origin_peer=p2p_mgr.get_peer_id(),
+                                rotated_from=prev_key_id,
+                            )
+                            if new_key_payload:
+                                _distribute_channel_key_to_member_peers(
+                                    channel_manager=channel_manager,
+                                    p2p_mgr=p2p_mgr,
+                                    channel_id=channel_id,
+                                    key_payload=new_key_payload,
+                                    rotated_from=prev_key_id,
+                                )
+                except Exception as rotate_err:
+                    logger.warning(f"E2E key rotation after member removal failed: {rotate_err}")
                 return jsonify({'success': True})
             return jsonify({'error': 'Permission denied or user not found'}), 403
         except Exception as e:
@@ -9761,19 +11488,100 @@ def create_ui_blueprint() -> Blueprint:
     @ui.route('/ajax/delete_channel', methods=['POST'])
     @require_login
     def ajax_delete_channel():
-        """Delete a channel (admin/creator only)."""
+        """Delete a channel. Node-level admins can force-remove any replica."""
         try:
-            _, _, _, _, channel_manager, _, _, _, _, _, _ = _get_app_components_any(current_app)
+            db_manager, _, _, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
             user_id = get_current_user()
+            node_admin = _is_admin()
             data = request.get_json() or {}
             channel_id = data.get('channel_id')
             if not channel_id:
                 return jsonify({'error': 'Channel ID required'}), 400
             if channel_id == 'general':
                 return jsonify({'error': 'General cannot be deleted'}), 403
-            ok = channel_manager.delete_channel(channel_id, user_id)
+
+            local_peer_id = None
+            if p2p_manager:
+                try:
+                    local_peer_id = p2p_manager.get_peer_id()
+                except Exception:
+                    local_peer_id = None
+
+            with db_manager.get_connection() as conn:
+                channel_row = conn.execute(
+                    "SELECT origin_peer, privacy_mode FROM channels WHERE id = ?",
+                    (channel_id,),
+                ).fetchone()
+            if not channel_row:
+                return jsonify({'error': 'Channel not found'}), 404
+
+            raw_origin_peer = (
+                channel_row['origin_peer']
+                if hasattr(channel_row, 'keys') and 'origin_peer' in channel_row.keys()
+                else channel_row[0]
+            )
+            origin_peer = str(raw_origin_peer or '').strip()
+            if origin_peer.lower() == 'none':
+                # Legacy/null serialization guard: treat textual "None" as missing origin.
+                origin_peer = ''
+            privacy_mode = str(
+                channel_row['privacy_mode']
+                if hasattr(channel_row, 'keys') and 'privacy_mode' in channel_row.keys()
+                else channel_row[1]
+            ).strip().lower() or 'open'
+            is_origin_local = (not origin_peer) or (
+                local_peer_id is not None and origin_peer == local_peer_id
+            )
+
+            target_peers: set[str] = set()
+            if (
+                is_origin_local
+                and p2p_manager
+                and p2p_manager.is_running()
+                and privacy_mode in {'private', 'confidential'}
+            ):
+                try:
+                    target_peers = set(channel_manager.get_member_peer_ids(channel_id, local_peer_id))
+                    if local_peer_id:
+                        target_peers.discard(local_peer_id)
+                except Exception:
+                    target_peers = set()
+
+            ok = channel_manager.delete_channel(channel_id, user_id, force=node_admin)
             if ok:
-                return jsonify({'success': True})
+                if is_origin_local and p2p_manager and p2p_manager.is_running():
+                    reason = 'channel_deleted_by_origin'
+                    if privacy_mode in {'private', 'confidential'}:
+                        for peer_id in sorted(target_peers):
+                            try:
+                                p2p_manager.broadcast_delete_signal(
+                                    signal_id=f"DS{secrets.token_hex(8)}",
+                                    data_type='channel',
+                                    data_id=channel_id,
+                                    reason=reason,
+                                    target_peer=peer_id,
+                                )
+                            except Exception as p2p_err:
+                                logger.warning(
+                                    f"Failed to send targeted channel delete signal for {channel_id} "
+                                    f"to {peer_id}: {p2p_err}"
+                                )
+                    else:
+                        try:
+                            p2p_manager.broadcast_delete_signal(
+                                signal_id=f"DS{secrets.token_hex(8)}",
+                                data_type='channel',
+                                data_id=channel_id,
+                                reason=reason,
+                            )
+                        except Exception as p2p_err:
+                            logger.warning(
+                                f"Failed to broadcast channel delete signal for {channel_id}: {p2p_err}"
+                            )
+                return jsonify({
+                    'success': True,
+                    'local_only': not is_origin_local,
+                })
             return jsonify({'error': 'Not authorized to delete channel'}), 403
         except Exception as e:
             logger.error(f"Delete channel (ui) failed: {e}")
@@ -10687,6 +12495,123 @@ def create_ui_blueprint() -> Blueprint:
         except Exception as e:
             logger.error(f"Get user display info error: {e}")
             return jsonify({'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/resync_user_avatar', methods=['POST'])
+    @require_login
+    def ajax_resync_user_avatar():
+        """Trigger a profile re-sync for a user to recover their avatar."""
+        try:
+            _, _, _, _, _, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+            data = request.get_json(silent=True) or {}
+            user_id = data.get('user_id', '').strip()
+            hint_peer = data.get('origin_peer', '').strip()
+            if not user_id:
+                return jsonify({'error': 'user_id required'}), 400
+            if not p2p_manager or not hasattr(p2p_manager, 'resync_user_avatar'):
+                return jsonify({'error': 'P2P manager not available'}), 503
+            result = p2p_manager.resync_user_avatar(user_id, hint_peer=hint_peer)
+            return jsonify(result)
+        except Exception as e:
+            logger.error(f"Resync user avatar error: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/connection_diagnostics', methods=['GET'])
+    @require_login
+    def ajax_connection_diagnostics():
+        """Connection diagnostics: per-peer health, recent failures, and local config."""
+        try:
+            _, _, _, _, _, _, _, _, _, config, p2p_manager = _get_app_components_any(current_app)
+            from ..network.invite import generate_invite
+
+            if not p2p_manager:
+                return jsonify({'success': False, 'error': 'P2P network unavailable'}), 503
+
+            im = p2p_manager.identity_manager
+            conn_mgr = getattr(p2p_manager, 'connection_manager', None)
+            active_relays = dict(getattr(p2p_manager, '_active_relays', {}))
+
+            peers: list[dict[str, Any]] = []
+            for peer_id in p2p_manager.get_connected_peers():
+                is_relayed = peer_id in active_relays
+                relay_via = active_relays.get(peer_id)
+                relay_via_name: Optional[str] = None
+                if relay_via:
+                    relay_via_name = (
+                        im.peer_display_names.get(relay_via)
+                        or relay_via[:12]
+                    )
+                conn = conn_mgr.get_connection(peer_id) if conn_mgr else None
+                latency_ms = getattr(conn, 'last_ping_latency_ms', None) if conn else None
+                peers.append({
+                    'peer_id': peer_id,
+                    'display_name': im.peer_display_names.get(peer_id, ''),
+                    'connection_type': 'relayed' if is_relayed else 'direct',
+                    'relay_via': relay_via,
+                    'relay_via_name': relay_via_name,
+                    'latency_ms': latency_ms,
+                    'connected_at': conn.connected_at if conn else None,
+                    'last_activity': conn.last_activity if conn else None,
+                    'endpoints': list(im.peer_endpoints.get(peer_id, [])),
+                })
+
+            direct_set = {p['peer_id'] for p in peers}
+            for dest_peer, relay_peer in active_relays.items():
+                if dest_peer not in direct_set:
+                    relay_name = (
+                        im.peer_display_names.get(relay_peer)
+                        or relay_peer[:12]
+                    )
+                    peers.append({
+                        'peer_id': dest_peer,
+                        'display_name': im.peer_display_names.get(dest_peer, ''),
+                        'connection_type': 'relayed',
+                        'relay_via': relay_peer,
+                        'relay_via_name': relay_name,
+                        'latency_ms': None,
+                        'connected_at': None,
+                        'last_activity': None,
+                        'endpoints': list(im.peer_endpoints.get(dest_peer, [])),
+                    })
+
+            recent_failures: list[dict[str, Any]] = []
+            try:
+                for event in p2p_manager.get_activity_events(limit=200):
+                    kind = event.get('kind')
+                    status = (event.get('status') or '').lower()
+                    if kind == 'connection' and status in {'failed', 'disconnected'}:
+                        recent_failures.append({
+                            'peer_id': event.get('peer_id', ''),
+                            'endpoint': event.get('endpoint', ''),
+                            'reason': event.get('detail', ''),
+                            'timestamp': event.get('timestamp'),
+                        })
+                    if len(recent_failures) >= 5:
+                        break
+            except Exception:
+                pass
+
+            mesh_port = config.network.mesh_port if config else 7771
+            relay_status = p2p_manager.get_relay_status() if p2p_manager else {}
+            local_endpoints: list[str] = []
+            try:
+                invite = generate_invite(im, mesh_port)
+                local_endpoints = list(invite.endpoints)
+            except Exception:
+                pass
+
+            return jsonify({
+                'success': True,
+                'peers': peers,
+                'recent_failures': recent_failures,
+                'local': {
+                    'mesh_port': mesh_port,
+                    'endpoints': local_endpoints,
+                    'relay_policy': relay_status.get('relay_policy', 'broker_only'),
+                },
+            })
+        except Exception as e:
+            logger.error(f"Connection diagnostics error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Failed to load diagnostics'}), 500
 
     def _clean_mention_handle(display_name, username, user_id):
         """Derive a mention-safe handle from user info.

@@ -58,6 +58,10 @@ from ..security.csrf import validate_csrf_request
 from ..core.messaging import MessageType
 from ..security.trust import TrustEvent
 from ..security.file_access import evaluate_file_access
+from ..network.routing import (
+    encrypt_key_for_peer,
+    encode_channel_key_material,
+)
 from .agent_instructions_data import build_agent_instructions_payload
 
 logger = logging.getLogger(__name__)
@@ -347,6 +351,35 @@ def create_api_blueprint() -> Blueprint:
     def _channel_not_found_response() -> tuple[Any, int]:
         """Generic channel-scope miss to reduce enumeration leakage."""
         return jsonify({'error': 'Not found', 'message': 'Resource not found'}), 404
+
+    def _get_stream_manager() -> Any:
+        return current_app.config.get('STREAM_MANAGER')
+
+    def _get_db_manager() -> Any:
+        return current_app.config.get('DB_MANAGER')
+
+    def _build_stream_attachment(stream_row: dict[str, Any]) -> dict[str, Any]:
+        media_kind = str(stream_row.get('media_kind') or 'audio')
+        stream_kind = str(stream_row.get('stream_kind') or ('telemetry' if media_kind == 'data' else 'media'))
+        title = str(stream_row.get('title') or 'Live stream')
+        description = str(stream_row.get('description') or '')
+        status = str(stream_row.get('status') or 'created')
+        stream_id = str(stream_row.get('id') or '')
+        return {
+            'name': title,
+            'type': 'application/vnd.canopy.stream+json',
+            'kind': 'stream',
+            'stream_id': stream_id,
+            'title': title,
+            'description': description,
+            'media_kind': media_kind,
+            'stream_kind': stream_kind,
+            'protocol': str(stream_row.get('protocol') or 'hls'),
+            'status': status,
+            'channel_id': str(stream_row.get('channel_id') or ''),
+            'created_by': str(stream_row.get('created_by') or ''),
+            'relay_allowed': bool(stream_row.get('relay_allowed')),
+        }
 
     def _touch_agent_presence(user_id: Optional[str], source: str) -> Optional[str]:
         """Record a lightweight check-in timestamp for agent presence badges."""
@@ -1817,10 +1850,26 @@ def create_api_blueprint() -> Blueprint:
         try:
             discovered_peers = p2p_manager.get_discovered_peers()
             connected_peers = p2p_manager.get_connected_peers()
+            peer_versions = (
+                p2p_manager.get_peer_versions()
+                if hasattr(p2p_manager, 'get_peer_versions')
+                else {}
+            )
+            connected_peer_details = []
+            for peer_id in connected_peers:
+                ver = peer_versions.get(peer_id, {}) if isinstance(peer_versions, dict) else {}
+                connected_peer_details.append({
+                    'peer_id': peer_id,
+                    'canopy_version': ver.get('canopy_version'),
+                    'protocol_version': ver.get('protocol_version'),
+                    'compatible_protocol': ver.get('compatible_protocol'),
+                })
             
             return jsonify({
                 'discovered_peers': discovered_peers,
                 'connected_peers': connected_peers,
+                'connected_peer_details': connected_peer_details,
+                'peer_versions': peer_versions,
                 'total_discovered': len(discovered_peers),
                 'total_connected': len(connected_peers)
             })
@@ -2187,14 +2236,33 @@ def create_api_blueprint() -> Blueprint:
         if not peer_id:
             return jsonify({'error': 'peer_id required'}), 400
 
+        if p2p_manager.connection_manager.is_connected(peer_id):
+            return jsonify({'status': 'connected', 'peer_id': peer_id,
+                            'message': 'Already connected'})
+
+        active_relays = dict(getattr(p2p_manager, '_active_relays', {}) or {})
+        relay_via = active_relays.get(peer_id)
+        if relay_via:
+            relay_name = ''
+            try:
+                relay_name = (
+                    p2p_manager.identity_manager.peer_display_names.get(relay_via)
+                    if getattr(p2p_manager, 'identity_manager', None) else ''
+                ) or relay_via[:12]
+            except Exception:
+                relay_name = relay_via[:12]
+            return jsonify({
+                'status': 'relayed',
+                'peer_id': peer_id,
+                'relay_via': relay_via,
+                'relay_via_name': relay_name,
+                'message': f'Connected via relay {relay_name}',
+            })
+
         im = p2p_manager.identity_manager
         endpoints = im.peer_endpoints.get(peer_id, [])
         if not endpoints:
             return jsonify({'error': 'No known endpoints for this peer'}), 400
-
-        if p2p_manager.connection_manager.is_connected(peer_id):
-            return jsonify({'status': 'connected', 'peer_id': peer_id,
-                            'message': 'Already connected'})
 
         ev_loop = p2p_manager._event_loop
         if not ev_loop or ev_loop.is_closed():
@@ -2352,6 +2420,85 @@ def create_api_blueprint() -> Blueprint:
         if not p2p_manager:
             return jsonify({'error': 'P2P not running'}), 500
         return jsonify(p2p_manager.get_relay_status())
+
+    @api.route('/p2p/promote_direct', methods=['POST'])
+    @require_auth(allow_session=True)
+    def promote_direct():
+        """Drop relay route for a peer and attempt a direct connection."""
+        import asyncio as _asyncio
+        *_, p2p_manager = _get_app_components_any(current_app)
+        if not p2p_manager or not p2p_manager.connection_manager:
+            return jsonify({'error': 'P2P not running'}), 500
+
+        data = request.get_json(silent=True) or {}
+        peer_id = data.get('peer_id')
+        if not peer_id:
+            return jsonify({'error': 'peer_id required'}), 400
+
+        ev_loop = p2p_manager._event_loop
+        if not ev_loop or ev_loop.is_closed():
+            return jsonify({'error': 'P2P event loop unavailable'}), 500
+
+        was_relayed = peer_id in p2p_manager._active_relays
+
+        # Remove relay route so the mesh treats this peer as disconnected
+        p2p_manager._active_relays.pop(peer_id, None)
+        if p2p_manager.message_router:
+            p2p_manager.message_router.remove_route(peer_id)
+
+        # Gather known endpoints for this peer
+        endpoints = list(
+            p2p_manager.identity_manager.peer_endpoints.get(peer_id, [])
+        )
+        # Also check introduced peers
+        intro = getattr(p2p_manager, '_introduced_peers', {}).get(peer_id)
+        if intro:
+            for ep in intro.get('endpoints', []):
+                if ep not in endpoints:
+                    endpoints.append(ep)
+
+        if not endpoints:
+            return jsonify({
+                'status': 'no_endpoints',
+                'peer_id': peer_id,
+                'was_relayed': was_relayed,
+                'message': 'No known endpoints for direct connection attempt',
+            }), 400
+
+        # Try each endpoint
+        for ep in endpoints:
+            try:
+                addr = ep.replace('ws://', '').replace('wss://', '')
+                host, port_str = addr.rsplit(':', 1)
+                port = int(port_str)
+                future = _asyncio.run_coroutine_threadsafe(
+                    p2p_manager.connection_manager.connect_to_peer(
+                        peer_id, host, port),
+                    ev_loop,
+                )
+                connected = future.result(timeout=10.0)
+                if connected:
+                    try:
+                        p2p_manager.trigger_peer_sync(peer_id)
+                    except Exception:
+                        pass
+                    return jsonify({
+                        'status': 'direct',
+                        'peer_id': peer_id,
+                        'endpoint': ep,
+                        'was_relayed': was_relayed,
+                    })
+            except Exception as ce:
+                logger.warning(f"Promote direct {ep} failed: {ce}")
+                continue
+
+        return jsonify({
+            'status': 'failed',
+            'peer_id': peer_id,
+            'was_relayed': was_relayed,
+            'endpoints_tried': len(endpoints),
+            'message': 'Could not establish direct connection on any endpoint',
+        }), 502
 
     @api.route('/p2p/activity', methods=['GET'])
     @require_auth(allow_session=True)
@@ -6884,6 +7031,634 @@ def create_api_blueprint() -> Blueprint:
             logger.error(f"File deletion failed: {e}", exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
+    @api.route('/streams', methods=['GET'])
+    @require_auth(Permission.READ_FEED)
+    def list_streams_api():
+        stream_manager = _get_stream_manager()
+        if not stream_manager:
+            return jsonify({'error': 'Streaming unavailable'}), 503
+        try:
+            channel_id = str(request.args.get('channel_id') or '').strip() or None
+            status = str(request.args.get('status') or '').strip().lower() or None
+            limit_raw = request.args.get('limit', 100)
+            try:
+                limit = int(limit_raw)
+            except Exception:
+                limit = 100
+            streams = stream_manager.list_streams_for_user(
+                g.api_key_info.user_id,
+                channel_id=channel_id,
+                status=status,
+                limit=limit,
+            )
+            return jsonify({'streams': streams, 'count': len(streams)})
+        except Exception as e:
+            logger.error(f"List streams failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/streams', methods=['POST'])
+    @require_auth(Permission.WRITE_FEED)
+    def create_stream_api():
+        db_manager, _, _, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+        stream_manager = _get_stream_manager()
+        if not stream_manager:
+            return jsonify({'error': 'Streaming unavailable'}), 503
+        try:
+            data = request.get_json(silent=True) or {}
+            channel_id = str(data.get('channel_id') or '').strip()
+            title = str(data.get('title') or '').strip()
+            description = str(data.get('description') or '').strip()
+            stream_kind = str(data.get('stream_kind') or '').strip().lower() or None
+            media_kind = str(data.get('media_kind') or 'audio').strip().lower()
+            protocol_default = 'events-json' if stream_kind == 'telemetry' else 'hls'
+            protocol = str(data.get('protocol') or protocol_default).strip().lower()
+            relay_allowed = _as_bool(data.get('relay_allowed'))
+            auto_post = True if data.get('auto_post') is None else _as_bool(data.get('auto_post'))
+            start_now = _as_bool(data.get('start_now'))
+
+            stream_row, error = stream_manager.create_stream(
+                channel_id=channel_id,
+                created_by=g.api_key_info.user_id,
+                title=title,
+                description=description,
+                stream_kind=stream_kind,
+                media_kind=media_kind,
+                protocol=protocol,
+                relay_allowed=relay_allowed,
+                origin_peer=(p2p_manager.get_peer_id() if p2p_manager else None),
+                metadata={
+                    'created_via': 'api',
+                    'created_at': datetime.now(timezone.utc).isoformat(),
+                },
+            )
+            if error:
+                if error in {'channel_not_found', 'not_channel_member'}:
+                    return _channel_not_found_response()
+                if error in {
+                    'invalid_media_kind',
+                    'invalid_stream_kind',
+                    'invalid_protocol',
+                    'invalid_protocol_for_stream_kind',
+                    'title_required',
+                    'title_too_long',
+                    'description_too_long',
+                }:
+                    return jsonify({'error': error}), 400
+                return jsonify({'error': error}), 403
+
+            posted_message_id = None
+            if auto_post and stream_row:
+                from ..core.channels import MessageType as ChannelMessageType
+                attachment = _build_stream_attachment(stream_row)
+                post_content = str(data.get('post_content') or '').strip()
+                if not post_content:
+                    stream_kind_value = str(stream_row.get('stream_kind') or 'media').lower()
+                    if stream_kind_value == 'telemetry':
+                        label = "Telemetry stream"
+                    else:
+                        label = "Live video stream" if media_kind == "video" else "Live audio stream"
+                    post_content = f"{label}: {title or stream_row.get('title')}"
+                msg = channel_manager.send_message(
+                    channel_id,
+                    g.api_key_info.user_id,
+                    post_content,
+                    ChannelMessageType.FILE,
+                    attachments=[attachment],
+                    origin_peer=(p2p_manager.get_peer_id() if p2p_manager else None),
+                )
+                if msg:
+                    posted_message_id = msg.id
+                    # Broadcast stream announcement as standard channel message attachment
+                    # to keep backward compatibility with existing peers.
+                    try:
+                        if p2p_manager:
+                            mode_row = None
+                            with db_manager.get_connection() as conn:
+                                mode_row = conn.execute(
+                                    "SELECT privacy_mode FROM channels WHERE id = ?",
+                                    (channel_id,),
+                                ).fetchone()
+                            channel_mode = 'open'
+                            if mode_row:
+                                channel_mode = str(mode_row['privacy_mode'] or 'open').lower()
+                            target_peers = None
+                            if channel_mode in {'private', 'confidential'}:
+                                target_peers = channel_manager.get_target_peer_ids_for_channel(channel_id)
+                            p2p_manager.broadcast_channel_message(
+                                channel_id=channel_id,
+                                user_id=g.api_key_info.user_id,
+                                content=post_content,
+                                message_id=msg.id,
+                                timestamp=msg.created_at.isoformat() if getattr(msg, 'created_at', None) else datetime.now(timezone.utc).isoformat(),
+                                attachments=[attachment],
+                                display_name=(db_manager.get_user(g.api_key_info.user_id) or {}).get('display_name'),
+                                parent_message_id=None,
+                                security={'privacy_mode': channel_mode},
+                                target_peer_ids=target_peers,
+                            )
+                    except Exception as bcast_err:
+                        logger.warning(f"Stream post broadcast failed (non-fatal): {bcast_err}")
+
+            if start_now and stream_row:
+                started, start_err = stream_manager.start_stream(stream_row['id'], g.api_key_info.user_id)
+                if not start_err and started:
+                    stream_row = started
+
+            payload = {
+                'success': True,
+                'stream': stream_row,
+            }
+            if posted_message_id:
+                payload['posted_message_id'] = posted_message_id
+            return jsonify(payload), 201
+        except Exception as e:
+            logger.error(f"Create stream failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/streams/<stream_id>', methods=['GET'])
+    @require_auth(Permission.READ_FEED)
+    def get_stream_api(stream_id):
+        stream_manager = _get_stream_manager()
+        if not stream_manager:
+            return jsonify({'error': 'Streaming unavailable'}), 503
+        try:
+            stream_row = stream_manager.get_stream_for_user(stream_id, g.api_key_info.user_id)
+            if not stream_row:
+                return jsonify({'error': 'Not found'}), 404
+            return jsonify({'stream': stream_row})
+        except Exception as e:
+            logger.error(f"Get stream failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/streams/<stream_id>/start', methods=['POST'])
+    @require_auth(Permission.WRITE_FEED)
+    def start_stream_api(stream_id):
+        stream_manager = _get_stream_manager()
+        if not stream_manager:
+            return jsonify({'error': 'Streaming unavailable'}), 503
+        try:
+            stream_row, error = stream_manager.start_stream(stream_id, g.api_key_info.user_id)
+            if error in {'not_found', 'not_authorized'}:
+                return jsonify({'error': 'Not found'}), 404
+            if error:
+                return jsonify({'error': error}), 400
+            return jsonify({'success': True, 'stream': stream_row})
+        except Exception as e:
+            logger.error(f"Start stream failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/streams/<stream_id>/stop', methods=['POST'])
+    @require_auth(Permission.WRITE_FEED)
+    def stop_stream_api(stream_id):
+        stream_manager = _get_stream_manager()
+        if not stream_manager:
+            return jsonify({'error': 'Streaming unavailable'}), 503
+        try:
+            stream_row, error = stream_manager.stop_stream(stream_id, g.api_key_info.user_id)
+            if error in {'not_found', 'not_authorized'}:
+                return jsonify({'error': 'Not found'}), 404
+            if error:
+                return jsonify({'error': error}), 400
+            return jsonify({'success': True, 'stream': stream_row})
+        except Exception as e:
+            logger.error(f"Stop stream failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/streams/<stream_id>/tokens', methods=['POST'])
+    @require_auth(Permission.WRITE_FEED)
+    def issue_stream_token_api(stream_id):
+        stream_manager = _get_stream_manager()
+        if not stream_manager:
+            return jsonify({'error': 'Streaming unavailable'}), 503
+        try:
+            data = request.get_json(silent=True) or {}
+            scope = str(data.get('scope') or 'view').strip().lower()
+            ttl_seconds = data.get('ttl_seconds')
+            token_payload, error = stream_manager.issue_token(
+                stream_id=stream_id,
+                user_id=g.api_key_info.user_id,
+                scope=scope,
+                ttl_seconds=ttl_seconds,
+                metadata={'issued_via': 'api'},
+            )
+            if error in {'not_found', 'not_authorized'}:
+                return jsonify({'error': 'Not found'}), 404
+            if error:
+                return jsonify({'error': error}), 400
+            if not token_payload:
+                return jsonify({'error': 'token_issue_failed'}), 500
+
+            if scope == 'view':
+                token_q = quote_plus(str(token_payload.get('token') or ''))
+                stream_row = stream_manager.get_stream(stream_id) or {}
+                stream_kind = str(stream_row.get('stream_kind') or 'media').lower()
+                protocol = str(stream_row.get('protocol') or 'hls').lower()
+                if stream_kind == 'telemetry' or protocol == 'events-json':
+                    token_payload['playback_url'] = f"/api/v1/streams/{stream_id}/events?token={token_q}"
+                else:
+                    token_payload['playback_url'] = f"/api/v1/streams/{stream_id}/manifest.m3u8?token={token_q}"
+            return jsonify({'success': True, **token_payload})
+        except Exception as e:
+            logger.error(f"Issue stream token failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/streams/<stream_id>/join', methods=['POST'])
+    @require_auth(Permission.READ_FEED)
+    def join_stream_api(stream_id):
+        stream_manager = _get_stream_manager()
+        if not stream_manager:
+            return jsonify({'error': 'Streaming unavailable'}), 503
+        try:
+            data = request.get_json(silent=True) or {}
+            ttl_seconds = data.get('ttl_seconds')
+            token_payload, error = stream_manager.issue_token(
+                stream_id=stream_id,
+                user_id=g.api_key_info.user_id,
+                scope='view',
+                ttl_seconds=ttl_seconds,
+                metadata={'issued_via': 'join'},
+            )
+            if error in {'not_found', 'not_authorized'}:
+                return jsonify({'error': 'Not found'}), 404
+            if error:
+                return jsonify({'error': error}), 400
+            if not token_payload:
+                return jsonify({'error': 'token_issue_failed'}), 500
+
+            token_q = quote_plus(str(token_payload.get('token') or ''))
+            stream_row = stream_manager.get_stream_for_user(stream_id, g.api_key_info.user_id)
+            stream_kind = str((stream_row or {}).get('stream_kind') or 'media').lower()
+            protocol = str((stream_row or {}).get('protocol') or 'hls').lower()
+            if stream_kind == 'telemetry' or protocol == 'events-json':
+                playback_url = f"/api/v1/streams/{stream_id}/events?token={token_q}"
+            else:
+                playback_url = f"/api/v1/streams/{stream_id}/manifest.m3u8?token={token_q}"
+            return jsonify({
+                'success': True,
+                'stream': stream_row,
+                'stream_kind': stream_kind,
+                'token': token_payload.get('token'),
+                'expires_at': token_payload.get('expires_at'),
+                'playback_url': playback_url,
+                'transport_url': playback_url,
+            })
+        except Exception as e:
+            logger.error(f"Join stream failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/streams/<stream_id>/ingest/manifest', methods=['PUT'])
+    def ingest_stream_manifest_api(stream_id):
+        stream_manager = _get_stream_manager()
+        if not stream_manager:
+            return jsonify({'error': 'Streaming unavailable'}), 503
+        try:
+            token = str(request.args.get('token') or request.headers.get('X-Stream-Token') or '').strip()
+            token_data, token_err = stream_manager.validate_token(
+                stream_id=stream_id,
+                token=token,
+                scope='ingest',
+            )
+            if token_err or not token_data:
+                return jsonify({'error': 'Not found'}), 404
+            payload = request.get_data(cache=False, as_text=False)
+            err = stream_manager.store_manifest(stream_id=stream_id, manifest_bytes=payload or b'')
+            if err:
+                if err in {'not_found', 'manifest_not_found'}:
+                    return jsonify({'error': 'Not found'}), 404
+                return jsonify({'error': err}), 400
+            # Transition to live on first successful ingest update.
+            try:
+                stream_manager.start_stream(stream_id, str(token_data.get('user_id') or ''))
+            except Exception:
+                pass
+            return jsonify({'success': True})
+        except Exception as e:
+            logger.error(f"Ingest manifest failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/streams/<stream_id>/ingest/segments/<segment_name>', methods=['PUT'])
+    def ingest_stream_segment_api(stream_id, segment_name):
+        stream_manager = _get_stream_manager()
+        if not stream_manager:
+            return jsonify({'error': 'Streaming unavailable'}), 503
+        try:
+            token = str(request.args.get('token') or request.headers.get('X-Stream-Token') or '').strip()
+            token_data, token_err = stream_manager.validate_token(
+                stream_id=stream_id,
+                token=token,
+                scope='ingest',
+            )
+            if token_err or not token_data:
+                return jsonify({'error': 'Not found'}), 404
+            payload = request.get_data(cache=False, as_text=False)
+            err = stream_manager.store_segment(
+                stream_id=stream_id,
+                segment_name=segment_name,
+                segment_bytes=payload or b'',
+            )
+            if err:
+                if err == 'not_found':
+                    return jsonify({'error': 'Not found'}), 404
+                return jsonify({'error': err}), 400
+            return jsonify({'success': True})
+        except Exception as e:
+            logger.error(f"Ingest segment failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/streams/<stream_id>/ingest/events', methods=['POST'])
+    def ingest_stream_event_api(stream_id):
+        stream_manager = _get_stream_manager()
+        if not stream_manager:
+            return jsonify({'error': 'Streaming unavailable'}), 503
+        try:
+            token = str(request.args.get('token') or request.headers.get('X-Stream-Token') or '').strip()
+            token_data, token_err = stream_manager.validate_token(
+                stream_id=stream_id,
+                token=token,
+                scope='ingest',
+            )
+            if token_err or not token_data:
+                return jsonify({'error': 'Not found'}), 404
+
+            content_type = str(request.headers.get('Content-Type') or 'application/json').split(';', 1)[0].strip().lower()
+            body = request.get_json(silent=True)
+            if isinstance(body, dict):
+                event_payload = body.get('payload', body)
+                event_ts = body.get('event_ts')
+                event_metadata = body.get('metadata') if isinstance(body.get('metadata'), dict) else None
+                if body.get('content_type'):
+                    content_type = str(body.get('content_type')).strip().lower()
+            else:
+                event_payload = request.get_data(cache=False, as_text=True)
+                event_ts = None
+                event_metadata = None
+
+            event_row, err = stream_manager.store_event(
+                stream_id=stream_id,
+                event_payload=event_payload,
+                content_type=content_type or 'application/json',
+                event_ts=event_ts,
+                metadata=event_metadata,
+            )
+            if err in {'not_found'}:
+                return jsonify({'error': 'Not found'}), 404
+            if err:
+                return jsonify({'error': err}), 400
+            return jsonify({'success': True, 'event': event_row}), 201
+        except Exception as e:
+            logger.error(f"Ingest stream event failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    def _find_stream_remote_base(self_stream_id: str) -> Optional[str]:
+        """Find a reachable remote base URL for a stream by trying all host_addrs."""
+        from urllib.request import urlopen as _urlopen
+        from urllib.error import URLError as _URLError
+        import json as _json
+        db_manager = _get_db_manager()
+        if not db_manager:
+            return None
+        candidates: list[str] = []
+        with db_manager.get_connection() as conn:
+            rows = conn.execute(
+                "SELECT attachments FROM channel_messages "
+                "WHERE attachments IS NOT NULL AND attachments != '[]' "
+                "ORDER BY created_at DESC LIMIT 300"
+            ).fetchall()
+        for row in rows:
+            try:
+                atts = _json.loads(row[0] if not hasattr(row, 'keys') else row['attachments'])
+            except Exception:
+                continue
+            for att in atts:
+                if not isinstance(att, dict):
+                    continue
+                if str(att.get('stream_id') or '') == self_stream_id:
+                    candidates = [str(a).rstrip('/') for a in (att.get('host_addrs') or [])]
+                    break
+            if candidates:
+                break
+        for base in candidates:
+            try:
+                test_url = f"{base}/api/v1/streams/{self_stream_id}/manifest.m3u8"
+                with _urlopen(test_url, timeout=4) as resp:
+                    resp.read(1)
+                return base
+            except Exception:
+                continue
+        return candidates[0] if candidates else None
+
+    @api.route('/stream-proxy/<stream_id>/manifest.m3u8', methods=['GET'])
+    def stream_proxy_manifest_api(stream_id):
+        """Server-side proxy for remote peer streams — fetches manifest from origin peer and rewrites segment URLs."""
+        from urllib.request import urlopen as _urlopen
+        from urllib.error import URLError as _URLError
+        try:
+            remote_base = _find_stream_remote_base(stream_id)
+            if not remote_base:
+                return jsonify({'error': 'Remote peer not found'}), 404
+            remote_url = f"{remote_base}/api/v1/streams/{stream_id}/manifest.m3u8"
+            try:
+                with _urlopen(remote_url, timeout=8) as resp:
+                    raw = resp.read().decode('utf-8')
+            except _URLError as e:
+                logger.warning(f"stream-proxy: failed to fetch {remote_url}: {e}")
+                return jsonify({'error': 'Remote stream unreachable'}), 502
+            # Rewrite segment URLs to go through the local proxy too
+            out_lines = []
+            for line in raw.splitlines():
+                stripped = line.strip()
+                if not stripped or stripped.startswith('#'):
+                    # Rewrite EXT-X-MAP URI to local proxy
+                    if stripped.startswith('#EXT-X-MAP:URI="'):
+                        import re as _re
+                        def _rewrite_map(m: Any) -> str:
+                            seg = m.group(2).split('/')[-1].split('?')[0]
+                            return f'{m.group(1)}/api/v1/stream-proxy/{stream_id}/segments/{seg}{m.group(3)}'
+                        line = _re.sub(r'(#EXT-X-MAP:URI=")([^"]+)(".*)', _rewrite_map, stripped)
+                    out_lines.append(line)
+                elif stripped.startswith('/api/v1/streams/'):
+                    # Already absolute path — rewrite to proxy path
+                    seg_name = stripped.split('/segments/')[-1].split('?')[0]
+                    out_lines.append(f'/api/v1/stream-proxy/{stream_id}/segments/{seg_name}')
+                elif stripped.startswith('http'):
+                    seg_name = stripped.split('/segments/')[-1].split('?')[0]
+                    out_lines.append(f'/api/v1/stream-proxy/{stream_id}/segments/{seg_name}')
+                else:
+                    # Bare segment name
+                    seg_name = stripped.split('?')[0]
+                    out_lines.append(f'/api/v1/stream-proxy/{stream_id}/segments/{seg_name}')
+            return Response(
+                '\n'.join(out_lines),
+                mimetype='application/vnd.apple.mpegurl',
+                headers={'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*'},
+            )
+        except Exception as e:
+            logger.error(f"stream-proxy manifest failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/stream-proxy/<stream_id>/segments/<segment_name>', methods=['GET'])
+    def stream_proxy_segment_api(stream_id, segment_name):
+        """Server-side proxy for remote peer stream segments."""
+        from urllib.request import urlopen as _urlopen
+        from urllib.error import URLError as _URLError
+        try:
+            remote_base = _find_stream_remote_base(stream_id)
+            if not remote_base:
+                return jsonify({'error': 'Not found'}), 404
+            remote_url = f"{remote_base}/api/v1/streams/{stream_id}/segments/{segment_name}"
+            try:
+                with _urlopen(remote_url, timeout=8) as resp:
+                    data = resp.read()
+                    content_type = resp.headers.get('Content-Type', 'application/octet-stream')
+            except _URLError as e:
+                logger.warning(f"stream-proxy segment: failed to fetch {remote_url}: {e}")
+                return jsonify({'error': 'Not found'}), 404
+            return Response(
+                data,
+                mimetype=content_type,
+                headers={'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*'},
+            )
+        except Exception as e:
+            logger.error(f"stream-proxy segment failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/streams/<stream_id>/manifest.m3u8', methods=['GET', 'OPTIONS'])
+    def stream_manifest_api(stream_id):
+        if request.method == 'OPTIONS':
+            return Response('', status=204, headers={
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type',
+            })
+        stream_manager = _get_stream_manager()
+        if not stream_manager:
+            return jsonify({'error': 'Streaming unavailable'}), 503
+        try:
+            token = str(request.args.get('token') or '').strip()
+            token_data, token_err = stream_manager.validate_token(
+                stream_id=stream_id,
+                token=token,
+                scope='view',
+            )
+            if token_err or not token_data:
+                # Allow token-free access for open-visibility streams (cross-peer playback)
+                stream_row = stream_manager.get_stream(stream_id)
+                if not stream_row or str(stream_row.get('visibility_mode') or 'open').lower() != 'open':
+                    return jsonify({'error': 'Not found'}), 404
+                token = ''  # serve without token; render_manifest_for_token handles empty token
+            rendered, err = stream_manager.render_manifest_for_token(
+                stream_id=stream_id,
+                token=token,
+                api_base_path='/api/v1/streams',
+            )
+            if err or rendered is None:
+                return jsonify({'error': 'Not found'}), 404
+            return Response(
+                rendered,
+                mimetype='application/vnd.apple.mpegurl',
+                headers={
+                    'Cache-Control': 'no-store',
+                    'Content-Disposition': 'inline; filename="master.m3u8"',
+                    'Access-Control-Allow-Origin': '*',
+                },
+            )
+        except Exception as e:
+            logger.error(f"Serve stream manifest failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/streams/<stream_id>/segments/<segment_name>', methods=['GET', 'OPTIONS'])
+    def stream_segment_api(stream_id, segment_name):
+        if request.method == 'OPTIONS':
+            return Response('', status=204, headers={
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type',
+            })
+        stream_manager = _get_stream_manager()
+        if not stream_manager:
+            return jsonify({'error': 'Streaming unavailable'}), 503
+        try:
+            token = str(request.args.get('token') or '').strip()
+            token_data, token_err = stream_manager.validate_token(
+                stream_id=stream_id,
+                token=token,
+                scope='view',
+            )
+            if token_err or not token_data:
+                # Allow token-free access for open-visibility streams (cross-peer playback)
+                stream_row = stream_manager.get_stream(stream_id)
+                if not stream_row or str(stream_row.get('visibility_mode') or 'open').lower() != 'open':
+                    return jsonify({'error': 'Not found'}), 404
+            data, mimetype, err = stream_manager.get_segment_data(
+                stream_id=stream_id,
+                segment_name=segment_name,
+            )
+            if err or data is None:
+                return jsonify({'error': 'Not found'}), 404
+            return Response(
+                data,
+                mimetype=mimetype or 'application/octet-stream',
+                headers={
+                    'Cache-Control': 'no-store',
+                    'Access-Control-Allow-Origin': '*',
+                },
+            )
+        except Exception as e:
+            logger.error(f"Serve stream segment failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/streams/<stream_id>/events', methods=['GET'])
+    def stream_events_api(stream_id):
+        stream_manager = _get_stream_manager()
+        if not stream_manager:
+            return jsonify({'error': 'Streaming unavailable'}), 503
+        try:
+            token = str(request.args.get('token') or '').strip()
+            token_data, token_err = stream_manager.validate_token(
+                stream_id=stream_id,
+                token=token,
+                scope='view',
+            )
+            if token_err or not token_data:
+                return jsonify({'error': 'Not found'}), 404
+
+            after_seq_raw = request.args.get('after_seq', 0)
+            limit_raw = request.args.get('limit', 100)
+            try:
+                after_seq = int(after_seq_raw)
+            except Exception:
+                after_seq = 0
+            try:
+                limit = int(limit_raw)
+            except Exception:
+                limit = 100
+
+            events, err = stream_manager.list_events(
+                stream_id=stream_id,
+                after_seq=after_seq,
+                limit=limit,
+            )
+            if err in {'not_found'}:
+                return jsonify({'error': 'Not found'}), 404
+            if err:
+                return jsonify({'error': err}), 400
+            events_list = events or []
+            last_seq = after_seq
+            if events_list:
+                last_seq = max(int(ev.get('seq') or 0) for ev in events_list)
+            stream_row = stream_manager.get_stream(stream_id) or {}
+            return jsonify({
+                'success': True,
+                'stream_id': stream_id,
+                'stream_kind': stream_row.get('stream_kind') or 'telemetry',
+                'events': events_list,
+                'count': len(events_list),
+                'last_seq': last_seq,
+            })
+        except Exception as e:
+            logger.error(f"Serve stream events failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @api.route('/channels/messages', methods=['POST'])
     @require_auth(Permission.WRITE_FEED)
     def send_channel_message():
@@ -7603,6 +8378,280 @@ def create_api_blueprint() -> Blueprint:
             logger.error(f"Channel search failed: {e}")
             return jsonify({'error': 'Internal server error'}), 500
 
+    def _api_e2e_private_enabled() -> bool:
+        cfg = current_app.config.get('CANOPY_CONFIG')
+        sec = getattr(cfg, 'security', None)
+        return bool(getattr(sec, 'e2e_private_channels', False))
+
+    def _api_normalize_crypto_mode(raw_mode: Any) -> str:
+        mode = str(raw_mode or '').strip().lower()
+        if mode in {'legacy_plaintext', 'e2e_optional', 'e2e_enforced'}:
+            return mode
+        return 'legacy_plaintext'
+
+    def _api_channel_targets_e2e(privacy_mode: str, crypto_mode: str) -> bool:
+        return (
+            str(privacy_mode or '').strip().lower() in {'private', 'confidential'}
+            and str(crypto_mode or '').strip().lower() in {'e2e_optional', 'e2e_enforced'}
+        )
+
+    def _api_send_channel_key_to_peer(channel_manager: Any, p2p_manager: Any,
+                                      channel_id: str, key_payload: dict[str, Any],
+                                      peer_id: str, rotated_from: Optional[str] = None) -> bool:
+        if not p2p_manager or not peer_id:
+            return False
+        local_peer = p2p_manager.get_peer_id() if p2p_manager else None
+        if not local_peer or peer_id == local_peer:
+            return False
+        recipient_identity = p2p_manager.identity_manager.get_peer(peer_id)
+        local_identity = p2p_manager.identity_manager.local_identity
+        if not recipient_identity or not local_identity:
+            channel_manager.upsert_channel_member_key_state(
+                channel_id=channel_id,
+                key_id=key_payload['key_id'],
+                peer_id=peer_id,
+                delivery_state='failed',
+                last_error='unknown_peer_identity',
+            )
+            return False
+        try:
+            wrapped = encrypt_key_for_peer(
+                key_material=key_payload['key_material'],
+                local_identity=local_identity,
+                recipient_identity=recipient_identity,
+            )
+        except Exception as err:
+            channel_manager.upsert_channel_member_key_state(
+                channel_id=channel_id,
+                key_id=key_payload['key_id'],
+                peer_id=peer_id,
+                delivery_state='failed',
+                last_error=f'wrap_failed:{err}',
+            )
+            return False
+
+        channel_manager.upsert_channel_member_key_state(
+            channel_id=channel_id,
+            key_id=key_payload['key_id'],
+            peer_id=peer_id,
+            delivery_state='pending',
+            last_error=None,
+        )
+        sent = p2p_manager.send_channel_key_distribution(
+            to_peer=peer_id,
+            channel_id=channel_id,
+            key_id=key_payload['key_id'],
+            encrypted_key=wrapped,
+            key_version=int((key_payload.get('metadata') or {}).get('key_version') or 1),
+            rotated_from=rotated_from or (key_payload.get('metadata') or {}).get('rotated_from'),
+        )
+        channel_manager.upsert_channel_member_key_state(
+            channel_id=channel_id,
+            key_id=key_payload['key_id'],
+            peer_id=peer_id,
+            delivery_state='delivered' if sent else 'failed',
+            delivered=sent,
+            last_error=None if sent else 'send_failed',
+        )
+        return bool(sent)
+
+    def _api_ensure_channel_key(channel_manager: Any, channel_id: str,
+                                origin_peer: Optional[str], rotated_from: Optional[str] = None) -> Optional[dict[str, Any]]:
+        active = channel_manager.get_active_channel_key(channel_id)
+        if active:
+            key_bytes = channel_manager.decode_channel_key_material(active.get('key_material_enc'))
+            if key_bytes:
+                return {'key_id': active.get('key_id'), 'key_material': key_bytes, 'metadata': active.get('metadata') or {}}
+        key_bytes = secrets.token_bytes(32)
+        key_id = f"K{secrets.token_hex(8)}"
+        metadata = {
+            'algorithm': 'chacha20poly1305',
+            'key_version': 1,
+            'rotated_from': rotated_from,
+            'generated_at': datetime.now(timezone.utc).isoformat(),
+        }
+        ok = channel_manager.upsert_channel_key(
+            channel_id=channel_id,
+            key_id=key_id,
+            key_material_enc=encode_channel_key_material(key_bytes),
+            created_by_peer=origin_peer,
+            metadata=metadata,
+        )
+        if not ok:
+            return None
+        return {'key_id': key_id, 'key_material': key_bytes, 'metadata': metadata}
+
+    def _api_rotate_channel_key(channel_manager: Any, channel_id: str,
+                                origin_peer: Optional[str], rotated_from: Optional[str]) -> Optional[dict[str, Any]]:
+        key_bytes = secrets.token_bytes(32)
+        key_id = f"K{secrets.token_hex(8)}"
+        metadata = {
+            'algorithm': 'chacha20poly1305',
+            'key_version': 1,
+            'rotated_from': rotated_from,
+            'generated_at': datetime.now(timezone.utc).isoformat(),
+        }
+        ok = channel_manager.upsert_channel_key(
+            channel_id=channel_id,
+            key_id=key_id,
+            key_material_enc=encode_channel_key_material(key_bytes),
+            created_by_peer=origin_peer,
+            metadata=metadata,
+        )
+        if not ok:
+            return None
+        if rotated_from:
+            channel_manager.revoke_channel_key(channel_id, rotated_from)
+        return {'key_id': key_id, 'key_material': key_bytes, 'metadata': metadata}
+
+    def _api_distribute_channel_key_to_members(channel_manager: Any, p2p_manager: Any,
+                                               channel_id: str, key_payload: dict[str, Any],
+                                               rotated_from: Optional[str] = None) -> int:
+        if not p2p_manager:
+            return 0
+        local_peer = p2p_manager.get_peer_id() if p2p_manager else None
+        peers = channel_manager.get_member_peer_ids(channel_id, local_peer)
+        sent = 0
+        for peer_id in sorted(peers):
+            if _api_send_channel_key_to_peer(
+                channel_manager=channel_manager,
+                p2p_manager=p2p_manager,
+                channel_id=channel_id,
+                key_payload=key_payload,
+                peer_id=peer_id,
+                rotated_from=rotated_from,
+            ):
+                sent += 1
+        return sent
+
+    def _api_trigger_member_sync(db_manager: Any, channel_manager: Any, p2p_manager: Any,
+                                 channel_id: str, target_user_id: str, action: str, role: str = 'member') -> None:
+        if not p2p_manager or not p2p_manager.is_running():
+            return
+        try:
+            with db_manager.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT privacy_mode, name, channel_type, description, crypto_mode, created_by FROM channels WHERE id = ?",
+                    (channel_id,),
+                ).fetchone()
+            if not row:
+                return
+            mode = (row['privacy_mode'] or 'open').strip().lower()
+            if mode not in {'private', 'confidential'}:
+                return
+            local_peer = p2p_manager.get_peer_id()
+            target_peer = ''
+            try:
+                user = db_manager.get_user(target_user_id)
+                target_peer = (user.get('origin_peer') or '') if user else ''
+            except Exception:
+                target_peer = ''
+
+            sync_payload_base = {
+                'channel_name': row['name'] or '',
+                'channel_type': row['channel_type'] or 'private',
+                'channel_description': row['description'] or '',
+                'privacy_mode': mode,
+            }
+
+            def _queue_and_send(target_peer_id: Optional[str]) -> bool:
+                peer_id = str(target_peer_id or '').strip()
+                if not peer_id or peer_id == local_peer:
+                    return False
+                sync_id = f"MS{secrets.token_hex(10)}"
+                try:
+                    channel_manager.queue_member_sync_delivery(
+                        sync_id=sync_id,
+                        channel_id=channel_id,
+                        target_user_id=target_user_id,
+                        action=action,
+                        role=role,
+                        target_peer_id=peer_id,
+                        payload=sync_payload_base,
+                    )
+                except Exception:
+                    pass
+                sent = p2p_manager.broadcast_member_sync(
+                    channel_id=channel_id,
+                    target_user_id=target_user_id,
+                    action=action,
+                    target_peer_id=peer_id,
+                    role=role,
+                    channel_name=sync_payload_base['channel_name'],
+                    channel_type=sync_payload_base['channel_type'],
+                    channel_description=sync_payload_base['channel_description'],
+                    privacy_mode=sync_payload_base['privacy_mode'],
+                    sync_id=sync_id,
+                )
+                try:
+                    channel_manager.mark_member_sync_delivery_attempt(
+                        sync_id=sync_id,
+                        sent=bool(sent),
+                        error=None if sent else 'send_failed',
+                    )
+                except Exception:
+                    pass
+                return bool(sent)
+
+            candidates: list[str] = []
+            if target_peer and target_peer != local_peer:
+                candidates.append(target_peer)
+            try:
+                member_peers = channel_manager.get_member_peer_ids(channel_id, local_peer)
+                for member_peer in sorted(member_peers):
+                    member_peer_s = str(member_peer or '').strip()
+                    if member_peer_s and member_peer_s != local_peer and member_peer_s not in candidates:
+                        candidates.append(member_peer_s)
+            except Exception:
+                pass
+            try:
+                connected = p2p_manager.get_connected_peers() or []
+                for cp in connected:
+                    pid = cp if isinstance(cp, str) else getattr(cp, 'peer_id', None)
+                    pid_s = str(pid or '').strip()
+                    if pid_s and pid_s != local_peer and pid_s not in candidates:
+                        candidates.append(pid_s)
+            except Exception:
+                pass
+
+            max_attempts = 3
+            attempts = 0
+            for candidate_peer in candidates:
+                if attempts >= max_attempts:
+                    break
+                attempts += 1
+                if _queue_and_send(candidate_peer):
+                    break
+
+            if action == 'add':
+                p2p_manager.broadcast_channel_announce(
+                    channel_id=channel_id,
+                    name=row['name'] or '',
+                    channel_type=row['channel_type'] or 'private',
+                    description=row['description'] or '',
+                    privacy_mode=mode,
+                    created_by_user_id=row['created_by'] if row and 'created_by' in row.keys() else None,
+                )
+                crypto_mode = _api_normalize_crypto_mode(row['crypto_mode'])
+                if _api_e2e_private_enabled() and _api_channel_targets_e2e(mode, crypto_mode) and target_peer and target_peer != local_peer:
+                    active_key = channel_manager.get_active_channel_key(channel_id)
+                    if active_key:
+                        key_bytes = channel_manager.decode_channel_key_material(active_key.get('key_material_enc'))
+                        if key_bytes:
+                            _api_send_channel_key_to_peer(
+                                channel_manager=channel_manager,
+                                p2p_manager=p2p_manager,
+                                channel_id=channel_id,
+                                key_payload={
+                                    'key_id': active_key['key_id'],
+                                    'key_material': key_bytes,
+                                    'metadata': active_key.get('metadata') or {},
+                                },
+                                peer_id=target_peer,
+                            )
+        except Exception as e:
+            logger.warning(f"API member sync trigger failed (non-fatal): {e}")
+
     @api.route('/channels', methods=['GET'])
     @require_auth(Permission.READ_FEED)
     def get_user_channels_api():
@@ -7636,6 +8685,7 @@ def create_api_blueprint() -> Blueprint:
             description = data.get('description', '').strip()
             privacy_mode = (data.get('privacy_mode') or 'open').strip().lower()
             channel_type_str = data.get('type', 'public')
+            requested_crypto_mode = _api_normalize_crypto_mode(data.get('crypto_mode'))
             if privacy_mode not in {'open', 'guarded', 'private', 'confidential'}:
                 return jsonify({'error': 'Invalid privacy mode'}), 400
             
@@ -7702,11 +8752,37 @@ def create_api_blueprint() -> Blueprint:
                             channel_type=channel.channel_type.value,
                             description=channel.description or '',
                             privacy_mode=channel.privacy_mode,
+                            created_by_user_id=channel.created_by,
                             member_peer_ids=_api_mpids,
                             initial_members_by_peer=_api_mbp,
                         )
                     except Exception as ann_err:
                         logger.warning(f"P2P channel announce failed (non-fatal): {ann_err}")
+
+                # Phase-2 E2E bootstrap for targeted channels.
+                try:
+                    if _api_e2e_private_enabled() and (channel.privacy_mode or '').lower() in {'private', 'confidential'}:
+                        crypto_mode = requested_crypto_mode
+                        if crypto_mode == 'legacy_plaintext':
+                            crypto_mode = 'e2e_optional'
+                        channel_manager.set_channel_crypto_mode(channel.id, crypto_mode)
+                        channel.crypto_mode = crypto_mode
+                        if _api_channel_targets_e2e(channel.privacy_mode, crypto_mode):
+                            key_payload = _api_ensure_channel_key(
+                                channel_manager=channel_manager,
+                                channel_id=channel.id,
+                                origin_peer=(p2p_manager.get_peer_id() if p2p_manager else None),
+                                rotated_from=None,
+                            )
+                            if key_payload and p2p_manager and p2p_manager.is_running():
+                                _api_distribute_channel_key_to_members(
+                                    channel_manager=channel_manager,
+                                    p2p_manager=p2p_manager,
+                                    channel_id=channel.id,
+                                    key_payload=key_payload,
+                                )
+                except Exception as key_err:
+                    logger.warning(f"API E2E key bootstrap failed for {channel.id}: {key_err}")
 
                 return jsonify({
                     'success': True,
@@ -7756,7 +8832,7 @@ def create_api_blueprint() -> Blueprint:
                 try:
                     with db_manager.get_connection() as conn:
                         row = conn.execute(
-                            "SELECT name, channel_type, description FROM channels WHERE id = ?",
+                            "SELECT name, channel_type, description, created_by FROM channels WHERE id = ?",
                             (channel_id,)
                         ).fetchone()
                     if row:
@@ -7784,6 +8860,7 @@ def create_api_blueprint() -> Blueprint:
                             channel_type=row['channel_type'],
                             description=row['description'] or '',
                             privacy_mode=privacy_mode,
+                            created_by_user_id=row['created_by'] if row and 'created_by' in row.keys() else None,
                             member_peer_ids=member_peer_ids,
                             initial_members_by_peer=members_by_peer,
                         )
@@ -7826,7 +8903,7 @@ def create_api_blueprint() -> Blueprint:
     @require_auth(Permission.WRITE_FEED)
     def add_channel_member_api(channel_id):
         """Add a user to a channel."""
-        _, _, _, _, channel_manager, _, _, _, _, _, _ = _get_app_components_any(current_app)
+        db_manager, _, _, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
         try:
             data = request.get_json() or {}
             target_user_id = data.get('user_id')
@@ -7836,6 +8913,15 @@ def create_api_blueprint() -> Blueprint:
             ok = channel_manager.add_member(channel_id, target_user_id,
                                             g.api_key_info.user_id, role)
             if ok:
+                _api_trigger_member_sync(
+                    db_manager=db_manager,
+                    channel_manager=channel_manager,
+                    p2p_manager=p2p_manager,
+                    channel_id=channel_id,
+                    target_user_id=target_user_id,
+                    action='add',
+                    role=role,
+                )
                 return jsonify({'success': True})
             return jsonify({'error': 'Permission denied or user not found'}), 403
         except Exception as e:
@@ -7846,11 +8932,50 @@ def create_api_blueprint() -> Blueprint:
     @require_auth(Permission.WRITE_FEED)
     def remove_channel_member_api(channel_id, user_id):
         """Remove a user from a channel."""
-        _, _, _, _, channel_manager, _, _, _, _, _, _ = _get_app_components_any(current_app)
+        db_manager, _, _, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
         try:
             ok = channel_manager.remove_member(channel_id, user_id,
                                                g.api_key_info.user_id)
             if ok:
+                _api_trigger_member_sync(
+                    db_manager=db_manager,
+                    channel_manager=channel_manager,
+                    p2p_manager=p2p_manager,
+                    channel_id=channel_id,
+                    target_user_id=user_id,
+                    action='remove',
+                    role='member',
+                )
+                try:
+                    if _api_e2e_private_enabled() and p2p_manager and p2p_manager.is_running():
+                        with db_manager.get_connection() as conn:
+                            row = conn.execute(
+                                "SELECT privacy_mode, crypto_mode FROM channels WHERE id = ?",
+                                (channel_id,),
+                            ).fetchone()
+                        privacy_mode = (row['privacy_mode'] if row and 'privacy_mode' in row.keys() else 'open') or 'open'
+                        crypto_mode = _api_normalize_crypto_mode(
+                            row['crypto_mode'] if row and 'crypto_mode' in row.keys() else 'legacy_plaintext'
+                        )
+                        if _api_channel_targets_e2e(privacy_mode, crypto_mode):
+                            prev_key = channel_manager.get_active_channel_key(channel_id)
+                            prev_key_id = prev_key.get('key_id') if prev_key else None
+                            new_key_payload = _api_rotate_channel_key(
+                                channel_manager=channel_manager,
+                                channel_id=channel_id,
+                                origin_peer=p2p_manager.get_peer_id(),
+                                rotated_from=prev_key_id,
+                            )
+                            if new_key_payload:
+                                _api_distribute_channel_key_to_members(
+                                    channel_manager=channel_manager,
+                                    p2p_manager=p2p_manager,
+                                    channel_id=channel_id,
+                                    key_payload=new_key_payload,
+                                    rotated_from=prev_key_id,
+                                )
+                except Exception as rotate_err:
+                    logger.warning(f"API E2E key rotation failed for channel {channel_id}: {rotate_err}")
                 return jsonify({'success': True})
             return jsonify({'error': 'Permission denied or user not found'}), 403
         except Exception as e:
@@ -7879,12 +9004,92 @@ def create_api_blueprint() -> Blueprint:
     @api.route('/channels/<channel_id>', methods=['DELETE'])
     @require_auth(Permission.DELETE_DATA)
     def delete_channel_api(channel_id):
-        """Delete a channel (admin only)."""
-        _, _, _, _, channel_manager, _, _, _, _, _, _ = _get_app_components_any(current_app)
+        """Delete a channel. API keys with DELETE_DATA can force-remove any local replica."""
+        db_manager, _, _, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
         try:
-            ok = channel_manager.delete_channel(channel_id, g.api_key_info.user_id)
+            if channel_id == 'general':
+                return jsonify({'error': 'General cannot be deleted'}), 403
+
+            local_peer_id = None
+            if p2p_manager:
+                try:
+                    local_peer_id = p2p_manager.get_peer_id()
+                except Exception:
+                    local_peer_id = None
+
+            with db_manager.get_connection() as conn:
+                channel_row = conn.execute(
+                    "SELECT origin_peer, privacy_mode FROM channels WHERE id = ?",
+                    (channel_id,),
+                ).fetchone()
+            if not channel_row:
+                return jsonify({'error': 'Channel not found'}), 404
+
+            origin_peer = str(
+                channel_row['origin_peer']
+                if hasattr(channel_row, 'keys') and 'origin_peer' in channel_row.keys()
+                else channel_row[0]
+            ).strip()
+            if origin_peer.lower() == 'none':
+                origin_peer = ''
+            privacy_mode = str(
+                channel_row['privacy_mode']
+                if hasattr(channel_row, 'keys') and 'privacy_mode' in channel_row.keys()
+                else channel_row[1]
+            ).strip().lower() or 'open'
+            is_origin_local = (not origin_peer) or (
+                local_peer_id is not None and origin_peer == local_peer_id
+            )
+
+            target_peers: set[str] = set()
+            if (
+                is_origin_local
+                and p2p_manager
+                and p2p_manager.is_running()
+                and privacy_mode in {'private', 'confidential'}
+            ):
+                try:
+                    target_peers = set(channel_manager.get_member_peer_ids(channel_id, local_peer_id))
+                    if local_peer_id:
+                        target_peers.discard(local_peer_id)
+                except Exception:
+                    target_peers = set()
+
+            ok = channel_manager.delete_channel(channel_id, g.api_key_info.user_id, force=True)
             if ok:
-                return jsonify({'success': True})
+                if is_origin_local and p2p_manager and p2p_manager.is_running():
+                    reason = 'channel_deleted_by_origin'
+                    if privacy_mode in {'private', 'confidential'}:
+                        for peer_id in sorted(target_peers):
+                            try:
+                                p2p_manager.broadcast_delete_signal(
+                                    signal_id=f"DS{secrets.token_hex(8)}",
+                                    data_type='channel',
+                                    data_id=channel_id,
+                                    reason=reason,
+                                    target_peer=peer_id,
+                                )
+                            except Exception as p2p_err:
+                                logger.warning(
+                                    f"Failed to send targeted channel delete signal for {channel_id} "
+                                    f"to {peer_id}: {p2p_err}"
+                                )
+                    else:
+                        try:
+                            p2p_manager.broadcast_delete_signal(
+                                signal_id=f"DS{secrets.token_hex(8)}",
+                                data_type='channel',
+                                data_id=channel_id,
+                                reason=reason,
+                            )
+                        except Exception as p2p_err:
+                            logger.warning(
+                                f"Failed to broadcast channel delete signal for {channel_id}: {p2p_err}"
+                            )
+                return jsonify({
+                    'success': True,
+                    'local_only': not is_origin_local,
+                })
             return jsonify({'error': 'Permission denied — admin role required'}), 403
         except Exception as e:
             logger.error(f"Delete channel failed: {e}")

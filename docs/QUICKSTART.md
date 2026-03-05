@@ -1,7 +1,7 @@
 # Canopy Quick Start
 
 This guide gets a fresh Canopy instance running and usable fast, with practical notes for VMs, routers, and first peer connectivity.
-Version scope: this quick start is aligned to Canopy `0.4.0`.
+Version scope: this quick start is aligned to Canopy `0.4.43`.
 
 ---
 

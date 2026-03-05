@@ -6,6 +6,159 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.43] - 2026-03-05
+
+### Fixed
+- **Channel delete now works for non-origin replicas** — Node-level admins can now delete any channel replica from their local node, not just channels they originated. Previously the delete button silently failed with a 403 for channels created on other peers. The backend now passes `force=True` for node admins, bypassing the channel-admin membership check. P2P delete signals are only broadcast when the channel is locally originated; non-origin deletes are local-only replica removals. The delete button in the sidebar Tools dropdown is now visible for all channels (not just local-origin ones). Success message indicates when it's a local-only removal. Same fix applied to the REST API endpoint.
+
+---
+
+## [0.4.42] - 2026-03-05
+
+### Improved
+- **Channel sidebar polish** — Tools dropdown now shows compact icon-only buttons (clipboard + trash) in a horizontal pill instead of a text menu. Row action buttons (pin, tools) are always visible at soft opacity (45%), brightening to full on hover for better discoverability. Pinned channels show a persistent gold pin icon.
+
+### Fixed
+- **Tools dropdown visibility and flicker** — Removed Bootstrap auto-init (`data-bs-toggle`) and replaced with manual fixed-position dropdown using `getBoundingClientRect()`. Removed `transform: translateX(2px)` from channel row hover (CSS transforms create containing blocks that break `position: fixed` descendants). Added `tools-menu-open` class to lock row highlight while dropdown is open, eliminating hover flicker. Fixed `display: flex !important` override that was making all dropdown menus permanently visible.
+
+---
+
+## [0.4.41] - 2026-03-05
+
+### Improved
+- **Channel row compaction** — Reduced sidebar action clutter by keeping Pin as the only always-visible icon and moving Copy ID + Delete into a per-row overflow dropdown (three-dots "Tools" menu). Added proper channel name truncation with ellipsis for long names. Dropdown closes automatically after Copy/Delete actions. Applied to both server-rendered and dynamically generated rows.
+
+### Fixed
+- **Channel Tools dropdown not visible** — Dropdown menu was clipped by `overflow: hidden` on `#channel-sidebar` and `overflow-y: auto` on `.channel-list`. Fixed by using `position: fixed` for the dropdown menu and passing `popperConfig: { strategy: 'fixed' }` to Bootstrap's Dropdown constructor.
+
+---
+
+## [0.4.40] - 2026-03-05
+
+### Improved
+- **Channel row action tooltips + tap targets** — CSS-only hover tooltips (`Pin`, `Copy ID`, `Delete`) on channel sidebar action buttons using `data-action-label`, scoped to pointer/hover devices only. Increased tap target size on mobile. Copy ID and Delete actions moved from channel header to per-channel row for direct access. Delete modal now shows channel name and ID. Dynamic sidebar sync preserves quick-action state.
+
+---
+
+## [0.4.39] - 2026-03-05
+
+### Added
+- **Channel pinning** — Pin/unpin channels in the sidebar; pinned channels float to top with a gold border indicator. Per-user localStorage persistence, deterministic sort preserving relative order, pin state survives sidebar refresh/sync updates. Pin click uses `stopPropagation` to avoid accidental channel switching.
+- **Optimistic like responsiveness** — Like/unlike across Channels, Feed, and Messages now updates instantly (optimistic UI). In-flight deduplication prevents double-clicks, button shows busy state during request, server response reconciles final state, errors roll back to prior state.
+
+---
+
+## [0.4.38] - 2026-03-05
+
+### Improved
+- **UI responsiveness second pass** — Comprehensive responsive audit across all major templates:
+  - `base.html`: Tighter mobile navbar spacing, extra compact breakpoint at 420px, brand text hidden on very small screens.
+  - `channels.html`: Tighter controls at 430px, reduced composer footprint, responsive audio player (removed forced min-width).
+  - `connect.html`: Responsive peer rows, input groups, action clusters; reduced scrolling pressure on mobile.
+  - `messages.html`: Responsive header, action bars, attachment rows, avatar sizing; breakpoint-specific adjustments.
+  - `feed.html`: Structured responsive hooks for page header, composer, feed controls, algorithm panel; breakpoints at 768px, 576px, 430px.
+  - `admin.html`: Responsive page header, summary metrics, user search, action clusters, API key panel.
+  - `settings.html`: Dedicated responsive block for landing, device profile, relay, advanced actions, health grid.
+
+---
+
+## [0.4.37] - 2026-03-05
+
+### Added
+- **Admin user governance UI hardening** — Full admin control over user lifecycle and classification:
+  - Shadow/remote/replica users now visible and manageable in the Admin table (previously hidden by `password_hash IS NOT NULL` filter).
+  - Inline account-type selector (`human`/`agent`) and status selector (`active`/`pending_approval`/`suspended`) per user row.
+  - Inline editable display name with immediate save.
+  - Row metadata badges (`local`/`remote`, `registered`/`shadow`) and user ID copy button.
+  - Search field and live "showing X of Y" summary for the user table.
+  - New endpoint `POST /ajax/admin/users/<user_id>/classification` with owner-protection guardrails.
+
+### Fixed
+- **Hardened `delete_user()` FK-safe cleanup** — Added `_exec_optional` wrapper for graceful handling of optional/missing tables during user deletion. Extended cleanup to cover `streams.created_by`, `files.uploaded_by`, `tasks`, `objectives`, `agent_inbox_audit`, `mention_claims`, `objective_members`, `stream_access_tokens`, `file_access_log`, `channel_member_sync_deliveries`, `likes`, `agent_presence`.
+- **Agent directive bulk apply** now skips unregistered and remote-origin users.
+- **Delete endpoint** validates existence and reserved-user restrictions up front, returns richer response payload.
+
+---
+
+## [0.4.36] - 2026-03-05
+
+### Added
+- **Distributed Auth Phase 1 — Identity Portability** — Feature-flagged (`CANOPY_IDENTITY_PORTABILITY_ENABLED`, default OFF) additive identity portability system with no changes to existing login, session, or API key semantics.
+  - New `IdentityPortabilityManager` with principal metadata, bootstrap grant lifecycle (create, import, apply, revoke), signature verification, audience constraints, replay/idempotency protections, and audit logging.
+  - 7 new additive database tables (`mesh_principals`, `mesh_principal_keys`, `mesh_principal_links`, `mesh_bootstrap_grants`, `mesh_bootstrap_grant_applications`, `mesh_bootstrap_grant_revocations`, `mesh_principal_audit_log`) — schema only created when feature flag is enabled.
+  - 4 new P2P message types (`PRINCIPAL_ANNOUNCE`, `PRINCIPAL_KEY_UPDATE`, `BOOTSTRAP_GRANT_SYNC`, `BOOTSTRAP_GRANT_REVOKE`) synced via existing mesh routing with capability negotiation (`identity_portability_v1`).
+  - Admin panel for identity portability diagnostics, grant creation/import/apply/revoke, capable-peer discovery, QR/token transfer, and live status counters.
+  - Bootstrap grants role-clamped to `'user'` — no admin portability in Phase 1.
+  - Comprehensive test suite for manager correctness, capability gating, and P2P message routing.
+
+### Fixed
+- Fixed event loop error in identity portability integration test on Python 3.9.
+
+---
+
+## [0.4.35] - 2026-03-05
+
+### Fixed
+- **Z-stack dropdown layering audit** — Systematic fix for dropdown menus rendering below neighboring content across all major UI pages (channels, connect, feed, messages). Added explicit stacking contexts, elevated z-index on open dropdowns, and JS fallback class toggling for cross-browser `:has()` compatibility.
+
+---
+
+## [0.4.34] - 2026-03-05
+
+### Fixed
+- **Relay-connected peers now visible in UI** — Connect page known-peers list now distinguishes direct, relayed, and offline peers with appropriate badges and actions. Relayed peers show "Via [relay name]" badge with "Go Direct" button to promote to direct connection.
+- **Reconnect API handles relay state** — `/api/v1/p2p/reconnect` now returns `status=relayed` when a peer is already reachable via relay, avoiding misleading failure messages for already-connected-via-relay peers.
+- **Relay route learning from inbound traffic** — Manager now learns relay routes from inbound relayed messages (when source peer differs from connection peer), improving relay-state convergence without requiring explicit broker handshake.
+- **Channel delete null-origin fix** — `/ajax/delete_channel` now normalizes `NULL`/`"None"` origin_peer to empty string, preventing local channels from being misclassified as remote and blocking deletion.
+
+---
+
+## [0.4.33] - 2026-03-05
+
+### Fixed
+- **Async deadlock in routing callbacks** — Seven `manager.py` send methods (`send_channel_membership_response`, `send_member_sync_ack`, `send_channel_key_ack`, `send_channel_key_distribution`, `send_channel_key_request`, `send_delete_signal_ack`, `send_channel_membership_query`) were blocking the event loop with `future.result()` when called from routing callbacks running on the same thread. Converted to fire-and-forget with `add_done_callback` error logging. This was causing 5–30s event loop freezes on every membership query, key exchange, and delete ack.
+
+---
+
+## [0.4.32] - 2026-03-05
+
+### Fixed
+- **Membership recovery security check relaxed** — Non-member relay peers can now forward `CHANNEL_MEMBERSHIP_RESPONSE` messages. Previously, valid responses were rejected when the relay peer wasn't in the channel's member list, breaking private channel propagation over relay connections.
+- **sqlite3.Row attribute access** — Fixed `AttributeError: 'sqlite3.Row' object has no attribute 'get'` in avatar recovery.
+- **`_normalize_channel_crypto_mode` NameError** — Defined E2E crypto helpers in `app.py` scope so `_on_channel_membership_response` can normalize `crypto_mode` without crashing.
+
+### Added
+- **Merkle digest-assisted catch-up (Phase 1)** — Deterministic per-channel Merkle digests for sync optimization. Feature-flagged (`CANOPY_SYNC_DIGEST_ENABLED`), fail-open design falls back to timestamp catch-up. Admin diagnostics panel for telemetry.
+- **New tests** — `test_channel_sync_digest`, `test_routing_catchup_digest_metadata`, `test_manager_catchup_digest_response`, `test_p2p_diagnostics_endpoint`.
+- **Merkle Sync Phase 1 spec** — `docs/MERKLE_SYNC_PHASE1_SPEC.md`.
+
+---
+
+## [0.4.31] - 2026-03-04
+
+### Fixed
+- **Backward-compatible handshake signature** — Version negotiation fields (`canopy_version`, `protocol_version`) are now unsigned metadata instead of part of the Ed25519 signed payload, restoring connectivity with pre-0.4.30 peers that rejected the extended signature.
+- **mDNS discovery version** — Discovery now advertises the real Canopy version instead of hardcoded `0.1.0`.
+
+### Changed
+- **Connect page compact layout** — Peer lists are scroll-bounded, lower-priority sections (Connection History, Mesh Diagnostics, Recent Failed Connections, Troubleshooting, How-to guide) are now collapsible panels. Primary controls stay visible.
+- **Inline edit mode** — Channel messages, feed posts, and DMs now edit inline within the card instead of opening a modal. Enter saves, Shift+Enter for newlines, Esc cancels. Single-active-editor guard prevents collisions.
+
+---
+
+## [0.4.30] - 2026-03-04
+
+### Added
+- **Private channel membership recovery protocol** — New `CHANNEL_MEMBERSHIP_QUERY`/`CHANNEL_MEMBERSHIP_RESPONSE` message types allow peers to recover missed private channel invites on reconnect, creating shadow channels and triggering key requests for E2E channels.
+- **Version negotiation on peer handshake** — Peers now exchange `canopy_version` and `protocol_version` during WebSocket handshake, with optional `CANOPY_REJECT_PROTOCOL_MISMATCH` enforcement. Peer versions exposed via `/api/v1/p2p/peers` and network status.
+- **Channel key retry on reconnect** — Automatic retry of missing E2E channel key requests when a peer reconnects, recovering from transient delivery failures.
+- **Connection diagnostics UI** — New `/ajax/connection_diagnostics` endpoint and Connect page panel showing per-peer latency, relay topology, recent failures, and local mesh config.
+- **Agent onboarding quickstart** — New `docs/AGENT_ONBOARDING.md` with 8-step bootstrap guide for AI agents joining the network.
+
+### Changed
+- **README rewrite** — Restructured for public-facing clarity, leading with agent-equality value proposition and featuring reorganized feature sections.
+- **Keepalive latency tracking** — Ping RTT now measured and stored per-connection for diagnostics.
+
 ## [0.4.29] - 2026-03-04
 
 ### Changed
