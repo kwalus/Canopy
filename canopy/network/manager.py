@@ -2358,7 +2358,7 @@ class P2PNetworkManager:
 
     def send_delete_signal_ack(self, to_peer: str, signal_id: str,
                                status: str) -> bool:
-        """Send a delete-signal acknowledgment to a specific peer."""
+        """Send a delete-signal acknowledgment to a specific peer (fire-and-forget)."""
         if not self._running or not self._event_loop:
             return False
         if not self.message_router:
@@ -2368,17 +2368,15 @@ class P2PNetworkManager:
             self.message_router.send_delete_signal_ack(to_peer, signal_id, status),
             self._event_loop
         )
-        try:
-            return future.result(timeout=5.0)
-        except TimeoutError:
-            logger.warning(
-                "Delete signal ack to %s timed out (local delete already applied)",
-                to_peer,
-            )
-            return False
-        except Exception as e:
-            logger.error(f"Error sending delete signal ack: {e}", exc_info=True)
-            return False
+
+        def _on_done(f: Any) -> None:
+            try:
+                f.result()
+            except Exception as exc:
+                logger.error("Error sending delete signal ack: %s", exc)
+
+        future.add_done_callback(_on_done)
+        return True
 
     def broadcast_channel_announce(self, channel_id: str, name: str,
                                      channel_type: str, description: str,
@@ -2545,7 +2543,7 @@ class P2PNetworkManager:
                                        key_id: str, encrypted_key: str,
                                        key_version: int = 1,
                                        rotated_from: Optional[str] = None) -> bool:
-        """Send wrapped channel-key material to one peer (phase-1 scaffold)."""
+        """Send wrapped channel-key material to one peer (fire-and-forget)."""
         if not self._running or not self._event_loop:
             logger.warning("P2P network not running, cannot send channel key distribution")
             return False
@@ -2563,16 +2561,20 @@ class P2PNetworkManager:
             ),
             self._event_loop,
         )
-        try:
-            return future.result(timeout=5.0)
-        except Exception as e:
-            logger.error(f"Error sending channel key distribution: {e}", exc_info=True)
-            return False
+
+        def _on_done(f: Any) -> None:
+            try:
+                f.result()
+            except Exception as exc:
+                logger.error("Error sending channel key distribution: %s", exc)
+
+        future.add_done_callback(_on_done)
+        return True
 
     def send_channel_key_request(self, to_peer: str, channel_id: str,
                                   reason: Optional[str] = None,
                                   key_id: Optional[str] = None) -> bool:
-        """Request channel-key distribution/re-send from a peer."""
+        """Request channel-key distribution/re-send from a peer (fire-and-forget)."""
         if not self._running or not self._event_loop:
             logger.warning("P2P network not running, cannot send channel key request")
             return False
@@ -2589,16 +2591,20 @@ class P2PNetworkManager:
             ),
             self._event_loop,
         )
-        try:
-            return future.result(timeout=5.0)
-        except Exception as e:
-            logger.error(f"Error sending channel key request: {e}", exc_info=True)
-            return False
+
+        def _on_done(f: Any) -> None:
+            try:
+                f.result()
+            except Exception as exc:
+                logger.error("Error sending channel key request: %s", exc)
+
+        future.add_done_callback(_on_done)
+        return True
 
     def send_channel_key_ack(self, to_peer: str, channel_id: str,
                               key_id: str, status: str = 'ok',
                               error: Optional[str] = None) -> bool:
-        """Acknowledge channel-key import/delivery status."""
+        """Acknowledge channel-key import/delivery status (fire-and-forget)."""
         if not self._running or not self._event_loop:
             logger.warning("P2P network not running, cannot send channel key ack")
             return False
@@ -2615,11 +2621,15 @@ class P2PNetworkManager:
             ),
             self._event_loop,
         )
-        try:
-            return future.result(timeout=5.0)
-        except Exception as e:
-            logger.error(f"Error sending channel key ack: {e}", exc_info=True)
-            return False
+
+        def _on_done(f: Any) -> None:
+            try:
+                f.result()
+            except Exception as exc:
+                logger.error("Error sending channel key ack: %s", exc)
+
+        future.add_done_callback(_on_done)
+        return True
 
     def send_member_sync_ack(self, to_peer: str, sync_id: str,
                               status: str = 'ok',
@@ -2627,7 +2637,7 @@ class P2PNetworkManager:
                               channel_id: Optional[str] = None,
                               target_user_id: Optional[str] = None,
                               action: Optional[str] = None) -> bool:
-        """Acknowledge member-sync processing status."""
+        """Acknowledge member-sync processing status (fire-and-forget)."""
         if not self._running or not self._event_loop:
             logger.warning("P2P network not running, cannot send member sync ack")
             return False
@@ -2646,11 +2656,15 @@ class P2PNetworkManager:
             ),
             self._event_loop,
         )
-        try:
-            return future.result(timeout=5.0)
-        except Exception as e:
-            logger.error(f"Error sending member sync ack: {e}", exc_info=True)
-            return False
+
+        def _on_done(f: Any) -> None:
+            try:
+                f.result()
+            except Exception as exc:
+                logger.error("Error sending member sync ack: %s", exc)
+
+        future.add_done_callback(_on_done)
+        return True
 
     def send_channel_membership_query(
         self,
@@ -2673,11 +2687,15 @@ class P2PNetworkManager:
             ),
             self._event_loop,
         )
-        try:
-            return bool(future.result(timeout=5.0))
-        except Exception as e:
-            logger.error(f"Error sending channel membership query: {e}", exc_info=True)
-            return False
+
+        def _on_done(f: Any) -> None:
+            try:
+                f.result()
+            except Exception as exc:
+                logger.error("Error sending channel membership query: %s", exc)
+
+        future.add_done_callback(_on_done)
+        return True
 
     def send_channel_membership_response(
         self,
@@ -2686,7 +2704,12 @@ class P2PNetworkManager:
         channels: list[Dict[str, Any]],
         truncated: bool = False,
     ) -> bool:
-        """Respond to private membership recovery query with channel metadata."""
+        """Respond to private membership recovery query with channel metadata.
+
+        Fire-and-forget: this may be called from the event loop thread (via
+        routing callback), so we must NOT block with future.result() which
+        would deadlock the loop.
+        """
         if not self._running or not self._event_loop:
             return False
         if not self.message_router:
@@ -2700,11 +2723,15 @@ class P2PNetworkManager:
             ),
             self._event_loop,
         )
-        try:
-            return bool(future.result(timeout=30.0))
-        except Exception as e:
-            logger.error(f"Error sending channel membership response: {e}", exc_info=True)
-            return False
+
+        def _on_done(f: Any) -> None:
+            try:
+                f.result()
+            except Exception as exc:
+                logger.error("Error sending channel membership response: %s", exc)
+
+        future.add_done_callback(_on_done)
+        return True
 
     async def _send_channel_sync_to_peer(self, peer_id: str) -> None:
         """
