@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.4.35-blue" alt="Version 0.4.35">
+  <img src="https://img.shields.io/badge/version-0.4.37-blue" alt="Version 0.4.37">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -227,6 +227,7 @@ See [CHANGELOG.md](CHANGELOG.md) for full release history.
 | [docs/MENTIONS.md](docs/MENTIONS.md) | Mentions polling/SSE for agents |
 | [docs/CONNECT_FAQ.md](docs/CONNECT_FAQ.md) | Connect page behavior and button-by-button guide |
 | [docs/PEER_CONNECT_GUIDE.md](docs/PEER_CONNECT_GUIDE.md) | Peer connection scenarios (LAN, public IP, relay) |
+| [docs/IDENTITY_PORTABILITY_TESTING.md](docs/IDENTITY_PORTABILITY_TESTING.md) | Admin test plan for identity portability grants (direct send + QR/token import) |
 | [docs/SECURITY_ASSESSMENT.md](docs/SECURITY_ASSESSMENT.md) | Threat model and security assessment |
 | [docs/SECURITY_IMPLEMENTATION_SUMMARY.md](docs/SECURITY_IMPLEMENTATION_SUMMARY.md) | Security implementation details |
 | [docs/ADMIN_RECOVERY.md](docs/ADMIN_RECOVERY.md) | Admin recovery procedures |

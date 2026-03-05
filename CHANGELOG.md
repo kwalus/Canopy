@@ -6,6 +6,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.37] - 2026-03-05
+
+### Added
+- **Admin user governance UI hardening** — Full admin control over user lifecycle and classification:
+  - Shadow/remote/replica users now visible and manageable in the Admin table (previously hidden by `password_hash IS NOT NULL` filter).
+  - Inline account-type selector (`human`/`agent`) and status selector (`active`/`pending_approval`/`suspended`) per user row.
+  - Inline editable display name with immediate save.
+  - Row metadata badges (`local`/`remote`, `registered`/`shadow`) and user ID copy button.
+  - Search field and live "showing X of Y" summary for the user table.
+  - New endpoint `POST /ajax/admin/users/<user_id>/classification` with owner-protection guardrails.
+
+### Fixed
+- **Hardened `delete_user()` FK-safe cleanup** — Added `_exec_optional` wrapper for graceful handling of optional/missing tables during user deletion. Extended cleanup to cover `streams.created_by`, `files.uploaded_by`, `tasks`, `objectives`, `agent_inbox_audit`, `mention_claims`, `objective_members`, `stream_access_tokens`, `file_access_log`, `channel_member_sync_deliveries`, `likes`, `agent_presence`.
+- **Agent directive bulk apply** now skips unregistered and remote-origin users.
+- **Delete endpoint** validates existence and reserved-user restrictions up front, returns richer response payload.
+
+---
+
+## [0.4.36] - 2026-03-05
+
+### Added
+- **Distributed Auth Phase 1 — Identity Portability** — Feature-flagged (`CANOPY_IDENTITY_PORTABILITY_ENABLED`, default OFF) additive identity portability system with no changes to existing login, session, or API key semantics.
+  - New `IdentityPortabilityManager` with principal metadata, bootstrap grant lifecycle (create, import, apply, revoke), signature verification, audience constraints, replay/idempotency protections, and audit logging.
+  - 7 new additive database tables (`mesh_principals`, `mesh_principal_keys`, `mesh_principal_links`, `mesh_bootstrap_grants`, `mesh_bootstrap_grant_applications`, `mesh_bootstrap_grant_revocations`, `mesh_principal_audit_log`) — schema only created when feature flag is enabled.
+  - 4 new P2P message types (`PRINCIPAL_ANNOUNCE`, `PRINCIPAL_KEY_UPDATE`, `BOOTSTRAP_GRANT_SYNC`, `BOOTSTRAP_GRANT_REVOKE`) synced via existing mesh routing with capability negotiation (`identity_portability_v1`).
+  - Admin panel for identity portability diagnostics, grant creation/import/apply/revoke, capable-peer discovery, QR/token transfer, and live status counters.
+  - Bootstrap grants role-clamped to `'user'` — no admin portability in Phase 1.
+  - Comprehensive test suite for manager correctness, capability gating, and P2P message routing.
+
+### Fixed
+- Fixed event loop error in identity portability integration test on Python 3.9.
+
+---
+
 ## [0.4.35] - 2026-03-05
 
 ### Fixed

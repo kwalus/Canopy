@@ -2940,9 +2940,25 @@ def create_ui_blueprint() -> Blueprint:
             skill_manager = current_app.config.get('SKILL_MANAGER')
             users = db_manager.get_all_users_for_admin()
             _annotate_user_presence(users, db_manager)
-            pending = [u for u in users if (u.get('status') or 'active') == 'pending_approval']
-            active_agents = [u for u in users if (u.get('account_type') or 'human') == 'agent' and (u.get('status') or 'active') == 'active']
+            pending = [
+                u for u in users
+                if u.get('is_registered') and (u.get('status') or 'active') == 'pending_approval'
+            ]
+            active_agents = [
+                u for u in users
+                if u.get('is_registered')
+                and (u.get('account_type') or 'human') == 'agent'
+                and (u.get('status') or 'active') == 'active'
+            ]
             for u in users:
+                if not u.get('is_registered'):
+                    u['agent_directives_source'] = 'n/a'
+                    u['agent_directives_effective'] = ''
+                    u['agent_directives_custom'] = ''
+                    u['agent_directives_default'] = ''
+                    u['agent_directives_preview'] = 'Unregistered shadow/replica user.'
+                    u['agent_directives_length'] = 0
+                    continue
                 state = _effective_agent_directive_state(u)
                 u['agent_directives_source'] = state['source']
                 u['agent_directives_effective'] = state['effective']
@@ -2964,14 +2980,15 @@ def create_ui_blueprint() -> Blueprint:
                 return not u.get('origin_peer')
             agent_users = [
                 u for u in users
-                if _is_local(u) and (
+                if u.get('is_registered') and _is_local(u) and (
                     (u.get('account_type') or 'human') == 'agent'
                     or u.get('agent_directives')
                     or _looks_like_agent(u)
                 )
             ]
+            workspace_seed = [u for u in users if u.get('is_registered')]
             workspace_users = sorted(
-                users,
+                workspace_seed,
                 key=lambda u: (
                     0 if (u.get('account_type') or 'human') == 'agent' else 1,
                     0 if (u.get('status') or 'active') == 'active' else 1,
@@ -3760,6 +3777,11 @@ def create_ui_blueprint() -> Blueprint:
             users = db_manager.get_all_users_for_admin()
             _annotate_user_presence(users, db_manager)
             for u in users:
+                if not u.get('is_registered'):
+                    u['agent_directives_source'] = 'n/a'
+                    u['agent_directives_preview'] = 'Unregistered shadow/replica user.'
+                    u['agent_directives_length'] = 0
+                    continue
                 state = _effective_agent_directive_state(u)
                 u['agent_directives_source'] = state['source']
                 u['agent_directives_preview'] = (state['effective'] or '')[:140]
@@ -3768,6 +3790,267 @@ def create_ui_blueprint() -> Blueprint:
         except Exception as e:
             logger.error(f"Admin list users error: {e}")
             return jsonify({'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/admin/identity-portability/status', methods=['GET'])
+    @require_login
+    @require_admin
+    def ajax_admin_identity_portability_status():
+        """Admin diagnostics for distributed identity portability."""
+        try:
+            mgr = current_app.config.get('IDENTITY_PORTABILITY_MANAGER')
+            if not mgr:
+                return jsonify({'success': False, 'error': 'Identity portability manager unavailable'}), 503
+            snapshot = mgr.get_status_snapshot()
+            return jsonify({'success': True, 'status': snapshot})
+        except Exception as e:
+            logger.error(f"Identity portability status error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/admin/identity-portability/capable-peers', methods=['GET'])
+    @require_login
+    @require_admin
+    def ajax_admin_identity_portability_capable_peers():
+        """List connected peers that advertise identity portability capability."""
+        try:
+            mgr = current_app.config.get('IDENTITY_PORTABILITY_MANAGER')
+            if not mgr or not mgr.enabled:
+                return jsonify({'success': True, 'enabled': False, 'peers': []})
+
+            snapshot = mgr.get_status_snapshot()
+            capable_ids = [str(p or '').strip() for p in (snapshot.get('connected_capable_peers') or [])]
+            capable_ids = [p for p in capable_ids if p]
+            capable_set = set(capable_ids)
+
+            *_, p2p_manager = _get_app_components_any(current_app)
+            connected_set: set[str] = set()
+            display_names: dict[str, str] = {}
+            endpoint_map: dict[str, list[str]] = {}
+            if p2p_manager:
+                try:
+                    connected_set = {
+                        str(pid or '').strip()
+                        for pid in (p2p_manager.get_connected_peers() or [])
+                        if str(pid or '').strip()
+                    }
+                except Exception:
+                    connected_set = set()
+                identity_manager = getattr(p2p_manager, 'identity_manager', None)
+                if identity_manager:
+                    try:
+                        raw_names = getattr(identity_manager, 'peer_display_names', {}) or {}
+                        display_names = {
+                            str(k or '').strip(): str(v or '').strip()
+                            for k, v in raw_names.items()
+                            if str(k or '').strip()
+                        }
+                    except Exception:
+                        display_names = {}
+                    try:
+                        raw_endpoints = getattr(identity_manager, 'peer_endpoints', {}) or {}
+                        endpoint_map = {}
+                        for peer_id, values in raw_endpoints.items():
+                            pid = str(peer_id or '').strip()
+                            if not pid:
+                                continue
+                            eps = []
+                            for endpoint in (values or []):
+                                text = str(endpoint or '').strip()
+                                if text:
+                                    eps.append(text)
+                            endpoint_map[pid] = eps
+                    except Exception:
+                        endpoint_map = {}
+
+            peers = []
+            for peer_id in sorted(capable_set):
+                peers.append({
+                    'peer_id': peer_id,
+                    'display_name': display_names.get(peer_id) or '',
+                    'connected': peer_id in connected_set,
+                    'endpoints': endpoint_map.get(peer_id, [])[:5],
+                })
+
+            return jsonify({
+                'success': True,
+                'enabled': True,
+                'local_peer_id': snapshot.get('local_peer_id'),
+                'peers': peers,
+                'count': len(peers),
+            })
+        except Exception as e:
+            logger.error(f"Identity portability capable peers error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/admin/identity-portability/principals', methods=['GET'])
+    @require_login
+    @require_admin
+    def ajax_admin_identity_portability_principals():
+        """List principals and key metadata for admin review."""
+        try:
+            mgr = current_app.config.get('IDENTITY_PORTABILITY_MANAGER')
+            if not mgr or not mgr.enabled:
+                return jsonify({'success': True, 'principals': [], 'enabled': False})
+            try:
+                limit = int(request.args.get('limit', 200))
+            except Exception:
+                limit = 200
+            principals = mgr.list_principals(limit=limit)
+            return jsonify({'success': True, 'enabled': True, 'principals': principals, 'count': len(principals)})
+        except Exception as e:
+            logger.error(f"Identity portability principal list error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/admin/identity-portability/grants', methods=['GET'])
+    @require_login
+    @require_admin
+    def ajax_admin_identity_portability_grants():
+        """List bootstrap grants for admin review."""
+        try:
+            mgr = current_app.config.get('IDENTITY_PORTABILITY_MANAGER')
+            if not mgr or not mgr.enabled:
+                return jsonify({'success': True, 'grants': [], 'enabled': False})
+            try:
+                limit = int(request.args.get('limit', 200))
+            except Exception:
+                limit = 200
+            status_filter = str(request.args.get('status') or '').strip() or None
+            grants = mgr.list_grants(limit=limit, status=status_filter)
+            return jsonify({'success': True, 'enabled': True, 'grants': grants, 'count': len(grants)})
+        except Exception as e:
+            logger.error(f"Identity portability grant list error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/admin/identity-portability/grants', methods=['POST'])
+    @require_login
+    @require_admin
+    def ajax_admin_identity_portability_create_grant():
+        """Create a signed bootstrap grant (Phase 1: role is clamped to 'user')."""
+        try:
+            mgr = current_app.config.get('IDENTITY_PORTABILITY_MANAGER')
+            if not mgr or not mgr.enabled:
+                return jsonify({'success': False, 'error': 'Identity portability is disabled'}), 400
+            data = request.get_json(silent=True) or {}
+            local_user_id = str(data.get('local_user_id') or '').strip()
+            if not local_user_id:
+                return jsonify({'success': False, 'error': 'local_user_id is required'}), 400
+            audience_peer = str(data.get('audience_peer') or '').strip() or None
+            target_peer_id = str(data.get('target_peer_id') or '').strip() or None
+            try:
+                expires_in_hours = int(data.get('expires_in_hours', 24))
+            except Exception:
+                expires_in_hours = 24
+            try:
+                max_uses = int(data.get('max_uses', 1))
+            except Exception:
+                max_uses = 1
+            sync_to_mesh = bool(data.get('sync_to_mesh', True))
+
+            result = mgr.create_bootstrap_grant(
+                local_user_id=local_user_id,
+                acting_user_id=get_current_user(),
+                audience_peer=audience_peer,
+                expires_in_hours=expires_in_hours,
+                max_uses=max_uses,
+                sync_to_mesh=sync_to_mesh,
+                target_peer_id=target_peer_id,
+            )
+            return jsonify({'success': True, **result})
+        except Exception as e:
+            logger.error(f"Identity portability create grant error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': str(e)}), 400
+
+    @ui.route('/ajax/admin/identity-portability/grants/import', methods=['POST'])
+    @require_login
+    @require_admin
+    def ajax_admin_identity_portability_import_grant():
+        """Import a grant artifact and optionally apply it to a local user."""
+        try:
+            mgr = current_app.config.get('IDENTITY_PORTABILITY_MANAGER')
+            if not mgr or not mgr.enabled:
+                return jsonify({'success': False, 'error': 'Identity portability is disabled'}), 400
+            data = request.get_json(silent=True) or {}
+            artifact = data.get('artifact')
+            if not isinstance(artifact, dict):
+                return jsonify({'success': False, 'error': 'artifact object is required'}), 400
+            source_peer = str(data.get('source_peer') or '').strip() or None
+            sync_to_mesh = bool(data.get('sync_to_mesh', False))
+            import_result = mgr.import_bootstrap_grant(
+                artifact=artifact,
+                source_peer=source_peer,
+                actor_user_id=get_current_user(),
+                sync_to_mesh=sync_to_mesh,
+            )
+            response: dict[str, Any] = {'success': bool(import_result.get('imported')), 'import': import_result}
+
+            apply_local_user_id = str(data.get('apply_local_user_id') or '').strip()
+            if apply_local_user_id and import_result.get('imported'):
+                apply_result = mgr.apply_bootstrap_grant(
+                    grant_id=str(import_result.get('grant_id') or artifact.get('grant_id') or ''),
+                    local_user_id=apply_local_user_id,
+                    actor_user_id=get_current_user(),
+                    source_peer=source_peer,
+                )
+                response['apply'] = apply_result
+                response['success'] = bool(apply_result.get('applied'))
+
+            if not response['success']:
+                return jsonify(response), 400
+            return jsonify(response)
+        except Exception as e:
+            logger.error(f"Identity portability import grant error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': str(e)}), 400
+
+    @ui.route('/ajax/admin/identity-portability/grants/<grant_id>/apply', methods=['POST'])
+    @require_login
+    @require_admin
+    def ajax_admin_identity_portability_apply_grant(grant_id: str):
+        """Apply an imported grant to a local user."""
+        try:
+            mgr = current_app.config.get('IDENTITY_PORTABILITY_MANAGER')
+            if not mgr or not mgr.enabled:
+                return jsonify({'success': False, 'error': 'Identity portability is disabled'}), 400
+            data = request.get_json(silent=True) or {}
+            local_user_id = str(data.get('local_user_id') or '').strip()
+            if not local_user_id:
+                return jsonify({'success': False, 'error': 'local_user_id is required'}), 400
+            source_peer = str(data.get('source_peer') or '').strip() or None
+            result = mgr.apply_bootstrap_grant(
+                grant_id=grant_id,
+                local_user_id=local_user_id,
+                actor_user_id=get_current_user(),
+                source_peer=source_peer,
+            )
+            if not result.get('applied'):
+                return jsonify({'success': False, **result}), 400
+            return jsonify({'success': True, **result})
+        except Exception as e:
+            logger.error(f"Identity portability apply grant error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': str(e)}), 400
+
+    @ui.route('/ajax/admin/identity-portability/grants/<grant_id>/revoke', methods=['POST'])
+    @require_login
+    @require_admin
+    def ajax_admin_identity_portability_revoke_grant(grant_id: str):
+        """Revoke a bootstrap grant and propagate a revocation marker."""
+        try:
+            mgr = current_app.config.get('IDENTITY_PORTABILITY_MANAGER')
+            if not mgr or not mgr.enabled:
+                return jsonify({'success': False, 'error': 'Identity portability is disabled'}), 400
+            data = request.get_json(silent=True) or {}
+            reason = str(data.get('reason') or '').strip() or 'revoked_by_admin'
+            sync_to_mesh = bool(data.get('sync_to_mesh', True))
+            result = mgr.revoke_bootstrap_grant(
+                grant_id=grant_id,
+                actor_user_id=get_current_user(),
+                reason=reason,
+                sync_to_mesh=sync_to_mesh,
+            )
+            if not result.get('revoked'):
+                return jsonify({'success': False, **result}), 400
+            return jsonify({'success': True, **result})
+        except Exception as e:
+            logger.error(f"Identity portability revoke grant error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': str(e)}), 400
 
     @ui.route('/ajax/admin/agent-directives/presets', methods=['GET'])
     @require_login
@@ -3871,6 +4154,12 @@ def create_ui_blueprint() -> Blueprint:
             updated_ids = []
             skipped_ids = []
             for user in users:
+                if not user.get('is_registered'):
+                    skipped_ids.append(user.get('id'))
+                    continue
+                if user.get('origin_peer'):
+                    skipped_ids.append(user.get('id'))
+                    continue
                 if (user.get('account_type') or 'human') != 'agent':
                     continue
                 if (user.get('status') or 'active') == 'suspended':
@@ -3936,6 +4225,61 @@ def create_ui_blueprint() -> Blueprint:
             logger.error(f"Admin suspend error: {e}")
             return jsonify({'error': 'Internal server error'}), 500
 
+    @ui.route('/ajax/admin/users/<user_id>/classification', methods=['POST'])
+    @require_login
+    @require_admin
+    def ajax_admin_update_user_classification(user_id: str):
+        """Admin: update account_type/status for local or remote user records."""
+        try:
+            db_manager, _, _, _, _, _, _, _, _, _, _ = _get_app_components_any(current_app)
+            user = db_manager.get_user(user_id)
+            if not user:
+                return jsonify({'error': 'User not found'}), 404
+            if user_id in {'system', 'local_user'}:
+                return jsonify({'error': 'Reserved system users cannot be modified'}), 400
+
+            data = request.get_json(silent=True) or {}
+            account_type = data.get('account_type', None)
+            status = data.get('status', None)
+            display_name = data.get('display_name', None)
+
+            if account_type is not None:
+                account_type = str(account_type or '').strip().lower()
+                if account_type not in {'human', 'agent'}:
+                    return jsonify({'error': "account_type must be 'human' or 'agent'"}), 400
+            if status is not None:
+                status = str(status or '').strip().lower()
+                if status not in {'active', 'pending_approval', 'suspended'}:
+                    return jsonify({'error': "status must be 'active', 'pending_approval', or 'suspended'"}), 400
+
+            owner_id = db_manager.get_instance_owner_user_id()
+            if user_id == owner_id and status in {'suspended', 'pending_approval'}:
+                return jsonify({'error': 'Cannot change instance owner to non-active status'}), 400
+
+            updated = db_manager.update_user_admin_fields(
+                user_id,
+                account_type=account_type,
+                status=status,
+                display_name=display_name,
+            )
+            if not updated:
+                return jsonify({'error': 'No valid classification updates were applied'}), 400
+
+            refreshed = db_manager.get_user(user_id) or user
+            payload = {
+                'id': refreshed.get('id'),
+                'username': refreshed.get('username'),
+                'display_name': refreshed.get('display_name') or refreshed.get('username'),
+                'account_type': refreshed.get('account_type') or 'human',
+                'status': refreshed.get('status') or 'active',
+                'origin_peer': refreshed.get('origin_peer'),
+                'is_registered': bool(refreshed.get('password_hash')),
+            }
+            return jsonify({'success': True, 'user': payload})
+        except Exception as e:
+            logger.error(f"Admin classification update error: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @ui.route('/ajax/admin/users/<user_id>', methods=['DELETE'])
     @require_login
     @require_admin
@@ -3943,11 +4287,21 @@ def create_ui_blueprint() -> Blueprint:
         """Delete a user account (and their keys, channel memberships)."""
         try:
             db_manager, _, _, _, _, _, _, _, _, _, _ = _get_app_components_any(current_app)
+            user_row = db_manager.get_user(user_id)
+            if not user_row:
+                return jsonify({'error': 'User not found'}), 404
+            if user_id in {'system', 'local_user'}:
+                return jsonify({'error': 'Reserved system users cannot be deleted'}), 400
             owner_id = db_manager.get_instance_owner_user_id()
             if user_id == owner_id:
                 return jsonify({'error': 'Cannot delete the instance owner'}), 400
             if db_manager.delete_user(user_id):
-                return jsonify({'success': True})
+                return jsonify({
+                    'success': True,
+                    'deleted_user_id': user_id,
+                    'was_remote': bool(str(user_row.get('origin_peer') or '').strip()),
+                    'was_registered': bool(user_row.get('password_hash')),
+                })
             return jsonify({'error': 'User not found or delete failed (check server logs for details)'}), 400
         except Exception as e:
             logger.error(f"Admin delete user error: {e}", exc_info=True)
