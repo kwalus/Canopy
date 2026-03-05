@@ -96,7 +96,7 @@ class TestChannelDeletePropagation(unittest.TestCase):
             sess['user_id'] = 'test-user'
             sess['_csrf_token'] = csrf_token
 
-    def _upsert_channel(self, channel_id: str, origin_peer: str, privacy_mode: str) -> None:
+    def _upsert_channel(self, channel_id: str, origin_peer, privacy_mode: str) -> None:
         self.conn.execute(
             "INSERT OR REPLACE INTO channels (id, origin_peer, privacy_mode) VALUES (?, ?, ?)",
             (channel_id, origin_peer, privacy_mode),
@@ -140,6 +140,22 @@ class TestChannelDeletePropagation(unittest.TestCase):
         self.assertEqual(kwargs.get('data_type'), 'channel')
         self.assertEqual(kwargs.get('data_id'), 'Copen')
         self.assertNotIn('target_peer', kwargs)
+
+    def test_delete_channel_treats_null_origin_as_local(self) -> None:
+        self._upsert_channel('Cnull', None, 'open')
+        token = 'csrf-null-origin'
+        self._set_authenticated_session(csrf_token=token)
+
+        response = self.client.post(
+            '/ajax/delete_channel',
+            json={'channel_id': 'Cnull'},
+            headers={'X-CSRFToken': token},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.channel_manager.delete_channel.assert_called_once_with('Cnull', 'test-user')
 
     def test_delete_channel_targets_private_member_peers(self) -> None:
         self._upsert_channel('Cprivate', 'peer-local', 'private')

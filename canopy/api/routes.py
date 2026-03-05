@@ -2236,14 +2236,33 @@ def create_api_blueprint() -> Blueprint:
         if not peer_id:
             return jsonify({'error': 'peer_id required'}), 400
 
+        if p2p_manager.connection_manager.is_connected(peer_id):
+            return jsonify({'status': 'connected', 'peer_id': peer_id,
+                            'message': 'Already connected'})
+
+        active_relays = dict(getattr(p2p_manager, '_active_relays', {}) or {})
+        relay_via = active_relays.get(peer_id)
+        if relay_via:
+            relay_name = ''
+            try:
+                relay_name = (
+                    p2p_manager.identity_manager.peer_display_names.get(relay_via)
+                    if getattr(p2p_manager, 'identity_manager', None) else ''
+                ) or relay_via[:12]
+            except Exception:
+                relay_name = relay_via[:12]
+            return jsonify({
+                'status': 'relayed',
+                'peer_id': peer_id,
+                'relay_via': relay_via,
+                'relay_via_name': relay_name,
+                'message': f'Connected via relay {relay_name}',
+            })
+
         im = p2p_manager.identity_manager
         endpoints = im.peer_endpoints.get(peer_id, [])
         if not endpoints:
             return jsonify({'error': 'No known endpoints for this peer'}), 400
-
-        if p2p_manager.connection_manager.is_connected(peer_id):
-            return jsonify({'status': 'connected', 'peer_id': peer_id,
-                            'message': 'Already connected'})
 
         ev_loop = p2p_manager._event_loop
         if not ev_loop or ev_loop.is_closed():

@@ -3087,23 +3087,36 @@ def create_ui_blueprint() -> Blueprint:
             # Peers introduced by contacts
             introduced_peers = p2p_manager.get_introduced_peers() if p2p_manager else []
 
+            # Relay status
+            relay_status = p2p_manager.get_relay_status() if p2p_manager else {}
+            active_relays = {}
+            try:
+                active_relays = dict((relay_status or {}).get('active_relays') or {})
+            except Exception:
+                active_relays = {}
+
             # Known peers (for reconnect)
             known_peers = []
             if p2p_manager:
                 im = p2p_manager.identity_manager
                 connected_set = set(connected_peers)
+                relayed_set = set(active_relays.keys())
                 for pid, identity in im.known_peers.items():
                     if identity.is_local():
                         continue
+                    connection_type = 'offline'
+                    if pid in connected_set:
+                        connection_type = 'direct'
+                    elif pid in relayed_set:
+                        connection_type = 'relayed'
                     known_peers.append({
                         'peer_id': pid,
                         'display_name': im.peer_display_names.get(pid, ''),
                         'endpoints': im.peer_endpoints.get(pid, []),
-                        'connected': pid in connected_set,
+                        'connected': connection_type in {'direct', 'relayed'},
+                        'connection_type': connection_type,
+                        'relay_via': active_relays.get(pid),
                     })
-
-            # Relay status
-            relay_status = p2p_manager.get_relay_status() if p2p_manager else {}
 
             # Device profiles for peer identification
             _, _, trust_manager, _, channel_manager, _, _, _, _, _, _ = _get_app_components_any(current_app)
@@ -11147,11 +11160,15 @@ def create_ui_blueprint() -> Blueprint:
             if not channel_row:
                 return jsonify({'error': 'Channel not found'}), 404
 
-            origin_peer = str(
+            raw_origin_peer = (
                 channel_row['origin_peer']
                 if hasattr(channel_row, 'keys') and 'origin_peer' in channel_row.keys()
                 else channel_row[0]
-            ).strip()
+            )
+            origin_peer = str(raw_origin_peer or '').strip()
+            if origin_peer.lower() == 'none':
+                # Legacy/null serialization guard: treat textual "None" as missing origin.
+                origin_peer = ''
             privacy_mode = str(
                 channel_row['privacy_mode']
                 if hasattr(channel_row, 'keys') and 'privacy_mode' in channel_row.keys()

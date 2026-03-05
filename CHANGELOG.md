@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.34] - 2026-03-05
+
+### Fixed
+- **Relay-connected peers now visible in UI** — Connect page known-peers list now distinguishes direct, relayed, and offline peers with appropriate badges and actions. Relayed peers show "Via [relay name]" badge with "Go Direct" button to promote to direct connection.
+- **Reconnect API handles relay state** — `/api/v1/p2p/reconnect` now returns `status=relayed` when a peer is already reachable via relay, avoiding misleading failure messages for already-connected-via-relay peers.
+- **Relay route learning from inbound traffic** — Manager now learns relay routes from inbound relayed messages (when source peer differs from connection peer), improving relay-state convergence without requiring explicit broker handshake.
+- **Channel delete null-origin fix** — `/ajax/delete_channel` now normalizes `NULL`/`"None"` origin_peer to empty string, preventing local channels from being misclassified as remote and blocking deletion.
+
+---
+
 ## [0.4.33] - 2026-03-05
 
 ### Fixed

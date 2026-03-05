@@ -1791,6 +1791,25 @@ class P2PNetworkManager:
                     return
             
             # Route message
+            try:
+                relay_peer = connection.peer_id
+                source_peer = message.from_peer
+                if (
+                    relay_peer
+                    and source_peer
+                    and relay_peer != source_peer
+                    and self.message_router
+                    and self.connection_manager
+                    and not self.connection_manager.is_connected(source_peer)
+                ):
+                    self.message_router.update_routing_table(source_peer, relay_peer)
+                    previous = self._active_relays.get(source_peer)
+                    self._active_relays[source_peer] = relay_peer
+                    if previous != relay_peer:
+                        logger.info(f"Learned relay route to {source_peer} via {relay_peer}")
+            except Exception:
+                pass
+
             await self.message_router.route_message(message)
             
             # Notify application

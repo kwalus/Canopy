@@ -530,8 +530,9 @@
                 <ul class="list-group list-group-flush">
                     {% for peer in known_peers %}
                     {% set kdev = peer_device_profiles.get(peer.peer_id) if peer_device_profiles else None %}
+                    {% set relaydev = peer_device_profiles.get(peer.relay_via) if (peer_device_profiles and peer.relay_via) else None %}
                     <li class="list-group-item d-flex align-items-start peer-row" data-peer-id="{{ peer.peer_id }}" style="background:transparent; color:var(--canopy-text-primary); border-color:var(--canopy-border);">
-                        <span class="peer-status-dot {% if not peer.connected %}offline{% endif %}"></span>
+                        <span class="peer-status-dot {% if peer.connection_type == 'relayed' %}relay{% elif not peer.connected %}offline{% endif %}"></span>
                         <div class="d-flex align-items-center">
                             {% if kdev and kdev.avatar_b64 and kdev.avatar_mime %}
                             <img src="data:{{ kdev.avatar_mime }};base64,{{ kdev.avatar_b64 }}"
@@ -556,10 +557,17 @@
                             </div>
                         </div>
                         <div class="ms-auto peer-actions">
-                            {% if peer.connected %}
+                            {% if peer.connection_type == 'direct' %}
                             <span class="badge bg-success">Connected</span>
                             <button class="btn btn-sm btn-outline-secondary" onclick="disconnectPeer('{{ peer.peer_id }}')">
                                 <i class="bi bi-plug"></i> Disconnect
+                            </button>
+                            {% elif peer.connection_type == 'relayed' %}
+                            <span class="badge bg-info" title="Relayed via {{ (relaydev.display_name if relaydev and relaydev.display_name else (peer.relay_via[:12] if peer.relay_via else 'relay')) }}">
+                                <i class="bi bi-arrow-left-right"></i> Via {{ (relaydev.display_name if relaydev and relaydev.display_name else (peer.relay_via[:12] if peer.relay_via else 'relay')) }}
+                            </span>
+                            <button class="btn btn-sm btn-outline-success" onclick="promoteDirect('{{ peer.peer_id }}', this)">
+                                <i class="bi bi-lightning-charge"></i> Go Direct
                             </button>
                             {% else %}
                             {% if peer.endpoints %}
@@ -1064,6 +1072,13 @@ function reconnectPeer(peerId, buttonEl) {
         if (data.status === 'connected') {
             btn.className = 'btn btn-sm btn-success';
             btn.innerHTML = '<i class="bi bi-check-circle"></i> Connected';
+        } else if (data.status === 'relayed') {
+            const via = _escapeHtml(data.relay_via_name || data.relay_via || 'relay');
+            btn.className = 'btn btn-sm btn-info';
+            btn.innerHTML = '<i class="bi bi-arrow-left-right"></i> Via Relay';
+            btn.disabled = false;
+            btn.title = 'Connected via relay ' + via;
+            showAlert('Peer is already reachable via relay: ' + via, 'info');
         } else {
             alert(data.error || data.message || 'Could not reconnect');
             btn.disabled = false;
