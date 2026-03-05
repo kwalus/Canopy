@@ -1915,6 +1915,22 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
         p2p_manager.on_member_sync_ack = _on_member_sync_ack
 
+        def _normalize_channel_crypto_mode(raw_mode: Any) -> str:
+            mode = str(raw_mode or '').strip().lower()
+            if mode in {'e2e_optional', 'e2e_enforced', 'legacy_plaintext'}:
+                return mode
+            return 'legacy_plaintext'
+
+        def _e2e_private_enabled() -> bool:
+            sec = getattr(config, 'security', None) if config else None
+            return bool(getattr(sec, 'e2e_private_channels', False))
+
+        def _channel_targets_e2e(privacy_mode: str, crypto_mode: str) -> bool:
+            return (
+                str(privacy_mode or '').strip().lower() in {'private', 'confidential'}
+                and str(crypto_mode or '').strip().lower() in {'e2e_optional', 'e2e_enforced'}
+            )
+
         def _on_channel_membership_query(query_id, local_user_ids, limit, from_peer):
             """Respond with private-channel metadata for querying peer users."""
             try:
@@ -3438,9 +3454,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                     ).fetchone()
                                     if r:
                                         break
-                            if not r or not (r.get('avatar_file_id') or '').strip():
+                            if not r:
                                 return False
-                            fid = (r.get('avatar_file_id') or '').strip()
+                            fid_raw = r['avatar_file_id'] if 'avatar_file_id' in r.keys() else ''
+                            fid = (fid_raw or '').strip() if isinstance(fid_raw, str) else str(fid_raw or '').strip()
+                            if not fid:
+                                return False
                         profile_manager.file_manager.get_file_data(fid)
                         return False  # file exists
                     except Exception:
