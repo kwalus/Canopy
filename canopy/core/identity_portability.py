@@ -18,7 +18,7 @@ import json
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 logger = logging.getLogger('canopy.identity_portability')
 
@@ -143,7 +143,7 @@ class IdentityPortabilityManager:
         local_identity = self._local_identity()
         if not local_identity:
             raise RuntimeError("Local peer identity unavailable; cannot sign bootstrap grant")
-        signature = local_identity.sign(self._canonical_json(payload))
+        signature = cast(bytes, local_identity.sign(self._canonical_json(payload)))
         return signature.hex()
 
     def _peer_supports_capability(self, peer_id: str) -> bool:

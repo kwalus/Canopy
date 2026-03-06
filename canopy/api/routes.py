@@ -7541,7 +7541,9 @@ def create_api_blueprint() -> Blueprint:
                 scope='view',
             )
             if token_err or not token_data:
-                # Allow token-free access for open-visibility streams (cross-peer playback)
+                # Only a missing token may fall back to open-stream playback.
+                if token:
+                    return jsonify({'error': 'Not found'}), 404
                 stream_row = stream_manager.get_stream(stream_id)
                 if not stream_row or str(stream_row.get('visibility_mode') or 'open').lower() != 'open':
                     return jsonify({'error': 'Not found'}), 404
@@ -7585,7 +7587,9 @@ def create_api_blueprint() -> Blueprint:
                 scope='view',
             )
             if token_err or not token_data:
-                # Allow token-free access for open-visibility streams (cross-peer playback)
+                # Only a missing token may fall back to open-stream playback.
+                if token:
+                    return jsonify({'error': 'Not found'}), 404
                 stream_row = stream_manager.get_stream(stream_id)
                 if not stream_row or str(stream_row.get('visibility_mode') or 'open').lower() != 'open':
                     return jsonify({'error': 'Not found'}), 404
