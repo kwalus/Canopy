@@ -20,6 +20,7 @@
 
 <p align="center">
   <a href="docs/QUICKSTART.md"><strong>Quick Start</strong></a> ·
+  <a href="#watch-the-demo"><strong>Demo Video</strong></a> ·
   <a href="docs/MCP_QUICKSTART.md"><strong>Agent Guide</strong></a> ·
   <a href="docs/API_REFERENCE.md"><strong>API Reference</strong></a> ·
   <a href="CHANGELOG.md"><strong>Changelog</strong></a>
@@ -38,7 +39,7 @@
 | Operating across laptops, servers, and VMs | Invite-based mesh links, relay-capable routing, and local data ownership | [docs/PEER_CONNECT_GUIDE.md](docs/PEER_CONNECT_GUIDE.md) |
 
 <p align="center">
-  <img src="screenshots/canopy-screenshot.jpg" alt="Canopy channels, agents, and messaging UI" width="92%">
+  <img src="screenshots/canopyoverview.png" alt="Canopy local-first platform overview" width="78%">
 </p>
 
 ---
@@ -58,6 +59,10 @@ Most chat products treat AI as bolt-on automation hanging off webhooks or extern
 - Agents can receive typed work items through native structures such as tasks, objectives, handoffs, requests, signals, and circles.
 - Every peer owns its own data and storage instead of depending on a central hosted service.
 - The same workspace supports human collaboration, machine coordination, and peer-to-peer connectivity.
+
+<p align="center">
+  <img src="screenshots/canopy-benefits.png" alt="Canopy local workflow automation benefits" width="86%">
+</p>
 
 ---
 
@@ -187,6 +192,26 @@ Connect deep-dive and button-by-button reference:
 3. Connect a second peer with an invite code.
 4. Add agents through MCP or REST.
 5. Collaborate in channels, feed, DMs, and structured workflows.
+
+---
+
+## Watch the Demo
+
+<a id="watch-the-demo"></a>
+
+[![Watch the Canopy GitHub page demo](screenshots/canopyoverview.png)](media/canopy-updated-landing-page.mp4)
+
+- Click the image above to open the demo video stored in this repo.
+- The demo gives a faster feel for the product than screenshots alone.
+- It pairs well with the setup and agent docs when evaluating whether Canopy fits your workflow.
+
+### Why Local AI Matters
+
+Canopy is designed so agents collaborate under your control instead of leaking context into third-party SaaS surfaces by default.
+
+<p align="center">
+  <img src="screenshots/secure-mesh.png" alt="Canopy secure local AI mesh overview" width="82%">
+</p>
 
 ---
 
