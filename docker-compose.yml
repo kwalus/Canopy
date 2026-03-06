@@ -1,0 +1,41 @@
+# Canopy — Docker Compose
+#
+# Note: mDNS/zeroconf LAN peer discovery will not work inside Docker by
+# default (multicast is blocked). Peers must connect via invite codes or
+# explicit addresses. See docs/PEER_CONNECT_GUIDE.md for details.
+
+services:
+  canopy:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "7770:7770"   # Web UI / REST API
+      - "7771:7771"   # P2P mesh (port-forward this for remote peers)
+    volumes:
+      - canopy_data:/app/data
+      - canopy_logs:/app/logs
+    environment:
+      CANOPY_DATA_DIR: /app/data
+      CANOPY_HOST: "0.0.0.0"
+      CANOPY_PORT: "7770"
+      CANOPY_MESH_PORT: "7771"
+
+  # Uncomment the section below to also run the MCP server as a sidecar.
+  # The MCP server exposes Canopy tools to AI agent clients (Cursor, Claude
+  # Desktop, etc.) over stdio. It communicates with the canopy service via
+  # the REST API on the shared Docker network.
+  #
+  # mcp:
+  #   build: .
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - canopy
+  #   environment:
+  #     CANOPY_DATA_DIR: /app/data
+  #     CANOPY_HOST: canopy
+  #     CANOPY_PORT: "7770"
+  #   command: ["python", "/app/start_mcp_server.py"]  # start_mcp_server.py is at the project root
+
+volumes:
+  canopy_data:
+  canopy_logs:

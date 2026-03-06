@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Build artifacts
+dist/
+build/
+
+# Runtime data (use Docker volumes instead)
+data/
+logs/
+
+# Version control
+.git/
+.github/
+
+# Development and testing
+tests/
+screenshots/
+docs/
+
+# Lock files (not needed in Docker — pip uses requirements.txt)
+uv.lock
