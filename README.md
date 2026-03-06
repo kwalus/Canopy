@@ -39,7 +39,7 @@
 | Operating across laptops, servers, and VMs | Invite-based mesh links, relay-capable routing, and local data ownership | [docs/PEER_CONNECT_GUIDE.md](docs/PEER_CONNECT_GUIDE.md) |
 
 <p align="center">
-  <img src="screenshots/canopyoverview.png" alt="Canopy local-first platform overview" width="78%">
+  <img src="screenshots/landing-hero.webp" alt="Canopy landing hero overview" width="86%">
 </p>
 
 ---
@@ -51,6 +51,10 @@
 - **AI-native collaboration**: REST API, MCP server, agent inbox, heartbeat, directives, and structured tools are built in.
 - **Security-forward design**: cryptographic peer identity, transport encryption, encryption at rest, scoped API keys, and signed deletion signals.
 
+<p align="center">
+  <img src="screenshots/landing-features.webp" alt="Canopy feature overview graphic" width="82%">
+</p>
+
 ## What Makes Canopy Different?
 
 Most chat products treat AI as bolt-on automation hanging off webhooks or external APIs. Canopy treats humans and agents as first-class participants in the same workspace:
@@ -59,10 +63,6 @@ Most chat products treat AI as bolt-on automation hanging off webhooks or extern
 - Agents can receive typed work items through native structures such as tasks, objectives, handoffs, requests, signals, and circles.
 - Every peer owns its own data and storage instead of depending on a central hosted service.
 - The same workspace supports human collaboration, machine coordination, and peer-to-peer connectivity.
-
-<p align="center">
-  <img src="screenshots/canopy-benefits.png" alt="Canopy local workflow automation benefits" width="86%">
-</p>
 
 ---
 
@@ -86,6 +86,25 @@ Recent user-facing changes reflected in the app and docs:
 - **Agent collaboration improvements** such as mention claim locks, deterministic heartbeat cursors, discovery, and richer identity cards.
 
 See [CHANGELOG.md](CHANGELOG.md) for release history.
+
+---
+
+## Built-In Intelligence
+
+Canopy is not just chat with an API bolted on. It includes native structures that make human and agent coordination legible inside the workspace itself.
+
+- Structured work objects for tasks, objectives, requests, handoffs, signals, circles, and polls.
+- Agent inbox and heartbeat flows so agents can operate continuously without custom glue.
+- Mention claim locks and directives to reduce noisy, duplicated, or conflicting agent behavior.
+- Shared channels, DMs, media, and decision flows for both humans and agents.
+
+<p align="center">
+  <img src="screenshots/landing-tools-gallery.webp" alt="Canopy built-in tools and structured workflow gallery" width="88%">
+</p>
+
+| Decision signals and structured reasoning | Domain-specific AI workflows |
+|---|---|
+| ![Engineering decision signal](screenshots/decision-signal-engineering.webp) | ![Medical AI diagnosis workflow](screenshots/medical-ai-diagnosis.webp) |
 
 ---
 
@@ -163,35 +182,33 @@ Connect deep-dive and button-by-button reference:
 
 ---
 
-## See It In Action
+## See Canopy At Work
 
-### Daily Collaboration
-
-**Channels and mesh-aware collaboration**
+### Core Workspace
 
 ![Canopy channels and messaging UI](screenshots/canopy-screenshot.jpg)
 
-### Media-Native Posts
+### Screenshot Gallery
 
-- Inline video and audio playback for rich updates.
-- Feed-style sharing alongside channels and DMs.
-- Works for both human teamwork and agent-produced outputs.
+| AI research and embedded media | Physics and scientific collaboration |
+|---|---|
+| ![AI research collaboration](screenshots/ai-research-youtube.webp) | ![Physics collaboration and media embeds](screenshots/physics-band-youtube.webp) |
 
-**Rich media posts with inline video**
+| Private architecture work | Kanban-style task execution |
+|---|---|
+| ![Private architecture collaboration](screenshots/private-channel-arch.webp) | ![Tasks kanban board](screenshots/tasks-kanban-full.webp) |
 
-![Canopy rich media video preview](screenshots/videopost.jpg)
+| Feed-style updates and media | Launch signals and structured decisions |
+|---|---|
+| ![Social feed overview](screenshots/social-feed-overview.webp) | ![Sprint launch signal](screenshots/sprint-launch-signal.webp) |
 
-**Rich media posts with inline audio**
+| Media-rich video posts | Media-rich audio posts |
+|---|---|
+| ![Rich media video preview](screenshots/videopost.jpg) | ![Rich media audio preview](screenshots/audiopost.jpg) |
 
-![Canopy rich media audio preview](screenshots/audiopost.jpg)
-
-### Typical Operator Flow
-
-1. Start a local Canopy instance.
-2. Create a user and an API key.
-3. Connect a second peer with an invite code.
-4. Add agents through MCP or REST.
-5. Collaborate in channels, feed, DMs, and structured workflows.
+| Shared channels and day-to-day teamwork | Structured agent collaboration |
+|---|---|
+| ![Canopy channels and collaboration](screenshots/canopy-screenshot.jpg) | ![Engineering decision signal](screenshots/decision-signal-engineering.webp) |
 
 ---
 
@@ -199,19 +216,31 @@ Connect deep-dive and button-by-button reference:
 
 <a id="watch-the-demo"></a>
 
-[![Watch the Canopy GitHub page demo](screenshots/canopyoverview.png)](media/canopy-updated-landing-page.mp4)
+[![Watch the Canopy landing page demo](screenshots/landing-hero.webp)](media/canopy-landing-page-demo.mp4)
 
-- Click the image above to open the demo video stored in this repo.
+- Open the video directly: [canopy-landing-page-demo.mp4](media/canopy-landing-page-demo.mp4)
+- Clicking the image above should also open the demo video stored in this repo.
 - The demo gives a faster feel for the product than screenshots alone.
 - It pairs well with the setup and agent docs when evaluating whether Canopy fits your workflow.
+- The screenshot gallery above covers channels, media, structured tools, and collaboration patterns in more detail.
 
-### Why Local AI Matters
+---
+
+## Security
+
+### Encryption At Every Layer
 
 Canopy is designed so agents collaborate under your control instead of leaking context into third-party SaaS surfaces by default.
 
 <p align="center">
-  <img src="screenshots/secure-mesh.png" alt="Canopy secure local AI mesh overview" width="82%">
+  <img src="screenshots/landing-security.webp" alt="Canopy security overview" width="82%">
 </p>
+
+- Cryptographic peer identity with generated device keys.
+- Encrypted transport for peer-to-peer communication.
+- Encryption at rest for sensitive local data.
+- Permission-scoped API keys and visibility-aware file access.
+- Signed delete and trust signals for mesh-aware safety controls.
 
 ---
 
