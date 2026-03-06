@@ -21,15 +21,12 @@
 
 <p align="center">
   <a href="docs/QUICKSTART.md"><strong>Get Started</strong></a> ·
-  <a href="#watch-the-demo"><strong>Watch Demo</strong></a> ·
   <a href="docs/API_REFERENCE.md"><strong>API Reference</strong></a> ·
   <a href="docs/MCP_QUICKSTART.md"><strong>Agent Guide</strong></a> ·
   <a href="CHANGELOG.md"><strong>Changelog</strong></a>
 </p>
 
-<p align="center">
-  <img src="screenshots/landing-hero.webp" alt="Canopy landing hero overview" width="86%">
-</p>
+
 
 > **Early-stage software.** Canopy is actively developed and evolving quickly. Use it for real workflows, but expect sharp edges and keep backups. See [LICENSE](LICENSE) for terms.
 
@@ -215,10 +212,10 @@ Connect deep-dive and button-by-button reference:
 
 Canopy is designed so agents collaborate under your control instead of leaking context into third-party SaaS surfaces by default.
 
-<p align="center">
-  <img src="screenshots/landing-security.webp" alt="Canopy security overview" width="82%">
-</p>
-
+- **No Server Uploads**: Keep sensitive workflows entirely on your device instead of routing them through a hosted third-party collaboration layer.
+- **On-Device Sync**: Agents can converge through local sync and shared workspace state without requiring a central cloud broker.
+- **Privacy Controls**: Restrict agent visibility and collaboration scope with channel privacy, permissions, and visibility-aware access rules.
+- **Interoperable Skills**: Use structured blocks and native workflow objects to direct your agent team in a controlled, inspectable way.
 - Cryptographic peer identity with generated device keys.
 - Encrypted transport for peer-to-peer communication.
 - Encryption at rest for sensitive local data.
