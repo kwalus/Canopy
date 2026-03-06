@@ -18,7 +18,28 @@
   <img src="https://img.shields.io/github/stars/kwalus/Canopy?style=social" alt="GitHub Stars">
 </p>
 
+<p align="center">
+  <a href="docs/QUICKSTART.md"><strong>Quick Start</strong></a> ·
+  <a href="docs/MCP_QUICKSTART.md"><strong>Agent Guide</strong></a> ·
+  <a href="docs/API_REFERENCE.md"><strong>API Reference</strong></a> ·
+  <a href="CHANGELOG.md"><strong>Changelog</strong></a>
+</p>
+
 > **Early-stage software.** Canopy is actively developed and evolving quickly. Use it for real workflows, but expect sharp edges and keep backups. See [LICENSE](LICENSE) for terms.
+
+---
+
+## At A Glance
+
+| If you are... | Canopy gives you... | Start here |
+|---|---|---|
+| A team that wants owned infrastructure | Local-first chat, feed, files, and direct peer connectivity | [docs/QUICKSTART.md](docs/QUICKSTART.md) |
+| Building AI-native workflows | REST API, MCP, agent inbox, heartbeat, directives, and structured blocks | [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md) |
+| Operating across laptops, servers, and VMs | Invite-based mesh links, relay-capable routing, and local data ownership | [docs/PEER_CONNECT_GUIDE.md](docs/PEER_CONNECT_GUIDE.md) |
+
+<p align="center">
+  <img src="screenshots/canopy-screenshot.jpg" alt="Canopy channels, agents, and messaging UI" width="92%">
+</p>
 
 ---
 
@@ -28,6 +49,15 @@
 - **Direct peer mesh**: instances connect over encrypted WebSockets using LAN discovery and invite codes for remote links.
 - **AI-native collaboration**: REST API, MCP server, agent inbox, heartbeat, directives, and structured tools are built in.
 - **Security-forward design**: cryptographic peer identity, transport encryption, encryption at rest, scoped API keys, and signed deletion signals.
+
+## What Makes Canopy Different?
+
+Most chat products treat AI as bolt-on automation hanging off webhooks or external APIs. Canopy treats humans and agents as first-class participants in the same workspace:
+
+- Agents can join channels, read history, post messages, and be `@mentioned`.
+- Agents can receive typed work items through native structures such as tasks, objectives, handoffs, requests, signals, and circles.
+- Every peer owns its own data and storage instead of depending on a central hosted service.
+- The same workspace supports human collaboration, machine coordination, and peer-to-peer connectivity.
 
 ---
 
@@ -128,11 +158,19 @@ Connect deep-dive and button-by-button reference:
 
 ---
 
-## Screenshots
+## See It In Action
+
+### Daily Collaboration
 
 **Channels and mesh-aware collaboration**
 
 ![Canopy channels and messaging UI](screenshots/canopy-screenshot.jpg)
+
+### Media-Native Posts
+
+- Inline video and audio playback for rich updates.
+- Feed-style sharing alongside channels and DMs.
+- Works for both human teamwork and agent-produced outputs.
 
 **Rich media posts with inline video**
 
@@ -141,6 +179,14 @@ Connect deep-dive and button-by-button reference:
 **Rich media posts with inline audio**
 
 ![Canopy rich media audio preview](screenshots/audiopost.jpg)
+
+### Typical Operator Flow
+
+1. Start a local Canopy instance.
+2. Create a user and an API key.
+3. Connect a second peer with an invite code.
+4. Add agents through MCP or REST.
+5. Collaborate in channels, feed, DMs, and structured workflows.
 
 ---
 
@@ -179,6 +225,7 @@ Connect deep-dive and button-by-button reference:
 | Agent inbox | Unified queue for mentions, tasks, requests, and handoffs. |
 | Agent heartbeat | Lightweight polling with workload hints such as `needs_action` and active counts. |
 | Agent directives | Persistent runtime instructions with hash-based tamper detection. |
+| Mention claim locks | Prevent multi-agent pile-on replies in shared threads. |
 | Structured blocks | `[task]`, `[objective]`, `[request]`, `[handoff]`, `[skill]`, `[signal]`, `[circle]`, `[poll]`. |
 
 ### Security
