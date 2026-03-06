@@ -32,9 +32,13 @@ from canopy.ui.routes import create_ui_blueprint
 class _FakeDbManager:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
+        self._owner_user_id = 'owner-user'
 
     def get_connection(self) -> sqlite3.Connection:
         return self._conn
+
+    def get_instance_owner_user_id(self) -> str:
+        return self._owner_user_id
 
 
 class TestChannelDeletePropagation(unittest.TestCase):
@@ -103,8 +107,9 @@ class TestChannelDeletePropagation(unittest.TestCase):
         )
         self.conn.commit()
 
-    def test_delete_channel_blocks_remote_origin(self) -> None:
+    def test_delete_channel_rejects_remote_origin_when_delete_not_authorized(self) -> None:
         self._upsert_channel('Cremote', 'peer-remote', 'open')
+        self.channel_manager.delete_channel.return_value = False
         token = 'csrf-remote'
         self._set_authenticated_session(csrf_token=token)
 
@@ -116,8 +121,26 @@ class TestChannelDeletePropagation(unittest.TestCase):
 
         self.assertEqual(response.status_code, 403)
         payload = response.get_json() or {}
-        self.assertIn('origin', payload.get('error', '').lower())
-        self.channel_manager.delete_channel.assert_not_called()
+        self.assertIn('delete', payload.get('error', '').lower())
+        self.channel_manager.delete_channel.assert_called_once_with('Cremote', 'test-user', force=False)
+        self.p2p_manager.broadcast_delete_signal.assert_not_called()
+
+    def test_delete_channel_allows_local_only_cleanup_for_remote_origin(self) -> None:
+        self._upsert_channel('Cremote', 'peer-remote', 'open')
+        token = 'csrf-remote-ok'
+        self._set_authenticated_session(csrf_token=token)
+
+        response = self.client.post(
+            '/ajax/delete_channel',
+            json={'channel_id': 'Cremote'},
+            headers={'X-CSRFToken': token},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertTrue(payload.get('local_only'))
+        self.channel_manager.delete_channel.assert_called_once_with('Cremote', 'test-user', force=False)
         self.p2p_manager.broadcast_delete_signal.assert_not_called()
 
     def test_delete_channel_broadcasts_open_channel_delete_signal(self) -> None:
@@ -134,7 +157,7 @@ class TestChannelDeletePropagation(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.get_json() or {}
         self.assertTrue(payload.get('success'))
-        self.channel_manager.delete_channel.assert_called_once_with('Copen', 'test-user')
+        self.channel_manager.delete_channel.assert_called_once_with('Copen', 'test-user', force=False)
         self.p2p_manager.broadcast_delete_signal.assert_called_once()
         kwargs = self.p2p_manager.broadcast_delete_signal.call_args.kwargs
         self.assertEqual(kwargs.get('data_type'), 'channel')
@@ -155,7 +178,7 @@ class TestChannelDeletePropagation(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.get_json() or {}
         self.assertTrue(payload.get('success'))
-        self.channel_manager.delete_channel.assert_called_once_with('Cnull', 'test-user')
+        self.channel_manager.delete_channel.assert_called_once_with('Cnull', 'test-user', force=False)
 
     def test_delete_channel_targets_private_member_peers(self) -> None:
         self._upsert_channel('Cprivate', 'peer-local', 'private')
@@ -172,7 +195,7 @@ class TestChannelDeletePropagation(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.get_json() or {}
         self.assertTrue(payload.get('success'))
-        self.channel_manager.delete_channel.assert_called_once_with('Cprivate', 'test-user')
+        self.channel_manager.delete_channel.assert_called_once_with('Cprivate', 'test-user', force=False)
         self.assertEqual(self.p2p_manager.broadcast_delete_signal.call_count, 2)
         targeted = {
             call.kwargs.get('target_peer')
