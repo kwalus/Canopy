@@ -1,95 +1,58 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller spec file for Canopy system tray application.
+PyInstaller spec file for the Canopy tray application.
 
 Build with:
-    cd "D:\Dropbox\Python Toolbox\Canopy"
-    pyinstaller canopy_tray/build.spec
+    pyinstaller canopy_tray/build.spec --clean
 
-Output: dist/Canopy.exe
+Output:
+    dist/Canopy/Canopy.exe
 """
 
+from __future__ import annotations
+
 import os
-import sys
 from pathlib import Path
+
+from PyInstaller.utils.hooks import collect_submodules, copy_metadata
 
 block_cipher = None
 
-# Project root (where this spec file's parent directory lives)
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(SPECPATH)))
+PROJECT_ROOT = Path(SPECPATH).resolve().parent.parent
 
-# Collect all data files
-datas = [
-    # Flask templates and static files
-    (os.path.join(PROJECT_ROOT, 'canopy', 'ui', 'templates'), 'canopy/ui/templates'),
-    (os.path.join(PROJECT_ROOT, 'canopy', 'ui', 'static'), 'canopy/ui/static'),
-    # Tray assets (icon)
-    (os.path.join(PROJECT_ROOT, 'canopy_tray', 'assets'), 'canopy_tray/assets'),
-    # Logos
-    (os.path.join(PROJECT_ROOT, 'logos'), 'logos'),
+
+def _existing_path(src: Path, dst: str) -> tuple[str, str] | None:
+    if src.exists():
+        return (str(src), dst)
+    return None
+
+
+datas = []
+datas.extend(copy_metadata("canopy"))
+extra_paths = [
+    _existing_path(PROJECT_ROOT / "canopy" / "ui" / "templates", "canopy/ui/templates"),
+    _existing_path(PROJECT_ROOT / "canopy" / "ui" / "static", "canopy/ui/static"),
+    _existing_path(PROJECT_ROOT / "canopy_tray" / "assets", "canopy_tray/assets"),
+    _existing_path(PROJECT_ROOT / "logos", "logos"),
 ]
+datas.extend([entry for entry in extra_paths if entry is not None])
 
-# Filter out non-existent paths
-datas = [(src, dst) for src, dst in datas if os.path.exists(src)]
-
-# Hidden imports that PyInstaller might miss
-hiddenimports = [
-    # Flask and related
-    'flask',
-    'flask.json',
-    'werkzeug',
-    'werkzeug.serving',
-    'jinja2',
-    'markupsafe',
-    # Canopy core
-    'canopy',
-    'canopy.core',
-    'canopy.core.app',
-    'canopy.core.config',
-    'canopy.core.database',
-    'canopy.core.device',
-    'canopy.core.channels',
-    'canopy.core.profile',
-    'canopy.api',
-    'canopy.api.routes',
-    'canopy.ui',
-    'canopy.ui.routes',
-    'canopy.network',
-    'canopy.network.manager',
-    'canopy.network.connection',
-    'canopy.network.discovery',
-    'canopy.network.identity',
-    'canopy.network.routing',
-    'canopy.network.invite',
-    'canopy.security',
-    'canopy.security.encryption',
-    # P2P networking
-    'websockets',
-    'websockets.server',
-    'websockets.client',
-    'zeroconf',
-    'msgpack',
-    'base58',
-    # Crypto
-    'cryptography',
-    'bcrypt',
-    # Tray
-    'pystray',
-    'pystray._win32',
-    'winotify',
-    # Image processing
-    'PIL',
-    'PIL.Image',
-    'PIL.ImageDraw',
-    # Utilities
-    'dateutil',
-    'dateutil.parser',
-    'sqlite3',
-]
+hiddenimports = []
+for package in (
+    "canopy.api",
+    "canopy.core",
+    "canopy.network",
+    "canopy.security",
+    "canopy.ui",
+    "canopy_tray",
+    "pystray",
+    "winotify",
+):
+    hiddenimports.extend(collect_submodules(package))
 
 a = Analysis(
-    [os.path.join(PROJECT_ROOT, 'canopy_tray', '__main__.py')],
-    pathex=[PROJECT_ROOT],
+    [str(PROJECT_ROOT / "canopy_tray" / "__main__.py")],
+    pathex=[str(PROJECT_ROOT)],
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,
@@ -97,14 +60,15 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        'tkinter',
-        'matplotlib',
-        'numpy',
-        'scipy',
-        'pandas',
-        'pytest',
-        'black',
-        'flake8',
+        "canopy.mcp",
+        "tkinter",
+        "matplotlib",
+        "numpy",
+        "scipy",
+        "pandas",
+        "pytest",
+        "black",
+        "flake8",
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -117,22 +81,25 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
     [],
-    name='Canopy',
+    exclude_binaries=True,
+    name="Canopy",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
-    console=False,  # No console window (windowed mode)
+    console=False,
     disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
-    icon=os.path.join(PROJECT_ROOT, 'canopy_tray', 'assets', 'canopy.ico'),
+    icon=str(PROJECT_ROOT / "canopy_tray" / "assets" / "canopy.ico"),
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name="Canopy",
 )

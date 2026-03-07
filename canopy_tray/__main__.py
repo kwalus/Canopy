@@ -18,6 +18,8 @@ import os
 import sys
 from pathlib import Path
 
+from canopy_tray import __version__
+
 
 def _default_tray_home() -> Path:
     """Return a stable, user-writable runtime directory for packaged builds.
@@ -101,7 +103,7 @@ def main():
 
     logger = logging.getLogger("canopy_tray")
     extra = f", home={tray_home}" if tray_home else ""
-    logger.info(f"Canopy Tray v0.1.0 starting (port={args.port}{extra})")
+    logger.info(f"Canopy Tray v{__version__} starting (port={args.port}{extra})")
 
     # Ensure the project root is on sys.path so canopy package can be imported
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

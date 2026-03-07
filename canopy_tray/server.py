@@ -246,7 +246,10 @@ class ServerManager:
         if not api_key_manager or not db_manager:
             return None
 
-        desired_user_id = db_manager.get_instance_owner_user_id() or "local_user"
+        desired_user_id = db_manager.get_instance_owner_user_id()
+        if not desired_user_id:
+            logger.info("Tray API key unavailable until a local owner account exists")
+            return None
 
         # Prefer existing stored key if it is still valid and matches the desired user.
         state = self._load_tray_state()

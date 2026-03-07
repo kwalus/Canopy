@@ -23,6 +23,22 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Bootstrap Icons -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <!-- KaTeX (equation rendering, local-first vendor asset) -->
+    <link rel="stylesheet"
+          href="{{ url_for('ui.static', filename='vendor/katex/0.16.9/katex.min.css') }}">
+
+    <style>
+        /* Keep display equations usable on narrow/mobile viewports. */
+        .rich-content .katex-display,
+        .post-content .katex-display,
+        .message-content .katex-display,
+        .message-text .katex-display {
+            overflow-x: auto;
+            overflow-y: hidden;
+            margin: 0.5rem 0;
+            padding-bottom: 0.125rem;
+        }
+    </style>
     
     <style>
         :root {
@@ -181,6 +197,12 @@
             display: flex;
             align-items: center;
             gap: 0.5rem;
+            white-space: nowrap;
+            min-width: 0;
+        }
+        .navbar-brand .brand-text {
+            white-space: nowrap;
+            display: inline-block;
         }
         .navbar-brand img.brand-logo {
             height: 44px;
@@ -367,6 +389,32 @@
         }
 
         .sidebar-media-mini-progress.show {
+            display: block;
+        }
+
+        .sidebar-media-mini-video {
+            display: none;
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            border-radius: 10px;
+            overflow: hidden;
+            background: #000;
+            margin-bottom: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .sidebar-media-mini-video .embed-preview,
+        .sidebar-media-mini-video .youtube-embed {
+            margin: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        .sidebar-media-mini-video iframe {
+            width: 100% !important;
+            height: 100% !important;
+            min-height: 100%;
+            border: 0;
             display: block;
         }
 
@@ -960,13 +1008,15 @@
             }
             
             .sidebar-container.collapsed {
-                width: 60px;
-                min-width: 60px;
-                flex: 0 0 60px;
+                width: 0;
+                min-width: 0;
+                flex: 0 0 0;
             }
             
             .sidebar.collapsed {
-                width: 60px;
+                width: 0;
+                opacity: 0;
+                pointer-events: none;
             }
             
             .sidebar.collapsed .nav-link {
@@ -999,14 +1049,16 @@
             }
             
             .sidebar-container.collapsed {
-                width: 50px;
-                min-width: 50px;
+                width: 0;
+                min-width: 0;
                 position: relative;
-                flex: 0 0 50px;
+                flex: 0 0 0;
             }
             
             .sidebar.collapsed {
-                width: 50px;
+                width: 0;
+                opacity: 0;
+                pointer-events: none;
             }
             
             .sidebar.collapsed .nav-link {
@@ -1043,19 +1095,104 @@
                 display: flex;
                 align-items: center;
             }
-            
+
             .navbar {
-                padding: 12px 16px;
+                padding: 6px 10px;
             }
-            
+
+            .navbar .container-fluid {
+                flex-wrap: nowrap;
+                gap: 0.2rem;
+                align-items: center;
+                min-width: 0;
+            }
+
+            .navbar-brand {
+                font-size: 1.08rem;
+                gap: 0.28rem;
+                flex: 1 1 auto;
+                min-width: 0;
+                max-width: 52vw;
+                margin-right: 0.15rem;
+            }
+
+            .navbar-brand img.brand-logo {
+                width: 34px;
+                height: 34px;
+            }
+
+            .navbar-brand .brand-text {
+                max-width: min(38vw, 132px);
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
             #sidebar-toggle {
-                padding: 12px;
-                margin-right: 8px;
+                padding: 5px 7px;
+                margin-right: 0 !important;
+                border-radius: 10px;
+                font-size: 0.86rem;
+            }
+
+            .header-peer-link {
+                gap: 0.2rem !important;
+                margin-right: 0.2rem !important;
+            }
+
+            .navbar-toggler {
+                padding: 0.18rem 0.3rem;
+                margin-left: 0 !important;
+            }
+
+            .navbar .container-fluid > .nav-link {
+                padding: 0.18rem 0.28rem;
+                margin-right: 0 !important;
+                font-size: 0.9rem;
+                min-width: 0;
+            }
+
+            #header-peer-count {
+                font-size: 0.64rem;
+                min-width: 1.35rem;
+                padding: 0.22rem 0.34rem;
             }
             
             /* Fix iOS Safari bottom padding */
             .app-container {
                 padding-bottom: env(safe-area-inset-bottom);
+            }
+        }
+
+        @media (max-width: 420px) {
+            .main-content {
+                padding: 12px;
+            }
+
+            .navbar-brand {
+                max-width: 44vw;
+                margin-right: 0.08rem;
+            }
+
+            .navbar-brand .brand-text {
+                display: none;
+            }
+
+            .navbar-brand img.brand-logo {
+                width: 30px;
+                height: 30px;
+            }
+
+            #sidebar-toggle {
+                padding: 5px 6px;
+                border-radius: 8px;
+            }
+
+            .header-peer-link {
+                margin-right: 0.12rem !important;
+            }
+
+            .navbar-toggler {
+                padding: 0.14rem 0.24rem;
             }
         }
         
@@ -4185,7 +4322,8 @@
         <nav class="navbar navbar-expand-lg navbar-dark">
             <div class="container-fluid">
                 <a class="navbar-brand" href="/">
-                    <img src="{{ url_for('static', filename='icons/canopy-logo.png') }}" alt="Canopy" class="brand-logo"> Canopy
+                    <img src="{{ url_for('static', filename='icons/canopy-logo.png') }}" alt="Canopy" class="brand-logo">
+                    <span class="brand-text">Canopy</span>
                 </a>
                 
                 <!-- Sidebar Toggle Button -->
@@ -4193,7 +4331,7 @@
                     <i class="bi bi-list"></i>
                 </button>
                 {% if sidebar_connected_peers is defined %}
-                <a href="{{ url_for('ui.connect_page') }}" class="nav-link d-inline-flex align-items-center gap-1 me-2 text-nowrap" title="P2P peer connections">
+                <a href="{{ url_for('ui.connect_page') }}" class="nav-link header-peer-link d-inline-flex align-items-center gap-1 me-2 text-nowrap" title="P2P peer connections">
                     <i class="bi bi-link-45deg"></i>
                     <span class="badge rounded-pill {% if sidebar_connected_peers|length > 0 %}bg-success{% else %}bg-secondary{% endif %}" id="header-peer-count">{{ sidebar_connected_peers|length }}</span>
                 </a>
@@ -4346,6 +4484,7 @@
                         <div class="sidebar-media-mini-progress" id="sidebar-media-mini-progress">
                             <span id="sidebar-media-mini-progress-bar"></span>
                         </div>
+                        <div id="sidebar-media-mini-video" class="sidebar-media-mini-video" aria-label="Mini video player"></div>
                         <div class="sidebar-media-mini-controls">
                             <button type="button" class="sidebar-media-mini-btn" id="sidebar-media-mini-play">
                                 <i class="bi bi-pause-fill me-1"></i><span>Pause</span>
@@ -4364,9 +4503,9 @@
                     <div class="sidebar-peers">
                         <div class="sidebar-peers-header">
                             <span>Connected</span>
-                            <span class="sidebar-peers-count">{{ sidebar_connected_peers|length }}</span>
+                            <span class="sidebar-peers-count" id="sidebar-peer-count">{{ sidebar_connected_peers|length }}</span>
                         </div>
-                        <div class="sidebar-peer-list">
+                        <div class="sidebar-peer-list" id="sidebar-peer-list">
                             {% if sidebar_connected_peers %}
                                 {% for peer_id in sidebar_connected_peers %}
                                     {% set profile = sidebar_peer_profiles.get(peer_id) if sidebar_peer_profiles else None %}
@@ -4440,12 +4579,89 @@
     
     <!-- Marked.js for Markdown rendering -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <!-- KaTeX runtime + auto-render extension (local-first, CDN fallback) -->
+    <script>
+        (function() {
+            let katexFallbackLoading = false;
+            let katexFallbackLoaded = false;
+            function appendCdnCss() {
+                if (document.getElementById('canopy-katex-cdn-css')) return;
+                const link = document.createElement('link');
+                link.id = 'canopy-katex-cdn-css';
+                link.rel = 'stylesheet';
+                link.href = 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css';
+                link.integrity = 'sha384-n8MVd4RsNIU0tAv4ct0nTaAbDJwPJzDEaqSD1odI+WdtXRGWt2kTvGFasHpSy3SV';
+                link.crossOrigin = 'anonymous';
+                document.head.appendChild(link);
+            }
+            function appendScript(id, src, integrity, onload, onerror) {
+                if (document.getElementById(id)) {
+                    if (typeof onload === 'function') onload();
+                    return;
+                }
+                const script = document.createElement('script');
+                script.id = id;
+                script.src = src;
+                script.async = true;
+                script.defer = true;
+                script.integrity = integrity;
+                script.crossOrigin = 'anonymous';
+                script.onload = function() { if (typeof onload === 'function') onload(); };
+                script.onerror = function() { if (typeof onerror === 'function') onerror(); };
+                document.head.appendChild(script);
+            }
+            window.__canopyLoadKatexCdn = function() {
+                if (katexFallbackLoaded || katexFallbackLoading) return;
+                katexFallbackLoading = true;
+                appendCdnCss();
+                appendScript(
+                    'canopy-katex-cdn-js',
+                    'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js',
+                    'sha384-XjKyOOlGwcjNTAIQHIpgOno0Hl1YQqzUOEleOLALmuqehneUG+vnGctmUb0ZY0l8',
+                    function() {
+                        appendScript(
+                            'canopy-katex-cdn-auto-render-js',
+                            'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js',
+                            'sha384-+VBxd3r6XgURycqtZ117nYw44OOcIax56Z4dCRWbxyPt0Koah1uHoK0o4+/RRE05',
+                            function() {
+                                katexFallbackLoaded = true;
+                                katexFallbackLoading = false;
+                            },
+                            function() {
+                                katexFallbackLoading = false;
+                            }
+                        );
+                    },
+                    function() {
+                        katexFallbackLoading = false;
+                    }
+                );
+            };
+        })();
+    </script>
+    <script defer
+            src="{{ url_for('ui.static', filename='vendor/katex/0.16.9/katex.min.js') }}"
+            onerror="if (window.__canopyLoadKatexCdn) { window.__canopyLoadKatexCdn(); }"></script>
+    <script defer
+            src="{{ url_for('ui.static', filename='vendor/katex/0.16.9/contrib/auto-render.min.js') }}"
+            onerror="if (window.__canopyLoadKatexCdn) { window.__canopyLoadKatexCdn(); }"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            if ((typeof window.katex === 'undefined' || typeof window.renderMathInElement !== 'function') &&
+                typeof window.__canopyLoadKatexCdn === 'function') {
+                window.__canopyLoadKatexCdn();
+            }
+        });
+    </script>
     
     <!-- Canopy Common JS -->
     <!-- Canopy server-injected variables for canopy-main.js -->
     <script>
         window.CANOPY_VARS = {
             peerProfiles: {{ sidebar_peer_profiles|tojson if sidebar_peer_profiles is defined else '{}' }},
+            peerTrust: {{ sidebar_peer_trust|tojson if sidebar_peer_trust is defined else '{}' }},
+            connectedPeers: {{ sidebar_connected_peers|tojson if sidebar_connected_peers is defined else '[]' }},
             userId: {{ (user_id or 'local_user')|tojson }},
             profileTheme: {{ (profile.theme_preference if profile else 'dark')|tojson }},
             localUserId: {{ session.get('user_id')|tojson }},
@@ -4456,7 +4672,7 @@
             }
         };
     </script>
-    <script src="{{ url_for('ui.static', filename='js/canopy-main.js') }}"></script>
+    <script src="{{ url_for('ui.static', filename='js/canopy-main.js') }}?v={{ canopy_version }}"></script>
 
     <!-- File Access Inspector Modal -->
     <div class="modal fade" id="fileAccessInspectorModal" tabindex="-1" aria-labelledby="fileAccessInspectorLabel" aria-hidden="true">

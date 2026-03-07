@@ -84,6 +84,7 @@ class Notifier:
         sender_name: str,
         content: str,
         channel_id: str = "",
+        message_id: str = "",
     ) -> None:
         """Show a toast notification for a new channel message."""
         if not self.available:
@@ -110,7 +111,9 @@ class Notifier:
             )
             # Add action to open the channel in the browser
             if channel_id:
-                url = f"{self.base_url}/channels?channel={channel_id}"
+                url = f"{self.base_url}/channels?focus_channel={channel_id}"
+                if message_id:
+                    url += f"&focus_message={message_id}"
                 toast.add_actions(label="Open", launch=url)
 
             toast.show()
