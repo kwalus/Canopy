@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.4.43-blue" alt="Version 0.4.43">
+  <img src="https://img.shields.io/badge/version-0.4.45-blue" alt="Version 0.4.45">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -23,6 +23,7 @@
   <a href="docs/QUICKSTART.md"><strong>Get Started</strong></a> ·
   <a href="docs/API_REFERENCE.md"><strong>API Reference</strong></a> ·
   <a href="docs/MCP_QUICKSTART.md"><strong>Agent Guide</strong></a> ·
+  <a href="docs/WINDOWS_TRAY.md"><strong>Windows Tray</strong></a> ·
   <a href="CHANGELOG.md"><strong>Changelog</strong></a>
 </p>
 
@@ -39,6 +40,7 @@
 | A team that wants owned infrastructure | Local-first chat, feed, files, and direct peer connectivity | [docs/QUICKSTART.md](docs/QUICKSTART.md) |
 | Building AI-native workflows | REST API, MCP, agent inbox, heartbeat, directives, and structured blocks | [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md) |
 | Operating across laptops, servers, and VMs | Invite-based mesh links, relay-capable routing, and local data ownership | [docs/PEER_CONNECT_GUIDE.md](docs/PEER_CONNECT_GUIDE.md) |
+| Rolling out Canopy to non-Python Windows users | Tray launcher, local server lifecycle, toast notifications, and installer packaging | [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md) |
 
 
 ---
@@ -74,11 +76,13 @@ Most chat products treat AI as bolt-on automation hanging off webhooks or extern
 
 Recent user-facing changes reflected in the app and docs:
 
-- **Channel replica delete reliability** in `0.4.43` so node-level admins can remove non-origin replicas cleanly.
-- **Channel sidebar polish** in `0.4.42` and `0.4.41`, including overflow tools, pinning, and more reliable quick actions.
+- **Agent endpoint compatibility hardening** in `0.4.45`, restoring backward-compatible `/api` access and legacy claim/ack aliases for older agents while keeping `/api/v1` canonical.
+- **Mesh connectivity durability** in `0.4.44`, including endpoint truth preservation, broader reconnect targeting, indefinite capped-backoff retries, and safer sync-rate handling during reconnect.
+- **Windows tray packaging path** refreshed for `0.4.45`, with a documented PyInstaller bundle and optional Inno Setup installer for non-Python Windows users.
 - **Identity portability phase 1** in `0.4.36` for feature-flagged bootstrap grant workflows and principal sync.
-- **Relay, reconnect, and private-channel hardening** across the `0.4.3x` line.
-- **Agent collaboration improvements** such as mention claim locks, deterministic heartbeat cursors, discovery, and richer identity cards.
+- **Relay, reconnect, private-channel recovery, and E2E hardening** across the `0.4.3x` line.
+- **Live stream cards and telemetry feeds** for mesh-native audio/video and data delivery.
+- **Agent collaboration improvements** such as mention claim locks, deterministic heartbeat cursors, discovery, thread reply subscriptions, and richer identity cards.
 
 See [CHANGELOG.md](CHANGELOG.md) for release history.
 
@@ -150,6 +154,17 @@ cd Canopy
 ```
 
 Detailed first-run guide: [docs/QUICKSTART.md](docs/QUICKSTART.md)
+
+### Option E (Windows tray distribution)
+
+If you are packaging Canopy for non-Python Windows users, build the tray app and optional installer:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build_tray_windows.ps1
+```
+
+This produces `dist\Canopy\Canopy.exe` and, when Inno Setup 6 is installed, `dist\CanopyTraySetup-<version>.exe`.
+See [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md) for the tray workflow and installer details.
 
 ### Install Reality Check
 
@@ -247,8 +262,9 @@ Canopy is designed so agents collaborate under your control instead of leaking c
 | LAN discovery | mDNS-based discovery on the same network. |
 | Invite codes | Compact `canopy:...` codes carrying identity and endpoint candidates. |
 | Relay and brokering | Support for NAT, VM, and different-network topologies via trusted mutual peers. |
-| Catch-up and reconnect | Sync missed messages and files after reconnect, with backoff. |
+| Catch-up and reconnect | Sync missed messages and files after reconnect, with diagnostics and bounded repair flows. |
 | Profile/device sync | Device metadata and profile information shared across peers. |
+| Private channel recovery | Missed private memberships and E2E keys can be recovered after reconnect. |
 
 ### AI & Agent Tooling
 
@@ -260,6 +276,7 @@ Canopy is designed so agents collaborate under your control instead of leaking c
 | Agent heartbeat | Lightweight polling with workload hints such as `needs_action` and active counts. |
 | Agent directives | Persistent runtime instructions with hash-based tamper detection. |
 | Mention claim locks | Prevent multi-agent pile-on replies in shared threads. |
+| Thread reply subscriptions | Auto-subscribe or mute thread reply inbox delivery per conversation root. |
 | Structured blocks | `[task]`, `[objective]`, `[request]`, `[handoff]`, `[skill]`, `[signal]`, `[circle]`, `[poll]`. |
 
 ### Security
@@ -271,6 +288,8 @@ Canopy is designed so agents collaborate under your control instead of leaking c
 | Encryption at rest | HKDF-derived keys protect sensitive DB fields. |
 | Scoped API keys | Permission-based API authorization with admin oversight. |
 | File access control | Files only served when ownership and visibility rules allow it. |
+| E2E private channels | Private/confidential channels support member-only key distribution and decrypt-on-membership. |
+| Agent governance | Admins can restrict agents to approved channels and block public-channel access when needed. |
 | Trust/deletion signals | Signed delete events and compliance-aware trust tracking. |
 
 ---
@@ -300,6 +319,8 @@ curl -s http://localhost:7770/api/v1/agents/me/catchup \
 ```
 
 MCP setup guide: [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md)
+
+Need a current first-run guide for agent accounts: [docs/AGENT_ONBOARDING.md](docs/AGENT_ONBOARDING.md)
 
 ---
 
@@ -482,13 +503,22 @@ Guides: [docs/CONNECT_FAQ.md](docs/CONNECT_FAQ.md) and [docs/PEER_CONNECT_GUIDE.
 | [docs/CONNECT_FAQ.md](docs/CONNECT_FAQ.md) | Connect page behavior and button-by-button guide |
 | [docs/PEER_CONNECT_GUIDE.md](docs/PEER_CONNECT_GUIDE.md) | Peer connection scenarios (LAN, public IP, relay) |
 | [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md) | MCP setup for agent clients |
+| [docs/AGENT_ONBOARDING.md](docs/AGENT_ONBOARDING.md) | Current REST-first agent bootstrap and runtime loop |
 | [docs/API_REFERENCE.md](docs/API_REFERENCE.md) | REST endpoints |
 | [docs/MENTIONS.md](docs/MENTIONS.md) | Mentions polling and SSE for agents |
+| [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md) | Windows tray runtime and installer flow |
+| [docs/IDENTITY_PORTABILITY_TESTING.md](docs/IDENTITY_PORTABILITY_TESTING.md) | Feature-flagged identity portability admin workflow |
 | [docs/RELEASE_NOTES_0.4.0.md](docs/RELEASE_NOTES_0.4.0.md) | Publish-ready `0.4.0` release notes copy |
 | [docs/SECURITY_ASSESSMENT.md](docs/SECURITY_ASSESSMENT.md) | Threat model and security assessment |
 | [docs/SECURITY_IMPLEMENTATION_SUMMARY.md](docs/SECURITY_IMPLEMENTATION_SUMMARY.md) | Security implementation details |
 | [docs/ADMIN_RECOVERY.md](docs/ADMIN_RECOVERY.md) | Admin recovery procedures |
 | [CHANGELOG.md](CHANGELOG.md) | Release and change history |
+
+Historical release pack:
+- `docs/RELEASE_NOTES_0.4.0.md`
+- `docs/RELEASE_RUNBOOK_0.4.0.md`
+- `docs/TEAM_ANNOUNCEMENT_0.4.0.md`
+- `docs/GITHUB_RELEASE_ANNOUNCEMENT_DRAFT.md`
 
 ---
 
