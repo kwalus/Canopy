@@ -16,7 +16,7 @@ import socket
 import threading
 import time
 from typing import Callable, Dict, List, Optional, Set
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from zeroconf import ServiceBrowser, ServiceInfo, Zeroconf, ServiceStateChange
 
 logger = logging.getLogger('canopy.network.discovery')
@@ -29,6 +29,7 @@ class DiscoveredPeer:
     address: str
     port: int
     discovered_at: float
+    addresses: List[str] = field(default_factory=list)
     service_info: Optional[Dict] = None
 
 
@@ -255,8 +256,26 @@ class PeerDiscovery:
         if not info.addresses:
             logger.warning(f"Service {name} has no addresses")
             return
-        
-        address = socket.inet_ntoa(info.addresses[0])
+
+        addresses: List[str] = []
+        for raw_addr in info.addresses:
+            try:
+                if len(raw_addr) == 4:
+                    decoded = socket.inet_ntoa(raw_addr)
+                elif len(raw_addr) == 16:
+                    decoded = socket.inet_ntop(socket.AF_INET6, raw_addr)
+                else:
+                    continue
+            except Exception:
+                continue
+            if decoded and decoded not in addresses:
+                addresses.append(decoded)
+
+        if not addresses:
+            logger.warning(f"Service {name} has no decodable addresses")
+            return
+
+        address = addresses[0]
         port = info.port
         if port is None:
             logger.warning(f"Service {name} has no port")
@@ -272,10 +291,12 @@ class PeerDiscovery:
             address=address,
             port=port,
             discovered_at=time.time(),
+            addresses=addresses,
             service_info={
                 'name': name,
                 'version': version,
-                'capabilities': capabilities_text.split(',')
+                'capabilities': capabilities_text.split(','),
+                'addresses': list(addresses),
             }
         )
         

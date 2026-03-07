@@ -86,6 +86,10 @@ class P2PNetworkManager:
         self.on_channel_key_distribution: Optional[Callable] = None
         self.on_channel_key_request: Optional[Callable] = None
         self.on_channel_key_ack: Optional[Callable] = None
+        self.on_principal_announce: Optional[Callable] = None
+        self.on_principal_key_update: Optional[Callable] = None
+        self.on_bootstrap_grant_sync: Optional[Callable] = None
+        self.on_bootstrap_grant_revoke: Optional[Callable] = None
         self.peer_versions: Dict[str, Dict[str, Any]] = {}
         self.local_canopy_version = str(CANOPY_VERSION or '0.1.0')
         self.local_protocol_version = int(CANOPY_PROTOCOL_VERSION or 1)
@@ -143,9 +147,10 @@ class P2PNetworkManager:
         # File manager reference for reading attachment bytes during broadcast
         self.file_manager = None
         
-        # Auto-reconnect state
+        # Auto-reconnect state. The backoff stage is capped, but retries
+        # continue until connectivity recovers or the peer is forgotten.
         self._reconnect_tasks: Dict[str, Any] = {}  # peer_id -> Future/Task
-        self._RECONNECT_MAX_ATTEMPTS = 20
+        self._RECONNECT_MAX_BACKOFF_STAGE = 20
         self._RECONNECT_INITIAL_DELAY = 5   # seconds
         self._RECONNECT_MAX_DELAY = 60      # seconds
 
@@ -204,6 +209,8 @@ class P2PNetworkManager:
             caps.append('e2e_channel_enforce')
         if bool(getattr(sec_cfg, 'sync_digest_enabled', False)):
             caps.append('sync_digest_v1')
+        if bool(getattr(sec_cfg, 'identity_portability_enabled', False)):
+            caps.append('identity_portability_v1')
 
         out: list[str] = []
         seen = set()
@@ -448,6 +455,14 @@ class P2PNetworkManager:
                 self.message_router.on_channel_key_request = self.on_channel_key_request
             if self.on_channel_key_ack:
                 self.message_router.on_channel_key_ack = self.on_channel_key_ack
+            if self.on_principal_announce:
+                self.message_router.on_principal_announce = self.on_principal_announce
+            if self.on_principal_key_update:
+                self.message_router.on_principal_key_update = self.on_principal_key_update
+            if self.on_bootstrap_grant_sync:
+                self.message_router.on_bootstrap_grant_sync = self.on_bootstrap_grant_sync
+            if self.on_bootstrap_grant_revoke:
+                self.message_router.on_bootstrap_grant_revoke = self.on_bootstrap_grant_revoke
             if self.on_catchup_request:
                 self.message_router.on_catchup_request = self.on_catchup_request
             if self.on_catchup_response:
@@ -611,12 +626,20 @@ class P2PNetworkManager:
         except Exception:
             return None
 
+    @staticmethod
+    def _format_endpoint_host(host: str) -> str:
+        """Format a host for endpoint rendering, preserving IPv6 brackets."""
+        text = str(host or '').strip()
+        if ':' in text and not text.startswith('['):
+            return f"[{text}]"
+        return text
+
     def _canonicalize_endpoint(self, endpoint: str) -> Optional[str]:
         parsed = self._parse_endpoint(endpoint)
         if not parsed:
             return None
         host, port, scheme = parsed
-        return f"{scheme}://{host}:{port}"
+        return f"{scheme}://{self._format_endpoint_host(host)}:{port}"
 
     def _sanitize_endpoints(self, peer_id: str, endpoints: list) -> list:
         """Drop unusable endpoints (loopback/0.0.0.0) and de-dupe while preserving order."""
@@ -639,6 +662,72 @@ class P2PNetworkManager:
             seen.add(canon)
             out.append(canon)
         return out
+
+    def _discovered_peer_endpoints(self, peer: Optional[DiscoveredPeer]) -> list[str]:
+        """Return sanitized endpoints derived from a discovered peer record."""
+        if not peer:
+            return []
+        addresses = list(getattr(peer, 'addresses', []) or [])
+        primary = str(getattr(peer, 'address', '') or '').strip()
+        if primary and primary not in addresses:
+            addresses.insert(0, primary)
+        port = int(getattr(peer, 'port', 0) or 0)
+        if port <= 0:
+            return []
+        endpoints = [
+            f"{self.ws_scheme}://{self._format_endpoint_host(addr)}:{port}"
+            for addr in addresses
+            if addr
+        ]
+        return self._sanitize_endpoints(getattr(peer, 'peer_id', ''), endpoints)
+
+    def _get_discovered_peer_endpoints(self, peer_id: str) -> list[str]:
+        """Return currently discovered endpoints for one peer."""
+        if not self.discovery or not peer_id:
+            return []
+        try:
+            peer = self.discovery.get_peer(peer_id)
+        except Exception:
+            peer = None
+        return self._discovered_peer_endpoints(peer)
+
+    def _get_advertisable_peer_endpoints(self, peer_id: str) -> list[str]:
+        """Return endpoints safe to persist/re-announce for a peer.
+
+        Stored endpoints come first. If none exist, fall back to addresses from
+        live discovery rather than inventing a socket-origin endpoint.
+        """
+        stored = self._sanitize_endpoints(
+            peer_id,
+            self.identity_manager.peer_endpoints.get(peer_id, []),
+        )
+        if stored != self.identity_manager.peer_endpoints.get(peer_id, []):
+            self.identity_manager.peer_endpoints[peer_id] = stored
+            self.identity_manager._save_known_peers()
+        if stored:
+            return stored
+        return self._get_discovered_peer_endpoints(peer_id)
+
+    def _remember_discovered_peer_endpoints(self, peer_id: str) -> list[str]:
+        """Persist endpoints learned from mDNS discovery for later reconnect."""
+        endpoints = self._get_discovered_peer_endpoints(peer_id)
+        if not endpoints:
+            return []
+        existing = set(self.identity_manager.peer_endpoints.get(peer_id, []) or [])
+        changed = False
+        for endpoint in endpoints:
+            if endpoint in existing:
+                continue
+            self.identity_manager.record_endpoint(peer_id, endpoint, claim=True)
+            existing.add(endpoint)
+            changed = True
+        if changed:
+            logger.debug(
+                "Recorded %d discovered endpoint(s) for %s",
+                len(endpoints),
+                peer_id,
+            )
+        return endpoints
 
     async def _connect_to_endpoint(self, peer_id: str, endpoint: str) -> bool:
         """Connect to a peer using a ws:// or wss:// endpoint string."""
@@ -691,7 +780,8 @@ class P2PNetworkManager:
     def _schedule_reconnect(self, peer_id: str, attempt: int = 1) -> None:
         """Schedule a reconnection attempt for a disconnected peer.
 
-        Uses exponential backoff (capped) and stops after 20 attempts.
+        Uses exponential backoff with a capped delay stage, but keeps retrying
+        until the peer reconnects or is explicitly forgotten.
         """
         if not self._event_loop or self._event_loop.is_closed():
             return
@@ -705,7 +795,7 @@ class P2PNetworkManager:
             return
 
         # Keep trying indefinitely, but cap the backoff stage.
-        stage = min(attempt, self._RECONNECT_MAX_ATTEMPTS)
+        stage = min(attempt, self._RECONNECT_MAX_BACKOFF_STAGE)
         delay = min(
             self._RECONNECT_INITIAL_DELAY * (2 ** (stage - 1)),
             self._RECONNECT_MAX_DELAY,
@@ -745,7 +835,7 @@ class P2PNetworkManager:
                 return
 
             logger.info(
-                f"Reconnect attempt {attempt} (stage {stage}/{self._RECONNECT_MAX_ATTEMPTS}) "
+                f"Reconnect attempt {attempt} (stage {stage}/{self._RECONNECT_MAX_BACKOFF_STAGE}) "
                 f"for {peer_id} (delay={sleep_for:.1f}s)"
             )
             self._record_connection_event(
@@ -767,14 +857,8 @@ class P2PNetworkManager:
                     logger.debug(f"Reconnect: {peer_id} via {ep} failed: {e}")
                     continue
 
-            # All endpoints failed — schedule next attempt up to hard cap
+            # All endpoints failed — keep retrying with capped backoff.
             self._reconnect_tasks.pop(peer_id, None)
-            if attempt >= self._RECONNECT_MAX_ATTEMPTS:
-                logger.info(
-                    f"Reconnect: giving up on {peer_id} after {attempt} attempts. "
-                    "Peer moved to cold state — will reconnect if peer initiates."
-                )
-                return
             self._schedule_reconnect(peer_id, attempt + 1)
 
         # Cancel any existing task for this peer
@@ -846,17 +930,17 @@ class P2PNetworkManager:
         if added:
             logger.info(f"Peer discovered: {peer.peer_id} at {peer.address}:{peer.port}")
 
-            # Ignore peers advertising loopback/unspecified addresses.
-            if peer.address in ('0.0.0.0', 'localhost') or peer.address.startswith('127.'):
+            discovered_endpoints = self._discovered_peer_endpoints(peer)
+            if not discovered_endpoints:
                 logger.debug(
-                    f"Ignoring discovered peer {peer.peer_id} with unusable address {peer.address}"
+                    f"Ignoring discovered peer {peer.peer_id} with no usable discovery endpoints"
                 )
                 return
 
             # If we're already connected, just record/claim the endpoint and stop.
             if self.connection_manager and self.connection_manager.is_connected(peer.peer_id):
-                ep = f"{self.ws_scheme}://{peer.address}:{peer.port}"
-                self.identity_manager.record_endpoint(peer.peer_id, ep, claim=True)
+                for endpoint in discovered_endpoints:
+                    self.identity_manager.record_endpoint(peer.peer_id, endpoint, claim=True)
                 return
 
             # Attempt to connect
@@ -878,23 +962,29 @@ class P2PNetworkManager:
         try:
             if not self.connection_manager:
                 return
-            success = await self.connection_manager.connect_to_peer(
-                peer.peer_id,
-                peer.address,
-                peer.port
-            )
-            
-            if success:
+            discovered_endpoints = self._discovered_peer_endpoints(peer)
+            if not discovered_endpoints:
+                logger.warning(f"Failed to connect to {peer.peer_id}: no usable discovery endpoints")
+                return
+
+            for endpoint in discovered_endpoints:
+                success = await self._connect_to_endpoint(peer.peer_id, endpoint)
+                if not success:
+                    continue
+
                 logger.info(f"Successfully connected to {peer.peer_id}")
 
-                # Persist endpoint info
-                ep = f"{self.ws_scheme}://{peer.address}:{peer.port}"
-                self.identity_manager.record_endpoint(peer.peer_id, ep, claim=True)
-                
+                # Persist all discovered endpoints for later reconnects.
+                for extra_endpoint in discovered_endpoints:
+                    if extra_endpoint == endpoint:
+                        continue
+                    self.identity_manager.record_endpoint(peer.peer_id, extra_endpoint, claim=False)
+
                 # Run the full post-connect sync (channels, profiles, peer announcements, catch-up)
                 await self._run_post_connect_sync(peer.peer_id)
-            else:
-                logger.warning(f"Failed to connect to {peer.peer_id}")
+                return
+
+            logger.warning(f"Failed to connect to {peer.peer_id}")
                 
         except Exception as e:
             logger.error(f"Error connecting to {peer.peer_id}: {e}", exc_info=True)
@@ -948,11 +1038,10 @@ class P2PNetworkManager:
             status='connected',
             detail='Incoming connection authenticated',
         )
-        # Persist endpoint info from the connection
-        conn = self.connection_manager.connections.get(peer_id) if self.connection_manager else None
-        if conn:
-            ep = f"{self.ws_scheme}://{conn.address}:{self.config.network.mesh_port}"
-            self.identity_manager.record_endpoint(peer_id, ep, claim=True)
+        # Do not invent reconnect endpoints from socket origin addresses. Only
+        # persist discovery-derived endpoints, which are authoritative enough
+        # to survive reconnects and peer announcements.
+        self._remember_discovered_peer_endpoints(peer_id)
         try:
             self._refresh_peer_version_info(peer_id)
             if peer_meta and peer_id in self.peer_versions:
@@ -1166,20 +1255,7 @@ class P2PNetworkManager:
                 identity = self.identity_manager.get_peer(pid)
                 if not identity:
                     continue
-                conn = self.connection_manager.connections.get(pid)
-                endpoints = []
-                if conn:
-                    endpoints.append(f"{self.ws_scheme}://{conn.address}:{self.config.network.mesh_port}")
-                # Include stored endpoints as well; they often contain better
-                # externally-reachable addresses than the current socket origin.
-                stored_eps = self._sanitize_endpoints(
-                    pid,
-                    self.identity_manager.peer_endpoints.get(pid, []),
-                )
-                for ep in stored_eps:
-                    if ep not in endpoints:
-                        endpoints.append(ep)
-                endpoints = self._sanitize_endpoints(pid, endpoints)
+                endpoints = self._get_advertisable_peer_endpoints(pid)
                 device_profile = None
                 if self.get_peer_device_profile:
                     try:
@@ -1218,18 +1294,7 @@ class P2PNetworkManager:
             identity = self.identity_manager.get_peer(new_peer_id)
             if not identity:
                 return
-            conn = self.connection_manager.connections.get(new_peer_id)
-            endpoints = []
-            if conn:
-                endpoints.append(f"{self.ws_scheme}://{conn.address}:{self.config.network.mesh_port}")
-            # Also include any stored endpoints
-            stored_eps = self._sanitize_endpoints(
-                new_peer_id,
-                self.identity_manager.peer_endpoints.get(new_peer_id, []),
-            )
-            for ep in stored_eps:
-                if ep not in endpoints:
-                    endpoints.append(ep)
+            endpoints = self._get_advertisable_peer_endpoints(new_peer_id)
             device_profile = None
             if self.get_peer_device_profile:
                 try:
@@ -2650,6 +2715,112 @@ class P2PNetworkManager:
         future.add_done_callback(_on_done)
         return True
 
+    def send_principal_announce(
+        self,
+        to_peer: str,
+        principal: Dict[str, Any],
+        keys: Optional[list[Dict[str, Any]]] = None,
+    ) -> bool:
+        """Send identity portability principal metadata to a peer."""
+        if not self._running or not self._event_loop or not self.message_router:
+            return False
+        future = asyncio.run_coroutine_threadsafe(
+            self.message_router.send_principal_announce(
+                to_peer=to_peer,
+                principal=principal or {},
+                keys=keys or [],
+            ),
+            self._event_loop,
+        )
+
+        def _on_done(f: Any) -> None:
+            try:
+                f.result()
+            except Exception as exc:
+                logger.error("Error sending principal announce: %s", exc)
+
+        future.add_done_callback(_on_done)
+        return True
+
+    def send_principal_key_update(
+        self,
+        to_peer: str,
+        principal_id: str,
+        key: Dict[str, Any],
+    ) -> bool:
+        """Send identity portability principal key update to a peer."""
+        if not self._running or not self._event_loop or not self.message_router:
+            return False
+        future = asyncio.run_coroutine_threadsafe(
+            self.message_router.send_principal_key_update(
+                to_peer=to_peer,
+                principal_id=principal_id,
+                key=key or {},
+            ),
+            self._event_loop,
+        )
+
+        def _on_done(f: Any) -> None:
+            try:
+                f.result()
+            except Exception as exc:
+                logger.error("Error sending principal key update: %s", exc)
+
+        future.add_done_callback(_on_done)
+        return True
+
+    def send_bootstrap_grant_sync(self, to_peer: str, grant: Dict[str, Any]) -> bool:
+        """Send bootstrap grant artifact to a peer."""
+        if not self._running or not self._event_loop or not self.message_router:
+            return False
+        future = asyncio.run_coroutine_threadsafe(
+            self.message_router.send_bootstrap_grant_sync(
+                to_peer=to_peer,
+                grant=grant or {},
+            ),
+            self._event_loop,
+        )
+
+        def _on_done(f: Any) -> None:
+            try:
+                f.result()
+            except Exception as exc:
+                logger.error("Error sending bootstrap grant sync: %s", exc)
+
+        future.add_done_callback(_on_done)
+        return True
+
+    def send_bootstrap_grant_revoke(
+        self,
+        to_peer: str,
+        grant_id: str,
+        revoked_at: str,
+        reason: Optional[str] = None,
+        issuer_peer_id: Optional[str] = None,
+    ) -> bool:
+        """Send bootstrap grant revocation marker to a peer."""
+        if not self._running or not self._event_loop or not self.message_router:
+            return False
+        future = asyncio.run_coroutine_threadsafe(
+            self.message_router.send_bootstrap_grant_revoke(
+                to_peer=to_peer,
+                grant_id=grant_id,
+                revoked_at=revoked_at,
+                reason=reason,
+                issuer_peer_id=issuer_peer_id or self.get_peer_id(),
+            ),
+            self._event_loop,
+        )
+
+        def _on_done(f: Any) -> None:
+            try:
+                f.result()
+            except Exception as exc:
+                logger.error("Error sending bootstrap grant revoke: %s", exc)
+
+        future.add_done_callback(_on_done)
+        return True
+
     def send_member_sync_ack(self, to_peer: str, sync_id: str,
                               status: str = 'ok',
                               error: Optional[str] = None,
@@ -3148,6 +3319,7 @@ class P2PNetworkManager:
             {
                 'peer_id': p.peer_id,
                 'address': p.address,
+                'addresses': list(getattr(p, 'addresses', []) or ([p.address] if p.address else [])),
                 'port': p.port,
                 'discovered_at': p.discovered_at,
                 'connected': self.connection_manager.is_connected(p.peer_id) if self.connection_manager else False

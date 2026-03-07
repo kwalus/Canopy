@@ -23,12 +23,55 @@ import base64
 import json
 import logging
 import socket
+from urllib.parse import urlparse
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 
 import base58
 
 logger = logging.getLogger('canopy.network.invite')
+
+
+def _format_endpoint_host(host: str) -> str:
+    """Format a host for endpoint rendering, preserving IPv6 brackets."""
+    text = str(host or '').strip()
+    if ':' in text and not text.startswith('['):
+        return f'[{text}]'
+    return text
+
+
+def _canonicalize_invite_endpoint(endpoint: str) -> Optional[str]:
+    """Normalize an invite endpoint and drop unusable values."""
+    text = str(endpoint or '').strip()
+    if not text:
+        return None
+    if '://' not in text:
+        text = f'ws://{text}'
+    try:
+        parsed = urlparse(text)
+        host = parsed.hostname
+        port = parsed.port
+        scheme = parsed.scheme or 'ws'
+    except Exception:
+        return None
+    if scheme not in ('ws', 'wss') or not host or not port:
+        return None
+    if host in ('0.0.0.0', 'localhost') or host.startswith('127.'):
+        return None
+    return f'{scheme}://{_format_endpoint_host(host)}:{port}'
+
+
+def _sanitize_invite_endpoints(endpoints: List[str]) -> List[str]:
+    """Keep only canonical, dialable invite endpoints in stable order."""
+    out: List[str] = []
+    seen = set()
+    for endpoint in endpoints or []:
+        canon = _canonicalize_invite_endpoint(endpoint)
+        if not canon or canon in seen:
+            continue
+        seen.add(canon)
+        out.append(canon)
+    return out
 
 
 @dataclass
@@ -186,12 +229,20 @@ def import_invite(identity_manager: Any, connection_manager: Any, invite: Invite
     if not identity_manager.verify_peer_id(invite.peer_id, ed25519_pub):
         raise ValueError("Peer ID does not match public key — possible tampering")
 
-    # Register as known peer
-    identity_manager.create_remote_peer(invite.peer_id, ed25519_pub, x25519_pub)
+    # Register as known peer and persist invite endpoints so reconnect
+    # can recover even if the initial direct session drops later.
+    endpoints = _sanitize_invite_endpoints(invite.endpoints or [])
 
-    logger.info(f"Imported invite for peer {invite.peer_id} with {len(invite.endpoints)} endpoint(s)")
+    identity_manager.create_remote_peer(
+        invite.peer_id,
+        ed25519_pub,
+        x25519_pub,
+        endpoints=endpoints,
+    )
+
+    logger.info(f"Imported invite for peer {invite.peer_id} with {len(endpoints)} endpoint(s)")
     return {
         'peer_id': invite.peer_id,
-        'endpoints': invite.endpoints,
+        'endpoints': endpoints,
         'status': 'imported',
     }

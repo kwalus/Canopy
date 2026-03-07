@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.44] - 2026-03-07
+
+### Fixed
+- **Mesh connectivity durability and endpoint truth** — Invite imports now persist only canonical dialable endpoints, discovery preserves all advertised peer addresses, reconnect attempts try multiple discovered targets and keep retrying with capped backoff instead of entering a permanent cold state, inbound auth no longer poisons stored peer endpoints with guessed socket-origin addresses, and reconnect-time membership/key/delete repair traffic now uses the higher-volume sync rate budget. Review also caught and fixed two rollout blockers before bumping: invite endpoint sanitization now matches the note, and IPv6 discovery endpoints are rendered in a dialable bracketed form.
+
+---
+
 ## [0.4.43] - 2026-03-05
 
 ### Fixed

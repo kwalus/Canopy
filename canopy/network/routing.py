@@ -168,6 +168,10 @@ class MessageType(Enum):
     CHANNEL_KEY_DISTRIBUTION = "channel_key_distribution"  # Wrapped channel key delivery
     CHANNEL_KEY_REQUEST = "channel_key_request"            # Request key delivery/re-send
     CHANNEL_KEY_ACK = "channel_key_ack"                    # Ack key import result
+    PRINCIPAL_ANNOUNCE = "principal_announce"              # Identity portability principal metadata
+    PRINCIPAL_KEY_UPDATE = "principal_key_update"          # Principal key rotation/revocation update
+    BOOTSTRAP_GRANT_SYNC = "bootstrap_grant_sync"          # Sync bootstrap grant artifact
+    BOOTSTRAP_GRANT_REVOKE = "bootstrap_grant_revoke"      # Sync bootstrap grant revocation
 
     # Connection brokering and relay
     BROKER_REQUEST = "broker_request"   # Ask intermediary to help connect
@@ -253,6 +257,10 @@ class MessageRouter:
         MessageType.CHANNEL_KEY_DISTRIBUTION,
         MessageType.CHANNEL_KEY_REQUEST,
         MessageType.CHANNEL_KEY_ACK,
+        MessageType.PRINCIPAL_ANNOUNCE,
+        MessageType.PRINCIPAL_KEY_UPDATE,
+        MessageType.BOOTSTRAP_GRANT_SYNC,
+        MessageType.BOOTSTRAP_GRANT_REVOKE,
         MessageType.DELETE_SIGNAL,
     }
     
@@ -296,7 +304,7 @@ class MessageRouter:
             MessageType.PEER_ANNOUNCEMENT,
             MessageType.PROFILE_SYNC,
             MessageType.PROFILE_UPDATE,
-        }
+        } | set(self._TARGETED_MESH_RELAY_TYPES)
 
         # Avoid log flooding when a peer repeatedly exceeds limits.
         self._rate_limit_warn_cooldown_s = 15.0
@@ -322,6 +330,10 @@ class MessageRouter:
         self.on_channel_key_distribution: Optional[Any] = None
         self.on_channel_key_request: Optional[Any] = None
         self.on_channel_key_ack: Optional[Any] = None
+        self.on_principal_announce: Optional[Any] = None
+        self.on_principal_key_update: Optional[Any] = None
+        self.on_bootstrap_grant_sync: Optional[Any] = None
+        self.on_bootstrap_grant_revoke: Optional[Any] = None
         self.on_profile_sync: Optional[Any] = None
         self.on_peer_announcement: Optional[Any] = None
         self.on_delete_signal: Optional[Any] = None
@@ -1017,6 +1029,51 @@ class MessageRouter:
                 )
             except Exception as e:
                 logger.error(f"Error delivering channel key ack locally: {e}", exc_info=True)
+
+        elif message.type == MessageType.PRINCIPAL_ANNOUNCE and self.on_principal_announce:
+            try:
+                meta = payload.get('metadata', {})
+                self.on_principal_announce(
+                    principal=meta.get('principal') or {},
+                    keys=meta.get('keys') or [],
+                    from_peer=message.from_peer,
+                )
+            except Exception as e:
+                logger.error(f"Error delivering principal announce locally: {e}", exc_info=True)
+
+        elif message.type == MessageType.PRINCIPAL_KEY_UPDATE and self.on_principal_key_update:
+            try:
+                meta = payload.get('metadata', {})
+                self.on_principal_key_update(
+                    principal_id=meta.get('principal_id'),
+                    key=meta.get('key') or {},
+                    from_peer=message.from_peer,
+                )
+            except Exception as e:
+                logger.error(f"Error delivering principal key update locally: {e}", exc_info=True)
+
+        elif message.type == MessageType.BOOTSTRAP_GRANT_SYNC and self.on_bootstrap_grant_sync:
+            try:
+                meta = payload.get('metadata', {})
+                self.on_bootstrap_grant_sync(
+                    grant=meta.get('grant') or {},
+                    from_peer=message.from_peer,
+                )
+            except Exception as e:
+                logger.error(f"Error delivering bootstrap grant sync locally: {e}", exc_info=True)
+
+        elif message.type == MessageType.BOOTSTRAP_GRANT_REVOKE and self.on_bootstrap_grant_revoke:
+            try:
+                meta = payload.get('metadata', {})
+                self.on_bootstrap_grant_revoke(
+                    grant_id=meta.get('grant_id'),
+                    revoked_at=meta.get('revoked_at'),
+                    reason=meta.get('reason'),
+                    issuer_peer_id=meta.get('issuer_peer_id'),
+                    from_peer=message.from_peer,
+                )
+            except Exception as e:
+                logger.error(f"Error delivering bootstrap grant revoke locally: {e}", exc_info=True)
         
         elif message.type == MessageType.CHANNEL_CATCHUP_REQUEST and self.on_catchup_request:
             try:
@@ -1498,6 +1555,84 @@ class MessageRouter:
         }
 
         message = self.create_message(MessageType.CHANNEL_KEY_ACK, to_peer, payload)
+        self.sign_message(message)
+        return await self._route_to_peer(message)
+
+    async def send_principal_announce(
+        self,
+        to_peer: str,
+        principal: Dict[str, Any],
+        keys: Optional[list[Dict[str, Any]]] = None,
+    ) -> bool:
+        """Send principal metadata + key material to one peer."""
+        payload = {
+            'content': '',
+            'metadata': {
+                'type': 'principal_announce',
+                'principal': principal or {},
+                'keys': keys or [],
+            },
+        }
+        message = self.create_message(MessageType.PRINCIPAL_ANNOUNCE, to_peer, payload)
+        self.sign_message(message)
+        return await self._route_to_peer(message)
+
+    async def send_principal_key_update(
+        self,
+        to_peer: str,
+        principal_id: str,
+        key: Dict[str, Any],
+    ) -> bool:
+        """Send one principal key update to one peer."""
+        payload = {
+            'content': '',
+            'metadata': {
+                'type': 'principal_key_update',
+                'principal_id': principal_id,
+                'key': key or {},
+            },
+        }
+        message = self.create_message(MessageType.PRINCIPAL_KEY_UPDATE, to_peer, payload)
+        self.sign_message(message)
+        return await self._route_to_peer(message)
+
+    async def send_bootstrap_grant_sync(
+        self,
+        to_peer: str,
+        grant: Dict[str, Any],
+    ) -> bool:
+        """Send bootstrap grant artifact to one peer."""
+        payload = {
+            'content': '',
+            'metadata': {
+                'type': 'bootstrap_grant_sync',
+                'grant': grant or {},
+            },
+        }
+        message = self.create_message(MessageType.BOOTSTRAP_GRANT_SYNC, to_peer, payload)
+        self.sign_message(message)
+        return await self._route_to_peer(message)
+
+    async def send_bootstrap_grant_revoke(
+        self,
+        to_peer: str,
+        grant_id: str,
+        revoked_at: str,
+        reason: Optional[str] = None,
+        issuer_peer_id: Optional[str] = None,
+    ) -> bool:
+        """Send bootstrap grant revocation marker to one peer."""
+        payload = {
+            'content': '',
+            'metadata': {
+                'type': 'bootstrap_grant_revoke',
+                'grant_id': grant_id,
+                'revoked_at': revoked_at,
+                'reason': reason,
+                'issuer_peer_id': issuer_peer_id or self.local_peer_id,
+            },
+        }
+        message = self.create_message(MessageType.BOOTSTRAP_GRANT_REVOKE, to_peer, payload)
         self.sign_message(message)
         return await self._route_to_peer(message)
 
