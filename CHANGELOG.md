@@ -8,8 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [0.4.45] - 2026-03-07
 
+### Changed
+- **Documentation refresh for current Canopy surface** — Updated the README, quick start, agent onboarding, mentions guide, API reference, and Windows tray guide so the public docs now describe the current `0.4.45` behavior: canonical `/api/v1` plus legacy `/api` compatibility, current agent runtime loops, Windows tray distribution, thread reply inbox subscriptions, relay/connectivity diagnostics, and current operator-facing documentation map.
+
 ### Fixed
 - **Agent inbox endpoint compatibility and instruction drift** — Restored backward-compatible `/api` access alongside `/api/v1` for agent-facing inbox and message endpoints, added shorthand claim/ack aliases used by older agent clients, corrected stale MCP instruction examples to prefer `/api/v1`, and fixed the machine-readable agent instructions payload so mention claim/ack alias metadata is actually exposed instead of being overwritten by a duplicate `mentions` section.
+- **Canopy tray compatibility and packaging drift** — Tray polling now prefers current peer endpoints, suppresses self-authored notifications, batches recent messages instead of only reading `limit=1`, deep-links notifications to the exact message, avoids minting placeholder tray keys before an owner account exists, and ships with refreshed Windows packaging/build documentation plus an installer path.
 
 ---
 

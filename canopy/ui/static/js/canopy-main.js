@@ -74,7 +74,11 @@
 
         // --- Peer/user avatar helpers (stacked avatars) ---
         const canopyPeerProfiles = window.CANOPY_VARS ? window.CANOPY_VARS.peerProfiles : {};
+        const canopyPeerTrust = window.CANOPY_VARS ? (window.CANOPY_VARS.peerTrust || {}) : {};
+        const canopyInitialConnectedPeers = window.CANOPY_VARS ? (window.CANOPY_VARS.connectedPeers || []) : [];
         window.canopyPeerProfiles = canopyPeerProfiles || {};
+        window.canopyPeerTrust = canopyPeerTrust || {};
+        window.canopyInitialConnectedPeers = canopyInitialConnectedPeers || [];
 
         function canopyInitial(label) {
             const text = (label || '?').trim();
@@ -101,6 +105,213 @@
             const src = imgEl ? imgEl.getAttribute('src') : null;
             return src || null;
         };
+
+        function canopyPeerTrustMeta(peerId) {
+            if (!peerId || !window.canopyPeerTrust) return null;
+            const raw = window.canopyPeerTrust[peerId];
+            if (raw === null || raw === undefined || raw === '') return null;
+            const score = Number(raw);
+            if (!Number.isFinite(score)) return null;
+            if (score >= 80) return { score, className: 'safe', label: 'Trusted' };
+            if (score >= 60) return { score, className: 'guarded', label: 'Guarded' };
+            if (score >= 40) return { score, className: 'restricted', label: 'Limited' };
+            return { score, className: 'quarantine', label: 'Untrusted' };
+        }
+
+        function syncCanopyPeerTrust(peerTrust) {
+            if (!peerTrust || typeof peerTrust !== 'object' || !window.canopyPeerTrust) return;
+            Object.keys(peerTrust).forEach(peerId => {
+                window.canopyPeerTrust[peerId] = peerTrust[peerId];
+            });
+        }
+
+        function sidebarPeerDisplayName(peerId) {
+            return window.canopyPeerDisplayName ? window.canopyPeerDisplayName(peerId) : (peerId || '').slice(0, 12);
+        }
+
+        function createSidebarPeerElement(peerRecord) {
+            const peerId = (peerRecord && peerRecord.peerId) ? peerRecord.peerId : peerRecord;
+            const displayName = (peerRecord && peerRecord.displayName)
+                ? peerRecord.displayName
+                : (sidebarPeerDisplayName(peerId) || (peerId || '').slice(0, 12));
+            const trustMeta = canopyPeerTrustMeta(peerId);
+            const peerEl = document.createElement('div');
+            peerEl.className = 'sidebar-peer';
+            peerEl.setAttribute('data-peer-id', peerId);
+
+            const avatarWrap = document.createElement('div');
+            avatarWrap.className = 'sidebar-peer-avatar';
+            const avatarSrc = (peerRecord && peerRecord.avatarSrc)
+                ? peerRecord.avatarSrc
+                : (window.canopyPeerAvatarSrc ? window.canopyPeerAvatarSrc(peerId) : null);
+            if (avatarSrc) {
+                const img = document.createElement('img');
+                img.src = avatarSrc;
+                img.alt = displayName;
+                avatarWrap.appendChild(img);
+            } else {
+                const initial = document.createElement('span');
+                initial.textContent = canopyInitial(displayName);
+                avatarWrap.appendChild(initial);
+            }
+
+            const meta = document.createElement('div');
+            meta.className = 'sidebar-peer-meta';
+            const name = document.createElement('div');
+            name.className = 'sidebar-peer-name';
+            name.textContent = displayName;
+            const peerIdEl = document.createElement('div');
+            peerIdEl.className = 'sidebar-peer-id';
+            peerIdEl.textContent = peerId ? `${peerId.slice(0, 12)}...` : '';
+            meta.appendChild(name);
+            meta.appendChild(peerIdEl);
+
+            peerEl.appendChild(avatarWrap);
+            peerEl.appendChild(meta);
+
+            if (trustMeta) {
+                const pill = document.createElement('span');
+                pill.className = `trust-pill ${trustMeta.className}`;
+                pill.textContent = trustMeta.label;
+                peerEl.appendChild(pill);
+            }
+
+            return peerEl;
+        }
+
+        function setSidebarPeerCount(count) {
+            const headerBadge = document.getElementById('header-peer-count');
+            const sidebarCount = document.getElementById('sidebar-peer-count');
+            const normalized = Math.max(0, Number(count) || 0);
+            if (sidebarCount) sidebarCount.textContent = String(normalized);
+            if (headerBadge) {
+                headerBadge.textContent = String(normalized);
+                headerBadge.classList.toggle('bg-success', normalized > 0);
+                headerBadge.classList.toggle('bg-secondary', normalized <= 0);
+            }
+        }
+
+        const canopySidebarPeerState = {
+            seeded: false,
+            peers: new Map(),
+        };
+
+        function seedSidebarPeerState() {
+            if (canopySidebarPeerState.seeded) return;
+            const nowSeconds = Date.now() / 1000;
+            const domPeerIds = Array.from(document.querySelectorAll('.sidebar-peer[data-peer-id]'))
+                .map((el, index) => ({
+                    peerId: el.getAttribute('data-peer-id') || '',
+                    order: index,
+                    displayName: ((el.querySelector('.sidebar-peer-name') || {}).textContent || '').trim(),
+                    avatarSrc: (el.querySelector('.sidebar-peer-avatar img') || {}).getAttribute
+                        ? (el.querySelector('.sidebar-peer-avatar img').getAttribute('src') || '')
+                        : '',
+                }))
+                .filter(item => item.peerId);
+            if (domPeerIds.length) {
+                domPeerIds.forEach(item => {
+                    canopySidebarPeerState.peers.set(item.peerId, {
+                        peerId: item.peerId,
+                        active: true,
+                        missCount: 0,
+                        lastSeenAt: nowSeconds,
+                        order: item.order,
+                        displayName: item.displayName || item.peerId.slice(0, 12),
+                        avatarSrc: item.avatarSrc || null,
+                    });
+                });
+            } else if (Array.isArray(window.canopyInitialConnectedPeers)) {
+                window.canopyInitialConnectedPeers.forEach((peerId, index) => {
+                    if (!peerId) return;
+                    canopySidebarPeerState.peers.set(peerId, {
+                        peerId,
+                        active: true,
+                        missCount: 0,
+                        lastSeenAt: nowSeconds,
+                        order: index,
+                        displayName: sidebarPeerDisplayName(peerId) || peerId.slice(0, 12),
+                        avatarSrc: window.canopyPeerAvatarSrc ? window.canopyPeerAvatarSrc(peerId) : null,
+                    });
+                });
+            }
+            canopySidebarPeerState.seeded = true;
+        }
+
+        function renderSidebarPeers() {
+            const listEl = document.getElementById('sidebar-peer-list');
+            if (!listEl) return;
+            const activePeers = Array.from(canopySidebarPeerState.peers.values())
+                .filter(record => record && record.active)
+                .sort((a, b) => {
+                    const orderDiff = (a.order || 0) - (b.order || 0);
+                    if (orderDiff !== 0) return orderDiff;
+                    return String(a.peerId || '').localeCompare(String(b.peerId || ''));
+                });
+
+            listEl.innerHTML = '';
+            if (!activePeers.length) {
+                const empty = document.createElement('div');
+                empty.className = 'sidebar-peer-empty';
+                empty.textContent = 'No active peers';
+                listEl.appendChild(empty);
+                setSidebarPeerCount(0);
+                return;
+            }
+
+            activePeers.forEach(record => {
+                listEl.appendChild(createSidebarPeerElement(record));
+            });
+            setSidebarPeerCount(activePeers.length);
+        }
+
+        window.syncCanopySidebarPeers = function(payload) {
+            seedSidebarPeerState();
+            if (!payload || typeof payload !== 'object') {
+                renderSidebarPeers();
+                return;
+            }
+
+            syncCanopyPeerTrust(payload.peer_trust);
+
+            const nowSeconds = Number(payload.server_time) || (Date.now() / 1000);
+            const connectedPeerIds = Array.isArray(payload.connected_peer_ids)
+                ? payload.connected_peer_ids.filter(Boolean)
+                : Object.keys(payload.peers || {});
+            const seenNow = new Set(connectedPeerIds);
+
+            connectedPeerIds.forEach((peerId, index) => {
+                const existing = canopySidebarPeerState.peers.get(peerId) || { peerId };
+                existing.active = true;
+                existing.missCount = 0;
+                existing.lastSeenAt = nowSeconds;
+                existing.order = index;
+                if (!existing.displayName) {
+                    existing.displayName = sidebarPeerDisplayName(peerId) || peerId.slice(0, 12);
+                }
+                if (!existing.avatarSrc && window.canopyPeerAvatarSrc) {
+                    existing.avatarSrc = window.canopyPeerAvatarSrc(peerId);
+                }
+                canopySidebarPeerState.peers.set(peerId, existing);
+            });
+
+            canopySidebarPeerState.peers.forEach((record, peerId) => {
+                if (seenNow.has(peerId)) return;
+                record.missCount = (record.missCount || 0) + 1;
+                const secondsMissing = Math.max(0, nowSeconds - Number(record.lastSeenAt || 0));
+                if ((record.missCount >= 3) && secondsMissing >= 5) {
+                    record.active = false;
+                }
+                canopySidebarPeerState.peers.set(peerId, record);
+            });
+
+            renderSidebarPeers();
+        };
+
+        document.addEventListener('DOMContentLoaded', function() {
+            seedSidebarPeerState();
+            renderSidebarPeers();
+        });
 
         window.renderAvatarStack = function(container, options) {
             if (!container || !options) return;
@@ -2282,6 +2493,9 @@
                     .then(r => r.json())
                     .then(data => {
                         if (!data || data.success === false) return;
+                        if (window.syncCanopySidebarPeers) {
+                            window.syncCanopySidebarPeers(data);
+                        }
                         const incoming = data.events || [];
                         if (!initialized) {
                             incoming.forEach(evt => {

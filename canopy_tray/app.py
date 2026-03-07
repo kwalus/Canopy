@@ -291,6 +291,7 @@ class TrayApp:
             sender_name=msg.display_name,
             content=msg.content,
             channel_id=msg.channel_id,
+            message_id=msg.message_id,
         )
 
     def _on_status_update(self, connected: int, total: int) -> None:

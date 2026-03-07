@@ -10,4 +10,13 @@ License: Apache 2.0
 Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
-__version__ = "0.1.0"
+from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
+import re
+
+try:
+    __version__ = version("canopy")
+except PackageNotFoundError:
+    init_path = Path(__file__).resolve().parents[1] / "canopy" / "__init__.py"
+    match = re.search(r'__version__\s*=\s*"([^"]+)"', init_path.read_text(encoding="utf-8"))
+    __version__ = match.group(1) if match else "0.0.0"
