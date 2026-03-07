@@ -35,6 +35,7 @@ from ..security.api_keys import ApiKeyManager
 from ..security.trust import TrustManager
 from .messaging import MessageManager
 from .channels import ChannelManager
+from .identity_portability import IdentityPortabilityManager
 from .mentions import (
     MentionManager,
     extract_mentions,
@@ -206,6 +207,17 @@ def create_app(config: Optional[Config] = None) -> Flask:
         # Safely get relay policy for logging
         relay_policy = getattr(p2p_manager, 'relay_policy', 'broker_only')
         logger.info(f"P2P network manager initialized (relay_policy={relay_policy})")
+
+        identity_portability_manager = IdentityPortabilityManager(
+            db_manager=db_manager,
+            config=config,
+            p2p_manager=p2p_manager,
+        )
+        app.config['IDENTITY_PORTABILITY_MANAGER'] = identity_portability_manager
+        if identity_portability_manager.enabled:
+            logger.info("Identity portability manager initialized (enabled)")
+        else:
+            logger.info("Identity portability manager initialized (disabled)")
 
         # Allow P2P manager to fetch device profiles for peer announcements
         p2p_manager.get_peer_device_profile = channel_manager.get_peer_device_profile
@@ -2468,6 +2480,56 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 logger.error(f"Failed to handle channel key ack: {e}", exc_info=True)
 
         p2p_manager.on_channel_key_ack = _on_channel_key_ack
+
+        if identity_portability_manager and identity_portability_manager.enabled:
+            def _on_principal_announce(principal, keys, from_peer):
+                try:
+                    identity_portability_manager.handle_principal_announce(
+                        principal=principal or {},
+                        keys=keys or [],
+                        from_peer=from_peer,
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to handle principal announce: {e}", exc_info=True)
+
+            p2p_manager.on_principal_announce = _on_principal_announce
+
+            def _on_principal_key_update(principal_id, key, from_peer):
+                try:
+                    identity_portability_manager.handle_principal_key_update(
+                        principal_id=principal_id,
+                        key=key or {},
+                        from_peer=from_peer,
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to handle principal key update: {e}", exc_info=True)
+
+            p2p_manager.on_principal_key_update = _on_principal_key_update
+
+            def _on_bootstrap_grant_sync(grant, from_peer):
+                try:
+                    identity_portability_manager.handle_bootstrap_grant_sync(
+                        grant=grant or {},
+                        from_peer=from_peer,
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to handle bootstrap grant sync: {e}", exc_info=True)
+
+            p2p_manager.on_bootstrap_grant_sync = _on_bootstrap_grant_sync
+
+            def _on_bootstrap_grant_revoke(grant_id, revoked_at, reason, issuer_peer_id, from_peer):
+                try:
+                    identity_portability_manager.handle_bootstrap_grant_revoke(
+                        grant_id=grant_id,
+                        revoked_at=revoked_at,
+                        reason=reason,
+                        issuer_peer_id=issuer_peer_id,
+                        from_peer=from_peer,
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to handle bootstrap grant revoke: {e}", exc_info=True)
+
+            p2p_manager.on_bootstrap_grant_revoke = _on_bootstrap_grant_revoke
 
         def _mark_stale_pending_decrypt() -> None:
             """Bound pending_decrypt backlog so old ciphertext does not linger forever."""
@@ -5294,6 +5356,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
         logger.info("Registering API blueprint...")
         api_bp = create_api_blueprint()
         app.register_blueprint(api_bp, url_prefix='/api/v1')
+        app.register_blueprint(api_bp, url_prefix='/api', name='api_legacy')
         logger.info("API blueprint registered successfully")
         
         logger.info("Registering UI blueprint...")

@@ -62,6 +62,8 @@ class _FakeApiKeyManager:
         perms = {
             Permission.READ_FEED,
             Permission.WRITE_FEED,
+            Permission.READ_MESSAGES,
+            Permission.WRITE_MESSAGES,
             Permission.MANAGE_KEYS,
         }
         if required_permission and required_permission not in perms:
@@ -222,11 +224,14 @@ class TestAgentReliabilityEndpoints(unittest.TestCase):
         )
         p2p_manager = _FakeP2PManager()
 
+        self.message_manager = MagicMock()
+        self.message_manager.get_messages.return_value = []
+
         components = (
             self.db_manager,              # db_manager
             self.api_key_manager,         # api_key_manager
             MagicMock(),                  # trust_manager
-            MagicMock(),                  # message_manager
+            self.message_manager,         # message_manager
             MagicMock(),                  # channel_manager
             MagicMock(),                  # file_manager
             MagicMock(),                  # feed_manager
@@ -247,7 +252,9 @@ class TestAgentReliabilityEndpoints(unittest.TestCase):
         app.config['TESTING'] = True
         app.secret_key = 'test-secret'
         app.config['MENTION_MANAGER'] = self.mention_manager
-        app.register_blueprint(create_api_blueprint(), url_prefix='/api/v1')
+        api_bp = create_api_blueprint()
+        app.register_blueprint(api_bp, url_prefix='/api/v1')
+        app.register_blueprint(api_bp, url_prefix='/api', name='api_legacy')
 
         self.client = app.test_client()
 
@@ -395,6 +402,57 @@ class TestAgentReliabilityEndpoints(unittest.TestCase):
         self.assertTrue((claim_after_release.get_json() or {}).get('claimed'))
 
         _ = mention_b  # keep both generated mention ids intentionally exercised in flow
+
+    def test_legacy_agent_prefix_and_aliases_keep_claim_ack_and_messages_live(self) -> None:
+        mention_ids = self.mention_manager.record_mentions(
+            user_ids=['agent-a'],
+            source_type='channel_message',
+            source_id='msg-legacy-1',
+            author_id='human-owner',
+            channel_id='general',
+            preview='Legacy agent compatibility path test.',
+        )
+        mention_id = mention_ids[0]
+
+        instructions_resp = self.client.get('/api/agent-instructions')
+        self.assertEqual(instructions_resp.status_code, 200)
+        instructions_payload = instructions_resp.get_json() or {}
+        self.assertEqual(instructions_payload.get('api_prefix'), '/api/v1')
+        self.assertIn('/api', instructions_payload.get('api_aliases') or [])
+        mentions_meta = instructions_payload.get('mentions') or {}
+        self.assertEqual((mentions_meta.get('claim') or {}).get('path'), '/api/v1/mentions/claim')
+        self.assertIn('/api/v1/claim', (mentions_meta.get('claim') or {}).get('aliases') or [])
+        self.assertIn('/api/acknowledge', mentions_meta.get('ack_aliases') or [])
+
+        claim_resp = self.client.post(
+            '/api/v1/claim',
+            json={'mention_id': mention_id, 'ttl_seconds': 120},
+            headers=self._headers('key-agent-a'),
+        )
+        self.assertEqual(claim_resp.status_code, 200)
+        self.assertTrue((claim_resp.get_json() or {}).get('claimed'))
+
+        ack_resp = self.client.post(
+            '/api/acknowledge',
+            json={'mention_ids': [mention_id]},
+            headers=self._headers('key-agent-a'),
+        )
+        self.assertEqual(ack_resp.status_code, 200)
+        self.assertEqual((ack_resp.get_json() or {}).get('acknowledged'), 1)
+
+        inbox_resp = self.client.get(
+            '/api/agents/me/inbox',
+            headers=self._headers('key-agent-a'),
+        )
+        self.assertEqual(inbox_resp.status_code, 200)
+        self.assertEqual((inbox_resp.get_json() or {}).get('count'), 0)
+
+        messages_resp = self.client.get(
+            '/api/messages',
+            headers=self._headers('key-agent-a'),
+        )
+        self.assertEqual(messages_resp.status_code, 200)
+        self.assertEqual((messages_resp.get_json() or {}).get('count'), 0)
 
     def test_agents_endpoint_exposes_stable_handles_and_workload_counts(self) -> None:
         self.mention_manager.record_mentions(

@@ -4164,6 +4164,11 @@ def create_api_blueprint() -> Blueprint:
             return jsonify({'error': 'Internal server error'}), 500
 
     @api.route('/mentions/ack', methods=['POST'])
+    @api.route('/mentions/acknowledge', methods=['POST'])
+    @api.route('/mentions/acknoledge', methods=['POST'])
+    @api.route('/ack', methods=['POST'])
+    @api.route('/acknowledge', methods=['POST'])
+    @api.route('/acknoledge', methods=['POST'])
     @require_auth(Permission.READ_FEED)
     def acknowledge_mentions_api():
         """Acknowledge mention events for the authenticated user."""
@@ -4192,6 +4197,7 @@ def create_api_blueprint() -> Blueprint:
             return jsonify({'error': 'Internal server error'}), 500
 
     @api.route('/mentions/claim', methods=['GET', 'POST', 'DELETE'])
+    @api.route('/claim', methods=['GET', 'POST', 'DELETE'])
     @require_auth(Permission.READ_FEED)
     def mention_claim_api():
         """Claim/release mention sources to prevent duplicate multi-agent replies."""
