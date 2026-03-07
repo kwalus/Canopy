@@ -16,7 +16,7 @@ import socket
 import threading
 import time
 from typing import Callable, Dict, List, Optional, Set
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from zeroconf import ServiceBrowser, ServiceInfo, Zeroconf, ServiceStateChange
 
 logger = logging.getLogger('canopy.network.discovery')
@@ -29,6 +29,7 @@ class DiscoveredPeer:
     address: str
     port: int
     discovered_at: float
+    addresses: List[str] = field(default_factory=list)
     service_info: Optional[Dict] = None
 
 
@@ -36,7 +37,8 @@ class PeerDiscovery:
     """Manages peer discovery on local and remote networks."""
     
     def __init__(self, local_peer_id: str, service_port: int = 7771, 
-                 service_name: Optional[str] = None):
+                 service_name: Optional[str] = None,
+                 capabilities: Optional[List[str]] = None):
         """
         Initialize peer discovery.
         
@@ -49,6 +51,11 @@ class PeerDiscovery:
         self.service_port = service_port
         self.service_name = service_name or f"canopy-{local_peer_id}"
         self.service_type = "_canopy._tcp.local."
+        base_capabilities = capabilities or ['chat', 'files', 'voice']
+        self.capabilities = [
+            cap for cap in (str(item).strip() for item in base_capabilities)
+            if cap
+        ] or ['chat', 'files', 'voice']
         
         # State
         self.discovered_peers: Dict[str, DiscoveredPeer] = {}
@@ -62,7 +69,15 @@ class PeerDiscovery:
         self.browser: Optional[ServiceBrowser] = None
         
         logger.info(f"Initialized PeerDiscovery for {local_peer_id}")
-    
+
+    @staticmethod
+    def _get_canopy_version() -> str:
+        try:
+            from canopy import __version__
+            return str(__version__)
+        except Exception:
+            return '0.1.0'
+
     def start(self) -> None:
         """Start peer discovery service."""
         if self._running:
@@ -137,8 +152,8 @@ class PeerDiscovery:
                 port=self.service_port,
                 properties={
                     'peer_id': self.local_peer_id,
-                    'version': '0.1.0',
-                    'capabilities': 'chat,files,voice'
+                    'version': self._get_canopy_version(),
+                    'capabilities': ','.join(self.capabilities),
                 },
                 server=f"{self.service_name}.local."
             )
@@ -241,8 +256,26 @@ class PeerDiscovery:
         if not info.addresses:
             logger.warning(f"Service {name} has no addresses")
             return
-        
-        address = socket.inet_ntoa(info.addresses[0])
+
+        addresses: List[str] = []
+        for raw_addr in info.addresses:
+            try:
+                if len(raw_addr) == 4:
+                    decoded = socket.inet_ntoa(raw_addr)
+                elif len(raw_addr) == 16:
+                    decoded = socket.inet_ntop(socket.AF_INET6, raw_addr)
+                else:
+                    continue
+            except Exception:
+                continue
+            if decoded and decoded not in addresses:
+                addresses.append(decoded)
+
+        if not addresses:
+            logger.warning(f"Service {name} has no decodable addresses")
+            return
+
+        address = addresses[0]
         port = info.port
         if port is None:
             logger.warning(f"Service {name} has no port")
@@ -258,10 +291,12 @@ class PeerDiscovery:
             address=address,
             port=port,
             discovered_at=time.time(),
+            addresses=addresses,
             service_info={
                 'name': name,
                 'version': version,
-                'capabilities': capabilities_text.split(',')
+                'capabilities': capabilities_text.split(','),
+                'addresses': list(addresses),
             }
         )
         

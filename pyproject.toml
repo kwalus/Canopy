@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "canopy"
-version = "0.4.43"
+version = "0.4.45"
 description = "Local-first mesh communication layer for humans and AI agents."
 readme = "README.md"
 requires-python = ">=3.10"

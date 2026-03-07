@@ -4164,6 +4164,11 @@ def create_api_blueprint() -> Blueprint:
             return jsonify({'error': 'Internal server error'}), 500
 
     @api.route('/mentions/ack', methods=['POST'])
+    @api.route('/mentions/acknowledge', methods=['POST'])
+    @api.route('/mentions/acknoledge', methods=['POST'])
+    @api.route('/ack', methods=['POST'])
+    @api.route('/acknowledge', methods=['POST'])
+    @api.route('/acknoledge', methods=['POST'])
     @require_auth(Permission.READ_FEED)
     def acknowledge_mentions_api():
         """Acknowledge mention events for the authenticated user."""
@@ -4192,6 +4197,7 @@ def create_api_blueprint() -> Blueprint:
             return jsonify({'error': 'Internal server error'}), 500
 
     @api.route('/mentions/claim', methods=['GET', 'POST', 'DELETE'])
+    @api.route('/claim', methods=['GET', 'POST', 'DELETE'])
     @require_auth(Permission.READ_FEED)
     def mention_claim_api():
         """Claim/release mention sources to prevent duplicate multi-agent replies."""
@@ -6950,6 +6956,7 @@ def create_api_blueprint() -> Blueprint:
                 }), 403
 
             from flask import send_file
+            import io
             return send_file(
                 io.BytesIO(file_data),
                 mimetype=file_info.content_type or 'application/octet-stream',
@@ -6964,8 +6971,7 @@ def create_api_blueprint() -> Blueprint:
     @require_auth(Permission.READ_FILES)
     def get_file_access_api(file_id):
         """Inspect whether caller can access a file and why."""
-        (db_manager, _, trust_manager, _, _, file_manager,
-         feed_manager, _, _, _, _) = _get_app_components_any(current_app)
+        db_manager, _, trust_manager, _, _, file_manager, feed_manager, _, _, _, _ = _get_app_components_any(current_app)
         try:
             file_info = file_manager.get_file(file_id)
             if not file_info:
@@ -7149,11 +7155,7 @@ def create_api_blueprint() -> Blueprint:
                                 user_id=g.api_key_info.user_id,
                                 content=post_content,
                                 message_id=msg.id,
-                                timestamp=(
-                                    msg.created_at.isoformat()
-                                    if getattr(msg, 'created_at', None)
-                                    else datetime.now(timezone.utc).isoformat()
-                                ),
+                                timestamp=msg.created_at.isoformat() if getattr(msg, 'created_at', None) else datetime.now(timezone.utc).isoformat(),
                                 attachments=[attachment],
                                 display_name=(db_manager.get_user(g.api_key_info.user_id) or {}).get('display_name'),
                                 parent_message_id=None,
@@ -7384,10 +7386,7 @@ def create_api_blueprint() -> Blueprint:
             if token_err or not token_data:
                 return jsonify({'error': 'Not found'}), 404
 
-            content_type = (
-                str(request.headers.get('Content-Type') or 'application/json')
-                .split(';', 1)[0].strip().lower()
-            )
+            content_type = str(request.headers.get('Content-Type') or 'application/json').split(';', 1)[0].strip().lower()
             body = request.get_json(silent=True)
             if isinstance(body, dict):
                 event_payload = body.get('payload', body)
@@ -7419,6 +7418,7 @@ def create_api_blueprint() -> Blueprint:
     def _find_stream_remote_base(self_stream_id: str) -> Optional[str]:
         """Find a reachable remote base URL for a stream by trying all host_addrs."""
         from urllib.request import urlopen as _urlopen
+        from urllib.error import URLError as _URLError
         import json as _json
         db_manager = _get_db_manager()
         if not db_manager:
@@ -7477,7 +7477,6 @@ def create_api_blueprint() -> Blueprint:
                     # Rewrite EXT-X-MAP URI to local proxy
                     if stripped.startswith('#EXT-X-MAP:URI="'):
                         import re as _re
-
                         def _rewrite_map(m: Any) -> str:
                             seg = m.group(2).split('/')[-1].split('?')[0]
                             return f'{m.group(1)}/api/v1/stream-proxy/{stream_id}/segments/{seg}{m.group(3)}'
@@ -7548,7 +7547,9 @@ def create_api_blueprint() -> Blueprint:
                 scope='view',
             )
             if token_err or not token_data:
-                # Allow token-free access for open-visibility streams (cross-peer playback)
+                # Only a missing token may fall back to open-stream playback.
+                if token:
+                    return jsonify({'error': 'Not found'}), 404
                 stream_row = stream_manager.get_stream(stream_id)
                 if not stream_row or str(stream_row.get('visibility_mode') or 'open').lower() != 'open':
                     return jsonify({'error': 'Not found'}), 404
@@ -7592,7 +7593,9 @@ def create_api_blueprint() -> Blueprint:
                 scope='view',
             )
             if token_err or not token_data:
-                # Allow token-free access for open-visibility streams (cross-peer playback)
+                # Only a missing token may fall back to open-stream playback.
+                if token:
+                    return jsonify({'error': 'Not found'}), 404
                 stream_row = stream_manager.get_stream(stream_id)
                 if not stream_row or str(stream_row.get('visibility_mode') or 'open').lower() != 'open':
                     return jsonify({'error': 'Not found'}), 404
@@ -7670,8 +7673,7 @@ def create_api_blueprint() -> Blueprint:
     @require_auth(Permission.WRITE_FEED)
     def send_channel_message():
         """Send a message to a channel and broadcast to P2P peers."""
-        (db_manager, _, _, _, channel_manager, file_manager,
-         _, _, _, _, p2p_manager) = _get_app_components_any(current_app)
+        db_manager, _, _, _, channel_manager, file_manager, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
         
         try:
             data = request.get_json()

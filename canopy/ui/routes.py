@@ -3202,7 +3202,7 @@ def create_ui_blueprint() -> Blueprint:
     def ajax_peer_activity():
         """Return last inbound/outbound activity timestamps for connected peers."""
         try:
-            _, _, _, _, _, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+            _, _, trust_manager, _, _, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
             since_arg = request.args.get('since')
             since = None
             if since_arg is not None and since_arg != '':
@@ -3212,11 +3212,19 @@ def create_ui_blueprint() -> Blueprint:
                     since = None
 
             if not p2p_manager or not getattr(p2p_manager, 'connection_manager', None):
-                return jsonify({'success': True, 'peers': {}, 'events': [], 'server_time': time.time()})
+                return jsonify({
+                    'success': True,
+                    'peers': {},
+                    'connected_peer_ids': [],
+                    'peer_trust': {},
+                    'events': [],
+                    'server_time': time.time(),
+                })
 
             conn_mgr = p2p_manager.connection_manager
+            connected_peer_ids = list(conn_mgr.get_connected_peers() or [])
             peers = {}
-            for peer_id in conn_mgr.get_connected_peers():
+            for peer_id in connected_peer_ids:
                 conn = conn_mgr.get_connection(peer_id)
                 if not conn:
                     continue
@@ -3234,7 +3242,22 @@ def create_ui_blueprint() -> Blueprint:
                 except Exception:
                     events = []
 
-            return jsonify({'success': True, 'peers': peers, 'events': events, 'server_time': time.time()})
+            trust_map = {}
+            if trust_manager:
+                for peer_id in connected_peer_ids:
+                    try:
+                        trust_map[peer_id] = trust_manager.get_trust_score(peer_id)
+                    except Exception:
+                        continue
+
+            return jsonify({
+                'success': True,
+                'peers': peers,
+                'connected_peer_ids': connected_peer_ids,
+                'peer_trust': trust_map,
+                'events': events,
+                'server_time': time.time(),
+            })
         except Exception as e:
             logger.error(f"Peer activity error: {e}", exc_info=True)
             return jsonify({'success': False, 'error': 'Failed to get peer activity'}), 500
@@ -12735,10 +12758,10 @@ def create_ui_blueprint() -> Blueprint:
         return None
 
     def _resolve_handle_list(db_manager: Any, handles: list[Any],
-                             visibility: Optional[str] = None,
-                             permissions: Optional[list[str]] = None,
-                             channel_id: Optional[str] = None,
-                             author_id: Optional[str] = None) -> list[str]:
+                              visibility: Optional[str] = None,
+                              permissions: Optional[list[str]] = None,
+                              channel_id: Optional[str] = None,
+                              author_id: Optional[str] = None) -> list[str]:
         resolved: list[str] = []
         for h in handles or []:
             uid = _resolve_handle_to_user_id(
@@ -12830,10 +12853,7 @@ def create_ui_blueprint() -> Blueprint:
                             author_id=actor_id,
                         )
                         if not resolved_assignee:
-                            logger.warning(
-                                f"Inline task assignee '{raw_assignee}' could not be resolved "
-                                f"for {scope}:{source_id}"
-                            )
+                            logger.warning(f"Inline task assignee '{raw_assignee}' could not be resolved for {scope}:{source_id}")
                             assignee_specified = False
                     else:
                         resolved_assignee = None
@@ -13398,5 +13418,5 @@ def create_ui_blueprint() -> Blueprint:
         except Exception as e:
             logger.error(f"Static file serve error for {filename}: {e}")
             return "File not found", 404
-
+    
     return ui
