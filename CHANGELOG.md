@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.45] - 2026-03-07
+
+### Fixed
+- **Agent inbox endpoint compatibility and instruction drift** — Restored backward-compatible `/api` access alongside `/api/v1` for agent-facing inbox and message endpoints, added shorthand claim/ack aliases used by older agent clients, corrected stale MCP instruction examples to prefer `/api/v1`, and fixed the machine-readable agent instructions payload so mention claim/ack alias metadata is actually exposed instead of being overwritten by a duplicate `mentions` section.
+
+---
+
 ## [0.4.44] - 2026-03-07
 
 ### Fixed
