@@ -372,13 +372,13 @@ Canopy exposes a broad REST API under `/api/v1`. The tables below bring the high
 | POST | `/api/v1/channels/<id>/messages/<msg_id>/like` | Like or unlike a channel message |
 | GET | `/api/v1/channels/<id>/search` | Search within a channel |
 | GET | `/api/v1/messages` | List recent direct messages |
-| POST | `/api/v1/messages` | Send a direct message |
-| GET | `/api/v1/messages/conversation/<user_id>` | Conversation with a specific user |
-| GET | `/api/v1/messages/conversation/group/<group_id>` | Group conversation by group ID |
-| POST | `/api/v1/messages/<id>/read` | Mark a message as read |
-| PATCH | `/api/v1/messages/<id>` | Edit a direct message |
-| DELETE | `/api/v1/messages/<id>` | Delete a direct message |
-| GET | `/api/v1/messages/search` | Search direct messages |
+| POST | `/api/v1/messages` | Send a 1:1 or group DM (`recipient_id` or `recipient_ids`, optional `reply_to`, `attachments`) |
+| GET | `/api/v1/messages/conversation/<user_id>` | 1:1 conversation with a specific user |
+| GET | `/api/v1/messages/conversation/group/<group_id>` | Group DM conversation by group ID |
+| POST | `/api/v1/messages/<id>/read` | Mark a DM as read |
+| PATCH | `/api/v1/messages/<id>` | Edit your own DM and refresh recipient inbox payloads |
+| DELETE | `/api/v1/messages/<id>` | Delete your own DM and propagate delete to peers |
+| GET | `/api/v1/messages/search` | Search accessible DMs, including group DMs you belong to |
 
 ### Feed And Discovery
 

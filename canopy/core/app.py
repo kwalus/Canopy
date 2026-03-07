@@ -33,7 +33,7 @@ from .tasks import TaskManager
 from .search import SearchManager
 from ..security.api_keys import ApiKeyManager
 from ..security.trust import TrustManager
-from .messaging import MessageManager
+from .messaging import MessageManager, build_dm_preview
 from .channels import ChannelManager
 from .identity_portability import IdentityPortabilityManager
 from .mentions import (
@@ -44,6 +44,7 @@ from .mentions import (
     build_preview,
     record_mention_activity,
     broadcast_mention_interaction,
+    sync_edited_mention_activity,
 )
 from ..network.manager import P2PNetworkManager
 from ..network.routing import (
@@ -897,6 +898,44 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         )
                         conn.commit()
                     channel_manager.mark_message_processed(message_id)
+                    try:
+                        sync_edited_mention_activity(
+                            db_manager=db_manager,
+                            mention_manager=mention_manager,
+                            inbox_manager=inbox_manager,
+                            p2p_manager=p2p_manager,
+                            content=content_rewritten,
+                            source_type='channel_message',
+                            source_id=message_id,
+                            author_id=user_id,
+                            origin_peer=from_peer,
+                            channel_id=channel_id,
+                            edited_at=edited_at,
+                        )
+                        if inbox_manager:
+                            inbox_manager.sync_source_triggers(
+                                source_type='channel_message',
+                                source_id=message_id,
+                                trigger_type='reply',
+                                sender_user_id=user_id,
+                                origin_peer=from_peer,
+                                channel_id=channel_id,
+                                preview=build_preview(content_rewritten or '') or None,
+                                payload={
+                                    'channel_id': channel_id,
+                                    'message_id': message_id,
+                                    'parent_message_id': parent_message_id,
+                                    'edited_at': edited_at,
+                                },
+                                message_id=message_id,
+                                source_content=content_rewritten,
+                            )
+                    except Exception as mention_sync_err:
+                        logger.warning(
+                            "Failed to refresh channel edit notices for %s: %s",
+                            message_id,
+                            mention_sync_err,
+                        )
                     logger.info(f"Updated P2P channel message {message_id} in #{channel_id}")
                     return
 
@@ -4083,6 +4122,35 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                             )
                             except Exception as handoff_err:
                                 logger.warning(f"Inline handoff update (P2P feed) failed: {handoff_err}")
+                            try:
+                                edited_at = None
+                                try:
+                                    meta_for_edit = json.loads(final_metadata) if isinstance(final_metadata, str) and final_metadata else None
+                                except Exception:
+                                    meta_for_edit = None
+                                if isinstance(meta_for_edit, dict):
+                                    edited_at = meta_for_edit.get('edited_at')
+                                sync_edited_mention_activity(
+                                    db_manager=db_manager,
+                                    mention_manager=mention_manager,
+                                    inbox_manager=inbox_manager,
+                                    p2p_manager=p2p_manager,
+                                    content=content,
+                                    source_type='feed_post',
+                                    source_id=pid,
+                                    author_id=author_id,
+                                    origin_peer=from_peer,
+                                    channel_id=None,
+                                    visibility=final_visibility,
+                                    permissions=None,
+                                    edited_at=edited_at,
+                                )
+                            except Exception as mention_sync_err:
+                                logger.warning(
+                                    "Failed to refresh feed edit notices for %s: %s",
+                                    pid,
+                                    mention_sync_err,
+                                )
                         return
                     conn.execute("""
                         INSERT OR IGNORE INTO feed_posts
@@ -4917,6 +4985,40 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     )
                     if success:
                         channel_manager.mark_message_processed(mid)
+                        try:
+                            if inbox_manager:
+                                dm_preview = build_dm_preview(
+                                    content or '',
+                                    (meta_payload or {}).get('attachments') or [],
+                                )
+                                payload = {
+                                    'content': content or '',
+                                    'message_id': mid,
+                                    'edited_at': edited_at,
+                                    'attachments': (meta_payload or {}).get('attachments') or [],
+                                }
+                                if (meta_payload or {}).get('reply_to'):
+                                    payload['reply_to'] = meta_payload.get('reply_to')
+                                if (meta_payload or {}).get('group_id'):
+                                    payload['group_id'] = meta_payload.get('group_id')
+                                if (meta_payload or {}).get('group_members'):
+                                    payload['group_members'] = meta_payload.get('group_members')
+                                if (meta_payload or {}).get('is_group') is not None:
+                                    payload['is_group'] = bool(meta_payload.get('is_group'))
+                                inbox_manager.sync_source_triggers(
+                                    source_type='dm',
+                                    source_id=mid,
+                                    trigger_type='dm',
+                                    target_ids=[recipient_id],
+                                    sender_user_id=sender_id,
+                                    origin_peer=from_peer,
+                                    preview=dm_preview,
+                                    payload=payload,
+                                    message_id=mid,
+                                    source_content=content or '',
+                                )
+                        except Exception as inbox_err:
+                            logger.warning(f"Failed to refresh P2P DM inbox trigger for {mid}: {inbox_err}")
                         logger.info(f"Updated P2P DM {mid} from {sender_id} to {recipient_id}")
                     else:
                         logger.warning(f"Failed to update P2P DM {mid} from {sender_id}")
@@ -4948,6 +5050,39 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         pass  # If ID conflicts, original insert is fine
                     message_manager.send_message(msg)
                     channel_manager.mark_message_processed(mid)
+                    try:
+                        if inbox_manager:
+                            dm_preview = build_dm_preview(
+                                content or '',
+                                (meta_payload or {}).get('attachments') or [],
+                            )
+                            payload = {
+                                'content': content or '',
+                                'message_id': mid,
+                                'attachments': (meta_payload or {}).get('attachments') or [],
+                            }
+                            if (meta_payload or {}).get('reply_to'):
+                                payload['reply_to'] = meta_payload.get('reply_to')
+                            if (meta_payload or {}).get('group_id'):
+                                payload['group_id'] = meta_payload.get('group_id')
+                            if (meta_payload or {}).get('group_members'):
+                                payload['group_members'] = meta_payload.get('group_members')
+                            if (meta_payload or {}).get('is_group') is not None:
+                                payload['is_group'] = bool(meta_payload.get('is_group'))
+                            inbox_manager.sync_source_triggers(
+                                source_type='dm',
+                                source_id=mid,
+                                trigger_type='dm',
+                                target_ids=[recipient_id],
+                                sender_user_id=sender_id,
+                                origin_peer=from_peer,
+                                preview=dm_preview,
+                                payload=payload,
+                                message_id=mid,
+                                source_content=content or '',
+                            )
+                    except Exception as inbox_err:
+                        logger.warning(f"Failed to create P2P DM inbox trigger for {mid}: {inbox_err}")
                     logger.info(f"Stored P2P DM {mid} from {sender_id} to {recipient_id}")
                 else:
                     logger.warning(f"Failed to store P2P DM from {sender_id}")
@@ -4987,17 +5122,50 @@ def create_app(config: Optional[Config] = None) -> Flask:
                             f"type={data_type}, id={data_id}, reason={reason}")
 
                 deleted = False
-                if data_type == 'message':
-                    # Delete a specific channel message
+                if data_type in ('direct_message', 'message'):
+                    # Legacy `message` delete signals originated from the DM UI.
+                    # Channel-message deletes now use the explicit `channel_message` type.
                     try:
                         with db_manager.get_connection() as conn:
+                            cur = conn.execute(
+                                "DELETE FROM messages WHERE id = ?",
+                                (data_id,),
+                            )
+                            conn.commit()
+                            deleted = cur.rowcount > 0
+                        if deleted and inbox_manager:
+                            try:
+                                inbox_manager.remove_source_triggers(
+                                    source_type='dm',
+                                    source_id=data_id,
+                                    trigger_type='dm',
+                                )
+                            except Exception as inbox_err:
+                                logger.warning(
+                                    "Failed to remove DM inbox triggers for deleted message %s: %s",
+                                    data_id,
+                                    inbox_err,
+                                )
+                    except Exception as del_err:
+                        logger.error(f"Failed to delete direct message {data_id}: {del_err}")
+
+                elif data_type == 'channel_message':
+                    # Delete a specific channel message (explicit type).
+                    # Remove FK references first: likes and parent_message_id.
+                    try:
+                        with db_manager.get_connection() as conn:
+                            conn.execute("DELETE FROM likes WHERE message_id = ?", (data_id,))
+                            conn.execute(
+                                "UPDATE channel_messages SET parent_message_id = NULL WHERE parent_message_id = ?",
+                                (data_id,),
+                            )
                             cur = conn.execute(
                                 "DELETE FROM channel_messages WHERE id = ?",
                                 (data_id,))
                             conn.commit()
                             deleted = cur.rowcount > 0
                     except Exception as del_err:
-                        logger.error(f"Failed to delete message {data_id}: {del_err}")
+                        logger.error(f"Failed to delete channel message {data_id}: {del_err}")
 
                 elif data_type == 'file':
                     # Remove a file from the file manager
@@ -5023,24 +5191,6 @@ def create_app(config: Optional[Config] = None) -> Flask:
                             deleted = cur.rowcount > 0
                     except Exception as del_err:
                         logger.error(f"Failed to delete feed post {data_id}: {del_err}")
-
-                elif data_type == 'channel_message':
-                    # Delete a specific channel message (explicit type).
-                    # Remove FK references first: likes and parent_message_id.
-                    try:
-                        with db_manager.get_connection() as conn:
-                            conn.execute("DELETE FROM likes WHERE message_id = ?", (data_id,))
-                            conn.execute(
-                                "UPDATE channel_messages SET parent_message_id = NULL WHERE parent_message_id = ?",
-                                (data_id,),
-                            )
-                            cur = conn.execute(
-                                "DELETE FROM channel_messages WHERE id = ?",
-                                (data_id,))
-                            conn.commit()
-                            deleted = cur.rowcount > 0
-                    except Exception as del_err:
-                        logger.error(f"Failed to delete channel message {data_id}: {del_err}")
 
                 elif data_type == 'channel':
                     # Delete an entire channel on replicas.

@@ -10,7 +10,6 @@ License: Apache 2.0
 Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
-import hashlib
 import logging
 import os
 import json
@@ -43,6 +42,7 @@ from ..core.mentions import (
     record_mention_activity,
     record_thread_reply_activity,
     broadcast_mention_interaction,
+    sync_edited_mention_activity,
 )
 from ..security.api_keys import Permission, ApiKeyManager
 from ..security.file_access import evaluate_file_access
@@ -57,6 +57,12 @@ from ..core.agent_heartbeat import build_agent_heartbeat_snapshot
 from ..core.agent_presence import (
     get_agent_presence_records,
     build_agent_presence_payload,
+)
+from ..core.file_preview import build_file_preview
+from ..core.messaging import (
+    build_dm_preview,
+    compute_group_id,
+    filter_local_dm_targets,
 )
 from ..network.routing import (
     encrypt_key_for_peer,
@@ -319,9 +325,7 @@ def create_ui_blueprint() -> Blueprint:
 
     def _compute_group_id(member_ids: list) -> str:
         """Create a stable group ID from a set of member IDs."""
-        cleaned = sorted({m for m in member_ids if m})
-        digest = hashlib.sha256('|'.join(cleaned).encode('utf-8')).hexdigest()[:12]
-        return f"group:{digest}"
+        return compute_group_id(member_ids)
 
     @ui.app_context_processor
     def inject_canopy_version():
@@ -3557,7 +3561,7 @@ def create_ui_blueprint() -> Blueprint:
     def ajax_send_message():
         """AJAX endpoint to send a message with multimedia support."""
         try:
-            _, _, _, message_manager, _, file_manager, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+            db_manager, _, _, message_manager, _, file_manager, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
             user_id = get_current_user()
             
             data = request.get_json()
@@ -3627,9 +3631,10 @@ def create_ui_blueprint() -> Blueprint:
             if recipient_id and not recipient_ids:
                 recipients_unique = [recipient_id]
 
+            recipients_unique = [r for r in recipients_unique if r != user_id]
+
             # Group DM handling
             if len(recipients_unique) > 1:
-                recipients_unique = [r for r in recipients_unique if r != user_id]
                 group_members = sorted({user_id, *recipients_unique})
                 group_id = _compute_group_id(group_members)
                 metadata.update({
@@ -3642,6 +3647,32 @@ def create_ui_blueprint() -> Blueprint:
                 message = message_manager.create_message(user_id, content, group_id, message_type, metadata if metadata else None)
                 if message and message_manager.send_message(message):
                     logger.info(f"Group message sent successfully: {message.id}")
+
+                    try:
+                        inbox_manager = current_app.config.get('INBOX_MANAGER')
+                        if inbox_manager:
+                            local_target_ids = filter_local_dm_targets(db_manager, p2p_manager, recipients_unique)
+                            if local_target_ids:
+                                inbox_manager.sync_source_triggers(
+                                    source_type='dm',
+                                    source_id=message.id,
+                                    trigger_type='dm',
+                                    target_ids=local_target_ids,
+                                    sender_user_id=user_id,
+                                    preview=build_dm_preview(content, metadata.get('attachments') or []),
+                                    payload={
+                                        'content': content,
+                                        'message_id': message.id,
+                                        'attachments': metadata.get('attachments') or [],
+                                        'group_id': group_id,
+                                        'group_members': group_members,
+                                        'is_group': True,
+                                    },
+                                    message_id=message.id,
+                                    source_content=content,
+                                )
+                    except Exception as inbox_err:
+                        logger.warning(f"Failed to create group DM inbox trigger: {inbox_err}")
 
                     if p2p_manager:
                         try:
@@ -3679,6 +3710,29 @@ def create_ui_blueprint() -> Blueprint:
 
             if message and message_manager.send_message(message):
                 logger.info(f"Message sent successfully: {message.id}")
+
+                try:
+                    inbox_manager = current_app.config.get('INBOX_MANAGER')
+                    if inbox_manager and recipient_id:
+                        local_target_ids = filter_local_dm_targets(db_manager, p2p_manager, [recipient_id])
+                        if local_target_ids:
+                            inbox_manager.sync_source_triggers(
+                                source_type='dm',
+                                source_id=message.id,
+                                trigger_type='dm',
+                                target_ids=local_target_ids,
+                                sender_user_id=user_id,
+                                preview=build_dm_preview(content, metadata.get('attachments') or []),
+                                payload={
+                                    'content': content,
+                                    'message_id': message.id,
+                                    'attachments': metadata.get('attachments') or [],
+                                },
+                                message_id=message.id,
+                                source_content=content,
+                            )
+                except Exception as inbox_err:
+                    logger.warning(f"Failed to create DM inbox trigger: {inbox_err}")
 
                 # Broadcast DM over P2P so recipient's node can store it
                 if recipient_id and p2p_manager:
@@ -7115,6 +7169,25 @@ def create_ui_blueprint() -> Blueprint:
             )
             
             if success:
+                try:
+                    sync_edited_mention_activity(
+                        db_manager=db_manager,
+                        mention_manager=current_app.config.get('MENTION_MANAGER'),
+                        inbox_manager=current_app.config.get('INBOX_MANAGER'),
+                        p2p_manager=p2p_manager,
+                        content=content,
+                        source_type='feed_post',
+                        source_id=post_id,
+                        author_id=user_id,
+                        origin_peer=p2p_manager.get_peer_id() if p2p_manager else None,
+                        channel_id=None,
+                        visibility=visibility_enum.value if visibility_enum else existing_post.visibility.value,
+                        permissions=permissions if permissions is not None else existing_post.permissions,
+                        edited_at=final_metadata.get('edited_at') if isinstance(final_metadata, dict) else None,
+                    )
+                except Exception as mention_sync_err:
+                    logger.warning(f"Feed mention refresh failed on post update: {mention_sync_err}")
+
                 # Sync inline circles from edited content (create/update circles)
                 try:
                     circle_manager = current_app.config.get('CIRCLE_MANAGER')
@@ -7829,6 +7902,16 @@ def create_ui_blueprint() -> Blueprint:
 
             success = message_manager.delete_message(message_id, user_id, file_manager=file_manager)
             if success:
+                inbox_manager = current_app.config.get('INBOX_MANAGER')
+                if inbox_manager:
+                    try:
+                        inbox_manager.remove_source_triggers(
+                            source_type='dm',
+                            source_id=message_id,
+                            trigger_type='dm',
+                        )
+                    except Exception as inbox_err:
+                        logger.warning(f"Failed to remove DM inbox trigger for delete {message_id}: {inbox_err}")
                 # Broadcast delete signal via P2P
                 if p2p_manager and p2p_manager.is_running():
                     try:
@@ -7836,7 +7919,7 @@ def create_ui_blueprint() -> Blueprint:
                         signal_id = f"DS{_sec.token_hex(8)}"
                         p2p_manager.broadcast_delete_signal(
                             signal_id=signal_id,
-                            data_type='message',
+                            data_type='direct_message',
                             data_id=message_id,
                             reason='user_deleted',
                         )
@@ -8012,6 +8095,45 @@ def create_ui_blueprint() -> Blueprint:
                 except Exception as bcast_err:
                     logger.warning(f"Failed to broadcast DM update via P2P: {bcast_err}")
 
+            try:
+                inbox_manager = current_app.config.get('INBOX_MANAGER')
+                if inbox_manager:
+                    group_members = []
+                    if isinstance(final_metadata, dict):
+                        group_members = [
+                            str(member_id).strip()
+                            for member_id in (final_metadata.get('group_members') or [])
+                            if str(member_id).strip() and str(member_id).strip() != user_id
+                        ]
+                    target_ids = group_members or ([str(row['recipient_id']).strip()] if row['recipient_id'] else [])
+                    local_target_ids = filter_local_dm_targets(db_manager, p2p_manager, target_ids)
+                    if local_target_ids:
+                        payload = {
+                            'content': content,
+                            'message_id': message_id,
+                            'edited_at': final_metadata.get('edited_at') if isinstance(final_metadata, dict) else None,
+                            'attachments': final_attachments or [],
+                        }
+                        if isinstance(final_metadata, dict) and final_metadata.get('reply_to'):
+                            payload['reply_to'] = final_metadata.get('reply_to')
+                        if isinstance(final_metadata, dict) and final_metadata.get('group_id'):
+                            payload['group_id'] = final_metadata.get('group_id')
+                        if isinstance(final_metadata, dict) and final_metadata.get('group_members'):
+                            payload['group_members'] = final_metadata.get('group_members')
+                        inbox_manager.sync_source_triggers(
+                            source_type='dm',
+                            source_id=message_id,
+                            trigger_type='dm',
+                            target_ids=local_target_ids,
+                            sender_user_id=user_id,
+                            preview=build_dm_preview(content, final_attachments or []),
+                            payload=payload,
+                            message_id=message_id,
+                            source_content=content,
+                        )
+            except Exception as inbox_err:
+                logger.warning(f"Failed to refresh DM inbox trigger on edit: {inbox_err}")
+
             return jsonify({'success': True})
         except Exception as e:
             logger.error(f"Update message error: {e}", exc_info=True)
@@ -8022,7 +8144,7 @@ def create_ui_blueprint() -> Blueprint:
     def ajax_reply_message():
         """AJAX endpoint to reply to a direct message."""
         try:
-            _, _, _, message_manager, _, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+            db_manager, _, _, message_manager, _, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
             user_id = get_current_user()
 
             data = request.get_json() or {}
@@ -8044,7 +8166,7 @@ def create_ui_blueprint() -> Blueprint:
             if group_members:
                 if not group_id:
                     group_id = _compute_group_id(group_members)
-                recipients = [m for m in group_members if m and m != user_id]
+                recipients = [member_id for member_id in group_members if member_id and member_id != user_id]
                 if not recipients:
                     return jsonify({'error': 'No other group members to reply to'}), 400
 
@@ -8058,10 +8180,36 @@ def create_ui_blueprint() -> Blueprint:
                     sender_id=user_id,
                     recipient_id=group_id,
                     content=content,
-                    metadata=reply_meta
+                    metadata=reply_meta,
                 )
                 if message:
                     message_manager.send_message(message)
+
+                    try:
+                        inbox_manager = current_app.config.get('INBOX_MANAGER')
+                        if inbox_manager:
+                            local_target_ids = filter_local_dm_targets(db_manager, p2p_manager, recipients)
+                            if local_target_ids:
+                                inbox_manager.sync_source_triggers(
+                                    source_type='dm',
+                                    source_id=message.id,
+                                    trigger_type='dm',
+                                    target_ids=local_target_ids,
+                                    sender_user_id=user_id,
+                                    preview=build_dm_preview(content, []),
+                                    payload={
+                                        'content': content,
+                                        'message_id': message.id,
+                                        'reply_to': original_message_id,
+                                        'group_id': group_id,
+                                        'group_members': group_members,
+                                        'is_group': True,
+                                    },
+                                    message_id=message.id,
+                                    source_content=content,
+                                )
+                    except Exception as inbox_err:
+                        logger.warning(f"Failed to create group DM reply inbox trigger: {inbox_err}")
 
                     if p2p_manager:
                         try:
@@ -8088,6 +8236,7 @@ def create_ui_blueprint() -> Blueprint:
                             logger.warning(f"Failed to broadcast group DM reply over P2P: {bcast_err}")
 
                     return jsonify({'success': True, 'message': message.to_dict()})
+                return jsonify({'error': 'Failed to send reply'}), 500
 
             # Determine reply recipient (the other party in the conversation)
             recipient_id = original.sender_id if original.sender_id != user_id else original.recipient_id
@@ -8100,6 +8249,29 @@ def create_ui_blueprint() -> Blueprint:
             )
             if message:
                 message_manager.send_message(message)
+
+                try:
+                    inbox_manager = current_app.config.get('INBOX_MANAGER')
+                    if inbox_manager and recipient_id:
+                        local_target_ids = filter_local_dm_targets(db_manager, p2p_manager, [recipient_id])
+                        if local_target_ids:
+                            inbox_manager.sync_source_triggers(
+                                source_type='dm',
+                                source_id=message.id,
+                                trigger_type='dm',
+                                target_ids=local_target_ids,
+                                sender_user_id=user_id,
+                                preview=build_dm_preview(content, []),
+                                payload={
+                                    'content': content,
+                                    'message_id': message.id,
+                                    'reply_to': original_message_id,
+                                },
+                                message_id=message.id,
+                                source_content=content,
+                            )
+                except Exception as inbox_err:
+                    logger.warning(f"Failed to create DM reply inbox trigger: {inbox_err}")
 
                 # Broadcast reply over P2P
                 if recipient_id and p2p_manager:
@@ -10728,6 +10900,42 @@ def create_ui_blueprint() -> Blueprint:
                 except Exception as contract_err:
                     logger.warning(f"Inline contract sync failed on channel edit: {contract_err}")
 
+                try:
+                    sync_edited_mention_activity(
+                        db_manager=db_manager,
+                        mention_manager=current_app.config.get('MENTION_MANAGER'),
+                        inbox_manager=current_app.config.get('INBOX_MANAGER'),
+                        p2p_manager=p2p_manager,
+                        content=content,
+                        source_type='channel_message',
+                        source_id=message_id,
+                        author_id=user_id,
+                        origin_peer=p2p_manager.get_peer_id() if p2p_manager else None,
+                        channel_id=row['channel_id'],
+                        edited_at=final_metadata.get('edited_at') if isinstance(final_metadata, dict) else None,
+                    )
+                    inbox_manager = current_app.config.get('INBOX_MANAGER')
+                    if inbox_manager:
+                        inbox_manager.sync_source_triggers(
+                            source_type='channel_message',
+                            source_id=message_id,
+                            trigger_type='reply',
+                            sender_user_id=user_id,
+                            origin_peer=p2p_manager.get_peer_id() if p2p_manager else None,
+                            channel_id=row['channel_id'],
+                            preview=build_preview(content or '') or None,
+                            payload={
+                                'channel_id': row['channel_id'],
+                                'message_id': message_id,
+                                'parent_message_id': row['parent_message_id'],
+                                'edited_at': final_metadata.get('edited_at') if isinstance(final_metadata, dict) else None,
+                            },
+                            message_id=message_id,
+                            source_content=content,
+                        )
+                except Exception as mention_sync_err:
+                    logger.warning(f"Channel mention/reply refresh failed on channel edit: {mention_sync_err}")
+
                 if p2p_manager and p2p_manager.is_running():
                     try:
                         display_name = None
@@ -11639,6 +11847,51 @@ def create_ui_blueprint() -> Blueprint:
             })
         except Exception as e:
             logger.error(f"UI file access inspect failed: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/files/<file_id>/preview', methods=['GET'])
+    @require_login
+    def ajax_file_preview(file_id):
+        """Return a bounded, read-only JSON preview for supported files."""
+        try:
+            db_manager, _, trust_manager, _, _, file_manager, feed_manager, _, _, _, _ = _get_app_components_any(current_app)
+            user_id = get_current_user()
+            result = file_manager.get_file_data(file_id)
+            if not result:
+                return jsonify({'success': False, 'error': 'File not found'}), 404
+
+            file_data, file_info = result
+            owner_id = db_manager.get_instance_owner_user_id()
+            access = evaluate_file_access(
+                db_manager=db_manager,
+                file_id=file_id,
+                viewer_user_id=user_id,
+                file_uploaded_by=file_info.uploaded_by,
+                is_admin=bool(owner_id and owner_id == user_id),
+                trust_manager=trust_manager,
+                feed_manager=feed_manager,
+            )
+            if not access.allowed:
+                return jsonify({
+                    'success': False,
+                    'error': 'Access denied',
+                    'reason': access.reason,
+                }), 403
+
+            preview = build_file_preview(
+                file_data=file_data,
+                filename=file_info.original_name,
+                content_type=file_info.content_type,
+            )
+            return jsonify({
+                'success': True,
+                'file_id': file_id,
+                'filename': file_info.original_name,
+                'content_type': file_info.content_type,
+                **preview,
+            })
+        except Exception as e:
+            logger.error(f"UI file preview failed: {e}", exc_info=True)
             return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
     # File serving endpoint

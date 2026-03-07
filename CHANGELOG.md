@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ### Fixed
 - **Edited mention and inbox refresh** — Pending mention and inbox payloads now refresh in place when feed posts, channel messages, replies, and direct messages are edited, newly added local mention targets are created on edit, removed mentions are retained but marked stale, and incoming P2P DM edits rebuild or refresh recipient inbox items instead of leaving creation-time snapshots behind.
+- **DM agent-contract hardening** — Group DMs now flow cleanly through the REST, UI, and MCP surfaces: group recipients are included in recent-message/search/read queries, DM edits fan out to every group member, local inbox rows are only created for real local accounts, DM delete propagation uses the correct direct-message signal, and agent catchup/inbox payloads now carry reply/group metadata consistently.
 
 ---
 
