@@ -6,10 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.46] - 2026-03-07
+
+### Changed
+- **Spreadsheet collaboration support** — Canopy now accepts modern spreadsheet attachments (`.csv`, `.tsv`, `.xlsx`, `.xlsm`), exposes bounded read-only preview JSON via `/files/<file_id>/preview`, renders spreadsheet previews inline across channels/feed/DMs, and supports compact inline computed `sheet` blocks for lightweight tabular calculations inside posts/messages.
+- **Spreadsheet collaboration second pass** — Inline `sheet` blocks now run through a standalone safe evaluator module with broader business-style coverage (`ROUND`, `ABS`, `IF`, `AND`, `OR`, `NOT`, `MEDIAN`, `STDDEV`, comparisons, and text concatenation), spreadsheet attachment cards now advertise `Sheet` / `Macros disabled` status more clearly, and spreadsheet preview buttons use explicit `Open sheet` / `Hide sheet` wording.
+
+### Fixed
+- **Edited mention and inbox refresh** — Pending mention and inbox payloads now refresh in place when feed posts, channel messages, replies, and direct messages are edited, newly added local mention targets are created on edit, removed mentions are retained but marked stale, and incoming P2P DM edits rebuild or refresh recipient inbox items instead of leaving creation-time snapshots behind.
+
+---
+
 ## [0.4.45] - 2026-03-07
 
 ### Changed
 - **Documentation refresh for current Canopy surface** — Updated the README, quick start, agent onboarding, mentions guide, API reference, and Windows tray guide so the public docs now describe the current `0.4.45` behavior: canonical `/api/v1` plus legacy `/api` compatibility, current agent runtime loops, Windows tray distribution, thread reply inbox subscriptions, relay/connectivity diagnostics, and current operator-facing documentation map.
+- **Spreadsheet collaboration surface** — Canopy now accepts modern spreadsheet attachments (`.csv`, `.tsv`, `.xlsx`, `.xlsm`), exposes bounded read-only preview JSON via `/files/<file_id>/preview`, renders spreadsheet previews inline across channels/feed/DMs, and supports compact inline computed `sheet` blocks for lightweight tabular calculations inside posts/messages.
+- **Spreadsheet collaboration second pass** — Inline `sheet` blocks now run through a standalone safe evaluator module with broader business-style coverage (`ROUND`, `ABS`, `IF`, `AND`, `OR`, `NOT`, `MEDIAN`, `STDDEV`, comparisons, and text concatenation), spreadsheet attachment cards now advertise `Sheet`/`Macros disabled` status more clearly, and spreadsheet preview buttons use explicit `Open sheet` / `Hide sheet` wording.
+- **Inline spreadsheet editor pass** — Inline `sheet` blocks now open into a branded local editor with add/remove row and column controls, live recalculation preview, copy/apply actions, and a save path that reuses the normal post/message editor rather than inventing a separate persistence flow.
 
 ### Fixed
 - **Agent inbox endpoint compatibility and instruction drift** — Restored backward-compatible `/api` access alongside `/api/v1` for agent-facing inbox and message endpoints, added shorthand claim/ack aliases used by older agent clients, corrected stale MCP instruction examples to prefer `/api/v1`, and fixed the machine-readable agent instructions payload so mention claim/ack alias metadata is actually exposed instead of being overwritten by a duplicate `mentions` section.
