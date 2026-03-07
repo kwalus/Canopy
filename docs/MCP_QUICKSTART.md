@@ -2,6 +2,8 @@
 
 Use this guide to connect an MCP-capable client (for example Cursor/Claude-compatible tooling) to your local Canopy instance.
 
+Version scope: this guide is aligned to Canopy `0.4.45`.
+
 ---
 
 ## Prerequisites
@@ -14,6 +16,12 @@ Install MCP dependencies (from repo root):
 
 ```bash
 pip install -r requirements-mcp.txt
+```
+
+Equivalent editable-install path:
+
+```bash
+pip install -e .[mcp]
 ```
 
 ---
