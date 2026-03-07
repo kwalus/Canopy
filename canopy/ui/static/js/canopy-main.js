@@ -874,12 +874,20 @@
                 return null;
             }
 
-            function canopyRenderInlineSheetTable(evaluated) {
+            function canopyRenderInlineSheetTable(evaluated, options) {
+                const hasColumns = !!(options && options.hasColumns);
+                const headerLabels = Array.isArray(options && options.headerLabels) ? options.headerLabels : null;
                 const width = Number((evaluated && evaluated.width) || 0);
                 const headerHtml = Array.from({ length: width }, function(_, index) {
-                    return `<th scope="col">${canopySpreadsheetColumnLabel(index)}</th>`;
+                    const label = headerLabels && typeof headerLabels[index] !== 'undefined' && String(headerLabels[index] || '').trim()
+                        ? String(headerLabels[index] || '').trim()
+                        : canopySpreadsheetColumnLabel(index);
+                    return `<th scope="col">${_escapeHtml(label)}</th>`;
                 }).join('');
-                const bodyRows = (evaluated && evaluated.rows ? evaluated.rows : []).map(function(row, rowIndex) {
+                const rawRows = (evaluated && evaluated.rows ? evaluated.rows : []);
+                const visibleRows = hasColumns ? rawRows.slice(1) : rawRows;
+                const rowNumberOffset = hasColumns ? 2 : 1;
+                const bodyRows = visibleRows.map(function(row, rowIndex) {
                     const cells = row.map(function(resolved) {
                         const title = resolved && resolved.formula
                             ? ` title="${_escapeHtml(resolved.formula).replace(/"/g, '&quot;')}"`
@@ -887,13 +895,13 @@
                         const klass = resolved && resolved.kind === 'number' ? 'sheet-cell-number' : '';
                         return `<td class="${klass}"${title}>${_escapeHtml(resolved && resolved.display ? resolved.display : '') || '&nbsp;'}</td>`;
                     }).join('');
-                    return `<tr><th scope="row" class="sheet-row-label">${rowIndex + 1}</th>${cells}</tr>`;
+                    return `<tr><th scope="row" class="sheet-row-label">${rowIndex + rowNumberOffset}</th>${cells}</tr>`;
                 }).join('');
                 return `
                     <div class="table-responsive">
                         <table class="table table-sm canopy-sheet-table mb-0">
                             <thead><tr><th scope="col" class="sheet-row-label"></th>${headerHtml}</tr></thead>
-                            <tbody>${bodyRows}</tbody>
+                            <tbody>${bodyRows || '<tr><td class="text-muted small" colspan="2">No data rows.</td></tr>'}</tbody>
                         </table>
                     </div>
                 `;
@@ -910,9 +918,12 @@
                 return `
                     <div class="canopy-inline-sheet-preview-label">
                         <span>Live preview</span>
-                        <span>${Number(evaluated.rows ? evaluated.rows.length : 0)} rows</span>
+                        <span>${Math.max(0, Number(evaluated.rows ? evaluated.rows.length : 0) - (spec && Array.isArray(spec.columns) && spec.columns.length ? 1 : 0))} rows</span>
                     </div>
-                    ${canopyRenderInlineSheetTable(evaluated)}
+                    ${canopyRenderInlineSheetTable(evaluated, {
+                        hasColumns: !!(spec && Array.isArray(spec.columns) && spec.columns.length),
+                        headerLabels: spec && Array.isArray(spec.columns) ? spec.columns : null
+                    })}
                 `;
             }
 
@@ -946,7 +957,10 @@
                                 </div>
                             </div>
                             <div class="canopy-inline-sheet-body">
-                                ${canopyRenderInlineSheetTable(evaluated)}
+                                ${canopyRenderInlineSheetTable(evaluated, {
+                                    hasColumns: !!(spec && Array.isArray(spec.columns) && spec.columns.length),
+                                    headerLabels: spec && Array.isArray(spec.columns) ? spec.columns : null
+                                })}
                             </div>
                         </div>
                     </div>
