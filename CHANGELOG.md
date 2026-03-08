@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.47] - 2026-03-07
+
+### Changed
+- **Release visibility bump for current collaboration work** — Advanced the visible app/docs version after the spreadsheet collaboration, edited mention refresh, and DM agent-contract hardening work so the updated Canopy-Dev build is clearly distinguishable from the previous release.
+
+---
+
 ## [0.4.46] - 2026-03-07
 
 ### Changed
