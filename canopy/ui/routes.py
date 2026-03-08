@@ -342,17 +342,25 @@ def create_ui_blueprint() -> Blueprint:
         if not _is_authenticated():
             return {}
         try:
-            db_manager, _, trust_manager, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+            db_manager, _, trust_manager, message_manager, channel_manager, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
             connected_peers = p2p_manager.get_connected_peers() if p2p_manager else []
             peer_profiles = channel_manager.get_all_peer_device_profiles() if channel_manager else {}
             trust_map = {}
             if trust_manager:
                 for pid in connected_peers:
                     trust_map[pid] = trust_manager.get_trust_score(pid)
+            recent_dm_contacts = _build_sidebar_dm_contacts(
+                db_manager,
+                profile_manager,
+                p2p_manager,
+                session.get('user_id'),
+                limit=5,
+            ) if message_manager else []
             out = {
                 'sidebar_connected_peers': connected_peers,
                 'sidebar_peer_profiles': peer_profiles,
-                'sidebar_peer_trust': trust_map
+                'sidebar_peer_trust': trust_map,
+                'sidebar_recent_dm_contacts': recent_dm_contacts,
             }
             # Admin link and badge (instance owner only)
             owner_id = db_manager.get_instance_owner_user_id()
@@ -1355,6 +1363,191 @@ def create_ui_blueprint() -> Blueprint:
         if value > maximum:
             return maximum
         return value
+
+    def _build_sidebar_dm_contacts(
+        db_manager: Any,
+        profile_manager: Any,
+        p2p_manager: Any,
+        user_id: str,
+        *,
+        limit: int = 5,
+    ) -> list[dict[str, Any]]:
+        """Build recent direct-message contacts for the shared sidebar.
+
+        Excludes group DMs so the sidebar behaves like a compact contact rail.
+        """
+        if not db_manager or not user_id:
+            return []
+        contact_limit = _coerce_int(limit, default=5, minimum=1, maximum=8)
+        try:
+            local_peer_id = p2p_manager.get_peer_id() if p2p_manager else None
+        except Exception:
+            local_peer_id = None
+        try:
+            connected_peers = set(p2p_manager.get_connected_peers() or []) if p2p_manager else set()
+        except Exception:
+            connected_peers = set()
+
+        with db_manager.get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, sender_id, recipient_id, content, metadata, created_at, read_at
+                FROM messages
+                WHERE sender_id = ? OR recipient_id = ?
+                ORDER BY created_at DESC
+                LIMIT 180
+                """,
+                (user_id, user_id),
+            ).fetchall()
+
+        contact_map: dict[str, dict[str, Any]] = {}
+        ordered_ids: list[str] = []
+        for row in rows or []:
+            sender_id = str(row['sender_id'] or '').strip()
+            recipient_id = str(row['recipient_id'] or '').strip()
+            if not sender_id and not recipient_id:
+                continue
+
+            try:
+                metadata = json.loads(row['metadata']) if row['metadata'] else {}
+            except Exception:
+                metadata = {}
+            metadata = metadata if isinstance(metadata, dict) else {}
+            if recipient_id.startswith('group:') or metadata.get('group_members'):
+                continue
+
+            inbound = False
+            if sender_id == user_id and recipient_id:
+                other_user_id = recipient_id
+            elif recipient_id == user_id and sender_id:
+                other_user_id = sender_id
+                inbound = True
+            else:
+                continue
+
+            if not other_user_id or other_user_id == user_id:
+                continue
+
+            entry = contact_map.get(other_user_id)
+            attachments = metadata.get('attachments') or []
+            preview = build_dm_preview(row['content'], attachments) or ('Attachment' if attachments else 'Message')
+            if entry is None:
+                entry = {
+                    'user_id': other_user_id,
+                    'latest_message_id': row['id'],
+                    'target_message_id': row['id'],
+                    'latest_message_at': row['created_at'],
+                    'latest_preview': preview,
+                    'unread_count': 0,
+                }
+                contact_map[other_user_id] = entry
+                ordered_ids.append(other_user_id)
+
+            if inbound and not row['read_at']:
+                entry['unread_count'] = int(entry.get('unread_count') or 0) + 1
+                if not entry.get('first_unread_message_id'):
+                    entry['first_unread_message_id'] = row['id']
+                    entry['target_message_id'] = row['id']
+
+        selected_ids = ordered_ids[:contact_limit]
+        if not selected_ids:
+            return []
+
+        placeholders = ",".join("?" for _ in selected_ids)
+        with db_manager.get_connection() as conn:
+            user_rows = conn.execute(
+                f"""
+                SELECT id, username, display_name, avatar_file_id, origin_peer, account_type, status, agent_directives
+                FROM users
+                WHERE id IN ({placeholders})
+                """,
+                selected_ids,
+            ).fetchall()
+
+        user_map: dict[str, dict[str, Any]] = {}
+        for row in user_rows or []:
+            uid = str(row['id'] or '').strip()
+            if not uid:
+                continue
+            avatar_url = f"/files/{row['avatar_file_id']}" if row['avatar_file_id'] else None
+            if profile_manager:
+                try:
+                    profile = profile_manager.get_profile(uid)
+                except Exception:
+                    profile = None
+                if profile:
+                    avatar_url = getattr(profile, 'avatar_url', None) or avatar_url
+            user_map[uid] = {
+                'id': uid,
+                'user_id': uid,
+                'username': row['username'],
+                'display_name': row['display_name'] or row['username'] or uid,
+                'avatar_url': avatar_url,
+                'origin_peer': row['origin_peer'],
+                'account_type': row['account_type'],
+                'status': row['status'],
+                'agent_directives': row['agent_directives'],
+            }
+
+        _annotate_user_presence(list(user_map.values()), db_manager)
+
+        def _status_payload(user_row: dict[str, Any]) -> tuple[str, str]:
+            status_norm = str(user_row.get('status') or '').strip().lower()
+            if status_norm in {'sleep', 'sleeping', 'asleep', 'paused', 'quiet'}:
+                return ('sleep', 'Sleep')
+
+            origin_peer = str(user_row.get('origin_peer') or '').strip()
+            if origin_peer and origin_peer in connected_peers:
+                return ('online', 'Online')
+
+            presence_state = str(user_row.get('presence_state') or '').strip().lower()
+            if presence_state == 'online':
+                return ('online', 'Online')
+            if presence_state == 'recent':
+                return ('recent', 'Recent')
+            if presence_state == 'idle':
+                return ('idle', 'Idle')
+            if not origin_peer or (local_peer_id and origin_peer == str(local_peer_id).strip()):
+                return ('local', 'Local')
+            return ('offline', 'Offline')
+
+        contacts: list[dict[str, Any]] = []
+        for contact_id in selected_ids:
+            entry = contact_map.get(contact_id) or {}
+            user_row = user_map.get(contact_id) or {
+                'id': contact_id,
+                'user_id': contact_id,
+                'username': contact_id,
+                'display_name': contact_id,
+                'avatar_url': None,
+                'origin_peer': None,
+                'account_type': 'human',
+                'status': None,
+                'agent_directives': None,
+            }
+            account_type = _normalized_account_type(
+                user_row.get('account_type'),
+                status=user_row.get('status'),
+                agent_directives=user_row.get('agent_directives'),
+                has_presence_checkin=bool(user_row.get('last_check_in_at')),
+            )
+            status_state, status_label = _status_payload(user_row)
+            contacts.append({
+                'user_id': contact_id,
+                'display_name': user_row.get('display_name') or contact_id,
+                'username': user_row.get('username') or contact_id,
+                'avatar_url': user_row.get('avatar_url'),
+                'origin_peer': user_row.get('origin_peer'),
+                'account_type': account_type,
+                'status_state': status_state,
+                'status_label': status_label,
+                'latest_message_id': entry.get('latest_message_id'),
+                'target_message_id': entry.get('target_message_id') or entry.get('latest_message_id'),
+                'latest_message_at': entry.get('latest_message_at'),
+                'latest_preview': entry.get('latest_preview') or 'Message',
+                'unread_count': int(entry.get('unread_count') or 0),
+            })
+        return contacts
 
     def _admin_registered_user_row(db_manager: Any, user_id: str) -> Optional[dict[str, Any]]:
         if not user_id:
@@ -3655,7 +3848,7 @@ def create_ui_blueprint() -> Blueprint:
     def ajax_peer_activity():
         """Return last inbound/outbound activity timestamps for connected peers."""
         try:
-            _, _, trust_manager, _, _, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+            db_manager, _, trust_manager, message_manager, _, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
             since_arg = request.args.get('since')
             since = None
             if since_arg is not None and since_arg != '':
@@ -3670,6 +3863,7 @@ def create_ui_blueprint() -> Blueprint:
                     'peers': {},
                     'connected_peer_ids': [],
                     'peer_trust': {},
+                    'recent_dm_contacts': [],
                     'events': [],
                     'server_time': time.time(),
                 })
@@ -3708,6 +3902,13 @@ def create_ui_blueprint() -> Blueprint:
                 'peers': peers,
                 'connected_peer_ids': connected_peer_ids,
                 'peer_trust': trust_map,
+                'recent_dm_contacts': _build_sidebar_dm_contacts(
+                    db_manager,
+                    profile_manager,
+                    p2p_manager,
+                    get_current_user(),
+                    limit=5,
+                ) if message_manager else [],
                 'events': events,
                 'server_time': time.time(),
             })

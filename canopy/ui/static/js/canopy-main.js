@@ -76,6 +76,7 @@
         const canopyPeerProfiles = window.CANOPY_VARS ? window.CANOPY_VARS.peerProfiles : {};
         const canopyPeerTrust = window.CANOPY_VARS ? (window.CANOPY_VARS.peerTrust || {}) : {};
         const canopyInitialConnectedPeers = window.CANOPY_VARS ? (window.CANOPY_VARS.connectedPeers || []) : [];
+        const canopyInitialRecentDmContacts = window.CANOPY_VARS ? (window.CANOPY_VARS.recentDmContacts || []) : [];
         window.canopyPeerProfiles = canopyPeerProfiles || {};
         window.canopyPeerTrust = canopyPeerTrust || {};
         window.canopyInitialConnectedPeers = canopyInitialConnectedPeers || [];
@@ -311,6 +312,118 @@
         document.addEventListener('DOMContentLoaded', function() {
             seedSidebarPeerState();
             renderSidebarPeers();
+        });
+
+        function canopySidebarDmHref(contact) {
+            const routes = (window.CANOPY_VARS && window.CANOPY_VARS.urls) || {};
+            const base = routes.messages || '/messages';
+            const userId = contact && contact.user_id ? String(contact.user_id).trim() : '';
+            if (!userId) return base;
+            const url = new URL(base, window.location.origin);
+            url.searchParams.set('with', userId);
+            const targetMessageId = contact && contact.target_message_id ? String(contact.target_message_id).trim() : '';
+            return `${url.pathname}${url.search}${targetMessageId ? `#message-${targetMessageId}` : ''}`;
+        }
+
+        function canopyRenderSidebarDmContacts(contacts) {
+            const listEl = document.getElementById('sidebar-dm-list');
+            const totalEl = document.getElementById('sidebar-dm-unread-total');
+            if (!listEl) return;
+
+            const normalized = Array.isArray(contacts) ? contacts.filter(Boolean).slice(0, 5) : [];
+            const totalUnread = normalized.reduce((sum, contact) => sum + Math.max(0, Number(contact && contact.unread_count) || 0), 0);
+            if (totalEl) totalEl.textContent = String(totalUnread);
+
+            listEl.innerHTML = '';
+            if (!normalized.length) {
+                const empty = document.createElement('div');
+                empty.className = 'sidebar-peer-empty';
+                empty.textContent = 'No recent direct messages';
+                listEl.appendChild(empty);
+                return;
+            }
+
+            normalized.forEach(contact => {
+                const link = document.createElement('a');
+                link.className = 'sidebar-dm-contact';
+                if (Number(contact.unread_count) > 0) {
+                    link.classList.add('unread');
+                }
+                link.href = canopySidebarDmHref(contact);
+                link.setAttribute('data-dm-user-id', contact.user_id || '');
+                link.title = contact.display_name || contact.username || contact.user_id || 'Direct message';
+
+                const avatarWrap = document.createElement('div');
+                avatarWrap.className = 'sidebar-dm-avatar-wrap';
+
+                const avatar = document.createElement('div');
+                avatar.className = 'sidebar-dm-avatar';
+                if (contact.avatar_url) {
+                    const img = document.createElement('img');
+                    img.src = contact.avatar_url;
+                    img.alt = contact.display_name || contact.username || contact.user_id || 'User';
+                    avatar.appendChild(img);
+                } else {
+                    const initial = document.createElement('span');
+                    initial.textContent = canopyInitial(contact.display_name || contact.username || contact.user_id || '?');
+                    avatar.appendChild(initial);
+                }
+
+                const statusDot = document.createElement('span');
+                statusDot.className = `sidebar-dm-status-dot ${contact.status_state || 'offline'}`;
+                statusDot.title = contact.status_label || 'Offline';
+
+                avatarWrap.appendChild(avatar);
+                avatarWrap.appendChild(statusDot);
+
+                if (Number(contact.unread_count) > 0) {
+                    const unread = document.createElement('span');
+                    unread.className = 'sidebar-dm-unread';
+                    unread.textContent = String(Number(contact.unread_count));
+                    avatarWrap.appendChild(unread);
+                }
+
+                const meta = document.createElement('div');
+                meta.className = 'sidebar-dm-meta';
+
+                const nameRow = document.createElement('div');
+                nameRow.className = 'sidebar-dm-name-row';
+                const name = document.createElement('div');
+                name.className = 'sidebar-dm-name';
+                name.textContent = contact.display_name || contact.username || contact.user_id || 'User';
+                nameRow.appendChild(name);
+
+                const preview = document.createElement('div');
+                preview.className = 'sidebar-dm-preview';
+                preview.textContent = contact.latest_preview || 'Message';
+
+                meta.appendChild(nameRow);
+                meta.appendChild(preview);
+
+                link.appendChild(avatarWrap);
+                link.appendChild(meta);
+
+                const time = document.createElement('div');
+                time.className = 'sidebar-dm-time';
+                if (contact.latest_message_at) {
+                    time.textContent = formatTimestamp(contact.latest_message_at);
+                    time.setAttribute('data-timestamp', contact.latest_message_at);
+                }
+                link.appendChild(time);
+
+                listEl.appendChild(link);
+            });
+        }
+
+        window.syncCanopySidebarDmContacts = function(payload) {
+            const contacts = payload && Array.isArray(payload.recent_dm_contacts)
+                ? payload.recent_dm_contacts
+                : canopyInitialRecentDmContacts;
+            canopyRenderSidebarDmContacts(contacts);
+        };
+
+        document.addEventListener('DOMContentLoaded', function() {
+            canopyRenderSidebarDmContacts(canopyInitialRecentDmContacts);
         });
 
         window.renderAvatarStack = function(container, options) {
@@ -877,29 +990,49 @@
             function canopyRenderInlineSheetTable(evaluated, options) {
                 const hasColumns = !!(options && options.hasColumns);
                 const headerLabels = Array.isArray(options && options.headerLabels) ? options.headerLabels : null;
+                const layout = Array.isArray(options && options.columnLayout) ? options.columnLayout : [];
                 const width = Number((evaluated && evaluated.width) || 0);
+                const colgroup = Array.from({ length: width + 1 }, function(_, index) {
+                    if (index === 0) {
+                        return '<col class="canopy-sheet-col-row-label">';
+                    }
+                    const column = layout[index - 1] || {};
+                    const chars = Math.max(6, Math.min(24, Number(column.chars) || 9));
+                    const kind = column.kind === 'number' ? 'number' : 'text';
+                    const wrap = column.wrap ? ' canopy-sheet-col-wrap' : '';
+                    return `<col class="canopy-sheet-col canopy-sheet-col-${kind}${wrap}" style="width:${chars}ch;">`;
+                }).join('');
                 const headerHtml = Array.from({ length: width }, function(_, index) {
                     const label = headerLabels && typeof headerLabels[index] !== 'undefined' && String(headerLabels[index] || '').trim()
                         ? String(headerLabels[index] || '').trim()
                         : canopySpreadsheetColumnLabel(index);
-                    return `<th scope="col">${_escapeHtml(label)}</th>`;
+                    const column = layout[index] || {};
+                    const klass = ['canopy-sheet-header-cell'];
+                    klass.push(column.kind === 'number' ? 'canopy-sheet-header-number' : 'canopy-sheet-header-text');
+                    if (column.wrap) klass.push('canopy-sheet-header-wrap');
+                    return `<th scope="col" class="${klass.join(' ')}">${_escapeHtml(label)}</th>`;
                 }).join('');
                 const rawRows = (evaluated && evaluated.rows ? evaluated.rows : []);
                 const visibleRows = hasColumns ? rawRows.slice(1) : rawRows;
                 const rowNumberOffset = hasColumns ? 2 : 1;
                 const bodyRows = visibleRows.map(function(row, rowIndex) {
-                    const cells = row.map(function(resolved) {
+                    const cells = row.map(function(resolved, colIndex) {
                         const title = resolved && resolved.formula
                             ? ` title="${_escapeHtml(resolved.formula).replace(/"/g, '&quot;')}"`
                             : '';
-                        const klass = resolved && resolved.kind === 'number' ? 'sheet-cell-number' : '';
-                        return `<td class="${klass}"${title}>${_escapeHtml(resolved && resolved.display ? resolved.display : '') || '&nbsp;'}</td>`;
+                        const column = layout[colIndex];
+                        const klass = [];
+                        if (resolved && resolved.kind === 'number') klass.push('sheet-cell-number');
+                        if (column && column.wrap) klass.push('canopy-sheet-cell-wrap');
+                        if (column && column.kind === 'number') klass.push('canopy-sheet-cell-compact');
+                        return `<td class="${klass.join(' ')}"${title}>${_escapeHtml(resolved && resolved.display ? resolved.display : '') || '&nbsp;'}</td>`;
                     }).join('');
                     return `<tr><th scope="row" class="sheet-row-label">${rowIndex + rowNumberOffset}</th>${cells}</tr>`;
                 }).join('');
                 return `
                     <div class="table-responsive">
                         <table class="table table-sm canopy-sheet-table mb-0">
+                            <colgroup>${colgroup}</colgroup>
                             <thead><tr><th scope="col" class="sheet-row-label"></th>${headerHtml}</tr></thead>
                             <tbody>${bodyRows || '<tr><td class="text-muted small" colspan="2">No data rows.</td></tr>'}</tbody>
                         </table>
@@ -915,6 +1048,9 @@
                 if (!evaluated) {
                     return '<div class="small text-muted">Preview unavailable.</div>';
                 }
+                const columnLayout = engine && typeof engine.buildColumnLayout === 'function'
+                    ? engine.buildColumnLayout(spec, evaluated)
+                    : [];
                 return `
                     <div class="canopy-inline-sheet-preview-label">
                         <span>Live preview</span>
@@ -922,7 +1058,8 @@
                     </div>
                     ${canopyRenderInlineSheetTable(evaluated, {
                         hasColumns: !!(spec && Array.isArray(spec.columns) && spec.columns.length),
-                        headerLabels: spec && Array.isArray(spec.columns) ? spec.columns : null
+                        headerLabels: spec && Array.isArray(spec.columns) ? spec.columns : null,
+                        columnLayout: columnLayout
                     })}
                 `;
             }
@@ -930,6 +1067,10 @@
             function canopyRenderInlineSheetView(spec, evaluated, body, language, occurrenceIndex) {
                 const safeSource = _escapeHtml(canopyEncodeSheetSource(body));
                 const title = _escapeHtml(spec.title || 'Inline sheet');
+                const engine = canopyGetSheetEngine();
+                const columnLayout = engine && typeof engine.buildColumnLayout === 'function'
+                    ? engine.buildColumnLayout(spec, evaluated)
+                    : [];
                 return `
                     <div class="canopy-inline-sheet"
                          data-inline-sheet="1"
@@ -959,7 +1100,8 @@
                             <div class="canopy-inline-sheet-body">
                                 ${canopyRenderInlineSheetTable(evaluated, {
                                     hasColumns: !!(spec && Array.isArray(spec.columns) && spec.columns.length),
-                                    headerLabels: spec && Array.isArray(spec.columns) ? spec.columns : null
+                                    headerLabels: spec && Array.isArray(spec.columns) ? spec.columns : null,
+                                    columnLayout: columnLayout
                                 })}
                             </div>
                         </div>
@@ -975,8 +1117,20 @@
                 const evaluated = engine && typeof engine.evaluateInlineSheetSpec === 'function'
                     ? engine.evaluateInlineSheetSpec(spec)
                     : null;
+                const columnLayout = engine && typeof engine.buildColumnLayout === 'function' && evaluated
+                    ? engine.buildColumnLayout(spec, evaluated, { editable: true })
+                    : [];
                 const safeSource = _escapeHtml(canopyEncodeSheetSource(body));
                 const titleValue = _escapeHtml(spec.title || '');
+                const colgroup = [
+                    '<col class="canopy-sheet-col-row-label">',
+                    ...columns.map(function(_, index) {
+                        const column = columnLayout[index] || {};
+                        const chars = Math.max(8, Math.min(24, Number(column.chars) || 10));
+                        const kind = column.kind === 'number' ? 'number' : 'text';
+                        return `<col class="canopy-sheet-col canopy-sheet-col-${kind}" style="width:${chars}ch;">`;
+                    })
+                ].join('');
                 const headerCells = columns.map(function(value, index) {
                     return `
                         <th scope="col">
@@ -1071,6 +1225,7 @@
                             </div>
                             <div class="canopy-inline-sheet-editor-grid table-responsive">
                                 <table class="table table-sm canopy-sheet-table canopy-sheet-edit-table mb-0">
+                                    <colgroup>${colgroup}</colgroup>
                                     <thead>
                                         <tr>
                                             <th scope="col" class="sheet-row-label"></th>
@@ -3348,6 +3503,9 @@
                         if (!data || data.success === false) return;
                         if (window.syncCanopySidebarPeers) {
                             window.syncCanopySidebarPeers(data);
+                        }
+                        if (window.syncCanopySidebarDmContacts) {
+                            window.syncCanopySidebarDmContacts(data);
                         }
                         const incoming = data.events || [];
                         if (!initialized) {

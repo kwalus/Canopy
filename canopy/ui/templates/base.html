@@ -296,6 +296,175 @@
             border: 1px solid rgba(255, 255, 255, 0.08);
         }
 
+        .sidebar-dm-contacts {
+            margin: 8px 12px 8px;
+            padding: 9px;
+            border-radius: 16px;
+            background:
+                radial-gradient(circle at top left, rgba(34, 197, 94, 0.14), transparent 42%),
+                linear-gradient(145deg, rgba(10, 24, 40, 0.94), rgba(9, 18, 33, 0.92));
+            border: 1px solid rgba(56, 189, 248, 0.18);
+            box-shadow: 0 14px 28px rgba(0, 0, 0, 0.24);
+            backdrop-filter: blur(12px) saturate(135%);
+        }
+
+        .sidebar-dm-list {
+            margin-top: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 7px;
+            max-height: 232px;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+
+        .sidebar-dm-contact {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 8px;
+            border-radius: 12px;
+            text-decoration: none;
+            color: var(--canopy-text-primary);
+            background: rgba(255, 255, 255, 0.035);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+            min-width: 0;
+        }
+
+        .sidebar-dm-contact:hover {
+            color: var(--canopy-text-primary);
+            text-decoration: none;
+            transform: translateY(-1px);
+            border-color: rgba(74, 222, 128, 0.28);
+            background: rgba(34, 197, 94, 0.08);
+        }
+
+        .sidebar-dm-contact.unread {
+            border-color: rgba(239, 68, 68, 0.22);
+            background: linear-gradient(90deg, rgba(239, 68, 68, 0.06), rgba(255, 255, 255, 0.035));
+        }
+
+        .sidebar-dm-avatar-wrap {
+            position: relative;
+            width: 34px;
+            height: 34px;
+            flex-shrink: 0;
+        }
+
+        .sidebar-dm-avatar {
+            width: 34px;
+            height: 34px;
+            border-radius: 11px;
+            background: linear-gradient(135deg, rgba(34, 197, 94, 0.28), rgba(6, 182, 212, 0.22));
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: #dcfce7;
+            overflow: hidden;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+        }
+
+        .sidebar-dm-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .sidebar-dm-status-dot {
+            position: absolute;
+            right: -2px;
+            bottom: -2px;
+            width: 11px;
+            height: 11px;
+            border-radius: 999px;
+            border: 2px solid rgba(10, 18, 33, 0.96);
+            background: #64748b;
+            box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
+        }
+
+        .sidebar-dm-status-dot.online {
+            background: #22c55e;
+            box-shadow: 0 0 10px rgba(34, 197, 94, 0.45);
+        }
+
+        .sidebar-dm-status-dot.recent {
+            background: #06b6d4;
+        }
+
+        .sidebar-dm-status-dot.idle {
+            background: #f59e0b;
+        }
+
+        .sidebar-dm-status-dot.offline {
+            background: #64748b;
+        }
+
+        .sidebar-dm-status-dot.local {
+            background: #38bdf8;
+        }
+
+        .sidebar-dm-status-dot.sleep {
+            background: #a78bfa;
+        }
+
+        .sidebar-dm-unread {
+            position: absolute;
+            top: -5px;
+            right: -7px;
+            min-width: 17px;
+            height: 17px;
+            padding: 0 4px;
+            border-radius: 999px;
+            background: #ef4444;
+            color: #fff;
+            font-size: 0.63rem;
+            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid rgba(0, 0, 0, 0.35);
+        }
+
+        .sidebar-dm-meta {
+            min-width: 0;
+        }
+
+        .sidebar-dm-name-row {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            min-width: 0;
+        }
+
+        .sidebar-dm-name {
+            font-size: 0.79rem;
+            font-weight: 700;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .sidebar-dm-preview {
+            margin-top: 0.16rem;
+            font-size: 0.67rem;
+            color: var(--canopy-text-muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .sidebar-dm-time {
+            font-size: 0.64rem;
+            color: var(--canopy-text-muted);
+            white-space: nowrap;
+            text-align: right;
+        }
+
         .sidebar-media-mini {
             margin: 8px 12px 6px;
             padding: 10px;
@@ -834,6 +1003,7 @@
         }
 
         .sidebar-container.collapsed .sidebar-peers,
+        .sidebar-container.collapsed .sidebar-dm-contacts,
         .sidebar-container.collapsed .sidebar-media-mini,
         .sidebar-container.collapsed .sidebar-footer {
             display: none;
@@ -1006,6 +1176,11 @@
                 min-width: 220px;
                 flex: 0 0 220px;
             }
+
+            .sidebar .nav-link {
+                padding: 9px 16px;
+                margin: 2px 10px;
+            }
             
             .sidebar-container.collapsed {
                 width: 0;
@@ -1094,6 +1269,47 @@
                 min-height: 48px; /* Better touch target */
                 display: flex;
                 align-items: center;
+                padding: 8px 14px;
+                margin: 2px 10px;
+            }
+
+            .sidebar-dm-list {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 6px;
+                max-height: none;
+            }
+
+            .sidebar-dm-contact {
+                grid-template-columns: auto 1fr;
+                align-items: start;
+                gap: 7px;
+                padding: 7px;
+            }
+
+            .sidebar-dm-time,
+            .sidebar-dm-preview {
+                display: none;
+            }
+
+            .sidebar-dm-avatar-wrap {
+                width: 32px;
+                height: 32px;
+            }
+
+            .sidebar-dm-avatar {
+                width: 32px;
+                height: 32px;
+                border-radius: 10px;
+            }
+
+            .sidebar-dm-name {
+                font-size: 0.72rem;
+                line-height: 1.2;
+                white-space: normal;
+                display: -webkit-box;
+                -webkit-line-clamp: 2;
+                -webkit-box-orient: vertical;
             }
 
             .navbar {
@@ -4394,6 +4610,13 @@
             padding: 14px 16px 16px;
         }
 
+        .canopy-inline-sheet .table-responsive,
+        .file-preview-container.spreadsheet-preview .table-responsive {
+            overflow-x: auto;
+            overflow-y: hidden;
+            -webkit-overflow-scrolling: touch;
+        }
+
         .canopy-inline-sheet-editor-note,
         .canopy-inline-sheet-preview-label {
             display: flex;
@@ -4412,7 +4635,7 @@
 
         .canopy-sheet-edit-table th,
         .canopy-sheet-edit-table td {
-            min-width: 140px;
+            min-width: 0;
             white-space: normal;
         }
 
@@ -4468,6 +4691,9 @@
             margin-bottom: 0;
             border-collapse: separate;
             border-spacing: 0;
+            width: max-content;
+            min-width: 100%;
+            table-layout: fixed;
         }
 
         .canopy-sheet-table thead th {
@@ -4480,23 +4706,61 @@
 
         .canopy-sheet-table th,
         .canopy-sheet-table td {
-            min-width: 96px;
+            min-width: 0;
             vertical-align: middle;
-            white-space: nowrap;
+            white-space: normal;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            line-height: 1.28;
             border-color: rgba(148, 163, 184, 0.16);
             background: rgba(15, 23, 42, 0.3);
+            padding: 0.5rem 0.6rem;
         }
 
         .canopy-sheet-table .sheet-row-label {
             min-width: 48px;
+            width: 48px;
             text-align: center;
             color: rgba(148, 163, 184, 0.95);
             background: rgba(15, 23, 42, 0.72);
+            white-space: nowrap;
         }
 
         .canopy-sheet-table .sheet-cell-number {
             text-align: right;
             font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+            overflow-wrap: normal;
+            word-break: normal;
+        }
+
+        .canopy-sheet-table .canopy-sheet-cell-wrap,
+        .canopy-sheet-table .canopy-sheet-header-wrap {
+            white-space: normal;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
+
+        .canopy-sheet-table .canopy-sheet-cell-compact,
+        .canopy-sheet-table .canopy-sheet-header-number {
+            white-space: nowrap;
+        }
+
+        .canopy-sheet-table .canopy-sheet-header-cell {
+            font-size: 0.78rem;
+            line-height: 1.2;
+        }
+
+        .canopy-sheet-col-row-label {
+            width: 48px;
+        }
+
+        .canopy-sheet-col-number {
+            min-width: 7ch;
+        }
+
+        .canopy-sheet-col-text {
+            min-width: 8ch;
         }
 
         .canopy-sheet-table tbody tr:hover td {
@@ -4569,7 +4833,20 @@
             .canopy-sheet-edit-table td,
             .canopy-sheet-table th,
             .canopy-sheet-table td {
-                min-width: 112px;
+                padding: 0.42rem 0.48rem;
+            }
+
+            .canopy-sheet-table {
+                font-size: 0.81rem;
+            }
+
+            .canopy-sheet-table .sheet-row-label {
+                min-width: 40px;
+                width: 40px;
+            }
+
+            .canopy-sheet-table .canopy-sheet-header-cell {
+                font-size: 0.72rem;
             }
         }
     </style>
@@ -4727,6 +5004,54 @@
                         </a>
                         {% endif %}
                     </nav>
+
+                    {% if sidebar_recent_dm_contacts is defined %}
+                    <div class="sidebar-dm-contacts">
+                        <div class="sidebar-peers-header">
+                            <span>Recent DMs</span>
+                            <span class="sidebar-peers-count" id="sidebar-dm-unread-total">
+                                {{ sidebar_recent_dm_contacts|sum(attribute='unread_count') }}
+                            </span>
+                        </div>
+                        <div class="sidebar-dm-list" id="sidebar-dm-list">
+                            {% if sidebar_recent_dm_contacts %}
+                                {% for contact in sidebar_recent_dm_contacts %}
+                                    {% set message_href = url_for('ui.messages', **{'with': contact.user_id}) %}
+                                    {% if contact.target_message_id %}
+                                        {% set message_href = message_href ~ '#message-' ~ contact.target_message_id %}
+                                    {% endif %}
+                                    <a class="sidebar-dm-contact {% if contact.unread_count > 0 %}unread{% endif %}"
+                                       data-dm-user-id="{{ contact.user_id }}"
+                                       href="{{ message_href }}"
+                                       title="{{ contact.display_name or contact.username or contact.user_id }}">
+                                        <div class="sidebar-dm-avatar-wrap">
+                                            <div class="sidebar-dm-avatar">
+                                                {% if contact.avatar_url %}
+                                                    <img src="{{ contact.avatar_url }}" alt="{{ contact.display_name or contact.username or contact.user_id }}">
+                                                {% else %}
+                                                    <span>{{ (contact.display_name or contact.username or contact.user_id)[:1]|upper }}</span>
+                                                {% endif %}
+                                            </div>
+                                            <span class="sidebar-dm-status-dot {{ contact.status_state or 'offline' }}" title="{{ contact.status_label or 'Offline' }}"></span>
+                                            {% if contact.unread_count > 0 %}
+                                                <span class="sidebar-dm-unread">{{ contact.unread_count }}</span>
+                                            {% endif %}
+                                        </div>
+                                        <div class="sidebar-dm-meta">
+                                            <div class="sidebar-dm-name-row">
+                                                <div class="sidebar-dm-name">{{ contact.display_name or contact.username or contact.user_id }}</div>
+                                            </div>
+                                            <div class="sidebar-dm-preview">{{ contact.latest_preview or 'Message' }}</div>
+                                        </div>
+                                        <div class="sidebar-dm-time" data-timestamp="{{ contact.latest_message_at }}">{{ contact.latest_message_at }}</div>
+                                    </a>
+                                {% endfor %}
+                            {% else %}
+                                <div class="sidebar-peer-empty">No recent direct messages</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endif %}
 
                     <div id="sidebar-media-mini" class="sidebar-media-mini" aria-live="polite" aria-label="Media mini player">
                         <div class="sidebar-media-mini-top">
@@ -4922,6 +5247,7 @@
             peerProfiles: {{ sidebar_peer_profiles|tojson if sidebar_peer_profiles is defined else '{}' }},
             peerTrust: {{ sidebar_peer_trust|tojson if sidebar_peer_trust is defined else '{}' }},
             connectedPeers: {{ sidebar_connected_peers|tojson if sidebar_connected_peers is defined else '[]' }},
+            recentDmContacts: {{ sidebar_recent_dm_contacts|tojson if sidebar_recent_dm_contacts is defined else '[]' }},
             userId: {{ (user_id or 'local_user')|tojson }},
             profileTheme: {{ (profile.theme_preference if profile else 'dark')|tojson }},
             localUserId: {{ session.get('user_id')|tojson }},

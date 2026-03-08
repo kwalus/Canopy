@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.52] - 2026-03-08
+
+### Changed
+- **Sidebar recent DM contacts rail** — Added a shared left-sidebar `Recent DMs` card above the mini player with avatar recognition, unread counts, status dots, preview text, latest timestamps, and click-through links back into the relevant direct-message thread and target message anchor. The rail is hydrated on initial render and refreshed through the existing sidebar activity poller, while excluding group DMs to keep the compact contact list easy to scan.
+
+---
+
+## [0.4.51] - 2026-03-08
+
+### Changed
+- **Inline sheet responsive formatting** — Inline spreadsheet tables now use content-aware column layout heuristics (`buildColumnLayout`) that size numeric columns compactly and let text columns wrap intelligently, replacing the hard minimum-width approach. The same layout model applies to view, preview, and editor, with `colgroup`-based `ch`-unit widths and `table-layout: fixed` CSS for real responsiveness across desktop and mobile.
+
+---
+
 ## [0.4.50] - 2026-03-08
 
 ### Fixed
