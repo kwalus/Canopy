@@ -6,10 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.48] - 2026-03-07
+
+### Changed
+- **DM workspace redesign** — Rebuilt the Messages page into a conversation-first workspace with separate direct/group rails, grouped chat bubbles, day dividers, reply previews, integrated search results, and a single bottom composer that targets the active thread instead of a flat all-messages dump.
+
+### Fixed
+- **UI DM reply flow metadata** — The web composer now sends `reply_to` through the normal `/ajax/send_message` path, so inline DM replies keep their thread metadata whether they are 1:1 or group messages.
+- **DM workspace unread-state refresh** — Opening the active DM thread now clears its unread badge in the same render pass after messages are marked read, avoiding stale unread counts in the new conversation rail.
+
+---
+
 ## [0.4.47] - 2026-03-07
 
 ### Changed
 - **Release visibility bump for current collaboration work** — Advanced the visible app/docs version after the spreadsheet collaboration, edited mention refresh, and DM agent-contract hardening work so the updated Canopy-Dev build is clearly distinguishable from the previous release.
+- **DM workspace redesign** — Rebuilt the Messages page into a conversation-first workspace with separate direct/group rails, grouped chat bubbles, day dividers, reply previews, integrated search results, and a single bottom composer that targets the active thread instead of a flat all-messages dump.
+
+### Fixed
+- **UI DM reply flow metadata** — The web composer now sends `reply_to` through the normal `/ajax/send_message` path, so inline DM replies keep their thread metadata whether they are 1:1 or group messages.
 
 ---
 
