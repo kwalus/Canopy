@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.49] - 2026-03-08
+
+### Changed
+- **Mobile DM layout pass** — Tightened tablet and phone breakpoints for the DM workspace, reduced sidebar/header/composer padding, hid low-value subtitle text on narrow screens, and added an extra narrow-phone breakpoint for compact avatar behaviour.
+
+### Fixed
+- **Relayed group DM thread identity** — Group DM threads that arrived through a relay under a different raw alias now resolve into the same logical conversation. The conversation rail, active thread selection, and message fetch all use canonical member-set identity (`compute_group_id`) instead of raw `group_id` equality, so the preview card and the thread pane always agree.
+- **Backend group conversation lookup** — `get_group_conversation()` now reconciles alias group IDs by inspecting `group_members` metadata, so messages delivered under different raw aliases but with the same membership set are merged into a single thread response.
+
+---
+
 ## [0.4.48] - 2026-03-07
 
 ### Changed

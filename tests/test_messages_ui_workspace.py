@@ -29,6 +29,7 @@ if 'zeroconf' not in sys.modules:
     sys.modules['zeroconf'] = zeroconf_stub
 
 from canopy.core.messaging import MessageManager
+from canopy.core.messaging import compute_group_id
 from canopy.ui.routes import create_ui_blueprint
 
 
@@ -145,6 +146,11 @@ class TestMessagesUiWorkspace(unittest.TestCase):
                     '2026-03-07T10:06:00+00:00', '2026-03-07T10:06:01+00:00', None, None,
                     json.dumps({'group_id': 'group:abc123', 'group_members': ['owner', 'peer-b', 'peer-c']}),
                 ),
+                (
+                    'DM-group-relayed', 'peer-c', 'owner', 'Relay delivered through broker', 'text', 'delivered',
+                    '2026-03-07T10:07:00+00:00', '2026-03-07T10:07:02+00:00', None, None,
+                    json.dumps({'group_id': 'group:relay-alias', 'group_members': ['owner', 'peer-b', 'peer-c']}),
+                ),
             ],
         )
         self.conn.commit()
@@ -232,6 +238,17 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         metadata = json.loads(row['metadata']) if row['metadata'] else {}
         self.assertEqual(metadata.get('reply_to'), 'DM-root')
         self.assertEqual(self.p2p_manager.direct_messages[-1]['metadata'].get('reply_to'), 'DM-root')
+
+    def test_group_thread_view_uses_canonical_identity_for_relayed_group_messages(self) -> None:
+        canonical_group_id = compute_group_id(['owner', 'peer-b', 'peer-c'])
+
+        response = self.client.get(f'/messages?group={canonical_group_id}')
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+
+        self.assertIn('Group check-in', body)
+        self.assertIn('Relay delivered through broker', body)
+        self.assertIn(f'/messages?group={canonical_group_id}', body)
 
 
 if __name__ == '__main__':

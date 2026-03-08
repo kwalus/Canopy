@@ -658,26 +658,69 @@ class MessageManager:
                     SELECT m.*, u.username as sender_username
                     FROM messages m
                     LEFT JOIN users u ON m.sender_id = u.id
-                    WHERE (m.sender_id = ? OR m.recipient_id = ? OR m.recipient_id = ?)
-                    AND (m.recipient_id = ? OR json_extract(m.metadata, '$.group_id') = ?)
+                    WHERE (
+                        m.sender_id = ?
+                        OR m.recipient_id = ?
+                        OR m.recipient_id LIKE 'group:%'
+                        OR EXISTS (
+                            SELECT 1
+                            FROM json_each(
+                                CASE WHEN json_valid(m.metadata) THEN m.metadata ELSE '{}' END,
+                                '$.group_members'
+                            ) gm
+                            WHERE CAST(gm.value AS TEXT) = ?
+                        )
+                    )
                     ORDER BY m.created_at ASC
-                    LIMIT ?
-                """, (user_id, user_id, group_id, group_id, group_id, limit))
+                """, (user_id, user_id, user_id))
 
                 messages = []
+                requested_group_id = str(group_id or '').strip()
+                target_aliases: set[str] = {requested_group_id}
+                target_canonical_keys: set[str] = set()
+                decoded_rows: list[tuple[Any, Any, Optional[dict[str, Any]], list[str], set[str], Optional[str]]] = []
+
                 for row in cursor.fetchall():
                     content = row['content']
                     if self.data_encryptor and self.data_encryptor.is_enabled:
                         content = self.data_encryptor.decrypt(content)
 
                     meta = json.loads(row['metadata']) if row['metadata'] else None
-                    # Extra safety: if metadata has group_members, ensure user is a member
-                    if meta and isinstance(meta, dict) and meta.get('group_members'):
-                        try:
-                            if user_id not in meta.get('group_members', []):
-                                continue
-                        except Exception:
-                            pass
+                    metadata = meta if isinstance(meta, dict) else {}
+                    row_group_members = [
+                        str(member_id).strip()
+                        for member_id in (metadata.get('group_members') or [])
+                        if str(member_id).strip()
+                    ]
+                    if row_group_members and user_id not in row_group_members:
+                        continue
+
+                    row_aliases: set[str] = set()
+                    row_group_id = str(metadata.get('group_id') or '').strip()
+                    if row_group_id:
+                        row_aliases.add(row_group_id)
+                    row_recipient_id = str(row['recipient_id'] or '').strip()
+                    if row_recipient_id.startswith('group:'):
+                        row_aliases.add(row_recipient_id)
+                    row_canonical_key = compute_group_id(row_group_members) if row_group_members else None
+                    if row_canonical_key:
+                        row_aliases.add(row_canonical_key)
+
+                    decoded_rows.append((row, content, metadata or None, row_group_members, row_aliases, row_canonical_key))
+
+                    if requested_group_id in row_aliases and row_canonical_key:
+                        target_canonical_keys.add(row_canonical_key)
+
+                if requested_group_id.startswith('group:'):
+                    target_canonical_keys.add(requested_group_id)
+
+                for row, content, meta, row_group_members, row_aliases, row_canonical_key in decoded_rows:
+                    if not row_aliases and not row_group_members:
+                        continue
+                    if not row_aliases.intersection(target_aliases) and (
+                        not row_canonical_key or row_canonical_key not in target_canonical_keys
+                    ):
+                        continue
 
                     message = Message(
                         id=row['id'],
@@ -694,6 +737,8 @@ class MessageManager:
                     )
                     messages.append(message)
 
+                if limit and len(messages) > limit:
+                    return messages[-limit:]
                 return messages
         except Exception as e:
             logger.error(f"Failed to get group conversation {group_id}: {e}")

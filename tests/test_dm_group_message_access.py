@@ -24,6 +24,7 @@ if 'zeroconf' not in sys.modules:
     sys.modules['zeroconf'] = zeroconf_stub
 
 from canopy.core.messaging import MessageManager
+from canopy.core.messaging import compute_group_id
 
 
 class _FakeDbManager:
@@ -118,6 +119,24 @@ class _FakeDbManager:
                     None,
                     None,
                 ),
+                (
+                    "DM-group-relayed",
+                    "peer-b",
+                    "agent-local",
+                    "same group delivered through relay alias",
+                    "text",
+                    "delivered",
+                    "2026-03-07T10:03:00+00:00",
+                    "2026-03-07T10:03:01+00:00",
+                    None,
+                    None,
+                    json.dumps(
+                        {
+                            "group_id": "group:relay-alias",
+                            "group_members": ["agent-local", "peer-a", "peer-b"],
+                        }
+                    ),
+                ),
             ],
         )
         self.conn.commit()
@@ -166,8 +185,14 @@ class TestDmGroupMessageAccess(unittest.TestCase):
         visible = self.message_manager.get_group_conversation("agent-local", "group:abc123", limit=20)
         hidden = self.message_manager.get_group_conversation("agent-local", "group:def456", limit=20)
 
-        self.assertEqual([message.id for message in visible], ["DM-group-visible"])
+        self.assertEqual([message.id for message in visible], ["DM-group-visible", "DM-group-relayed"])
         self.assertEqual(hidden, [])
+
+    def test_get_group_conversation_accepts_canonical_group_identifier(self) -> None:
+        canonical_group_id = compute_group_id(["agent-local", "peer-a", "peer-b"])
+        visible = self.message_manager.get_group_conversation("agent-local", canonical_group_id, limit=20)
+
+        self.assertEqual([message.id for message in visible], ["DM-group-visible", "DM-group-relayed"])
 
 
 if __name__ == "__main__":

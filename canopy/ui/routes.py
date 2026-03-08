@@ -1897,15 +1897,32 @@ def create_ui_blueprint() -> Blueprint:
                         members.append(uid)
                 return members
 
+            def _group_thread_identity(meta: dict[str, Any], recipient_id: str) -> tuple[Optional[str], Optional[str], list[str], list[str]]:
+                raw_group_id = str(meta.get('group_id') or '').strip()
+                group_members = _normalize_members(meta.get('group_members'))
+                alias_group_ids: list[str] = []
+                if raw_group_id:
+                    alias_group_ids.append(raw_group_id)
+                if recipient_id.startswith('group:') and recipient_id not in alias_group_ids:
+                    alias_group_ids.append(recipient_id)
+
+                canonical_group_key: Optional[str] = None
+                if group_members:
+                    canonical_group_key = _compute_group_id(group_members)
+                    if canonical_group_key not in alias_group_ids:
+                        alias_group_ids.append(canonical_group_key)
+                elif alias_group_ids:
+                    canonical_group_key = alias_group_ids[0]
+
+                display_group_id = raw_group_id or (recipient_id if recipient_id.startswith('group:') else '') or canonical_group_key
+                return (display_group_id or None, canonical_group_key, group_members, alias_group_ids)
+
             def _classify_thread(message: Any) -> Optional[dict[str, Any]]:
                 meta = _message_meta(message)
                 recipient_id = str(getattr(message, 'recipient_id', None) or '').strip()
-                group_id = str(meta.get('group_id') or '').strip()
-                group_members = _normalize_members(meta.get('group_members'))
+                group_id, canonical_group_key, group_members, alias_group_ids = _group_thread_identity(meta, recipient_id)
 
-                if not group_id and recipient_id.startswith('group:'):
-                    group_id = recipient_id
-                if group_members or group_id:
+                if group_members or group_id or canonical_group_key:
                     if not group_members:
                         fallback = [user_id, getattr(message, 'sender_id', None)]
                         if recipient_id and not recipient_id.startswith('group:'):
@@ -1913,12 +1930,16 @@ def create_ui_blueprint() -> Blueprint:
                         group_members = _normalize_members(group_members, [str(v or '').strip() for v in fallback])
                     if user_id not in group_members:
                         return None
+                    if not canonical_group_key:
+                        canonical_group_key = _compute_group_id(group_members)
                     if not group_id:
-                        group_id = _compute_group_id(group_members)
+                        group_id = canonical_group_key
                     return {
                         'kind': 'group',
-                        'key': f'group:{group_id}',
+                        'key': f'group-thread:{canonical_group_key}',
                         'group_id': group_id,
+                        'canonical_group_key': canonical_group_key,
+                        'alias_group_ids': alias_group_ids,
                         'member_ids': group_members,
                     }
 
@@ -1940,6 +1961,32 @@ def create_ui_blueprint() -> Blueprint:
                     'key': f'direct:{other_user_id}',
                     'user_id': other_user_id,
                 }
+
+            def _group_thread_matches(left: Optional[dict[str, Any]], right: Optional[dict[str, Any]]) -> bool:
+                if not left or not right:
+                    return False
+                left_key = str(left.get('canonical_group_key') or '').strip()
+                right_key = str(right.get('canonical_group_key') or '').strip()
+                if left_key and right_key and left_key == right_key:
+                    return True
+
+                left_aliases = {
+                    str(raw or '').strip()
+                    for raw in (left.get('alias_group_ids') or [])
+                    if str(raw or '').strip()
+                }
+                right_aliases = {
+                    str(raw or '').strip()
+                    for raw in (right.get('alias_group_ids') or [])
+                    if str(raw or '').strip()
+                }
+                left_group_id = str(left.get('group_id') or '').strip()
+                right_group_id = str(right.get('group_id') or '').strip()
+                if left_group_id:
+                    left_aliases.add(left_group_id)
+                if right_group_id:
+                    right_aliases.add(right_group_id)
+                return bool(left_aliases and right_aliases and left_aliases.intersection(right_aliases))
 
             def _format_thread_title(thread: dict[str, Any]) -> tuple[str, str, list[dict[str, Any]]]:
                 if thread.get('kind') == 'direct':
@@ -1971,7 +2018,10 @@ def create_ui_blueprint() -> Blueprint:
 
             def _thread_href(thread: dict[str, Any]) -> str:
                 if thread.get('kind') == 'group':
-                    return url_for('ui.messages', group=thread.get('group_id'))
+                    return url_for(
+                        'ui.messages',
+                        group=str(thread.get('canonical_group_key') or thread.get('group_id') or ''),
+                    )
                 return url_for('ui.messages', **{'with': thread.get('user_id')})
 
             def _day_label(dt: datetime) -> str:
@@ -2014,6 +2064,8 @@ def create_ui_blueprint() -> Blueprint:
                         'message_count': 0,
                         'is_active': False,
                         'group_id': thread.get('group_id'),
+                        'canonical_group_key': thread.get('canonical_group_key'),
+                        'alias_group_ids': list(thread.get('alias_group_ids') or []),
                         'user_id': thread.get('user_id'),
                         'member_ids': thread.get('member_ids') or [],
                     }
@@ -2031,7 +2083,23 @@ def create_ui_blueprint() -> Blueprint:
             active_thread: Optional[dict[str, Any]] = None
             if conversation_group:
                 group_members = []
-                matching_entry = next((item for item in conversation_entries if item.get('kind') == 'group' and item.get('group_id') == conversation_group), None)
+                matching_entry = next(
+                    (
+                        item
+                        for item in conversation_entries
+                        if item.get('kind') == 'group'
+                        and _group_thread_matches(
+                            item,
+                            {
+                                'kind': 'group',
+                                'group_id': conversation_group,
+                                'canonical_group_key': conversation_group,
+                                'alias_group_ids': [conversation_group],
+                            },
+                        )
+                    ),
+                    None,
+                )
                 if matching_entry:
                     group_members = list(matching_entry.get('member_ids') or [])
                     title = str(matching_entry.get('title') or 'Group DM')
@@ -2043,12 +2111,14 @@ def create_ui_blueprint() -> Blueprint:
                     preview_users = []
                 active_thread = {
                     'kind': 'group',
-                    'group_id': conversation_group,
+                    'group_id': str((matching_entry or {}).get('group_id') or conversation_group),
+                    'canonical_group_key': str((matching_entry or {}).get('canonical_group_key') or conversation_group),
+                    'alias_group_ids': list((matching_entry or {}).get('alias_group_ids') or [conversation_group]),
                     'title': title,
                     'subtitle': subtitle,
                     'participant_ids': group_members,
                     'preview_users': preview_users,
-                    'href': url_for('ui.messages', group=conversation_group),
+                    'href': str((matching_entry or {}).get('href') or url_for('ui.messages', group=conversation_group)),
                 }
             elif conversation_with:
                 direct_thread = {'kind': 'direct', 'user_id': conversation_with}
@@ -2070,6 +2140,8 @@ def create_ui_blueprint() -> Blueprint:
                     active_thread = {
                         'kind': 'group',
                         'group_id': conversation_group,
+                        'canonical_group_key': selected.get('canonical_group_key'),
+                        'alias_group_ids': list(selected.get('alias_group_ids') or []),
                         'title': selected.get('title'),
                         'subtitle': selected.get('subtitle'),
                         'participant_ids': list(selected.get('member_ids') or []),
@@ -2090,7 +2162,7 @@ def create_ui_blueprint() -> Blueprint:
 
             for entry in conversation_entries:
                 if active_thread and (
-                    (entry.get('kind') == 'group' and entry.get('group_id') == active_thread.get('group_id'))
+                    (entry.get('kind') == 'group' and _group_thread_matches(entry, active_thread))
                     or (entry.get('kind') == 'direct' and entry.get('user_id') == active_thread.get('user_id'))
                 ):
                     entry['is_active'] = True
@@ -2098,14 +2170,19 @@ def create_ui_blueprint() -> Blueprint:
             active_messages: list[Any] = []
             if active_thread and not search_query:
                 if active_thread.get('kind') == 'group':
-                    active_messages = message_manager.get_group_conversation(user_id, str(active_thread.get('group_id') or ''), limit=200)
+                    requested_group_id = str(active_thread.get('canonical_group_key') or active_thread.get('group_id') or '').strip()
+                    active_messages = message_manager.get_group_conversation(user_id, requested_group_id, limit=200)
+                    if not active_messages:
+                        fallback_group_id = str(active_thread.get('group_id') or '').strip()
+                        if fallback_group_id and fallback_group_id != requested_group_id:
+                            active_messages = message_manager.get_group_conversation(user_id, fallback_group_id, limit=200)
                 else:
                     active_messages = message_manager.get_conversation(user_id, str(active_thread.get('user_id') or ''), limit=200)
                 for message in active_messages:
                     if getattr(message, 'sender_id', None) != user_id and not getattr(message, 'read_at', None):
                         message_manager.mark_message_read(message.id, user_id)
                 for entry in conversation_entries:
-                    if active_thread.get('kind') == 'group' and entry.get('kind') == 'group' and entry.get('group_id') == active_thread.get('group_id'):
+                    if active_thread.get('kind') == 'group' and entry.get('kind') == 'group' and _group_thread_matches(entry, active_thread):
                         entry['unread_count'] = 0
                         break
                     if active_thread.get('kind') == 'direct' and entry.get('kind') == 'direct' and entry.get('user_id') == active_thread.get('user_id'):

@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.4.48-blue" alt="Version 0.4.48">
+  <img src="https://img.shields.io/badge/version-0.4.49-blue" alt="Version 0.4.49">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -76,6 +76,7 @@ Most chat products treat AI as bolt-on automation hanging off webhooks or extern
 
 Recent user-facing changes reflected in the app and docs:
 
+- **DM mobile layout & relay thread fixes** in `0.4.49`, making the DM workspace production-grade on phone/tablet breakpoints and fixing relayed/group DM threads that appeared in the conversation rail but not in the open thread pane due to alias identity mismatch.
 - **DM workspace redesign** in `0.4.48`, replacing the flat Messages dump with a real conversation rail, group/direct thread views, grouped bubbles, inline reply previews, and a unified bottom composer.
 - **Agent endpoint compatibility hardening** in `0.4.45`, restoring backward-compatible `/api` access and legacy claim/ack aliases for older agents while keeping `/api/v1` canonical.
 - **Mesh connectivity durability** in `0.4.44`, including endpoint truth preservation, broader reconnect targeting, indefinite capped-backoff retries, and safer sync-rate handling during reconnect.
