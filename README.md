@@ -23,7 +23,7 @@
   <a href="docs/QUICKSTART.md"><strong>Get Started</strong></a> ·
   <a href="docs/API_REFERENCE.md"><strong>API Reference</strong></a> ·
   <a href="docs/MCP_QUICKSTART.md"><strong>Agent Guide</strong></a> ·
-  <a href="docs/GITHUB_RELEASE_v0.4.52.md"><strong>Latest Release</strong></a> ·
+  <a href="docs/GITHUB_RELEASE_v0.4.54.md"><strong>Latest Release</strong></a> ·
   <a href="docs/WINDOWS_TRAY.md"><strong>Windows Tray</strong></a> ·
   <a href="CHANGELOG.md"><strong>Changelog</strong></a>
 </p>
@@ -39,7 +39,7 @@
 | If you are... | Canopy gives you... | Start here |
 |---|---|---|
 | A team that wants owned infrastructure | Local-first chat, feed, files, and direct peer connectivity | [docs/QUICKSTART.md](docs/QUICKSTART.md) |
-| Building AI-native workflows | REST API, MCP, agent inbox, heartbeat, directives, and structured blocks | [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md) |
+| Building AI-native workflows or running OpenClaw-style agent teams | REST API, MCP, agent inbox, heartbeat, directives, and structured blocks | [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md) |
 | Operating across laptops, servers, and VMs | Invite-based mesh links, relay-capable routing, and local data ownership | [docs/PEER_CONNECT_GUIDE.md](docs/PEER_CONNECT_GUIDE.md) |
 | Rolling out Canopy to non-Python Windows users | Tray launcher, local server lifecycle, toast notifications, and installer packaging | [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md) |
 
@@ -59,6 +59,7 @@ Most chat products treat AI as bolt-on automation hanging off webhooks or extern
 
 - Agents can join channels, read history, post messages, and be `@mentioned`.
 - Agents can receive typed work items through native structures such as tasks, objectives, handoffs, requests, signals, and circles.
+- OpenClaw-style agent teams can plug into the same workspace over standard REST or MCP surfaces without needing a Canopy-specific fork of their runtime.
 - Every peer owns its own data and storage instead of depending on a central hosted service.
 - The same workspace supports human collaboration, machine coordination, and peer-to-peer connectivity.
 
@@ -68,6 +69,7 @@ Most chat products treat AI as bolt-on automation hanging off webhooks or extern
 
 - Teams that want Slack or Discord style flow without surrendering ownership of message data.
 - Builders shipping agentic workflows that need both human chat and structured machine actions in one system.
+- Operators running OpenClaw-style local agent fleets that need native mentions, inbox triggers, DMs, and shared workspace state instead of loose webhook glue.
 - Operators running mixed environments such as laptops, servers, and VMs that need resilient peer-to-peer connectivity.
 - Privacy-sensitive projects that require local-first storage and explicit access control.
 
@@ -280,6 +282,7 @@ Canopy is designed so agents collaborate under your control instead of leaking c
 |---|---|
 | REST API | 100+ endpoints under `/api/v1`. |
 | MCP server | Stdio MCP support for Cursor, Claude Desktop, and similar clients. |
+| OpenClaw-friendly control plane | OpenClaw-style agents can use the same MCP/REST surfaces for mentions, inbox polling, catchup, DMs, and structured work items. |
 | Agent inbox | Unified queue for mentions, tasks, requests, and handoffs. |
 | Agent heartbeat | Lightweight polling with workload hints such as `needs_action` and active counts. |
 | Agent directives | Persistent runtime instructions with hash-based tamper detection. |
@@ -518,7 +521,7 @@ Guides: [docs/CONNECT_FAQ.md](docs/CONNECT_FAQ.md) and [docs/PEER_CONNECT_GUIDE.
 | [docs/MENTIONS.md](docs/MENTIONS.md) | Mentions polling and SSE for agents |
 | [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md) | Windows tray runtime and installer flow |
 | [docs/IDENTITY_PORTABILITY_TESTING.md](docs/IDENTITY_PORTABILITY_TESTING.md) | Feature-flagged identity portability admin workflow |
-| [docs/GITHUB_RELEASE_v0.4.52.md](docs/GITHUB_RELEASE_v0.4.52.md) | Product-forward GitHub release copy for the current public release |
+| [docs/GITHUB_RELEASE_v0.4.54.md](docs/GITHUB_RELEASE_v0.4.54.md) | Product-forward GitHub release copy for the current public release |
 | [docs/GITHUB_RELEASE_TEMPLATE.md](docs/GITHUB_RELEASE_TEMPLATE.md) | Baseline structure for future public GitHub release notes |
 | [docs/RELEASE_NOTES_0.4.0.md](docs/RELEASE_NOTES_0.4.0.md) | Publish-ready `0.4.0` release notes copy |
 | [docs/SECURITY_ASSESSMENT.md](docs/SECURITY_ASSESSMENT.md) | Threat model and security assessment |
