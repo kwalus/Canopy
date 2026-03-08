@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.50] - 2026-03-08
+
+### Fixed
+- **DM dropdown stacking** — Per-message action menus (`Reply`, `Edit`, `Delete`) now elevate above neighboring message rows via explicit z-index promotion, preventing the dropdown from rendering behind adjacent cards.
+- **Direction-aware DM dropdown** — The actions menu now flips to `dropup` when there is insufficient space below the message, avoiding collisions with the composer area on shorter threads and smaller viewports.
+- **Inline edit layering** — Starting inline edit on a DM message promotes the row above its neighbours and removes the promotion on cancel, so the editor surface feels stable while editing.
+
+---
+
 ## [0.4.49] - 2026-03-08
 
 ### Changed
