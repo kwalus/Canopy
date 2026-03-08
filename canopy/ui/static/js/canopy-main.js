@@ -76,6 +76,7 @@
         const canopyPeerProfiles = window.CANOPY_VARS ? window.CANOPY_VARS.peerProfiles : {};
         const canopyPeerTrust = window.CANOPY_VARS ? (window.CANOPY_VARS.peerTrust || {}) : {};
         const canopyInitialConnectedPeers = window.CANOPY_VARS ? (window.CANOPY_VARS.connectedPeers || []) : [];
+        const canopyInitialRecentDmContacts = window.CANOPY_VARS ? (window.CANOPY_VARS.recentDmContacts || []) : [];
         window.canopyPeerProfiles = canopyPeerProfiles || {};
         window.canopyPeerTrust = canopyPeerTrust || {};
         window.canopyInitialConnectedPeers = canopyInitialConnectedPeers || [];
@@ -311,6 +312,118 @@
         document.addEventListener('DOMContentLoaded', function() {
             seedSidebarPeerState();
             renderSidebarPeers();
+        });
+
+        function canopySidebarDmHref(contact) {
+            const routes = (window.CANOPY_VARS && window.CANOPY_VARS.urls) || {};
+            const base = routes.messages || '/messages';
+            const userId = contact && contact.user_id ? String(contact.user_id).trim() : '';
+            if (!userId) return base;
+            const url = new URL(base, window.location.origin);
+            url.searchParams.set('with', userId);
+            const targetMessageId = contact && contact.target_message_id ? String(contact.target_message_id).trim() : '';
+            return `${url.pathname}${url.search}${targetMessageId ? `#message-${targetMessageId}` : ''}`;
+        }
+
+        function canopyRenderSidebarDmContacts(contacts) {
+            const listEl = document.getElementById('sidebar-dm-list');
+            const totalEl = document.getElementById('sidebar-dm-unread-total');
+            if (!listEl) return;
+
+            const normalized = Array.isArray(contacts) ? contacts.filter(Boolean).slice(0, 5) : [];
+            const totalUnread = normalized.reduce((sum, contact) => sum + Math.max(0, Number(contact && contact.unread_count) || 0), 0);
+            if (totalEl) totalEl.textContent = String(totalUnread);
+
+            listEl.innerHTML = '';
+            if (!normalized.length) {
+                const empty = document.createElement('div');
+                empty.className = 'sidebar-peer-empty';
+                empty.textContent = 'No recent direct messages';
+                listEl.appendChild(empty);
+                return;
+            }
+
+            normalized.forEach(contact => {
+                const link = document.createElement('a');
+                link.className = 'sidebar-dm-contact';
+                if (Number(contact.unread_count) > 0) {
+                    link.classList.add('unread');
+                }
+                link.href = canopySidebarDmHref(contact);
+                link.setAttribute('data-dm-user-id', contact.user_id || '');
+                link.title = contact.display_name || contact.username || contact.user_id || 'Direct message';
+
+                const avatarWrap = document.createElement('div');
+                avatarWrap.className = 'sidebar-dm-avatar-wrap';
+
+                const avatar = document.createElement('div');
+                avatar.className = 'sidebar-dm-avatar';
+                if (contact.avatar_url) {
+                    const img = document.createElement('img');
+                    img.src = contact.avatar_url;
+                    img.alt = contact.display_name || contact.username || contact.user_id || 'User';
+                    avatar.appendChild(img);
+                } else {
+                    const initial = document.createElement('span');
+                    initial.textContent = canopyInitial(contact.display_name || contact.username || contact.user_id || '?');
+                    avatar.appendChild(initial);
+                }
+
+                const statusDot = document.createElement('span');
+                statusDot.className = `sidebar-dm-status-dot ${contact.status_state || 'offline'}`;
+                statusDot.title = contact.status_label || 'Offline';
+
+                avatarWrap.appendChild(avatar);
+                avatarWrap.appendChild(statusDot);
+
+                if (Number(contact.unread_count) > 0) {
+                    const unread = document.createElement('span');
+                    unread.className = 'sidebar-dm-unread';
+                    unread.textContent = String(Number(contact.unread_count));
+                    avatarWrap.appendChild(unread);
+                }
+
+                const meta = document.createElement('div');
+                meta.className = 'sidebar-dm-meta';
+
+                const nameRow = document.createElement('div');
+                nameRow.className = 'sidebar-dm-name-row';
+                const name = document.createElement('div');
+                name.className = 'sidebar-dm-name';
+                name.textContent = contact.display_name || contact.username || contact.user_id || 'User';
+                nameRow.appendChild(name);
+
+                const preview = document.createElement('div');
+                preview.className = 'sidebar-dm-preview';
+                preview.textContent = contact.latest_preview || 'Message';
+
+                meta.appendChild(nameRow);
+                meta.appendChild(preview);
+
+                link.appendChild(avatarWrap);
+                link.appendChild(meta);
+
+                const time = document.createElement('div');
+                time.className = 'sidebar-dm-time';
+                if (contact.latest_message_at) {
+                    time.textContent = formatTimestamp(contact.latest_message_at);
+                    time.setAttribute('data-timestamp', contact.latest_message_at);
+                }
+                link.appendChild(time);
+
+                listEl.appendChild(link);
+            });
+        }
+
+        window.syncCanopySidebarDmContacts = function(payload) {
+            const contacts = payload && Array.isArray(payload.recent_dm_contacts)
+                ? payload.recent_dm_contacts
+                : canopyInitialRecentDmContacts;
+            canopyRenderSidebarDmContacts(contacts);
+        };
+
+        document.addEventListener('DOMContentLoaded', function() {
+            canopyRenderSidebarDmContacts(canopyInitialRecentDmContacts);
         });
 
         window.renderAvatarStack = function(container, options) {
@@ -3390,6 +3503,9 @@
                         if (!data || data.success === false) return;
                         if (window.syncCanopySidebarPeers) {
                             window.syncCanopySidebarPeers(data);
+                        }
+                        if (window.syncCanopySidebarDmContacts) {
+                            window.syncCanopySidebarDmContacts(data);
                         }
                         const incoming = data.events || [];
                         if (!initialized) {
