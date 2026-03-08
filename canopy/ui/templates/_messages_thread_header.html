@@ -1,0 +1,50 @@
+{% from "_messages_macros.html" import avatar_badge, avatar_stack with context %}
+
+{% if search_query %}
+    <div class="dm-thread-header-main">
+        <div class="dm-thread-title-wrap">
+            <div class="dm-thread-title">Search results</div>
+            <div class="dm-thread-subtitle">{{ search_results|length }} matches for “{{ search_query }}”</div>
+        </div>
+    </div>
+    <div class="dm-thread-actions">
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('ui.messages') }}">Clear search</a>
+    </div>
+{% else %}
+    {% if active_thread %}
+        <div class="dm-thread-header-main">
+            {% if active_thread.kind == 'group' %}
+                {{ avatar_stack(active_thread.preview_users, '') }}
+            {% elif active_thread.preview_users %}
+                {{ avatar_badge(active_thread.preview_users[0], '') }}
+            {% endif %}
+            <div class="dm-thread-title-wrap">
+                <div class="dm-thread-title">{{ active_thread.title }}</div>
+                <div class="dm-thread-subtitle">{{ active_thread.subtitle or ('Direct message' if active_thread.kind == 'direct' else 'Group conversation') }}</div>
+            </div>
+        </div>
+        <div class="dm-thread-actions">
+            {% if active_thread.security %}
+                {% set thread_sec_mode = active_thread.security.get('mode') %}
+                {% set thread_sec_state = active_thread.security.get('state') %}
+                {% set thread_sec_class = 'e2e' if thread_sec_mode == 'peer_e2e_v1' else ('local' if thread_sec_mode == 'local_only' else ('failure' if thread_sec_state == 'decrypt_failed' else 'warning')) %}
+                {% set thread_sec_title = active_thread.security.get('label') or 'DM security' %}
+                {% if active_thread.security.get('warning') %}
+                    {% set thread_sec_title = thread_sec_title ~ ': ' ~ active_thread.security.get('warning') %}
+                {% endif %}
+                <span class="dm-security-pill {{ thread_sec_class }}" title="{{ thread_sec_title }}" aria-label="{{ thread_sec_title }}">
+                    <i class="bi bi-{% if thread_sec_mode == 'peer_e2e_v1' %}shield-lock-fill{% elif thread_sec_mode == 'local_only' %}pc-display{% elif thread_sec_state == 'decrypt_failed' %}shield-x{% else %}shield-exclamation{% endif %}"></i>
+                    <span class="visually-hidden security-text">{{ active_thread.security.get('label') }}</span>
+                </span>
+            {% endif %}
+            <button class="btn btn-sm btn-outline-secondary" type="button" onclick="startNewConversation()">
+                <i class="bi bi-pencil-square"></i><span class="dm-btn-label">New</span>
+            </button>
+        </div>
+    {% else %}
+        <div class="dm-thread-title-wrap">
+            <div class="dm-thread-title">Start a conversation</div>
+            <div class="dm-thread-subtitle">Choose someone from the sidebar or open a new direct or group chat.</div>
+        </div>
+    {% endif %}
+{% endif %}

@@ -1,0 +1,102 @@
+{% macro avatar_badge(user, class_name='') -%}
+    {% set label = user.display_name or user.username or user.user_id or 'User' %}
+    <div class="dm-avatar {{ class_name }}"
+         data-user-id="{{ user.user_id }}"
+         data-origin-peer="{{ user.origin_peer or '' }}"
+         onclick='copyUserId({{ user.user_id|tojson }}, {{ label|tojson }}, this)'
+         title="View user details">
+        {% if user.avatar_url %}
+            <img src="{{ user.avatar_url }}" alt="{{ label }}">
+        {% else %}
+            <span>{{ (label[:2] if label|length > 1 else label[:1])|upper }}</span>
+        {% endif %}
+    </div>
+{%- endmacro %}
+
+{% macro avatar_stack(users, class_name='') -%}
+    <div class="dm-avatar-stack {{ class_name }}">
+        {% for user in users[:3] %}
+            <div class="dm-avatar-stack-item" style="z-index: {{ 10 - loop.index0 }};">
+                {{ avatar_badge(user, 'stacked') }}
+            </div>
+        {% endfor %}
+        {% if users|length > 3 %}
+            <div class="dm-avatar-stack-item dm-avatar-stack-more">+{{ users|length - 3 }}</div>
+        {% endif %}
+    </div>
+{%- endmacro %}
+
+{% macro render_dm_attachment(attachment, message_id, idx) -%}
+    {% set attachment_file_id = attachment.id or attachment.file_id or ((attachment.url.split('/files/')[1].split('/')[0]) if attachment.url and '/files/' in attachment.url else None) %}
+    {% set lower_name = (attachment.name or '')|lower %}
+    {% set spreadsheet_preview = lower_name.endswith('.csv') or lower_name.endswith('.tsv') or lower_name.endswith('.xlsx') or lower_name.endswith('.xlsm') %}
+    {% set previewable = attachment_file_id and (lower_name.endswith('.md') or lower_name.endswith('.markdown') or lower_name.endswith('.txt') or lower_name.endswith('.log') or lower_name.endswith('.json') or lower_name.endswith('.py') or lower_name.endswith('.js') or lower_name.endswith('.ts') or spreadsheet_preview or lower_name.endswith('.yaml') or lower_name.endswith('.yml') or lower_name.endswith('.xml') or lower_name.endswith('.tex') or lower_name.endswith('.html') or lower_name.endswith('.css') or lower_name.endswith('.sh') or lower_name.endswith('.bat') or lower_name.endswith('.cfg') or lower_name.endswith('.ini') or lower_name.endswith('.toml')) %}
+    {% set preview_id = 'dm-attachment-preview-' ~ message_id ~ '-' ~ idx %}
+
+    {% if attachment.type and attachment.type.startswith('image/') %}
+        <div class="dm-attachment dm-attachment-image">
+            <img src="{{ attachment.url }}" alt="{{ attachment.name }}" onclick="viewImage('{{ attachment.url }}')">
+            <div class="dm-attachment-meta">
+                <span>{{ attachment.name }}</span>
+                <small>{{ attachment.size | filesizeformat if attachment.size is defined and attachment.size is not none else '—' }}</small>
+            </div>
+        </div>
+    {% elif attachment.type and attachment.type.startswith('audio/') %}
+        <div class="dm-attachment dm-attachment-card">
+            <div class="dm-attachment-title-row">
+                <div>
+                    <strong>{{ attachment.name }}</strong>
+                    <small>{{ attachment.type }} • {{ attachment.size | filesizeformat if attachment.size is defined and attachment.size is not none else '—' }}</small>
+                </div>
+                {% if attachment.url %}
+                    <a href="{{ attachment.url }}" class="btn btn-sm btn-outline-primary" download="{{ attachment.name }}">
+                        <i class="bi bi-download"></i>
+                    </a>
+                {% endif %}
+            </div>
+            {% if attachment.url %}
+                <audio controls preload="metadata" class="w-100 mt-2">
+                    <source src="{{ attachment.url }}" type="{{ attachment.type or 'audio/mpeg' }}">
+                </audio>
+            {% endif %}
+        </div>
+    {% else %}
+        <div class="dm-attachment dm-attachment-card">
+            <div class="dm-attachment-title-row">
+                <div>
+                    <strong>{{ attachment.name }}</strong>
+                    <small>{{ attachment.type or '' }}{% if attachment.type %} • {% endif %}{{ attachment.size | filesizeformat if attachment.size is defined and attachment.size is not none else '—' }}</small>
+                    {% if spreadsheet_preview %}
+                        <div class="dm-attachment-badges">
+                            <span class="badge rounded-pill text-bg-info-subtle text-info-emphasis">Sheet</span>
+                            {% if lower_name.endswith('.xlsm') %}
+                                <span class="badge rounded-pill text-bg-warning">Macros disabled</span>
+                            {% endif %}
+                        </div>
+                    {% endif %}
+                </div>
+                <div class="dm-attachment-actions">
+                    {% if previewable %}
+                        <button type="button"
+                                class="btn btn-sm btn-outline-secondary"
+                                data-preview-toggle="{{ preview_id }}"
+                                data-preview-label="{{ 'Open sheet' if spreadsheet_preview else 'Preview' }}"
+                                data-preview-expanded-label="{{ 'Hide sheet' if spreadsheet_preview else 'Collapse' }}"
+                                onclick="toggleAttachmentPreview('{{ preview_id }}', '/ajax/files/{{ attachment_file_id }}/preview')">
+                            <i class="bi bi-eye"></i>
+                            <span class="preview-label">{{ 'Open sheet' if spreadsheet_preview else 'Preview' }}</span>
+                        </button>
+                    {% endif %}
+                    {% if attachment.url %}
+                        <a href="{{ attachment.url }}" class="btn btn-sm btn-outline-primary" download="{{ attachment.name }}">
+                            <i class="bi bi-download"></i>
+                        </a>
+                    {% endif %}
+                </div>
+            </div>
+            {% if previewable %}
+                <div id="{{ preview_id }}" class="file-preview-wrapper mt-2" style="display:none;"></div>
+            {% endif %}
+        </div>
+    {% endif %}
+{%- endmacro %}

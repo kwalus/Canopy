@@ -21,8 +21,228 @@ from enum import Enum
 
 from .database import DatabaseManager
 from ..security.api_keys import ApiKeyManager, Permission
+from ..security.encryption import RecipientEncryptor
 
 logger = logging.getLogger(__name__)
+
+
+DM_E2E_CAPABILITY = "dm_e2e_v1"
+DM_E2E_PROTOCOL = "dm_peer_e2e_v1"
+DM_CRYPTO_METADATA_KEY = "__dm_crypto"
+
+
+def _normalize_dm_security_summary(summary: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    data = dict(summary or {})
+    mode = str(data.get("mode") or "").strip().lower()
+    state = str(data.get("state") or "").strip().lower()
+    label = str(data.get("label") or "").strip()
+    if not mode:
+        mode = "legacy_plaintext"
+    if not state:
+        state = "plaintext"
+    if not label:
+        if mode == "peer_e2e_v1":
+            label = "E2E over mesh"
+        elif mode == "local_only":
+            label = "Local only"
+        elif mode == "mixed":
+            label = "Mixed delivery"
+        elif state == "decrypt_failed":
+            label = "Decryption failed"
+        else:
+            label = "Legacy relay/plaintext"
+    data["mode"] = mode
+    data["state"] = state
+    data["label"] = label
+    data["e2e"] = bool(data.get("e2e", mode == "peer_e2e_v1"))
+    data["relay_confidential"] = bool(
+        data.get("relay_confidential", mode == "peer_e2e_v1" or mode == "local_only")
+    )
+    data["local_only"] = bool(data.get("local_only", mode == "local_only"))
+    return data
+
+
+def build_dm_security_summary(
+    db_manager: Any,
+    p2p_manager: Any,
+    recipient_ids: Sequence[str],
+) -> Dict[str, Any]:
+    recipients = [
+        str(raw_user_id or "").strip()
+        for raw_user_id in (recipient_ids or [])
+        if str(raw_user_id or "").strip()
+    ]
+    if p2p_manager and hasattr(p2p_manager, "describe_direct_message_security"):
+        try:
+            return _normalize_dm_security_summary(
+                p2p_manager.describe_direct_message_security(recipients)
+            )
+        except Exception:
+            pass
+
+    local_targets = filter_local_dm_targets(db_manager, p2p_manager, recipients)
+    if recipients and len(local_targets) == len(recipients):
+        return _normalize_dm_security_summary(
+            {
+                "mode": "local_only",
+                "state": "local_only",
+                "label": "Local only",
+                "e2e": False,
+                "relay_confidential": True,
+                "local_only": True,
+                "recipient_ids": recipients,
+                "local_recipient_ids": local_targets,
+                "remote_peer_ids": [],
+            }
+        )
+
+    return _normalize_dm_security_summary(
+        {
+            "mode": "legacy_plaintext",
+            "state": "plaintext",
+            "label": "Legacy relay/plaintext",
+            "e2e": False,
+            "relay_confidential": False,
+            "local_only": False,
+            "recipient_ids": recipients,
+            "local_recipient_ids": local_targets,
+        }
+    )
+
+
+def _strip_dm_internal_metadata(metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    clean = dict(metadata or {})
+    clean.pop(DM_CRYPTO_METADATA_KEY, None)
+    return clean
+
+
+def encrypt_dm_transport_bundle(
+    content: str,
+    metadata: Optional[Dict[str, Any]],
+    recipient_peer_id: str,
+    recipient_public_key_bytes: bytes,
+    *,
+    sender_peer_id: Optional[str] = None,
+) -> tuple[str, Dict[str, Any], Dict[str, Any]]:
+    clean_metadata = _strip_dm_internal_metadata(metadata)
+    bundle = {
+        "content": content or "",
+        "metadata": clean_metadata,
+    }
+    encrypted = RecipientEncryptor.encrypt_for_recipients(
+        json.dumps(bundle, ensure_ascii=True, separators=(",", ":")),
+        {recipient_peer_id: recipient_public_key_bytes},
+    )
+    security = _normalize_dm_security_summary(
+        {
+            "mode": "peer_e2e_v1",
+            "state": "encrypted",
+            "label": "E2E over mesh",
+            "e2e": True,
+            "relay_confidential": True,
+            "local_only": False,
+            "target_peer_id": recipient_peer_id,
+            "encrypted_for_peer_ids": [recipient_peer_id],
+        }
+    )
+    encrypted_metadata = {
+        "security": dict(security),
+        DM_CRYPTO_METADATA_KEY: {
+            "protocol": DM_E2E_PROTOCOL,
+            "version": 1,
+            "state": "encrypted",
+            "target_peer_id": recipient_peer_id,
+            "sender_peer_id": str(sender_peer_id or "").strip() or None,
+            "encrypted_content": encrypted.get("encrypted_content"),
+            "wrapped_keys": encrypted.get("wrapped_keys") or {},
+            "payload_format": "dm_bundle_v1",
+        },
+    }
+    return "", encrypted_metadata, security
+
+
+def unwrap_dm_transport_bundle(
+    content: str,
+    metadata: Optional[Dict[str, Any]],
+    recipient_peer_id: str,
+    recipient_private_key_bytes: Optional[bytes],
+) -> tuple[str, Dict[str, Any], Dict[str, Any]]:
+    clean_metadata = _strip_dm_internal_metadata(metadata)
+    crypto = (metadata or {}).get(DM_CRYPTO_METADATA_KEY) if isinstance(metadata, dict) else None
+    if not isinstance(crypto, dict):
+        security = _normalize_dm_security_summary(clean_metadata.get("security"))
+        clean_metadata["security"] = security
+        return content or "", clean_metadata, security
+
+    encrypted_content = str(crypto.get("encrypted_content") or "").strip()
+    wrapped_keys = crypto.get("wrapped_keys") if isinstance(crypto.get("wrapped_keys"), dict) else {}
+    wrapped_key = str(wrapped_keys.get(recipient_peer_id) or "").strip()
+    if not encrypted_content or not wrapped_key or not recipient_private_key_bytes:
+        security = _normalize_dm_security_summary(
+            {
+                "mode": "peer_e2e_v1",
+                "state": "decrypt_failed",
+                "label": "Decryption failed",
+                "e2e": True,
+                "relay_confidential": True,
+                "local_only": False,
+                "target_peer_id": recipient_peer_id,
+                "warning": "Encrypted DM could not be decrypted on this peer",
+            }
+        )
+        clean_metadata["security"] = security
+        return "[Encrypted direct message could not be decrypted]", clean_metadata, security
+
+    plaintext = RecipientEncryptor.decrypt_for_recipient(
+        encrypted_content,
+        wrapped_key,
+        recipient_private_key_bytes,
+    )
+    if plaintext == "[Access denied - cannot decrypt]":
+        security = _normalize_dm_security_summary(
+            {
+                "mode": "peer_e2e_v1",
+                "state": "decrypt_failed",
+                "label": "Decryption failed",
+                "e2e": True,
+                "relay_confidential": True,
+                "local_only": False,
+                "target_peer_id": recipient_peer_id,
+                "warning": "Encrypted DM could not be decrypted on this peer",
+            }
+        )
+        clean_metadata["security"] = security
+        return "[Encrypted direct message could not be decrypted]", clean_metadata, security
+
+    try:
+        decoded = json.loads(plaintext)
+    except Exception:
+        decoded = {"content": plaintext, "metadata": {}}
+
+    bundle_content = ""
+    bundle_metadata: Dict[str, Any] = {}
+    if isinstance(decoded, dict):
+        bundle_content = str(decoded.get("content") or "")
+        if isinstance(decoded.get("metadata"), dict):
+            bundle_metadata = _strip_dm_internal_metadata(decoded.get("metadata"))
+    else:
+        bundle_content = str(decoded or "")
+
+    security = _normalize_dm_security_summary(
+        {
+            "mode": "peer_e2e_v1",
+            "state": "encrypted",
+            "label": "E2E over mesh",
+            "e2e": True,
+            "relay_confidential": True,
+            "local_only": False,
+            "target_peer_id": recipient_peer_id,
+            "sender_peer_id": str(crypto.get("sender_peer_id") or "").strip() or None,
+            "encrypted_for_peer_ids": [recipient_peer_id],
+        }
+    )
+    bundle_metadata["security"] = security
+    return bundle_content, bundle_metadata, security
 
 
 def compute_group_id(member_ids: Sequence[str]) -> str:

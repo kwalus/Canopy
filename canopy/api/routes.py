@@ -59,6 +59,7 @@ from ..security.api_keys import Permission
 from ..security.csrf import validate_csrf_request
 from ..core.messaging import (
     MessageType,
+    build_dm_security_summary,
     build_dm_preview,
     compute_group_id,
     filter_local_dm_targets,
@@ -2908,6 +2909,13 @@ def create_api_blueprint() -> Blueprint:
             elif recipients_unique:
                 effective_recipient_id = recipients_unique[0]
                 broadcast_targets = [effective_recipient_id]
+
+            if broadcast_targets:
+                metadata['security'] = build_dm_security_summary(
+                    db_manager,
+                    p2p_manager,
+                    broadcast_targets,
+                )
             
             # Create and send message
             message = message_manager.create_message(
@@ -2951,6 +2959,7 @@ def create_api_blueprint() -> Blueprint:
                                 'content': content,
                                 'message_id': message.id,
                                 'attachments': metadata.get('attachments') or [],
+                                'security': metadata.get('security'),
                             }
                             if reply_to:
                                 payload['reply_to'] = reply_to
@@ -3023,6 +3032,21 @@ def create_api_blueprint() -> Blueprint:
             else:
                 final_metadata.pop('attachments', None)
 
+            group_members_for_security = []
+            if isinstance(final_metadata, dict):
+                group_members_for_security = [
+                    str(member_id).strip()
+                    for member_id in (final_metadata.get('group_members') or [])
+                    if str(member_id).strip() and str(member_id).strip() != g.api_key_info.user_id
+                ]
+            target_ids_for_security = group_members_for_security or ([str(msg.recipient_id).strip()] if msg.recipient_id else [])
+            if target_ids_for_security:
+                final_metadata['security'] = build_dm_security_summary(
+                    db_manager,
+                    p2p_manager,
+                    target_ids_for_security,
+                )
+
             try:
                 final_metadata['edited_at'] = datetime.now(timezone.utc).isoformat()
             except Exception:
@@ -3089,6 +3113,7 @@ def create_api_blueprint() -> Blueprint:
                             'message_id': message_id,
                             'edited_at': final_metadata.get('edited_at') if isinstance(final_metadata, dict) else None,
                             'attachments': final_attachments or [],
+                            'security': final_metadata.get('security') if isinstance(final_metadata, dict) else None,
                         }
                         if isinstance(final_metadata, dict) and final_metadata.get('reply_to'):
                             payload['reply_to'] = final_metadata.get('reply_to')

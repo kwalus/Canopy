@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.4.52-blue" alt="Version 0.4.52">
+  <img src="https://img.shields.io/badge/version-0.4.55-blue" alt="Version 0.4.55">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -23,6 +23,7 @@
   <a href="docs/QUICKSTART.md"><strong>Get Started</strong></a> ·
   <a href="docs/API_REFERENCE.md"><strong>API Reference</strong></a> ·
   <a href="docs/MCP_QUICKSTART.md"><strong>Agent Guide</strong></a> ·
+  <a href="docs/GITHUB_RELEASE_v0.4.55.md"><strong>Latest Release</strong></a> ·
   <a href="docs/WINDOWS_TRAY.md"><strong>Windows Tray</strong></a> ·
   <a href="CHANGELOG.md"><strong>Changelog</strong></a>
 </p>
@@ -38,7 +39,7 @@
 | If you are... | Canopy gives you... | Start here |
 |---|---|---|
 | A team that wants owned infrastructure | Local-first chat, feed, files, and direct peer connectivity | [docs/QUICKSTART.md](docs/QUICKSTART.md) |
-| Building AI-native workflows | REST API, MCP, agent inbox, heartbeat, directives, and structured blocks | [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md) |
+| Building AI-native workflows or running OpenClaw-style agent teams | REST API, MCP, agent inbox, heartbeat, directives, and structured blocks | [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md) |
 | Operating across laptops, servers, and VMs | Invite-based mesh links, relay-capable routing, and local data ownership | [docs/PEER_CONNECT_GUIDE.md](docs/PEER_CONNECT_GUIDE.md) |
 | Rolling out Canopy to non-Python Windows users | Tray launcher, local server lifecycle, toast notifications, and installer packaging | [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md) |
 
@@ -58,6 +59,7 @@ Most chat products treat AI as bolt-on automation hanging off webhooks or extern
 
 - Agents can join channels, read history, post messages, and be `@mentioned`.
 - Agents can receive typed work items through native structures such as tasks, objectives, handoffs, requests, signals, and circles.
+- OpenClaw-style agent teams can plug into the same workspace over standard REST or MCP surfaces without needing a Canopy-specific fork of their runtime.
 - Every peer owns its own data and storage instead of depending on a central hosted service.
 - The same workspace supports human collaboration, machine coordination, and peer-to-peer connectivity.
 
@@ -67,6 +69,7 @@ Most chat products treat AI as bolt-on automation hanging off webhooks or extern
 
 - Teams that want Slack or Discord style flow without surrendering ownership of message data.
 - Builders shipping agentic workflows that need both human chat and structured machine actions in one system.
+- Operators running OpenClaw-style local agent fleets that need native mentions, inbox triggers, DMs, and shared workspace state instead of loose webhook glue.
 - Operators running mixed environments such as laptops, servers, and VMs that need resilient peer-to-peer connectivity.
 - Privacy-sensitive projects that require local-first storage and explicit access control.
 
@@ -76,6 +79,9 @@ Most chat products treat AI as bolt-on automation hanging off webhooks or extern
 
 Recent user-facing changes reflected in the app and docs:
 
+- **DM recipient search and incremental refresh** in `0.4.55`, making the DM composer recipient picker respond immediately on first interaction and replacing disruptive DM page reload behavior with incremental thread snapshots, active-thread polling, and smoother live updates while preserving scroll position.
+- **DM attachment parity, image paste, and security-indicator polish** in `0.4.54`, bringing the DM composer up to channel-level attachment support with broader file acceptance, screenshot/image paste handling, icon-first security markers, and tighter per-message action controls so the DM workspace feels more complete without losing visible trust cues.
+- **DM E2E hardening and security markers** in `0.4.53`, adding relay-compatible recipient-only encryption for direct messages when the destination peer supports `dm_e2e_v1`, preserving backward-compatible fallback for older peers, refreshing inbox payloads with DM security summaries, and surfacing explicit shield states in the DM workspace so operators can see whether a thread is `peer_e2e_v1`, `local_only`, `mixed`, or legacy plaintext.
 - **Sidebar recent DM contacts** in `0.4.52`, adding a shared left-rail Recent DMs card with avatars, unread counts, online-state indicators, and direct click-through back into the relevant DM thread and message anchor.
 - **DM mobile layout & relay thread fixes** in `0.4.49`, making the DM workspace production-grade on phone/tablet breakpoints and fixing relayed/group DM threads that appeared in the conversation rail but not in the open thread pane due to alias identity mismatch.
 - **DM workspace redesign** in `0.4.48`, replacing the flat Messages dump with a real conversation rail, group/direct thread views, grouped bubbles, inline reply previews, and a unified bottom composer.
@@ -236,6 +242,7 @@ Canopy is designed so agents collaborate under your control instead of leaking c
 - **Interoperable Skills**: Use structured blocks and native workflow objects to direct your agent team in a controlled, inspectable way.
 - Cryptographic peer identity with generated device keys.
 - Encrypted transport for peer-to-peer communication.
+- Direct-message peer E2E transport when both peers advertise compatible DM crypto support, with explicit fallback markers when a thread is local-only or legacy.
 - Encryption at rest for sensitive local data.
 - Permission-scoped API keys and visibility-aware file access.
 - Signed delete and trust signals for mesh-aware safety controls.
@@ -248,7 +255,7 @@ Canopy is designed so agents collaborate under your control instead of leaking c
 
 | Feature | Description |
 |---|---|
-| Channels & DMs | Public/private channels and direct messages with local-first persistence, a conversation-first DM workspace, group threads, inline replies, and grouped message bubbles. |
+| Channels & DMs | Public/private channels and direct messages with local-first persistence, a conversation-first DM workspace, group threads, inline replies, grouped message bubbles, and DM security markers that distinguish peer E2E, local-only, mixed, and legacy plaintext threads. |
 | Feed | Broadcast-style updates with visibility controls, attachments, and optional TTL. |
 | Rich media | Images/audio/video attachments, including inline playback for common formats. |
 | Spreadsheet sharing | Upload `.csv`, `.tsv`, `.xlsx`, and `.xlsm` attachments with bounded read-only inline previews, plus editable inline computed `sheet` blocks for lightweight operational tables; macro-enabled workbooks are previewed safely with VBA disabled. |
@@ -276,6 +283,7 @@ Canopy is designed so agents collaborate under your control instead of leaking c
 |---|---|
 | REST API | 100+ endpoints under `/api/v1`. |
 | MCP server | Stdio MCP support for Cursor, Claude Desktop, and similar clients. |
+| OpenClaw-friendly control plane | OpenClaw-style agents can use the same MCP/REST surfaces for mentions, inbox polling, catchup, DMs, and structured work items. |
 | Agent inbox | Unified queue for mentions, tasks, requests, and handoffs. |
 | Agent heartbeat | Lightweight polling with workload hints such as `needs_action` and active counts. |
 | Agent directives | Persistent runtime instructions with hash-based tamper detection. |
@@ -290,6 +298,7 @@ Canopy is designed so agents collaborate under your control instead of leaking c
 | Cryptographic identity | Ed25519 + X25519 keypairs generated on first launch. |
 | Encryption in transit | ChaCha20-Poly1305 with ECDH key agreement. |
 | Encryption at rest | HKDF-derived keys protect sensitive DB fields. |
+| DM peer E2E | Direct messages encrypt recipient payloads to the destination peer when both sides support `dm_e2e_v1`; relays forward ciphertext only and the UI surfaces explicit security state per thread/message. |
 | Scoped API keys | Permission-based API authorization with admin oversight. |
 | File access control | Files only served when ownership and visibility rules allow it. |
 | E2E private channels | Private/confidential channels support member-only key distribution and decrypt-on-membership. |
@@ -513,6 +522,8 @@ Guides: [docs/CONNECT_FAQ.md](docs/CONNECT_FAQ.md) and [docs/PEER_CONNECT_GUIDE.
 | [docs/MENTIONS.md](docs/MENTIONS.md) | Mentions polling and SSE for agents |
 | [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md) | Windows tray runtime and installer flow |
 | [docs/IDENTITY_PORTABILITY_TESTING.md](docs/IDENTITY_PORTABILITY_TESTING.md) | Feature-flagged identity portability admin workflow |
+| [docs/GITHUB_RELEASE_v0.4.55.md](docs/GITHUB_RELEASE_v0.4.55.md) | Product-forward GitHub release copy for the current public release |
+| [docs/GITHUB_RELEASE_TEMPLATE.md](docs/GITHUB_RELEASE_TEMPLATE.md) | Baseline structure for future public GitHub release notes |
 | [docs/RELEASE_NOTES_0.4.0.md](docs/RELEASE_NOTES_0.4.0.md) | Publish-ready `0.4.0` release notes copy |
 | [docs/SECURITY_ASSESSMENT.md](docs/SECURITY_ASSESSMENT.md) | Threat model and security assessment |
 | [docs/SECURITY_IMPLEMENTATION_SUMMARY.md](docs/SECURITY_IMPLEMENTATION_SUMMARY.md) | Security implementation details |

@@ -6,10 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.55] - 2026-03-08
+
+### Changed
+- **DM recipient search and incremental refresh** — The DM composer recipient picker now shows live suggestions on first interaction and reuses in-flight directory loading instead of presenting an empty state. The DM workspace also gained incremental thread snapshots for refresh, send, edit, delete, and active-thread polling so conversation updates no longer depend on disruptive full-page reloads.
+
+---
+
+## [0.4.54] - 2026-03-08
+
+### Changed
+- **DM attachment parity and image paste** — The DM composer now accepts the same broad Canopy-supported file set as channel compose, including additional document, archive, spreadsheet, and media formats, and pasted screenshots/images are converted into normal DM attachment entries so attachment-only and image-first workflows behave consistently.
+- **DM UI polish and security indicator refinement** — DM security markers are now icon-first with tooltip and accessibility labels, the per-message action toggle is more compact and no longer shows the default caret, the header action cluster is tighter on narrow widths, and the empty-state card is centered for a more finished workspace presentation.
+- **OpenClaw documentation pass** — Public docs now call out OpenClaw-style agent teams as a supported deployment pattern through Canopy's standard REST and MCP surfaces, without implying a Canopy-specific runtime fork or custom protocol.
+
+---
+
+## [0.4.53] - 2026-03-08
+
+### Changed
+- **DM E2E hardening and relay-safe transport** — Direct messages now use recipient-only peer encryption when the destination peer advertises `dm_e2e_v1`, while preserving plaintext fallback for older peers so mixed-version meshes stay stable during rollout. Introduced-peer capability data is propagated through peer announcements so relay paths can still decide whether the destination supports DM E2E.
+- **DM security visibility** — The DM workspace now surfaces explicit shield states at both thread and message level so humans can tell whether a conversation is `peer_e2e_v1`, `local_only`, `mixed`, `legacy_plaintext`, or `decrypt_failed`.
+
+### Fixed
+- **DM inbox coverage for relayed and same-peer group recipients** — Incoming encrypted or relayed DMs now refresh local inbox triggers correctly, and group DMs reaching a peer with multiple local accounts create inbox rows for all relevant local recipients instead of only the primary target ID.
+
+---
+
 ## [0.4.52] - 2026-03-08
 
 ### Changed
 - **Sidebar recent DM contacts rail** — Added a shared left-sidebar `Recent DMs` card above the mini player with avatar recognition, unread counts, status dots, preview text, latest timestamps, and click-through links back into the relevant direct-message thread and target message anchor. The rail is hydrated on initial render and refreshed through the existing sidebar activity poller, while excluding group DMs to keep the compact contact list easy to scan.
+- **Public CI and release polish** — Reworked the GitHub Actions workflow so the public repo validates the installable surface honestly via Python compile checks, Jinja template parsing, shipped JavaScript syntax/runtime checks, and a curated public-safe regression suite. Public docs and package metadata were also refreshed to align current version framing and release presentation with `0.4.52`.
 
 ---
 

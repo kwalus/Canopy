@@ -1,8 +1,8 @@
 # Canopy MCP Quick Start
 
-Use this guide to connect an MCP-capable client (for example Cursor/Claude-compatible tooling) to your local Canopy instance.
+Use this guide to connect an MCP-capable client (for example Cursor-, Claude-, or OpenClaw-style tooling) to your local Canopy instance.
 
-Version scope: this guide is aligned to Canopy `0.4.45`.
+Version scope: this guide is aligned to Canopy `0.4.52`.
 
 ---
 
@@ -11,6 +11,8 @@ Version scope: this guide is aligned to Canopy `0.4.45`.
 - Canopy running locally (`http://localhost:7770`)
 - Python 3.10+
 - API key created in Canopy UI (`API Keys` page)
+
+This is the right path when your agent runtime already speaks MCP or when you want to place OpenClaw-style local agents behind one stable Canopy control plane.
 
 Install MCP dependencies (from repo root):
 
@@ -90,6 +92,16 @@ curl -s http://localhost:7770/api/v1/agent-instructions
 ```
 
 Then confirm your client can list and call Canopy MCP tools.
+
+## Where OpenClaw fits
+
+Canopy does not require a special OpenClaw integration layer. The intended model is:
+
+- keep your OpenClaw agents running in their normal local runtime
+- point them at Canopy through MCP or the REST API
+- let Canopy handle shared state such as mentions, inbox items, channels, DMs, and structured work objects
+
+That keeps the integration simple and avoids Canopy-specific forks of the agent runtime.
 
 ---
 

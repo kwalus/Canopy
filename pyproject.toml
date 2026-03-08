@@ -4,13 +4,40 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "canopy"
-version = "0.4.52"
-description = "Local-first mesh communication layer for humans and AI agents."
+version = "0.4.55"
+description = "Local-first peer-to-peer collaboration for humans and AI agents."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 authors = [
   { name = "Canopy Contributors" }
+]
+keywords = [
+  "local-first",
+  "peer-to-peer",
+  "mesh",
+  "collaboration",
+  "agents",
+  "chat",
+  "encrypted-messaging",
+  "websocket",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Web Environment",
+  "Framework :: Flask",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Information Technology",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Communications :: Chat",
+  "Topic :: Internet :: WWW/HTTP",
+  "Topic :: Security :: Cryptography",
+  "Topic :: System :: Distributed Computing",
 ]
 dependencies = [
   "Flask>=3.0.0",
@@ -70,6 +97,13 @@ canopy = [
 canopy_tray = [
   "assets/*",
 ]
+
+[project.urls]
+Homepage = "https://github.com/kwalus/Canopy"
+Documentation = "https://github.com/kwalus/Canopy/blob/main/README.md"
+Repository = "https://github.com/kwalus/Canopy"
+Issues = "https://github.com/kwalus/Canopy/issues"
+Changelog = "https://github.com/kwalus/Canopy/blob/main/CHANGELOG.md"
 
 [dependency-groups]
 dev = [

@@ -1,109 +1,7 @@
 {% extends "base.html" %}
+{% from "_messages_macros.html" import avatar_badge, avatar_stack, render_dm_attachment with context %}
 
 {% block title %}Messages - Canopy{% endblock %}
-
-{% macro avatar_badge(user, class_name='') -%}
-    {% set label = user.display_name or user.username or user.user_id or 'User' %}
-    <div class="dm-avatar {{ class_name }}"
-         data-user-id="{{ user.user_id }}"
-         data-origin-peer="{{ user.origin_peer or '' }}"
-         onclick='copyUserId({{ user.user_id|tojson }}, {{ label|tojson }}, this)'
-         title="View user details">
-        {% if user.avatar_url %}
-            <img src="{{ user.avatar_url }}" alt="{{ label }}">
-        {% else %}
-            <span>{{ (label[:2] if label|length > 1 else label[:1])|upper }}</span>
-        {% endif %}
-    </div>
-{%- endmacro %}
-
-{% macro avatar_stack(users, class_name='') -%}
-    <div class="dm-avatar-stack {{ class_name }}">
-        {% for user in users[:3] %}
-            <div class="dm-avatar-stack-item" style="z-index: {{ 10 - loop.index0 }};">
-                {{ avatar_badge(user, 'stacked') }}
-            </div>
-        {% endfor %}
-        {% if users|length > 3 %}
-            <div class="dm-avatar-stack-item dm-avatar-stack-more">+{{ users|length - 3 }}</div>
-        {% endif %}
-    </div>
-{%- endmacro %}
-
-{% macro render_dm_attachment(attachment, message_id, idx) -%}
-    {% set attachment_file_id = attachment.id or attachment.file_id or ((attachment.url.split('/files/')[1].split('/')[0]) if attachment.url and '/files/' in attachment.url else None) %}
-    {% set lower_name = (attachment.name or '')|lower %}
-    {% set spreadsheet_preview = lower_name.endswith('.csv') or lower_name.endswith('.tsv') or lower_name.endswith('.xlsx') or lower_name.endswith('.xlsm') %}
-    {% set previewable = attachment_file_id and (lower_name.endswith('.md') or lower_name.endswith('.markdown') or lower_name.endswith('.txt') or lower_name.endswith('.log') or lower_name.endswith('.json') or lower_name.endswith('.py') or lower_name.endswith('.js') or lower_name.endswith('.ts') or spreadsheet_preview or lower_name.endswith('.yaml') or lower_name.endswith('.yml') or lower_name.endswith('.xml') or lower_name.endswith('.tex') or lower_name.endswith('.html') or lower_name.endswith('.css') or lower_name.endswith('.sh') or lower_name.endswith('.bat') or lower_name.endswith('.cfg') or lower_name.endswith('.ini') or lower_name.endswith('.toml')) %}
-    {% set preview_id = 'dm-attachment-preview-' ~ message_id ~ '-' ~ idx %}
-
-    {% if attachment.type and attachment.type.startswith('image/') %}
-        <div class="dm-attachment dm-attachment-image">
-            <img src="{{ attachment.url }}" alt="{{ attachment.name }}" onclick="viewImage('{{ attachment.url }}')">
-            <div class="dm-attachment-meta">
-                <span>{{ attachment.name }}</span>
-                <small>{{ attachment.size | filesizeformat if attachment.size is defined and attachment.size is not none else '—' }}</small>
-            </div>
-        </div>
-    {% elif attachment.type and attachment.type.startswith('audio/') %}
-        <div class="dm-attachment dm-attachment-card">
-            <div class="dm-attachment-title-row">
-                <div>
-                    <strong>{{ attachment.name }}</strong>
-                    <small>{{ attachment.type }} • {{ attachment.size | filesizeformat if attachment.size is defined and attachment.size is not none else '—' }}</small>
-                </div>
-                {% if attachment.url %}
-                    <a href="{{ attachment.url }}" class="btn btn-sm btn-outline-primary" download="{{ attachment.name }}">
-                        <i class="bi bi-download"></i>
-                    </a>
-                {% endif %}
-            </div>
-            {% if attachment.url %}
-                <audio controls preload="metadata" class="w-100 mt-2">
-                    <source src="{{ attachment.url }}" type="{{ attachment.type or 'audio/mpeg' }}">
-                </audio>
-            {% endif %}
-        </div>
-    {% else %}
-        <div class="dm-attachment dm-attachment-card">
-            <div class="dm-attachment-title-row">
-                <div>
-                    <strong>{{ attachment.name }}</strong>
-                    <small>{{ attachment.type or '' }}{% if attachment.type %} • {% endif %}{{ attachment.size | filesizeformat if attachment.size is defined and attachment.size is not none else '—' }}</small>
-                    {% if spreadsheet_preview %}
-                        <div class="dm-attachment-badges">
-                            <span class="badge rounded-pill text-bg-info-subtle text-info-emphasis">Sheet</span>
-                            {% if lower_name.endswith('.xlsm') %}
-                                <span class="badge rounded-pill text-bg-warning">Macros disabled</span>
-                            {% endif %}
-                        </div>
-                    {% endif %}
-                </div>
-                <div class="dm-attachment-actions">
-                    {% if previewable %}
-                        <button type="button"
-                                class="btn btn-sm btn-outline-secondary"
-                                data-preview-toggle="{{ preview_id }}"
-                                data-preview-label="{{ 'Open sheet' if spreadsheet_preview else 'Preview' }}"
-                                data-preview-expanded-label="{{ 'Hide sheet' if spreadsheet_preview else 'Collapse' }}"
-                                onclick="toggleAttachmentPreview('{{ preview_id }}', '/ajax/files/{{ attachment_file_id }}/preview')">
-                            <i class="bi bi-eye"></i>
-                            <span class="preview-label">{{ 'Open sheet' if spreadsheet_preview else 'Preview' }}</span>
-                        </button>
-                    {% endif %}
-                    {% if attachment.url %}
-                        <a href="{{ attachment.url }}" class="btn btn-sm btn-outline-primary" download="{{ attachment.name }}">
-                            <i class="bi bi-download"></i>
-                        </a>
-                    {% endif %}
-                </div>
-            </div>
-            {% if previewable %}
-                <div id="{{ preview_id }}" class="file-preview-wrapper mt-2" style="display:none;"></div>
-            {% endif %}
-        </div>
-    {% endif %}
-{%- endmacro %}
 
 {% block extra_css %}
 <style>
@@ -347,6 +245,77 @@
         display: flex;
         gap: 0.5rem;
         flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .dm-security-pill,
+    .dm-security-chip {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0;
+        border-radius: 999px;
+        border: 1px solid transparent;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        box-shadow: 0 8px 18px rgba(3, 10, 22, 0.16);
+        cursor: help;
+    }
+
+    .dm-security-pill {
+        width: 2rem;
+        height: 2rem;
+        padding: 0;
+        font-size: 0.82rem;
+    }
+
+    .dm-security-chip {
+        width: 1.55rem;
+        height: 1.55rem;
+        padding: 0;
+        font-size: 0.7rem;
+        flex-shrink: 0;
+    }
+
+    .dm-security-pill .security-text,
+    .dm-security-chip .security-text {
+        display: none;
+    }
+
+    .dm-thread-actions .btn {
+        min-height: 2rem;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+    }
+
+    .dm-security-pill.e2e,
+    .dm-security-chip.e2e {
+        color: #78efb6;
+        background: rgba(31, 145, 89, 0.16);
+        border-color: rgba(67, 224, 139, 0.28);
+    }
+
+    .dm-security-pill.local,
+    .dm-security-chip.local {
+        color: #9ec6ff;
+        background: rgba(48, 92, 154, 0.18);
+        border-color: rgba(110, 148, 255, 0.26);
+    }
+
+    .dm-security-pill.warning,
+    .dm-security-chip.warning {
+        color: #f5cc79;
+        background: rgba(142, 99, 20, 0.16);
+        border-color: rgba(255, 197, 79, 0.24);
+    }
+
+    .dm-security-pill.failure,
+    .dm-security-chip.failure {
+        color: #ff9b9b;
+        background: rgba(155, 47, 47, 0.16);
+        border-color: rgba(255, 107, 107, 0.24);
     }
 
     .dm-avatar,
@@ -513,10 +482,19 @@
     }
 
     .dm-message-menu .dropdown-toggle {
-        padding: 0.32rem 0.5rem;
-        border-radius: 12px;
+        width: 2rem;
+        height: 2rem;
+        padding: 0;
+        border-radius: 999px;
         background: rgba(255, 255, 255, 0.04);
         border-color: rgba(255, 255, 255, 0.08);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .dm-message-menu .dropdown-toggle::after {
+        display: none;
     }
 
     .dm-message-menu .dropdown-toggle:hover,
@@ -612,6 +590,8 @@
         display: flex;
         justify-content: flex-end;
         gap: 0.4rem;
+        align-items: center;
+        flex-wrap: wrap;
         margin-top: 0.45rem;
         color: var(--canopy-text-secondary);
         font-size: 0.74rem;
@@ -676,6 +656,7 @@
         background: rgba(255, 255, 255, 0.035);
         border: 1px solid rgba(255, 255, 255, 0.08);
         color: var(--canopy-text-secondary);
+        text-align: center;
     }
 
     .dm-search-results {
@@ -878,8 +859,22 @@
         color: var(--canopy-text-secondary);
     }
 
+    .recipient-suggestion-state {
+        padding: 0.75rem 0.85rem;
+        color: var(--canopy-text-secondary);
+        font-size: 0.82rem;
+    }
+
     .dm-composer-input-wrap {
         position: relative;
+    }
+
+    .dm-thread-inline-notice {
+        position: sticky;
+        bottom: 0.75rem;
+        margin: 0 auto;
+        z-index: 9;
+        box-shadow: 0 16px 32px rgba(5, 10, 24, 0.28);
     }
 
     .dm-composer-textarea {
@@ -1079,6 +1074,12 @@
             padding: 0.32rem 0.6rem;
         }
 
+        .dm-security-pill {
+            width: 1.85rem;
+            height: 1.85rem;
+            font-size: 0.76rem;
+        }
+
         .dm-message-main {
             max-width: 100%;
         }
@@ -1121,6 +1122,11 @@
 
         .dm-message-menu {
             opacity: 1;
+        }
+
+        .dm-message-menu .dropdown-toggle {
+            width: 1.9rem;
+            height: 1.9rem;
         }
 
         .dm-composer {
@@ -1205,6 +1211,10 @@
             min-height: 32vh;
         }
 
+        .dm-thread-actions .btn .dm-btn-label {
+            display: none;
+        }
+
         .dm-avatar {
             width: 32px;
             height: 32px;
@@ -1256,223 +1266,27 @@
             </div>
 
             <div class="dm-sidebar-scroll">
-                <section>
-                    <div class="dm-section-label">
-                        <span>Direct</span>
-                        <span>{{ direct_conversations|length }}</span>
-                    </div>
-                    <div class="dm-conversation-list">
-                        {% if direct_conversations %}
-                            {% for conversation in direct_conversations %}
-                                <a href="{{ conversation.href }}" class="dm-conversation-card {% if conversation.is_active %}active{% endif %}">
-                                    {% if conversation.preview_users %}
-                                        {{ avatar_badge(conversation.preview_users[0], '') }}
-                                    {% endif %}
-                                    <div class="dm-conversation-main">
-                                        <div class="dm-conversation-topline">
-                                            <div class="dm-conversation-title">{{ conversation.title }}</div>
-                                            <div class="dm-conversation-time" data-timestamp="{{ conversation.updated_at }}">{{ conversation.updated_at }}</div>
-                                        </div>
-                                        {% if conversation.subtitle %}
-                                            <div class="dm-conversation-subtitle">{{ conversation.subtitle }}</div>
-                                        {% endif %}
-                                        <div class="dm-conversation-preview">{{ conversation.preview }}</div>
-                                    </div>
-                                    {% if conversation.unread_count %}
-                                        <span class="dm-unread-pill">{{ conversation.unread_count }}</span>
-                                    {% endif %}
-                                </a>
-                            {% endfor %}
-                        {% else %}
-                            <div class="dm-empty-card">No direct conversations yet.</div>
-                        {% endif %}
-                    </div>
-                </section>
-
-                <section>
-                    <div class="dm-section-label">
-                        <span>Groups</span>
-                        <span>{{ group_conversations|length }}</span>
-                    </div>
-                    <div class="dm-conversation-list">
-                        {% if group_conversations %}
-                            {% for conversation in group_conversations %}
-                                <a href="{{ conversation.href }}" class="dm-conversation-card {% if conversation.is_active %}active{% endif %}">
-                                    {{ avatar_stack(conversation.preview_users, '') }}
-                                    <div class="dm-conversation-main">
-                                        <div class="dm-conversation-topline">
-                                            <div class="dm-conversation-title">{{ conversation.title }}</div>
-                                            <div class="dm-conversation-time" data-timestamp="{{ conversation.updated_at }}">{{ conversation.updated_at }}</div>
-                                        </div>
-                                        <div class="dm-conversation-subtitle">{{ conversation.subtitle }}</div>
-                                        <div class="dm-conversation-preview">{{ conversation.preview }}</div>
-                                    </div>
-                                    {% if conversation.unread_count %}
-                                        <span class="dm-unread-pill">{{ conversation.unread_count }}</span>
-                                    {% endif %}
-                                </a>
-                            {% endfor %}
-                        {% else %}
-                            <div class="dm-empty-card">No group conversations yet.</div>
-                        {% endif %}
-                    </div>
-                </section>
+                <div id="dm-sidebar-sections">
+                    {% include '_messages_sidebar_sections.html' %}
+                </div>
             </div>
         </aside>
 
         <section class="dm-thread-pane">
-            {% if search_query %}
-                <div class="dm-thread-header">
-                    <div class="dm-thread-header-main">
-                        <div class="dm-thread-title-wrap">
-                            <div class="dm-thread-title">Search results</div>
-                            <div class="dm-thread-subtitle">{{ search_results|length }} matches for “{{ search_query }}”</div>
-                        </div>
-                    </div>
-                    <div class="dm-thread-actions">
-                        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('ui.messages') }}">Clear search</a>
-                    </div>
-                </div>
-                <div class="dm-thread-scroll">
-                    <div class="dm-search-results">
-                        {% if search_results %}
-                            {% for result in search_results %}
-                                <a href="{{ result.thread_href }}" class="dm-search-result-card">
-                                    <div class="dm-search-result-meta">
-                                        <span>{{ result.thread_title }}</span>
-                                        <span data-timestamp="{{ result.created_at }}">{{ result.created_at }}</span>
-                                    </div>
-                                    <div class="mb-1"><strong>{{ result.sender_label }}</strong></div>
-                                    <div class="text-muted">{{ result.preview or result.content }}</div>
-                                </a>
-                            {% endfor %}
-                        {% else %}
-                            <div class="dm-empty-card">No DM messages matched that search.</div>
-                        {% endif %}
-                    </div>
-                </div>
-            {% else %}
-                <div class="dm-thread-header">
-                    {% if active_thread %}
-                        <div class="dm-thread-header-main">
-                            {% if active_thread.kind == 'group' %}
-                                {{ avatar_stack(active_thread.preview_users, '') }}
-                            {% elif active_thread.preview_users %}
-                                {{ avatar_badge(active_thread.preview_users[0], '') }}
-                            {% endif %}
-                            <div class="dm-thread-title-wrap">
-                                <div class="dm-thread-title">{{ active_thread.title }}</div>
-                                <div class="dm-thread-subtitle">{{ active_thread.subtitle or ('Direct message' if active_thread.kind == 'direct' else 'Group conversation') }}</div>
-                            </div>
-                        </div>
-                        <div class="dm-thread-actions">
-                            <button class="btn btn-sm btn-outline-secondary" type="button" onclick="startNewConversation()">
-                                <i class="bi bi-pencil-square"></i> New
-                            </button>
-                        </div>
-                    {% else %}
-                        <div class="dm-thread-title-wrap">
-                            <div class="dm-thread-title">Start a conversation</div>
-                            <div class="dm-thread-subtitle">Choose someone from the sidebar or open a new direct or group chat.</div>
-                        </div>
-                    {% endif %}
-                </div>
+            <div class="dm-thread-header" id="dm-thread-header">
+                {% include '_messages_thread_header.html' %}
+            </div>
 
-                <div class="dm-thread-scroll" id="dm-thread-scroll">
-                    {% if message_rows %}
-                        {% for message in message_rows %}
-                            {% if message.day_divider %}
-                                <div class="dm-day-divider"><span>{{ message.day_divider }}</span></div>
-                            {% endif %}
-                            <div class="dm-message-row {% if message.outbound %}outbound{% else %}inbound{% endif %} message-item"
-                                 id="message-{{ message.id }}"
-                                 data-message-id="{{ message.id }}"
-                                 data-user-id="{{ message.sender_id }}">
-                                {% if not message.outbound %}
-                                    <div class="dm-message-avatar-wrap {% if not message.cluster_start %}spacer{% endif %}">
-                                        {% if message.cluster_start %}
-                                            {{ avatar_badge({'user_id': message.sender_id, 'display_name': message.sender_label, 'avatar_url': message.sender_avatar_url, 'origin_peer': message.sender_origin_peer}, '') }}
-                                        {% endif %}
-                                    </div>
-                                {% endif %}
-                                <div class="dm-message-main flex-grow-1">
-                                    {% if message.cluster_start %}
-                                        <div class="dm-message-meta">
-                                            <span class="dm-message-sender" data-user-display="{{ message.sender_id }}">{{ message.sender_label }}</span>
-                                            <span data-timestamp="{{ message.created_at }}">{{ message.created_at }}</span>
-                                        </div>
-                                    {% endif %}
-                                    <div class="dm-bubble-wrap">
-                                        <div class="dropdown dm-message-menu" data-message-actions="1">
-                                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
-                                                <i class="bi bi-three-dots"></i>
-                                            </button>
-                                            <ul class="dropdown-menu dropdown-menu-end">
-                                                <li><a class="dropdown-item" href="#" onclick="replyToMessage('{{ message.id }}', {{ message.sender_label|tojson }}, {{ (message.reply_preview.preview if message.reply_preview else message.content[:140])|tojson }}); return false;">
-                                                    <i class="bi bi-reply"></i> Reply
-                                                </a></li>
-                                                {% if message.outbound %}
-                                                    <li><a class="dropdown-item" href="#" onclick="editMessage('{{ message.id }}'); return false;">
-                                                        <i class="bi bi-pencil"></i> Edit
-                                                    </a></li>
-                                                    <li><a class="dropdown-item text-danger" href="#" onclick="deleteMessage('{{ message.id }}'); return false;">
-                                                        <i class="bi bi-trash"></i> Delete
-                                                    </a></li>
-                                                {% endif %}
-                                            </ul>
-                                        </div>
-                                        <div class="dm-bubble">
-                                            <div class="message-content" data-message-content="1">
-                                                {% if message.reply_preview %}
-                                                    <button type="button" class="dm-bubble-reply-preview" onclick="jumpToMessage('{{ message.reply_preview.id }}')">
-                                                        <strong>{{ message.reply_preview.sender_name }}</strong>
-                                                        <span>{{ message.reply_preview.preview }}</span>
-                                                    </button>
-                                                {% endif %}
-                                                {% if message.content %}
-                                                    <div class="dm-bubble-copy dm-message-text">{{ message.content }}</div>
-                                                {% endif %}
-                                                {% if message.attachments %}
-                                                    <div class="dm-attachment-list">
-                                                        {% for attachment in message.attachments %}
-                                                            {{ render_dm_attachment(attachment, message.id, loop.index0) }}
-                                                        {% endfor %}
-                                                    </div>
-                                                {% endif %}
-                                            </div>
-                                            <div class="dm-bubble-footer">
-                                                {% if message.edited_at %}
-                                                    <span title="Edited {{ message.edited_at }}">Edited</span>
-                                                {% endif %}
-                                                {% if message.cluster_end %}
-                                                    <span data-timestamp="{{ message.created_at }}">{{ message.created_at }}</span>
-                                                {% endif %}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                {% if message.outbound %}
-                                    <div class="dm-message-avatar-wrap {% if not message.cluster_start %}spacer{% endif %}">
-                                        {% if message.cluster_start %}
-                                            {{ avatar_badge({'user_id': message.sender_id, 'display_name': message.sender_label, 'avatar_url': message.sender_avatar_url, 'origin_peer': message.sender_origin_peer}, '') }}
-                                        {% endif %}
-                                    </div>
-                                {% endif %}
-                            </div>
-                        {% endfor %}
-                    {% else %}
-                        <div class="dm-empty-state">
-                            <div class="dm-empty-card">
-                                {% if active_thread %}
-                                    No messages in this conversation yet.
-                                {% else %}
-                                    No direct messages yet. Start by selecting recipients below.
-                                {% endif %}
-                            </div>
-                        </div>
-                    {% endif %}
+            <div class="dm-thread-scroll" id="dm-thread-scroll">
+                <div id="dm-thread-body">
+                    {% include '_messages_thread_body.html' %}
                 </div>
+                <button type="button" class="btn btn-primary btn-sm dm-thread-inline-notice" id="dm-new-messages-notice" style="display:none;" onclick="applyPendingDmSnapshot(true)">
+                    <i class="bi bi-arrow-down-circle"></i> New messages
+                </button>
+            </div>
 
+            {% if not search_query %}
                 <div class="dm-composer" id="dm-composer">
                     <div class="dm-composer-topline">
                         <div class="dm-composer-target">
@@ -1515,7 +1329,7 @@
 
                     <div class="dm-composer-actions">
                         <div class="dm-composer-actions-left">
-                            <input type="file" id="message-file-input" style="display:none;" multiple accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.tsv,.xlsx,.xlsm,.yaml,.yml,.xml,.zip,.tar,.gz,.tgz">
+                            <input type="file" id="message-file-input" style="display:none;" multiple accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.tsv,.xlsx,.xlsm,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.avi,.mkv,.mov,.webm">
                             <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('message-file-input').click()">
                                 <i class="bi bi-paperclip"></i> Add Files
                             </button>
@@ -1538,16 +1352,19 @@
 {% block extra_js %}
 <script>
     const CURRENT_USER_ID = {{ user_id|tojson }};
-    const ACTIVE_THREAD = {{ active_thread|tojson if active_thread else 'null' }};
-    const INITIAL_RECIPIENTS = {{ composer_recipients|tojson }};
+    const DM_BASE_MESSAGES_URL = {{ url_for('ui.messages')|tojson }};
+    let ACTIVE_THREAD = {{ active_thread|tojson if active_thread else 'null' }};
+    let INITIAL_RECIPIENTS = {{ composer_recipients|tojson }};
 
     let messageSelectedFiles = [];
     let recipientDirectory = [];
+    let recipientDirectoryPromise = null;
     let recipientDirectoryLoading = false;
     let recipientDirectoryFetchedAt = 0;
     const RECIPIENT_DIRECTORY_TTL_MS = 30000;
     let recipientMatches = [];
     let recipientActiveIndex = -1;
+    let recipientLookupSerial = 0;
     let selectedRecipients = Array.isArray(INITIAL_RECIPIENTS) ? [...INITIAL_RECIPIENTS] : [];
     let dmChannelCandidates = null;
     let dmChannelLoading = false;
@@ -1557,6 +1374,11 @@
     let activeReplyContext = null;
     let composerUsesActiveThread = !!ACTIVE_THREAD;
     const dmInlineEditStates = {};
+    let dmSnapshotSerial = 0;
+    let dmLastSidebarToken = {{ sidebar_state_token|tojson }};
+    let dmLastThreadToken = {{ thread_state_token|tojson }};
+    let pendingDmSnapshot = null;
+    let dmPollTimer = null;
 
     function matchesInitialRecipients() {
         const current = selectedRecipients.map(rec => rec.user_id).filter(Boolean).sort();
@@ -1565,8 +1387,198 @@
         return current.every((value, index) => value === baseline[index]);
     }
 
+    function getDmQueryUrl(targetUrl) {
+        if (targetUrl) {
+            return targetUrl;
+        }
+        if (ACTIVE_THREAD) {
+            if (ACTIVE_THREAD.kind === 'group' && ACTIVE_THREAD.canonical_group_key) {
+                return `${DM_BASE_MESSAGES_URL}?group=${encodeURIComponent(ACTIVE_THREAD.canonical_group_key)}`;
+            }
+            if (ACTIVE_THREAD.kind === 'direct' && ACTIVE_THREAD.user_id) {
+                return `${DM_BASE_MESSAGES_URL}?with=${encodeURIComponent(ACTIVE_THREAD.user_id)}`;
+            }
+        }
+        return window.location.pathname + window.location.search;
+    }
+
+    function getThreadScrollState() {
+        const scroller = document.getElementById('dm-thread-scroll');
+        if (!scroller) return null;
+        const distanceFromBottom = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
+        return {
+            top: scroller.scrollTop,
+            nearBottom: distanceFromBottom < 120,
+        };
+    }
+
+    function scrollThreadToBottom() {
+        const scroller = document.getElementById('dm-thread-scroll');
+        if (scroller) {
+            scroller.scrollTop = scroller.scrollHeight;
+        }
+    }
+
+    function restoreThreadScrollState(state, options) {
+        const scroller = document.getElementById('dm-thread-scroll');
+        if (!scroller) return;
+        const opts = options || {};
+        if (opts.forceBottom || !state || state.nearBottom) {
+            scrollThreadToBottom();
+            return;
+        }
+        scroller.scrollTop = state.top || 0;
+    }
+
+    function hidePendingDmSnapshotNotice() {
+        const notice = document.getElementById('dm-new-messages-notice');
+        if (notice) notice.style.display = 'none';
+    }
+
+    function showPendingDmSnapshotNotice() {
+        const notice = document.getElementById('dm-new-messages-notice');
+        if (notice) notice.style.display = 'inline-flex';
+    }
+
+    function applyPendingDmSnapshot(forceBottom) {
+        if (!pendingDmSnapshot) return;
+        const snapshot = pendingDmSnapshot;
+        pendingDmSnapshot = null;
+        applyDmSnapshot(snapshot, { forceBottom: !!forceBottom, pushHistory: false });
+        hidePendingDmSnapshotNotice();
+    }
+
+    function applyDmSnapshot(data, options) {
+        const opts = options || {};
+        if (!data || !data.success) return;
+        const previousScroll = getThreadScrollState();
+
+        const sidebar = document.getElementById('dm-sidebar-sections');
+        if (sidebar && typeof data.sidebar_html === 'string') {
+            sidebar.innerHTML = data.sidebar_html;
+        }
+
+        const header = document.getElementById('dm-thread-header');
+        if (header && typeof data.thread_header_html === 'string') {
+            header.innerHTML = data.thread_header_html;
+        }
+
+        const body = document.getElementById('dm-thread-body');
+        if (body && typeof data.thread_body_html === 'string') {
+            body.innerHTML = data.thread_body_html;
+        }
+
+        ACTIVE_THREAD = data.active_thread || null;
+        INITIAL_RECIPIENTS = Array.isArray(data.composer_recipients) ? data.composer_recipients : [];
+        dmLastSidebarToken = data.sidebar_state_token || '';
+        dmLastThreadToken = data.thread_state_token || '';
+
+        if (composerUsesActiveThread) {
+            selectedRecipients = Array.isArray(INITIAL_RECIPIENTS) ? [...INITIAL_RECIPIENTS] : [];
+            updateRecipientChips();
+        }
+
+        updateComposerTarget();
+        applyDmRichContent();
+        restoreThreadScrollState(previousScroll, opts);
+
+        if (opts.pushHistory && typeof opts.targetUrl === 'string' && opts.targetUrl) {
+            window.history.replaceState({}, '', opts.targetUrl);
+        }
+
+        if (typeof formatTimestamps === 'function') {
+            formatTimestamps();
+        }
+        startDmPolling();
+    }
+
+    function loadDmSnapshot(options) {
+        const opts = options || {};
+        if (window.location.search.includes('search=')) {
+            if (opts.hardFallback) window.location.reload();
+            return Promise.resolve(null);
+        }
+
+        const targetUrl = getDmQueryUrl(opts.targetUrl);
+        const url = new URL(targetUrl, window.location.origin);
+        url.searchParams.delete('partial');
+        const serial = ++dmSnapshotSerial;
+
+        return fetch(`/ajax/messages/thread_snapshot${url.search || ''}`, {
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (serial !== dmSnapshotSerial || !data || !data.success) {
+                    return data || null;
+                }
+
+                const threadChanged = (data.thread_state_token || '') !== (dmLastThreadToken || '');
+                const sidebarChanged = (data.sidebar_state_token || '') !== (dmLastSidebarToken || '');
+                if (!threadChanged && !sidebarChanged) {
+                    return data;
+                }
+
+                if (!opts.allowDeferred || !threadChanged) {
+                    applyDmSnapshot(data, opts);
+                    hidePendingDmSnapshotNotice();
+                    pendingDmSnapshot = null;
+                    return data;
+                }
+
+                const scrollState = getThreadScrollState();
+                if (scrollState && scrollState.nearBottom) {
+                    applyDmSnapshot(data, opts);
+                    hidePendingDmSnapshotNotice();
+                    pendingDmSnapshot = null;
+                    return data;
+                }
+
+                pendingDmSnapshot = data;
+                if (sidebarChanged) {
+                    const sidebar = document.getElementById('dm-sidebar-sections');
+                    if (sidebar && typeof data.sidebar_html === 'string') {
+                        sidebar.innerHTML = data.sidebar_html;
+                    }
+                    dmLastSidebarToken = data.sidebar_state_token || dmLastSidebarToken;
+                }
+                showPendingDmSnapshotNotice();
+                return data;
+            })
+            .catch((error) => {
+                if (opts.hardFallback) {
+                    window.location.reload();
+                }
+                return Promise.reject(error);
+            });
+    }
+
+    function stopDmPolling() {
+        if (dmPollTimer) {
+            window.clearInterval(dmPollTimer);
+            dmPollTimer = null;
+        }
+    }
+
+    function startDmPolling() {
+        stopDmPolling();
+        if (!ACTIVE_THREAD || window.location.search.includes('search=')) {
+            return;
+        }
+        dmPollTimer = window.setInterval(() => {
+            if (document.hidden) return;
+            loadDmSnapshot({
+                allowDeferred: true,
+                forceBottom: false,
+                hardFallback: false,
+            }).catch(() => {});
+        }, 4000);
+    }
+
     function refreshMessages() {
-        window.location.reload();
+        loadDmSnapshot({ forceBottom: false, allowDeferred: false, hardFallback: true }).catch(() => {});
     }
 
     function searchMessages() {
@@ -1600,7 +1612,10 @@
         if (shouldOpen) {
             composerUsesActiveThread = false;
             const input = document.getElementById('messageRecipient');
-            if (input) input.focus();
+            if (input) {
+                input.focus();
+                updateRecipientSuggestions(normalizeRecipientInput(input.value || ''), { silentEmpty: false });
+            }
         } else if (ACTIVE_THREAD && matchesInitialRecipients()) {
             composerUsesActiveThread = true;
         }
@@ -1666,15 +1681,56 @@
         if (lowerType.includes('pdf')) return 'file-pdf';
         if (lowerType.includes('json')) return 'filetype-json';
         if (lowerType.includes('spreadsheet') || lowerType.includes('excel') || String(name || '').toLowerCase().match(/\.(csv|tsv|xlsx|xlsm)$/)) return 'file-earmark-spreadsheet';
-        if (String(name || '').toLowerCase().match(/\.(zip|tar|gz|tgz)$/)) return 'file-zip';
+        if (lowerType.includes('zip') || lowerType.includes('tar') || lowerType.includes('compressed') || lowerType.includes('archive')) return 'file-zip';
         if (lowerType.startsWith('text/')) return 'file-text';
+        if (name) {
+            const lower = name.toLowerCase();
+            if (lower.endsWith('.pdf')) return 'file-pdf';
+            if (lower.endsWith('.md')) return 'filetype-md';
+            if (lower.endsWith('.json')) return 'filetype-json';
+            if (lower.endsWith('.py')) return 'filetype-py';
+            if (lower.endsWith('.js')) return 'filetype-js';
+            if (lower.endsWith('.ts')) return 'filetype-tsx';
+            if (lower.endsWith('.xml') || lower.endsWith('.html')) return 'filetype-xml';
+            if (lower.endsWith('.csv')) return 'filetype-csv';
+            if (lower.endsWith('.tsv') || lower.endsWith('.xlsx') || lower.endsWith('.xlsm')) return 'file-earmark-spreadsheet';
+            if (lower.endsWith('.txt') || lower.endsWith('.log') || lower.endsWith('.tex')) return 'file-text';
+            if (lower.endsWith('.yaml') || lower.endsWith('.yml') || lower.endsWith('.toml') || lower.endsWith('.ini') || lower.endsWith('.cfg') || lower.endsWith('.css') || lower.endsWith('.sh') || lower.endsWith('.bat')) return 'file-code';
+            if (lower.match(/\.(zip|tar|gz|tgz|bz2|tbz2|xz|7z|rar)$/)) return 'file-zip';
+        }
         return 'file-earmark';
     }
 
     function addMessageFiles(files) {
         const maxSize = 100 * 1024 * 1024;
-        const allowedMimeTypes = ['image/', 'video/', 'audio/', 'application/pdf', 'text/', 'application/msword', 'application/json', 'application/xml', 'application/x-yaml', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel.sheet.macroenabled.12', 'application/javascript', 'application/typescript', 'application/octet-stream', 'application/zip', 'application/x-tar'];
-        const allowedExtensions = ['.md', '.txt', '.tex', '.json', '.py', '.js', '.ts', '.log', '.csv', '.tsv', '.xlsx', '.xlsm', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat', '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx', '.zip', '.tar', '.gz', '.tgz'];
+        const allowedMimeTypes = [
+            'image/',
+            'video/',
+            'audio/',
+            'application/pdf',
+            'text/',
+            'application/msword',
+            'application/json',
+            'application/xml',
+            'application/x-yaml',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-excel.sheet.macroenabled.12',
+            'application/javascript',
+            'application/typescript',
+            'application/octet-stream',
+            'application/zip',
+            'application/x-tar',
+            'application/x-7z-compressed',
+            'application/x-rar-compressed'
+        ];
+        const allowedExtensions = [
+            '.md', '.txt', '.tex', '.json', '.py', '.js', '.ts', '.log',
+            '.csv', '.tsv', '.xlsx', '.xlsm',
+            '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat', '.cfg', '.ini', '.toml',
+            '.pdf', '.doc', '.docx',
+            '.zip', '.tar', '.gz', '.tgz', '.bz2', '.tbz2', '.xz', '.7z', '.rar',
+            '.mp3', '.mp4', '.avi', '.mkv', '.mov', '.webm'
+        ];
 
         files.forEach(file => {
             if (file.size > maxSize) {
@@ -1730,33 +1786,108 @@
         updateMessageFilePreview();
     }
 
+    function setupMessagePasteHandler() {
+        const messageInput = document.getElementById('messageContent');
+        if (messageInput) {
+            messageInput.addEventListener('paste', handleMessagePaste);
+        }
+
+        const threadPane = document.querySelector('.dm-thread-pane');
+        if (threadPane) {
+            threadPane.addEventListener('paste', handleMessagePaste);
+        }
+    }
+
+    function handleMessagePaste(e) {
+        const items = e.clipboardData?.items;
+        if (!items) return;
+
+        let hasImage = false;
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            if (item.type.indexOf('image') !== -1) {
+                hasImage = true;
+                const file = item.getAsFile();
+                if (file) {
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                    const newFile = new File([file], `pasted-image-${timestamp}.png`, { type: file.type });
+                    addMessageFiles([newFile]);
+                    showAlert('Image pasted successfully!', 'success');
+                }
+                break;
+            }
+        }
+
+        if (hasImage) {
+            e.preventDefault();
+        }
+    }
+
     function normalizeRecipientInput(value) {
         if (!value) return '';
         return value.trim().replace(/^@/, '');
     }
 
+    function mergeRecipientDirectory(users) {
+        if (!Array.isArray(users) || !users.length) return recipientDirectory;
+        const merged = new Map();
+        (Array.isArray(recipientDirectory) ? recipientDirectory : []).forEach((entry) => {
+            if (entry && entry.user_id) merged.set(entry.user_id, entry);
+        });
+        users.forEach((entry) => {
+            if (entry && entry.user_id) merged.set(entry.user_id, entry);
+        });
+        recipientDirectory = Array.from(merged.values());
+        recipientDirectoryFetchedAt = Date.now();
+        return recipientDirectory;
+    }
+
+    function renderRecipientSuggestionState(text) {
+        const dropdown = document.getElementById('recipient-suggestions');
+        if (!dropdown) return;
+        dropdown.innerHTML = `<div class="recipient-suggestion-state">${escapeHtml(text)}</div>`;
+        showRecipientSuggestions(true);
+    }
+
     function fetchRecipientDirectory(options) {
-        const forceRefresh = !!(options && options.forceRefresh);
+        const opts = options || {};
+        const forceRefresh = !!opts.forceRefresh;
+        const query = normalizeRecipientInput(opts.query || '');
+        const limit = opts.limit || 20;
         const isFresh = recipientDirectoryFetchedAt > 0 && (Date.now() - recipientDirectoryFetchedAt) < RECIPIENT_DIRECTORY_TTL_MS;
-        if (!forceRefresh && Array.isArray(recipientDirectory) && recipientDirectory.length && isFresh) {
+        if (!query && !forceRefresh && Array.isArray(recipientDirectory) && recipientDirectory.length && isFresh) {
             return Promise.resolve(recipientDirectory);
         }
-        if (recipientDirectoryLoading) return Promise.resolve(recipientDirectory);
+        if (!query && recipientDirectoryLoading && recipientDirectoryPromise) {
+            return recipientDirectoryPromise;
+        }
+
         recipientDirectoryLoading = true;
-        return fetch('/ajax/mention_suggestions')
+        const params = new URLSearchParams();
+        params.set('limit', String(limit));
+        if (query) params.set('q', query);
+        recipientDirectoryPromise = fetch(`/ajax/mention_suggestions?${params.toString()}`, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })
             .then(res => res.json())
             .then(data => {
-                recipientDirectory = data && Array.isArray(data.users) ? data.users : [];
+                const users = data && Array.isArray(data.users) ? data.users : [];
+                if (query) {
+                    mergeRecipientDirectory(users);
+                    return users;
+                }
+                recipientDirectory = users;
                 recipientDirectoryFetchedAt = Date.now();
-                recipientDirectoryLoading = false;
                 return recipientDirectory;
             })
             .catch(() => {
-                recipientDirectory = Array.isArray(recipientDirectory) ? recipientDirectory : [];
-                recipientDirectoryFetchedAt = Date.now();
+                return query ? [] : (Array.isArray(recipientDirectory) ? recipientDirectory : []);
+            })
+            .finally(() => {
                 recipientDirectoryLoading = false;
-                return recipientDirectory;
+                recipientDirectoryPromise = null;
             });
+        return recipientDirectoryPromise;
     }
 
     function isRecipientSelected(userId) {
@@ -1886,13 +2017,35 @@
     function updateRecipientSuggestions(query, options) {
         const opts = options || {};
         const term = query.trim();
-        recipientMatches = term
+        const localMatches = term
             ? filterRecipientMatches(term)
             : recipientDirectory.filter(rec => rec.user_id && !isRecipientSelected(rec.user_id)).slice(0, 8);
+        recipientMatches = localMatches;
         recipientActiveIndex = recipientMatches.length ? 0 : -1;
-        renderRecipientSuggestions();
-        if (!opts.skipRefresh && term && !recipientMatches.length) {
-            fetchRecipientDirectory({ forceRefresh: true }).then(() => updateRecipientSuggestions(term, { skipRefresh: true }));
+        if (recipientMatches.length) {
+            renderRecipientSuggestions();
+        } else if (!opts.silentEmpty) {
+            renderRecipientSuggestionState(term ? 'Searching people…' : 'Loading people…');
+        }
+        if (!opts.skipRefresh) {
+            const lookupSerial = ++recipientLookupSerial;
+            fetchRecipientDirectory({
+                forceRefresh: !recipientDirectory.length,
+                query: term,
+                limit: term ? 8 : 12,
+            }).then((matches) => {
+                if (lookupSerial !== recipientLookupSerial) return;
+                const serverMatches = Array.isArray(matches)
+                    ? matches.filter(rec => rec && rec.user_id && !isRecipientSelected(rec.user_id)).slice(0, 8)
+                    : [];
+                recipientMatches = serverMatches.length ? serverMatches : localMatches;
+                recipientActiveIndex = recipientMatches.length ? 0 : -1;
+                if (recipientMatches.length) {
+                    renderRecipientSuggestions();
+                } else {
+                    renderRecipientSuggestionState(term ? 'No matching users found yet.' : 'No users available.');
+                }
+            });
         }
     }
 
@@ -1974,13 +2127,16 @@
             updateRecipientSuggestions(normalizeRecipientInput(e.target.value));
         });
         input.addEventListener('focus', (e) => {
-            fetchRecipientDirectory().then(() => updateRecipientSuggestions(normalizeRecipientInput(e.target.value || '')));
+            updateRecipientSuggestions(normalizeRecipientInput(e.target.value || ''), { silentEmpty: false });
+        });
+        input.addEventListener('click', () => {
+            updateRecipientSuggestions(normalizeRecipientInput(input.value || ''), { silentEmpty: false });
         });
         input.addEventListener('keydown', handleRecipientKeydown);
         document.addEventListener('click', (e) => {
             if (!wrapper.contains(e.target)) showRecipientSuggestions(false);
         });
-        fetchRecipientDirectory().then(() => updateRecipientSuggestions(''));
+        fetchRecipientDirectory().then(() => updateRecipientSuggestions('', { skipRefresh: true, silentEmpty: true }));
     }
 
     function getDmChannelContext(textarea) {
@@ -2172,7 +2328,20 @@
         })
         .then((data) => {
             const targetUrl = getThreadHrefForRecipients(recipients, data || {});
-            window.location.href = targetUrl;
+            if (textarea) textarea.value = '';
+            messageSelectedFiles = [];
+            updateMessageFilePreview();
+            clearReplyContext();
+            composerUsesActiveThread = true;
+            loadDmSnapshot({
+                targetUrl,
+                pushHistory: true,
+                forceBottom: true,
+                allowDeferred: false,
+                hardFallback: true,
+            }).catch(() => {
+                window.location.href = targetUrl;
+            });
         })
         .catch(error => {
             showAlert(error.error || 'Failed to send message', 'danger');
@@ -2235,9 +2404,17 @@
         })
         .then(data => {
             if (data.success) {
-                const msgEl = document.querySelector(`[data-message-id="${messageId}"]`);
-                if (msgEl) msgEl.remove();
-                showAlert('Message deleted', 'success');
+                loadDmSnapshot({
+                    forceBottom: false,
+                    allowDeferred: false,
+                    hardFallback: true,
+                }).then(() => {
+                    showAlert('Message deleted', 'success');
+                }).catch(() => {
+                    const msgEl = document.querySelector(`[data-message-id="${messageId}"]`);
+                    if (msgEl) msgEl.remove();
+                    showAlert('Message deleted', 'success');
+                });
             } else {
                 showAlert(data.error || 'Failed to delete', 'danger');
             }
@@ -2363,7 +2540,11 @@
                 showAlert((data && data.error) || 'Failed to update message', 'danger');
                 return;
             }
-            window.location.reload();
+            loadDmSnapshot({
+                forceBottom: false,
+                allowDeferred: false,
+                hardFallback: true,
+            }).catch(err => showAlert('Failed to refresh message thread: ' + (err.message || err), 'danger'));
         })
         .catch(err => showAlert('Failed to update message: ' + (err.message || err), 'danger'));
     }
@@ -2402,6 +2583,7 @@
         updateRecipientChips();
         updateComposerTarget();
         setupMessageFileUpload();
+        setupMessagePasteHandler();
         setupRecipientPicker();
         applyDmRichContent();
 
@@ -2445,6 +2627,20 @@
                 }
             });
         }
+
+        if (!window.location.hash && ACTIVE_THREAD) {
+            scrollThreadToBottom();
+        }
+        startDmPolling();
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                loadDmSnapshot({
+                    allowDeferred: true,
+                    forceBottom: false,
+                    hardFallback: false,
+                }).catch(() => {});
+            }
+        });
     });
 </script>
 {% endblock %}
