@@ -18,6 +18,13 @@ assert(spec, 'expected sheet spec');
 const evaluated = engine.evaluateInlineSheetSpec(spec);
 assert.strictEqual(evaluated.title, 'Budget Ops');
 assert.strictEqual(evaluated.width, 6);
+const layout = engine.buildColumnLayout(spec, evaluated);
+assert.strictEqual(layout.length, 6);
+assert(layout[1].kind === 'number', 'Qty column should compact as numeric');
+assert(layout[2].kind === 'number', 'Price column should compact as numeric');
+assert(layout[1].chars <= 12, 'numeric columns should stay compact');
+assert(layout[0].wrap === false, 'short text label column should not wrap');
+assert(layout[4].chars >= layout[1].chars, 'status text column should not be narrower than numeric columns');
 assert.strictEqual(
     engine.serializeInlineSheetSpec(spec),
     source

@@ -4394,6 +4394,13 @@
             padding: 14px 16px 16px;
         }
 
+        .canopy-inline-sheet .table-responsive,
+        .file-preview-container.spreadsheet-preview .table-responsive {
+            overflow-x: auto;
+            overflow-y: hidden;
+            -webkit-overflow-scrolling: touch;
+        }
+
         .canopy-inline-sheet-editor-note,
         .canopy-inline-sheet-preview-label {
             display: flex;
@@ -4412,7 +4419,7 @@
 
         .canopy-sheet-edit-table th,
         .canopy-sheet-edit-table td {
-            min-width: 140px;
+            min-width: 0;
             white-space: normal;
         }
 
@@ -4468,6 +4475,9 @@
             margin-bottom: 0;
             border-collapse: separate;
             border-spacing: 0;
+            width: max-content;
+            min-width: 100%;
+            table-layout: fixed;
         }
 
         .canopy-sheet-table thead th {
@@ -4480,23 +4490,61 @@
 
         .canopy-sheet-table th,
         .canopy-sheet-table td {
-            min-width: 96px;
+            min-width: 0;
             vertical-align: middle;
-            white-space: nowrap;
+            white-space: normal;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            line-height: 1.28;
             border-color: rgba(148, 163, 184, 0.16);
             background: rgba(15, 23, 42, 0.3);
+            padding: 0.5rem 0.6rem;
         }
 
         .canopy-sheet-table .sheet-row-label {
             min-width: 48px;
+            width: 48px;
             text-align: center;
             color: rgba(148, 163, 184, 0.95);
             background: rgba(15, 23, 42, 0.72);
+            white-space: nowrap;
         }
 
         .canopy-sheet-table .sheet-cell-number {
             text-align: right;
             font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+            overflow-wrap: normal;
+            word-break: normal;
+        }
+
+        .canopy-sheet-table .canopy-sheet-cell-wrap,
+        .canopy-sheet-table .canopy-sheet-header-wrap {
+            white-space: normal;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
+
+        .canopy-sheet-table .canopy-sheet-cell-compact,
+        .canopy-sheet-table .canopy-sheet-header-number {
+            white-space: nowrap;
+        }
+
+        .canopy-sheet-table .canopy-sheet-header-cell {
+            font-size: 0.78rem;
+            line-height: 1.2;
+        }
+
+        .canopy-sheet-col-row-label {
+            width: 48px;
+        }
+
+        .canopy-sheet-col-number {
+            min-width: 7ch;
+        }
+
+        .canopy-sheet-col-text {
+            min-width: 8ch;
         }
 
         .canopy-sheet-table tbody tr:hover td {
@@ -4569,7 +4617,20 @@
             .canopy-sheet-edit-table td,
             .canopy-sheet-table th,
             .canopy-sheet-table td {
-                min-width: 112px;
+                padding: 0.42rem 0.48rem;
+            }
+
+            .canopy-sheet-table {
+                font-size: 0.81rem;
+            }
+
+            .canopy-sheet-table .sheet-row-label {
+                min-width: 40px;
+                width: 40px;
+            }
+
+            .canopy-sheet-table .canopy-sheet-header-cell {
+                font-size: 0.72rem;
             }
         }
     </style>

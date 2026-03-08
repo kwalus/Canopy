@@ -268,6 +268,66 @@
         throw new Error('Unsupported comparator ' + operator);
     }
 
+    function displayLength(value) {
+        const text = String(value == null ? '' : value).trim();
+        let length = 0;
+        for (let i = 0; i < text.length; i += 1) {
+            length += text.charCodeAt(i) > 255 ? 2 : 1;
+        }
+        return length;
+    }
+
+    function percentile(values, ratio) {
+        if (!values || !values.length) return 0;
+        const sorted = values.slice().sort(function(a, b) { return a - b; });
+        const index = Math.max(0, Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * ratio)));
+        return sorted[index];
+    }
+
+    function buildColumnLayout(spec, evaluated, options) {
+        const config = options || {};
+        const width = Math.max(0, Number((evaluated && evaluated.width) || 0));
+        const hasColumns = !!(spec && Array.isArray(spec.columns) && spec.columns.length);
+        const evaluatedRows = Array.isArray(evaluated && evaluated.rows) ? evaluated.rows : [];
+        const visibleRows = hasColumns ? evaluatedRows.slice(1) : evaluatedRows.slice();
+        const headerLabels = Array.isArray(spec && spec.columns) ? spec.columns.slice() : [];
+
+        return Array.from({ length: width }, function(_, index) {
+            const headerText = String(headerLabels[index] == null ? '' : headerLabels[index]).trim();
+            const cellEntries = visibleRows.map(function(row) {
+                return row && row[index] ? row[index] : { display: '', kind: 'empty' };
+            });
+            const lengths = [];
+            if (headerText) lengths.push(displayLength(headerText));
+            cellEntries.forEach(function(cell) {
+                lengths.push(displayLength(cell && cell.display ? cell.display : ''));
+            });
+
+            const numericCount = cellEntries.filter(function(cell) {
+                return cell && cell.kind === 'number';
+            }).length;
+            const nonEmptyCount = cellEntries.filter(function(cell) {
+                return displayLength(cell && cell.display ? cell.display : '') > 0;
+            }).length;
+            const isMostlyNumeric = nonEmptyCount > 0 && numericCount >= Math.max(1, Math.ceil(nonEmptyCount * 0.6));
+
+            const maxLength = lengths.length ? Math.max.apply(null, lengths) : 0;
+            const softLength = lengths.length ? Math.max(displayLength(headerText), percentile(lengths, 0.8)) : displayLength(headerText);
+            const minChars = isMostlyNumeric ? 7 : 8;
+            const maxChars = isMostlyNumeric ? 12 : 22;
+            let chars = Math.max(minChars, Math.min(maxChars, softLength + (isMostlyNumeric ? 1 : 2)));
+            if (!lengths.length) chars = minChars;
+
+            return {
+                index: index,
+                kind: isMostlyNumeric ? 'number' : 'text',
+                chars: chars,
+                wrap: !isMostlyNumeric && maxLength > chars,
+                maxLength: maxLength,
+            };
+        });
+    }
+
     function callFunction(name, args) {
         const upper = String(name || '').toUpperCase();
         const numbers = numericValues(args);
@@ -561,6 +621,7 @@
         buildInlineSheetMatrix: buildInlineSheetMatrix,
         cellRefToIndex: cellRefToIndex,
         columnLabel: columnLabel,
+        buildColumnLayout: buildColumnLayout,
         evaluateInlineSheetSpec: evaluateInlineSheetSpec,
         formatNumber: formatNumber,
         parseInlineSheetRows: parseInlineSheetRows,

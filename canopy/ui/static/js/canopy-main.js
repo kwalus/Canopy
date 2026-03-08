@@ -877,29 +877,49 @@
             function canopyRenderInlineSheetTable(evaluated, options) {
                 const hasColumns = !!(options && options.hasColumns);
                 const headerLabels = Array.isArray(options && options.headerLabels) ? options.headerLabels : null;
+                const layout = Array.isArray(options && options.columnLayout) ? options.columnLayout : [];
                 const width = Number((evaluated && evaluated.width) || 0);
+                const colgroup = Array.from({ length: width + 1 }, function(_, index) {
+                    if (index === 0) {
+                        return '<col class="canopy-sheet-col-row-label">';
+                    }
+                    const column = layout[index - 1] || {};
+                    const chars = Math.max(6, Math.min(24, Number(column.chars) || 9));
+                    const kind = column.kind === 'number' ? 'number' : 'text';
+                    const wrap = column.wrap ? ' canopy-sheet-col-wrap' : '';
+                    return `<col class="canopy-sheet-col canopy-sheet-col-${kind}${wrap}" style="width:${chars}ch;">`;
+                }).join('');
                 const headerHtml = Array.from({ length: width }, function(_, index) {
                     const label = headerLabels && typeof headerLabels[index] !== 'undefined' && String(headerLabels[index] || '').trim()
                         ? String(headerLabels[index] || '').trim()
                         : canopySpreadsheetColumnLabel(index);
-                    return `<th scope="col">${_escapeHtml(label)}</th>`;
+                    const column = layout[index] || {};
+                    const klass = ['canopy-sheet-header-cell'];
+                    klass.push(column.kind === 'number' ? 'canopy-sheet-header-number' : 'canopy-sheet-header-text');
+                    if (column.wrap) klass.push('canopy-sheet-header-wrap');
+                    return `<th scope="col" class="${klass.join(' ')}">${_escapeHtml(label)}</th>`;
                 }).join('');
                 const rawRows = (evaluated && evaluated.rows ? evaluated.rows : []);
                 const visibleRows = hasColumns ? rawRows.slice(1) : rawRows;
                 const rowNumberOffset = hasColumns ? 2 : 1;
                 const bodyRows = visibleRows.map(function(row, rowIndex) {
-                    const cells = row.map(function(resolved) {
+                    const cells = row.map(function(resolved, colIndex) {
                         const title = resolved && resolved.formula
                             ? ` title="${_escapeHtml(resolved.formula).replace(/"/g, '&quot;')}"`
                             : '';
-                        const klass = resolved && resolved.kind === 'number' ? 'sheet-cell-number' : '';
-                        return `<td class="${klass}"${title}>${_escapeHtml(resolved && resolved.display ? resolved.display : '') || '&nbsp;'}</td>`;
+                        const column = layout[colIndex];
+                        const klass = [];
+                        if (resolved && resolved.kind === 'number') klass.push('sheet-cell-number');
+                        if (column && column.wrap) klass.push('canopy-sheet-cell-wrap');
+                        if (column && column.kind === 'number') klass.push('canopy-sheet-cell-compact');
+                        return `<td class="${klass.join(' ')}"${title}>${_escapeHtml(resolved && resolved.display ? resolved.display : '') || '&nbsp;'}</td>`;
                     }).join('');
                     return `<tr><th scope="row" class="sheet-row-label">${rowIndex + rowNumberOffset}</th>${cells}</tr>`;
                 }).join('');
                 return `
                     <div class="table-responsive">
                         <table class="table table-sm canopy-sheet-table mb-0">
+                            <colgroup>${colgroup}</colgroup>
                             <thead><tr><th scope="col" class="sheet-row-label"></th>${headerHtml}</tr></thead>
                             <tbody>${bodyRows || '<tr><td class="text-muted small" colspan="2">No data rows.</td></tr>'}</tbody>
                         </table>
@@ -915,6 +935,9 @@
                 if (!evaluated) {
                     return '<div class="small text-muted">Preview unavailable.</div>';
                 }
+                const columnLayout = engine && typeof engine.buildColumnLayout === 'function'
+                    ? engine.buildColumnLayout(spec, evaluated)
+                    : [];
                 return `
                     <div class="canopy-inline-sheet-preview-label">
                         <span>Live preview</span>
@@ -922,7 +945,8 @@
                     </div>
                     ${canopyRenderInlineSheetTable(evaluated, {
                         hasColumns: !!(spec && Array.isArray(spec.columns) && spec.columns.length),
-                        headerLabels: spec && Array.isArray(spec.columns) ? spec.columns : null
+                        headerLabels: spec && Array.isArray(spec.columns) ? spec.columns : null,
+                        columnLayout: columnLayout
                     })}
                 `;
             }
@@ -930,6 +954,10 @@
             function canopyRenderInlineSheetView(spec, evaluated, body, language, occurrenceIndex) {
                 const safeSource = _escapeHtml(canopyEncodeSheetSource(body));
                 const title = _escapeHtml(spec.title || 'Inline sheet');
+                const engine = canopyGetSheetEngine();
+                const columnLayout = engine && typeof engine.buildColumnLayout === 'function'
+                    ? engine.buildColumnLayout(spec, evaluated)
+                    : [];
                 return `
                     <div class="canopy-inline-sheet"
                          data-inline-sheet="1"
@@ -959,7 +987,8 @@
                             <div class="canopy-inline-sheet-body">
                                 ${canopyRenderInlineSheetTable(evaluated, {
                                     hasColumns: !!(spec && Array.isArray(spec.columns) && spec.columns.length),
-                                    headerLabels: spec && Array.isArray(spec.columns) ? spec.columns : null
+                                    headerLabels: spec && Array.isArray(spec.columns) ? spec.columns : null,
+                                    columnLayout: columnLayout
                                 })}
                             </div>
                         </div>
@@ -975,8 +1004,20 @@
                 const evaluated = engine && typeof engine.evaluateInlineSheetSpec === 'function'
                     ? engine.evaluateInlineSheetSpec(spec)
                     : null;
+                const columnLayout = engine && typeof engine.buildColumnLayout === 'function' && evaluated
+                    ? engine.buildColumnLayout(spec, evaluated, { editable: true })
+                    : [];
                 const safeSource = _escapeHtml(canopyEncodeSheetSource(body));
                 const titleValue = _escapeHtml(spec.title || '');
+                const colgroup = [
+                    '<col class="canopy-sheet-col-row-label">',
+                    ...columns.map(function(_, index) {
+                        const column = columnLayout[index] || {};
+                        const chars = Math.max(8, Math.min(24, Number(column.chars) || 10));
+                        const kind = column.kind === 'number' ? 'number' : 'text';
+                        return `<col class="canopy-sheet-col canopy-sheet-col-${kind}" style="width:${chars}ch;">`;
+                    })
+                ].join('');
                 const headerCells = columns.map(function(value, index) {
                     return `
                         <th scope="col">
@@ -1071,6 +1112,7 @@
                             </div>
                             <div class="canopy-inline-sheet-editor-grid table-responsive">
                                 <table class="table table-sm canopy-sheet-table canopy-sheet-edit-table mb-0">
+                                    <colgroup>${colgroup}</colgroup>
                                     <thead>
                                         <tr>
                                             <th scope="col" class="sheet-row-label"></th>
