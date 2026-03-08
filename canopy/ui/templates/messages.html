@@ -420,6 +420,7 @@
         flex-direction: column;
         gap: 0.9rem;
         background: radial-gradient(circle at top, rgba(31, 66, 112, 0.18), transparent 45%), linear-gradient(180deg, rgba(13, 23, 39, 0.9), rgba(9, 17, 30, 0.94));
+        isolation: isolate;
     }
 
     .dm-day-divider {
@@ -443,10 +444,17 @@
         display: flex;
         align-items: flex-end;
         gap: 0.65rem;
+        position: relative;
+        z-index: 0;
     }
 
     .dm-message-row.outbound {
         justify-content: flex-end;
+    }
+
+    .dm-message-row.dropdown-open,
+    .dm-message-row.editing {
+        z-index: 24;
     }
 
     .dm-message-avatar-wrap {
@@ -500,6 +508,50 @@
     .dm-message-menu {
         opacity: 0;
         transition: opacity 0.16s ease;
+        position: relative;
+        z-index: 3;
+    }
+
+    .dm-message-menu .dropdown-toggle {
+        padding: 0.32rem 0.5rem;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.04);
+        border-color: rgba(255, 255, 255, 0.08);
+    }
+
+    .dm-message-menu .dropdown-toggle:hover,
+    .dm-message-menu .dropdown-toggle:focus {
+        background: rgba(110, 148, 255, 0.12);
+        border-color: rgba(110, 148, 255, 0.22);
+    }
+
+    .dm-message-menu .dropdown-menu {
+        min-width: 11rem;
+        padding: 0.38rem;
+        border-radius: 16px;
+        border: 1px solid rgba(110, 148, 255, 0.18);
+        background: rgba(10, 19, 34, 0.98);
+        box-shadow: 0 18px 36px rgba(3, 10, 22, 0.38);
+        z-index: 1085;
+    }
+
+    .dm-message-menu .dropdown-item {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+        padding: 0.55rem 0.72rem;
+        border-radius: 12px;
+        color: var(--canopy-text-primary);
+    }
+
+    .dm-message-menu .dropdown-item:hover,
+    .dm-message-menu .dropdown-item:focus {
+        background: rgba(110, 148, 255, 0.12);
+        color: var(--canopy-text-primary);
+    }
+
+    .dm-message-menu.dropup .dropdown-menu {
+        margin-bottom: 0.4rem;
     }
 
     .dm-message-row:hover .dm-message-menu,
@@ -866,6 +918,13 @@
         border-radius: 16px;
         border: 1px solid rgba(110, 148, 255, 0.18);
         background: rgba(9, 18, 31, 0.88);
+        box-shadow: 0 14px 28px rgba(3, 10, 22, 0.24);
+    }
+
+    .dm-inline-editor .form-control {
+        min-height: 112px;
+        border-radius: 14px;
+        padding: 0.8rem 0.9rem;
     }
 
     .dm-inline-toolbar {
@@ -2235,6 +2294,7 @@
         const actionsWrap = msgEl.querySelector('[data-message-actions]');
         if (contentWrap) contentWrap.classList.add('d-none');
         if (actionsWrap) actionsWrap.classList.add('d-none');
+        msgEl.classList.add('editing');
 
         const panel = document.createElement('div');
         panel.className = 'dm-inline-editor';
@@ -2275,6 +2335,7 @@
         if (!msgEl) return;
         const panel = msgEl.querySelector(`.dm-inline-editor[data-inline-dm-for="${messageId}"]`);
         if (panel) panel.remove();
+        msgEl.classList.remove('editing');
         const contentWrap = msgEl.querySelector('[data-message-content]');
         const actionsWrap = msgEl.querySelector('[data-message-actions]');
         if (contentWrap) contentWrap.classList.remove('d-none');
@@ -2313,6 +2374,30 @@
         return div.innerHTML;
     }
 
+    function resolveDmDropdownElement(target) {
+        if (!(target instanceof Element)) return null;
+        if (target.classList.contains('dm-message-menu')) return target;
+        return target.closest('.dm-message-menu');
+    }
+
+    function updateDmDropdownDirection(dropdown) {
+        if (!(dropdown instanceof Element)) return;
+        dropdown.classList.remove('dropup');
+        const scroller = document.getElementById('dm-thread-scroll');
+        const toggle = dropdown.querySelector('[data-bs-toggle="dropdown"]');
+        const menu = dropdown.querySelector('.dropdown-menu');
+        if (!scroller || !toggle || !menu) return;
+
+        const scrollerRect = scroller.getBoundingClientRect();
+        const toggleRect = toggle.getBoundingClientRect();
+        const menuHeight = Math.max(menu.scrollHeight || 0, menu.offsetHeight || 0, 180);
+        const spaceBelow = scrollerRect.bottom - toggleRect.bottom;
+        const spaceAbove = toggleRect.top - scrollerRect.top;
+        if (menuHeight + 16 > spaceBelow && spaceAbove > spaceBelow) {
+            dropdown.classList.add('dropup');
+        }
+    }
+
     document.addEventListener('DOMContentLoaded', function() {
         updateRecipientChips();
         updateComposerTarget();
@@ -2330,15 +2415,20 @@
             messageContent.addEventListener('blur', () => setTimeout(hideDmChannelSuggestions, 150));
         }
 
+        document.addEventListener('show.bs.dropdown', (event) => {
+            const dropdown = resolveDmDropdownElement(event.target);
+            if (dropdown) updateDmDropdownDirection(dropdown);
+        });
         document.addEventListener('shown.bs.dropdown', (event) => {
-            const trigger = event.target instanceof Element ? event.target : null;
-            const msgRow = trigger ? trigger.closest('.message-item') : null;
+            const dropdown = resolveDmDropdownElement(event.target);
+            const msgRow = dropdown ? dropdown.closest('.message-item') : null;
             if (msgRow) msgRow.classList.add('dropdown-open');
         });
         document.addEventListener('hidden.bs.dropdown', (event) => {
-            const trigger = event.target instanceof Element ? event.target : null;
-            const msgRow = trigger ? trigger.closest('.message-item') : null;
+            const dropdown = resolveDmDropdownElement(event.target);
+            const msgRow = dropdown ? dropdown.closest('.message-item') : null;
             if (msgRow) msgRow.classList.remove('dropdown-open');
+            if (dropdown) dropdown.classList.remove('dropup');
         });
 
         if (window.location.hash && window.location.hash.startsWith('#message-')) {
