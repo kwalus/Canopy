@@ -1,0 +1,124 @@
+{% from "_messages_macros.html" import avatar_badge, render_dm_attachment with context %}
+
+{% if search_query %}
+    <div class="dm-search-results">
+        {% if search_results %}
+            {% for result in search_results %}
+                <a href="{{ result.thread_href }}" class="dm-search-result-card">
+                    <div class="dm-search-result-meta">
+                        <span>{{ result.thread_title }}</span>
+                        <span data-timestamp="{{ result.created_at }}">{{ result.created_at }}</span>
+                    </div>
+                    <div class="mb-1"><strong>{{ result.sender_label }}</strong></div>
+                    <div class="text-muted">{{ result.preview or result.content }}</div>
+                </a>
+            {% endfor %}
+        {% else %}
+            <div class="dm-empty-card">No DM messages matched that search.</div>
+        {% endif %}
+    </div>
+{% elif message_rows %}
+    {% for message in message_rows %}
+        {% if message.day_divider %}
+            <div class="dm-day-divider"><span>{{ message.day_divider }}</span></div>
+        {% endif %}
+        <div class="dm-message-row {% if message.outbound %}outbound{% else %}inbound{% endif %} message-item"
+             id="message-{{ message.id }}"
+             data-message-id="{{ message.id }}"
+             data-user-id="{{ message.sender_id }}">
+            {% if not message.outbound %}
+                <div class="dm-message-avatar-wrap {% if not message.cluster_start %}spacer{% endif %}">
+                    {% if message.cluster_start %}
+                        {{ avatar_badge({'user_id': message.sender_id, 'display_name': message.sender_label, 'avatar_url': message.sender_avatar_url, 'origin_peer': message.sender_origin_peer}, '') }}
+                    {% endif %}
+                </div>
+            {% endif %}
+            <div class="dm-message-main flex-grow-1">
+                {% if message.cluster_start %}
+                    <div class="dm-message-meta">
+                        <span class="dm-message-sender" data-user-display="{{ message.sender_id }}">{{ message.sender_label }}</span>
+                        <span data-timestamp="{{ message.created_at }}">{{ message.created_at }}</span>
+                    </div>
+                {% endif %}
+                <div class="dm-bubble-wrap">
+                    <div class="dropdown dm-message-menu" data-message-actions="1">
+                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-three-dots"></i>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item" href="#" onclick="replyToMessage('{{ message.id }}', {{ message.sender_label|tojson }}, {{ (message.reply_preview.preview if message.reply_preview else message.content[:140])|tojson }}); return false;">
+                                <i class="bi bi-reply"></i> Reply
+                            </a></li>
+                            {% if message.outbound %}
+                                <li><a class="dropdown-item" href="#" onclick="editMessage('{{ message.id }}'); return false;">
+                                    <i class="bi bi-pencil"></i> Edit
+                                </a></li>
+                                <li><a class="dropdown-item text-danger" href="#" onclick="deleteMessage('{{ message.id }}'); return false;">
+                                    <i class="bi bi-trash"></i> Delete
+                                </a></li>
+                            {% endif %}
+                        </ul>
+                    </div>
+                    <div class="dm-bubble">
+                        <div class="message-content" data-message-content="1">
+                            {% if message.reply_preview %}
+                                <button type="button" class="dm-bubble-reply-preview" onclick="jumpToMessage('{{ message.reply_preview.id }}')">
+                                    <strong>{{ message.reply_preview.sender_name }}</strong>
+                                    <span>{{ message.reply_preview.preview }}</span>
+                                </button>
+                            {% endif %}
+                            {% if message.content %}
+                                <div class="dm-bubble-copy dm-message-text">{{ message.content }}</div>
+                            {% endif %}
+                            {% if message.attachments %}
+                                <div class="dm-attachment-list">
+                                    {% for attachment in message.attachments %}
+                                        {{ render_dm_attachment(attachment, message.id, loop.index0) }}
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                        </div>
+                        <div class="dm-bubble-footer">
+                            {% if message.security %}
+                                {% set msg_sec_mode = message.security.get('mode') %}
+                                {% set msg_sec_state = message.security.get('state') %}
+                                {% set msg_sec_class = 'e2e' if msg_sec_mode == 'peer_e2e_v1' else ('local' if msg_sec_mode == 'local_only' else ('failure' if msg_sec_state == 'decrypt_failed' else 'warning')) %}
+                                {% set msg_sec_title = message.security.get('label') or 'DM security' %}
+                                {% if message.security.get('warning') %}
+                                    {% set msg_sec_title = msg_sec_title ~ ': ' ~ message.security.get('warning') %}
+                                {% endif %}
+                                <span class="dm-security-chip {{ msg_sec_class }}" title="{{ msg_sec_title }}" aria-label="{{ msg_sec_title }}">
+                                    <i class="bi bi-{% if msg_sec_mode == 'peer_e2e_v1' %}shield-lock-fill{% elif msg_sec_mode == 'local_only' %}pc-display{% elif msg_sec_state == 'decrypt_failed' %}shield-x{% else %}shield-exclamation{% endif %}"></i>
+                                    <span class="visually-hidden security-text">{{ message.security.get('label') }}</span>
+                                </span>
+                            {% endif %}
+                            {% if message.edited_at %}
+                                <span title="Edited {{ message.edited_at }}">Edited</span>
+                            {% endif %}
+                            {% if message.cluster_end %}
+                                <span data-timestamp="{{ message.created_at }}">{{ message.created_at }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% if message.outbound %}
+                <div class="dm-message-avatar-wrap {% if not message.cluster_start %}spacer{% endif %}">
+                    {% if message.cluster_start %}
+                        {{ avatar_badge({'user_id': message.sender_id, 'display_name': message.sender_label, 'avatar_url': message.sender_avatar_url, 'origin_peer': message.sender_origin_peer}, '') }}
+                    {% endif %}
+                </div>
+            {% endif %}
+        </div>
+    {% endfor %}
+{% else %}
+    <div class="dm-empty-state">
+        <div class="dm-empty-card">
+            {% if active_thread %}
+                No messages in this conversation yet.
+            {% else %}
+                No direct messages yet. Start by selecting recipients below.
+            {% endif %}
+        </div>
+    </div>
+{% endif %}

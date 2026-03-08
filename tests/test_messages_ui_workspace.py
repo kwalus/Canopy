@@ -228,6 +228,22 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertNotIn('dm-unread-pill', active_direct_card.group(1))
         self.assertIn('.7z,.rar', body)
         self.assertIn('.html,.css,.sh,.bat,.cfg,.ini,.toml', body)
+        self.assertIn('/ajax/messages/thread_snapshot', body)
+        self.assertIn("function refreshMessages() {\n        loadDmSnapshot(", body)
+        self.assertIn('/ajax/mention_suggestions?', body)
+
+    def test_ajax_messages_thread_snapshot_returns_partial_fragments(self) -> None:
+        response = self.client.get('/ajax/messages/thread_snapshot?with=peer-a')
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertEqual((payload.get('active_thread') or {}).get('user_id'), 'peer-a')
+        self.assertIn('Alice', payload.get('sidebar_html') or '')
+        self.assertIn('Hello owner', payload.get('thread_body_html') or '')
+        self.assertIn('Need update', payload.get('thread_body_html') or '')
+        self.assertIn('E2E over mesh', payload.get('thread_header_html') or '')
+        self.assertTrue(payload.get('thread_state_token'))
+        self.assertTrue(payload.get('sidebar_state_token'))
 
     def test_ajax_send_message_preserves_reply_to_metadata(self) -> None:
         response = self.client.post(

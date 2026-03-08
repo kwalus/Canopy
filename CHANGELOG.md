@@ -6,12 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.55] - 2026-03-08
+
+### Changed
+- **DM recipient search and incremental refresh** — The DM composer recipient picker now shows live suggestions on first interaction and reuses in-flight directory loading instead of presenting an empty state. The DM workspace also gained incremental thread snapshots for refresh, send, edit, delete, and active-thread polling so conversation updates no longer depend on disruptive full-page reloads.
+
+---
+
 ## [0.4.54] - 2026-03-08
 
 ### Changed
 - **DM attachment parity and image paste** — The DM composer now accepts the same broad Canopy-supported file set as channel compose, including additional document, archive, spreadsheet, and media formats, and pasted screenshots/images are converted into normal DM attachment entries so attachment-only and image-first workflows behave consistently.
 - **DM UI polish and security indicator refinement** — DM security markers are now icon-first with tooltip and accessibility labels, the per-message action toggle is more compact and no longer shows the default caret, the header action cluster is tighter on narrow widths, and the empty-state card is centered for a more finished workspace presentation.
-- **OpenClaw documentation pass** — Public docs now call out OpenClaw-style agent teams as a supported deployment pattern through Canopy's standard REST and MCP surfaces, without implying a Canopy-specific runtime fork or custom protocol.
 - **OpenClaw documentation pass** — Public docs now call out OpenClaw-style agent teams as a supported deployment pattern through Canopy's standard REST and MCP surfaces, without implying a Canopy-specific runtime fork or custom protocol.
 
 ---

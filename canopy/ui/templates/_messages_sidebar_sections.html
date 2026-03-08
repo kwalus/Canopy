@@ -1,0 +1,63 @@
+{% from "_messages_macros.html" import avatar_badge, avatar_stack with context %}
+
+<section>
+    <div class="dm-section-label">
+        <span>Direct</span>
+        <span>{{ direct_conversations|length }}</span>
+    </div>
+    <div class="dm-conversation-list">
+        {% if direct_conversations %}
+            {% for conversation in direct_conversations %}
+                <a href="{{ conversation.href }}" class="dm-conversation-card {% if conversation.is_active %}active{% endif %}">
+                    {% if conversation.preview_users %}
+                        {{ avatar_badge(conversation.preview_users[0], '') }}
+                    {% endif %}
+                    <div class="dm-conversation-main">
+                        <div class="dm-conversation-topline">
+                            <div class="dm-conversation-title">{{ conversation.title }}</div>
+                            <div class="dm-conversation-time" data-timestamp="{{ conversation.updated_at }}">{{ conversation.updated_at }}</div>
+                        </div>
+                        {% if conversation.subtitle %}
+                            <div class="dm-conversation-subtitle">{{ conversation.subtitle }}</div>
+                        {% endif %}
+                        <div class="dm-conversation-preview">{{ conversation.preview }}</div>
+                    </div>
+                    {% if conversation.unread_count %}
+                        <span class="dm-unread-pill">{{ conversation.unread_count }}</span>
+                    {% endif %}
+                </a>
+            {% endfor %}
+        {% else %}
+            <div class="dm-empty-card">No direct conversations yet.</div>
+        {% endif %}
+    </div>
+</section>
+
+<section>
+    <div class="dm-section-label">
+        <span>Groups</span>
+        <span>{{ group_conversations|length }}</span>
+    </div>
+    <div class="dm-conversation-list">
+        {% if group_conversations %}
+            {% for conversation in group_conversations %}
+                <a href="{{ conversation.href }}" class="dm-conversation-card {% if conversation.is_active %}active{% endif %}">
+                    {{ avatar_stack(conversation.preview_users, '') }}
+                    <div class="dm-conversation-main">
+                        <div class="dm-conversation-topline">
+                            <div class="dm-conversation-title">{{ conversation.title }}</div>
+                            <div class="dm-conversation-time" data-timestamp="{{ conversation.updated_at }}">{{ conversation.updated_at }}</div>
+                        </div>
+                        <div class="dm-conversation-subtitle">{{ conversation.subtitle }}</div>
+                        <div class="dm-conversation-preview">{{ conversation.preview }}</div>
+                    </div>
+                    {% if conversation.unread_count %}
+                        <span class="dm-unread-pill">{{ conversation.unread_count }}</span>
+                    {% endif %}
+                </a>
+            {% endfor %}
+        {% else %}
+            <div class="dm-empty-card">No group conversations yet.</div>
+        {% endif %}
+    </div>
+</section>
