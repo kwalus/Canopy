@@ -3096,6 +3096,15 @@
 	                return sender || recipient || null;
 	            }
 
+            function directMessageInvolvesLocalUser(evt) {
+                if (!evt || evt.kind !== 'direct_message') return true;
+                const ref = evt.ref || {};
+                const sender = ref.sender_id || '';
+                const recipient = ref.recipient_id || '';
+                if (!localUserId) return true;
+                return sender === localUserId || recipient === localUserId;
+            }
+
             function eventRefKey(evt) {
                 if (!evt) return null;
                 const ref = evt.ref || {};
@@ -3363,6 +3372,7 @@
                             const ref = evt.ref || {};
                             const originUser = ref.user_id || ref.sender_id || ref.author_id || '';
                             if (localUserId && originUser === localUserId) return;
+                            if (!directMessageInvolvesLocalUser(evt)) return;
 
                             recordEvent(evt);
                         });
