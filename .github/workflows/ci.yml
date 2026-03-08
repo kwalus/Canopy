@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  public-python:
+    name: Public Python checks (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Compile shipped Python packages
+        run: |
+          python -m compileall -q canopy canopy_tray
+
+      - name: Import shipped web and API surface
+        run: |
+          python - <<'PY'
+          import canopy
+          import canopy.api.routes
+          import canopy.ui.routes
+          print("import smoke ok", canopy.__version__)
+          PY
+
+      - name: Parse shipped templates
+        if: matrix.python-version == '3.12'
+        run: |
+          python scripts/check_jinja_templates.py
+
+  public-web:
+    name: Public web asset checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Validate shipped JavaScript
+        run: |
+          node --check canopy/ui/static/js/canopy-main.js
+          node --check canopy/ui/static/js/canopy-sheet.js

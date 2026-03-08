@@ -6,10 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.53] - 2026-03-08
+
+### Changed
+- **DM E2E hardening and relay-safe transport** — Direct messages now use recipient-only peer encryption when the destination peer advertises `dm_e2e_v1`, while preserving plaintext fallback for older peers so mixed-version meshes stay stable during rollout. Introduced-peer capability data is propagated through peer announcements so relay paths can still decide whether the destination supports DM E2E.
+- **DM security visibility** — The DM workspace now surfaces explicit shield states at both thread and message level so humans can tell whether a conversation is `peer_e2e_v1`, `local_only`, `mixed`, `legacy_plaintext`, or `decrypt_failed`.
+
+### Fixed
+- **DM inbox coverage for relayed and same-peer group recipients** — Incoming encrypted or relayed DMs now refresh local inbox triggers correctly, and group DMs reaching a peer with multiple local accounts create inbox rows for all relevant local recipients instead of only the primary target ID.
+
+---
+
 ## [0.4.52] - 2026-03-08
 
 ### Changed
 - **Sidebar recent DM contacts rail** — Added a shared left-sidebar `Recent DMs` card above the mini player with avatar recognition, unread counts, status dots, preview text, latest timestamps, and click-through links back into the relevant direct-message thread and target message anchor. The rail is hydrated on initial render and refreshed through the existing sidebar activity poller, while excluding group DMs to keep the compact contact list easy to scan.
+- **Public CI and release polish** — Reworked the GitHub Actions workflow so the public repo validates the installable surface honestly via Python compile checks, Jinja template parsing, shipped JavaScript syntax/runtime checks, and a curated public-safe regression suite. Public docs and package metadata were also refreshed to align current version framing and release presentation with `0.4.52`.
 
 ---
 

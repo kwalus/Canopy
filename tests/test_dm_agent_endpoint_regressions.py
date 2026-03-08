@@ -115,6 +115,31 @@ class _FakeP2PManager:
     def broadcast_delete_signal(self, **kwargs) -> None:
         self.delete_signals.append(dict(kwargs))
 
+    def describe_direct_message_security(self, recipient_ids):
+        recipients = list(recipient_ids or [])
+        if recipients == ['agent-local']:
+            return {
+                'mode': 'local_only',
+                'state': 'local_only',
+                'label': 'Local only',
+                'relay_confidential': True,
+                'local_only': True,
+            }
+        if 'remote-shadow' in recipients and 'agent-local' in recipients:
+            return {
+                'mode': 'mixed',
+                'state': 'mixed',
+                'label': 'Mixed delivery',
+                'relay_confidential': False,
+                'warning': 'Some recipients require legacy/plaintext mesh delivery',
+            }
+        return {
+            'mode': 'legacy_plaintext',
+            'state': 'plaintext',
+            'label': 'Legacy relay/plaintext',
+            'relay_confidential': False,
+        }
+
 
 class TestDmAgentEndpointRegressions(unittest.TestCase):
     def setUp(self) -> None:
@@ -321,6 +346,7 @@ class TestDmAgentEndpointRegressions(unittest.TestCase):
             ['agent-local', 'author', 'remote-shadow'],
         )
         self.assertEqual(len(payload.get('attachments') or []), 1)
+        self.assertEqual((payload.get('security') or {}).get('mode'), 'mixed')
 
         self.p2p_manager.direct_messages.clear()
         update_resp = self.client.patch(
@@ -346,6 +372,7 @@ class TestDmAgentEndpointRegressions(unittest.TestCase):
         self.assertEqual(updated_payload.get('reply_to'), 'DM-root')
         self.assertIsNotNone(updated_payload.get('edited_at'))
         self.assertEqual(len(updated_payload.get('attachments') or []), 1)
+        self.assertEqual((updated_payload.get('security') or {}).get('mode'), 'mixed')
 
         list_resp = self.client.get(
             '/api/v1/messages',
@@ -416,6 +443,10 @@ class TestDmAgentEndpointRegressions(unittest.TestCase):
         self.assertEqual(message.get('recipient_id'), 'agent-local')
         self.assertEqual(len(self.p2p_manager.direct_messages), 1)
         self.assertEqual(self.p2p_manager.direct_messages[0]['recipient_id'], 'agent-local')
+        self.assertEqual(
+            (self.p2p_manager.direct_messages[0].get('metadata', {}).get('security') or {}).get('mode'),
+            'local_only',
+        )
 
     def test_delete_message_clears_local_dm_inbox_and_uses_direct_message_signal(self) -> None:
         send_resp = self.client.post(

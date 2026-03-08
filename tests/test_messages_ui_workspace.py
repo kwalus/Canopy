@@ -80,6 +80,17 @@ class _FakeP2PManager:
     def get_peer_id(self) -> str:
         return 'peer-local'
 
+    def describe_direct_message_security(self, recipient_ids):
+        return {
+            'mode': 'peer_e2e_v1',
+            'state': 'encrypted',
+            'label': 'E2E over mesh',
+            'e2e': True,
+            'relay_confidential': True,
+            'local_only': False,
+            'recipient_ids': list(recipient_ids or []),
+        }
+
 
 class TestMessagesUiWorkspace(unittest.TestCase):
     def setUp(self) -> None:
@@ -208,6 +219,7 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertIn('Need update', body)
         self.assertIn('Hello owner', body)
         self.assertIn('New conversation', body)
+        self.assertIn('E2E over mesh', body)
         active_direct_card = re.search(
             r'<a href="/messages\?with=peer-a" class="dm-conversation-card active">([\s\S]*?)</a>',
             body,

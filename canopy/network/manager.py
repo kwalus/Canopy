@@ -22,6 +22,11 @@ from pathlib import Path
 
 from .. import __version__ as CANOPY_VERSION
 from .. import __protocol_version__ as CANOPY_PROTOCOL_VERSION
+from ..core.messaging import (
+    DM_E2E_CAPABILITY,
+    build_dm_security_summary,
+    encrypt_dm_transport_bundle,
+)
 from .identity import IdentityManager, PeerIdentity
 from .discovery import PeerDiscovery, DiscoveredPeer
 from .connection import ConnectionManager, PeerConnection
@@ -202,6 +207,7 @@ class P2PNetworkManager:
     def _build_local_capabilities(self) -> list[str]:
         """Compute P2P capability advertisement for this node."""
         caps = ['chat', 'files', 'voice']
+        caps.append(DM_E2E_CAPABILITY)
         sec_cfg = getattr(self.config, 'security', None)
         if bool(getattr(sec_cfg, 'e2e_private_channels', False)):
             caps.append('e2e_channel_v1')
@@ -228,12 +234,175 @@ class P2PNetworkManager:
 
     def peer_supports_capability(self, peer_id: str, capability: str) -> bool:
         """Return True when a connected peer advertises the given capability."""
-        if not peer_id or not capability or not self.connection_manager:
+        if not peer_id or not capability:
             return False
-        conn = self.connection_manager.connections.get(peer_id)
-        if not conn or not conn.capabilities:
-            return False
-        return bool(conn.capabilities.get(capability))
+        if self.connection_manager:
+            conn = self.connection_manager.connections.get(peer_id)
+            if conn and conn.capabilities and conn.capabilities.get(capability):
+                return True
+
+        introduced = self._introduced_peers.get(peer_id, {}) if hasattr(self, '_introduced_peers') else {}
+        introduced_caps = introduced.get('capabilities') if isinstance(introduced, dict) else None
+        if capability in {
+            str(item).strip()
+            for item in (introduced_caps or [])
+            if str(item).strip()
+        }:
+            return True
+
+        peer_version_caps = self.peer_versions.get(peer_id, {}).get('capabilities')
+        if capability in {
+            str(item).strip()
+            for item in (peer_version_caps or [])
+            if str(item).strip()
+        }:
+            return True
+
+        try:
+            if self.discovery:
+                discovered = self.discovery.get_discovered_peers()
+                for peer in discovered:
+                    if str(getattr(peer, 'peer_id', '') or '').strip() != peer_id:
+                        continue
+                    service_info = getattr(peer, 'service_info', {}) or {}
+                    discovered_caps = service_info.get('capabilities') if isinstance(service_info, dict) else []
+                    if capability in {
+                        str(item).strip()
+                        for item in (discovered_caps or [])
+                        if str(item).strip()
+                    }:
+                        return True
+        except Exception:
+            pass
+        return False
+
+    def _normalize_capability_items(self, raw_caps: Any) -> list[str]:
+        values = raw_caps if isinstance(raw_caps, (list, tuple, set)) else []
+        out: list[str] = []
+        seen: set[str] = set()
+        for raw in values:
+            cap = str(raw or '').strip()
+            if not cap or cap in seen:
+                continue
+            seen.add(cap)
+            out.append(cap)
+        return out
+
+    def _get_dm_recipient_row(self, recipient_id: str) -> Optional[Dict[str, Any]]:
+        if not self.db or not recipient_id:
+            return None
+        try:
+            row = self.db.get_user(recipient_id)
+        except Exception:
+            row = None
+        return row if isinstance(row, dict) else None
+
+    def describe_direct_message_security(self, recipient_ids: list[str]) -> Dict[str, Any]:
+        clean_recipient_ids = []
+        seen_ids: set[str] = set()
+        for raw in recipient_ids or []:
+            uid = str(raw or '').strip()
+            if not uid or uid in seen_ids:
+                continue
+            seen_ids.add(uid)
+            clean_recipient_ids.append(uid)
+
+        local_peer_id = self.local_identity.peer_id if self.local_identity else ''
+        local_recipient_ids: list[str] = []
+        remote_peer_ids: list[str] = []
+        encrypted_peer_ids: list[str] = []
+        legacy_peer_ids: list[str] = []
+        unknown_peer_ids: list[str] = []
+
+        for recipient_id in clean_recipient_ids:
+            row = self._get_dm_recipient_row(recipient_id)
+            if not row:
+                unknown_peer_ids.append(recipient_id)
+                continue
+            username = str(row.get('username') or '').strip()
+            origin_peer = str(row.get('origin_peer') or '').strip()
+            if username.startswith('peer-') and origin_peer and origin_peer != local_peer_id:
+                target_peer_id = origin_peer
+            elif not origin_peer or origin_peer == local_peer_id:
+                local_recipient_ids.append(recipient_id)
+                continue
+            else:
+                target_peer_id = origin_peer
+
+            if target_peer_id not in remote_peer_ids:
+                remote_peer_ids.append(target_peer_id)
+            peer_identity = self.identity_manager.get_peer(target_peer_id)
+            if peer_identity and self.peer_supports_capability(target_peer_id, DM_E2E_CAPABILITY):
+                if target_peer_id not in encrypted_peer_ids:
+                    encrypted_peer_ids.append(target_peer_id)
+            else:
+                if target_peer_id not in legacy_peer_ids:
+                    legacy_peer_ids.append(target_peer_id)
+
+        if clean_recipient_ids and len(local_recipient_ids) == len(clean_recipient_ids):
+            return {
+                'mode': 'local_only',
+                'state': 'local_only',
+                'label': 'Local only',
+                'e2e': False,
+                'relay_confidential': True,
+                'local_only': True,
+                'recipient_ids': clean_recipient_ids,
+                'local_recipient_ids': local_recipient_ids,
+                'remote_peer_ids': [],
+                'encrypted_peer_ids': [],
+                'legacy_peer_ids': [],
+                'unknown_peer_ids': [],
+            }
+
+        if remote_peer_ids and not legacy_peer_ids and not unknown_peer_ids:
+            return {
+                'mode': 'peer_e2e_v1',
+                'state': 'encrypted',
+                'label': 'E2E over mesh',
+                'e2e': True,
+                'relay_confidential': True,
+                'local_only': False,
+                'recipient_ids': clean_recipient_ids,
+                'local_recipient_ids': local_recipient_ids,
+                'remote_peer_ids': remote_peer_ids,
+                'encrypted_peer_ids': encrypted_peer_ids,
+                'legacy_peer_ids': [],
+                'unknown_peer_ids': [],
+            }
+
+        if remote_peer_ids and (encrypted_peer_ids or local_recipient_ids):
+            return {
+                'mode': 'mixed',
+                'state': 'mixed',
+                'label': 'Mixed delivery',
+                'e2e': False,
+                'relay_confidential': False,
+                'local_only': False,
+                'recipient_ids': clean_recipient_ids,
+                'local_recipient_ids': local_recipient_ids,
+                'remote_peer_ids': remote_peer_ids,
+                'encrypted_peer_ids': encrypted_peer_ids,
+                'legacy_peer_ids': legacy_peer_ids,
+                'unknown_peer_ids': unknown_peer_ids,
+                'warning': 'Some recipients require legacy/plaintext mesh delivery',
+            }
+
+        return {
+            'mode': 'legacy_plaintext',
+            'state': 'plaintext',
+            'label': 'Legacy relay/plaintext',
+            'e2e': False,
+            'relay_confidential': False,
+            'local_only': False,
+            'recipient_ids': clean_recipient_ids,
+            'local_recipient_ids': local_recipient_ids,
+            'remote_peer_ids': remote_peer_ids,
+            'encrypted_peer_ids': encrypted_peer_ids,
+            'legacy_peer_ids': legacy_peer_ids,
+            'unknown_peer_ids': unknown_peer_ids,
+            'warning': 'Recipient peer does not advertise DM E2E support',
+        }
 
     def _record_activity_event(self, event: Dict[str, Any]) -> None:
         """Record a user-facing activity event from the message router."""
@@ -1007,6 +1176,9 @@ class P2PNetworkManager:
             'protocol_version': protocol_version,
             'version': str(getattr(conn, 'handshake_version', '') or '0.1.0'),
             'compatible_protocol': protocol_version == self.local_protocol_version,
+            'capabilities': self._normalize_capability_items(
+                list((getattr(conn, 'capabilities', None) or {}).keys())
+            ),
         }
         self.peer_versions[peer_id] = entry
 
@@ -1273,6 +1445,9 @@ class P2PNetworkManager:
                     'endpoints': endpoints,
                     'ed25519_public_key': base58.b58encode(identity.ed25519_public_key).decode(),
                     'x25519_public_key': base58.b58encode(identity.x25519_public_key).decode(),
+                    'capabilities': self._normalize_capability_items(
+                        list((getattr(self.connection_manager.get_connection(pid), 'capabilities', None) or {}).keys())
+                    ),
                     'device_profile': device_profile,
                 })
             if introduced:
@@ -1312,6 +1487,9 @@ class P2PNetworkManager:
                 'endpoints': endpoints,
                 'ed25519_public_key': base58.b58encode(identity.ed25519_public_key).decode(),
                 'x25519_public_key': base58.b58encode(identity.x25519_public_key).decode(),
+                'capabilities': self._normalize_capability_items(
+                    list((getattr(self.connection_manager.get_connection(new_peer_id), 'capabilities', None) or {}).keys())
+                ),
                 'device_profile': device_profile,
             }]
 
@@ -1366,6 +1544,7 @@ class P2PNetworkManager:
             cleaned.update(dict(p))
             cleaned['endpoints'] = endpoints
             cleaned['introduced_by'] = from_peer
+            cleaned['capabilities'] = self._normalize_capability_items(cleaned.get('capabilities'))
 
             # Track all known introducers for more reliable broker fallback.
             introduced_via: list[str] = []
@@ -1382,6 +1561,10 @@ class P2PNetworkManager:
             cleaned['introduced_via'] = introduced_via
 
             self._introduced_peers[pid] = cleaned
+            peer_version_entry = dict(self.peer_versions.get(pid, {}))
+            if cleaned.get('capabilities'):
+                peer_version_entry['capabilities'] = list(cleaned['capabilities'])
+            self.peer_versions[pid] = peer_version_entry
 
             # Register the peer's public keys in the identity manager
             # so we can verify relayed messages from this peer.
@@ -2351,6 +2534,26 @@ class P2PNetworkManager:
 
         if not self.message_router:
             return False
+        local_peer_id = self.local_identity.peer_id if self.local_identity else ''
+        recipient_row = self._get_dm_recipient_row(recipient_id)
+        recipient_username = str((recipient_row or {}).get('username') or '').strip()
+        recipient_origin_peer = str((recipient_row or {}).get('origin_peer') or '').strip()
+        recipient_is_local = bool(
+            recipient_row
+            and (not recipient_origin_peer or recipient_origin_peer == local_peer_id)
+            and not recipient_username.startswith('peer-')
+        )
+        if recipient_is_local:
+            logger.debug(
+                "Skipping P2P DM broadcast for local recipient %s (message=%s)",
+                recipient_id,
+                message_id,
+            )
+            return True
+
+        user_metadata: Dict[str, Any] = dict(metadata or {})
+        target_peer_id = recipient_origin_peer if recipient_origin_peer and recipient_origin_peer != local_peer_id else ''
+        security_summary = build_dm_security_summary(self.db, self, [recipient_id])
         meta: Dict[str, Any] = {
             'type': 'direct_message',
             'sender_id': sender_id,
@@ -2361,8 +2564,6 @@ class P2PNetworkManager:
 
         if display_name:
             meta['display_name'] = display_name
-        if metadata:
-            meta['metadata'] = metadata
         if update_only:
             meta['update_only'] = True
         if edited_at:
@@ -2370,7 +2571,7 @@ class P2PNetworkManager:
 
         # Embed file data for DM attachments so recipient can render locally
         try:
-            dm_metadata = meta.get('metadata')
+            dm_metadata = dict(user_metadata)
             attachments = dm_metadata.get('attachments') if isinstance(dm_metadata, dict) else []
             attachments = attachments or []
             if attachments:
@@ -2397,11 +2598,47 @@ class P2PNetworkManager:
                     enriched.append(entry)
                 if isinstance(dm_metadata, dict):
                     dm_metadata['attachments'] = enriched
+            user_metadata = dm_metadata
         except Exception as e:
             logger.debug(f"DM attachment embedding failed: {e}")
 
+        should_encrypt = False
+        peer_identity = None
+        if target_peer_id:
+            peer_identity = self.identity_manager.get_peer(target_peer_id)
+            should_encrypt = bool(
+                peer_identity
+                and self.peer_supports_capability(target_peer_id, DM_E2E_CAPABILITY)
+            )
+
+        outbound_content = content
+        outbound_metadata = dict(user_metadata)
+        if should_encrypt and peer_identity:
+            try:
+                outbound_content, outbound_metadata, security_summary = encrypt_dm_transport_bundle(
+                    content,
+                    user_metadata,
+                    target_peer_id,
+                    peer_identity.x25519_public_key,
+                    sender_peer_id=local_peer_id,
+                )
+            except Exception as enc_err:
+                logger.warning(
+                    "Falling back to plaintext DM broadcast for %s after E2E preparation failure: %s",
+                    message_id,
+                    enc_err,
+                )
+                should_encrypt = False
+
+        if not should_encrypt:
+            outbound_metadata = dict(user_metadata)
+            outbound_metadata['security'] = dict(security_summary)
+            if target_peer_id:
+                outbound_metadata['security']['target_peer_id'] = target_peer_id
+
+        meta['metadata'] = outbound_metadata
         future = asyncio.run_coroutine_threadsafe(
-            self.message_router.send_dm_broadcast(content, meta),
+            self.message_router.send_dm_broadcast(outbound_content, meta),
             self._event_loop
         )
 

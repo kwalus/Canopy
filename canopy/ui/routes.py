@@ -60,6 +60,7 @@ from ..core.agent_presence import (
 )
 from ..core.file_preview import build_file_preview
 from ..core.messaging import (
+    build_dm_security_summary,
     build_dm_preview,
     compute_group_id,
     filter_local_dm_targets,
@@ -2008,7 +2009,7 @@ def create_ui_blueprint() -> Blueprint:
     def messages():
         """Messages interface for viewing and sending messages."""
         try:
-            db_manager, _, _, message_manager, _, _, _, _, profile_manager, _, _ = _get_app_components_any(current_app)
+            db_manager, _, _, message_manager, _, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
             user_id = get_current_user()
             conversation_with = (request.args.get('with') or '').strip() or None
             conversation_group = (request.args.get('group') or '').strip() or None
@@ -2382,6 +2383,19 @@ def create_ui_blueprint() -> Blueprint:
                         entry['unread_count'] = 0
                         break
 
+            if active_thread and not search_query:
+                recipient_targets = [
+                    str(participant_id or '').strip()
+                    for participant_id in (active_thread.get('participant_ids') or [])
+                    if str(participant_id or '').strip() and str(participant_id).strip() != user_id
+                ]
+                if recipient_targets:
+                    active_thread['security'] = build_dm_security_summary(
+                        db_manager,
+                        p2p_manager,
+                        recipient_targets,
+                    )
+
             reply_preview_cache: dict[str, Optional[dict[str, Any]]] = {}
 
             def _reply_preview(reply_to_id: Optional[str]) -> Optional[dict[str, Any]]:
@@ -2452,6 +2466,7 @@ def create_ui_blueprint() -> Blueprint:
                     'edited_at': message.edited_at.isoformat() if getattr(message, 'edited_at', None) else None,
                     'reply_to': reply_to_id,
                     'reply_preview': _reply_preview(reply_to_id),
+                    'security': meta.get('security') if isinstance(meta.get('security'), dict) else None,
                     'cluster_start': cluster_start,
                     'cluster_end': cluster_end,
                     'day_divider': day_divider,
@@ -4295,6 +4310,11 @@ def create_ui_blueprint() -> Blueprint:
                     'group_members': group_members,
                     'is_group': True,
                 })
+                metadata['security'] = build_dm_security_summary(
+                    db_manager,
+                    p2p_manager,
+                    recipients_unique,
+                )
 
                 logger.info(f"Creating group DM: group_id={group_id}, members={group_members}")
                 message = message_manager.create_message(user_id, content, group_id, message_type, metadata if metadata else None)
@@ -4321,6 +4341,7 @@ def create_ui_blueprint() -> Blueprint:
                                         'group_id': group_id,
                                         'group_members': group_members,
                                         'is_group': True,
+                                        'security': metadata.get('security'),
                                     },
                                     message_id=message.id,
                                     source_content=content,
@@ -4357,6 +4378,12 @@ def create_ui_blueprint() -> Blueprint:
 
             # Single recipient or broadcast
             recipient_id = recipients_unique[0] if recipients_unique else recipient_id
+            if recipient_id:
+                metadata['security'] = build_dm_security_summary(
+                    db_manager,
+                    p2p_manager,
+                    [recipient_id],
+                )
 
             logger.info(f"Calling message_manager.create_message: user_id={user_id}, recipient_id={recipient_id}, message_type={message_type}")
 
@@ -4382,6 +4409,7 @@ def create_ui_blueprint() -> Blueprint:
                                     'message_id': message.id,
                                     'attachments': metadata.get('attachments') or [],
                                     'reply_to': reply_to or None,
+                                    'security': metadata.get('security'),
                                 },
                                 message_id=message.id,
                                 source_content=content,
@@ -8689,6 +8717,21 @@ def create_ui_blueprint() -> Blueprint:
             else:
                 final_metadata.pop('attachments', None)
 
+            group_members_for_security = []
+            if isinstance(final_metadata, dict):
+                group_members_for_security = [
+                    str(member_id).strip()
+                    for member_id in (final_metadata.get('group_members') or [])
+                    if str(member_id).strip() and str(member_id).strip() != user_id
+                ]
+            target_ids_for_security = group_members_for_security or ([str(row['recipient_id']).strip()] if row['recipient_id'] else [])
+            if target_ids_for_security:
+                final_metadata['security'] = build_dm_security_summary(
+                    db_manager,
+                    p2p_manager,
+                    target_ids_for_security,
+                )
+
             try:
                 final_metadata['edited_at'] = datetime.now(timezone.utc).isoformat()
             except Exception:
@@ -8768,6 +8811,7 @@ def create_ui_blueprint() -> Blueprint:
                             'message_id': message_id,
                             'edited_at': final_metadata.get('edited_at') if isinstance(final_metadata, dict) else None,
                             'attachments': final_attachments or [],
+                            'security': final_metadata.get('security') if isinstance(final_metadata, dict) else None,
                         }
                         if isinstance(final_metadata, dict) and final_metadata.get('reply_to'):
                             payload['reply_to'] = final_metadata.get('reply_to')
@@ -8831,6 +8875,11 @@ def create_ui_blueprint() -> Blueprint:
                     'group_members': group_members,
                     'is_group': True,
                 }
+                reply_meta['security'] = build_dm_security_summary(
+                    db_manager,
+                    p2p_manager,
+                    recipients,
+                )
                 message = message_manager.create_message(
                     sender_id=user_id,
                     recipient_id=group_id,
@@ -8859,6 +8908,7 @@ def create_ui_blueprint() -> Blueprint:
                                         'group_id': group_id,
                                         'group_members': group_members,
                                         'is_group': True,
+                                        'security': reply_meta.get('security'),
                                     },
                                     message_id=message.id,
                                     source_content=content,
@@ -8896,11 +8946,19 @@ def create_ui_blueprint() -> Blueprint:
             # Determine reply recipient (the other party in the conversation)
             recipient_id = original.sender_id if original.sender_id != user_id else original.recipient_id
 
+            reply_meta = {'reply_to': original_message_id}
+            if recipient_id:
+                reply_meta['security'] = build_dm_security_summary(
+                    db_manager,
+                    p2p_manager,
+                    [recipient_id],
+                )
+
             message = message_manager.create_message(
                 sender_id=user_id,
                 recipient_id=recipient_id,
                 content=content,
-                metadata={'reply_to': original_message_id}
+                metadata=reply_meta
             )
             if message:
                 message_manager.send_message(message)
@@ -8921,6 +8979,7 @@ def create_ui_blueprint() -> Blueprint:
                                     'content': content,
                                     'message_id': message.id,
                                     'reply_to': original_message_id,
+                                    'security': reply_meta.get('security'),
                                 },
                                 message_id=message.id,
                                 source_content=content,
@@ -8947,7 +9006,7 @@ def create_ui_blueprint() -> Blueprint:
                             message_id=message.id,
                             timestamp=message.created_at.strftime('%Y-%m-%d %H:%M:%S'),
                             display_name=display_name,
-                            metadata={'reply_to': original_message_id},
+                            metadata=reply_meta,
                         )
                     except Exception as bcast_err:
                         logger.warning(f"Failed to broadcast DM reply over P2P: {bcast_err}")

@@ -1,6 +1,6 @@
 # Canopy API Reference
 
-Version scope: this reference is aligned to Canopy `0.4.45`.
+Version scope: this reference is aligned to Canopy `0.4.52`.
 
 Canonical endpoints are prefixed with `/api/v1`.
 Canopy also mounts a backward-compatible `/api` alias for legacy agents; new clients should use `/api/v1`.
@@ -62,13 +62,24 @@ Retention policy:
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
 | GET | `/messages` | Yes | List recent accessible DMs (1:1, group DMs, broadcasts) |
-| POST | `/messages` | Yes | Send a DM. Use `recipient_id` for 1:1 or `recipient_ids` for a group DM; optional `reply_to`, `attachments` |
+| POST | `/messages` | Yes | Send a DM. Use `recipient_id` for 1:1 or `recipient_ids` for a group DM; optional `reply_to`, `attachments`. When the destination peer supports `dm_e2e_v1`, transport uses recipient-only peer E2E while remaining relay-compatible. |
 | GET | `/messages/conversation/<user_id>` | Yes | 1:1 conversation with a specific user |
 | GET | `/messages/conversation/group/<group_id>` | Yes | Group DM conversation by group ID |
 | POST | `/messages/<id>/read` | Yes | Mark an accessible DM as read |
-| PATCH | `/messages/<id>` | Yes | Edit your own DM; recipient inbox payloads refresh on edit |
+| PATCH | `/messages/<id>` | Yes | Edit your own DM; recipient inbox payloads refresh on edit and retain current DM security summary |
 | DELETE | `/messages/<id>` | Yes | Delete your own DM; delete propagates to peers |
 | GET | `/messages/search` | Yes | Search accessible DMs, including group DMs you belong to |
+
+DM security notes:
+- DM payload metadata may include a `security` object describing current transport state.
+- Canonical `security.mode` values are:
+  - `peer_e2e_v1`: recipient-only peer E2E transport is active
+  - `local_only`: all recipients are local to this instance, so payload never left the device
+  - `mixed`: some recipients support peer E2E and others do not, or the thread spans mixed trust/transport states
+  - `legacy_plaintext`: backward-compatible plaintext DM transport was used for at least one recipient peer
+  - `decrypt_failed`: encrypted payload was received but this peer could not decrypt it
+- Conversation/thread responses and pending DM inbox payloads may include that `security` summary so agents can make policy decisions without re-deriving transport state.
+- Relay peers only forward DM envelopes. They do not need the DM plaintext when `security.mode=peer_e2e_v1`.
 
 ---
 

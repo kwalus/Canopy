@@ -33,7 +33,13 @@ from .tasks import TaskManager
 from .search import SearchManager
 from ..security.api_keys import ApiKeyManager
 from ..security.trust import TrustManager
-from .messaging import MessageManager, build_dm_preview
+from .messaging import (
+    MessageManager,
+    build_dm_preview,
+    build_dm_security_summary,
+    filter_local_dm_targets,
+    unwrap_dm_transport_bundle,
+)
 from .channels import ChannelManager
 from .identity_portability import IdentityPortabilityManager
 from .mentions import (
@@ -4917,8 +4923,25 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 # Ensure shadow user exists for sender
                 _ensure_shadow_user(sender_id, display_name, from_peer)
 
+                meta_payload = metadata if isinstance(metadata, dict) else {}
+                local_peer_id_for_dm = str((p2p_manager.get_peer_id() if p2p_manager else '') or '').strip()
+                local_private_key = None
+                try:
+                    local_private_key = (
+                        p2p_manager.local_identity.x25519_private_key
+                        if p2p_manager and getattr(p2p_manager, 'local_identity', None)
+                        else None
+                    )
+                except Exception:
+                    local_private_key = None
+                content_resolved, meta_payload, resolved_security = unwrap_dm_transport_bundle(
+                    content or '',
+                    meta_payload,
+                    local_peer_id_for_dm,
+                    local_private_key,
+                )
+
                 # Process DM attachments with embedded data (if any)
-                meta_payload = metadata
                 if meta_payload and meta_payload.get('attachments'):
                     try:
                         processed_attachments = []
@@ -4958,6 +4981,27 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 if meta_payload is not None:
                     meta_payload = dict(meta_payload)
                     meta_payload.setdefault('origin_peer', from_peer)
+                    meta_payload['security'] = dict(resolved_security)
+
+                dm_target_ids = []
+                if isinstance(meta_payload, dict) and meta_payload.get('group_members'):
+                    dm_target_ids = filter_local_dm_targets(
+                        db_manager,
+                        p2p_manager,
+                        [
+                            member_id
+                            for member_id in (meta_payload.get('group_members') or [])
+                            if str(member_id or '').strip() and str(member_id).strip() != sender_id
+                        ],
+                    )
+                if not dm_target_ids:
+                    dm_target_ids = filter_local_dm_targets(db_manager, p2p_manager, [recipient_id])
+
+                storage_recipient_id = (
+                    str(meta_payload.get('group_id') or '').strip()
+                    if isinstance(meta_payload, dict) and meta_payload.get('group_id')
+                    else recipient_id
+                )
 
                 from canopy.core.messaging import MessageType as MsgType
                 if update_only and existing_msg:
@@ -4977,7 +5021,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     success = message_manager.update_message(
                         message_id=mid,
                         user_id=sender_id,
-                        content=content or '',
+                        content=content_resolved or '',
                         message_type=msg_type,
                         metadata=meta_payload,
                         allow_admin=False,
@@ -4988,14 +5032,15 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         try:
                             if inbox_manager:
                                 dm_preview = build_dm_preview(
-                                    content or '',
+                                    content_resolved or '',
                                     (meta_payload or {}).get('attachments') or [],
                                 )
                                 payload = {
-                                    'content': content or '',
+                                    'content': content_resolved or '',
                                     'message_id': mid,
                                     'edited_at': edited_at,
                                     'attachments': (meta_payload or {}).get('attachments') or [],
+                                    'security': (meta_payload or {}).get('security'),
                                 }
                                 if (meta_payload or {}).get('reply_to'):
                                     payload['reply_to'] = meta_payload.get('reply_to')
@@ -5009,13 +5054,13 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                     source_type='dm',
                                     source_id=mid,
                                     trigger_type='dm',
-                                    target_ids=[recipient_id],
+                                    target_ids=dm_target_ids or [recipient_id],
                                     sender_user_id=sender_id,
                                     origin_peer=from_peer,
                                     preview=dm_preview,
                                     payload=payload,
                                     message_id=mid,
-                                    source_content=content or '',
+                                    source_content=content_resolved or '',
                                 )
                         except Exception as inbox_err:
                             logger.warning(f"Failed to refresh P2P DM inbox trigger for {mid}: {inbox_err}")
@@ -5033,8 +5078,8 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
                 msg = message_manager.create_message(
                     sender_id=sender_id,
-                    content=content,
-                    recipient_id=recipient_id,
+                    content=content_resolved,
+                    recipient_id=storage_recipient_id,
                     message_type=msg_type,
                     metadata=meta_payload,
                 )
@@ -5053,13 +5098,14 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     try:
                         if inbox_manager:
                             dm_preview = build_dm_preview(
-                                content or '',
+                                content_resolved or '',
                                 (meta_payload or {}).get('attachments') or [],
                             )
                             payload = {
-                                'content': content or '',
+                                'content': content_resolved or '',
                                 'message_id': mid,
                                 'attachments': (meta_payload or {}).get('attachments') or [],
+                                'security': (meta_payload or {}).get('security'),
                             }
                             if (meta_payload or {}).get('reply_to'):
                                 payload['reply_to'] = meta_payload.get('reply_to')
@@ -5073,13 +5119,13 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                 source_type='dm',
                                 source_id=mid,
                                 trigger_type='dm',
-                                target_ids=[recipient_id],
+                                target_ids=dm_target_ids or [recipient_id],
                                 sender_user_id=sender_id,
                                 origin_peer=from_peer,
                                 preview=dm_preview,
                                 payload=payload,
                                 message_id=mid,
-                                source_content=content or '',
+                                source_content=content_resolved or '',
                             )
                     except Exception as inbox_err:
                         logger.warning(f"Failed to create P2P DM inbox trigger for {mid}: {inbox_err}")
