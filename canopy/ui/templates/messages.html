@@ -347,27 +347,49 @@
         display: flex;
         gap: 0.5rem;
         flex-wrap: wrap;
+        align-items: center;
     }
 
     .dm-security-pill,
     .dm-security-chip {
         display: inline-flex;
         align-items: center;
-        gap: 0.35rem;
+        justify-content: center;
+        gap: 0;
         border-radius: 999px;
         border: 1px solid transparent;
         font-weight: 600;
         letter-spacing: 0.01em;
+        box-shadow: 0 8px 18px rgba(3, 10, 22, 0.16);
+        cursor: help;
     }
 
     .dm-security-pill {
-        padding: 0.3rem 0.68rem;
-        font-size: 0.72rem;
+        width: 2rem;
+        height: 2rem;
+        padding: 0;
+        font-size: 0.82rem;
     }
 
     .dm-security-chip {
-        padding: 0.16rem 0.46rem;
-        font-size: 0.68rem;
+        width: 1.55rem;
+        height: 1.55rem;
+        padding: 0;
+        font-size: 0.7rem;
+        flex-shrink: 0;
+    }
+
+    .dm-security-pill .security-text,
+    .dm-security-chip .security-text {
+        display: none;
+    }
+
+    .dm-thread-actions .btn {
+        min-height: 2rem;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
     }
 
     .dm-security-pill.e2e,
@@ -562,10 +584,19 @@
     }
 
     .dm-message-menu .dropdown-toggle {
-        padding: 0.32rem 0.5rem;
-        border-radius: 12px;
+        width: 2rem;
+        height: 2rem;
+        padding: 0;
+        border-radius: 999px;
         background: rgba(255, 255, 255, 0.04);
         border-color: rgba(255, 255, 255, 0.08);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .dm-message-menu .dropdown-toggle::after {
+        display: none;
     }
 
     .dm-message-menu .dropdown-toggle:hover,
@@ -727,6 +758,7 @@
         background: rgba(255, 255, 255, 0.035);
         border: 1px solid rgba(255, 255, 255, 0.08);
         color: var(--canopy-text-secondary);
+        text-align: center;
     }
 
     .dm-search-results {
@@ -1131,8 +1163,9 @@
         }
 
         .dm-security-pill {
-            padding: 0.24rem 0.58rem;
-            font-size: 0.68rem;
+            width: 1.85rem;
+            height: 1.85rem;
+            font-size: 0.76rem;
         }
 
         .dm-message-main {
@@ -1177,6 +1210,11 @@
 
         .dm-message-menu {
             opacity: 1;
+        }
+
+        .dm-message-menu .dropdown-toggle {
+            width: 1.9rem;
+            height: 1.9rem;
         }
 
         .dm-composer {
@@ -1259,6 +1297,10 @@
 
         .dm-thread-scroll {
             min-height: 32vh;
+        }
+
+        .dm-thread-actions .btn .dm-btn-label {
+            display: none;
         }
 
         .dm-avatar {
@@ -1426,13 +1468,17 @@
                                 {% set thread_sec_mode = active_thread.security.get('mode') %}
                                 {% set thread_sec_state = active_thread.security.get('state') %}
                                 {% set thread_sec_class = 'e2e' if thread_sec_mode == 'peer_e2e_v1' else ('local' if thread_sec_mode == 'local_only' else ('failure' if thread_sec_state == 'decrypt_failed' else 'warning')) %}
-                                <span class="dm-security-pill {{ thread_sec_class }}" title="{{ active_thread.security.get('warning') or active_thread.security.get('label') }}">
+                                {% set thread_sec_title = active_thread.security.get('label') or 'DM security' %}
+                                {% if active_thread.security.get('warning') %}
+                                    {% set thread_sec_title = thread_sec_title ~ ': ' ~ active_thread.security.get('warning') %}
+                                {% endif %}
+                                <span class="dm-security-pill {{ thread_sec_class }}" title="{{ thread_sec_title }}" aria-label="{{ thread_sec_title }}">
                                     <i class="bi bi-{% if thread_sec_mode == 'peer_e2e_v1' %}shield-lock-fill{% elif thread_sec_mode == 'local_only' %}pc-display{% elif thread_sec_state == 'decrypt_failed' %}shield-x{% else %}shield-exclamation{% endif %}"></i>
-                                    <span>{{ active_thread.security.get('label') }}</span>
+                                    <span class="visually-hidden security-text">{{ active_thread.security.get('label') }}</span>
                                 </span>
                             {% endif %}
                             <button class="btn btn-sm btn-outline-secondary" type="button" onclick="startNewConversation()">
-                                <i class="bi bi-pencil-square"></i> New
+                                <i class="bi bi-pencil-square"></i><span class="dm-btn-label">New</span>
                             </button>
                         </div>
                     {% else %}
@@ -1510,9 +1556,13 @@
                                                     {% set msg_sec_mode = message.security.get('mode') %}
                                                     {% set msg_sec_state = message.security.get('state') %}
                                                     {% set msg_sec_class = 'e2e' if msg_sec_mode == 'peer_e2e_v1' else ('local' if msg_sec_mode == 'local_only' else ('failure' if msg_sec_state == 'decrypt_failed' else 'warning')) %}
-                                                    <span class="dm-security-chip {{ msg_sec_class }}" title="{{ message.security.get('warning') or message.security.get('label') }}">
+                                                    {% set msg_sec_title = message.security.get('label') or 'DM security' %}
+                                                    {% if message.security.get('warning') %}
+                                                        {% set msg_sec_title = msg_sec_title ~ ': ' ~ message.security.get('warning') %}
+                                                    {% endif %}
+                                                    <span class="dm-security-chip {{ msg_sec_class }}" title="{{ msg_sec_title }}" aria-label="{{ msg_sec_title }}">
                                                         <i class="bi bi-{% if msg_sec_mode == 'peer_e2e_v1' %}shield-lock-fill{% elif msg_sec_mode == 'local_only' %}pc-display{% elif msg_sec_state == 'decrypt_failed' %}shield-x{% else %}shield-exclamation{% endif %}"></i>
-                                                        <span>{{ message.security.get('label') }}</span>
+                                                        <span class="visually-hidden security-text">{{ message.security.get('label') }}</span>
                                                     </span>
                                                 {% endif %}
                                                 {% if message.edited_at %}
@@ -1589,7 +1639,7 @@
 
                     <div class="dm-composer-actions">
                         <div class="dm-composer-actions-left">
-                            <input type="file" id="message-file-input" style="display:none;" multiple accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.tsv,.xlsx,.xlsm,.yaml,.yml,.xml,.zip,.tar,.gz,.tgz">
+                            <input type="file" id="message-file-input" style="display:none;" multiple accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.tsv,.xlsx,.xlsm,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.avi,.mkv,.mov,.webm">
                             <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('message-file-input').click()">
                                 <i class="bi bi-paperclip"></i> Add Files
                             </button>
@@ -1740,15 +1790,56 @@
         if (lowerType.includes('pdf')) return 'file-pdf';
         if (lowerType.includes('json')) return 'filetype-json';
         if (lowerType.includes('spreadsheet') || lowerType.includes('excel') || String(name || '').toLowerCase().match(/\.(csv|tsv|xlsx|xlsm)$/)) return 'file-earmark-spreadsheet';
-        if (String(name || '').toLowerCase().match(/\.(zip|tar|gz|tgz)$/)) return 'file-zip';
+        if (lowerType.includes('zip') || lowerType.includes('tar') || lowerType.includes('compressed') || lowerType.includes('archive')) return 'file-zip';
         if (lowerType.startsWith('text/')) return 'file-text';
+        if (name) {
+            const lower = name.toLowerCase();
+            if (lower.endsWith('.pdf')) return 'file-pdf';
+            if (lower.endsWith('.md')) return 'filetype-md';
+            if (lower.endsWith('.json')) return 'filetype-json';
+            if (lower.endsWith('.py')) return 'filetype-py';
+            if (lower.endsWith('.js')) return 'filetype-js';
+            if (lower.endsWith('.ts')) return 'filetype-tsx';
+            if (lower.endsWith('.xml') || lower.endsWith('.html')) return 'filetype-xml';
+            if (lower.endsWith('.csv')) return 'filetype-csv';
+            if (lower.endsWith('.tsv') || lower.endsWith('.xlsx') || lower.endsWith('.xlsm')) return 'file-earmark-spreadsheet';
+            if (lower.endsWith('.txt') || lower.endsWith('.log') || lower.endsWith('.tex')) return 'file-text';
+            if (lower.endsWith('.yaml') || lower.endsWith('.yml') || lower.endsWith('.toml') || lower.endsWith('.ini') || lower.endsWith('.cfg') || lower.endsWith('.css') || lower.endsWith('.sh') || lower.endsWith('.bat')) return 'file-code';
+            if (lower.match(/\.(zip|tar|gz|tgz|bz2|tbz2|xz|7z|rar)$/)) return 'file-zip';
+        }
         return 'file-earmark';
     }
 
     function addMessageFiles(files) {
         const maxSize = 100 * 1024 * 1024;
-        const allowedMimeTypes = ['image/', 'video/', 'audio/', 'application/pdf', 'text/', 'application/msword', 'application/json', 'application/xml', 'application/x-yaml', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel.sheet.macroenabled.12', 'application/javascript', 'application/typescript', 'application/octet-stream', 'application/zip', 'application/x-tar'];
-        const allowedExtensions = ['.md', '.txt', '.tex', '.json', '.py', '.js', '.ts', '.log', '.csv', '.tsv', '.xlsx', '.xlsm', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat', '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx', '.zip', '.tar', '.gz', '.tgz'];
+        const allowedMimeTypes = [
+            'image/',
+            'video/',
+            'audio/',
+            'application/pdf',
+            'text/',
+            'application/msword',
+            'application/json',
+            'application/xml',
+            'application/x-yaml',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-excel.sheet.macroenabled.12',
+            'application/javascript',
+            'application/typescript',
+            'application/octet-stream',
+            'application/zip',
+            'application/x-tar',
+            'application/x-7z-compressed',
+            'application/x-rar-compressed'
+        ];
+        const allowedExtensions = [
+            '.md', '.txt', '.tex', '.json', '.py', '.js', '.ts', '.log',
+            '.csv', '.tsv', '.xlsx', '.xlsm',
+            '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat', '.cfg', '.ini', '.toml',
+            '.pdf', '.doc', '.docx',
+            '.zip', '.tar', '.gz', '.tgz', '.bz2', '.tbz2', '.xz', '.7z', '.rar',
+            '.mp3', '.mp4', '.avi', '.mkv', '.mov', '.webm'
+        ];
 
         files.forEach(file => {
             if (file.size > maxSize) {
@@ -1802,6 +1893,43 @@
     function removeMessageFile(index) {
         messageSelectedFiles.splice(index, 1);
         updateMessageFilePreview();
+    }
+
+    function setupMessagePasteHandler() {
+        const messageInput = document.getElementById('messageContent');
+        if (messageInput) {
+            messageInput.addEventListener('paste', handleMessagePaste);
+        }
+
+        const threadPane = document.querySelector('.dm-thread-pane');
+        if (threadPane) {
+            threadPane.addEventListener('paste', handleMessagePaste);
+        }
+    }
+
+    function handleMessagePaste(e) {
+        const items = e.clipboardData?.items;
+        if (!items) return;
+
+        let hasImage = false;
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            if (item.type.indexOf('image') !== -1) {
+                hasImage = true;
+                const file = item.getAsFile();
+                if (file) {
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                    const newFile = new File([file], `pasted-image-${timestamp}.png`, { type: file.type });
+                    addMessageFiles([newFile]);
+                    showAlert('Image pasted successfully!', 'success');
+                }
+                break;
+            }
+        }
+
+        if (hasImage) {
+            e.preventDefault();
+        }
     }
 
     function normalizeRecipientInput(value) {
@@ -2476,6 +2604,7 @@
         updateRecipientChips();
         updateComposerTarget();
         setupMessageFileUpload();
+        setupMessagePasteHandler();
         setupRecipientPicker();
         applyDmRichContent();
 

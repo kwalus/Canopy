@@ -226,6 +226,8 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         )
         self.assertIsNotNone(active_direct_card)
         self.assertNotIn('dm-unread-pill', active_direct_card.group(1))
+        self.assertIn('.7z,.rar', body)
+        self.assertIn('.html,.css,.sh,.bat,.cfg,.ini,.toml', body)
 
     def test_ajax_send_message_preserves_reply_to_metadata(self) -> None:
         response = self.client.post(

@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.54] - 2026-03-08
+
+### Changed
+- **DM attachment parity and image paste** — The DM composer now accepts the same broad Canopy-supported file set as channel compose, including additional document, archive, spreadsheet, and media formats, and pasted screenshots/images are converted into normal DM attachment entries so attachment-only and image-first workflows behave consistently.
+- **DM UI polish and security indicator refinement** — DM security markers are now icon-first with tooltip and accessibility labels, the per-message action toggle is more compact and no longer shows the default caret, the header action cluster is tighter on narrow widths, and the empty-state card is centered for a more finished workspace presentation.
+
+---
+
 ## [0.4.53] - 2026-03-08
 
 ### Changed
