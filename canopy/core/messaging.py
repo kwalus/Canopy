@@ -10,11 +10,12 @@ License: Apache 2.0
 Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
+import hashlib
 import logging
 import secrets
 import json
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Any, Union, cast
+from typing import Dict, List, Optional, Any, Sequence, Union, cast
 from dataclasses import dataclass, asdict
 from enum import Enum
 
@@ -22,6 +23,66 @@ from .database import DatabaseManager
 from ..security.api_keys import ApiKeyManager, Permission
 
 logger = logging.getLogger(__name__)
+
+
+def compute_group_id(member_ids: Sequence[str]) -> str:
+    """Create a stable group DM identifier from a member set."""
+    cleaned = sorted({str(member_id).strip() for member_id in (member_ids or []) if str(member_id).strip()})
+    digest = hashlib.sha256("|".join(cleaned).encode("utf-8")).hexdigest()[:12]
+    return f"group:{digest}"
+
+
+def build_dm_preview(content: str, attachments: Optional[Sequence[Dict[str, Any]]] = None) -> Optional[str]:
+    """Build a human-readable preview for DM inbox/catchup payloads."""
+    text = str(content or "").strip()
+    if text:
+        return text[:200]
+    attachment_count = len(list(attachments or []))
+    if attachment_count:
+        return f"Sent {attachment_count} attachment{'s' if attachment_count != 1 else ''}"
+    return None
+
+
+def is_local_dm_user(db_manager: Any, p2p_manager: Any, user_id: Optional[str]) -> bool:
+    """Return True only for real local accounts on this node.
+
+    Remote shadow users should not receive locally-created inbox rows; their
+    inbox is created on the owning peer via the P2P DM receive path.
+    """
+    uid = str(user_id or "").strip()
+    if not uid or not db_manager:
+        return False
+    try:
+        row = db_manager.get_user(uid)
+    except Exception:
+        row = None
+    if not row:
+        return False
+    username = str(row.get("username") or "").strip()
+    if username.startswith("peer-"):
+        return False
+    try:
+        local_peer_id = p2p_manager.get_peer_id() if p2p_manager else None
+    except Exception:
+        local_peer_id = None
+    origin_peer = str(row.get("origin_peer") or "").strip()
+    if origin_peer and origin_peer != str(local_peer_id or "").strip():
+        return False
+    return True
+
+
+def filter_local_dm_targets(db_manager: Any, p2p_manager: Any, user_ids: Sequence[str]) -> List[str]:
+    """Return deduplicated DM target IDs that are local to this node."""
+    seen: set[str] = set()
+    filtered: List[str] = []
+    for raw_user_id in user_ids or []:
+        uid = str(raw_user_id or "").strip()
+        if not uid or uid in seen:
+            continue
+        seen.add(uid)
+        if is_local_dm_user(db_manager, p2p_manager, uid):
+            filtered.append(uid)
+    return filtered
 
 
 class MessageType(Enum):
@@ -232,9 +293,21 @@ class MessageManager:
                     SELECT m.*, u.username as sender_username 
                     FROM messages m
                     LEFT JOIN users u ON m.sender_id = u.id
-                    WHERE (m.recipient_id = ? OR m.recipient_id IS NULL OR m.sender_id = ?)
+                    WHERE (
+                        m.recipient_id = ?
+                        OR m.recipient_id IS NULL
+                        OR m.sender_id = ?
+                        OR EXISTS (
+                            SELECT 1
+                            FROM json_each(
+                                CASE WHEN json_valid(m.metadata) THEN m.metadata ELSE '{}' END,
+                                '$.group_members'
+                            ) gm
+                            WHERE CAST(gm.value AS TEXT) = ?
+                        )
+                    )
                 """
-                params: List[Any] = [user_id, user_id]
+                params: List[Any] = [user_id, user_id, user_id]
                 
                 if since:
                     query += " AND m.created_at > ?"
@@ -323,8 +396,19 @@ class MessageManager:
                 cursor = conn.execute("""
                     UPDATE messages 
                     SET read_at = CURRENT_TIMESTAMP
-                    WHERE id = ? AND (recipient_id = ? OR recipient_id IS NULL)
-                """, (message_id, user_id))
+                    WHERE id = ? AND (
+                        recipient_id = ?
+                        OR recipient_id IS NULL
+                        OR EXISTS (
+                            SELECT 1
+                            FROM json_each(
+                                CASE WHEN json_valid(metadata) THEN metadata ELSE '{}' END,
+                                '$.group_members'
+                            ) gm
+                            WHERE CAST(gm.value AS TEXT) = ?
+                        )
+                    )
+                """, (message_id, user_id, user_id))
                 
                 success = cast(int, cursor.rowcount) > 0
                 conn.commit()
@@ -517,11 +601,23 @@ class MessageManager:
                     SELECT m.*, u.username as sender_username 
                     FROM messages m
                     LEFT JOIN users u ON m.sender_id = u.id
-                    WHERE (m.sender_id = ? OR m.recipient_id = ? OR m.recipient_id IS NULL)
+                    WHERE (
+                        m.sender_id = ?
+                        OR m.recipient_id = ?
+                        OR m.recipient_id IS NULL
+                        OR EXISTS (
+                            SELECT 1
+                            FROM json_each(
+                                CASE WHEN json_valid(m.metadata) THEN m.metadata ELSE '{}' END,
+                                '$.group_members'
+                            ) gm
+                            WHERE CAST(gm.value AS TEXT) = ?
+                        )
+                    )
                     AND m.content LIKE ?
                     ORDER BY m.created_at DESC
                     LIMIT ?
-                """, (user_id, user_id, f"%{query}%", limit))
+                """, (user_id, user_id, user_id, f"%{query}%", limit))
                 
                 messages = []
                 for row in cursor.fetchall():
@@ -562,26 +658,69 @@ class MessageManager:
                     SELECT m.*, u.username as sender_username
                     FROM messages m
                     LEFT JOIN users u ON m.sender_id = u.id
-                    WHERE (m.sender_id = ? OR m.recipient_id = ? OR m.recipient_id = ?)
-                    AND (m.recipient_id = ? OR json_extract(m.metadata, '$.group_id') = ?)
+                    WHERE (
+                        m.sender_id = ?
+                        OR m.recipient_id = ?
+                        OR m.recipient_id LIKE 'group:%'
+                        OR EXISTS (
+                            SELECT 1
+                            FROM json_each(
+                                CASE WHEN json_valid(m.metadata) THEN m.metadata ELSE '{}' END,
+                                '$.group_members'
+                            ) gm
+                            WHERE CAST(gm.value AS TEXT) = ?
+                        )
+                    )
                     ORDER BY m.created_at ASC
-                    LIMIT ?
-                """, (user_id, user_id, group_id, group_id, group_id, limit))
+                """, (user_id, user_id, user_id))
 
                 messages = []
+                requested_group_id = str(group_id or '').strip()
+                target_aliases: set[str] = {requested_group_id}
+                target_canonical_keys: set[str] = set()
+                decoded_rows: list[tuple[Any, Any, Optional[dict[str, Any]], list[str], set[str], Optional[str]]] = []
+
                 for row in cursor.fetchall():
                     content = row['content']
                     if self.data_encryptor and self.data_encryptor.is_enabled:
                         content = self.data_encryptor.decrypt(content)
 
                     meta = json.loads(row['metadata']) if row['metadata'] else None
-                    # Extra safety: if metadata has group_members, ensure user is a member
-                    if meta and isinstance(meta, dict) and meta.get('group_members'):
-                        try:
-                            if user_id not in meta.get('group_members', []):
-                                continue
-                        except Exception:
-                            pass
+                    metadata = meta if isinstance(meta, dict) else {}
+                    row_group_members = [
+                        str(member_id).strip()
+                        for member_id in (metadata.get('group_members') or [])
+                        if str(member_id).strip()
+                    ]
+                    if row_group_members and user_id not in row_group_members:
+                        continue
+
+                    row_aliases: set[str] = set()
+                    row_group_id = str(metadata.get('group_id') or '').strip()
+                    if row_group_id:
+                        row_aliases.add(row_group_id)
+                    row_recipient_id = str(row['recipient_id'] or '').strip()
+                    if row_recipient_id.startswith('group:'):
+                        row_aliases.add(row_recipient_id)
+                    row_canonical_key = compute_group_id(row_group_members) if row_group_members else None
+                    if row_canonical_key:
+                        row_aliases.add(row_canonical_key)
+
+                    decoded_rows.append((row, content, metadata or None, row_group_members, row_aliases, row_canonical_key))
+
+                    if requested_group_id in row_aliases and row_canonical_key:
+                        target_canonical_keys.add(row_canonical_key)
+
+                if requested_group_id.startswith('group:'):
+                    target_canonical_keys.add(requested_group_id)
+
+                for row, content, meta, row_group_members, row_aliases, row_canonical_key in decoded_rows:
+                    if not row_aliases and not row_group_members:
+                        continue
+                    if not row_aliases.intersection(target_aliases) and (
+                        not row_canonical_key or row_canonical_key not in target_canonical_keys
+                    ):
+                        continue
 
                     message = Message(
                         id=row['id'],
@@ -598,6 +737,8 @@ class MessageManager:
                     )
                     messages.append(message)
 
+                if limit and len(messages) > limit:
+                    return messages[-limit:]
                 return messages
         except Exception as e:
             logger.error(f"Failed to get group conversation {group_id}: {e}")

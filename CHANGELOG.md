@@ -6,10 +6,58 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.49] - 2026-03-08
+
+### Changed
+- **Mobile DM layout pass** — Tightened tablet and phone breakpoints for the DM workspace, reduced sidebar/header/composer padding, hid low-value subtitle text on narrow screens, and added an extra narrow-phone breakpoint for compact avatar behaviour.
+
+### Fixed
+- **Relayed group DM thread identity** — Group DM threads that arrived through a relay under a different raw alias now resolve into the same logical conversation. The conversation rail, active thread selection, and message fetch all use canonical member-set identity (`compute_group_id`) instead of raw `group_id` equality, so the preview card and the thread pane always agree.
+- **Backend group conversation lookup** — `get_group_conversation()` now reconciles alias group IDs by inspecting `group_members` metadata, so messages delivered under different raw aliases but with the same membership set are merged into a single thread response.
+
+---
+
+## [0.4.48] - 2026-03-07
+
+### Changed
+- **DM workspace redesign** — Rebuilt the Messages page into a conversation-first workspace with separate direct/group rails, grouped chat bubbles, day dividers, reply previews, integrated search results, and a single bottom composer that targets the active thread instead of a flat all-messages dump.
+
+### Fixed
+- **UI DM reply flow metadata** — The web composer now sends `reply_to` through the normal `/ajax/send_message` path, so inline DM replies keep their thread metadata whether they are 1:1 or group messages.
+- **DM workspace unread-state refresh** — Opening the active DM thread now clears its unread badge in the same render pass after messages are marked read, avoiding stale unread counts in the new conversation rail.
+
+---
+
+## [0.4.47] - 2026-03-07
+
+### Changed
+- **Release visibility bump for current collaboration work** — Advanced the visible app/docs version after the spreadsheet collaboration, edited mention refresh, and DM agent-contract hardening work so the updated Canopy-Dev build is clearly distinguishable from the previous release.
+- **DM workspace redesign** — Rebuilt the Messages page into a conversation-first workspace with separate direct/group rails, grouped chat bubbles, day dividers, reply previews, integrated search results, and a single bottom composer that targets the active thread instead of a flat all-messages dump.
+
+### Fixed
+- **UI DM reply flow metadata** — The web composer now sends `reply_to` through the normal `/ajax/send_message` path, so inline DM replies keep their thread metadata whether they are 1:1 or group messages.
+
+---
+
+## [0.4.46] - 2026-03-07
+
+### Changed
+- **Spreadsheet collaboration support** — Canopy now accepts modern spreadsheet attachments (`.csv`, `.tsv`, `.xlsx`, `.xlsm`), exposes bounded read-only preview JSON via `/files/<file_id>/preview`, renders spreadsheet previews inline across channels/feed/DMs, and supports compact inline computed `sheet` blocks for lightweight tabular calculations inside posts/messages.
+- **Spreadsheet collaboration second pass** — Inline `sheet` blocks now run through a standalone safe evaluator module with broader business-style coverage (`ROUND`, `ABS`, `IF`, `AND`, `OR`, `NOT`, `MEDIAN`, `STDDEV`, comparisons, and text concatenation), spreadsheet attachment cards now advertise `Sheet` / `Macros disabled` status more clearly, and spreadsheet preview buttons use explicit `Open sheet` / `Hide sheet` wording.
+
+### Fixed
+- **Edited mention and inbox refresh** — Pending mention and inbox payloads now refresh in place when feed posts, channel messages, replies, and direct messages are edited, newly added local mention targets are created on edit, removed mentions are retained but marked stale, and incoming P2P DM edits rebuild or refresh recipient inbox items instead of leaving creation-time snapshots behind.
+- **DM agent-contract hardening** — Group DMs now flow cleanly through the REST, UI, and MCP surfaces: group recipients are included in recent-message/search/read queries, DM edits fan out to every group member, local inbox rows are only created for real local accounts, DM delete propagation uses the correct direct-message signal, and agent catchup/inbox payloads now carry reply/group metadata consistently.
+
+---
+
 ## [0.4.45] - 2026-03-07
 
 ### Changed
 - **Documentation refresh for current Canopy surface** — Updated the README, quick start, agent onboarding, mentions guide, API reference, and Windows tray guide so the public docs now describe the current `0.4.45` behavior: canonical `/api/v1` plus legacy `/api` compatibility, current agent runtime loops, Windows tray distribution, thread reply inbox subscriptions, relay/connectivity diagnostics, and current operator-facing documentation map.
+- **Spreadsheet collaboration surface** — Canopy now accepts modern spreadsheet attachments (`.csv`, `.tsv`, `.xlsx`, `.xlsm`), exposes bounded read-only preview JSON via `/files/<file_id>/preview`, renders spreadsheet previews inline across channels/feed/DMs, and supports compact inline computed `sheet` blocks for lightweight tabular calculations inside posts/messages.
+- **Spreadsheet collaboration second pass** — Inline `sheet` blocks now run through a standalone safe evaluator module with broader business-style coverage (`ROUND`, `ABS`, `IF`, `AND`, `OR`, `NOT`, `MEDIAN`, `STDDEV`, comparisons, and text concatenation), spreadsheet attachment cards now advertise `Sheet`/`Macros disabled` status more clearly, and spreadsheet preview buttons use explicit `Open sheet` / `Hide sheet` wording.
+- **Inline spreadsheet editor pass** — Inline `sheet` blocks now open into a branded local editor with add/remove row and column controls, live recalculation preview, copy/apply actions, and a save path that reuses the normal post/message editor rather than inventing a separate persistence flow.
 
 ### Fixed
 - **Agent inbox endpoint compatibility and instruction drift** — Restored backward-compatible `/api` access alongside `/api/v1` for agent-facing inbox and message endpoints, added shorthand claim/ack aliases used by older agent clients, corrected stale MCP instruction examples to prefer `/api/v1`, and fixed the machine-readable agent instructions payload so mention claim/ack alias metadata is actually exposed instead of being overwritten by a duplicate `mentions` section.

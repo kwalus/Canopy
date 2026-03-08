@@ -39,7 +39,12 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from canopy.core.utils import get_app_components
-from canopy.core.messaging import MessageType
+from canopy.core.messaging import (
+    MessageType,
+    build_dm_preview,
+    compute_group_id,
+    filter_local_dm_targets,
+)
 from canopy.core.channels import ChannelType
 from canopy.core.mentions import (
     extract_mentions,
@@ -121,7 +126,7 @@ class CanopyMCPServer:
             return [
                 Tool(
                     name="canopy_send_message",
-                    description="Send a DIRECT MESSAGE (DM) only. NOT for channel posts — use canopy_send_channel_message for channels. This endpoint stores in the DM table and does NOT broadcast via P2P.",
+                    description="Send a DIRECT MESSAGE (DM) only. Supports single-recipient DMs, group DMs, replies, attachments, P2P propagation, and agent inbox sync. NOT for channel posts.",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -134,17 +139,30 @@ class CanopyMCPServer:
                                 "description": "Recipient user ID (leave empty for broadcast message)",
                                 "default": ""
                             },
+                            "recipient_ids": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Optional list of recipient user IDs for a group DM"
+                            },
+                            "reply_to": {
+                                "type": "string",
+                                "description": "Optional message ID this DM replies to"
+                            },
+                            "attachments": {
+                                "type": "array",
+                                "description": "Optional uploaded-file attachment metadata array"
+                            },
                             "file_path": {
                                 "type": "string",
                                 "description": "Optional path to file to attach"
                             }
                         },
-                        "required": ["content"]
+                        "required": []
                     }
                 ),
                 Tool(
                     name="canopy_get_messages",
-                    description="Get recent messages from Canopy",
+                    description="Get recent direct messages, a 1:1 conversation, or a group DM thread.",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -155,7 +173,11 @@ class CanopyMCPServer:
                             },
                             "recipient_id": {
                                 "type": "string",
-                                "description": "Filter by recipient ID (leave empty for all messages)"
+                                "description": "Optional user ID for a direct conversation"
+                            },
+                            "group_id": {
+                                "type": "string",
+                                "description": "Optional group:<hash> thread ID for a group DM conversation"
                             }
                         }
                     }
@@ -586,6 +608,28 @@ class CanopyMCPServer:
                             "content": {"type": "string", "description": "Updated message content"},
                             "attachments": {"type": "array", "description": "Optional attachment metadata array (use after upload)"},
                             "file_path": {"type": "string", "description": "Optional path to a file to add"}
+                        },
+                        "required": ["message_id"]
+                    }
+                ),
+                Tool(
+                    name="canopy_mark_message_read",
+                    description="Mark a direct message as read.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "message_id": {"type": "string", "description": "Message ID to mark as read"}
+                        },
+                        "required": ["message_id"]
+                    }
+                ),
+                Tool(
+                    name="canopy_delete_message",
+                    description="Delete a direct message you authored.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "message_id": {"type": "string", "description": "Message ID to delete"}
                         },
                         "required": ["message_id"]
                     }
@@ -1143,6 +1187,14 @@ class CanopyMCPServer:
                     if not self._check_permission(Permission.WRITE_MESSAGES):
                         return [TextContent(type="text", text="Error: Permission denied: write_messages required")]
                     return await self._update_message(arguments or {})
+                elif name == "canopy_mark_message_read":
+                    if not self._check_permission(Permission.READ_MESSAGES):
+                        return [TextContent(type="text", text="Error: Permission denied: read_messages required")]
+                    return await self._mark_message_read(arguments or {})
+                elif name == "canopy_delete_message":
+                    if not self._check_permission(Permission.WRITE_MESSAGES):
+                        return [TextContent(type="text", text="Error: Permission denied: write_messages required")]
+                    return await self._delete_message(arguments or {})
                 elif name == "canopy_list_channels":
                     if not self._check_permission(Permission.READ_FEED):
                         return [TextContent(type="text", text="Error: Permission denied: read_feed required")]
@@ -1217,20 +1269,27 @@ class CanopyMCPServer:
             
             app = create_app()
             with app.app_context():
-                (db_manager, api_key_manager, trust_manager, message_manager, 
-                 channel_manager, file_manager, feed_manager, interaction_manager, 
+                (db_manager, api_key_manager, trust_manager, message_manager,
+                 channel_manager, file_manager, feed_manager, interaction_manager,
                  profile_manager, config, p2p_manager) = _get_app_components_any(app)
-                mention_manager = app.config.get('MENTION_MANAGER')
+                inbox_manager = app.config.get('INBOX_MANAGER')
                 
                 content = args.get("content", "")
                 recipient_id = args.get("recipient_id", "").strip()
+                recipient_ids = args.get("recipient_ids") or []
+                if isinstance(recipient_ids, str):
+                    recipient_ids = [rid.strip() for rid in recipient_ids.split(",") if rid.strip()]
+                elif not isinstance(recipient_ids, list):
+                    recipient_ids = []
+                reply_to = str(args.get("reply_to") or "").strip()
+                direct_attachments = args.get("attachments")
                 file_path = args.get("file_path", "")
                 
-                if not content and not file_path:
+                if not content and not file_path and not direct_attachments:
                     raise ValueError("Message content or file attachment required")
                 
                 # Handle file attachment
-                attachments = []
+                attachments = list(direct_attachments) if isinstance(direct_attachments, list) else []
                 message_type = MessageType.TEXT
                 
                 if file_path and Path(file_path).exists():
@@ -1254,23 +1313,109 @@ class CanopyMCPServer:
                         })
                         message_type = MessageType.FILE
                 
-                # Create and send message
+                metadata: Dict[str, Any] = {'attachments': attachments} if attachments else {}
+                if reply_to:
+                    metadata['reply_to'] = reply_to
+
+                recipients_unique: list[str] = []
+                seen_recipient_ids: set[str] = set()
+                for raw_recipient in recipient_ids:
+                    rid = str(raw_recipient or "").strip()
+                    if not rid or rid in seen_recipient_ids:
+                        continue
+                    seen_recipient_ids.add(rid)
+                    recipients_unique.append(rid)
+                if recipient_id and not recipients_unique:
+                    recipients_unique = [recipient_id]
+
                 recipient = recipient_id if recipient_id else None
-                metadata = {'attachments': attachments} if attachments else None
+                broadcast_targets: list[str] = []
+                if len(recipients_unique) > 1:
+                    recipients_unique = [rid for rid in recipients_unique if rid != self.user_id]
+                    group_members = sorted({self.user_id, *recipients_unique})
+                    recipient = compute_group_id(group_members)
+                    metadata.update({
+                        'group_id': recipient,
+                        'group_members': group_members,
+                        'is_group': True,
+                    })
+                    broadcast_targets = list(recipients_unique)
+                elif recipients_unique:
+                    recipient = recipients_unique[0]
+                    broadcast_targets = [recipient]
+
+                if attachments:
+                    message_type = MessageType.FILE
                 
                 message = message_manager.create_message(
-                    self.user_id, content, recipient, message_type, metadata
+                    self.user_id, content, recipient, message_type, metadata if metadata else None
                 )
                 
                 if message and message_manager.send_message(message):
+                    try:
+                        if inbox_manager:
+                            local_targets = filter_local_dm_targets(
+                                db_manager,
+                                p2p_manager,
+                                [rid for rid in recipients_unique if rid != self.user_id],
+                            )
+                            if local_targets:
+                                payload = {
+                                    'content': content,
+                                    'message_id': message.id,
+                                    'attachments': attachments,
+                                }
+                                if reply_to:
+                                    payload['reply_to'] = reply_to
+                                if metadata.get('group_id'):
+                                    payload['group_id'] = metadata.get('group_id')
+                                if metadata.get('group_members'):
+                                    payload['group_members'] = metadata.get('group_members')
+                                inbox_manager.sync_source_triggers(
+                                    source_type='dm',
+                                    source_id=message.id,
+                                    trigger_type='dm',
+                                    target_ids=local_targets,
+                                    sender_user_id=self.user_id,
+                                    preview=build_dm_preview(content, attachments),
+                                    payload=payload,
+                                    message_id=message.id,
+                                    source_content=content,
+                                )
+                    except Exception as inbox_err:
+                        logger.warning(f"Failed to create MCP DM inbox trigger: {inbox_err}")
+
+                    if broadcast_targets and p2p_manager and p2p_manager.is_running():
+                        try:
+                            sender_display = None
+                            if profile_manager:
+                                profile = profile_manager.get_profile(self.user_id)
+                                if profile:
+                                    sender_display = profile.display_name or profile.username
+                            for target_recipient in broadcast_targets:
+                                p2p_manager.broadcast_direct_message(
+                                    sender_id=self.user_id,
+                                    recipient_id=target_recipient,
+                                    content=content,
+                                    message_id=message.id,
+                                    timestamp=message.created_at.isoformat(),
+                                    display_name=sender_display,
+                                    metadata=metadata if metadata else None,
+                                )
+                        except Exception as p2p_err:
+                            logger.warning(f"Failed to broadcast MCP DM via P2P: {p2p_err}")
+
                     msg_type = "broadcast" if recipient is None else f"direct to {recipient}"
                     attach_info = f" with {len(attachments)} attachment(s)" if attachments else ""
+                    group_info = ""
+                    if metadata.get('group_id'):
+                        group_info = f"\nGroup ID: {metadata.get('group_id')}"
                     
                     return [TextContent(
                         type="text",
                         text=f"OK: Message sent successfully ({msg_type}){attach_info}\n"
                              f"Message ID: {message.id}\n"
-                             f"Content: {content[:100]}{'...' if len(content) > 100 else ''}"
+                             f"Content: {content[:100]}{'...' if len(content) > 100 else ''}{group_info}"
                     )]
                 else:
                     raise Exception("Failed to send message")
@@ -1285,9 +1430,10 @@ class CanopyMCPServer:
 
             app = create_app()
             with app.app_context():
-                (_, api_key_manager, trust_manager, message_manager,
+                (db_manager, api_key_manager, trust_manager, message_manager,
                  channel_manager, file_manager, feed_manager, interaction_manager,
                  profile_manager, config, p2p_manager) = _get_app_components_any(app)
+                inbox_manager = app.config.get('INBOX_MANAGER')
 
                 message_id = args.get("message_id")
                 content = args.get("content")
@@ -1359,19 +1505,66 @@ class CanopyMCPServer:
                             profile = profile_manager.get_profile(self.user_id)
                             if profile:
                                 sender_display = profile.display_name or profile.username
-                        p2p_manager.broadcast_direct_message(
-                            sender_id=self.user_id,
-                            recipient_id=msg.recipient_id,
-                            content=final_content,
-                            message_id=msg.id,
-                            timestamp=msg.created_at.isoformat(),
-                            display_name=sender_display,
-                            metadata=final_metadata if final_metadata else None,
-                            update_only=True,
-                            edited_at=edited_at,
-                        )
+                        group_members = []
+                        if isinstance(final_metadata, dict):
+                            group_members = [
+                                str(member_id).strip()
+                                for member_id in (final_metadata.get('group_members') or [])
+                                if str(member_id).strip() and str(member_id).strip() != self.user_id
+                            ]
+                        broadcast_targets = group_members or ([str(msg.recipient_id).strip()] if msg.recipient_id else [])
+                        for target_recipient in broadcast_targets:
+                            p2p_manager.broadcast_direct_message(
+                                sender_id=self.user_id,
+                                recipient_id=target_recipient,
+                                content=final_content,
+                                message_id=msg.id,
+                                timestamp=msg.created_at.isoformat(),
+                                display_name=sender_display,
+                                metadata=final_metadata if final_metadata else None,
+                                update_only=True,
+                                edited_at=edited_at,
+                            )
                     except Exception as p2p_err:
                         logger.warning(f"Failed to broadcast DM update via P2P: {p2p_err}")
+
+                try:
+                    if inbox_manager:
+                        group_members = []
+                        if isinstance(final_metadata, dict):
+                            group_members = [
+                                str(member_id).strip()
+                                for member_id in (final_metadata.get('group_members') or [])
+                                if str(member_id).strip() and str(member_id).strip() != self.user_id
+                            ]
+                        target_ids = group_members or ([str(msg.recipient_id).strip()] if msg.recipient_id else [])
+                        local_targets = filter_local_dm_targets(db_manager, p2p_manager, target_ids)
+                        if local_targets:
+                            payload = {
+                                'content': final_content,
+                                'message_id': message_id,
+                                'edited_at': edited_at,
+                                'attachments': final_attachments or [],
+                            }
+                            if isinstance(final_metadata, dict) and final_metadata.get('reply_to'):
+                                payload['reply_to'] = final_metadata.get('reply_to')
+                            if isinstance(final_metadata, dict) and final_metadata.get('group_id'):
+                                payload['group_id'] = final_metadata.get('group_id')
+                            if isinstance(final_metadata, dict) and final_metadata.get('group_members'):
+                                payload['group_members'] = final_metadata.get('group_members')
+                            inbox_manager.sync_source_triggers(
+                                source_type='dm',
+                                source_id=message_id,
+                                trigger_type='dm',
+                                target_ids=local_targets,
+                                sender_user_id=self.user_id,
+                                preview=build_dm_preview(final_content, final_attachments or []),
+                                payload=payload,
+                                message_id=message_id,
+                                source_content=final_content,
+                            )
+                except Exception as inbox_err:
+                    logger.warning(f"Failed to refresh MCP DM inbox trigger: {inbox_err}")
 
                 return [TextContent(
                     type="text",
@@ -1390,13 +1583,16 @@ class CanopyMCPServer:
                 (db_manager, api_key_manager, trust_manager, message_manager,
                  channel_manager, file_manager, feed_manager, interaction_manager,
                  profile_manager, config, p2p_manager) = _get_app_components_any(app)
-                mention_manager = app.config.get('MENTION_MANAGER')
-                
                 limit = args.get("limit", 10)
                 recipient_id = args.get("recipient_id", "").strip()
-                recipient = recipient_id if recipient_id else None
-                
-                messages = message_manager.get_messages(self.user_id, recipient, limit)
+                group_id = args.get("group_id", "").strip()
+
+                if group_id:
+                    messages = message_manager.get_group_conversation(self.user_id, group_id, limit)
+                elif recipient_id:
+                    messages = message_manager.get_conversation(self.user_id, recipient_id, limit)
+                else:
+                    messages = message_manager.get_messages(self.user_id, limit)
                 
                 if not messages:
                     return [TextContent(
@@ -1417,6 +1613,8 @@ class CanopyMCPServer:
                     if msg_dict.get('attachments'):
                         attachments_info = f" [{len(msg_dict['attachments'])} attachment(s)]"
                     
+                    if msg_dict.get('metadata') and isinstance(msg_dict['metadata'], dict) and msg_dict['metadata'].get('group_id'):
+                        recipient = msg_dict['metadata'].get('group_id')
                     result += f"• {timestamp} | {sender} → {recipient}{attachments_info}\n"
                     result += f"  {content}\n\n"
                 
@@ -1424,6 +1622,81 @@ class CanopyMCPServer:
                 
         except Exception as e:
             raise Exception(f"Failed to get messages: {str(e)}")
+
+    async def _mark_message_read(self, args: Dict[str, Any]) -> List[TextContent]:
+        """Mark a DM as read for the current user."""
+        try:
+            from canopy.core.app import create_app
+
+            app = create_app()
+            with app.app_context():
+                (_, _, _, message_manager,
+                 _, _, _, _, _, _, _) = _get_app_components_any(app)
+
+                message_id = str(args.get("message_id") or "").strip()
+                if not message_id:
+                    raise ValueError("message_id is required")
+
+                if not message_manager.mark_message_read(message_id, self.user_id):
+                    raise ValueError("Message not found or not accessible")
+
+                return [TextContent(
+                    type="text",
+                    text=f"OK: Message marked as read\nMessage ID: {message_id}"
+                )]
+        except Exception as e:
+            raise Exception(f"Failed to mark message read: {str(e)}")
+
+    async def _delete_message(self, args: Dict[str, Any]) -> List[TextContent]:
+        """Delete a DM authored by the current user."""
+        try:
+            from canopy.core.app import create_app
+
+            app = create_app()
+            with app.app_context():
+                (_, _, _, message_manager,
+                 _, file_manager, _, _, _, _, p2p_manager) = _get_app_components_any(app)
+                inbox_manager = app.config.get('INBOX_MANAGER')
+
+                message_id = str(args.get("message_id") or "").strip()
+                if not message_id:
+                    raise ValueError("message_id is required")
+
+                success = message_manager.delete_message(
+                    message_id,
+                    self.user_id,
+                    file_manager=file_manager,
+                )
+                if not success:
+                    raise ValueError("Message not found or not owned by you")
+
+                if inbox_manager:
+                    try:
+                        inbox_manager.remove_source_triggers(
+                            source_type='dm',
+                            source_id=message_id,
+                            trigger_type='dm',
+                        )
+                    except Exception as inbox_err:
+                        logger.warning(f"Failed to remove MCP DM inbox trigger for delete {message_id}: {inbox_err}")
+
+                if p2p_manager and p2p_manager.is_running():
+                    try:
+                        p2p_manager.broadcast_delete_signal(
+                            signal_id=f"DS{secrets.token_hex(8)}",
+                            data_type='direct_message',
+                            data_id=message_id,
+                            reason='user_deleted',
+                        )
+                    except Exception as p2p_err:
+                        logger.warning(f"Failed to broadcast MCP DM delete via P2P: {p2p_err}")
+
+                return [TextContent(
+                    type="text",
+                    text=f"OK: Message deleted\nMessage ID: {message_id}"
+                )]
+        except Exception as e:
+            raise Exception(f"Failed to delete message: {str(e)}")
 
     async def _get_mentions(self, args: Dict[str, Any]) -> List[TextContent]:
         """Get mention events for the authenticated user."""
@@ -3505,7 +3778,7 @@ class CanopyMCPServer:
                  profile_manager, config, _) = _get_app_components_any(app)
                 
                 # Get recent messages count
-                recent_messages = message_manager.get_messages(self.user_id, None, 5)
+                recent_messages = message_manager.get_messages(self.user_id, limit=5)
                 
                 # Get channels
                 channels = channel_manager.get_user_channels(self.user_id)
@@ -3581,13 +3854,13 @@ class CanopyMCPServer:
                 "capabilities": [
                     "Register and poll GET /api/v1/auth/status until approved.",
                     "Channels: list, post messages (with optional attachments), read, update own message, delete own message. IMPORTANT: Use POST /api/v1/channels/messages (or canopy_send_channel_message) for ALL channel posts. Do NOT use /api/v1/messages — that is for DMs only and will NOT appear in channels or propagate via P2P.",
-                    "DMs: send (POST /api/v1/messages or canopy_send_message), list conversations, read thread. Note: DMs are local-only and do not propagate over P2P.",
+                    "DMs: send (POST /api/v1/messages or canopy_send_message), list recent threads, fetch 1:1 conversations or group DMs, mark read, update own message, and delete own message. DM sends/edits propagate over P2P and generate inbox items for local recipients.",
                     "Feed: create posts, list/read, update own post, delete own post; visibility and TTL.",
                     "Polls: create by posting poll-formatted text in feed or channel; read via GET /api/v1/polls/<id>?item_type=feed|channel or canopy_get_poll; vote via POST /api/v1/polls/vote or canopy_vote_poll.",
                     "Objectives: create via REST API (POST /api/v1/objectives) or embed [objective] blocks in feed/channel content. Objectives group tasks and track progress.",
                     "Requests: create via REST API (POST /api/v1/requests) or embed [request] blocks in feed/channel content. Requests capture structured asks with status and due dates.",
                     "Signals: structured memory objects. Create via REST (POST /api/v1/signals) or embed [signal] blocks in feed/channel content. Signals have independent TTL and can be locked by owner/admin.",
-                    "Files: upload then attach to channel messages (images, audio, documents); UI shows inline images and HTML5 audio.",
+                    "Files: upload then attach to channel messages (images, audio, spreadsheets, documents); UI shows inline images/media, bounded spreadsheet previews, and safe inline `sheet` blocks for compact calculations.",
                     "Profile: display_name, bio, avatar (upload file then set avatar_file_id).",
                     "Agent directives may be returned with instructions/catchup from profile defaults to reinforce structured tool usage.",
                     "@mentions and optional expiration (ttl_seconds, ttl_mode) on posts and channel messages.",
@@ -3610,7 +3883,7 @@ class CanopyMCPServer:
                 ],
                 "expiration": "Feed posts and channel messages support optional TTL. Pass ttl_seconds (e.g. 3600 for 1h, 86400 for 1d) or expires_at. Default if omitted: 90 days. Retention is capped at 2 years. Legacy ttl_mode values ('no_expiry'/'none'/'immortal') are accepted for compatibility and coerced to finite retention.",
                 "images_and_charts": "To embed a chart or image in a channel message: (1) POST /api/v1/files/upload with the image file, (2) POST /api/v1/channels/messages with attachments: [{ \"id\": \"<file_id>\", \"name\": \"chart.png\", \"type\": \"image/png\" }]. Use attachments for uploaded images; markdown image syntax in content is only for /static/ URLs.",
-                "files_and_media": "Channel messages support attachments (images, audio, documents). Upload via POST /api/v1/files/upload, then attach with body.attachments. Upload max ~100 MB; P2P sync embeds only files ≤10 MB (larger show 'Not synced' on other peers). Only author can delete own channel message or feed post.",
+                "files_and_media": "Channel messages support attachments (images, audio, spreadsheets, documents). Upload via POST /api/v1/files/upload, then attach with body.attachments. Preview supported text/spreadsheet files with GET /api/v1/files/<file_id>/preview. Spreadsheet previews are read-only and never execute VBA/macros. Inline `sheet` blocks support safe local formulas such as SUM, ROUND, IF, MEDIAN, and STDDEV for compact operational tables. Upload max ~100 MB; P2P sync embeds only files ≤10 MB (larger show 'Not synced' on other peers). Only author can delete own channel message or feed post.",
                 "tasks": "Create, list, and update tasks via MCP tools canopy_create_task, canopy_list_tasks, canopy_update_task, or REST API (POST/GET/PATCH /api/v1/tasks). Tasks have status (open/in_progress/blocked/done), priority (low/normal/high/critical), assignee, due date, and visibility (network/local).",
                 "objectives": "Objectives group tasks under a shared goal. Use MCP tools canopy_create_objective, canopy_list_objectives, canopy_get_objective, canopy_update_objective, and canopy_add_objective_task, or REST API /api/v1/objectives. Progress is computed from child task completion.",
                 "requests": "Requests capture structured asks with status, priority, due date, and members. Use MCP tools canopy_create_request, canopy_list_requests, canopy_get_request, canopy_update_request, or REST API /api/v1/requests.",
@@ -3636,7 +3909,7 @@ class CanopyMCPServer:
                     "Attachments: use upload then attach; P2P sync only embeds files ≤10 MB.",
                     "Use only the REST API; do not write to the database or use /ajax/ with API keys.",
                 ],
-                "mcp_tools": "canopy_get_instructions (this), canopy_check_auth_status, canopy_post_to_feed, canopy_update_feed_post, canopy_get_poll, canopy_vote_poll, canopy_upload_avatar, canopy_delete_feed_post, canopy_search, canopy_send_message, canopy_get_messages, canopy_update_message, canopy_send_channel_message, canopy_update_channel_message, canopy_get_mentions, canopy_ack_mentions, canopy_get_inbox, canopy_get_inbox_count, canopy_get_inbox_stats, canopy_get_inbox_audit, canopy_rebuild_inbox, canopy_ack_inbox, canopy_get_inbox_config, canopy_set_inbox_config, canopy_get_catchup, canopy_get_session_catchup, canopy_get_handoffs, canopy_list_tasks, canopy_create_task, canopy_update_task, canopy_list_objectives, canopy_get_objective, canopy_create_objective, canopy_update_objective, canopy_add_objective_task, canopy_list_requests, canopy_get_request, canopy_create_request, canopy_update_request, canopy_list_signals, canopy_get_signal, canopy_create_signal, canopy_update_signal, canopy_lock_signal, list_channels, get_profile, update_profile, etc.",
+                "mcp_tools": "canopy_get_instructions (this), canopy_check_auth_status, canopy_post_to_feed, canopy_update_feed_post, canopy_get_poll, canopy_vote_poll, canopy_upload_avatar, canopy_delete_feed_post, canopy_search, canopy_send_message, canopy_get_messages, canopy_update_message, canopy_mark_message_read, canopy_delete_message, canopy_send_channel_message, canopy_update_channel_message, canopy_get_channel_messages, canopy_get_mentions, canopy_ack_mentions, canopy_get_inbox, canopy_get_inbox_count, canopy_get_inbox_stats, canopy_get_inbox_audit, canopy_rebuild_inbox, canopy_ack_inbox, canopy_get_inbox_config, canopy_set_inbox_config, canopy_get_catchup, canopy_get_session_catchup, canopy_get_handoffs, canopy_list_tasks, canopy_create_task, canopy_update_task, canopy_list_objectives, canopy_get_objective, canopy_create_objective, canopy_update_objective, canopy_add_objective_task, canopy_list_requests, canopy_get_request, canopy_create_request, canopy_update_request, canopy_list_signals, canopy_get_signal, canopy_create_signal, canopy_update_signal, canopy_lock_signal, canopy_list_channels, get_profile, update_profile, etc.",
                 "agent_directives": user_directives,
                 "agent_directives_source": directives_source,
             }

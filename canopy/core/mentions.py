@@ -290,6 +290,111 @@ def split_mention_targets(
     return local_targets, remote_targets
 
 
+def _filter_channel_target_ids_for_notifications(
+    mention_manager: Optional["MentionManager"],
+    *,
+    channel_id: str,
+    source_id: str,
+    target_ids: Sequence[str],
+) -> List[str]:
+    """Filter channel mention targets to members with notifications enabled."""
+    resolved_target_ids = list(dict.fromkeys([str(tid).strip() for tid in (target_ids or []) if str(tid).strip()]))
+    if not resolved_target_ids:
+        return []
+    if not mention_manager:
+        logger.warning(
+            "Skipping channel mention activity without mention manager "
+            "(source_id=%s channel_id=%s)",
+            source_id,
+            channel_id,
+        )
+        return []
+
+    try:
+        with mention_manager.db.get_connection() as conn:
+            placeholders = ",".join("?" for _ in resolved_target_ids)
+            if placeholders:
+                try:
+                    rows = conn.execute(
+                        f"""
+                        SELECT user_id, notifications_enabled
+                        FROM channel_members
+                        WHERE channel_id = ? AND user_id IN ({placeholders})
+                        """,
+                        [channel_id] + resolved_target_ids,
+                    ).fetchall()
+                except Exception:
+                    # Backward compatibility with legacy schemas that may
+                    # not yet have channel_members.notifications_enabled.
+                    rows = conn.execute(
+                        f"""
+                        SELECT user_id, 1 AS notifications_enabled
+                        FROM channel_members
+                        WHERE channel_id = ? AND user_id IN ({placeholders})
+                        """,
+                        [channel_id] + resolved_target_ids,
+                    ).fetchall()
+            else:
+                rows = []
+
+        member_user_ids: set[str] = set()
+        muted_user_ids: set[str] = set()
+        for row in rows:
+            if hasattr(row, 'keys'):
+                uid = row['user_id']
+                enabled_raw = row['notifications_enabled'] if 'notifications_enabled' in row.keys() else 1
+            else:
+                uid = row[0]
+                enabled_raw = row[1] if len(row) > 1 else 1
+            uid_s = str(uid or '').strip()
+            if not uid_s:
+                continue
+            member_user_ids.add(uid_s)
+            if enabled_raw is None:
+                enabled = True
+            elif isinstance(enabled_raw, str):
+                enabled = enabled_raw.strip().lower() not in {'0', 'false', 'off', 'no'}
+            else:
+                enabled = bool(enabled_raw)
+            if not enabled:
+                muted_user_ids.add(uid_s)
+
+        allowed_user_ids = member_user_ids - muted_user_ids
+        filtered_ids = [uid for uid in resolved_target_ids if uid in allowed_user_ids]
+        dropped_ids = [uid for uid in resolved_target_ids if uid not in allowed_user_ids]
+        if dropped_ids:
+            dropped_nonmembers = [uid for uid in dropped_ids if uid not in member_user_ids]
+            dropped_muted = [uid for uid in dropped_ids if uid in muted_user_ids]
+            if dropped_nonmembers:
+                logger.info(
+                    "Dropped %d mention target(s) without channel membership "
+                    "(source_id=%s channel_id=%s users=%s)",
+                    len(dropped_nonmembers),
+                    source_id,
+                    channel_id,
+                    dropped_nonmembers,
+                )
+            if dropped_muted:
+                logger.info(
+                    "Dropped %d mention target(s) due to channel mute "
+                    "(source_id=%s channel_id=%s users=%s)",
+                    len(dropped_muted),
+                    source_id,
+                    channel_id,
+                    dropped_muted,
+                )
+        return filtered_ids
+    except Exception as e:
+        logger.warning(
+            "Mention membership verification failed; dropping channel mention "
+            "(source_id=%s channel_id=%s error=%s)",
+            source_id,
+            channel_id,
+            e,
+        )
+        return []
+
+
 class MentionManager:
     """Stores per-user mention events."""
     DEFAULT_CLAIM_TTL_SECONDS = 120
@@ -760,6 +865,123 @@ class MentionManager:
             logger.error(f"Failed to record mention events: {e}")
         return inserted
 
+    def sync_source_mentions(
+        self,
+        *,
+        source_type: str,
+        source_id: str,
+        target_ids: Optional[Sequence[str]] = None,
+        author_id: Optional[str] = None,
+        origin_peer: Optional[str] = None,
+        channel_id: Optional[str] = None,
+        preview: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        source_content: Optional[str] = None,
+        mark_missing_as_stale: bool = False,
+    ) -> Dict[str, int]:
+        """Refresh stored mention-event payloads for an edited source."""
+        if not source_type or not source_id:
+            return {'updated': 0, 'created': 0, 'stale_marked': 0}
+
+        desired_ids = list(dict.fromkeys([str(uid).strip() for uid in (target_ids or []) if str(uid).strip()]))
+        desired_set = set(desired_ids)
+        meta_base: Dict[str, Any] = dict(metadata or {})
+        if source_content is not None:
+            meta_base['content'] = source_content
+        if channel_id:
+            meta_base['channel_id'] = channel_id
+        if author_id:
+            meta_base['author_id'] = author_id
+        if origin_peer:
+            meta_base['origin_peer'] = origin_peer
+        if source_type == 'channel_message':
+            meta_base.setdefault('message_id', source_id)
+        elif source_type == 'feed_post':
+            meta_base.setdefault('post_id', source_id)
+
+        updated = 0
+        created = 0
+        stale_marked = 0
+        existing_user_ids: set[str] = set()
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        try:
+            with self.db.get_connection() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT id, user_id, metadata
+                    FROM mention_events
+                    WHERE source_type = ? AND source_id = ?
+                    """,
+                    (source_type, source_id),
+                ).fetchall()
+
+                for row in rows or []:
+                    user_id = str(row['user_id'] or '').strip()
+                    if not user_id:
+                        continue
+                    existing_user_ids.add(user_id)
+
+                    merged_meta: Dict[str, Any] = {}
+                    meta_raw = row['metadata']
+                    if meta_raw:
+                        try:
+                            loaded = json.loads(meta_raw)
+                            if isinstance(loaded, dict):
+                                merged_meta = loaded
+                        except Exception:
+                            merged_meta = {}
+                    merged_meta.update(meta_base)
+
+                    if mark_missing_as_stale:
+                        still_mentioned = user_id in desired_set
+                        merged_meta['still_mentioned'] = still_mentioned
+                        if still_mentioned:
+                            merged_meta.pop('mention_removed_at', None)
+                        else:
+                            merged_meta['mention_removed_at'] = now_iso
+                            stale_marked += 1
+                    elif user_id in desired_set:
+                        merged_meta.pop('mention_removed_at', None)
+
+                    conn.execute(
+                        """
+                        UPDATE mention_events
+                        SET preview = COALESCE(?, preview),
+                            metadata = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            preview,
+                            json.dumps(merged_meta) if merged_meta else None,
+                            row['id'],
+                        ),
+                    )
+                    updated += 1
+                conn.commit()
+        except Exception as e:
+            logger.warning(f"Failed to refresh mention-event payloads: {e}")
+            return {'updated': updated, 'created': created, 'stale_marked': stale_marked}
+
+        missing_ids = [uid for uid in desired_ids if uid not in existing_user_ids]
+        if missing_ids:
+            create_meta = dict(meta_base)
+            if mark_missing_as_stale:
+                create_meta['still_mentioned'] = True
+            created_ids = self.record_mentions(
+                user_ids=missing_ids,
+                source_type=source_type,
+                source_id=source_id,
+                author_id=author_id,
+                origin_peer=origin_peer,
+                channel_id=channel_id,
+                preview=preview,
+                metadata=create_meta,
+            )
+            created = len(created_ids)
+
+        return {'updated': updated, 'created': created, 'stale_marked': stale_marked}
+
     def get_mentions(
         self,
         user_id: str,
@@ -1052,52 +1274,13 @@ def record_mention_activity(
     """Persist mention events and surface a UI activity notification."""
     resolved_target_ids = list(dict.fromkeys([tid for tid in target_ids if tid]))
     if source_type == 'channel_message' and channel_id:
-        if not mention_manager:
-            logger.warning(
-                "Skipping channel mention activity without mention manager "
-                "(source_id=%s channel_id=%s)",
-                source_id,
-                channel_id,
-            )
-            return
-        try:
-            with mention_manager.db.get_connection() as conn:
-                placeholders = ",".join("?" for _ in resolved_target_ids)
-                if placeholders:
-                    rows = conn.execute(
-                        f"""
-                        SELECT user_id
-                        FROM channel_members
-                        WHERE channel_id = ? AND user_id IN ({placeholders})
-                        """,
-                        [channel_id] + resolved_target_ids,
-                    ).fetchall()
-                else:
-                    rows = []
-            allowed_user_ids = {
-                (row['user_id'] if hasattr(row, 'keys') and 'user_id' in row.keys() else row[0])
-                for row in rows
-            }
-            filtered_ids = [uid for uid in resolved_target_ids if uid in allowed_user_ids]
-            dropped_ids = [uid for uid in resolved_target_ids if uid not in allowed_user_ids]
-            if dropped_ids:
-                logger.info(
-                    "Dropped %d mention target(s) without channel membership "
-                    "(source_id=%s channel_id=%s users=%s)",
-                    len(dropped_ids),
-                    source_id,
-                    channel_id,
-                    dropped_ids,
-                )
-            resolved_target_ids = filtered_ids
-        except Exception as e:
-            logger.warning(
-                "Mention membership verification failed; dropping channel mention "
-                "(source_id=%s channel_id=%s error=%s)",
-                source_id,
-                channel_id,
-                e,
-            )
+        resolved_target_ids = _filter_channel_target_ids_for_notifications(
+            mention_manager,
+            channel_id=channel_id,
+            source_id=source_id,
+            target_ids=resolved_target_ids,
+        )
+        if not resolved_target_ids:
             return
 
     if mention_manager and resolved_target_ids:
@@ -1247,10 +1430,53 @@ def record_thread_reply_activity(
                     if upsert.get('success'):
                         target_ids.add(root_author_id)
 
+        channel_mute_map: Dict[str, bool] = {}
+        try:
+            candidate_ids = sorted({str(uid).strip() for uid in target_ids if str(uid).strip()})
+            if candidate_ids:
+                placeholders = ",".join("?" for _ in candidate_ids)
+                with channel_manager.db.get_connection() as conn:
+                    try:
+                        pref_rows = conn.execute(
+                            f"""
+                            SELECT user_id, notifications_enabled
+                            FROM channel_members
+                            WHERE channel_id = ? AND user_id IN ({placeholders})
+                            """,
+                            [channel_id] + candidate_ids,
+                        ).fetchall()
+                    except Exception:
+                        pref_rows = conn.execute(
+                            f"""
+                            SELECT user_id, 1 AS notifications_enabled
+                            FROM channel_members
+                            WHERE channel_id = ? AND user_id IN ({placeholders})
+                            """,
+                            [channel_id] + candidate_ids,
+                        ).fetchall()
+                for row in pref_rows:
+                    uid = row['user_id'] if hasattr(row, 'keys') and 'user_id' in row.keys() else row[0]
+                    enabled_raw = (
+                        row['notifications_enabled']
+                        if hasattr(row, 'keys') and 'notifications_enabled' in row.keys()
+                        else (row[1] if len(row) > 1 else 1)
+                    )
+                    if enabled_raw is None:
+                        enabled = True
+                    elif isinstance(enabled_raw, str):
+                        enabled = enabled_raw.strip().lower() not in {'0', 'false', 'off', 'no'}
+                    else:
+                        enabled = bool(enabled_raw)
+                    channel_mute_map[str(uid).strip()] = enabled
+        except Exception:
+            channel_mute_map = {}
+
         final_targets: List[str] = []
         for uid in sorted(target_ids):
             clean_uid = str(uid).strip()
             if not clean_uid or clean_uid == author or clean_uid in mentioned:
+                continue
+            if clean_uid in channel_mute_map and not channel_mute_map.get(clean_uid, True):
                 continue
             cfg = inbox_manager.get_config(clean_uid)
             if not bool(cfg.get('thread_reply_notifications', True)):
@@ -1328,3 +1554,120 @@ def broadcast_mention_interaction(
         )
     except Exception:
         pass
+
+
+def sync_edited_mention_activity(
+    *,
+    db_manager: Any,
+    mention_manager: Optional[MentionManager],
+    inbox_manager: Any,
+    p2p_manager: Any,
+    content: Optional[str],
+    source_type: str,
+    source_id: str,
+    author_id: Optional[str],
+    origin_peer: Optional[str],
+    channel_id: Optional[str] = None,
+    visibility: Optional[str] = None,
+    permissions: Optional[Sequence[str]] = None,
+    edited_at: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Refresh local mention/inbox payloads after an edited source changes."""
+    text = str(content or '')
+    mentions = extract_mentions(text)
+    preview = build_preview(text or '') or None
+    extra_ref: Dict[str, Any] = {}
+    if channel_id:
+        extra_ref['channel_id'] = channel_id
+    if source_type == 'channel_message':
+        extra_ref['message_id'] = source_id
+    elif source_type == 'feed_post':
+        extra_ref['post_id'] = source_id
+    if edited_at:
+        extra_ref['edited_at'] = edited_at
+
+    targets = resolve_mention_targets(
+        db_manager,
+        mentions,
+        channel_id=channel_id,
+        visibility=visibility,
+        permissions=permissions,
+        author_id=author_id,
+    ) if mentions else []
+
+    local_peer_id = None
+    try:
+        if p2p_manager:
+            local_peer_id = p2p_manager.get_peer_id()
+    except Exception:
+        local_peer_id = None
+    local_targets, remote_targets = split_mention_targets(targets, local_peer_id=local_peer_id)
+    local_target_ids = [
+        cast(str, t.get('user_id'))
+        for t in local_targets
+        if t.get('user_id')
+    ]
+    remote_target_ids = [
+        cast(str, t.get('user_id'))
+        for t in remote_targets
+        if t.get('user_id')
+    ]
+
+    if source_type == 'channel_message' and channel_id:
+        local_target_ids = _filter_channel_target_ids_for_notifications(
+            mention_manager,
+            channel_id=channel_id,
+            source_id=source_id,
+            target_ids=local_target_ids,
+        )
+
+    if mention_manager:
+        try:
+            mention_manager.sync_source_mentions(
+                source_type=source_type,
+                source_id=source_id,
+                target_ids=local_target_ids,
+                author_id=author_id,
+                origin_peer=origin_peer,
+                channel_id=channel_id,
+                preview=preview,
+                metadata=extra_ref,
+                source_content=text,
+                mark_missing_as_stale=True,
+            )
+        except Exception as e:
+            logger.warning(
+                "Mention-event refresh failed: %s (source_type=%s source_id=%s)",
+                e,
+                source_type,
+                source_id,
+            )
+
+    if inbox_manager:
+        try:
+            inbox_manager.sync_source_triggers(
+                source_type=source_type,
+                source_id=source_id,
+                trigger_type='mention',
+                target_ids=local_target_ids,
+                sender_user_id=author_id,
+                origin_peer=origin_peer,
+                channel_id=channel_id,
+                preview=preview,
+                payload=extra_ref,
+                source_content=text,
+                mark_missing_as_stale=True,
+            )
+        except Exception as e:
+            logger.warning(
+                "Inbox mention refresh failed: %s (source_type=%s source_id=%s)",
+                e,
+                source_type,
+                source_id,
+            )
+
+    return {
+        'local_target_ids': local_target_ids,
+        'remote_target_ids': remote_target_ids,
+        'preview': preview,
+    }

@@ -39,6 +39,7 @@ from ..core.mentions import (
     record_mention_activity,
     record_thread_reply_activity,
     broadcast_mention_interaction,
+    sync_edited_mention_activity,
 )
 from ..core.profile import (
     get_default_agent_directives,
@@ -53,9 +54,15 @@ from ..core.agent_presence import (
     get_agent_presence_records,
     build_agent_presence_payload,
 )
+from ..core.file_preview import build_file_preview
 from ..security.api_keys import Permission
 from ..security.csrf import validate_csrf_request
-from ..core.messaging import MessageType
+from ..core.messaging import (
+    MessageType,
+    build_dm_preview,
+    compute_group_id,
+    filter_local_dm_targets,
+)
 from ..security.trust import TrustEvent
 from ..security.file_access import evaluate_file_access
 from ..network.routing import (
@@ -2828,7 +2835,7 @@ def create_api_blueprint() -> Blueprint:
     @require_auth(Permission.WRITE_MESSAGES)
     def send_message():
         """Send a new direct message."""
-        _, _, _, message_manager, _, _, _, _, profile_manager, _, p2p_manager = get_app_components(current_app)
+        db_manager, _, _, message_manager, _, _, _, _, profile_manager, _, p2p_manager = get_app_components(current_app)
         if not message_manager:
             return jsonify({'error': 'Messaging not available'}), 503
         try:
@@ -2837,9 +2844,24 @@ def create_api_blueprint() -> Blueprint:
                 return jsonify({'error': 'JSON data required'}), 400
             
             content = data.get('content') or ''
-            recipient_id = data.get('recipient_id')  # None for broadcast
+            recipient_id = str(data.get('recipient_id') or '').strip() or None
+            recipient_ids_raw = data.get('recipient_ids') or []
+            if isinstance(recipient_ids_raw, str):
+                recipient_ids_raw = [value.strip() for value in recipient_ids_raw.split(',') if value.strip()]
+            elif not isinstance(recipient_ids_raw, list):
+                recipient_ids_raw = []
             message_type_str = data.get('message_type', 'text')
             metadata = data.get('metadata')
+            if not isinstance(metadata, dict):
+                metadata = {}
+            else:
+                metadata = dict(metadata)
+            top_level_attachments = data.get('attachments')
+            if isinstance(top_level_attachments, list):
+                metadata['attachments'] = top_level_attachments
+            reply_to = str(data.get('reply_to') or '').strip()
+            if reply_to:
+                metadata['reply_to'] = reply_to
             
             # Warn if caller seems to want a channel message
             if data.get('channel_id'):
@@ -2858,65 +2880,105 @@ def create_api_blueprint() -> Blueprint:
                 message_type = MessageType(message_type_str)
             except ValueError:
                 return jsonify({'error': f'Invalid message type: {message_type_str}'}), 400
+
+            recipients_unique: list[str] = []
+            seen_recipient_ids: set[str] = set()
+            for raw_recipient in recipient_ids_raw:
+                rid = str(raw_recipient or '').strip()
+                if not rid or rid in seen_recipient_ids:
+                    continue
+                seen_recipient_ids.add(rid)
+                recipients_unique.append(rid)
+            if recipient_id and not recipients_unique:
+                recipients_unique = [recipient_id]
+
+            recipients_unique = [rid for rid in recipients_unique if rid != g.api_key_info.user_id]
+
+            effective_recipient_id = recipient_id
+            broadcast_targets: list[str] = []
+            if len(recipients_unique) > 1:
+                group_members = sorted({g.api_key_info.user_id, *recipients_unique})
+                effective_recipient_id = compute_group_id(group_members)
+                metadata.update({
+                    'group_id': effective_recipient_id,
+                    'group_members': group_members,
+                    'is_group': True,
+                })
+                broadcast_targets = list(recipients_unique)
+            elif recipients_unique:
+                effective_recipient_id = recipients_unique[0]
+                broadcast_targets = [effective_recipient_id]
             
             # Create and send message
             message = message_manager.create_message(
-                g.api_key_info.user_id, content, recipient_id, message_type, metadata
+                g.api_key_info.user_id, content, effective_recipient_id, message_type, metadata if metadata else None
             )
             
             if message and message_manager.send_message(message):
                 # Broadcast DM to recipient peer via P2P
-                if recipient_id and p2p_manager and p2p_manager.is_running():
+                if broadcast_targets and p2p_manager and p2p_manager.is_running():
                     try:
                         sender_display = None
                         if profile_manager:
                             profile = profile_manager.get_profile(g.api_key_info.user_id)
                             if profile:
                                 sender_display = profile.display_name or profile.username
-                        p2p_manager.broadcast_direct_message(
-                            sender_id=g.api_key_info.user_id,
-                            recipient_id=recipient_id,
-                            content=content,
-                            message_id=message.id,
-                            timestamp=message.created_at.isoformat(),
-                            display_name=sender_display,
-                            metadata=metadata,
-                        )
+                        for target_recipient_id in broadcast_targets:
+                            p2p_manager.broadcast_direct_message(
+                                sender_id=g.api_key_info.user_id,
+                                recipient_id=target_recipient_id,
+                                content=content,
+                                message_id=message.id,
+                                timestamp=message.created_at.isoformat(),
+                                display_name=sender_display,
+                                metadata=metadata if metadata else None,
+                            )
                     except Exception as p2p_err:
                         logger.warning(f"Failed to broadcast DM via P2P: {p2p_err}")
 
                 # Notify recipient inbox for direct messages
-                if recipient_id:
+                local_target_ids = filter_local_dm_targets(
+                    db_manager,
+                    p2p_manager,
+                    [rid for rid in recipients_unique if rid != g.api_key_info.user_id],
+                )
+                if local_target_ids:
                     try:
                         inbox_manager = current_app.config.get('INBOX_MANAGER')
                         if inbox_manager:
-                            # Build a human-readable preview; fall back to attachment hint
-                            if content:
-                                dm_preview = content[:200]
-                            elif has_attachments:
-                                att_count = len(metadata.get('attachments', []))
-                                dm_preview = f"Sent {att_count} attachment{'s' if att_count != 1 else ''}"
-                            else:
-                                dm_preview = None
-                            inbox_manager.create_trigger(
-                                agent_user_id=recipient_id,
-                                # source_type/source_id identify the object that produced the
-                                # trigger; message_id is the convenience copy used in payloads.
+                            dm_preview = build_dm_preview(content, metadata.get('attachments') or [])
+                            payload = {
+                                'content': content,
+                                'message_id': message.id,
+                                'attachments': metadata.get('attachments') or [],
+                            }
+                            if reply_to:
+                                payload['reply_to'] = reply_to
+                            if metadata.get('group_id'):
+                                payload['group_id'] = metadata.get('group_id')
+                            if metadata.get('group_members'):
+                                payload['group_members'] = metadata.get('group_members')
+                            inbox_manager.sync_source_triggers(
                                 source_type='dm',
                                 source_id=message.id,
-                                sender_user_id=g.api_key_info.user_id,
                                 trigger_type='dm',
-                                message_id=message.id,
+                                target_ids=local_target_ids,
+                                sender_user_id=g.api_key_info.user_id,
                                 preview=dm_preview,
-                                payload={'content': content, 'message_id': message.id},
+                                payload=payload,
+                                message_id=message.id,
+                                source_content=content,
                             )
                     except Exception as inbox_err:
                         logger.warning(f"Failed to create inbox trigger for DM: {inbox_err}")
 
-                return jsonify({
+                response_payload = {
                     'message': message.to_dict(),
                     'status': 'sent',
-                }), 201
+                }
+                if metadata.get('group_id'):
+                    response_payload['group_id'] = metadata.get('group_id')
+                return jsonify(response_payload), 201
             else:
                 return jsonify({'error': 'Failed to send message'}), 500
                 
@@ -2929,7 +2991,7 @@ def create_api_blueprint() -> Blueprint:
     def update_message(message_id):
         """Update a direct message. Only the author can edit their own message."""
         try:
-            _, _, _, message_manager, _, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+            db_manager, _, _, message_manager, _, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
 
             data = request.get_json() or {}
             content = data.get('content')
@@ -2985,19 +3047,68 @@ def create_api_blueprint() -> Blueprint:
                         profile = profile_manager.get_profile(g.api_key_info.user_id)
                         if profile:
                             sender_display = profile.display_name or profile.username
-                    p2p_manager.broadcast_direct_message(
-                        sender_id=g.api_key_info.user_id,
-                        recipient_id=msg.recipient_id,
-                        content=final_content,
-                        message_id=msg.id,
-                        timestamp=msg.created_at.isoformat(),
-                        display_name=sender_display,
-                        metadata=final_metadata if final_metadata else None,
-                        update_only=True,
-                        edited_at=final_metadata.get('edited_at') if final_metadata else None,
-                    )
+                    group_members = []
+                    if isinstance(final_metadata, dict):
+                        group_members = [
+                            str(member_id).strip()
+                            for member_id in (final_metadata.get('group_members') or [])
+                            if str(member_id).strip() and str(member_id).strip() != g.api_key_info.user_id
+                        ]
+                    broadcast_targets = group_members or ([str(msg.recipient_id).strip()] if msg.recipient_id else [])
+                    for target_recipient_id in broadcast_targets:
+                        p2p_manager.broadcast_direct_message(
+                            sender_id=g.api_key_info.user_id,
+                            recipient_id=target_recipient_id,
+                            content=final_content,
+                            message_id=msg.id,
+                            timestamp=msg.created_at.isoformat(),
+                            display_name=sender_display,
+                            metadata=final_metadata if final_metadata else None,
+                            update_only=True,
+                            edited_at=final_metadata.get('edited_at') if final_metadata else None,
+                        )
                 except Exception as p2p_err:
                     logger.warning(f"Failed to broadcast DM update via P2P: {p2p_err}")
+
+            try:
+                inbox_manager = current_app.config.get('INBOX_MANAGER')
+                if inbox_manager:
+                    group_members = []
+                    if isinstance(final_metadata, dict):
+                        group_members = [
+                            str(member_id).strip()
+                            for member_id in (final_metadata.get('group_members') or [])
+                            if str(member_id).strip() and str(member_id).strip() != g.api_key_info.user_id
+                        ]
+                    target_ids = group_members or ([str(msg.recipient_id).strip()] if msg.recipient_id else [])
+                    local_target_ids = filter_local_dm_targets(db_manager, p2p_manager, target_ids)
+                    if local_target_ids:
+                        dm_preview = build_dm_preview(final_content, final_attachments or [])
+                        payload = {
+                            'content': final_content,
+                            'message_id': message_id,
+                            'edited_at': final_metadata.get('edited_at') if isinstance(final_metadata, dict) else None,
+                            'attachments': final_attachments or [],
+                        }
+                        if isinstance(final_metadata, dict) and final_metadata.get('reply_to'):
+                            payload['reply_to'] = final_metadata.get('reply_to')
+                        if isinstance(final_metadata, dict) and final_metadata.get('group_id'):
+                            payload['group_id'] = final_metadata.get('group_id')
+                        if isinstance(final_metadata, dict) and final_metadata.get('group_members'):
+                            payload['group_members'] = final_metadata.get('group_members')
+                        inbox_manager.sync_source_triggers(
+                            source_type='dm',
+                            source_id=message_id,
+                            trigger_type='dm',
+                            target_ids=local_target_ids,
+                            sender_user_id=g.api_key_info.user_id,
+                            preview=dm_preview,
+                            payload=payload,
+                            message_id=message_id,
+                            source_content=final_content,
+                        )
+            except Exception as inbox_err:
+                logger.warning(f"Failed to refresh DM inbox trigger on edit: {inbox_err}")
 
             return jsonify({'success': True})
         except Exception as e:
@@ -3129,10 +3240,30 @@ def create_api_blueprint() -> Blueprint:
     @require_auth(Permission.WRITE_MESSAGES)
     def delete_message_api(message_id):
         """Delete a direct message (sender only)."""
-        _, _, _, message_manager, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
+        _, _, _, message_manager, _, file_manager, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
         try:
             success = message_manager.delete_message(message_id, g.api_key_info.user_id, file_manager=file_manager)
             if success:
+                inbox_manager = current_app.config.get('INBOX_MANAGER')
+                if inbox_manager:
+                    try:
+                        inbox_manager.remove_source_triggers(
+                            source_type='dm',
+                            source_id=message_id,
+                            trigger_type='dm',
+                        )
+                    except Exception as inbox_err:
+                        logger.warning(f"Failed to remove DM inbox trigger for delete {message_id}: {inbox_err}")
+                if p2p_manager and p2p_manager.is_running():
+                    try:
+                        p2p_manager.broadcast_delete_signal(
+                            signal_id=f"DS{secrets.token_hex(8)}",
+                            data_type='direct_message',
+                            data_id=message_id,
+                            reason='user_deleted',
+                        )
+                    except Exception as p2p_err:
+                        logger.warning(f"Failed to broadcast DM delete via P2P: {p2p_err}")
                 return jsonify({'success': True, 'message': 'Message deleted'})
             return jsonify({'error': 'Message not found or not owned by you'}), 404
         except Exception as e:
@@ -5058,6 +5189,7 @@ def create_api_blueprint() -> Blueprint:
                         since=since_dt,
                     )
                     for msg in messages:
+                        meta = msg.metadata if isinstance(msg.metadata, dict) else {}
                         dm_items.append({
                             'message_id': msg.id,
                             'sender_id': msg.sender_id,
@@ -5065,6 +5197,11 @@ def create_api_blueprint() -> Blueprint:
                             'created_at': msg.created_at.isoformat() if msg.created_at else None,
                             'preview': build_preview(msg.content or ''),
                             'message_type': msg.message_type.value if hasattr(msg.message_type, 'value') else str(msg.message_type),
+                            'edited_at': msg.edited_at.isoformat() if getattr(msg, 'edited_at', None) else None,
+                            'reply_to': meta.get('reply_to'),
+                            'group_id': meta.get('group_id'),
+                            'group_members': meta.get('group_members') or [],
+                            'attachments_count': len(meta.get('attachments') or []),
                         })
                 except Exception as msg_err:
                     logger.warning(f"Message catchup failed: {msg_err}")
@@ -5465,6 +5602,25 @@ def create_api_blueprint() -> Blueprint:
             )
 
             if success:
+                try:
+                    sync_edited_mention_activity(
+                        db_manager=db_manager,
+                        mention_manager=current_app.config.get('MENTION_MANAGER'),
+                        inbox_manager=current_app.config.get('INBOX_MANAGER'),
+                        p2p_manager=p2p_manager,
+                        content=content,
+                        source_type='feed_post',
+                        source_id=post_id,
+                        author_id=g.api_key_info.user_id,
+                        origin_peer=p2p_manager.get_peer_id() if p2p_manager else None,
+                        channel_id=None,
+                        visibility=visibility_enum.value if visibility_enum else post.visibility.value,
+                        permissions=permissions if permissions is not None else post.permissions,
+                        edited_at=final_metadata.get('edited_at') if isinstance(final_metadata, dict) else None,
+                    )
+                except Exception as mention_sync_err:
+                    logger.warning(f"Feed mention refresh failed on edit: {mention_sync_err}")
+
                 # Sync inline circles from edited content (create/update circles)
                 try:
                     circle_manager = current_app.config.get('CIRCLE_MANAGER')
@@ -6768,6 +6924,42 @@ def create_api_blueprint() -> Blueprint:
             except Exception as handoff_err:
                 logger.warning(f"Inline handoff sync failed on channel edit: {handoff_err}")
 
+            try:
+                sync_edited_mention_activity(
+                    db_manager=db_manager,
+                    mention_manager=current_app.config.get('MENTION_MANAGER'),
+                    inbox_manager=current_app.config.get('INBOX_MANAGER'),
+                    p2p_manager=p2p_manager,
+                    content=final_content,
+                    source_type='channel_message',
+                    source_id=message_id,
+                    author_id=g.api_key_info.user_id,
+                    origin_peer=p2p_manager.get_peer_id() if p2p_manager else None,
+                    channel_id=channel_id,
+                    edited_at=final_metadata.get('edited_at') if isinstance(final_metadata, dict) else None,
+                )
+                inbox_manager = current_app.config.get('INBOX_MANAGER')
+                if inbox_manager:
+                    inbox_manager.sync_source_triggers(
+                        source_type='channel_message',
+                        source_id=message_id,
+                        trigger_type='reply',
+                        sender_user_id=g.api_key_info.user_id,
+                        origin_peer=p2p_manager.get_peer_id() if p2p_manager else None,
+                        channel_id=channel_id,
+                        preview=build_preview(final_content or '') or None,
+                        payload={
+                            'channel_id': channel_id,
+                            'message_id': message_id,
+                            'parent_message_id': row['parent_message_id'],
+                            'edited_at': final_metadata.get('edited_at') if isinstance(final_metadata, dict) else None,
+                        },
+                        message_id=message_id,
+                        source_content=final_content,
+                    )
+            except Exception as mention_sync_err:
+                logger.warning(f"Channel mention/reply refresh failed on edit: {mention_sync_err}")
+
             if p2p_manager and p2p_manager.is_running():
                 try:
                     sender_display = None
@@ -6965,6 +7157,54 @@ def create_api_blueprint() -> Blueprint:
             )
         except Exception as e:
             logger.error(f"File download failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/files/<file_id>/preview', methods=['GET'])
+    @require_auth(Permission.READ_FILES)
+    def get_file_preview_api(file_id):
+        """Return a bounded, read-only JSON preview for supported files."""
+        db_manager, _, trust_manager, _, _, file_manager, feed_manager, _, _, _, _ = _get_app_components_any(current_app)
+
+        try:
+            result = file_manager.get_file_data(file_id)
+            if not result:
+                return jsonify({'error': 'File not found'}), 404
+
+            file_data, file_info = result
+            owner_id = db_manager.get_instance_owner_user_id()
+            is_local_admin = (
+                bool(owner_id and owner_id == g.api_key_info.user_id)
+                and not _uploader_is_peer(db_manager, file_info.uploaded_by)
+            )
+            access = evaluate_file_access(
+                db_manager=db_manager,
+                file_id=file_id,
+                viewer_user_id=g.api_key_info.user_id,
+                file_uploaded_by=file_info.uploaded_by,
+                is_admin=is_local_admin,
+                trust_manager=trust_manager,
+                feed_manager=feed_manager,
+            )
+            if not access.allowed:
+                return jsonify({
+                    'error': 'Access denied',
+                    'reason': access.reason,
+                }), 403
+
+            preview = build_file_preview(
+                file_data=file_data,
+                filename=file_info.original_name,
+                content_type=file_info.content_type,
+            )
+            return jsonify({
+                'success': True,
+                'file_id': file_id,
+                'filename': file_info.original_name,
+                'content_type': file_info.content_type,
+                **preview,
+            })
+        except Exception as e:
+            logger.error(f"File preview failed: {e}", exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
     @api.route('/files/<file_id>/access', methods=['GET'])

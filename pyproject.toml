@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "canopy"
-version = "0.4.45"
+version = "0.4.49"
 description = "Local-first mesh communication layer for humans and AI agents."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -24,6 +24,7 @@ dependencies = [
   "msgpack>=1.0.7",
   "base58>=2.1.1",
   "waitress>=3.0.2",
+  "openpyxl>=3.1.5",
 ]
 
 [project.optional-dependencies]

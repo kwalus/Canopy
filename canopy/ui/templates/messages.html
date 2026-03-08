@@ -2,11 +2,712 @@
 
 {% block title %}Messages - Canopy{% endblock %}
 
+{% macro avatar_badge(user, class_name='') -%}
+    {% set label = user.display_name or user.username or user.user_id or 'User' %}
+    <div class="dm-avatar {{ class_name }}"
+         data-user-id="{{ user.user_id }}"
+         data-origin-peer="{{ user.origin_peer or '' }}"
+         onclick='copyUserId({{ user.user_id|tojson }}, {{ label|tojson }}, this)'
+         title="View user details">
+        {% if user.avatar_url %}
+            <img src="{{ user.avatar_url }}" alt="{{ label }}">
+        {% else %}
+            <span>{{ (label[:2] if label|length > 1 else label[:1])|upper }}</span>
+        {% endif %}
+    </div>
+{%- endmacro %}
+
+{% macro avatar_stack(users, class_name='') -%}
+    <div class="dm-avatar-stack {{ class_name }}">
+        {% for user in users[:3] %}
+            <div class="dm-avatar-stack-item" style="z-index: {{ 10 - loop.index0 }};">
+                {{ avatar_badge(user, 'stacked') }}
+            </div>
+        {% endfor %}
+        {% if users|length > 3 %}
+            <div class="dm-avatar-stack-item dm-avatar-stack-more">+{{ users|length - 3 }}</div>
+        {% endif %}
+    </div>
+{%- endmacro %}
+
+{% macro render_dm_attachment(attachment, message_id, idx) -%}
+    {% set attachment_file_id = attachment.id or attachment.file_id or ((attachment.url.split('/files/')[1].split('/')[0]) if attachment.url and '/files/' in attachment.url else None) %}
+    {% set lower_name = (attachment.name or '')|lower %}
+    {% set spreadsheet_preview = lower_name.endswith('.csv') or lower_name.endswith('.tsv') or lower_name.endswith('.xlsx') or lower_name.endswith('.xlsm') %}
+    {% set previewable = attachment_file_id and (lower_name.endswith('.md') or lower_name.endswith('.markdown') or lower_name.endswith('.txt') or lower_name.endswith('.log') or lower_name.endswith('.json') or lower_name.endswith('.py') or lower_name.endswith('.js') or lower_name.endswith('.ts') or spreadsheet_preview or lower_name.endswith('.yaml') or lower_name.endswith('.yml') or lower_name.endswith('.xml') or lower_name.endswith('.tex') or lower_name.endswith('.html') or lower_name.endswith('.css') or lower_name.endswith('.sh') or lower_name.endswith('.bat') or lower_name.endswith('.cfg') or lower_name.endswith('.ini') or lower_name.endswith('.toml')) %}
+    {% set preview_id = 'dm-attachment-preview-' ~ message_id ~ '-' ~ idx %}
+
+    {% if attachment.type and attachment.type.startswith('image/') %}
+        <div class="dm-attachment dm-attachment-image">
+            <img src="{{ attachment.url }}" alt="{{ attachment.name }}" onclick="viewImage('{{ attachment.url }}')">
+            <div class="dm-attachment-meta">
+                <span>{{ attachment.name }}</span>
+                <small>{{ attachment.size | filesizeformat if attachment.size is defined and attachment.size is not none else '—' }}</small>
+            </div>
+        </div>
+    {% elif attachment.type and attachment.type.startswith('audio/') %}
+        <div class="dm-attachment dm-attachment-card">
+            <div class="dm-attachment-title-row">
+                <div>
+                    <strong>{{ attachment.name }}</strong>
+                    <small>{{ attachment.type }} • {{ attachment.size | filesizeformat if attachment.size is defined and attachment.size is not none else '—' }}</small>
+                </div>
+                {% if attachment.url %}
+                    <a href="{{ attachment.url }}" class="btn btn-sm btn-outline-primary" download="{{ attachment.name }}">
+                        <i class="bi bi-download"></i>
+                    </a>
+                {% endif %}
+            </div>
+            {% if attachment.url %}
+                <audio controls preload="metadata" class="w-100 mt-2">
+                    <source src="{{ attachment.url }}" type="{{ attachment.type or 'audio/mpeg' }}">
+                </audio>
+            {% endif %}
+        </div>
+    {% else %}
+        <div class="dm-attachment dm-attachment-card">
+            <div class="dm-attachment-title-row">
+                <div>
+                    <strong>{{ attachment.name }}</strong>
+                    <small>{{ attachment.type or '' }}{% if attachment.type %} • {% endif %}{{ attachment.size | filesizeformat if attachment.size is defined and attachment.size is not none else '—' }}</small>
+                    {% if spreadsheet_preview %}
+                        <div class="dm-attachment-badges">
+                            <span class="badge rounded-pill text-bg-info-subtle text-info-emphasis">Sheet</span>
+                            {% if lower_name.endswith('.xlsm') %}
+                                <span class="badge rounded-pill text-bg-warning">Macros disabled</span>
+                            {% endif %}
+                        </div>
+                    {% endif %}
+                </div>
+                <div class="dm-attachment-actions">
+                    {% if previewable %}
+                        <button type="button"
+                                class="btn btn-sm btn-outline-secondary"
+                                data-preview-toggle="{{ preview_id }}"
+                                data-preview-label="{{ 'Open sheet' if spreadsheet_preview else 'Preview' }}"
+                                data-preview-expanded-label="{{ 'Hide sheet' if spreadsheet_preview else 'Collapse' }}"
+                                onclick="toggleAttachmentPreview('{{ preview_id }}', '/ajax/files/{{ attachment_file_id }}/preview')">
+                            <i class="bi bi-eye"></i>
+                            <span class="preview-label">{{ 'Open sheet' if spreadsheet_preview else 'Preview' }}</span>
+                        </button>
+                    {% endif %}
+                    {% if attachment.url %}
+                        <a href="{{ attachment.url }}" class="btn btn-sm btn-outline-primary" download="{{ attachment.name }}">
+                            <i class="bi bi-download"></i>
+                        </a>
+                    {% endif %}
+                </div>
+            </div>
+            {% if previewable %}
+                <div id="{{ preview_id }}" class="file-preview-wrapper mt-2" style="display:none;"></div>
+            {% endif %}
+        </div>
+    {% endif %}
+{%- endmacro %}
+
 {% block extra_css %}
 <style>
+    .messages-page {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        min-height: calc(100vh - 140px);
+    }
+
+    .messages-topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+
+    .messages-topbar-copy h1 {
+        font-size: 1.45rem;
+        margin: 0;
+    }
+
+    .messages-topbar-copy p {
+        margin: 0.2rem 0 0;
+        color: var(--canopy-text-secondary);
+    }
+
+    .messages-topbar-actions {
+        display: flex;
+        gap: 0.55rem;
+        flex-wrap: wrap;
+    }
+
+    .messages-shell {
+        display: grid;
+        grid-template-columns: minmax(260px, 330px) minmax(0, 1fr);
+        gap: 1rem;
+        min-height: calc(100vh - 250px);
+    }
+
+    .dm-sidebar,
+    .dm-thread-pane {
+        background: linear-gradient(180deg, rgba(17, 27, 44, 0.96), rgba(10, 19, 34, 0.94));
+        border: 1px solid rgba(110, 148, 255, 0.16);
+        border-radius: 22px;
+        box-shadow: 0 20px 48px rgba(3, 10, 22, 0.28);
+        min-width: 0;
+    }
+
+    .dm-sidebar {
+        padding: 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.9rem;
+        min-height: 0;
+    }
+
+    .dm-sidebar-search {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: transparent;
+    }
+
+    .dm-search-input-wrap {
+        position: relative;
+    }
+
+    .dm-search-input-wrap .form-control {
+        padding-left: 2.5rem;
+        border-radius: 14px;
+        min-height: 46px;
+    }
+
+    .dm-search-input-wrap i {
+        position: absolute;
+        left: 0.95rem;
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--canopy-text-secondary);
+    }
+
+    .dm-sidebar-scroll {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        overflow-y: auto;
+        min-height: 0;
+        padding-right: 0.15rem;
+    }
+
+    .dm-section-label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 0.78rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--canopy-text-secondary);
+        margin-bottom: 0.45rem;
+        font-weight: 700;
+    }
+
+    .dm-conversation-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.45rem;
+    }
+
+    .dm-conversation-card {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 0.8rem;
+        text-decoration: none;
+        color: var(--canopy-text-primary);
+        padding: 0.78rem 0.85rem;
+        border-radius: 18px;
+        border: 1px solid transparent;
+        background: rgba(255, 255, 255, 0.025);
+        transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+    }
+
+    .dm-conversation-card:hover {
+        border-color: rgba(110, 148, 255, 0.22);
+        background: rgba(110, 148, 255, 0.08);
+        transform: translateY(-1px);
+        color: var(--canopy-text-primary);
+        text-decoration: none;
+    }
+
+    .dm-conversation-card.active {
+        background: linear-gradient(135deg, rgba(46, 214, 125, 0.16), rgba(62, 118, 255, 0.15));
+        border-color: rgba(46, 214, 125, 0.3);
+    }
+
+    .dm-conversation-main {
+        min-width: 0;
+    }
+
+    .dm-conversation-topline {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.65rem;
+        min-width: 0;
+    }
+
+    .dm-conversation-title {
+        font-weight: 700;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .dm-conversation-time {
+        color: var(--canopy-text-secondary);
+        font-size: 0.77rem;
+        white-space: nowrap;
+    }
+
+    .dm-conversation-subtitle,
+    .dm-conversation-preview {
+        color: var(--canopy-text-secondary);
+        font-size: 0.83rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .dm-conversation-subtitle {
+        margin-top: 0.1rem;
+    }
+
+    .dm-conversation-preview {
+        margin-top: 0.28rem;
+    }
+
+    .dm-unread-pill {
+        min-width: 1.5rem;
+        height: 1.5rem;
+        padding: 0 0.45rem;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.75rem;
+        font-weight: 700;
+        background: rgba(46, 214, 125, 0.18);
+        color: #8df3bd;
+        border: 1px solid rgba(46, 214, 125, 0.28);
+    }
+
+    .dm-thread-pane {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    .dm-thread-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 1rem 1rem 0.8rem;
+        border-bottom: 1px solid rgba(110, 148, 255, 0.14);
+        background: linear-gradient(180deg, rgba(18, 30, 50, 0.96), rgba(13, 23, 39, 0.92));
+    }
+
+    .dm-thread-header-main {
+        display: flex;
+        align-items: center;
+        gap: 0.9rem;
+        min-width: 0;
+    }
+
+    .dm-thread-title-wrap {
+        min-width: 0;
+    }
+
+    .dm-thread-title {
+        font-size: 1.02rem;
+        font-weight: 700;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .dm-thread-subtitle {
+        margin-top: 0.15rem;
+        color: var(--canopy-text-secondary);
+        font-size: 0.84rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .dm-thread-actions {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    .dm-avatar,
+    .dm-avatar-stack-item {
+        flex-shrink: 0;
+    }
+
+    .dm-avatar {
+        width: 42px;
+        height: 42px;
+        border-radius: 50%;
+        overflow: hidden;
+        background: rgba(99, 102, 241, 0.18);
+        border: 1px solid rgba(99, 102, 241, 0.28);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        color: var(--canopy-text-primary);
+        box-shadow: 0 10px 20px rgba(5, 10, 24, 0.18);
+        cursor: pointer;
+    }
+
+    .dm-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .dm-avatar.stacked {
+        width: 38px;
+        height: 38px;
+        border-width: 2px;
+        border-color: rgba(9, 16, 30, 0.9);
+    }
+
+    .dm-avatar-stack {
+        display: flex;
+        align-items: center;
+    }
+
+    .dm-avatar-stack-item {
+        margin-left: -10px;
+    }
+
+    .dm-avatar-stack-item:first-child {
+        margin-left: 0;
+    }
+
+    .dm-avatar-stack-more {
+        min-width: 34px;
+        height: 34px;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.72rem;
+        font-weight: 700;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        color: var(--canopy-text-secondary);
+        margin-left: -8px;
+        padding: 0 0.5rem;
+    }
+
+    .dm-thread-scroll {
+        flex: 1 1 auto;
+        overflow-y: auto;
+        padding: 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.9rem;
+        background: radial-gradient(circle at top, rgba(31, 66, 112, 0.18), transparent 45%), linear-gradient(180deg, rgba(13, 23, 39, 0.9), rgba(9, 17, 30, 0.94));
+    }
+
+    .dm-day-divider {
+        display: flex;
+        justify-content: center;
+        margin: 0.2rem 0;
+    }
+
+    .dm-day-divider span {
+        font-size: 0.74rem;
+        color: var(--canopy-text-secondary);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        padding: 0.25rem 0.7rem;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .dm-message-row {
+        display: flex;
+        align-items: flex-end;
+        gap: 0.65rem;
+    }
+
+    .dm-message-row.outbound {
+        justify-content: flex-end;
+    }
+
+    .dm-message-avatar-wrap {
+        width: 42px;
+        display: flex;
+        justify-content: center;
+        flex-shrink: 0;
+    }
+
+    .dm-message-avatar-wrap.spacer {
+        visibility: hidden;
+    }
+
+    .dm-message-main {
+        min-width: 0;
+        max-width: min(78%, 760px);
+        position: relative;
+    }
+
+    .dm-message-row.outbound .dm-message-main {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+    }
+
+    .dm-message-meta {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+        margin-bottom: 0.3rem;
+        color: var(--canopy-text-secondary);
+        font-size: 0.78rem;
+    }
+
+    .dm-message-sender {
+        font-weight: 700;
+        color: var(--canopy-text-primary);
+    }
+
+    .dm-bubble-wrap {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.5rem;
+        min-width: 0;
+    }
+
+    .dm-message-row.outbound .dm-bubble-wrap {
+        flex-direction: row-reverse;
+    }
+
+    .dm-message-menu {
+        opacity: 0;
+        transition: opacity 0.16s ease;
+    }
+
+    .dm-message-row:hover .dm-message-menu,
+    .dm-message-row .dm-message-menu .show,
+    .dm-message-row .dm-inline-editor {
+        opacity: 1;
+    }
+
+    .dm-bubble {
+        min-width: 0;
+        max-width: 100%;
+        border-radius: 20px;
+        padding: 0.85rem 0.95rem;
+        background: rgba(255, 255, 255, 0.045);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: 0 10px 22px rgba(4, 10, 24, 0.18);
+    }
+
+    .dm-message-row.outbound .dm-bubble {
+        background: linear-gradient(135deg, rgba(39, 211, 118, 0.18), rgba(41, 109, 255, 0.18));
+        border-color: rgba(66, 224, 139, 0.22);
+    }
+
+    .dm-bubble-reply-preview {
+        width: 100%;
+        background: rgba(255, 255, 255, 0.045);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-left: 3px solid rgba(66, 224, 139, 0.55);
+        border-radius: 12px;
+        padding: 0.45rem 0.6rem;
+        margin-bottom: 0.55rem;
+        text-align: left;
+        color: var(--canopy-text-primary);
+    }
+
+    .dm-bubble-reply-preview:hover {
+        background: rgba(255, 255, 255, 0.08);
+    }
+
+    .dm-bubble-reply-preview strong,
+    .dm-composer-reply strong {
+        display: block;
+        font-size: 0.75rem;
+        color: #8df3bd;
+        margin-bottom: 0.12rem;
+    }
+
+    .dm-bubble-copy {
+        word-break: break-word;
+        overflow-wrap: anywhere;
+    }
+
+    .dm-bubble-copy p:last-child {
+        margin-bottom: 0;
+    }
+
+    .dm-bubble-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.4rem;
+        margin-top: 0.45rem;
+        color: var(--canopy-text-secondary);
+        font-size: 0.74rem;
+    }
+
+    .dm-attachment-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.55rem;
+        margin-top: 0.65rem;
+    }
+
+    .dm-attachment-image img {
+        display: block;
+        width: 100%;
+        max-height: 320px;
+        object-fit: cover;
+        border-radius: 14px;
+        cursor: pointer;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .dm-attachment-meta,
+    .dm-attachment-title-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.7rem;
+        margin-top: 0.4rem;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .dm-attachment-meta small,
+    .dm-attachment-title-row small {
+        display: block;
+        color: var(--canopy-text-secondary);
+        margin-top: 0.12rem;
+    }
+
+    .dm-attachment-card {
+        padding: 0.7rem 0.8rem;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.035);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .dm-attachment-actions,
+    .dm-attachment-badges {
+        display: flex;
+        gap: 0.4rem;
+        flex-wrap: wrap;
+    }
+
+    .dm-empty-state,
+    .dm-search-results {
+        padding: 1rem;
+    }
+
+    .dm-empty-card {
+        padding: 1.3rem;
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.035);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        color: var(--canopy-text-secondary);
+    }
+
+    .dm-search-results {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .dm-search-result-card {
+        display: block;
+        text-decoration: none;
+        color: var(--canopy-text-primary);
+        border-radius: 18px;
+        padding: 0.95rem 1rem;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.035);
+    }
+
+    .dm-search-result-card:hover {
+        text-decoration: none;
+        background: rgba(110, 148, 255, 0.08);
+        border-color: rgba(110, 148, 255, 0.22);
+    }
+
+    .dm-search-result-meta {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.6rem;
+        color: var(--canopy-text-secondary);
+        font-size: 0.8rem;
+        margin-bottom: 0.35rem;
+        flex-wrap: wrap;
+    }
+
+    .dm-composer {
+        border-top: 1px solid rgba(110, 148, 255, 0.14);
+        padding: 0.95rem 1rem 1rem;
+        background: linear-gradient(180deg, rgba(14, 25, 41, 0.98), rgba(10, 20, 34, 0.99));
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .dm-composer-topline {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.8rem;
+        flex-wrap: wrap;
+    }
+
+    .dm-composer-target {
+        display: flex;
+        flex-direction: column;
+        gap: 0.14rem;
+    }
+
+    .dm-composer-target strong {
+        font-size: 0.92rem;
+    }
+
+    .dm-composer-target small {
+        color: var(--canopy-text-secondary);
+    }
+
+    .dm-composer-reply {
+        display: none;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.7rem;
+        border-radius: 14px;
+        padding: 0.6rem 0.75rem;
+        background: rgba(255, 255, 255, 0.045);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .dm-composer-reply.active {
+        display: flex;
+    }
+
     .recipient-input-wrap {
         position: relative;
     }
+
     .recipient-input {
         display: flex;
         flex-wrap: wrap;
@@ -14,10 +715,11 @@
         gap: 0.4rem;
         background: var(--canopy-bg-tertiary);
         border: 1px solid var(--canopy-border);
-        border-radius: 12px;
-        padding: 0.4rem 0.6rem;
-        min-height: 44px;
+        border-radius: 14px;
+        padding: 0.45rem 0.65rem;
+        min-height: 46px;
     }
+
     .recipient-input input {
         border: none;
         background: transparent;
@@ -28,9 +730,11 @@
         padding: 0.2rem 0;
         font-size: 0.95rem;
     }
+
     .recipient-input input::placeholder {
         color: var(--canopy-text-secondary);
     }
+
     .recipient-chip {
         display: inline-flex;
         align-items: center;
@@ -42,14 +746,17 @@
         border: 1px solid rgba(99, 102, 241, 0.35);
         color: var(--canopy-text-primary);
     }
+
     .recipient-chip.unknown {
         background: rgba(148, 163, 184, 0.14);
         border-color: rgba(148, 163, 184, 0.35);
     }
+
     .recipient-chip-id {
         font-size: 0.72rem;
         color: var(--canopy-text-secondary);
     }
+
     .recipient-chip button {
         border: none;
         background: transparent;
@@ -58,6 +765,7 @@
         line-height: 1;
         padding: 0;
     }
+
     .recipient-suggestions {
         position: absolute;
         top: calc(100% + 6px);
@@ -72,6 +780,7 @@
         z-index: 1050;
         display: none;
     }
+
     .recipient-suggestion-item {
         display: flex;
         align-items: center;
@@ -79,25 +788,12 @@
         padding: 0.55rem 0.75rem;
         cursor: pointer;
     }
+
     .recipient-suggestion-item:hover,
     .recipient-suggestion-item.active {
         background: var(--canopy-bg-tertiary);
     }
-    .recipient-suggestion-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: var(--canopy-primary);
-        box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.12);
-    }
-    .recipient-suggestion-name {
-        font-weight: 600;
-        color: var(--canopy-text-primary);
-    }
-    .recipient-suggestion-id {
-        font-size: 0.75rem;
-        color: var(--canopy-text-secondary);
-    }
+
     .recipient-suggestion-avatar {
         width: 34px;
         height: 34px;
@@ -113,615 +809,859 @@
         font-weight: 600;
         font-size: 0.8rem;
     }
+
     .recipient-suggestion-avatar img {
         width: 100%;
         height: 100%;
         object-fit: cover;
     }
-    .group-link {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.35rem;
-        padding: 0.1rem 0.55rem;
-        border-radius: 999px;
-        background: rgba(99, 102, 241, 0.14);
-        border: 1px solid rgba(99, 102, 241, 0.3);
-        color: var(--canopy-text-primary);
-        text-decoration: none;
-        font-size: 0.75rem;
+
+    .recipient-suggestion-name {
         font-weight: 600;
+        color: var(--canopy-text-primary);
     }
-    .group-link:hover {
-        background: rgba(99, 102, 241, 0.22);
-        text-decoration: none;
+
+    .recipient-suggestion-id {
+        font-size: 0.75rem;
+        color: var(--canopy-text-secondary);
     }
-    .group-header-card {
-        margin-top: 0.85rem;
-        background: linear-gradient(135deg, rgba(18, 24, 38, 0.98), rgba(24, 42, 64, 0.94));
-        border: 1px solid rgba(99, 102, 241, 0.28);
+
+    .dm-composer-input-wrap {
+        position: relative;
+    }
+
+    .dm-composer-textarea {
+        min-height: 108px;
+        max-height: 260px;
+        resize: vertical;
         border-radius: 18px;
         padding: 0.9rem 1rem;
+    }
+
+    .dm-composer-actions {
         display: flex;
         align-items: center;
-        gap: 1rem;
-        box-shadow: 0 16px 36px rgba(6, 12, 24, 0.4);
+        justify-content: space-between;
+        gap: 0.8rem;
+        flex-wrap: wrap;
     }
-    .group-header-avatars {
+
+    .dm-composer-actions-left,
+    .dm-composer-actions-right {
         display: flex;
         align-items: center;
+        gap: 0.55rem;
+        flex-wrap: wrap;
     }
-    .group-avatar {
-        width: 46px;
-        height: 46px;
-        border-radius: 50%;
-        overflow: hidden;
-        border: 2px solid var(--canopy-bg-card);
-        background: rgba(99, 102, 241, 0.2);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: var(--canopy-text-primary);
-        font-weight: 700;
-        font-size: 0.8rem;
-        margin-left: -10px;
-        box-shadow: 0 8px 18px rgba(5, 10, 24, 0.35);
+
+    .file-preview-item {
+        background: var(--canopy-bg-tertiary);
+        border: 1px solid var(--canopy-border);
     }
-    .group-avatar:first-child {
-        margin-left: 0;
-    }
-    .group-avatar img {
+
+    .dm-inline-editor {
         width: 100%;
-        height: 100%;
-        object-fit: cover;
+        margin-top: 0.55rem;
+        padding: 0.75rem;
+        border-radius: 16px;
+        border: 1px solid rgba(110, 148, 255, 0.18);
+        background: rgba(9, 18, 31, 0.88);
     }
-    .group-header-info {
-        flex: 1;
-        min-width: 0;
-    }
-    .group-header-title {
-        font-size: 1rem;
-        font-weight: 700;
-        color: var(--canopy-text-primary);
-        margin-bottom: 0.15rem;
-    }
-    .group-header-meta {
-        font-size: 0.8rem;
-        color: var(--canopy-text-secondary);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-    .group-header-actions {
+
+    .dm-inline-toolbar {
+        margin-top: 0.55rem;
         display: flex;
-        align-items: center;
+        justify-content: flex-end;
         gap: 0.5rem;
-    }
-    .group-member-preview {
-        font-size: 0.75rem;
-        color: var(--canopy-text-secondary);
+        flex-wrap: wrap;
     }
 
-    .message-content {
-        word-wrap: break-word;
-        overflow-wrap: break-word;
-        word-break: break-word;
-        max-width: 100%;
+    .flash-focus {
+        animation: dmFlashFocus 1.3s ease;
     }
 
-    .message-content p,
-    .message-content .rich-content {
-        word-wrap: break-word;
-        overflow-wrap: break-word;
-        max-width: 100%;
+    @keyframes dmFlashFocus {
+        0% { box-shadow: 0 0 0 0 rgba(66, 224, 139, 0.45); }
+        100% { box-shadow: 0 0 0 22px rgba(66, 224, 139, 0); }
+    }
+
+    @media (max-width: 991.98px) {
+        .messages-page {
+            gap: 0.85rem;
+            min-height: auto;
+        }
+
+        .messages-shell {
+            gap: 0.8rem;
+        }
+
+        .messages-shell {
+            grid-template-columns: 1fr;
+            min-height: auto;
+        }
+
+        .dm-sidebar {
+            max-height: 32vh;
+        }
+
+        .dm-thread-scroll {
+            min-height: 40vh;
+        }
+
+        .dm-thread-header,
+        .dm-composer {
+            padding-left: 0.9rem;
+            padding-right: 0.9rem;
+        }
+    }
+
+    @media (max-width: 767.98px) {
+        .messages-page {
+            gap: 0.7rem;
+        }
+
+        .messages-topbar {
+            gap: 0.7rem;
+        }
+
+        .messages-topbar-copy h1 {
+            font-size: 1.2rem;
+        }
+
+        .messages-topbar-copy p {
+            font-size: 0.88rem;
+            margin-top: 0.12rem;
+        }
+
+        .messages-topbar-actions {
+            width: 100%;
+        }
+
+        .messages-topbar-actions .btn {
+            flex: 1 1 calc(50% - 0.25rem);
+            justify-content: center;
+            min-height: 42px;
+        }
+
+        .dm-thread-header,
+        .dm-thread-scroll,
+        .dm-composer,
+        .dm-sidebar {
+            padding-left: 0.8rem;
+            padding-right: 0.8rem;
+        }
+
+        .dm-sidebar {
+            padding-top: 0.75rem;
+            padding-bottom: 0.75rem;
+            max-height: 29vh;
+            border-radius: 18px;
+        }
+
+        .dm-sidebar-scroll {
+            gap: 0.85rem;
+        }
+
+        .dm-section-label {
+            font-size: 0.72rem;
+            margin-bottom: 0.3rem;
+        }
+
+        .dm-conversation-card {
+            gap: 0.65rem;
+            padding: 0.68rem 0.72rem;
+            border-radius: 16px;
+        }
+
+        .dm-conversation-title {
+            font-size: 0.9rem;
+        }
+
+        .dm-conversation-time {
+            font-size: 0.72rem;
+        }
+
+        .dm-conversation-subtitle {
+            display: none;
+        }
+
+        .dm-conversation-preview {
+            margin-top: 0.14rem;
+            font-size: 0.78rem;
+        }
+
+        .dm-thread-header {
+            align-items: flex-start;
+            gap: 0.6rem;
+            padding-top: 0.75rem;
+            padding-bottom: 0.7rem;
+        }
+
+        .dm-thread-header-main {
+            gap: 0.7rem;
+        }
+
+        .dm-thread-title {
+            font-size: 0.95rem;
+        }
+
+        .dm-thread-subtitle {
+            margin-top: 0.05rem;
+            font-size: 0.78rem;
+        }
+
+        .dm-thread-actions {
+            gap: 0.35rem;
+            width: 100%;
+            justify-content: flex-end;
+        }
+
+        .dm-thread-actions .btn {
+            padding: 0.32rem 0.6rem;
+        }
+
+        .dm-message-main {
+            max-width: 100%;
+        }
+
+        .dm-thread-scroll {
+            padding-top: 0.75rem;
+            padding-bottom: 0.75rem;
+            gap: 0.75rem;
+            min-height: 34vh;
+        }
+
+        .dm-message-row {
+            gap: 0.45rem;
+        }
+
+        .dm-message-avatar-wrap {
+            width: 34px;
+        }
+
+        .dm-avatar {
+            width: 34px;
+            height: 34px;
+            font-size: 0.78rem;
+        }
+
+        .dm-avatar.stacked {
+            width: 32px;
+            height: 32px;
+        }
+
+        .dm-bubble {
+            padding: 0.72rem 0.78rem;
+            border-radius: 18px;
+        }
+
+        .dm-bubble-footer {
+            margin-top: 0.35rem;
+            font-size: 0.71rem;
+        }
+
+        .dm-message-menu {
+            opacity: 1;
+        }
+
+        .dm-composer {
+            padding-top: 0.75rem;
+            padding-bottom: 0.8rem;
+            gap: 0.6rem;
+        }
+
+        .dm-composer-topline {
+            gap: 0.55rem;
+        }
+
+        .dm-composer-target strong {
+            font-size: 0.88rem;
+        }
+
+        .dm-composer-target small {
+            font-size: 0.76rem;
+        }
+
+        .dm-composer-reply {
+            padding: 0.5rem 0.6rem;
+            align-items: flex-start;
+        }
+
+        .recipient-input {
+            min-height: 42px;
+            padding: 0.38rem 0.55rem;
+        }
+
+        .recipient-input input {
+            min-width: 120px;
+            font-size: 0.9rem;
+        }
+
+        .dm-composer-textarea {
+            min-height: 84px;
+            max-height: 190px;
+            padding: 0.78rem 0.85rem;
+            font-size: 16px;
+        }
+
+        .dm-composer-actions {
+            gap: 0.55rem;
+        }
+
+        .dm-composer-actions-left,
+        .dm-composer-actions-right {
+            width: 100%;
+        }
+
+        .dm-composer-actions-left {
+            gap: 0.45rem;
+        }
+
+        .dm-composer-actions-left .text-muted {
+            flex: 1 1 100%;
+            font-size: 0.72rem;
+        }
+
+        .dm-composer-actions-right {
+            justify-content: flex-end;
+        }
+    }
+
+    @media (max-width: 575.98px) {
+        .messages-topbar-copy p {
+            display: none;
+        }
+
+        .messages-topbar-actions .btn {
+            font-size: 0.82rem;
+            padding-left: 0.6rem;
+            padding-right: 0.6rem;
+        }
+
+        .dm-sidebar {
+            max-height: 27vh;
+        }
+
+        .dm-thread-scroll {
+            min-height: 32vh;
+        }
+
+        .dm-avatar {
+            width: 32px;
+            height: 32px;
+            font-size: 0.74rem;
+        }
+
+        .dm-avatar.stacked {
+            width: 30px;
+            height: 30px;
+        }
+
+        .dm-message-avatar-wrap {
+            width: 32px;
+        }
+
+        .dm-bubble-wrap {
+            gap: 0.35rem;
+        }
     }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h1 class="h3 mb-0">
-        <i class="bi bi-chat-left-text"></i> Messages
-    </h1>
-    <div class="d-flex gap-2">
-        <button class="btn btn-primary" onclick="toggleNewMessage()">
-            <i class="bi bi-plus-circle"></i> New Message
-        </button>
-        <button class="btn btn-outline-primary btn-sm" onclick="refreshMessages()">
-            <i class="bi bi-arrow-clockwise"></i> Refresh
-        </button>
-    </div>
-</div>
-
-<!-- Search Bar -->
-<div class="card mb-4">
-    <div class="card-body">
-        <div class="row">
-            <div class="col-md-8">
-                <input type="text" class="form-control" id="searchInput" placeholder="Search messages..." 
-                       value="{{ search_query or '' }}">
-            </div>
-            <div class="col-md-4">
-                <button class="btn btn-outline-secondary w-100" onclick="searchMessages()">
-                    <i class="bi bi-search"></i> Search
-                </button>
-            </div>
+<div class="messages-page">
+    <div class="messages-topbar">
+        <div class="messages-topbar-copy">
+            <h1><i class="bi bi-chat-dots"></i> Direct Messages</h1>
+            <p>Conversation-first messaging with grouped threads, replies, and shared files.</p>
+        </div>
+        <div class="messages-topbar-actions">
+            <button class="btn btn-primary" type="button" onclick="startNewConversation()">
+                <i class="bi bi-plus-circle"></i> New Conversation
+            </button>
+            <button class="btn btn-outline-primary" type="button" onclick="refreshMessages()">
+                <i class="bi bi-arrow-clockwise"></i> Refresh
+            </button>
         </div>
     </div>
-</div>
 
-<!-- Messages List -->
-<div class="card">
-    <div class="card-header">
-        <div class="d-flex justify-content-between align-items-center">
-            <h5 class="mb-0">
-                {% if conversation_group %}
-                    Group Conversation
-                {% elif conversation_with %}
-                    Conversation with {{ conversation_with }}
-                {% elif search_query %}
-                    Search Results for "{{ search_query }}"
-                {% else %}
-                    All Messages
-                {% endif %}
-            </h5>
-            <div class="d-flex align-items-center gap-2">
-                {% if conversation_group %}
-                    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('ui.messages') }}">
-                        <i class="bi bi-arrow-left"></i> Back
-                    </a>
-                {% endif %}
-                <small class="text-muted">{{ messages|length }} message{% if messages|length != 1 %}s{% endif %}</small>
-            </div>
-        </div>
-        {% if conversation_group %}
-            <div class="group-header-card" data-group-members="{{ group_members | join(',') }}" data-group-id="{{ conversation_group }}">
-                <div class="group-header-avatars" id="group-header-avatars"></div>
-                <div class="group-header-info">
-                    <div class="group-header-title">Group DM</div>
-                    <div class="group-header-meta">
-                        <span id="group-member-count"></span>
-                        <span class="mx-2">•</span>
-                        <span id="group-member-names"></span>
+    <div class="messages-shell">
+        <aside class="dm-sidebar">
+            <div class="dm-sidebar-search">
+                <form onsubmit="searchMessages(); return false;">
+                    <div class="dm-search-input-wrap">
+                        <i class="bi bi-search"></i>
+                        <input type="text" class="form-control" id="searchInput" placeholder="Search DMs and group chats" value="{{ search_query or '' }}">
                     </div>
-                </div>
-                <div class="group-header-actions">
-                    <button class="btn btn-sm btn-primary" type="button" onclick="openGroupComposer()">
-                        <i class="bi bi-pencil-square"></i> Reply
-                    </button>
-                </div>
+                </form>
             </div>
-        {% endif %}
-    </div>
-    <div class="card-body">
-        {% if messages %}
-            <div id="messages-list">
-                {% for message in messages %}
-                    <div class="message-item mb-3 pb-3 {% if not loop.last %}border-bottom{% endif %}" data-user-id="{{ message.sender_id }}" data-message-id="{{ message.id }}">
-                        <div class="d-flex align-items-start">
-                            <div class="flex-shrink-0">
-                                <div class="user-avatar" style="width: 40px; height: 40px;"
-                                     data-user-id="{{ message.sender_id }}"
-                                     data-origin-peer="{{ message.metadata.get('origin_peer') if message.metadata and message.metadata.get('origin_peer') else '' }}"
-                                     onclick="copyUserId('{{ message.sender_id }}', '{{ message.sender_id }}', this)"
-                                     title="View user details">
-                                    <div class="bg-{{ 'primary' if message.sender_id == user_id else 'secondary' }} rounded-circle d-flex align-items-center justify-content-center" 
-                                         style="width: 100%; height: 100%;">
-                                        <i class="bi bi-person text-white"></i>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="flex-grow-1 ms-3">
-                                <div class="d-flex justify-content-between align-items-start">
-                                    <div>
-                                        <h6 class="mb-1" data-user-display="{{ message.sender_id }}">
-                                            {{ message.sender_username or message.sender_id }}
-                                            {% if message.sender_id == user_id %}
-                                                <small class="text-muted">(You)</small>
-                                            {% endif %}
-                                        </h6>
-                                        <small class="text-muted">
-                                            <i class="bi bi-clock"></i> 
-                                            <span data-timestamp="{{ message.created_at }}">{{ message.created_at }}</span>
-                                            {% if message.edited_at %}
-                                                <span class="ms-2 badge bg-secondary-subtle text-light border rounded-pill" title="Edited {{ message.edited_at }}">
-                                                    <i class="bi bi-pencil-square me-1"></i> Edited
-                                                </span>
-                                            {% endif %}
-                                            {% set group_members = message.metadata.get('group_members') if message.metadata else None %}
-                                            {% set group_id = message.metadata.get('group_id') if message.metadata else None %}
-                                            {% if group_members %}
-                                                <span class="ms-2">
-                                                    {% if group_id %}
-                                                        <a class="group-link" href="{{ url_for('ui.messages') }}?group={{ group_id }}" data-group-id="{{ group_id }}">
-                                                            <i class="bi bi-people"></i>
-                                                            Group
-                                                        </a>
-                                                    {% else %}
-                                                        <span class="group-link"><i class="bi bi-people"></i> Group</span>
-                                                    {% endif %}
-                                                    <span class="ms-1 group-member-preview" data-group-members="{{ group_members | join(',') }}">members</span>
-                                                </span>
-                                            {% elif message.recipient_id %}
-                                                <i class="bi bi-person ms-2"></i> Direct
-                                                <span class="ms-2">
-                                                    To:
-                                                    {% if message.recipient_id == user_id %}
-                                                        <span>you</span>
-                                                    {% else %}
-                                                        <span data-recipient-display="{{ message.recipient_id }}">{{ message.recipient_id }}</span>
-                                                    {% endif %}
-                                                </span>
-                                            {% else %}
-                                                <i class="bi bi-broadcast ms-2"></i> Broadcast
-                                            {% endif %}
-                                        </small>
-                                    </div>
-                                    <div class="dropdown">
-                                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" 
-                                                data-bs-toggle="dropdown">
-                                            <i class="bi bi-three-dots"></i>
-                                        </button>
-                                        <ul class="dropdown-menu">
-                                            <li><a class="dropdown-item" href="#" onclick="replyToMessage('{{ message.id }}')">
-                                                <i class="bi bi-reply"></i> Reply
-                                            </a></li>
-                                            {% if message.sender_id == user_id %}
-                                                <li><a class="dropdown-item" href="#" onclick="editMessage('{{ message.id }}')">
-                                                    <i class="bi bi-pencil"></i> Edit
-                                                </a></li>
-                                                <li><a class="dropdown-item text-danger" href="#" onclick="deleteMessage('{{ message.id }}')">
-                                                    <i class="bi bi-trash"></i> Delete
-                                                </a></li>
-                                            {% endif %}
-                                        </ul>
-                                    </div>
-                                </div>
-                                <div class="message-content mt-2">
-                                    {% if message.content %}
-                                        <p class="mb-0 dm-message-text">{{ message.content }}</p>
+
+            <div class="dm-sidebar-scroll">
+                <section>
+                    <div class="dm-section-label">
+                        <span>Direct</span>
+                        <span>{{ direct_conversations|length }}</span>
+                    </div>
+                    <div class="dm-conversation-list">
+                        {% if direct_conversations %}
+                            {% for conversation in direct_conversations %}
+                                <a href="{{ conversation.href }}" class="dm-conversation-card {% if conversation.is_active %}active{% endif %}">
+                                    {% if conversation.preview_users %}
+                                        {{ avatar_badge(conversation.preview_users[0], '') }}
                                     {% endif %}
-                                    
-                                    {% if message.metadata and message.metadata.attachments %}
-                                        <div class="attachments mt-2">
-                                            {% for attachment in message.metadata.attachments %}
-                                                {% if attachment.type and attachment.type.startswith('image/') %}
-                                                    <!-- Display images inline -->
-                                                    <div class="attachment-item mb-2">
-                                                        <div class="image-attachment">
-                                                            <img src="{{ attachment.url }}" class="img-fluid rounded message-image" 
-                                                                 onclick="viewImage('{{ attachment.url }}')" 
-                                                                 alt="{{ attachment.name }}" 
-                                                                 title="Click to view full size">
-                                                            <div class="mt-1">
-                                                                <small class="text-muted">
-                                                                    <i class="bi bi-image me-1"></i>
-                                                                    {{ attachment.name }} ({{ attachment.size | filesizeformat if attachment.size is defined and attachment.size is not none else '—' }})
-                                                                </small>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                {% elif attachment.type and attachment.type.startswith('audio/') %}
-                                                    <!-- Inline HTML5 audio player (Mac, Windows, Linux) -->
-                                                    <div class="attachment-item mb-2 p-2 border rounded">
-                                                        <div class="d-flex align-items-center flex-wrap">
-                                                            <i class="bi bi-music-note me-2"></i>
-                                                            <div class="flex-grow-1">
-                                                                <strong>{{ attachment.name }}</strong>
-                                                                <small class="text-muted d-block">{{ attachment.type }} • {{ attachment.size | filesizeformat if attachment.size is defined and attachment.size is not none else '—' }}</small>
-                                                                {% if attachment.url %}
-                                                                <audio controls preload="metadata" class="mt-1" style="max-width:100%;width:100%;"><source src="{{ attachment.url }}" type="{{ attachment.type or 'audio/mpeg' }}">Your browser does not support the audio element.</audio>
-                                                                {% endif %}
-                                                            </div>
-                                                            {% if attachment.url %}
-                                                            <div class="d-flex align-items-center gap-2 ms-2">
-                                                                <a href="{{ attachment.url }}" class="btn btn-sm btn-outline-primary" download="{{ attachment.name }}"><i class="bi bi-download"></i> Download</a>
-                                                                <button class="btn btn-sm btn-outline-secondary" onclick='openFileAccessInspector({{ (attachment.id or attachment.file_id or attachment.url) | tojson }})' title="Inspect access">
-                                                                    <i class="bi bi-shield-lock"></i>
-                                                                </button>
-                                                            </div>
-                                                            {% else %}
-                                                            <span class="small text-muted ms-2" title="File will be available when it syncs to this device">Not on this device yet — will appear when synced</span>
-                                                            {% endif %}
-                                                        </div>
-                                                    </div>
-                                                {% else %}
-                                                    <!-- Display other files as download links -->
-                                                    <div class="attachment-item mb-2 p-2 border rounded">
-                                                        <div class="d-flex align-items-center">
-                                                            <i class="bi bi-{{ 'file-pdf' if attachment.type and 'pdf' in attachment.type else 'file-earmark' }} me-2"></i>
-                                                            <div class="flex-grow-1">
-                                                                <strong>{{ attachment.name }}</strong>
-                                                                <small class="text-muted d-block">{{ attachment.type or '' }} • {{ attachment.size | filesizeformat if attachment.size is defined and attachment.size is not none else '—' }}</small>
-                                                            </div>
-                                                            {% if attachment.url %}
-                                                            <div class="d-flex align-items-center gap-2">
-                                                                <a href="{{ attachment.url }}" class="btn btn-sm btn-outline-primary" download="{{ attachment.name }}"><i class="bi bi-download"></i> Download</a>
-                                                                <button class="btn btn-sm btn-outline-secondary" onclick='openFileAccessInspector({{ (attachment.id or attachment.file_id or attachment.url) | tojson }})' title="Inspect access">
-                                                                    <i class="bi bi-shield-lock"></i>
-                                                                </button>
-                                                            </div>
-                                                            {% else %}
-                                                            <span class="small text-muted" title="File will be available when it syncs to this device">Not on this device yet — will appear when synced</span>
-                                                            {% endif %}
-                                                        </div>
-                                                    </div>
-                                                {% endif %}
-                                            {% endfor %}
+                                    <div class="dm-conversation-main">
+                                        <div class="dm-conversation-topline">
+                                            <div class="dm-conversation-title">{{ conversation.title }}</div>
+                                            <div class="dm-conversation-time" data-timestamp="{{ conversation.updated_at }}">{{ conversation.updated_at }}</div>
                                         </div>
-                                    {% endif %}
-                                    
-                                    {% if message.metadata and message.message_type %}
-                                        <small class="text-muted">
-                                            <i class="bi bi-info-circle"></i> 
-                                            Type: {{ message.message_type }}
-                                        </small>
-                                    {% endif %}
-                                </div>
-                                
-                                <!-- Message Actions -->
-                                <div class="message-actions mt-2 pt-2 border-top" style="font-size: 0.85rem;">
-                                    <div class="d-flex gap-2 flex-wrap">
-                                        <button class="btn btn-sm {% if message.id in user_liked_ids %}btn-primary{% else %}btn-outline-primary{% endif %} like-btn" 
-                                                onclick="toggleLike('{{ message.id }}')"
-                                                data-item-id="{{ message.id }}"
-                                                data-liked="{{ 'true' if message.id in user_liked_ids else 'false' }}">
-                                            <i class="bi bi-heart{% if message.id in user_liked_ids %}-fill{% endif %}"></i> 
-                                            <span class="like-text">{% if message.id in user_liked_ids %}Liked{% else %}Like{% endif %}</span> 
-                                            <span class="like-count">{{ like_counts.get(message.id, 0) }}</span>
-                                        </button>
-                                        <button class="btn btn-sm btn-outline-secondary" 
-                                                onclick="toggleComments('{{ message.id }}')">
-                                            <i class="bi bi-chat"></i> 
-                                            Reply 
-                                            <span class="comment-count">0</span>
-                                        </button>
-                                        <button class="btn btn-sm btn-outline-secondary copy-btn"
-                                                onclick="copyToClipboard(this, '{{ message.id }}')"
-                                                title="Copy to clipboard">
-                                            <i class="bi bi-clipboard"></i>
-                                        </button>
-                                        <button class="btn btn-sm btn-outline-secondary context-insight-trigger"
-                                                onclick="openContentContextModalFromAction('direct_message', '{{ message.id }}'); return false;"
-                                                title="Extract and review link context">
-                                            <i class="bi bi-file-earmark-text"></i> Context
-                                        </button>
+                                        {% if conversation.subtitle %}
+                                            <div class="dm-conversation-subtitle">{{ conversation.subtitle }}</div>
+                                        {% endif %}
+                                        <div class="dm-conversation-preview">{{ conversation.preview }}</div>
                                     </div>
-                                    
-                                    <!-- Comments Section (hidden by default) -->
-                                    <div class="comments-section mt-3" id="comments-{{ message.id }}" style="display: none;">
-                                        <div class="border-top pt-3">
-                                            <!-- Add Comment Form -->
-                                            <div class="mb-3">
-                                                <div class="input-group input-group-sm">
-                                                    <input type="text" class="form-control" 
-                                                           placeholder="Add a reply..." 
-                                                           id="comment-input-{{ message.id }}"
-                                                           onkeydown="handleCommentKeydown(event, '{{ message.id }}')">
-                                                    <button class="btn btn-primary" onclick="addComment('{{ message.id }}')">
-                                                        <i class="bi bi-send"></i>
-                                                    </button>
-                                                </div>
-                                            </div>
-                                            
-                                            <!-- Comments List -->
-                                            <div class="comments-list" id="comments-list-{{ message.id }}">
-                                                <!-- Comments will be loaded here -->
-                                            </div>
+                                    {% if conversation.unread_count %}
+                                        <span class="dm-unread-pill">{{ conversation.unread_count }}</span>
+                                    {% endif %}
+                                </a>
+                            {% endfor %}
+                        {% else %}
+                            <div class="dm-empty-card">No direct conversations yet.</div>
+                        {% endif %}
+                    </div>
+                </section>
+
+                <section>
+                    <div class="dm-section-label">
+                        <span>Groups</span>
+                        <span>{{ group_conversations|length }}</span>
+                    </div>
+                    <div class="dm-conversation-list">
+                        {% if group_conversations %}
+                            {% for conversation in group_conversations %}
+                                <a href="{{ conversation.href }}" class="dm-conversation-card {% if conversation.is_active %}active{% endif %}">
+                                    {{ avatar_stack(conversation.preview_users, '') }}
+                                    <div class="dm-conversation-main">
+                                        <div class="dm-conversation-topline">
+                                            <div class="dm-conversation-title">{{ conversation.title }}</div>
+                                            <div class="dm-conversation-time" data-timestamp="{{ conversation.updated_at }}">{{ conversation.updated_at }}</div>
                                         </div>
+                                        <div class="dm-conversation-subtitle">{{ conversation.subtitle }}</div>
+                                        <div class="dm-conversation-preview">{{ conversation.preview }}</div>
                                     </div>
-                                </div>
-                            </div>
+                                    {% if conversation.unread_count %}
+                                        <span class="dm-unread-pill">{{ conversation.unread_count }}</span>
+                                    {% endif %}
+                                </a>
+                            {% endfor %}
+                        {% else %}
+                            <div class="dm-empty-card">No group conversations yet.</div>
+                        {% endif %}
+                    </div>
+                </section>
+            </div>
+        </aside>
+
+        <section class="dm-thread-pane">
+            {% if search_query %}
+                <div class="dm-thread-header">
+                    <div class="dm-thread-header-main">
+                        <div class="dm-thread-title-wrap">
+                            <div class="dm-thread-title">Search results</div>
+                            <div class="dm-thread-subtitle">{{ search_results|length }} matches for “{{ search_query }}”</div>
                         </div>
                     </div>
-                {% endfor %}
-            </div>
-        {% else %}
-            <div class="text-center text-muted py-5">
-                <i class="bi bi-chat-left-text fs-1 mb-3"></i>
-                <h5>No messages found</h5>
-                <p class="mb-3">
-                    {% if search_query %}
-                        No messages match your search criteria.
-                    {% else %}
-                        Start a conversation by sending your first message!
-                    {% endif %}
-                </p>
-                <button class="btn btn-primary" onclick="toggleNewMessage()">
-                    <i class="bi bi-plus-circle"></i> Send Message
-                </button>
-            </div>
-        {% endif %}
-    </div>
-</div>
-
-<!-- Inline New Message Composer -->
-<div class="card mb-4" id="new-message-composer" style="display:none;">
-    <div class="card-header d-flex justify-content-between align-items-center">
-        <h5 class="mb-0"><i class="bi bi-plus-circle"></i> New Message</h5>
-        <button type="button" class="btn-close" onclick="toggleNewMessage()"></button>
-    </div>
-    <div class="card-body">
-        <form id="sendMessageForm">
-            <div class="mb-3">
-                <label for="messageRecipient" class="form-label">Recipient</label>
-                <div class="recipient-input-wrap">
-                    <div class="recipient-input" id="recipient-input">
-                        <div id="recipient-chips" class="d-flex flex-wrap gap-1"></div>
-                        <input type="text" id="messageRecipient"
-                               placeholder="Type a name, @handle, or ID (leave blank to broadcast)">
+                    <div class="dm-thread-actions">
+                        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('ui.messages') }}">Clear search</a>
                     </div>
-                    <div id="recipient-suggestions" class="recipient-suggestions"></div>
                 </div>
-                <small class="form-text text-muted">Leave empty to broadcast to all users</small>
-            </div>
-            <div class="mb-3">
-                <label for="messageContent" class="form-label">Message</label>
-                <div class="position-relative">
-                    <textarea class="form-control" id="messageContent" rows="3" 
-                              placeholder="Enter your message here..."
-                              onkeydown="handleMessageContentKeydown(event)"></textarea>
-                    <div id="dm-channel-suggestions" class="mention-suggestions" style="display: none;"></div>
+                <div class="dm-thread-scroll">
+                    <div class="dm-search-results">
+                        {% if search_results %}
+                            {% for result in search_results %}
+                                <a href="{{ result.thread_href }}" class="dm-search-result-card">
+                                    <div class="dm-search-result-meta">
+                                        <span>{{ result.thread_title }}</span>
+                                        <span data-timestamp="{{ result.created_at }}">{{ result.created_at }}</span>
+                                    </div>
+                                    <div class="mb-1"><strong>{{ result.sender_label }}</strong></div>
+                                    <div class="text-muted">{{ result.preview or result.content }}</div>
+                                </a>
+                            {% endfor %}
+                        {% else %}
+                            <div class="dm-empty-card">No DM messages matched that search.</div>
+                        {% endif %}
+                    </div>
                 </div>
-            </div>
-            
-            <!-- File Upload Section -->
-            <div class="mb-3">
-                <label class="form-label">Attachments</label>
-                <div class="d-flex gap-2 mb-2">
-                    <input type="file" id="message-file-input" style="display: none;" multiple 
-                           accept="image/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.yaml,.yml,.xml,.mp3,.mp4,.avi">
-                    <button type="button" class="btn btn-outline-secondary btn-sm" 
-                            onclick="document.getElementById('message-file-input').click()">
-                        <i class="bi bi-paperclip"></i> Add Files
-                    </button>
-                    <small class="text-muted align-self-center">Drag & drop or click to select</small>
+            {% else %}
+                <div class="dm-thread-header">
+                    {% if active_thread %}
+                        <div class="dm-thread-header-main">
+                            {% if active_thread.kind == 'group' %}
+                                {{ avatar_stack(active_thread.preview_users, '') }}
+                            {% elif active_thread.preview_users %}
+                                {{ avatar_badge(active_thread.preview_users[0], '') }}
+                            {% endif %}
+                            <div class="dm-thread-title-wrap">
+                                <div class="dm-thread-title">{{ active_thread.title }}</div>
+                                <div class="dm-thread-subtitle">{{ active_thread.subtitle or ('Direct message' if active_thread.kind == 'direct' else 'Group conversation') }}</div>
+                            </div>
+                        </div>
+                        <div class="dm-thread-actions">
+                            <button class="btn btn-sm btn-outline-secondary" type="button" onclick="startNewConversation()">
+                                <i class="bi bi-pencil-square"></i> New
+                            </button>
+                        </div>
+                    {% else %}
+                        <div class="dm-thread-title-wrap">
+                            <div class="dm-thread-title">Start a conversation</div>
+                            <div class="dm-thread-subtitle">Choose someone from the sidebar or open a new direct or group chat.</div>
+                        </div>
+                    {% endif %}
                 </div>
-                <div id="message-file-preview" class="file-preview mt-2" style="display: none;"></div>
-            </div>
-            
-            <div class="mb-3">
-                <label for="messageType" class="form-label">Message Type</label>
-                <select class="form-select" id="messageType">
-                    <option value="text">Text</option>
-                    <option value="system">System</option>
-                </select>
-            </div>
-            
-            <div class="d-flex gap-2">
-                <button type="button" class="btn btn-primary" id="sendMessageBtn" onclick="sendMessage()">
-                    <i class="bi bi-send"></i> Send Message
-                </button>
-                <button type="button" class="btn btn-outline-secondary" onclick="toggleNewMessage()">Cancel</button>
-            </div>
-        </form>
+
+                <div class="dm-thread-scroll" id="dm-thread-scroll">
+                    {% if message_rows %}
+                        {% for message in message_rows %}
+                            {% if message.day_divider %}
+                                <div class="dm-day-divider"><span>{{ message.day_divider }}</span></div>
+                            {% endif %}
+                            <div class="dm-message-row {% if message.outbound %}outbound{% else %}inbound{% endif %} message-item"
+                                 id="message-{{ message.id }}"
+                                 data-message-id="{{ message.id }}"
+                                 data-user-id="{{ message.sender_id }}">
+                                {% if not message.outbound %}
+                                    <div class="dm-message-avatar-wrap {% if not message.cluster_start %}spacer{% endif %}">
+                                        {% if message.cluster_start %}
+                                            {{ avatar_badge({'user_id': message.sender_id, 'display_name': message.sender_label, 'avatar_url': message.sender_avatar_url, 'origin_peer': message.sender_origin_peer}, '') }}
+                                        {% endif %}
+                                    </div>
+                                {% endif %}
+                                <div class="dm-message-main flex-grow-1">
+                                    {% if message.cluster_start %}
+                                        <div class="dm-message-meta">
+                                            <span class="dm-message-sender" data-user-display="{{ message.sender_id }}">{{ message.sender_label }}</span>
+                                            <span data-timestamp="{{ message.created_at }}">{{ message.created_at }}</span>
+                                        </div>
+                                    {% endif %}
+                                    <div class="dm-bubble-wrap">
+                                        <div class="dropdown dm-message-menu" data-message-actions="1">
+                                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                                                <i class="bi bi-three-dots"></i>
+                                            </button>
+                                            <ul class="dropdown-menu dropdown-menu-end">
+                                                <li><a class="dropdown-item" href="#" onclick="replyToMessage('{{ message.id }}', {{ message.sender_label|tojson }}, {{ (message.reply_preview.preview if message.reply_preview else message.content[:140])|tojson }}); return false;">
+                                                    <i class="bi bi-reply"></i> Reply
+                                                </a></li>
+                                                {% if message.outbound %}
+                                                    <li><a class="dropdown-item" href="#" onclick="editMessage('{{ message.id }}'); return false;">
+                                                        <i class="bi bi-pencil"></i> Edit
+                                                    </a></li>
+                                                    <li><a class="dropdown-item text-danger" href="#" onclick="deleteMessage('{{ message.id }}'); return false;">
+                                                        <i class="bi bi-trash"></i> Delete
+                                                    </a></li>
+                                                {% endif %}
+                                            </ul>
+                                        </div>
+                                        <div class="dm-bubble">
+                                            <div class="message-content" data-message-content="1">
+                                                {% if message.reply_preview %}
+                                                    <button type="button" class="dm-bubble-reply-preview" onclick="jumpToMessage('{{ message.reply_preview.id }}')">
+                                                        <strong>{{ message.reply_preview.sender_name }}</strong>
+                                                        <span>{{ message.reply_preview.preview }}</span>
+                                                    </button>
+                                                {% endif %}
+                                                {% if message.content %}
+                                                    <div class="dm-bubble-copy dm-message-text">{{ message.content }}</div>
+                                                {% endif %}
+                                                {% if message.attachments %}
+                                                    <div class="dm-attachment-list">
+                                                        {% for attachment in message.attachments %}
+                                                            {{ render_dm_attachment(attachment, message.id, loop.index0) }}
+                                                        {% endfor %}
+                                                    </div>
+                                                {% endif %}
+                                            </div>
+                                            <div class="dm-bubble-footer">
+                                                {% if message.edited_at %}
+                                                    <span title="Edited {{ message.edited_at }}">Edited</span>
+                                                {% endif %}
+                                                {% if message.cluster_end %}
+                                                    <span data-timestamp="{{ message.created_at }}">{{ message.created_at }}</span>
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% if message.outbound %}
+                                    <div class="dm-message-avatar-wrap {% if not message.cluster_start %}spacer{% endif %}">
+                                        {% if message.cluster_start %}
+                                            {{ avatar_badge({'user_id': message.sender_id, 'display_name': message.sender_label, 'avatar_url': message.sender_avatar_url, 'origin_peer': message.sender_origin_peer}, '') }}
+                                        {% endif %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="dm-empty-state">
+                            <div class="dm-empty-card">
+                                {% if active_thread %}
+                                    No messages in this conversation yet.
+                                {% else %}
+                                    No direct messages yet. Start by selecting recipients below.
+                                {% endif %}
+                            </div>
+                        </div>
+                    {% endif %}
+                </div>
+
+                <div class="dm-composer" id="dm-composer">
+                    <div class="dm-composer-topline">
+                        <div class="dm-composer-target">
+                            <strong id="composer-target-title">{{ active_thread.title if active_thread else 'New conversation' }}</strong>
+                            <small id="composer-target-subtitle">{{ active_thread.subtitle if active_thread else 'Select one or more recipients to begin' }}</small>
+                        </div>
+                        <div class="dm-thread-actions">
+                            <button class="btn btn-sm btn-outline-secondary" type="button" onclick="toggleRecipientEditor()">
+                                <i class="bi bi-people"></i> Recipients
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="dm-composer-reply" id="composer-reply-context">
+                        <div>
+                            <strong id="composer-reply-author"></strong>
+                            <div id="composer-reply-preview"></div>
+                        </div>
+                        <button class="btn btn-sm btn-outline-secondary" type="button" onclick="clearReplyContext()">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    </div>
+
+                    <div id="composer-recipient-panel" {% if active_thread %}style="display:none;"{% endif %}>
+                        <div class="recipient-input-wrap">
+                            <div class="recipient-input">
+                                <div id="recipient-chips" class="d-flex flex-wrap gap-1"></div>
+                                <input type="text" id="messageRecipient" placeholder="Type a name, @handle, or user ID">
+                            </div>
+                            <div id="recipient-suggestions" class="recipient-suggestions"></div>
+                        </div>
+                    </div>
+
+                    <div class="dm-composer-input-wrap position-relative">
+                        <textarea class="form-control dm-composer-textarea" id="messageContent" placeholder="Write a message" onkeydown="handleMessageContentKeydown(event)"></textarea>
+                        <div id="dm-channel-suggestions" class="mention-suggestions" style="display:none;"></div>
+                    </div>
+
+                    <div id="message-file-preview" class="file-preview mt-1" style="display:none;"></div>
+
+                    <div class="dm-composer-actions">
+                        <div class="dm-composer-actions-left">
+                            <input type="file" id="message-file-input" style="display:none;" multiple accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.tsv,.xlsx,.xlsm,.yaml,.yml,.xml,.zip,.tar,.gz,.tgz">
+                            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('message-file-input').click()">
+                                <i class="bi bi-paperclip"></i> Add Files
+                            </button>
+                            <span class="text-muted small">Images, audio, video, docs, archives, spreadsheets</span>
+                        </div>
+                        <div class="dm-composer-actions-right">
+                            <button type="button" class="btn btn-outline-secondary" onclick="clearComposer()">Clear</button>
+                            <button type="button" class="btn btn-primary" id="sendMessageBtn" onclick="sendMessage()">
+                                <i class="bi bi-send"></i> Send
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            {% endif %}
+        </section>
     </div>
 </div>
-
 {% endblock %}
 
 {% block extra_js %}
 <script>
-    const CURRENT_USER_ID = "{{ user_id }}";
-    function refreshMessages() {
-        window.location.reload();
-    }
+    const CURRENT_USER_ID = {{ user_id|tojson }};
+    const ACTIVE_THREAD = {{ active_thread|tojson if active_thread else 'null' }};
+    const INITIAL_RECIPIENTS = {{ composer_recipients|tojson }};
 
-    function toggleNewMessage() {
-        const composer = document.getElementById('new-message-composer');
-        if (!composer) return;
-        const isHidden = composer.style.display === 'none';
-        composer.style.display = isHidden ? 'block' : 'none';
-        if (isHidden) {
-            composer.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            const input = document.getElementById('messageRecipient');
-            if (input) input.focus();
-        } else {
-            const form = document.getElementById('sendMessageForm');
-            if (form) form.reset();
-            messageSelectedFiles = [];
-            selectedRecipients = [];
-            updateRecipientChips();
-            updateMessageFilePreview();
-            clearRecipientInput();
-        }
-    }
-    
-    function searchMessages() {
-        const query = document.getElementById('searchInput').value.trim();
-        if (query) {
-            window.location.href = `{{ url_for('ui.messages') }}?search=${encodeURIComponent(query)}`;
-        } else {
-            window.location.href = `{{ url_for('ui.messages') }}`;
-        }
-    }
-    
     let messageSelectedFiles = [];
-    let editMessageSelectedFiles = [];
-    let editMessageExistingAttachments = [];
     let recipientDirectory = [];
     let recipientDirectoryLoading = false;
     let recipientDirectoryFetchedAt = 0;
     const RECIPIENT_DIRECTORY_TTL_MS = 30000;
     let recipientMatches = [];
     let recipientActiveIndex = -1;
-    let selectedRecipients = [];
+    let selectedRecipients = Array.isArray(INITIAL_RECIPIENTS) ? [...INITIAL_RECIPIENTS] : [];
     let dmChannelCandidates = null;
     let dmChannelLoading = false;
     let dmChannelContext = null;
     let dmChannelMatches = [];
     let dmChannelHighlightIndex = 0;
-    
-    // Message modal file upload functionality
+    let activeReplyContext = null;
+    let composerUsesActiveThread = !!ACTIVE_THREAD;
+    const dmInlineEditStates = {};
+
+    function matchesInitialRecipients() {
+        const current = selectedRecipients.map(rec => rec.user_id).filter(Boolean).sort();
+        const baseline = (INITIAL_RECIPIENTS || []).map(rec => rec.user_id).filter(Boolean).sort();
+        if (current.length !== baseline.length) return false;
+        return current.every((value, index) => value === baseline[index]);
+    }
+
+    function refreshMessages() {
+        window.location.reload();
+    }
+
+    function searchMessages() {
+        const query = (document.getElementById('searchInput')?.value || '').trim();
+        if (query) {
+            window.location.href = `{{ url_for('ui.messages') }}?search=${encodeURIComponent(query)}`;
+        } else {
+            window.location.href = `{{ url_for('ui.messages') }}`;
+        }
+    }
+
+    function startNewConversation() {
+        composerUsesActiveThread = false;
+        selectedRecipients = [];
+        updateRecipientChips();
+        clearRecipientInput();
+        toggleRecipientEditor(true);
+        clearReplyContext();
+        updateComposerTarget();
+        const textarea = document.getElementById('messageContent');
+        if (textarea) {
+            textarea.focus();
+        }
+    }
+
+    function toggleRecipientEditor(forceOpen) {
+        const panel = document.getElementById('composer-recipient-panel');
+        if (!panel) return;
+        const shouldOpen = typeof forceOpen === 'boolean' ? forceOpen : panel.style.display === 'none';
+        panel.style.display = shouldOpen ? 'block' : 'none';
+        if (shouldOpen) {
+            composerUsesActiveThread = false;
+            const input = document.getElementById('messageRecipient');
+            if (input) input.focus();
+        } else if (ACTIVE_THREAD && matchesInitialRecipients()) {
+            composerUsesActiveThread = true;
+        }
+        updateComposerTarget();
+    }
+
+    function updateComposerTarget() {
+        const title = document.getElementById('composer-target-title');
+        const subtitle = document.getElementById('composer-target-subtitle');
+        const panel = document.getElementById('composer-recipient-panel');
+        if (!title || !subtitle) return;
+
+        if (composerUsesActiveThread && ACTIVE_THREAD) {
+            title.textContent = ACTIVE_THREAD.title || 'Conversation';
+            subtitle.textContent = ACTIVE_THREAD.subtitle || (ACTIVE_THREAD.kind === 'group' ? 'Group conversation' : 'Direct message');
+            if (panel && selectedRecipients.length === INITIAL_RECIPIENTS.length) {
+                panel.style.display = 'none';
+            }
+            return;
+        }
+
+        if (selectedRecipients.length) {
+            const names = selectedRecipients.map(rec => rec.display_name || rec.username || rec.user_id);
+            title.textContent = names.join(', ');
+            subtitle.textContent = selectedRecipients.length > 1 ? `New group DM with ${selectedRecipients.length} recipients` : 'New direct message';
+        } else {
+            title.textContent = 'New conversation';
+            subtitle.textContent = 'Select one or more recipients to begin';
+        }
+    }
+
+    function clearComposer() {
+        const textarea = document.getElementById('messageContent');
+        if (textarea) textarea.value = '';
+        messageSelectedFiles = [];
+        updateMessageFilePreview();
+        clearReplyContext();
+        if (!ACTIVE_THREAD || !composerUsesActiveThread) {
+            selectedRecipients = ACTIVE_THREAD && composerUsesActiveThread
+                ? [...INITIAL_RECIPIENTS]
+                : [];
+            updateRecipientChips();
+            updateComposerTarget();
+        }
+    }
+
     function setupMessageFileUpload() {
         const fileInput = document.getElementById('message-file-input');
-        
-        // File input change
+        if (!fileInput) return;
         fileInput.addEventListener('change', (e) => {
-            const files = Array.from(e.target.files);
+            const files = Array.from(e.target.files || []);
             addMessageFiles(files);
-            e.target.value = ''; // Reset input
+            e.target.value = '';
         });
     }
 
+    function getFileIcon(type, name = '') {
+        const lowerType = String(type || '').toLowerCase();
+        if (lowerType === 'text/markdown' || lowerType === 'text/x-markdown') return 'filetype-md';
+        if (lowerType.startsWith('image/')) return 'image';
+        if (lowerType.startsWith('video/')) return 'camera-video';
+        if (lowerType.startsWith('audio/')) return 'music-note';
+        if (lowerType.includes('pdf')) return 'file-pdf';
+        if (lowerType.includes('json')) return 'filetype-json';
+        if (lowerType.includes('spreadsheet') || lowerType.includes('excel') || String(name || '').toLowerCase().match(/\.(csv|tsv|xlsx|xlsm)$/)) return 'file-earmark-spreadsheet';
+        if (String(name || '').toLowerCase().match(/\.(zip|tar|gz|tgz)$/)) return 'file-zip';
+        if (lowerType.startsWith('text/')) return 'file-text';
+        return 'file-earmark';
+    }
+
     function addMessageFiles(files) {
-        const maxSize = 100 * 1024 * 1024; // 100MB
-        const allowedMimeTypes = ['image/', 'video/', 'audio/', 'application/pdf', 'text/', 'application/msword',
-                                  'application/json', 'application/xml', 'application/x-yaml',
-                                  'application/javascript', 'application/typescript', 'application/octet-stream'];
-        const allowedExtensions = ['.md', '.txt', '.tex', '.json', '.py', '.js', '.ts', '.log',
-                                   '.csv', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
-                                   '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx'];
-        
+        const maxSize = 100 * 1024 * 1024;
+        const allowedMimeTypes = ['image/', 'video/', 'audio/', 'application/pdf', 'text/', 'application/msword', 'application/json', 'application/xml', 'application/x-yaml', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel.sheet.macroenabled.12', 'application/javascript', 'application/typescript', 'application/octet-stream', 'application/zip', 'application/x-tar'];
+        const allowedExtensions = ['.md', '.txt', '.tex', '.json', '.py', '.js', '.ts', '.log', '.csv', '.tsv', '.xlsx', '.xlsm', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat', '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx', '.zip', '.tar', '.gz', '.tgz'];
+
         files.forEach(file => {
             if (file.size > maxSize) {
                 showAlert(`File ${file.name} is too large. Maximum size is 100MB.`, 'danger');
                 return;
             }
-            
+
             const ext = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
-            if (!allowedMimeTypes.some(type => file.type.startsWith(type)) && !allowedExtensions.includes(ext)) {
+            if (!allowedMimeTypes.some(type => String(file.type || '').startsWith(type)) && !allowedExtensions.includes(ext)) {
                 showAlert(`File type ${file.type || 'unknown'} is not supported.`, 'danger');
                 return;
             }
-            
-            // Read file as base64 for upload
+
             const reader = new FileReader();
             reader.onload = function(e) {
-                const base64Data = e.target.result.split(',')[1]; // Remove data: prefix
-                
+                const raw = String(e.target.result || '');
+                const base64Data = raw.includes(',') ? raw.split(',')[1] : raw;
                 messageSelectedFiles.push({
                     name: file.name,
                     type: file.type,
                     size: file.size,
                     data: base64Data,
-                    file: file
                 });
-                
                 updateMessageFilePreview();
             };
-            
             reader.onerror = function() {
                 showAlert(`Failed to read file: ${file.name}`, 'danger');
             };
-            
             reader.readAsDataURL(file);
         });
     }
 
     function updateMessageFilePreview() {
         const preview = document.getElementById('message-file-preview');
-        
-        if (messageSelectedFiles.length === 0) {
+        if (!preview) return;
+        if (!messageSelectedFiles.length) {
             preview.style.display = 'none';
+            preview.innerHTML = '';
             return;
         }
-        
         preview.style.display = 'block';
         preview.innerHTML = messageSelectedFiles.map((file, index) => `
-            <div class="file-preview-item d-inline-flex align-items-center gap-2 me-2 mb-2 p-2 rounded" style="background: var(--canopy-bg-tertiary); border: 1px solid var(--canopy-border);">
-                <i class="bi bi-${getFileIcon(file.type)}"></i>
-                <span class="small">${file.name}</span>
-                <button type="button" class="btn-close btn-sm" onclick="removeMessageFile(${index})" style="font-size: 0.7rem;"></button>
+            <div class="file-preview-item d-inline-flex align-items-center gap-2 me-2 mb-2 p-2 rounded">
+                <i class="bi bi-${getFileIcon(file.type, file.name)}"></i>
+                <span class="small">${escapeHtml(file.name)}</span>
+                <button type="button" class="btn-close btn-sm" onclick="removeMessageFile(${index})" style="font-size:0.7rem;"></button>
             </div>
         `).join('');
     }
@@ -731,95 +1671,257 @@
         updateMessageFilePreview();
     }
 
-    function getFileIcon(type) {
-        const lowerType = String(type || '').toLowerCase();
-        if (lowerType === 'text/markdown' || lowerType === 'text/x-markdown') return 'filetype-md';
-        if (lowerType.startsWith('image/')) return 'image';
-        if (lowerType.startsWith('video/')) return 'camera-video';
-        if (lowerType.startsWith('audio/')) return 'music-note';
-        if (lowerType.includes('pdf')) return 'file-pdf';
-        if (lowerType.includes('json')) return 'filetype-json';
-        if (lowerType.startsWith('text/')) return 'file-text';
-        return 'file-earmark';
-    }
-    
-    function sendMessage() {
-        const content = document.getElementById('messageContent').value.trim();
-        const messageType = document.getElementById('messageType').value;
-        const manualInput = document.getElementById('messageRecipient')?.value.trim() || '';
-
-        if (!content && messageSelectedFiles.length === 0) {
-            showAlert('Message content or attachments required', 'danger');
-            return;
-        }
-
-        let recipients = selectedRecipients.map(r => r.user_id);
-        if (recipients.length === 0 && manualInput) {
-            recipients = manualInput.split(',').map(r => r.trim().replace(/^@/, '')).filter(Boolean);
-        }
-
-        const payload = {
-            content: content,
-            message_type: messageType,
-            attachments: messageSelectedFiles
-        };
-
-        if (recipients.length > 1) {
-            payload.recipient_ids = recipients;
-        } else if (recipients.length === 1) {
-            payload.recipient_id = recipients[0];
-        } else {
-            payload.recipient_id = null;
-        }
-
-        const sendBtn = document.getElementById('sendMessageBtn');
-        if (sendBtn) {
-            sendBtn.disabled = true;
-            sendBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Sending...';
-        }
-
-        apiCall('/ajax/send_message', {
-            method: 'POST',
-            body: JSON.stringify(payload)
-        })
-        .then(() => {
-            const msg = recipients.length > 1
-                ? `Group message sent to ${recipients.length} recipients.`
-                : 'Message sent successfully!';
-            showAlert(msg, 'success');
-            document.getElementById('sendMessageForm').reset();
-            messageSelectedFiles = [];
-            selectedRecipients = [];
-            updateRecipientChips();
-            updateMessageFilePreview();
-            const composer = document.getElementById('new-message-composer');
-            if (composer) composer.style.display = 'none';
-            setTimeout(refreshMessages, 1000);
-        })
-        .catch(error => {
-            showAlert(error.error || 'Failed to send message', 'danger');
-        })
-        .finally(() => {
-            if (sendBtn) {
-                sendBtn.disabled = false;
-                sendBtn.innerHTML = '<i class="bi bi-send"></i> Send Message';
-            }
-        });
-    }
-
-    function handleMessageContentKeydown(event) {
-        const suggestionsBox = document.getElementById('dm-channel-suggestions');
-        const suggestionsVisible = suggestionsBox && suggestionsBox.style.display !== 'none';
-        if (suggestionsVisible) return;
-        if (event.key === 'Enter' && !event.shiftKey) {
-            event.preventDefault();
-            sendMessage();
-        }
-    }
-
     function normalizeRecipientInput(value) {
         if (!value) return '';
         return value.trim().replace(/^@/, '');
+    }
+
+    function fetchRecipientDirectory(options) {
+        const forceRefresh = !!(options && options.forceRefresh);
+        const isFresh = recipientDirectoryFetchedAt > 0 && (Date.now() - recipientDirectoryFetchedAt) < RECIPIENT_DIRECTORY_TTL_MS;
+        if (!forceRefresh && Array.isArray(recipientDirectory) && recipientDirectory.length && isFresh) {
+            return Promise.resolve(recipientDirectory);
+        }
+        if (recipientDirectoryLoading) return Promise.resolve(recipientDirectory);
+        recipientDirectoryLoading = true;
+        return fetch('/ajax/mention_suggestions')
+            .then(res => res.json())
+            .then(data => {
+                recipientDirectory = data && Array.isArray(data.users) ? data.users : [];
+                recipientDirectoryFetchedAt = Date.now();
+                recipientDirectoryLoading = false;
+                return recipientDirectory;
+            })
+            .catch(() => {
+                recipientDirectory = Array.isArray(recipientDirectory) ? recipientDirectory : [];
+                recipientDirectoryFetchedAt = Date.now();
+                recipientDirectoryLoading = false;
+                return recipientDirectory;
+            });
+    }
+
+    function isRecipientSelected(userId) {
+        return selectedRecipients.some(r => r.user_id === userId);
+    }
+
+    function updateRecipientChips() {
+        const chipContainer = document.getElementById('recipient-chips');
+        if (!chipContainer) return;
+        chipContainer.innerHTML = selectedRecipients.map(rec => {
+            const unknownClass = rec.unknown ? 'unknown' : '';
+            const label = escapeHtml(rec.display_name || rec.user_id);
+            const safeId = escapeHtml(rec.user_id);
+            const idShort = escapeHtml(rec.user_id.length > 12 ? rec.user_id.slice(0, 10) + '…' : rec.user_id);
+            return `
+                <span class="recipient-chip ${unknownClass}" data-user-id="${safeId}">
+                    <span>${label}</span>
+                    <span class="recipient-chip-id">• ${idShort}</span>
+                    <button type="button" class="recipient-chip-remove" data-uid="${safeId}">&times;</button>
+                </span>
+            `;
+        }).join('');
+        chipContainer.querySelectorAll('.recipient-chip-remove').forEach(btn => {
+            btn.addEventListener('click', function() {
+                removeRecipient(this.getAttribute('data-uid'));
+            });
+        });
+    }
+
+    function removeRecipient(userId) {
+        selectedRecipients = selectedRecipients.filter(r => r.user_id !== userId);
+        composerUsesActiveThread = false;
+        updateRecipientChips();
+        updateComposerTarget();
+    }
+
+    function addRecipient(rec) {
+        if (!rec || !rec.user_id || isRecipientSelected(rec.user_id)) return;
+        selectedRecipients.push(rec);
+        composerUsesActiveThread = false;
+        updateRecipientChips();
+        updateComposerTarget();
+    }
+
+    function showRecipientSuggestions(show) {
+        const dropdown = document.getElementById('recipient-suggestions');
+        if (!dropdown) return;
+        dropdown.style.display = show ? 'block' : 'none';
+    }
+
+    function getRecipientInitials(text) {
+        if (!text) return '?';
+        const parts = text.trim().split(/\s+/).filter(Boolean);
+        if (!parts.length) return '?';
+        if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+        return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+
+    function renderRecipientSuggestions() {
+        const dropdown = document.getElementById('recipient-suggestions');
+        if (!dropdown) return;
+        if (!recipientMatches.length) {
+            dropdown.innerHTML = '';
+            showRecipientSuggestions(false);
+            return;
+        }
+        dropdown.innerHTML = recipientMatches.map((rec, idx) => {
+            const activeClass = idx === recipientActiveIndex ? 'active' : '';
+            const display = escapeHtml(rec.display_name || rec.username || rec.user_id);
+            const safeUserId = escapeHtml(rec.user_id);
+            const initials = escapeHtml(getRecipientInitials(rec.display_name || rec.username || rec.user_id));
+            const avatar = rec.avatar_url && rec.avatar_url.startsWith('/')
+                ? `<div class="recipient-suggestion-avatar"><img src="${escapeHtml(rec.avatar_url)}" alt="${display}"></div>`
+                : `<div class="recipient-suggestion-avatar">${initials}</div>`;
+            return `
+                <div class="recipient-suggestion-item ${activeClass}" data-idx="${idx}">
+                    ${avatar}
+                    <div>
+                        <div class="recipient-suggestion-name">${display}</div>
+                        <div class="recipient-suggestion-id">${safeUserId}</div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        dropdown.querySelectorAll('.recipient-suggestion-item').forEach(item => {
+            item.addEventListener('click', function() {
+                selectRecipientByIndex(parseInt(this.getAttribute('data-idx'), 10));
+            });
+        });
+        showRecipientSuggestions(true);
+    }
+
+    function selectRecipientByIndex(index) {
+        const rec = recipientMatches[index];
+        if (!rec) return;
+        addRecipient({
+            user_id: rec.user_id,
+            display_name: rec.display_name || rec.username || rec.user_id,
+            username: rec.username || rec.user_id,
+            avatar_url: rec.avatar_url || null,
+            unknown: false,
+        });
+        clearRecipientInput();
+    }
+
+    function clearRecipientInput() {
+        const input = document.getElementById('messageRecipient');
+        if (input) input.value = '';
+        recipientMatches = [];
+        recipientActiveIndex = -1;
+        renderRecipientSuggestions();
+    }
+
+    function filterRecipientMatches(query) {
+        const term = query.toLowerCase();
+        return recipientDirectory
+            .filter(rec => rec.user_id && !isRecipientSelected(rec.user_id))
+            .filter(rec => {
+                const display = (rec.display_name || rec.username || rec.user_id).toLowerCase();
+                const username = (rec.username || '').toLowerCase();
+                const userId = rec.user_id.toLowerCase();
+                return display.includes(term) || username.includes(term) || userId.includes(term);
+            })
+            .slice(0, 8);
+    }
+
+    function updateRecipientSuggestions(query, options) {
+        const opts = options || {};
+        const term = query.trim();
+        recipientMatches = term
+            ? filterRecipientMatches(term)
+            : recipientDirectory.filter(rec => rec.user_id && !isRecipientSelected(rec.user_id)).slice(0, 8);
+        recipientActiveIndex = recipientMatches.length ? 0 : -1;
+        renderRecipientSuggestions();
+        if (!opts.skipRefresh && term && !recipientMatches.length) {
+            fetchRecipientDirectory({ forceRefresh: true }).then(() => updateRecipientSuggestions(term, { skipRefresh: true }));
+        }
+    }
+
+    function commitRecipientFromInput(forceValue) {
+        const input = document.getElementById('messageRecipient');
+        if (!input) return;
+        const raw = normalizeRecipientInput(forceValue || input.value);
+        if (!raw) return;
+
+        let match = recipientDirectory.find(rec => rec.user_id === raw)
+            || recipientDirectory.find(rec => (rec.username || '').toLowerCase() === raw.toLowerCase())
+            || recipientDirectory.find(rec => (rec.display_name || '').toLowerCase() === raw.toLowerCase());
+
+        if (match) {
+            addRecipient({
+                user_id: match.user_id,
+                display_name: match.display_name || match.username || match.user_id,
+                username: match.username || match.user_id,
+                avatar_url: match.avatar_url || null,
+                unknown: false,
+            });
+        } else {
+            if (raw.length > 100) {
+                showAlert('Recipient ID is too long (max 100 characters).', 'warning');
+                return;
+            }
+            if (!/^[A-Za-z0-9_.\-@]+$/.test(raw)) {
+                showAlert('Recipient ID contains invalid characters.', 'warning');
+                return;
+            }
+            addRecipient({
+                user_id: raw,
+                display_name: raw,
+                username: raw,
+                avatar_url: null,
+                unknown: true,
+            });
+        }
+        clearRecipientInput();
+    }
+
+    function handleRecipientKeydown(event) {
+        if (event.key === 'ArrowDown') {
+            if (recipientMatches.length) {
+                recipientActiveIndex = (recipientActiveIndex + 1) % recipientMatches.length;
+                renderRecipientSuggestions();
+            }
+            event.preventDefault();
+        } else if (event.key === 'ArrowUp') {
+            if (recipientMatches.length) {
+                recipientActiveIndex = (recipientActiveIndex - 1 + recipientMatches.length) % recipientMatches.length;
+                renderRecipientSuggestions();
+            }
+            event.preventDefault();
+        } else if (event.key === 'Enter' || event.key === 'Tab' || event.key === ',') {
+            if (recipientMatches.length && recipientActiveIndex >= 0) {
+                selectRecipientByIndex(recipientActiveIndex);
+            } else {
+                commitRecipientFromInput();
+            }
+            event.preventDefault();
+        } else if (event.key === 'Backspace') {
+            const input = document.getElementById('messageRecipient');
+            if (input && !input.value && selectedRecipients.length) {
+                selectedRecipients.pop();
+                updateRecipientChips();
+                updateComposerTarget();
+            }
+        }
+    }
+
+    function setupRecipientPicker() {
+        const input = document.getElementById('messageRecipient');
+        const wrapper = document.querySelector('.recipient-input-wrap');
+        if (!input || !wrapper) return;
+
+        input.addEventListener('input', (e) => {
+            composerUsesActiveThread = false;
+            updateRecipientSuggestions(normalizeRecipientInput(e.target.value));
+        });
+        input.addEventListener('focus', (e) => {
+            fetchRecipientDirectory().then(() => updateRecipientSuggestions(normalizeRecipientInput(e.target.value || '')));
+        });
+        input.addEventListener('keydown', handleRecipientKeydown);
+        document.addEventListener('click', (e) => {
+            if (!wrapper.contains(e.target)) showRecipientSuggestions(false);
+        });
+        fetchRecipientDirectory().then(() => updateRecipientSuggestions(''));
     }
 
     function getDmChannelContext(textarea) {
@@ -829,26 +1931,16 @@
         const match = /(^|[\s\(\[\{<>"'.,;:!?])#([A-Za-z0-9_.-]{0,79})$/.exec(before);
         if (!match) return null;
         const start = before.length - match[2].length - 1;
-        return {
-            query: match[2],
-            start: start,
-            end: pos
-        };
+        return { query: match[2], start, end: pos };
     }
 
     function fetchDmChannelCandidates() {
-        if (dmChannelCandidates || dmChannelLoading) {
-            return Promise.resolve(dmChannelCandidates || []);
-        }
+        if (dmChannelCandidates || dmChannelLoading) return Promise.resolve(dmChannelCandidates || []);
         dmChannelLoading = true;
         return apiCall('/ajax/channel_suggestions')
             .then(data => {
                 dmChannelLoading = false;
-                if (data && data.success && Array.isArray(data.channels)) {
-                    dmChannelCandidates = data.channels;
-                } else {
-                    dmChannelCandidates = [];
-                }
+                dmChannelCandidates = data && data.success && Array.isArray(data.channels) ? data.channels : [];
                 return dmChannelCandidates;
             })
             .catch(() => {
@@ -880,10 +1972,7 @@
             btn.type = 'button';
             btn.className = 'mention-item' + (i === 0 ? ' highlighted' : '');
             const label = item.name || item.id;
-            btn.innerHTML = `<div class="flex-grow-1">
-                    <div><strong>#${escapeHtml(label)}</strong></div>
-                    <div class="mention-meta">${escapeHtml(item.privacy_mode || 'open')}</div>
-                </div>`;
+            btn.innerHTML = `<div class="flex-grow-1"><div><strong>#${escapeHtml(label)}</strong></div><div class="mention-meta">${escapeHtml(item.privacy_mode || 'open')}</div></div>`;
             btn.addEventListener('mousedown', (e) => {
                 e.preventDefault();
                 insertDmChannel(label, context);
@@ -923,8 +2012,7 @@
             const q = (context.query || '').toLowerCase();
             const matches = channels.filter(item => {
                 const name = (item.name || '').toLowerCase();
-                if (!q) return true;
-                return name.includes(q);
+                return !q || name.includes(q);
             }).slice(0, 6);
             dmChannelContext = context;
             renderDmChannelSuggestions(matches, context);
@@ -953,334 +2041,141 @@
             dmChannelHighlightIndex = (dmChannelHighlightIndex - 1 + dmChannelMatches.length) % dmChannelMatches.length;
             box.querySelectorAll('.mention-item').forEach((el, i) => el.classList.toggle('highlighted', i === dmChannelHighlightIndex));
             e.preventDefault();
-            return;
         }
     }
 
-    function applyDmChannelLinkify() {
+    function applyDmRichContent() {
         document.querySelectorAll('.dm-message-text').forEach(el => {
-            const raw = el.textContent;
-            if (!raw) return;
+            const raw = el.textContent || '';
             const tmp = document.createElement('div');
             tmp.textContent = raw;
             let html = tmp.innerHTML;
-            if (typeof linkifyMentions === 'function') {
-                html = linkifyMentions(html);
-            }
-            if (typeof linkifyChannels === 'function') {
-                html = linkifyChannels(html);
-            }
+            if (typeof linkifyMentions === 'function') html = linkifyMentions(html);
+            if (typeof linkifyChannels === 'function') html = linkifyChannels(html);
             el.innerHTML = html;
+            if (typeof renderMathInElementSafe === 'function') renderMathInElementSafe(el);
         });
+        if (typeof processRichEmbeds === 'function') processRichEmbeds('.dm-bubble-copy');
     }
 
-    function fetchRecipientDirectory(options) {
-        const forceRefresh = !!(options && options.forceRefresh);
-        const isFresh = recipientDirectoryFetchedAt > 0
-            && (Date.now() - recipientDirectoryFetchedAt) < RECIPIENT_DIRECTORY_TTL_MS;
-        if (!forceRefresh && Array.isArray(recipientDirectory) && recipientDirectory.length && isFresh) {
-            return Promise.resolve(recipientDirectory);
+    function getThreadHrefForRecipients(recipients, responseData) {
+        const uniqueRecipients = Array.from(new Set((recipients || []).filter(Boolean)));
+        if (!uniqueRecipients.length) return `{{ url_for('ui.messages') }}`;
+        if (uniqueRecipients.length > 1) {
+            const groupId = responseData && responseData.group_id ? responseData.group_id : null;
+            return groupId ? `{{ url_for('ui.messages') }}?group=${encodeURIComponent(groupId)}` : `{{ url_for('ui.messages') }}`;
         }
-        if (recipientDirectoryLoading) return Promise.resolve(recipientDirectory);
-        recipientDirectoryLoading = true;
-        return fetch('/ajax/mention_suggestions')
-            .then(res => res.json())
-            .then(data => {
-                if (data && Array.isArray(data.users)) {
-                    recipientDirectory = data.users;
-                } else if (!Array.isArray(recipientDirectory)) {
-                    recipientDirectory = [];
-                }
-                recipientDirectoryFetchedAt = Date.now();
-                recipientDirectoryLoading = false;
-                return recipientDirectory;
-            })
-            .catch(() => {
-                if (!Array.isArray(recipientDirectory)) {
-                    recipientDirectory = [];
-                }
-                recipientDirectoryFetchedAt = Date.now();
-                recipientDirectoryLoading = false;
-                return recipientDirectory;
-            });
+        return `{{ url_for('ui.messages') }}?with=${encodeURIComponent(uniqueRecipients[0])}`;
     }
 
-    function updateRecipientChips() {
-        const chipContainer = document.getElementById('recipient-chips');
-        if (!chipContainer) return;
-        chipContainer.innerHTML = selectedRecipients.map(rec => {
-            const unknownClass = rec.unknown ? 'unknown' : '';
-            const label = escapeHtml(rec.display_name || rec.user_id);
-            const safeId = escapeHtml(rec.user_id);
-            const idShort = escapeHtml(rec.user_id.length > 12 ? rec.user_id.slice(0, 10) + '…' : rec.user_id);
-            return `
-                <span class="recipient-chip ${unknownClass}" data-user-id="${safeId}">
-                    <span>${label}</span>
-                    <span class="recipient-chip-id">• ${idShort}</span>
-                    <button type="button" class="recipient-chip-remove" data-uid="${safeId}">&times;</button>
-                </span>
-            `;
-        }).join('');
-        // Delegate click events for chip removal (avoids inline onclick injection)
-        chipContainer.querySelectorAll('.recipient-chip-remove').forEach(btn => {
-            btn.addEventListener('click', function() {
-                removeRecipient(this.getAttribute('data-uid'));
-            });
-        });
-    }
+    function sendMessage() {
+        const textarea = document.getElementById('messageContent');
+        const content = (textarea?.value || '').trim();
+        const manualInput = document.getElementById('messageRecipient')?.value.trim() || '';
 
-    function removeRecipient(userId) {
-        selectedRecipients = selectedRecipients.filter(r => r.user_id !== userId);
-        updateRecipientChips();
-    }
-
-    function isRecipientSelected(userId) {
-        return selectedRecipients.some(r => r.user_id === userId);
-    }
-
-    function addRecipient(rec) {
-        if (!rec || !rec.user_id) return;
-        if (isRecipientSelected(rec.user_id)) return;
-        selectedRecipients.push(rec);
-        updateRecipientChips();
-    }
-
-    function showRecipientSuggestions(show) {
-        const dropdown = document.getElementById('recipient-suggestions');
-        if (!dropdown) return;
-        dropdown.style.display = show ? 'block' : 'none';
-    }
-
-    function _isSafeAvatarUrl(url) {
-        // Only allow internal paths — block javascript:, data:, and external URLs
-        if (!url || typeof url !== 'string') return false;
-        return url.startsWith('/');
-    }
-
-    function renderRecipientSuggestions() {
-        const dropdown = document.getElementById('recipient-suggestions');
-        if (!dropdown) return;
-        if (!recipientMatches.length) {
-            dropdown.innerHTML = '';
-            showRecipientSuggestions(false);
+        if (!content && messageSelectedFiles.length === 0) {
+            showAlert('Message content or attachments required', 'danger');
             return;
         }
-        dropdown.innerHTML = recipientMatches.map((rec, idx) => {
-            const activeClass = idx === recipientActiveIndex ? 'active' : '';
-            const display = escapeHtml(rec.display_name || rec.username || rec.user_id);
-            const safeUserId = escapeHtml(rec.user_id);
-            const initials = escapeHtml(getRecipientInitials(rec.display_name || rec.username || rec.user_id));
-            const avatar = _isSafeAvatarUrl(rec.avatar_url)
-                ? `<div class="recipient-suggestion-avatar"><img src="${escapeHtml(rec.avatar_url)}" alt="${display}"></div>`
-                : `<div class="recipient-suggestion-avatar">${initials}</div>`;
-            return `
-                <div class="recipient-suggestion-item ${activeClass}" data-idx="${idx}">
-                    ${avatar}
-                    <div>
-                        <div class="recipient-suggestion-name">${display}</div>
-                        <div class="recipient-suggestion-id">${safeUserId}</div>
-                    </div>
-                </div>
-            `;
-        }).join('');
-        // Delegate click events (avoids inline onclick injection)
-        dropdown.querySelectorAll('.recipient-suggestion-item').forEach(item => {
-            item.addEventListener('click', function() {
-                selectRecipientByIndex(parseInt(this.getAttribute('data-idx'), 10));
-            });
-        });
-        showRecipientSuggestions(true);
-    }
 
-    function getRecipientInitials(text) {
-        if (!text) return '?';
-        const parts = text.trim().split(/\s+/).filter(Boolean);
-        if (!parts.length) return '?';
-        if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-        return (parts[0][0] + parts[1][0]).toUpperCase();
-    }
-
-    function selectRecipientByIndex(index) {
-        const rec = recipientMatches[index];
-        if (!rec) return;
-        addRecipient({
-            user_id: rec.user_id,
-            display_name: rec.display_name || rec.username || rec.user_id,
-            username: rec.username || rec.user_id,
-            avatar_url: rec.avatar_url || null,
-            unknown: false
-        });
-        clearRecipientInput();
-    }
-
-    function clearRecipientInput() {
-        const input = document.getElementById('messageRecipient');
-        if (input) input.value = '';
-        recipientMatches = [];
-        recipientActiveIndex = -1;
-        renderRecipientSuggestions();
-    }
-
-    function filterRecipientMatches(query) {
-        const term = query.toLowerCase();
-        return recipientDirectory
-            .filter(rec => rec.user_id && !isRecipientSelected(rec.user_id))
-            .filter(rec => {
-                const display = (rec.display_name || rec.username || rec.user_id).toLowerCase();
-                const username = (rec.username || '').toLowerCase();
-                const userId = rec.user_id.toLowerCase();
-                return display.includes(term) || username.includes(term) || userId.includes(term);
-            })
-            .slice(0, 8);
-    }
-
-    function updateRecipientSuggestions(query, options) {
-        const opts = options || {};
-        const term = query.trim();
-        if (!term) {
-            recipientMatches = recipientDirectory.filter(rec => rec.user_id && !isRecipientSelected(rec.user_id)).slice(0, 8);
-        } else {
-            recipientMatches = filterRecipientMatches(term);
+        let recipients = selectedRecipients.map(r => r.user_id).filter(Boolean);
+        if (!recipients.length && manualInput) {
+            commitRecipientFromInput(manualInput);
+            recipients = selectedRecipients.map(r => r.user_id).filter(Boolean);
         }
-        recipientActiveIndex = recipientMatches.length ? 0 : -1;
-        renderRecipientSuggestions();
-        if (!opts.skipRefresh && term && !recipientMatches.length) {
-            fetchRecipientDirectory({ forceRefresh: true }).then(() => {
-                updateRecipientSuggestions(term, { skipRefresh: true });
-            });
-        }
-    }
-
-    function commitRecipientFromInput(forceValue) {
-        const input = document.getElementById('messageRecipient');
-        if (!input) return;
-        const raw = normalizeRecipientInput(forceValue || input.value);
-        if (!raw) return;
-
-        let match = recipientDirectory.find(rec => rec.user_id === raw);
-        if (!match) {
-            match = recipientDirectory.find(rec => (rec.username || '').toLowerCase() === raw.toLowerCase());
-        }
-        if (!match) {
-            match = recipientDirectory.find(rec => (rec.display_name || '').toLowerCase() === raw.toLowerCase());
+        if (!recipients.length) {
+            showAlert('Select at least one recipient.', 'warning');
+            toggleRecipientEditor(true);
+            return;
         }
 
-        if (match) {
-            addRecipient({
-                user_id: match.user_id,
-                display_name: match.display_name || match.username || match.user_id,
-                username: match.username || match.user_id,
-                avatar_url: match.avatar_url || null,
-                unknown: false
-            });
-        } else {
-            // Validate manually-entered recipient IDs
-            if (raw.length > 100) {
-                showAlert('Recipient ID is too long (max 100 characters).', 'warning');
-                return;
-            }
-            if (!/^[A-Za-z0-9_.\-@]+$/.test(raw)) {
-                showAlert('Recipient ID contains invalid characters.', 'warning');
-                return;
-            }
-            addRecipient({
-                user_id: raw,
-                display_name: raw,
-                username: raw,
-                avatar_url: null,
-                unknown: true
-            });
+        const payload = {
+            content,
+            attachments: messageSelectedFiles,
+        };
+
+        if (recipients.length > 1) payload.recipient_ids = recipients;
+        else payload.recipient_id = recipients[0];
+
+        if (activeReplyContext && activeReplyContext.messageId) {
+            payload.reply_to = activeReplyContext.messageId;
         }
-        clearRecipientInput();
-    }
 
-    function handleRecipientKeydown(event) {
-        if (event.key === 'ArrowDown') {
-            if (recipientMatches.length) {
-                recipientActiveIndex = (recipientActiveIndex + 1) % recipientMatches.length;
-                renderRecipientSuggestions();
-            }
-            event.preventDefault();
-        } else if (event.key === 'ArrowUp') {
-            if (recipientMatches.length) {
-                recipientActiveIndex = (recipientActiveIndex - 1 + recipientMatches.length) % recipientMatches.length;
-                renderRecipientSuggestions();
-            }
-            event.preventDefault();
-        } else if (event.key === 'Enter' || event.key === 'Tab' || event.key === ',') {
-            if (recipientMatches.length && recipientActiveIndex >= 0) {
-                selectRecipientByIndex(recipientActiveIndex);
-            } else {
-                commitRecipientFromInput();
-            }
-            event.preventDefault();
-        } else if (event.key === 'Backspace') {
-            const input = document.getElementById('messageRecipient');
-            if (input && !input.value && selectedRecipients.length) {
-                selectedRecipients.pop();
-                updateRecipientChips();
-            }
+        const sendBtn = document.getElementById('sendMessageBtn');
+        if (sendBtn) {
+            sendBtn.disabled = true;
+            sendBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Sending...';
         }
-    }
 
-    function setupRecipientPicker() {
-        const input = document.getElementById('messageRecipient');
-        const wrapper = document.querySelector('.recipient-input-wrap');
-        if (!input || !wrapper) return;
-
-        input.addEventListener('input', (e) => {
-            const value = normalizeRecipientInput(e.target.value);
-            updateRecipientSuggestions(value);
-        });
-        input.addEventListener('focus', (e) => {
-            fetchRecipientDirectory().then(() => {
-                updateRecipientSuggestions(normalizeRecipientInput(e.target.value || ''));
-            });
-        });
-        input.addEventListener('keydown', handleRecipientKeydown);
-
-        document.addEventListener('click', (e) => {
-            if (!wrapper.contains(e.target)) {
-                showRecipientSuggestions(false);
-            }
-        });
-
-        fetchRecipientDirectory().then(() => updateRecipientSuggestions(''));
-    }
-    
-    function replyToMessage(messageId) {
-        // Find the original message element to get sender info
-        const msgEl = document.querySelector(`[data-message-id="${messageId}"]`);
-        const senderName = msgEl ? (msgEl.querySelector('.fw-bold')?.textContent || 'user') : 'user';
-
-        const content = prompt(`Reply to ${senderName}:`);
-        if (!content || !content.trim()) return;
-
-        apiCall('/ajax/reply_message', {
+        apiCall('/ajax/send_message', {
             method: 'POST',
-            body: JSON.stringify({ message_id: messageId, content: content.trim() })
+            body: JSON.stringify(payload)
         })
-        .then(data => {
-            if (data.success) {
-                showAlert('Reply sent!', 'success');
-                setTimeout(refreshMessages, 500);
-            } else {
-                showAlert(data.error || 'Failed to send reply', 'danger');
+        .then((data) => {
+            const targetUrl = getThreadHrefForRecipients(recipients, data || {});
+            window.location.href = targetUrl;
+        })
+        .catch(error => {
+            showAlert(error.error || 'Failed to send message', 'danger');
+        })
+        .finally(() => {
+            if (sendBtn) {
+                sendBtn.disabled = false;
+                sendBtn.innerHTML = '<i class="bi bi-send"></i> Send';
             }
-        })
-        .catch(err => showAlert('Reply failed: ' + (err.message || err), 'danger'));
+        });
     }
-    
-    function deleteMessage(messageId) {
-        if (!confirm('Are you sure you want to delete this message?')) return;
 
+    function handleMessageContentKeydown(event) {
+        const suggestionsBox = document.getElementById('dm-channel-suggestions');
+        const suggestionsVisible = suggestionsBox && suggestionsBox.style.display !== 'none';
+        if (suggestionsVisible) return;
+        if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
+            sendMessage();
+        }
+    }
+
+    function replyToMessage(messageId, senderLabel, preview) {
+        activeReplyContext = { messageId, senderLabel, preview };
+        const box = document.getElementById('composer-reply-context');
+        const author = document.getElementById('composer-reply-author');
+        const content = document.getElementById('composer-reply-preview');
+        if (box && author && content) {
+            author.textContent = senderLabel || 'Reply';
+            content.textContent = preview || 'Replying in thread';
+            box.classList.add('active');
+        }
+        const textarea = document.getElementById('messageContent');
+        if (textarea) {
+            textarea.focus();
+            textarea.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    }
+
+    function clearReplyContext() {
+        activeReplyContext = null;
+        const box = document.getElementById('composer-reply-context');
+        if (box) box.classList.remove('active');
+    }
+
+    function jumpToMessage(messageId) {
+        const el = document.getElementById(`message-${messageId}`);
+        if (!el) return;
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.remove('flash-focus');
+        void el.offsetWidth;
+        el.classList.add('flash-focus');
+    }
+
+    function deleteMessage(messageId) {
+        if (!confirm('Delete this message?')) return;
         apiCall('/ajax/delete_message', {
             method: 'POST',
             body: JSON.stringify({ message_id: messageId })
         })
         .then(data => {
             if (data.success) {
-                // Remove from DOM
                 const msgEl = document.querySelector(`[data-message-id="${messageId}"]`);
                 if (msgEl) msgEl.remove();
                 showAlert('Message deleted', 'success');
@@ -1295,7 +2190,7 @@
         apiCall(`/ajax/get_message_data/${messageId}`)
             .then(data => {
                 if (data.success && data.message) {
-                    openEditMessageModal(data.message);
+                    beginInlineMessageEdit(data.message);
                 } else {
                     showAlert(data.error || 'Could not load message for editing', 'danger');
                 }
@@ -1305,557 +2200,111 @@
             });
     }
 
-    function openEditMessageModal(message) {
-        editMessageSelectedFiles = [];
-        editMessageExistingAttachments = Array.isArray(message.metadata && message.metadata.attachments)
-            ? [...message.metadata.attachments]
-            : [];
+    function getDmMessageElement(messageId) {
+        return document.querySelector(`.message-item[data-message-id="${messageId}"]`);
+    }
 
-        const modalHtml = `
-            <div class="modal fade" id="editMessageModal" tabindex="-1">
-                <div class="modal-dialog modal-lg">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h5 class="modal-title">Edit Message</h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                        </div>
-                        <div class="modal-body">
-                            <input type="hidden" id="editMessageId" value="${message.id}">
-                            <div class="mb-3">
-                                <label for="editMessageContent" class="form-label">Content</label>
-                                <textarea class="form-control" id="editMessageContent" rows="4" required></textarea>
-                            </div>
-                            <div class="mb-2">
-                                <div id="edit-message-existing-attachments" class="existing-attachments"></div>
-                                <div id="edit-message-file-preview" class="file-preview mt-2" style="display: none;"></div>
-                            </div>
-                        </div>
-                        <div class="modal-footer">
-                            <div class="me-auto">
-                                <input type="file" id="edit-message-file-input" style="display: none;" multiple
-                                       accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.yaml,.yml,.xml">
-                                <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('edit-message-file-input').click()">
-                                    <i class="bi bi-paperclip"></i> Add Files
-                                </button>
-                            </div>
-                            <div>
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                                <button type="button" class="btn btn-primary" onclick="updateMessage()">Update Message</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+    function cancelAllDmInlineEdits(exceptMessageId) {
+        document.querySelectorAll('.dm-inline-editor[data-inline-dm-for]').forEach(panel => {
+            const mid = panel.getAttribute('data-inline-dm-for');
+            if (!exceptMessageId || mid !== exceptMessageId) {
+                cancelInlineMessageEdit(mid, true);
+            }
+        });
+    }
+
+    function beginInlineMessageEdit(message) {
+        const messageId = message && message.id;
+        if (!messageId) return;
+        cancelAllDmInlineEdits(messageId);
+
+        const msgEl = getDmMessageElement(messageId);
+        if (!msgEl) {
+            showAlert('Message card not available in this view', 'warning');
+            return;
+        }
+
+        const existingPanel = msgEl.querySelector('.dm-inline-editor');
+        if (existingPanel) {
+            const textarea = existingPanel.querySelector('textarea[data-inline-dm-content]');
+            if (textarea) textarea.focus();
+            return;
+        }
+
+        const contentWrap = msgEl.querySelector('[data-message-content]');
+        const actionsWrap = msgEl.querySelector('[data-message-actions]');
+        if (contentWrap) contentWrap.classList.add('d-none');
+        if (actionsWrap) actionsWrap.classList.add('d-none');
+
+        const panel = document.createElement('div');
+        panel.className = 'dm-inline-editor';
+        panel.setAttribute('data-inline-dm-for', messageId);
+        panel.innerHTML = `
+            <textarea class="form-control" data-inline-dm-content placeholder="Edit message">${escapeHtml(message.content || '')}</textarea>
+            <div class="dm-inline-toolbar">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-inline-dm-cancel>Cancel</button>
+                <button type="button" class="btn btn-sm btn-primary" data-inline-dm-save><i class="bi bi-check2"></i> Save</button>
             </div>
         `;
 
-        const existingModal = document.getElementById('editMessageModal');
-        if (existingModal) existingModal.remove();
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        const host = msgEl.querySelector('.dm-message-main');
+        if (!host) return;
+        host.appendChild(panel);
 
-        const contentEl = document.getElementById('editMessageContent');
-        if (contentEl) {
-            contentEl.value = message.content || '';
+        const textarea = panel.querySelector('textarea[data-inline-dm-content]');
+        const saveBtn = panel.querySelector('[data-inline-dm-save]');
+        const cancelBtn = panel.querySelector('[data-inline-dm-cancel]');
+        if (textarea) {
+            textarea.focus();
+            textarea.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    saveInlineMessageEdit(messageId);
+                } else if (event.key === 'Escape') {
+                    event.preventDefault();
+                    cancelInlineMessageEdit(messageId);
+                }
+            });
         }
-
-        updateEditMessageExistingAttachments();
-        setupEditMessageFileUpload();
-
-        const modal = new bootstrap.Modal(document.getElementById('editMessageModal'));
-        modal.show();
-
-        document.getElementById('editMessageModal').addEventListener('hidden.bs.modal', function() {
-            editMessageSelectedFiles = [];
-            editMessageExistingAttachments = [];
-            this.remove();
-        });
+        if (saveBtn) saveBtn.addEventListener('click', () => saveInlineMessageEdit(messageId));
+        if (cancelBtn) cancelBtn.addEventListener('click', () => cancelInlineMessageEdit(messageId));
     }
 
-    function setupEditMessageFileUpload() {
-        const fileInput = document.getElementById('edit-message-file-input');
-        if (!fileInput) return;
-        fileInput.addEventListener('change', (e) => {
-            const files = Array.from(e.target.files || []);
-            addEditMessageFiles(files);
-            e.target.value = '';
-        });
+    function cancelInlineMessageEdit(messageId, silent) {
+        const msgEl = getDmMessageElement(messageId);
+        if (!msgEl) return;
+        const panel = msgEl.querySelector(`.dm-inline-editor[data-inline-dm-for="${messageId}"]`);
+        if (panel) panel.remove();
+        const contentWrap = msgEl.querySelector('[data-message-content]');
+        const actionsWrap = msgEl.querySelector('[data-message-actions]');
+        if (contentWrap) contentWrap.classList.remove('d-none');
+        if (actionsWrap) actionsWrap.classList.remove('d-none');
+        if (!silent) showAlert('Edit cancelled', 'secondary');
     }
 
-    function addEditMessageFiles(files) {
-        const maxSize = 100 * 1024 * 1024;
-        const allowedMimeTypes = ['image/', 'video/', 'audio/', 'application/pdf', 'text/', 'application/msword',
-                                  'application/json', 'application/xml', 'application/x-yaml',
-                                  'application/javascript', 'application/typescript', 'application/octet-stream'];
-        const allowedExtensions = ['.md', '.txt', '.tex', '.json', '.py', '.js', '.ts', '.log',
-                                   '.csv', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
-                                   '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx'];
-
-        files.forEach(file => {
-            if (file.size > maxSize) {
-                showAlert(`File ${file.name} is too large. Maximum size is 100MB.`, 'danger');
-                return;
-            }
-
-            const ext = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
-            const mimeOk = allowedMimeTypes.some(type => file.type.startsWith(type));
-            const extOk = allowedExtensions.includes(ext);
-            if (!mimeOk && !extOk) {
-                showAlert(`File type ${file.type || 'unknown'} is not supported.`, 'danger');
-                return;
-            }
-
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                const base64Data = e.target.result.split(',')[1];
-                editMessageSelectedFiles.push({
-                    name: file.name,
-                    type: file.type,
-                    size: file.size,
-                    data: base64Data,
-                    file: file
-                });
-                updateEditMessageFilePreview();
-            };
-            reader.onerror = function() {
-                showAlert(`Failed to read file: ${file.name}`, 'danger');
-            };
-            reader.readAsDataURL(file);
-        });
-    }
-
-    function updateEditMessageFilePreview() {
-        const preview = document.getElementById('edit-message-file-preview');
-        if (!preview) return;
-        if (editMessageSelectedFiles.length === 0) {
-            preview.style.display = 'none';
-            return;
-        }
-        preview.style.display = 'block';
-        preview.innerHTML = editMessageSelectedFiles.map((file, index) => `
-            <div class="file-preview-item d-inline-flex align-items-center gap-2 me-2 mb-2 p-2 rounded" style="background: var(--canopy-bg-tertiary); border: 1px solid var(--canopy-border);">
-                <i class="bi bi-${getFileIcon(file.type)}"></i>
-                <span class="small">${file.name}</span>
-                <button type="button" class="btn-close btn-sm" onclick="removeEditMessageFile(${index})" style="font-size: 0.7rem;"></button>
-            </div>
-        `).join('');
-    }
-
-    function removeEditMessageFile(index) {
-        editMessageSelectedFiles.splice(index, 1);
-        updateEditMessageFilePreview();
-    }
-
-    function updateEditMessageExistingAttachments() {
-        const container = document.getElementById('edit-message-existing-attachments');
-        if (!container) return;
-        if (editMessageExistingAttachments.length === 0) {
-            container.innerHTML = '';
-            return;
-        }
-        container.innerHTML = `
-            <div class="mb-2"><strong>Current Files:</strong></div>
-            ${editMessageExistingAttachments.map((attachment, index) => `
-                <div class="file-preview-item d-inline-flex align-items-center gap-2 me-2 mb-2 p-2 rounded" style="background: var(--canopy-bg-secondary); border: 1px solid var(--canopy-border);">
-                    <i class="bi bi-${getFileIcon(attachment.type || '')}"></i>
-                    <span class="small">${attachment.name || 'file'}</span>
-                    <button type="button" class="btn-close btn-sm" onclick="removeEditMessageExistingAttachment(${index})" style="font-size: 0.7rem;"></button>
-                </div>
-            `).join('')}
-        `;
-    }
-
-    function removeEditMessageExistingAttachment(index) {
-        editMessageExistingAttachments.splice(index, 1);
-        updateEditMessageExistingAttachments();
-    }
-
-    function updateMessage() {
-        const messageId = document.getElementById('editMessageId').value;
-        const content = document.getElementById('editMessageContent').value.trim();
-
-        if (!content && editMessageExistingAttachments.length === 0 && editMessageSelectedFiles.length === 0) {
-            showAlert('Message content or attachments are required', 'warning');
+    function saveInlineMessageEdit(messageId) {
+        const msgEl = getDmMessageElement(messageId);
+        if (!msgEl) return;
+        const panel = msgEl.querySelector(`.dm-inline-editor[data-inline-dm-for="${messageId}"]`);
+        const textarea = panel ? panel.querySelector('textarea[data-inline-dm-content]') : null;
+        const content = textarea ? textarea.value.trim() : '';
+        if (!content) {
+            showAlert('Message content required', 'warning');
             return;
         }
 
         apiCall('/ajax/update_message', {
             method: 'POST',
-            body: JSON.stringify({
-                message_id: messageId,
-                content: content,
-                attachments: editMessageExistingAttachments,
-                new_attachments: editMessageSelectedFiles
-            })
-        })
-        .then(() => {
-            showAlert('Message updated successfully!', 'success');
-            const modalEl = document.getElementById('editMessageModal');
-            if (modalEl) bootstrap.Modal.getInstance(modalEl).hide();
-            setTimeout(refreshMessages, 600);
-        })
-        .catch(error => {
-            showAlert(error.error || 'Failed to update message', 'danger');
-        });
-    }
-    
-    // Function to fetch user display info including avatars
-    function fetchUserDisplayInfo(userIds) {
-        return fetch(`/ajax/get_user_display_info?user_ids=${userIds.join(',')}`)
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    return data.users;
-                } else {
-                    console.error('Failed to fetch user info:', data.error);
-                    return {};
-                }
-            })
-            .catch(error => {
-                console.error('Error fetching user info:', error);
-                return {};
-            });
-    }
-
-    // Function to update user avatars and display names on the page
-    function updateUserAvatars() {
-        const userElements = document.querySelectorAll('.user-avatar[data-user-id]');
-        const recipientElements = document.querySelectorAll('[data-recipient-display]');
-        const groupNameElements = document.querySelectorAll('.group-members[data-group-members], .group-member-preview[data-group-members]');
-        const groupHeader = document.querySelector('.group-header-card[data-group-members]');
-        const userIds = new Set(Array.from(userElements).map(el => el.dataset.userId));
-        recipientElements.forEach(el => {
-            if (el.dataset.recipientDisplay) userIds.add(el.dataset.recipientDisplay);
-        });
-        groupNameElements.forEach(el => {
-            const raw = el.dataset.groupMembers || '';
-            raw.split(',').map(s => s.trim()).filter(Boolean).forEach(id => userIds.add(id));
-        });
-        if (groupHeader) {
-            const raw = groupHeader.dataset.groupMembers || '';
-            raw.split(',').map(s => s.trim()).filter(Boolean).forEach(id => userIds.add(id));
-        }
-        const uniqueIds = [...userIds];
-        
-        if (uniqueIds.length === 0) return;
-        
-        fetchUserDisplayInfo(uniqueIds).then(userInfo => {
-            window.lastUserInfo = userInfo || {};
-            userElements.forEach(element => {
-                const userId = element.dataset.userId;
-                const user = userInfo[userId];
-                
-                if (user) {
-                    const peerId = user.origin_peer || element.dataset.originPeer || null;
-                    const label = user.display_name || user.username || userId;
-                    if (window.renderAvatarStack) {
-                        window.renderAvatarStack(element, {
-                            userId: userId,
-                            userLabel: label,
-                            userAvatarUrl: user.avatar_url,
-                            peerId: peerId
-                        });
-                    } else if (user.avatar_url) {
-                        element.innerHTML = `<img src="${user.avatar_url}" alt="${label}" class="rounded-circle" style="width: 100%; height: 100%; object-fit: cover;">`;
-                    }
-                    
-                    // Update display name(s)
-                    document.querySelectorAll(`[data-user-display="${userId}"]`).forEach(displayElement => {
-                        if (displayElement && user.display_name) {
-                            displayElement.textContent = user.display_name;
-                        }
-                    });
-                }
-            });
-
-            recipientElements.forEach(element => {
-                const recipientId = element.dataset.recipientDisplay;
-                const user = userInfo[recipientId];
-                if (user && (user.display_name || user.username)) {
-                    element.textContent = user.display_name || user.username || recipientId;
-                }
-            });
-
-            groupNameElements.forEach(element => {
-                const raw = element.dataset.groupMembers || '';
-                const ids = raw.split(',').map(s => s.trim()).filter(Boolean);
-                if (!ids.length) return;
-                const names = ids.map(id => {
-                    if (id === CURRENT_USER_ID) return 'you';
-                    const user = userInfo[id];
-                    return user?.display_name || user?.username || id;
-                });
-                element.textContent = names.join(', ');
-            });
-
-            renderGroupHeader(userInfo);
-        });
-    }
-
-    function openGroupComposer() {
-        const header = document.querySelector('.group-header-card[data-group-members]');
-        if (!header) {
-            toggleNewMessage();
-            return;
-        }
-        const raw = header.dataset.groupMembers || '';
-        const ids = raw.split(',').map(s => s.trim()).filter(Boolean).filter(id => id !== CURRENT_USER_ID);
-        const userInfo = window.lastUserInfo || {};
-        selectedRecipients = ids.map(id => ({
-            user_id: id,
-            display_name: userInfo[id]?.display_name || userInfo[id]?.username || id,
-            username: userInfo[id]?.username || id,
-            avatar_url: userInfo[id]?.avatar_url || null,
-            unknown: false
-        }));
-        updateRecipientChips();
-        const composer = document.getElementById('new-message-composer');
-        if (composer && composer.style.display === 'none') {
-            composer.style.display = 'block';
-            composer.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-        const messageInput = document.getElementById('messageContent');
-        if (messageInput) messageInput.focus();
-    }
-
-    function renderGroupHeader(userInfo) {
-        const header = document.querySelector('.group-header-card[data-group-members]');
-        if (!header) return;
-        const raw = header.dataset.groupMembers || '';
-        const ids = raw.split(',').map(s => s.trim()).filter(Boolean);
-        if (!ids.length) return;
-
-        const avatarWrap = document.getElementById('group-header-avatars');
-        if (avatarWrap) {
-            avatarWrap.innerHTML = ids.map((id, index) => {
-                const user = userInfo[id];
-                const label = escapeHtml(user?.display_name || user?.username || id);
-                const initials = escapeHtml(getRecipientInitials(user?.display_name || user?.username || id));
-                const avatar = _isSafeAvatarUrl(user?.avatar_url)
-                    ? `<img src="${escapeHtml(user.avatar_url)}" alt="${label}">`
-                    : `<span>${initials}</span>`;
-                return `<div class="group-avatar" style="z-index:${10 - index};">${avatar}</div>`;
-            }).join('');
-        }
-
-        const countEl = document.getElementById('group-member-count');
-        if (countEl) {
-            countEl.textContent = `${ids.length} members`;
-        }
-        const namesEl = document.getElementById('group-member-names');
-        if (namesEl) {
-            const names = ids.map(id => {
-                if (id === CURRENT_USER_ID) return 'you';
-                const user = userInfo[id];
-                return user?.display_name || user?.username || id;
-            });
-            namesEl.textContent = names.join(', ');
-        }
-    }
-
-    // viewImage and openLightbox are defined globally in base.html
-
-    // Like and Comment functions
-    function toggleLike(messageId) {
-        apiCall('/ajax/toggle_like', {
-            method: 'POST',
-            body: JSON.stringify({
-                message_id: messageId,
-                reaction_type: 'like'
-            })
+            body: JSON.stringify({ message_id: messageId, content })
         })
         .then(data => {
-            if (data.success) {
-                updateLikeButton(messageId, data.liked, data.interactions);
+            if (!data || data.error) {
+                showAlert((data && data.error) || 'Failed to update message', 'danger');
+                return;
             }
+            window.location.reload();
         })
-        .catch(error => {
-            console.error('Error toggling like:', error);
-            showAlert('Failed to update like', 'danger');
-        });
-    }
-
-    function updateLikeButton(messageId, liked, interactions) {
-        const button = document.querySelector(`.like-btn[data-item-id="${messageId}"]`);
-        if (!button) return;
-        
-        const likeText = button.querySelector('.like-text');
-        const likeCount = button.querySelector('.like-count');
-        const icon = button.querySelector('i');
-        
-        button.dataset.liked = liked ? 'true' : 'false';
-        
-        if (liked) {
-            button.classList.remove('btn-outline-primary');
-            button.classList.add('btn-primary');
-            likeText.textContent = 'Liked';
-            icon.classList.remove('bi-heart');
-            icon.classList.add('bi-heart-fill');
-        } else {
-            button.classList.remove('btn-primary');
-            button.classList.add('btn-outline-primary');
-            likeText.textContent = 'Like';
-            icon.classList.remove('bi-heart-fill');
-            icon.classList.add('bi-heart');
-        }
-        
-        likeCount.textContent = interactions.total_likes;
-    }
-
-    function copyToClipboard(btn, messageId) {
-        // Get the message content from the DOM
-        const msgCard = btn.closest('.message-item, .card');
-        const contentEl = msgCard ? msgCard.querySelector('.message-content p, .card-text, p') : null;
-        const text = contentEl ? contentEl.textContent.trim() : '';
-        
-        if (!text) return;
-        
-        navigator.clipboard.writeText(text).then(() => {
-            const icon = btn.querySelector('i');
-            icon.classList.remove('bi-clipboard');
-            icon.classList.add('bi-clipboard-check');
-            btn.classList.remove('btn-outline-secondary');
-            btn.classList.add('btn-success');
-            setTimeout(() => {
-                icon.classList.remove('bi-clipboard-check');
-                icon.classList.add('bi-clipboard');
-                btn.classList.remove('btn-success');
-                btn.classList.add('btn-outline-secondary');
-            }, 1500);
-        }).catch(() => {
-            const ta = document.createElement('textarea');
-            ta.value = text;
-            ta.style.position = 'fixed';
-            ta.style.opacity = '0';
-            document.body.appendChild(ta);
-            ta.select();
-            document.execCommand('copy');
-            document.body.removeChild(ta);
-        });
-    }
-
-    function toggleComments(messageId) {
-        const commentsSection = document.getElementById(`comments-${messageId}`);
-        
-        if (commentsSection.style.display === 'none') {
-            commentsSection.style.display = 'block';
-            loadComments(messageId);
-        } else {
-            commentsSection.style.display = 'none';
-        }
-    }
-
-    function loadComments(messageId) {
-        const commentsList = document.getElementById(`comments-list-${messageId}`);
-        commentsList.innerHTML = '<div class="text-center"><div class="spinner-border spinner-border-sm" role="status"></div></div>';
-        
-        apiCall(`/ajax/get_comments/${messageId}`)
-            .then(data => {
-                displayComments(messageId, data.comments);
-                updateCommentCount(messageId, data.interactions.comment_count);
-            })
-            .catch(error => {
-                console.error('Error loading comments:', error);
-                commentsList.innerHTML = '<div class="text-danger">Failed to load comments</div>';
-            });
-    }
-
-    function displayComments(messageId, comments) {
-        const commentsList = document.getElementById(`comments-list-${messageId}`);
-        
-        if (comments.length === 0) {
-            commentsList.innerHTML = '<div class="text-muted small">No replies yet</div>';
-            return;
-        }
-        
-        commentsList.innerHTML = comments.map(comment => `
-            <div class="comment-item mb-2 p-2 rounded" style="background: var(--canopy-bg-tertiary);">
-                <div class="d-flex justify-content-between align-items-start">
-                    <div class="flex-grow-1">
-                        <strong class="small">${comment.user_id}</strong>
-                        <span class="text-muted ms-2 small">${formatTimestamp(comment.created_at)}</span>
-                        <div class="mt-1 small">${escapeHtml(comment.content)}</div>
-                    </div>
-                    <button class="btn btn-sm btn-outline-danger" onclick="deleteComment('${comment.id}', '${messageId}')"
-                            title="Delete reply">
-                        <i class="bi bi-trash"></i>
-                    </button>
-                </div>
-            </div>
-        `).join('');
-    }
-
-    function addComment(messageId) {
-        const input = document.getElementById(`comment-input-${messageId}`);
-        const content = input.value.trim();
-        
-        if (!content) return;
-        
-        apiCall('/ajax/add_comment', {
-            method: 'POST',
-            body: JSON.stringify({
-                message_id: messageId,
-                content: content
-            })
-        })
-        .then(data => {
-            if (data.success) {
-                input.value = '';
-                loadComments(messageId); // Reload comments
-            }
-        })
-        .catch(error => {
-            console.error('Error adding comment:', error);
-            showAlert('Failed to add reply', 'danger');
-        });
-    }
-
-    function handleCommentKeydown(event, messageId) {
-        if (event.key === 'Enter') {
-            event.preventDefault();
-            addComment(messageId);
-        }
-    }
-
-    function deleteComment(commentId, messageId) {
-        if (!confirm('Are you sure you want to delete this reply?')) {
-            return;
-        }
-        
-        apiCall('/ajax/delete_comment', {
-            method: 'POST',
-            body: JSON.stringify({
-                comment_id: commentId
-            })
-        })
-        .then(data => {
-            if (data.success) {
-                loadComments(messageId); // Reload comments
-            }
-        })
-        .catch(error => {
-            console.error('Error deleting comment:', error);
-            showAlert('Failed to delete reply', 'danger');
-        });
-    }
-
-    function updateCommentCount(messageId, count) {
-        const commentBtn = document.querySelector(`button[onclick="toggleComments('${messageId}')"] .comment-count`);
-        if (commentBtn) {
-            commentBtn.textContent = count;
-        }
-    }
-
-    function formatTimestamp(timestamp) {
-        if (typeof window.formatCanopyTimestamp === 'function') {
-            return window.formatCanopyTimestamp(timestamp);
-        }
-        const date = new Date(timestamp);
-        if (Number.isNaN(date.getTime())) return String(timestamp || '');
-        const now = new Date();
-        const diff = now - date;
-        if (diff < 60000) return 'Just now';
-        if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
-        if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
-        return date.toLocaleString();
+        .catch(err => showAlert('Failed to update message: ' + (err.message || err), 'danger'));
     }
 
     function escapeHtml(text) {
@@ -1864,93 +2313,47 @@
         return div.innerHTML;
     }
 
-    // Handle paste events for images/screenshots in messages
-    function setupMessagePasteHandler() {
-        // Add paste handler to message content textarea
-        const messageContent = document.getElementById('messageContent');
-        if (messageContent) {
-            messageContent.addEventListener('paste', handleMessagePaste);
-        }
-        
-        // Add paste handler to the entire modal for when user pastes outside textarea
-        const sendMessageModal = document.getElementById('sendMessageModal');
-        if (sendMessageModal) {
-            sendMessageModal.addEventListener('paste', handleMessagePaste);
-        }
-    }
-    
-    function handleMessagePaste(e) {
-        const items = e.clipboardData?.items;
-        if (!items) return;
-        
-        let hasImage = false;
-        for (let i = 0; i < items.length; i++) {
-            const item = items[i];
-            
-            // Check if the item is an image
-            if (item.type.indexOf('image') !== -1) {
-                hasImage = true;
-                const file = item.getAsFile();
-                if (file) {
-                    // Generate a filename for the pasted image
-                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-                    const newFile = new File([file], `pasted-image-${timestamp}.png`, { type: file.type });
-                    
-                    addMessageFiles([newFile]);
-                    showAlert('Image pasted successfully!', 'success');
-                }
-                break;
-            }
-        }
-        
-        if (hasImage) {
-            e.preventDefault(); // Prevent default paste behavior for images
-        }
-    }
-
-    // Initialize user avatars and file upload on page load
     document.addEventListener('DOMContentLoaded', function() {
-        updateUserAvatars();
+        updateRecipientChips();
+        updateComposerTarget();
         setupMessageFileUpload();
-        setupMessagePasteHandler();
         setupRecipientPicker();
+        applyDmRichContent();
+
         const messageContent = document.getElementById('messageContent');
         if (messageContent) {
             messageContent.addEventListener('input', handleDmChannelInput);
             messageContent.addEventListener('keydown', (e) => {
-                if (e.key === 'Escape') {
-                    hideDmChannelSuggestions();
-                } else {
-                    handleDmChannelKeydown(e);
+                if (e.key === 'Escape') hideDmChannelSuggestions();
+                else handleDmChannelKeydown(e);
+            });
+            messageContent.addEventListener('blur', () => setTimeout(hideDmChannelSuggestions, 150));
+        }
+
+        document.addEventListener('shown.bs.dropdown', (event) => {
+            const trigger = event.target instanceof Element ? event.target : null;
+            const msgRow = trigger ? trigger.closest('.message-item') : null;
+            if (msgRow) msgRow.classList.add('dropdown-open');
+        });
+        document.addEventListener('hidden.bs.dropdown', (event) => {
+            const trigger = event.target instanceof Element ? event.target : null;
+            const msgRow = trigger ? trigger.closest('.message-item') : null;
+            if (msgRow) msgRow.classList.remove('dropdown-open');
+        });
+
+        if (window.location.hash && window.location.hash.startsWith('#message-')) {
+            const messageId = window.location.hash.replace('#message-', '');
+            setTimeout(() => jumpToMessage(messageId), 120);
+        }
+
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput) {
+            searchInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    searchMessages();
                 }
             });
-            messageContent.addEventListener('blur', () => {
-                setTimeout(hideDmChannelSuggestions, 150);
-            });
-        }
-    });
-
-    // Enable search on Enter key
-    document.getElementById('searchInput').addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            searchMessages();
-        }
-    });
-
-    // --- Rich link embed rendering for DM messages ---
-    // Process server-rendered message content to embed YouTube/X previews
-    document.addEventListener('DOMContentLoaded', function() {
-        if (typeof processRichEmbeds === 'function') {
-            processRichEmbeds('.message-content p');
-        }
-        if (typeof ensureChannelIndex === 'function') {
-            ensureChannelIndex().then(() => {
-                applyDmChannelLinkify();
-            }).catch(() => {
-                applyDmChannelLinkify();
-            });
-        } else {
-            applyDmChannelLinkify();
         }
     });
 </script>

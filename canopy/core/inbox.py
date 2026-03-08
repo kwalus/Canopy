@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_INBOX_CONFIG: Dict[str, Any] = {
     "channels": [],
     "allowed_senders": [],
-    "allowed_trigger_types": ["mention", "dm", "reply"],
+    "allowed_trigger_types": ["mention", "dm", "reply", "channel_added"],
     "thread_reply_notifications": True,
     "auto_subscribe_own_threads": True,
     "min_trust_score": 50,
@@ -53,7 +53,7 @@ DEFAULT_INBOX_CONFIG: Dict[str, Any] = {
 DEFAULT_AGENT_INBOX_CONFIG: Dict[str, Any] = {
     "channels": [],
     "allowed_senders": [],
-    "allowed_trigger_types": ["mention", "dm", "reply"],
+    "allowed_trigger_types": ["mention", "dm", "reply", "channel_added"],
     "thread_reply_notifications": True,
     "auto_subscribe_own_threads": True,
     # Mesh peers are implicitly trusted; TrustManager default_trust_score=100
@@ -786,6 +786,152 @@ class InboxManager:
                 inserted += 1
         return inserted
 
+    def sync_source_triggers(
+        self,
+        *,
+        source_type: str,
+        source_id: str,
+        trigger_type: str,
+        target_ids: Optional[Sequence[str]] = None,
+        sender_user_id: Optional[str] = None,
+        origin_peer: Optional[str] = None,
+        channel_id: Optional[str] = None,
+        preview: Optional[str] = None,
+        payload: Optional[Dict[str, Any]] = None,
+        message_id: Optional[str] = None,
+        priority: Optional[str] = None,
+        source_content: Optional[str] = None,
+        mark_missing_as_stale: bool = False,
+    ) -> Dict[str, int]:
+        """Refresh stored trigger payloads for a source and create missing rows.
+
+        This is used when a source object is edited after the original inbox
+        item was created. Existing rows keep the same IDs/status but receive the
+        latest payload so agents read current text rather than a stale snapshot.
+        """
+        if not source_type or not source_id or not trigger_type:
+            return {'updated': 0, 'created': 0, 'stale_marked': 0}
+
+        desired_ids = list(dict.fromkeys([str(uid).strip() for uid in (target_ids or []) if str(uid).strip()]))
+        desired_set = set(desired_ids)
+        now_iso = _now_utc().isoformat()
+
+        payload_base: Dict[str, Any] = dict(payload or {})
+        if preview is not None:
+            payload_base['preview'] = preview
+        if source_content is not None:
+            payload_base['content'] = source_content
+        if channel_id:
+            payload_base['channel_id'] = channel_id
+        if sender_user_id:
+            payload_base['sender_user_id'] = sender_user_id
+        if origin_peer:
+            payload_base['origin_peer'] = origin_peer
+        payload_base['source_type'] = source_type
+        payload_base['source_id'] = source_id
+        payload_base['trigger_type'] = trigger_type
+
+        sync_message_id = message_id
+        if not sync_message_id and source_type in {'channel_message', 'dm'}:
+            sync_message_id = source_id
+        if sync_message_id:
+            payload_base['message_id'] = sync_message_id
+
+        updated = 0
+        created = 0
+        stale_marked = 0
+        existing_user_ids: set[str] = set()
+
+        try:
+            with self.db.get_connection() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT id, agent_user_id, payload_json
+                    FROM agent_inbox
+                    WHERE source_type = ? AND source_id = ? AND trigger_type = ?
+                    """,
+                    (source_type, source_id, trigger_type),
+                ).fetchall()
+
+                for row in rows or []:
+                    agent_user_id = str(row['agent_user_id'] or '').strip()
+                    if not agent_user_id:
+                        continue
+                    existing_user_ids.add(agent_user_id)
+
+                    merged_payload: Dict[str, Any] = {}
+                    payload_raw = row['payload_json']
+                    if payload_raw:
+                        try:
+                            loaded = json.loads(payload_raw)
+                            if isinstance(loaded, dict):
+                                merged_payload = loaded
+                        except Exception:
+                            merged_payload = {}
+                    merged_payload.update(payload_base)
+
+                    if mark_missing_as_stale:
+                        still_mentioned = agent_user_id in desired_set
+                        merged_payload['still_mentioned'] = still_mentioned
+                        if still_mentioned:
+                            merged_payload.pop('mention_removed_at', None)
+                        else:
+                            merged_payload['mention_removed_at'] = now_iso
+                            stale_marked += 1
+                    elif agent_user_id in desired_set:
+                        merged_payload.pop('mention_removed_at', None)
+
+                    conn.execute(
+                        """
+                        UPDATE agent_inbox
+                        SET payload_json = ?, message_id = COALESCE(?, message_id),
+                            channel_id = COALESCE(?, channel_id),
+                            sender_user_id = COALESCE(?, sender_user_id),
+                            origin_peer = COALESCE(?, origin_peer),
+                            priority = COALESCE(?, priority)
+                        WHERE id = ?
+                        """,
+                        (
+                            json.dumps(merged_payload) if merged_payload else None,
+                            sync_message_id,
+                            channel_id,
+                            sender_user_id,
+                            origin_peer,
+                            priority,
+                            row['id'],
+                        ),
+                    )
+                    updated += 1
+
+                conn.commit()
+        except Exception as e:
+            logger.warning(f"Failed to refresh inbox source payloads: {e}")
+            return {'updated': updated, 'created': created, 'stale_marked': stale_marked}
+
+        for agent_user_id in desired_ids:
+            if agent_user_id in existing_user_ids:
+                continue
+            create_payload = dict(payload_base)
+            if mark_missing_as_stale:
+                create_payload['still_mentioned'] = True
+            inbox_id = self.create_trigger(
+                agent_user_id=agent_user_id,
+                source_type=source_type,
+                source_id=source_id,
+                sender_user_id=sender_user_id,
+                origin_peer=origin_peer,
+                channel_id=channel_id,
+                trigger_type=trigger_type,
+                preview=preview,
+                payload=create_payload,
+                message_id=sync_message_id,
+                priority=priority,
+            )
+            if inbox_id:
+                created += 1
+
+        return {'updated': updated, 'created': created, 'stale_marked': stale_marked}
+
     def rebuild_from_channel_messages(
         self,
         user_id: str,
@@ -1046,6 +1192,46 @@ class InboxManager:
                 return cur.rowcount or 0
         except Exception as e:
             logger.error(f"Failed to update inbox items: {e}")
+            return 0
+
+    def remove_source_triggers(
+        self,
+        *,
+        source_type: str,
+        source_id: str,
+        trigger_type: Optional[str] = None,
+        agent_user_id: Optional[str] = None,
+    ) -> int:
+        """Delete inbox rows for a specific source object.
+
+        Used when the source object itself is deleted and any pending action
+        rows should disappear with it.
+        """
+        if not source_type or not source_id:
+            return 0
+        params: List[Any] = [source_type, source_id]
+        where = "WHERE source_type = ? AND source_id = ?"
+        if trigger_type:
+            where += " AND trigger_type = ?"
+            params.append(trigger_type)
+        if agent_user_id:
+            where += " AND agent_user_id = ?"
+            params.append(agent_user_id)
+        try:
+            with self.db.get_connection() as conn:
+                cur = conn.execute(
+                    f"DELETE FROM agent_inbox {where}",
+                    params,
+                )
+                conn.commit()
+                return cur.rowcount or 0
+        except Exception as e:
+            logger.warning(
+                "Failed to remove inbox source triggers for %s:%s: %s",
+                source_type,
+                source_id,
+                e,
+            )
             return 0
 
     def get_stats(self, user_id: str, window_hours: int = 24) -> Dict[str, Any]:

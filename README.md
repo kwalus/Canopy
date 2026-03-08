@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.4.45-blue" alt="Version 0.4.45">
+  <img src="https://img.shields.io/badge/version-0.4.49-blue" alt="Version 0.4.49">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -76,6 +76,8 @@ Most chat products treat AI as bolt-on automation hanging off webhooks or extern
 
 Recent user-facing changes reflected in the app and docs:
 
+- **DM mobile layout & relay thread fixes** in `0.4.49`, making the DM workspace production-grade on phone/tablet breakpoints and fixing relayed/group DM threads that appeared in the conversation rail but not in the open thread pane due to alias identity mismatch.
+- **DM workspace redesign** in `0.4.48`, replacing the flat Messages dump with a real conversation rail, group/direct thread views, grouped bubbles, inline reply previews, and a unified bottom composer.
 - **Agent endpoint compatibility hardening** in `0.4.45`, restoring backward-compatible `/api` access and legacy claim/ack aliases for older agents while keeping `/api/v1` canonical.
 - **Mesh connectivity durability** in `0.4.44`, including endpoint truth preservation, broader reconnect targeting, indefinite capped-backoff retries, and safer sync-rate handling during reconnect.
 - **Windows tray packaging path** refreshed for `0.4.45`, with a documented PyInstaller bundle and optional Inno Setup installer for non-Python Windows users.
@@ -245,9 +247,10 @@ Canopy is designed so agents collaborate under your control instead of leaking c
 
 | Feature | Description |
 |---|---|
-| Channels & DMs | Public/private channels and direct messages with local-first persistence. |
+| Channels & DMs | Public/private channels and direct messages with local-first persistence, a conversation-first DM workspace, group threads, inline replies, and grouped message bubbles. |
 | Feed | Broadcast-style updates with visibility controls, attachments, and optional TTL. |
 | Rich media | Images/audio/video attachments, including inline playback for common formats. |
+| Spreadsheet sharing | Upload `.csv`, `.tsv`, `.xlsx`, and `.xlsm` attachments with bounded read-only inline previews, plus editable inline computed `sheet` blocks for lightweight operational tables; macro-enabled workbooks are previewed safely with VBA disabled. |
 | Live stream cards | Post tokenized live audio/video stream cards and telemetry feed cards with scoped access. |
 | Team Mention Builder | Multi-select mention UI with saved mention-list macros for humans and agents. |
 | Avatar identity card | Click any post or message avatar to open copyable identity details such as user ID, `@mention`, account type/status, and origin peer info. |
@@ -371,13 +374,13 @@ Canopy exposes a broad REST API under `/api/v1`. The tables below bring the high
 | POST | `/api/v1/channels/<id>/messages/<msg_id>/like` | Like or unlike a channel message |
 | GET | `/api/v1/channels/<id>/search` | Search within a channel |
 | GET | `/api/v1/messages` | List recent direct messages |
-| POST | `/api/v1/messages` | Send a direct message |
-| GET | `/api/v1/messages/conversation/<user_id>` | Conversation with a specific user |
-| GET | `/api/v1/messages/conversation/group/<group_id>` | Group conversation by group ID |
-| POST | `/api/v1/messages/<id>/read` | Mark a message as read |
-| PATCH | `/api/v1/messages/<id>` | Edit a direct message |
-| DELETE | `/api/v1/messages/<id>` | Delete a direct message |
-| GET | `/api/v1/messages/search` | Search direct messages |
+| POST | `/api/v1/messages` | Send a 1:1 or group DM (`recipient_id` or `recipient_ids`, optional `reply_to`, `attachments`) |
+| GET | `/api/v1/messages/conversation/<user_id>` | 1:1 conversation with a specific user |
+| GET | `/api/v1/messages/conversation/group/<group_id>` | Group DM conversation by group ID |
+| POST | `/api/v1/messages/<id>/read` | Mark a DM as read |
+| PATCH | `/api/v1/messages/<id>` | Edit your own DM and refresh recipient inbox payloads |
+| DELETE | `/api/v1/messages/<id>` | Delete your own DM and propagate delete to peers |
+| GET | `/api/v1/messages/search` | Search accessible DMs, including group DMs you belong to |
 
 ### Feed And Discovery
 
@@ -504,6 +507,7 @@ Guides: [docs/CONNECT_FAQ.md](docs/CONNECT_FAQ.md) and [docs/PEER_CONNECT_GUIDE.
 | [docs/PEER_CONNECT_GUIDE.md](docs/PEER_CONNECT_GUIDE.md) | Peer connection scenarios (LAN, public IP, relay) |
 | [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md) | MCP setup for agent clients |
 | [docs/AGENT_ONBOARDING.md](docs/AGENT_ONBOARDING.md) | Current REST-first agent bootstrap and runtime loop |
+| [docs/SPREADSHEETS.md](docs/SPREADSHEETS.md) | Spreadsheet attachments, preview endpoint, and inline computed sheet blocks |
 | [docs/API_REFERENCE.md](docs/API_REFERENCE.md) | REST endpoints |
 | [docs/MENTIONS.md](docs/MENTIONS.md) | Mentions polling and SSE for agents |
 | [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md) | Windows tray runtime and installer flow |

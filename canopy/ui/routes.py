@@ -10,7 +10,6 @@ License: Apache 2.0
 Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
-import hashlib
 import logging
 import os
 import json
@@ -43,6 +42,7 @@ from ..core.mentions import (
     record_mention_activity,
     record_thread_reply_activity,
     broadcast_mention_interaction,
+    sync_edited_mention_activity,
 )
 from ..security.api_keys import Permission, ApiKeyManager
 from ..security.file_access import evaluate_file_access
@@ -57,6 +57,12 @@ from ..core.agent_heartbeat import build_agent_heartbeat_snapshot
 from ..core.agent_presence import (
     get_agent_presence_records,
     build_agent_presence_payload,
+)
+from ..core.file_preview import build_file_preview
+from ..core.messaging import (
+    build_dm_preview,
+    compute_group_id,
+    filter_local_dm_targets,
 )
 from ..network.routing import (
     encrypt_key_for_peer,
@@ -319,9 +325,7 @@ def create_ui_blueprint() -> Blueprint:
 
     def _compute_group_id(member_ids: list) -> str:
         """Create a stable group ID from a set of member IDs."""
-        cleaned = sorted({m for m in member_ids if m})
-        digest = hashlib.sha256('|'.join(cleaned).encode('utf-8')).hexdigest()[:12]
-        return f"group:{digest}"
+        return compute_group_id(member_ids)
 
     @ui.app_context_processor
     def inject_canopy_version():
@@ -1811,65 +1815,514 @@ def create_ui_blueprint() -> Blueprint:
     def messages():
         """Messages interface for viewing and sending messages."""
         try:
-            _, _, _, message_manager, _, _, _, interaction_manager, _, _, _ = _get_app_components_any(current_app)
+            db_manager, _, _, message_manager, _, _, _, _, profile_manager, _, _ = _get_app_components_any(current_app)
             user_id = get_current_user()
-            
-            # Get query parameters
-            conversation_with = request.args.get('with')
-            conversation_group = request.args.get('group')
+            conversation_with = (request.args.get('with') or '').strip() or None
+            conversation_group = (request.args.get('group') or '').strip() or None
             search_query = request.args.get('search', '').strip()
-            
-            # Validate group ID format (group:<hex>)
+
             if conversation_group and not conversation_group.startswith('group:'):
                 conversation_group = None
-            
-            if conversation_group:
-                msgs = message_manager.get_group_conversation(user_id, conversation_group, limit=200)
-                for msg in msgs:
-                    if msg.sender_id != user_id and not msg.read_at:
-                        message_manager.mark_message_read(msg.id, user_id)
-            elif conversation_with:
-                # Show conversation with specific user
-                msgs = message_manager.get_conversation(user_id, conversation_with, limit=100)
-                # Mark incoming messages as read
-                for msg in msgs:
-                    if msg.sender_id != user_id and not msg.read_at:
-                        message_manager.mark_message_read(msg.id, user_id)
-            elif search_query:
-                msgs = message_manager.search_messages(user_id, search_query, limit=50)
-            else:
-                msgs = message_manager.get_messages(user_id, limit=50)
 
-            # Batch-check which messages the current user has liked
-            msg_ids = [m.id for m in msgs]
-            user_liked_ids = set()
-            like_counts = {}
-            if interaction_manager:
-                user_liked_ids = interaction_manager.get_user_liked_ids(msg_ids, user_id)
-                for mid in msg_ids:
-                    interactions = interaction_manager.get_post_interactions(mid)
-                    like_counts[mid] = interactions['total_likes']
+            user_display_cache: dict[str, dict[str, Any]] = {}
+
+            def _safe_text(value: Any) -> Optional[str]:
+                if value is None:
+                    return None
+                if isinstance(value, str):
+                    return value
+                if isinstance(value, (int, float, bool)):
+                    return str(value)
+                return None
+
+            def _user_display(uid: Optional[str]) -> Optional[dict[str, Any]]:
+                clean_uid = str(uid or '').strip()
+                if not clean_uid:
+                    return None
+                cached = user_display_cache.get(clean_uid)
+                if cached is not None:
+                    return cached
+
+                display = {
+                    'user_id': clean_uid,
+                    'display_name': None,
+                    'username': None,
+                    'avatar_url': None,
+                    'origin_peer': None,
+                    'account_type': None,
+                }
+                try:
+                    if profile_manager:
+                        profile = profile_manager.get_profile(clean_uid)
+                        if profile:
+                            display['display_name'] = _safe_text(getattr(profile, 'display_name', None)) or _safe_text(getattr(profile, 'username', None)) or clean_uid
+                            display['username'] = _safe_text(getattr(profile, 'username', None)) or clean_uid
+                            display['avatar_url'] = _safe_text(getattr(profile, 'avatar_url', None))
+                            display['origin_peer'] = _safe_text(getattr(profile, 'origin_peer', None))
+                            display['account_type'] = _safe_text(getattr(profile, 'account_type', None))
+                    if db_manager:
+                        row = db_manager.get_user(clean_uid)
+                        if row:
+                            display['display_name'] = display.get('display_name') or _safe_text(row.get('display_name')) or _safe_text(row.get('username'))
+                            display['username'] = display.get('username') or _safe_text(row.get('username'))
+                            display['origin_peer'] = display.get('origin_peer') or _safe_text(row.get('origin_peer'))
+                            display['account_type'] = display.get('account_type') or _safe_text(row.get('account_type'))
+                            if not display.get('avatar_url') and row.get('avatar_file_id'):
+                                display['avatar_url'] = f"/files/{row.get('avatar_file_id')}"
+                except Exception:
+                    pass
+
+                if not display.get('display_name'):
+                    display['display_name'] = clean_uid
+                if not display.get('username'):
+                    display['username'] = clean_uid
+
+                user_display_cache[clean_uid] = display
+                return display
+
+            def _message_meta(message: Any) -> dict[str, Any]:
+                meta = getattr(message, 'metadata', None)
+                return meta if isinstance(meta, dict) else {}
+
+            def _normalize_members(raw_members: Any, fallback_members: Optional[list[str]] = None) -> list[str]:
+                members: list[str] = []
+                if isinstance(raw_members, list):
+                    for raw in raw_members:
+                        uid = str(raw or '').strip()
+                        if uid and uid not in members:
+                            members.append(uid)
+                for raw in fallback_members or []:
+                    uid = str(raw or '').strip()
+                    if uid and uid not in members:
+                        members.append(uid)
+                return members
+
+            def _group_thread_identity(meta: dict[str, Any], recipient_id: str) -> tuple[Optional[str], Optional[str], list[str], list[str]]:
+                raw_group_id = str(meta.get('group_id') or '').strip()
+                group_members = _normalize_members(meta.get('group_members'))
+                alias_group_ids: list[str] = []
+                if raw_group_id:
+                    alias_group_ids.append(raw_group_id)
+                if recipient_id.startswith('group:') and recipient_id not in alias_group_ids:
+                    alias_group_ids.append(recipient_id)
+
+                canonical_group_key: Optional[str] = None
+                if group_members:
+                    canonical_group_key = _compute_group_id(group_members)
+                    if canonical_group_key not in alias_group_ids:
+                        alias_group_ids.append(canonical_group_key)
+                elif alias_group_ids:
+                    canonical_group_key = alias_group_ids[0]
+
+                display_group_id = raw_group_id or (recipient_id if recipient_id.startswith('group:') else '') or canonical_group_key
+                return (display_group_id or None, canonical_group_key, group_members, alias_group_ids)
+
+            def _classify_thread(message: Any) -> Optional[dict[str, Any]]:
+                meta = _message_meta(message)
+                recipient_id = str(getattr(message, 'recipient_id', None) or '').strip()
+                group_id, canonical_group_key, group_members, alias_group_ids = _group_thread_identity(meta, recipient_id)
+
+                if group_members or group_id or canonical_group_key:
+                    if not group_members:
+                        fallback = [user_id, getattr(message, 'sender_id', None)]
+                        if recipient_id and not recipient_id.startswith('group:'):
+                            fallback.append(recipient_id)
+                        group_members = _normalize_members(group_members, [str(v or '').strip() for v in fallback])
+                    if user_id not in group_members:
+                        return None
+                    if not canonical_group_key:
+                        canonical_group_key = _compute_group_id(group_members)
+                    if not group_id:
+                        group_id = canonical_group_key
+                    return {
+                        'kind': 'group',
+                        'key': f'group-thread:{canonical_group_key}',
+                        'group_id': group_id,
+                        'canonical_group_key': canonical_group_key,
+                        'alias_group_ids': alias_group_ids,
+                        'member_ids': group_members,
+                    }
+
+                if not recipient_id:
+                    return None
+
+                if getattr(message, 'sender_id', None) == user_id:
+                    other_user_id = recipient_id
+                elif recipient_id == user_id:
+                    other_user_id = str(getattr(message, 'sender_id', None) or '').strip()
+                else:
+                    return None
+
+                if not other_user_id or other_user_id == user_id:
+                    return None
+
+                return {
+                    'kind': 'direct',
+                    'key': f'direct:{other_user_id}',
+                    'user_id': other_user_id,
+                }
+
+            def _group_thread_matches(left: Optional[dict[str, Any]], right: Optional[dict[str, Any]]) -> bool:
+                if not left or not right:
+                    return False
+                left_key = str(left.get('canonical_group_key') or '').strip()
+                right_key = str(right.get('canonical_group_key') or '').strip()
+                if left_key and right_key and left_key == right_key:
+                    return True
+
+                left_aliases = {
+                    str(raw or '').strip()
+                    for raw in (left.get('alias_group_ids') or [])
+                    if str(raw or '').strip()
+                }
+                right_aliases = {
+                    str(raw or '').strip()
+                    for raw in (right.get('alias_group_ids') or [])
+                    if str(raw or '').strip()
+                }
+                left_group_id = str(left.get('group_id') or '').strip()
+                right_group_id = str(right.get('group_id') or '').strip()
+                if left_group_id:
+                    left_aliases.add(left_group_id)
+                if right_group_id:
+                    right_aliases.add(right_group_id)
+                return bool(left_aliases and right_aliases and left_aliases.intersection(right_aliases))
+
+            def _format_thread_title(thread: dict[str, Any]) -> tuple[str, str, list[dict[str, Any]]]:
+                if thread.get('kind') == 'direct':
+                    other = _user_display(thread.get('user_id')) or {'display_name': thread.get('user_id')}
+                    subtitle_parts = []
+                    account_type = str(other.get('account_type') or '').strip()
+                    origin_peer = str(other.get('origin_peer') or '').strip()
+                    if account_type:
+                        subtitle_parts.append(account_type.title())
+                    if origin_peer:
+                        subtitle_parts.append(origin_peer)
+                    return (
+                        str(other.get('display_name') or thread.get('user_id') or 'Direct message'),
+                        ' • '.join(subtitle_parts),
+                        [other],
+                    )
+
+                members = [member_id for member_id in (thread.get('member_ids') or []) if member_id]
+                other_members = [member_id for member_id in members if member_id != user_id]
+                previews = [_user_display(member_id) or {'user_id': member_id, 'display_name': member_id} for member_id in other_members]
+                if not previews:
+                    previews = [_user_display(member_id) or {'user_id': member_id, 'display_name': member_id} for member_id in members[:1]]
+                title_names = [str(item.get('display_name') or item.get('user_id') or 'Unknown') for item in previews[:3]]
+                title = ', '.join(title_names) if title_names else 'Group DM'
+                if len(previews) > 3:
+                    title += f" +{len(previews) - 3}"
+                subtitle = f"{len(other_members) or len(members)} participant{'s' if (len(other_members) or len(members)) != 1 else ''}"
+                return (title, subtitle, previews)
+
+            def _thread_href(thread: dict[str, Any]) -> str:
+                if thread.get('kind') == 'group':
+                    return url_for(
+                        'ui.messages',
+                        group=str(thread.get('canonical_group_key') or thread.get('group_id') or ''),
+                    )
+                return url_for('ui.messages', **{'with': thread.get('user_id')})
+
+            def _day_label(dt: datetime) -> str:
+                local_dt = dt.astimezone()
+                today = datetime.now(local_dt.tzinfo).date()
+                msg_day = local_dt.date()
+                if msg_day == today:
+                    return 'Today'
+                if msg_day == today - timedelta(days=1):
+                    return 'Yesterday'
+                return local_dt.strftime('%b %d, %Y')
+
+            all_dm_messages = [
+                message
+                for message in message_manager.get_messages(user_id, limit=400)
+                if _classify_thread(message)
+            ]
+
+            conversations_by_key: dict[str, dict[str, Any]] = {}
+            for message in all_dm_messages:
+                thread = _classify_thread(message)
+                if not thread:
+                    continue
+                thread_key = str(thread['key'])
+                attachments = (_message_meta(message).get('attachments') or [])
+                entry = conversations_by_key.get(thread_key)
+                if entry is None:
+                    title, subtitle, preview_users = _format_thread_title(thread)
+                    entry = {
+                        'key': thread_key,
+                        'kind': thread.get('kind'),
+                        'href': _thread_href(thread),
+                        'title': title,
+                        'subtitle': subtitle,
+                        'preview_users': preview_users,
+                        'preview': build_dm_preview(getattr(message, 'content', ''), attachments) or 'Attachment',
+                        'updated_at': message.created_at.isoformat(),
+                        'updated_dt': message.created_at,
+                        'unread_count': 0,
+                        'message_count': 0,
+                        'is_active': False,
+                        'group_id': thread.get('group_id'),
+                        'canonical_group_key': thread.get('canonical_group_key'),
+                        'alias_group_ids': list(thread.get('alias_group_ids') or []),
+                        'user_id': thread.get('user_id'),
+                        'member_ids': thread.get('member_ids') or [],
+                    }
+                    conversations_by_key[thread_key] = entry
+                entry['message_count'] += 1
+                if getattr(message, 'sender_id', None) != user_id and not getattr(message, 'read_at', None):
+                    entry['unread_count'] += 1
+
+            conversation_entries = sorted(
+                conversations_by_key.values(),
+                key=lambda item: item.get('updated_dt') or datetime.min.replace(tzinfo=timezone.utc),
+                reverse=True,
+            )
+
+            active_thread: Optional[dict[str, Any]] = None
+            if conversation_group:
+                group_members = []
+                matching_entry = next(
+                    (
+                        item
+                        for item in conversation_entries
+                        if item.get('kind') == 'group'
+                        and _group_thread_matches(
+                            item,
+                            {
+                                'kind': 'group',
+                                'group_id': conversation_group,
+                                'canonical_group_key': conversation_group,
+                                'alias_group_ids': [conversation_group],
+                            },
+                        )
+                    ),
+                    None,
+                )
+                if matching_entry:
+                    group_members = list(matching_entry.get('member_ids') or [])
+                    title = str(matching_entry.get('title') or 'Group DM')
+                    subtitle = str(matching_entry.get('subtitle') or '')
+                    preview_users = list(matching_entry.get('preview_users') or [])
+                else:
+                    title = 'Group DM'
+                    subtitle = ''
+                    preview_users = []
+                active_thread = {
+                    'kind': 'group',
+                    'group_id': str((matching_entry or {}).get('group_id') or conversation_group),
+                    'canonical_group_key': str((matching_entry or {}).get('canonical_group_key') or conversation_group),
+                    'alias_group_ids': list((matching_entry or {}).get('alias_group_ids') or [conversation_group]),
+                    'title': title,
+                    'subtitle': subtitle,
+                    'participant_ids': group_members,
+                    'preview_users': preview_users,
+                    'href': str((matching_entry or {}).get('href') or url_for('ui.messages', group=conversation_group)),
+                }
+            elif conversation_with:
+                direct_thread = {'kind': 'direct', 'user_id': conversation_with}
+                direct_title, direct_subtitle, direct_preview_users = _format_thread_title(direct_thread)
+                active_thread = {
+                    'kind': 'direct',
+                    'user_id': conversation_with,
+                    'title': direct_title,
+                    'subtitle': direct_subtitle,
+                    'participant_ids': [conversation_with],
+                    'preview_users': direct_preview_users,
+                    'href': url_for('ui.messages', **{'with': conversation_with}),
+                }
+            elif conversation_entries and not search_query:
+                selected = conversation_entries[0]
+                selected['is_active'] = True
+                if selected.get('kind') == 'group':
+                    conversation_group = selected.get('group_id')
+                    active_thread = {
+                        'kind': 'group',
+                        'group_id': conversation_group,
+                        'canonical_group_key': selected.get('canonical_group_key'),
+                        'alias_group_ids': list(selected.get('alias_group_ids') or []),
+                        'title': selected.get('title'),
+                        'subtitle': selected.get('subtitle'),
+                        'participant_ids': list(selected.get('member_ids') or []),
+                        'preview_users': list(selected.get('preview_users') or []),
+                        'href': selected.get('href'),
+                    }
+                else:
+                    conversation_with = selected.get('user_id')
+                    active_thread = {
+                        'kind': 'direct',
+                        'user_id': conversation_with,
+                        'title': selected.get('title'),
+                        'subtitle': selected.get('subtitle'),
+                        'participant_ids': [conversation_with] if conversation_with else [],
+                        'preview_users': list(selected.get('preview_users') or []),
+                        'href': selected.get('href'),
+                    }
+
+            for entry in conversation_entries:
+                if active_thread and (
+                    (entry.get('kind') == 'group' and _group_thread_matches(entry, active_thread))
+                    or (entry.get('kind') == 'direct' and entry.get('user_id') == active_thread.get('user_id'))
+                ):
+                    entry['is_active'] = True
+
+            active_messages: list[Any] = []
+            if active_thread and not search_query:
+                if active_thread.get('kind') == 'group':
+                    requested_group_id = str(active_thread.get('canonical_group_key') or active_thread.get('group_id') or '').strip()
+                    active_messages = message_manager.get_group_conversation(user_id, requested_group_id, limit=200)
+                    if not active_messages:
+                        fallback_group_id = str(active_thread.get('group_id') or '').strip()
+                        if fallback_group_id and fallback_group_id != requested_group_id:
+                            active_messages = message_manager.get_group_conversation(user_id, fallback_group_id, limit=200)
+                else:
+                    active_messages = message_manager.get_conversation(user_id, str(active_thread.get('user_id') or ''), limit=200)
+                for message in active_messages:
+                    if getattr(message, 'sender_id', None) != user_id and not getattr(message, 'read_at', None):
+                        message_manager.mark_message_read(message.id, user_id)
+                for entry in conversation_entries:
+                    if active_thread.get('kind') == 'group' and entry.get('kind') == 'group' and _group_thread_matches(entry, active_thread):
+                        entry['unread_count'] = 0
+                        break
+                    if active_thread.get('kind') == 'direct' and entry.get('kind') == 'direct' and entry.get('user_id') == active_thread.get('user_id'):
+                        entry['unread_count'] = 0
+                        break
+
+            reply_preview_cache: dict[str, Optional[dict[str, Any]]] = {}
+
+            def _reply_preview(reply_to_id: Optional[str]) -> Optional[dict[str, Any]]:
+                clean_id = str(reply_to_id or '').strip()
+                if not clean_id:
+                    return None
+                if clean_id in reply_preview_cache:
+                    return reply_preview_cache[clean_id]
+
+                source_message = next((item for item in active_messages if item.id == clean_id), None)
+                if source_message is None:
+                    try:
+                        source_message = message_manager.get_message(clean_id)
+                    except Exception:
+                        source_message = None
+                if not source_message:
+                    reply_preview_cache[clean_id] = None
+                    return None
+
+                sender = _user_display(getattr(source_message, 'sender_id', None)) or {'display_name': getattr(source_message, 'sender_id', None)}
+                attachments = (_message_meta(source_message).get('attachments') or [])
+                preview_text = build_dm_preview(getattr(source_message, 'content', ''), attachments) or 'Attachment'
+                preview = {
+                    'id': clean_id,
+                    'sender_name': str(sender.get('display_name') or getattr(source_message, 'sender_id', None) or 'Unknown'),
+                    'preview': preview_text,
+                }
+                reply_preview_cache[clean_id] = preview
+                return preview
+
+            message_rows: list[dict[str, Any]] = []
+            active_messages_sorted = sorted(active_messages, key=lambda message: message.created_at)
+            for index, message in enumerate(active_messages_sorted):
+                prev_message = active_messages_sorted[index - 1] if index > 0 else None
+                next_message = active_messages_sorted[index + 1] if index + 1 < len(active_messages_sorted) else None
+                sender = _user_display(getattr(message, 'sender_id', None)) or {'display_name': getattr(message, 'sender_id', None)}
+                meta = _message_meta(message)
+                attachments = meta.get('attachments') or []
+                reply_to_id = str(meta.get('reply_to') or '').strip() or None
+                cluster_start = (
+                    prev_message is None
+                    or prev_message.sender_id != message.sender_id
+                    or (message.created_at - prev_message.created_at) > timedelta(minutes=12)
+                    or prev_message.created_at.astimezone().date() != message.created_at.astimezone().date()
+                )
+                cluster_end = (
+                    next_message is None
+                    or next_message.sender_id != message.sender_id
+                    or (next_message.created_at - message.created_at) > timedelta(minutes=12)
+                    or next_message.created_at.astimezone().date() != message.created_at.astimezone().date()
+                )
+                day_divider = None
+                if prev_message is None or prev_message.created_at.astimezone().date() != message.created_at.astimezone().date():
+                    day_divider = _day_label(message.created_at)
+
+                message_rows.append({
+                    'id': message.id,
+                    'sender_id': message.sender_id,
+                    'sender_label': sender.get('display_name') or message.sender_id,
+                    'sender_avatar_url': sender.get('avatar_url'),
+                    'sender_origin_peer': sender.get('origin_peer'),
+                    'sender_account_type': sender.get('account_type'),
+                    'outbound': message.sender_id == user_id,
+                    'content': getattr(message, 'content', '') or '',
+                    'attachments': attachments,
+                    'message_type': getattr(getattr(message, 'message_type', None), 'value', None) or str(getattr(message, 'message_type', '') or ''),
+                    'created_at': message.created_at.isoformat(),
+                    'edited_at': message.edited_at.isoformat() if getattr(message, 'edited_at', None) else None,
+                    'reply_to': reply_to_id,
+                    'reply_preview': _reply_preview(reply_to_id),
+                    'cluster_start': cluster_start,
+                    'cluster_end': cluster_end,
+                    'day_divider': day_divider,
+                })
+
+            search_results: list[dict[str, Any]] = []
+            if search_query:
+                found_messages = [message for message in message_manager.search_messages(user_id, search_query, limit=100) if _classify_thread(message)]
+                for message in found_messages:
+                    thread = _classify_thread(message)
+                    if not thread:
+                        continue
+                    title, _, _ = _format_thread_title(thread)
+                    href = _thread_href(thread)
+                    sender = _user_display(getattr(message, 'sender_id', None)) or {'display_name': getattr(message, 'sender_id', None)}
+                    search_results.append({
+                        'id': message.id,
+                        'thread_href': f"{href}#message-{message.id}",
+                        'thread_title': title,
+                        'sender_label': sender.get('display_name') or message.sender_id,
+                        'content': getattr(message, 'content', '') or '',
+                        'created_at': message.created_at.isoformat(),
+                        'preview': build_dm_preview(getattr(message, 'content', ''), _message_meta(message).get('attachments') or []),
+                    })
+
+            direct_conversations = [entry for entry in conversation_entries if entry.get('kind') == 'direct']
+            group_conversations = [entry for entry in conversation_entries if entry.get('kind') == 'group']
+
+            composer_recipients: list[dict[str, Any]] = []
+            if active_thread:
+                if active_thread.get('kind') == 'group':
+                    for member_id in active_thread.get('participant_ids') or []:
+                        if member_id and member_id != user_id:
+                            member = _user_display(member_id) or {'user_id': member_id, 'display_name': member_id}
+                            composer_recipients.append({
+                                'user_id': member_id,
+                                'display_name': member.get('display_name') or member_id,
+                                'username': member.get('username') or member_id,
+                                'avatar_url': member.get('avatar_url'),
+                                'unknown': False,
+                            })
+                elif active_thread.get('user_id'):
+                    member = _user_display(active_thread.get('user_id')) or {'user_id': active_thread.get('user_id'), 'display_name': active_thread.get('user_id')}
+                    composer_recipients.append({
+                        'user_id': active_thread.get('user_id'),
+                        'display_name': member.get('display_name') or active_thread.get('user_id'),
+                        'username': member.get('username') or active_thread.get('user_id'),
+                        'avatar_url': member.get('avatar_url'),
+                        'unknown': False,
+                    })
 
             template_data = {
-                'messages': msgs,
                 'user_id': user_id,
-                'user_liked_ids': user_liked_ids,
-                'like_counts': like_counts,
+                'search_query': search_query,
+                'active_thread': active_thread,
+                'message_rows': message_rows,
+                'direct_conversations': direct_conversations,
+                'group_conversations': group_conversations,
+                'conversation_entries': conversation_entries,
+                'search_results': search_results,
+                'composer_recipients': composer_recipients,
+                'conversation_with': conversation_with,
+                'conversation_group': conversation_group,
             }
-            if conversation_group:
-                template_data['conversation_group'] = conversation_group
-                # Try to extract group members for header
-                members: list[Any] = []
-                for msg in msgs:
-                    meta = msg.metadata or {}
-                    if isinstance(meta, dict) and meta.get('group_members'):
-                        members = meta.get('group_members') or []
-                        break
-                template_data['group_members'] = members
-            if conversation_with:
-                template_data['conversation_with'] = conversation_with
-            if search_query:
-                template_data['search_query'] = search_query
             return render_template('messages.html', **template_data)
                 
         except Exception as e:
@@ -3557,7 +4010,7 @@ def create_ui_blueprint() -> Blueprint:
     def ajax_send_message():
         """AJAX endpoint to send a message with multimedia support."""
         try:
-            _, _, _, message_manager, _, file_manager, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+            db_manager, _, _, message_manager, _, file_manager, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
             user_id = get_current_user()
             
             data = request.get_json()
@@ -3566,6 +4019,7 @@ def create_ui_blueprint() -> Blueprint:
             content = data.get('content', '').strip()
             recipient_id = data.get('recipient_id')  # None for broadcast
             recipient_ids = data.get('recipient_ids') or []
+            reply_to = str(data.get('reply_to') or '').strip()
             if isinstance(recipient_id, list):
                 recipient_ids = recipient_id
                 recipient_id = None
@@ -3615,6 +4069,8 @@ def create_ui_blueprint() -> Blueprint:
 
             # Create message metadata
             metadata: dict[str, Any] = {'attachments': processed_attachments} if processed_attachments else {}
+            if reply_to:
+                metadata['reply_to'] = reply_to
 
             # Normalize recipients
             recipients_unique = []
@@ -3627,9 +4083,10 @@ def create_ui_blueprint() -> Blueprint:
             if recipient_id and not recipient_ids:
                 recipients_unique = [recipient_id]
 
+            recipients_unique = [r for r in recipients_unique if r != user_id]
+
             # Group DM handling
             if len(recipients_unique) > 1:
-                recipients_unique = [r for r in recipients_unique if r != user_id]
                 group_members = sorted({user_id, *recipients_unique})
                 group_id = _compute_group_id(group_members)
                 metadata.update({
@@ -3642,6 +4099,33 @@ def create_ui_blueprint() -> Blueprint:
                 message = message_manager.create_message(user_id, content, group_id, message_type, metadata if metadata else None)
                 if message and message_manager.send_message(message):
                     logger.info(f"Group message sent successfully: {message.id}")
+
+                    try:
+                        inbox_manager = current_app.config.get('INBOX_MANAGER')
+                        if inbox_manager:
+                            local_target_ids = filter_local_dm_targets(db_manager, p2p_manager, recipients_unique)
+                            if local_target_ids:
+                                inbox_manager.sync_source_triggers(
+                                    source_type='dm',
+                                    source_id=message.id,
+                                    trigger_type='dm',
+                                    target_ids=local_target_ids,
+                                    sender_user_id=user_id,
+                                    preview=build_dm_preview(content, metadata.get('attachments') or []),
+                                    payload={
+                                        'content': content,
+                                        'message_id': message.id,
+                                        'attachments': metadata.get('attachments') or [],
+                                        'reply_to': reply_to or None,
+                                        'group_id': group_id,
+                                        'group_members': group_members,
+                                        'is_group': True,
+                                    },
+                                    message_id=message.id,
+                                    source_content=content,
+                                )
+                    except Exception as inbox_err:
+                        logger.warning(f"Failed to create group DM inbox trigger: {inbox_err}")
 
                     if p2p_manager:
                         try:
@@ -3679,6 +4163,30 @@ def create_ui_blueprint() -> Blueprint:
 
             if message and message_manager.send_message(message):
                 logger.info(f"Message sent successfully: {message.id}")
+
+                try:
+                    inbox_manager = current_app.config.get('INBOX_MANAGER')
+                    if inbox_manager and recipient_id:
+                        local_target_ids = filter_local_dm_targets(db_manager, p2p_manager, [recipient_id])
+                        if local_target_ids:
+                            inbox_manager.sync_source_triggers(
+                                source_type='dm',
+                                source_id=message.id,
+                                trigger_type='dm',
+                                target_ids=local_target_ids,
+                                sender_user_id=user_id,
+                                preview=build_dm_preview(content, metadata.get('attachments') or []),
+                                payload={
+                                    'content': content,
+                                    'message_id': message.id,
+                                    'attachments': metadata.get('attachments') or [],
+                                    'reply_to': reply_to or None,
+                                },
+                                message_id=message.id,
+                                source_content=content,
+                            )
+                except Exception as inbox_err:
+                    logger.warning(f"Failed to create DM inbox trigger: {inbox_err}")
 
                 # Broadcast DM over P2P so recipient's node can store it
                 if recipient_id and p2p_manager:
@@ -7115,6 +7623,25 @@ def create_ui_blueprint() -> Blueprint:
             )
             
             if success:
+                try:
+                    sync_edited_mention_activity(
+                        db_manager=db_manager,
+                        mention_manager=current_app.config.get('MENTION_MANAGER'),
+                        inbox_manager=current_app.config.get('INBOX_MANAGER'),
+                        p2p_manager=p2p_manager,
+                        content=content,
+                        source_type='feed_post',
+                        source_id=post_id,
+                        author_id=user_id,
+                        origin_peer=p2p_manager.get_peer_id() if p2p_manager else None,
+                        channel_id=None,
+                        visibility=visibility_enum.value if visibility_enum else existing_post.visibility.value,
+                        permissions=permissions if permissions is not None else existing_post.permissions,
+                        edited_at=final_metadata.get('edited_at') if isinstance(final_metadata, dict) else None,
+                    )
+                except Exception as mention_sync_err:
+                    logger.warning(f"Feed mention refresh failed on post update: {mention_sync_err}")
+
                 # Sync inline circles from edited content (create/update circles)
                 try:
                     circle_manager = current_app.config.get('CIRCLE_MANAGER')
@@ -7829,6 +8356,16 @@ def create_ui_blueprint() -> Blueprint:
 
             success = message_manager.delete_message(message_id, user_id, file_manager=file_manager)
             if success:
+                inbox_manager = current_app.config.get('INBOX_MANAGER')
+                if inbox_manager:
+                    try:
+                        inbox_manager.remove_source_triggers(
+                            source_type='dm',
+                            source_id=message_id,
+                            trigger_type='dm',
+                        )
+                    except Exception as inbox_err:
+                        logger.warning(f"Failed to remove DM inbox trigger for delete {message_id}: {inbox_err}")
                 # Broadcast delete signal via P2P
                 if p2p_manager and p2p_manager.is_running():
                     try:
@@ -7836,7 +8373,7 @@ def create_ui_blueprint() -> Blueprint:
                         signal_id = f"DS{_sec.token_hex(8)}"
                         p2p_manager.broadcast_delete_signal(
                             signal_id=signal_id,
-                            data_type='message',
+                            data_type='direct_message',
                             data_id=message_id,
                             reason='user_deleted',
                         )
@@ -8012,6 +8549,45 @@ def create_ui_blueprint() -> Blueprint:
                 except Exception as bcast_err:
                     logger.warning(f"Failed to broadcast DM update via P2P: {bcast_err}")
 
+            try:
+                inbox_manager = current_app.config.get('INBOX_MANAGER')
+                if inbox_manager:
+                    group_members = []
+                    if isinstance(final_metadata, dict):
+                        group_members = [
+                            str(member_id).strip()
+                            for member_id in (final_metadata.get('group_members') or [])
+                            if str(member_id).strip() and str(member_id).strip() != user_id
+                        ]
+                    target_ids = group_members or ([str(row['recipient_id']).strip()] if row['recipient_id'] else [])
+                    local_target_ids = filter_local_dm_targets(db_manager, p2p_manager, target_ids)
+                    if local_target_ids:
+                        payload = {
+                            'content': content,
+                            'message_id': message_id,
+                            'edited_at': final_metadata.get('edited_at') if isinstance(final_metadata, dict) else None,
+                            'attachments': final_attachments or [],
+                        }
+                        if isinstance(final_metadata, dict) and final_metadata.get('reply_to'):
+                            payload['reply_to'] = final_metadata.get('reply_to')
+                        if isinstance(final_metadata, dict) and final_metadata.get('group_id'):
+                            payload['group_id'] = final_metadata.get('group_id')
+                        if isinstance(final_metadata, dict) and final_metadata.get('group_members'):
+                            payload['group_members'] = final_metadata.get('group_members')
+                        inbox_manager.sync_source_triggers(
+                            source_type='dm',
+                            source_id=message_id,
+                            trigger_type='dm',
+                            target_ids=local_target_ids,
+                            sender_user_id=user_id,
+                            preview=build_dm_preview(content, final_attachments or []),
+                            payload=payload,
+                            message_id=message_id,
+                            source_content=content,
+                        )
+            except Exception as inbox_err:
+                logger.warning(f"Failed to refresh DM inbox trigger on edit: {inbox_err}")
+
             return jsonify({'success': True})
         except Exception as e:
             logger.error(f"Update message error: {e}", exc_info=True)
@@ -8022,7 +8598,7 @@ def create_ui_blueprint() -> Blueprint:
     def ajax_reply_message():
         """AJAX endpoint to reply to a direct message."""
         try:
-            _, _, _, message_manager, _, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+            db_manager, _, _, message_manager, _, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
             user_id = get_current_user()
 
             data = request.get_json() or {}
@@ -8044,7 +8620,7 @@ def create_ui_blueprint() -> Blueprint:
             if group_members:
                 if not group_id:
                     group_id = _compute_group_id(group_members)
-                recipients = [m for m in group_members if m and m != user_id]
+                recipients = [member_id for member_id in group_members if member_id and member_id != user_id]
                 if not recipients:
                     return jsonify({'error': 'No other group members to reply to'}), 400
 
@@ -8058,10 +8634,36 @@ def create_ui_blueprint() -> Blueprint:
                     sender_id=user_id,
                     recipient_id=group_id,
                     content=content,
-                    metadata=reply_meta
+                    metadata=reply_meta,
                 )
                 if message:
                     message_manager.send_message(message)
+
+                    try:
+                        inbox_manager = current_app.config.get('INBOX_MANAGER')
+                        if inbox_manager:
+                            local_target_ids = filter_local_dm_targets(db_manager, p2p_manager, recipients)
+                            if local_target_ids:
+                                inbox_manager.sync_source_triggers(
+                                    source_type='dm',
+                                    source_id=message.id,
+                                    trigger_type='dm',
+                                    target_ids=local_target_ids,
+                                    sender_user_id=user_id,
+                                    preview=build_dm_preview(content, []),
+                                    payload={
+                                        'content': content,
+                                        'message_id': message.id,
+                                        'reply_to': original_message_id,
+                                        'group_id': group_id,
+                                        'group_members': group_members,
+                                        'is_group': True,
+                                    },
+                                    message_id=message.id,
+                                    source_content=content,
+                                )
+                    except Exception as inbox_err:
+                        logger.warning(f"Failed to create group DM reply inbox trigger: {inbox_err}")
 
                     if p2p_manager:
                         try:
@@ -8088,6 +8690,7 @@ def create_ui_blueprint() -> Blueprint:
                             logger.warning(f"Failed to broadcast group DM reply over P2P: {bcast_err}")
 
                     return jsonify({'success': True, 'message': message.to_dict()})
+                return jsonify({'error': 'Failed to send reply'}), 500
 
             # Determine reply recipient (the other party in the conversation)
             recipient_id = original.sender_id if original.sender_id != user_id else original.recipient_id
@@ -8100,6 +8703,29 @@ def create_ui_blueprint() -> Blueprint:
             )
             if message:
                 message_manager.send_message(message)
+
+                try:
+                    inbox_manager = current_app.config.get('INBOX_MANAGER')
+                    if inbox_manager and recipient_id:
+                        local_target_ids = filter_local_dm_targets(db_manager, p2p_manager, [recipient_id])
+                        if local_target_ids:
+                            inbox_manager.sync_source_triggers(
+                                source_type='dm',
+                                source_id=message.id,
+                                trigger_type='dm',
+                                target_ids=local_target_ids,
+                                sender_user_id=user_id,
+                                preview=build_dm_preview(content, []),
+                                payload={
+                                    'content': content,
+                                    'message_id': message.id,
+                                    'reply_to': original_message_id,
+                                },
+                                message_id=message.id,
+                                source_content=content,
+                            )
+                except Exception as inbox_err:
+                    logger.warning(f"Failed to create DM reply inbox trigger: {inbox_err}")
 
                 # Broadcast reply over P2P
                 if recipient_id and p2p_manager:
@@ -10728,6 +11354,42 @@ def create_ui_blueprint() -> Blueprint:
                 except Exception as contract_err:
                     logger.warning(f"Inline contract sync failed on channel edit: {contract_err}")
 
+                try:
+                    sync_edited_mention_activity(
+                        db_manager=db_manager,
+                        mention_manager=current_app.config.get('MENTION_MANAGER'),
+                        inbox_manager=current_app.config.get('INBOX_MANAGER'),
+                        p2p_manager=p2p_manager,
+                        content=content,
+                        source_type='channel_message',
+                        source_id=message_id,
+                        author_id=user_id,
+                        origin_peer=p2p_manager.get_peer_id() if p2p_manager else None,
+                        channel_id=row['channel_id'],
+                        edited_at=final_metadata.get('edited_at') if isinstance(final_metadata, dict) else None,
+                    )
+                    inbox_manager = current_app.config.get('INBOX_MANAGER')
+                    if inbox_manager:
+                        inbox_manager.sync_source_triggers(
+                            source_type='channel_message',
+                            source_id=message_id,
+                            trigger_type='reply',
+                            sender_user_id=user_id,
+                            origin_peer=p2p_manager.get_peer_id() if p2p_manager else None,
+                            channel_id=row['channel_id'],
+                            preview=build_preview(content or '') or None,
+                            payload={
+                                'channel_id': row['channel_id'],
+                                'message_id': message_id,
+                                'parent_message_id': row['parent_message_id'],
+                                'edited_at': final_metadata.get('edited_at') if isinstance(final_metadata, dict) else None,
+                            },
+                            message_id=message_id,
+                            source_content=content,
+                        )
+                except Exception as mention_sync_err:
+                    logger.warning(f"Channel mention/reply refresh failed on channel edit: {mention_sync_err}")
+
                 if p2p_manager and p2p_manager.is_running():
                     try:
                         display_name = None
@@ -11639,6 +12301,51 @@ def create_ui_blueprint() -> Blueprint:
             })
         except Exception as e:
             logger.error(f"UI file access inspect failed: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/files/<file_id>/preview', methods=['GET'])
+    @require_login
+    def ajax_file_preview(file_id):
+        """Return a bounded, read-only JSON preview for supported files."""
+        try:
+            db_manager, _, trust_manager, _, _, file_manager, feed_manager, _, _, _, _ = _get_app_components_any(current_app)
+            user_id = get_current_user()
+            result = file_manager.get_file_data(file_id)
+            if not result:
+                return jsonify({'success': False, 'error': 'File not found'}), 404
+
+            file_data, file_info = result
+            owner_id = db_manager.get_instance_owner_user_id()
+            access = evaluate_file_access(
+                db_manager=db_manager,
+                file_id=file_id,
+                viewer_user_id=user_id,
+                file_uploaded_by=file_info.uploaded_by,
+                is_admin=bool(owner_id and owner_id == user_id),
+                trust_manager=trust_manager,
+                feed_manager=feed_manager,
+            )
+            if not access.allowed:
+                return jsonify({
+                    'success': False,
+                    'error': 'Access denied',
+                    'reason': access.reason,
+                }), 403
+
+            preview = build_file_preview(
+                file_data=file_data,
+                filename=file_info.original_name,
+                content_type=file_info.content_type,
+            )
+            return jsonify({
+                'success': True,
+                'file_id': file_id,
+                'filename': file_info.original_name,
+                'content_type': file_info.content_type,
+                **preview,
+            })
+        except Exception as e:
+            logger.error(f"UI file preview failed: {e}", exc_info=True)
             return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
     # File serving endpoint

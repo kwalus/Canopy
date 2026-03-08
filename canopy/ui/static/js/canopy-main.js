@@ -586,6 +586,842 @@
                 return div.innerHTML;
             }
 
+            const CANOPY_MARKDOWN_PREVIEW_EXTENSIONS = ['.md', '.markdown'];
+            const CANOPY_SPREADSHEET_PREVIEW_EXTENSIONS = ['.csv', '.tsv', '.xlsx', '.xlsm'];
+            const CANOPY_SPREADSHEET_PREVIEW_MIME_TYPES = new Set([
+                'text/csv',
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'application/vnd.ms-excel.sheet.macroenabled.12'
+            ]);
+            const CANOPY_TEXT_PREVIEW_EXTENSIONS = [
+                '.md', '.markdown', '.txt', '.log', '.json', '.py', '.js', '.ts',
+                '.csv', '.tsv', '.yaml', '.yml', '.xml', '.tex', '.html', '.css',
+                '.sh', '.bat', '.cfg', '.ini', '.toml'
+            ];
+
+            function canopyFileExtension(filename) {
+                const raw = String(filename || '').split('?')[0].split('#')[0];
+                const dot = raw.lastIndexOf('.');
+                return dot >= 0 ? raw.slice(dot).toLowerCase() : '';
+            }
+
+            function canopyIsMarkdownPreviewable(filename, contentType) {
+                const ext = canopyFileExtension(filename);
+                const type = String(contentType || '').toLowerCase();
+                return CANOPY_MARKDOWN_PREVIEW_EXTENSIONS.includes(ext) || type === 'text/markdown' || type === 'text/x-markdown';
+            }
+
+            function canopyIsSpreadsheetPreviewable(filename, contentType) {
+                const ext = canopyFileExtension(filename);
+                const type = String(contentType || '').toLowerCase();
+                return CANOPY_SPREADSHEET_PREVIEW_EXTENSIONS.includes(ext) || CANOPY_SPREADSHEET_PREVIEW_MIME_TYPES.has(type);
+            }
+
+            function canopyIsTextPreviewable(filename, contentType) {
+                if (canopyIsSpreadsheetPreviewable(filename, contentType)) return false;
+                const ext = canopyFileExtension(filename);
+                const type = String(contentType || '').toLowerCase();
+                if (CANOPY_TEXT_PREVIEW_EXTENSIONS.includes(ext)) return true;
+                if (type.startsWith('text/')) return true;
+                return ['application/json', 'application/xml', 'application/x-yaml', 'application/javascript', 'application/typescript', 'text/x-tex', 'application/x-latex'].includes(type);
+            }
+
+            function canopySpreadsheetColumnLabel(index) {
+                let label = '';
+                let value = Number(index) + 1;
+                while (value > 0) {
+                    const rem = (value - 1) % 26;
+                    label = String.fromCharCode(65 + rem) + label;
+                    value = Math.floor((value - 1) / 26);
+                }
+                return label;
+            }
+
+            function canopyFormatSpreadsheetNumber(value) {
+                const num = Number(value);
+                if (!Number.isFinite(num)) return '#ERR';
+                if (Math.abs(num - Math.round(num)) < 1e-9) return String(Math.round(num));
+                return Number(num.toFixed(6)).toString();
+            }
+
+            function canopyRenderSpreadsheetTable(sheet) {
+                const rows = Array.isArray(sheet && sheet.rows) ? sheet.rows : [];
+                const colCount = Math.max(Number(sheet && sheet.preview_col_count) || 0, ...rows.map(row => Array.isArray(row) ? row.length : 0));
+                let thead = '';
+                if (colCount > 0) {
+                    const labels = Array.from({ length: colCount }, function(_, index) {
+                        return `<th scope="col">${canopySpreadsheetColumnLabel(index)}</th>`;
+                    }).join('');
+                    thead = `<thead><tr><th scope="col" class="sheet-row-label"></th>${labels}</tr></thead>`;
+                }
+                const bodyRows = rows.map(function(row, rowIndex) {
+                    const normalized = Array.isArray(row) ? row.slice() : [];
+                    while (normalized.length < colCount) {
+                        normalized.push({ display: '', kind: 'empty' });
+                    }
+                    const cells = normalized.map(function(cell) {
+                        const display = _escapeHtml(cell && cell.display ? cell.display : '');
+                        const title = cell && cell.truncated ? ` title="Truncated from ${Number(cell.full_length || 0)} chars"` : '';
+                        const kind = String(cell && cell.kind || 'text');
+                        return `<td class="${kind === 'number' ? 'sheet-cell-number' : ''}"${title}>${display || '&nbsp;'}</td>`;
+                    }).join('');
+                    return `<tr><th scope="row" class="sheet-row-label">${rowIndex + 1}</th>${cells}</tr>`;
+                }).join('');
+                return `
+                    <div class="table-responsive">
+                        <table class="table table-sm canopy-sheet-table mb-0">
+                            ${thead}
+                            <tbody>${bodyRows || '<tr><td class="text-muted small" colspan="2">No preview rows.</td></tr>'}</tbody>
+                        </table>
+                    </div>
+                `;
+            }
+
+            function renderSpreadsheetPreviewHtml(previewId, payload) {
+                const sheets = Array.isArray(payload && payload.sheets) ? payload.sheets : [];
+                const tabs = sheets.map(function(sheet, index) {
+                    const active = index === 0 ? ' active' : '';
+                    return `<button type="button" class="btn btn-sm btn-outline-secondary${active}" data-sheet-tab="${index}" onclick="switchSpreadsheetPreviewSheet('${previewId}', ${index})">${_escapeHtml(sheet && sheet.name ? sheet.name : ('Sheet ' + (index + 1)))}</button>`;
+                }).join('');
+                const panels = sheets.map(function(sheet, index) {
+                    const hidden = index === 0 ? '' : ' style="display:none;"';
+                    const meta = [];
+                    const rowCount = Number(sheet && sheet.row_count) || 0;
+                    const colCount = Number(sheet && sheet.col_count) || 0;
+                    meta.push(`${rowCount} rows`);
+                    meta.push(`${colCount} cols`);
+                    if (sheet && sheet.truncated_rows) meta.push('row preview clipped');
+                    if (sheet && sheet.truncated_cols) meta.push('column preview clipped');
+                    return `
+                        <div data-sheet-panel="${index}"${hidden}>
+                            <div class="small text-muted mb-2">${meta.join(' • ')}</div>
+                            ${canopyRenderSpreadsheetTable(sheet)}
+                        </div>
+                    `;
+                }).join('');
+                const badges = [];
+                if (payload && payload.macro_enabled) {
+                    badges.push('<span class="badge text-bg-warning">Macros disabled</span>');
+                }
+                if (payload && payload.truncated) {
+                    badges.push('<span class="badge text-bg-secondary">Preview clipped</span>');
+                }
+                const warning = payload && payload.warning ? `<div class="small text-warning mt-2"><i class="bi bi-shield-exclamation me-1"></i>${_escapeHtml(payload.warning)}</div>` : '';
+                return `
+                    <div class="file-preview-container spreadsheet-preview">
+                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+                            <div class="small fw-semibold"><i class="bi bi-file-earmark-spreadsheet me-1"></i>Spreadsheet preview</div>
+                            <div class="d-flex flex-wrap gap-1">${badges.join('')}</div>
+                        </div>
+                        ${tabs ? `<div class="d-flex flex-wrap gap-1 mb-2">${tabs}</div>` : ''}
+                        ${panels || '<div class="small text-muted">No worksheet data available.</div>'}
+                        ${warning}
+                    </div>
+                `;
+            }
+
+            function renderFilePreviewPayloadHtml(previewId, payload) {
+                if (!payload || payload.previewable === false) {
+                    const reason = _escapeHtml((payload && (payload.error || payload.message)) || 'Inline preview is not available for this file.');
+                    return `<div class="text-muted p-2"><i class="bi bi-file-earmark me-1"></i>${reason}</div>`;
+                }
+                if (payload.kind === 'spreadsheet') {
+                    return renderSpreadsheetPreviewHtml(previewId, payload);
+                }
+                if (payload.kind === 'markdown' && typeof marked !== 'undefined') {
+                    return `<div class="file-preview-container md-preview">${marked.parse(String(payload.text || ''))}</div>`;
+                }
+                const escaped = _escapeHtml(String(payload.text || ''));
+                return `<div class="file-preview-container code-preview"><pre><code>${escaped}</code></pre></div>`;
+            }
+
+            function setAttachmentPreviewToggleState(previewId, expanded) {
+                const btn = document.querySelector(`[data-preview-toggle="${previewId}"]`);
+                if (!btn) return;
+                const label = btn.querySelector('.preview-label');
+                if (!label) return;
+                const collapsedLabel = btn.getAttribute('data-preview-label') || 'Preview';
+                const expandedLabel = btn.getAttribute('data-preview-expanded-label') || 'Collapse';
+                label.textContent = expanded ? expandedLabel : collapsedLabel;
+            }
+
+            function canopyAttachmentPreviewLabels(filename, contentType) {
+                if (canopyIsSpreadsheetPreviewable(filename, contentType)) {
+                    return { collapsed: 'Open sheet', expanded: 'Hide sheet' };
+                }
+                return { collapsed: 'Preview', expanded: 'Collapse' };
+            }
+
+            function switchSpreadsheetPreviewSheet(previewId, sheetIndex) {
+                const wrapper = document.getElementById(previewId);
+                if (!wrapper) return;
+                wrapper.querySelectorAll('[data-sheet-tab]').forEach(function(tab) {
+                    const active = Number(tab.getAttribute('data-sheet-tab')) === Number(sheetIndex);
+                    tab.classList.toggle('active', active);
+                });
+                wrapper.querySelectorAll('[data-sheet-panel]').forEach(function(panel) {
+                    panel.style.display = Number(panel.getAttribute('data-sheet-panel')) === Number(sheetIndex) ? '' : 'none';
+                });
+            }
+
+            function toggleAttachmentPreview(previewId, previewUrl) {
+                const wrapper = document.getElementById(previewId);
+                if (!wrapper) return;
+
+                if (wrapper.style.display !== 'none') {
+                    wrapper.style.display = 'none';
+                    setAttachmentPreviewToggleState(previewId, false);
+                    return;
+                }
+
+                wrapper.style.display = 'block';
+                setAttachmentPreviewToggleState(previewId, true);
+
+                if (wrapper.dataset.loaded === 'true') return;
+                wrapper.innerHTML = '<div class="text-muted p-2"><i class="bi bi-hourglass-split me-1"></i>Loading preview...</div>';
+
+                apiCall(previewUrl)
+                    .then(function(payload) {
+                        wrapper.dataset.loaded = 'true';
+                        wrapper.innerHTML = renderFilePreviewPayloadHtml(previewId, payload || {});
+                    })
+                    .catch(function(err) {
+                        const msg = _escapeHtml((err && (err.error || err.message)) || 'Could not load preview');
+                        wrapper.innerHTML = `<div class="text-danger p-2"><i class="bi bi-exclamation-triangle me-1"></i>${msg}</div>`;
+                    });
+            }
+
+            if (typeof window !== 'undefined') {
+                window.toggleAttachmentPreview = toggleAttachmentPreview;
+                window.switchSpreadsheetPreviewSheet = switchSpreadsheetPreviewSheet;
+                window.canopyIsSpreadsheetPreviewable = canopyIsSpreadsheetPreviewable;
+                window.canopyIsTextPreviewable = canopyIsTextPreviewable;
+                window.canopyIsMarkdownPreviewable = canopyIsMarkdownPreviewable;
+                window.canopyAttachmentPreviewLabels = canopyAttachmentPreviewLabels;
+            }
+
+            function renderInlineSheetFallback(body) {
+                const escaped = _escapeHtml(body || '');
+                return '<div class="channel-code-wrap position-relative mb-2">' +
+                    '<button type="button" class="channel-code-copy-btn btn btn-sm position-absolute top-0 end-0 m-1" title="Copy to clipboard" aria-label="Copy">' +
+                    '<i class="bi bi-clipboard"></i></button>' +
+                    '<pre class="channel-code p-2 pe-4 rounded mb-0" style="background:var(--canopy-bg-tertiary); border:1px solid var(--canopy-border); overflow-x:auto;"><code>' + escaped + '</code></pre></div>';
+            }
+
+            function canopyGetSheetEngine() {
+                return (typeof window !== 'undefined' && window.CanopySheetEngine) ? window.CanopySheetEngine : null;
+            }
+
+            function canopyEncodeSheetSource(source) {
+                return encodeURIComponent(String(source || ''));
+            }
+
+            function canopyDecodeSheetSource(source) {
+                try {
+                    return decodeURIComponent(String(source || ''));
+                } catch (error) {
+                    return String(source || '');
+                }
+            }
+
+            function canopyCloneInlineSheetSpec(spec) {
+                const engine = canopyGetSheetEngine();
+                if (!engine || !spec) return { title: '', columns: [], rows: [] };
+                const built = engine.buildInlineSheetMatrix(spec);
+                const hasColumns = Array.isArray(spec.columns) && spec.columns.length > 0;
+                const header = hasColumns ? (built.matrix[0] || []).slice() : Array.from({ length: built.width }, function() { return ''; });
+                const rowStart = hasColumns ? 1 : 0;
+                const rows = built.matrix.slice(rowStart).map(function(row) { return row.slice(); });
+                return {
+                    title: String(spec.title || ''),
+                    columns: header,
+                    rows: rows,
+                };
+            }
+
+            function canopyInlineSheetLanguage(wrapper) {
+                return (wrapper && wrapper.getAttribute('data-sheet-language')) || 'sheet';
+            }
+
+            function canopyInlineSheetOccurrence(wrapper) {
+                if (!wrapper) return 0;
+                const value = Number(wrapper.getAttribute('data-sheet-occurrence'));
+                return Number.isFinite(value) ? value : 0;
+            }
+
+            function canopyInlineSheetFence(body, language) {
+                const lang = String(language || 'sheet').trim() || 'sheet';
+                const normalized = String(body || '').trim();
+                return '```' + lang + '\n' + normalized + '\n```';
+            }
+
+            function canopyReplaceInlineSheetBlock(content, originalBody, updatedBody, language, occurrenceIndex) {
+                const text = String(content || '');
+                const target = String(originalBody || '').trim();
+                const replacement = canopyInlineSheetFence(updatedBody, language);
+                const regex = /```(sheet|spreadsheet)\n?([\s\S]*?)```/g;
+                let match;
+                let matchedOccurrence = 0;
+                const targetOccurrence = Number.isFinite(Number(occurrenceIndex)) ? Number(occurrenceIndex) : null;
+                while ((match = regex.exec(text))) {
+                    if (String(match[2] || '').trim() === target) {
+                        if (targetOccurrence === null || matchedOccurrence === targetOccurrence) {
+                            return text.slice(0, match.index) + replacement + text.slice(match.index + match[0].length);
+                        }
+                        matchedOccurrence += 1;
+                    }
+                }
+                return null;
+            }
+
+            function canopyRenderInlineSheetTable(evaluated, options) {
+                const hasColumns = !!(options && options.hasColumns);
+                const headerLabels = Array.isArray(options && options.headerLabels) ? options.headerLabels : null;
+                const width = Number((evaluated && evaluated.width) || 0);
+                const headerHtml = Array.from({ length: width }, function(_, index) {
+                    const label = headerLabels && typeof headerLabels[index] !== 'undefined' && String(headerLabels[index] || '').trim()
+                        ? String(headerLabels[index] || '').trim()
+                        : canopySpreadsheetColumnLabel(index);
+                    return `<th scope="col">${_escapeHtml(label)}</th>`;
+                }).join('');
+                const rawRows = (evaluated && evaluated.rows ? evaluated.rows : []);
+                const visibleRows = hasColumns ? rawRows.slice(1) : rawRows;
+                const rowNumberOffset = hasColumns ? 2 : 1;
+                const bodyRows = visibleRows.map(function(row, rowIndex) {
+                    const cells = row.map(function(resolved) {
+                        const title = resolved && resolved.formula
+                            ? ` title="${_escapeHtml(resolved.formula).replace(/"/g, '&quot;')}"`
+                            : '';
+                        const klass = resolved && resolved.kind === 'number' ? 'sheet-cell-number' : '';
+                        return `<td class="${klass}"${title}>${_escapeHtml(resolved && resolved.display ? resolved.display : '') || '&nbsp;'}</td>`;
+                    }).join('');
+                    return `<tr><th scope="row" class="sheet-row-label">${rowIndex + rowNumberOffset}</th>${cells}</tr>`;
+                }).join('');
+                return `
+                    <div class="table-responsive">
+                        <table class="table table-sm canopy-sheet-table mb-0">
+                            <thead><tr><th scope="col" class="sheet-row-label"></th>${headerHtml}</tr></thead>
+                            <tbody>${bodyRows || '<tr><td class="text-muted small" colspan="2">No data rows.</td></tr>'}</tbody>
+                        </table>
+                    </div>
+                `;
+            }
+
+            function canopyRenderInlineSheetPreviewPanel(spec) {
+                const engine = canopyGetSheetEngine();
+                const evaluated = engine && typeof engine.evaluateInlineSheetSpec === 'function'
+                    ? engine.evaluateInlineSheetSpec(spec)
+                    : null;
+                if (!evaluated) {
+                    return '<div class="small text-muted">Preview unavailable.</div>';
+                }
+                return `
+                    <div class="canopy-inline-sheet-preview-label">
+                        <span>Live preview</span>
+                        <span>${Math.max(0, Number(evaluated.rows ? evaluated.rows.length : 0) - (spec && Array.isArray(spec.columns) && spec.columns.length ? 1 : 0))} rows</span>
+                    </div>
+                    ${canopyRenderInlineSheetTable(evaluated, {
+                        hasColumns: !!(spec && Array.isArray(spec.columns) && spec.columns.length),
+                        headerLabels: spec && Array.isArray(spec.columns) ? spec.columns : null
+                    })}
+                `;
+            }
+
+            function canopyRenderInlineSheetView(spec, evaluated, body, language, occurrenceIndex) {
+                const safeSource = _escapeHtml(canopyEncodeSheetSource(body));
+                const title = _escapeHtml(spec.title || 'Inline sheet');
+                return `
+                    <div class="canopy-inline-sheet"
+                         data-inline-sheet="1"
+                         data-sheet-source="${safeSource}"
+                         data-sheet-language="${_escapeHtml(language || 'sheet')}"
+                         data-sheet-occurrence="${Number.isFinite(Number(occurrenceIndex)) ? Number(occurrenceIndex) : 0}">
+                        <div class="canopy-inline-sheet-shell">
+                            <div class="canopy-inline-sheet-header">
+                                <div class="canopy-inline-sheet-heading">
+                                    <div class="canopy-inline-sheet-kicker">Inline spreadsheet</div>
+                                    <div class="canopy-inline-sheet-title"><i class="bi bi-table me-2"></i>${title}</div>
+                                </div>
+                                <div class="canopy-inline-sheet-toolbar">
+                                    <span class="badge text-bg-secondary">Computed locally</span>
+                                    <span class="badge text-bg-dark-subtle text-body-secondary">Safe formulas only</span>
+                                    <button type="button" class="btn btn-sm btn-outline-light canopy-inline-sheet-action" onclick="canopyInlineSheetStartEdit(this)">
+                                        <i class="bi bi-pencil-square"></i><span>Edit</span>
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-light canopy-inline-sheet-action" onclick="canopyInlineSheetCopy(this)">
+                                        <i class="bi bi-clipboard"></i><span>Copy block</span>
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-success canopy-inline-sheet-action" onclick="canopyInlineSheetApply(this)">
+                                        <i class="bi bi-arrow-up-right-square"></i><span>Apply</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="canopy-inline-sheet-body">
+                                ${canopyRenderInlineSheetTable(evaluated, {
+                                    hasColumns: !!(spec && Array.isArray(spec.columns) && spec.columns.length),
+                                    headerLabels: spec && Array.isArray(spec.columns) ? spec.columns : null
+                                })}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            function canopyRenderInlineSheetEditorMarkup(spec, body, language, occurrenceIndex) {
+                const rows = Array.isArray(spec.rows) ? spec.rows : [];
+                const columns = Array.isArray(spec.columns) ? spec.columns : [];
+                const hasColumns = columns.length > 0;
+                const engine = canopyGetSheetEngine();
+                const evaluated = engine && typeof engine.evaluateInlineSheetSpec === 'function'
+                    ? engine.evaluateInlineSheetSpec(spec)
+                    : null;
+                const safeSource = _escapeHtml(canopyEncodeSheetSource(body));
+                const titleValue = _escapeHtml(spec.title || '');
+                const headerCells = columns.map(function(value, index) {
+                    return `
+                        <th scope="col">
+                            <div class="canopy-sheet-editor-head">
+                                <div class="canopy-sheet-editor-col-label">${canopySpreadsheetColumnLabel(index)}</div>
+                                <input type="text"
+                                       class="form-control form-control-sm"
+                                       value="${_escapeHtml(value || '')}"
+                                       data-sheet-column-input="${index}"
+                                       oninput="canopyInlineSheetRefreshEditor(this)">
+                                <button type="button" class="btn btn-sm btn-outline-danger canopy-sheet-delete-axis" onclick="canopyInlineSheetRemoveColumn(this, ${index})" title="Remove column">
+                                    <i class="bi bi-x-lg"></i>
+                                </button>
+                            </div>
+                        </th>
+                    `;
+                }).join('');
+                const bodyRows = rows.map(function(row, rowIndex) {
+                    const cells = row.map(function(value, colIndex) {
+                        const evalRow = rowIndex + (hasColumns ? 1 : 0);
+                        const resolved = evaluated && evaluated.rows && evaluated.rows[evalRow] ? evaluated.rows[evalRow][colIndex] : null;
+                        const raw = String(value || '').trim();
+                        const hint = raw.startsWith('=') && resolved ? '=> ' + String(resolved.display || '') : '';
+                        return `
+                            <td>
+                                <div class="canopy-sheet-editor-cell">
+                                    <input type="text"
+                                           class="form-control form-control-sm"
+                                           value="${_escapeHtml(value || '')}"
+                                           data-sheet-cell-input="1"
+                                           data-sheet-row-index="${rowIndex}"
+                                           data-sheet-col-index="${colIndex}"
+                                           oninput="canopyInlineSheetRefreshEditor(this)">
+                                    <div class="canopy-sheet-cell-hint" data-sheet-cell-hint${hint ? '' : ' style="display:none;"'}>${_escapeHtml(hint)}</div>
+                                </div>
+                            </td>
+                        `;
+                    }).join('');
+                    const displayRow = rowIndex + (hasColumns ? 2 : 1);
+                    return `
+                        <tr data-sheet-row="${rowIndex}">
+                            <th scope="row" class="sheet-row-label">
+                                <div class="canopy-sheet-editor-rowhead">
+                                    <span>${displayRow}</span>
+                                    <button type="button" class="btn btn-sm btn-outline-danger canopy-sheet-delete-axis" onclick="canopyInlineSheetRemoveRow(this, ${rowIndex})" title="Remove row">
+                                        <i class="bi bi-x-lg"></i>
+                                    </button>
+                                </div>
+                            </th>
+                            ${cells}
+                        </tr>
+                    `;
+                }).join('');
+
+                return `
+                    <div class="canopy-inline-sheet canopy-inline-sheet-editing"
+                         data-inline-sheet="1"
+                         data-sheet-source="${safeSource}"
+                         data-sheet-language="${_escapeHtml(language || 'sheet')}"
+                         data-sheet-occurrence="${Number.isFinite(Number(occurrenceIndex)) ? Number(occurrenceIndex) : 0}">
+                        <div class="canopy-inline-sheet-shell">
+                            <div class="canopy-inline-sheet-header">
+                                <div class="canopy-inline-sheet-heading">
+                                    <div class="canopy-inline-sheet-kicker">Inline spreadsheet editor</div>
+                                    <input type="text"
+                                           class="form-control canopy-inline-sheet-title-input"
+                                           value="${titleValue}"
+                                           placeholder="Sheet title"
+                                           data-sheet-title-input="1"
+                                           oninput="canopyInlineSheetRefreshEditor(this)">
+                                </div>
+                                <div class="canopy-inline-sheet-toolbar">
+                                    <button type="button" class="btn btn-sm btn-outline-light canopy-inline-sheet-action" onclick="canopyInlineSheetAddRow(this)">
+                                        <i class="bi bi-plus-square"></i><span>Row</span>
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-light canopy-inline-sheet-action" onclick="canopyInlineSheetAddColumn(this)">
+                                        <i class="bi bi-layout-three-columns"></i><span>Column</span>
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-light canopy-inline-sheet-action" onclick="canopyInlineSheetCopy(this)">
+                                        <i class="bi bi-clipboard"></i><span>Copy block</span>
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-success canopy-inline-sheet-action" onclick="canopyInlineSheetApply(this)">
+                                        <i class="bi bi-arrow-up-right-square"></i><span>Apply to editor</span>
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary canopy-inline-sheet-action" onclick="canopyInlineSheetCancelEdit(this)">
+                                        <i class="bi bi-x-circle"></i><span>Cancel</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="canopy-inline-sheet-editor-note">
+                                Edit raw cell values or formulas. Preview updates locally. Use <code>Apply to editor</code> to patch the nearest message/post editor and then save normally.
+                            </div>
+                            <div class="canopy-inline-sheet-editor-grid table-responsive">
+                                <table class="table table-sm canopy-sheet-table canopy-sheet-edit-table mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th scope="col" class="sheet-row-label"></th>
+                                            ${headerCells}
+                                        </tr>
+                                    </thead>
+                                    <tbody>${bodyRows}</tbody>
+                                </table>
+                            </div>
+                            <div class="canopy-inline-sheet-live-preview" data-sheet-live-preview>
+                                ${canopyRenderInlineSheetPreviewPanel(spec)}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            function canopyGetInlineSheetWrapper(element) {
+                return element ? element.closest('[data-inline-sheet="1"]') : null;
+            }
+
+            function canopyCollectInlineSheetSpec(wrapper) {
+                const engine = canopyGetSheetEngine();
+                if (!wrapper || !engine) return null;
+                const titleInput = wrapper.querySelector('[data-sheet-title-input]');
+                if (!titleInput) {
+                    const source = canopyDecodeSheetSource(wrapper.getAttribute('data-sheet-source'));
+                    return engine.parseInlineSheetRows(source);
+                }
+                const columns = Array.from(wrapper.querySelectorAll('[data-sheet-column-input]')).map(function(input) {
+                    return input.value || '';
+                });
+                const rows = Array.from(wrapper.querySelectorAll('[data-sheet-row]')).map(function(rowEl) {
+                    return Array.from(rowEl.querySelectorAll('[data-sheet-cell-input]')).map(function(input) {
+                        return input.value || '';
+                    });
+                });
+                return {
+                    title: titleInput.value || '',
+                    columns: columns,
+                    rows: rows,
+                };
+            }
+
+            function canopyRefreshInlineSheetHints(wrapper, spec, evaluated) {
+                const hasColumns = Array.isArray(spec.columns) && spec.columns.length > 0;
+                wrapper.querySelectorAll('[data-sheet-cell-input]').forEach(function(input) {
+                    const hint = input.parentElement ? input.parentElement.querySelector('[data-sheet-cell-hint]') : null;
+                    if (!hint) return;
+                    const raw = String(input.value || '').trim();
+                    if (!raw.startsWith('=')) {
+                        hint.textContent = '';
+                        hint.style.display = 'none';
+                        return;
+                    }
+                    const rowIndex = Number(input.getAttribute('data-sheet-row-index'));
+                    const colIndex = Number(input.getAttribute('data-sheet-col-index'));
+                    const evalRow = rowIndex + (hasColumns ? 1 : 0);
+                    const resolved = evaluated && evaluated.rows && evaluated.rows[evalRow] ? evaluated.rows[evalRow][colIndex] : null;
+                    hint.textContent = resolved ? '=> ' + String(resolved.display || '') : '';
+                    hint.style.display = '';
+                });
+            }
+
+            function canopyInlineSheetRefreshEditor(element) {
+                const wrapper = canopyGetInlineSheetWrapper(element);
+                const engine = canopyGetSheetEngine();
+                if (!wrapper || !engine) return;
+                const spec = canopyCollectInlineSheetSpec(wrapper);
+                if (!spec) return;
+                const preview = wrapper.querySelector('[data-sheet-live-preview]');
+                if (preview) {
+                    preview.innerHTML = canopyRenderInlineSheetPreviewPanel(spec);
+                }
+                const evaluated = engine.evaluateInlineSheetSpec(spec);
+                canopyRefreshInlineSheetHints(wrapper, spec, evaluated);
+            }
+
+            function canopyRenderInlineSheetEditor(wrapper, spec) {
+                if (!wrapper) return;
+                const engine = canopyGetSheetEngine();
+                const normalized = canopyCloneInlineSheetSpec(spec || {});
+                const source = engine && typeof engine.serializeInlineSheetSpec === 'function'
+                    ? engine.serializeInlineSheetSpec(normalized)
+                    : '';
+                wrapper.outerHTML = canopyRenderInlineSheetEditorMarkup(
+                    normalized,
+                    source,
+                    canopyInlineSheetLanguage(wrapper),
+                    canopyInlineSheetOccurrence(wrapper)
+                );
+            }
+
+            function canopyInlineSheetStartEdit(button) {
+                const wrapper = canopyGetInlineSheetWrapper(button);
+                const engine = canopyGetSheetEngine();
+                if (!wrapper || !engine) return;
+                const source = canopyDecodeSheetSource(wrapper.getAttribute('data-sheet-source'));
+                const spec = engine.parseInlineSheetRows(source);
+                if (!spec) return;
+                canopyRenderInlineSheetEditor(wrapper, spec);
+            }
+
+            function canopyInlineSheetCancelEdit(button) {
+                const wrapper = canopyGetInlineSheetWrapper(button);
+                const engine = canopyGetSheetEngine();
+                if (!wrapper || !engine) return;
+                const source = canopyDecodeSheetSource(wrapper.getAttribute('data-sheet-source'));
+                const spec = engine.parseInlineSheetRows(source);
+                const evaluated = spec ? engine.evaluateInlineSheetSpec(spec) : null;
+                if (!spec || !evaluated) return;
+                wrapper.outerHTML = canopyRenderInlineSheetView(
+                    spec,
+                    evaluated,
+                    source,
+                    canopyInlineSheetLanguage(wrapper),
+                    canopyInlineSheetOccurrence(wrapper)
+                );
+            }
+
+            function canopyInlineSheetAddRow(button) {
+                const wrapper = canopyGetInlineSheetWrapper(button);
+                const spec = canopyCollectInlineSheetSpec(wrapper);
+                if (!wrapper || !spec) return;
+                const width = Math.max(1, Array.isArray(spec.columns) ? spec.columns.length : 0, ...(spec.rows || []).map(function(row) { return row.length; }));
+                spec.rows.push(Array.from({ length: width }, function() { return ''; }));
+                canopyRenderInlineSheetEditor(wrapper, spec);
+            }
+
+            function canopyInlineSheetAddColumn(button) {
+                const wrapper = canopyGetInlineSheetWrapper(button);
+                const spec = canopyCollectInlineSheetSpec(wrapper);
+                if (!wrapper || !spec) return;
+                spec.columns.push('');
+                spec.rows = (spec.rows || []).map(function(row) {
+                    const next = Array.isArray(row) ? row.slice() : [];
+                    next.push('');
+                    return next;
+                });
+                canopyRenderInlineSheetEditor(wrapper, spec);
+            }
+
+            function canopyInlineSheetRemoveRow(button, rowIndex) {
+                const wrapper = canopyGetInlineSheetWrapper(button);
+                const spec = canopyCollectInlineSheetSpec(wrapper);
+                if (!wrapper || !spec) return;
+                spec.rows.splice(Number(rowIndex), 1);
+                canopyRenderInlineSheetEditor(wrapper, spec);
+            }
+
+            function canopyInlineSheetRemoveColumn(button, colIndex) {
+                const wrapper = canopyGetInlineSheetWrapper(button);
+                const spec = canopyCollectInlineSheetSpec(wrapper);
+                if (!wrapper || !spec) return;
+                spec.columns.splice(Number(colIndex), 1);
+                spec.rows = (spec.rows || []).map(function(row) {
+                    const next = Array.isArray(row) ? row.slice() : [];
+                    next.splice(Number(colIndex), 1);
+                    return next;
+                });
+                canopyRenderInlineSheetEditor(wrapper, spec);
+            }
+
+            function canopyCopyTextToClipboard(text) {
+                const value = String(text || '');
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    return navigator.clipboard.writeText(value);
+                }
+                const ta = document.createElement('textarea');
+                ta.value = value;
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                return Promise.resolve();
+            }
+
+            function canopyBuildInlineSheetBody(wrapper) {
+                const engine = canopyGetSheetEngine();
+                if (!engine) return '';
+                const spec = canopyCollectInlineSheetSpec(wrapper);
+                if (!spec) return '';
+                return engine.serializeInlineSheetSpec(spec);
+            }
+
+            function canopyInlineSheetCopy(button) {
+                const wrapper = canopyGetInlineSheetWrapper(button);
+                if (!wrapper) return;
+                const body = canopyBuildInlineSheetBody(wrapper) || canopyDecodeSheetSource(wrapper.getAttribute('data-sheet-source'));
+                canopyCopyTextToClipboard(canopyInlineSheetFence(body, canopyInlineSheetLanguage(wrapper)))
+                    .then(function() {
+                        if (typeof showAlert === 'function') showAlert('Sheet block copied to clipboard', 'success');
+                    })
+                    .catch(function() {
+                        if (typeof showAlert === 'function') showAlert('Could not copy sheet block', 'danger');
+                    });
+            }
+
+            function canopyWaitForTextarea(getter, timeoutMs) {
+                const timeout = Number(timeoutMs || 1200);
+                return new Promise(function(resolve) {
+                    const started = Date.now();
+                    (function poll() {
+                        const el = getter();
+                        if (el) {
+                            resolve(el);
+                            return;
+                        }
+                        if (Date.now() - started >= timeout) {
+                            resolve(null);
+                            return;
+                        }
+                        window.setTimeout(poll, 40);
+                    })();
+                });
+            }
+
+            function canopyInsertSheetAtSelection(textarea, blockText) {
+                const value = String(textarea.value || '');
+                const start = typeof textarea.selectionStart === 'number' ? textarea.selectionStart : value.length;
+                const end = typeof textarea.selectionEnd === 'number' ? textarea.selectionEnd : value.length;
+                const prefix = start > 0 && !/\n$/.test(value.slice(0, start)) ? '\n\n' : '';
+                const suffix = end < value.length && !/^\n/.test(value.slice(end)) ? '\n\n' : '';
+                textarea.value = value.slice(0, start) + prefix + blockText + suffix + value.slice(end);
+                const caret = start + prefix.length + blockText.length;
+                if (typeof textarea.setSelectionRange === 'function') {
+                    textarea.setSelectionRange(caret, caret);
+                }
+            }
+
+            async function canopyResolveInlineSheetTargetTextarea(wrapper) {
+                const activeCandidates = [
+                    wrapper && wrapper.closest('.message-item[data-message-id]') ? wrapper.closest('.message-item[data-message-id]').querySelector('.channel-inline-editor textarea[data-inline-edit-content]') : null,
+                    wrapper && wrapper.closest('.post-card[data-post-id]') ? wrapper.closest('.post-card[data-post-id]').querySelector('.feed-inline-editor textarea[data-inline-post-content]') : null,
+                    wrapper && wrapper.closest('.message-item[data-message-id]') ? wrapper.closest('.message-item[data-message-id]').querySelector('.dm-inline-editor textarea[data-inline-dm-content]') : null,
+                ].filter(Boolean);
+                if (activeCandidates.length) return activeCandidates[0];
+
+                const postCard = wrapper ? wrapper.closest('.post-card[data-post-id]') : null;
+                if (postCard && typeof editPost === 'function') {
+                    const postId = postCard.getAttribute('data-post-id');
+                    editPost(postId);
+                    return canopyWaitForTextarea(function() {
+                        return postCard.querySelector('.feed-inline-editor textarea[data-inline-post-content]');
+                    });
+                }
+
+                const messageCard = wrapper ? wrapper.closest('.message-item[data-message-id]') : null;
+                if (messageCard) {
+                    const messageId = messageCard.getAttribute('data-message-id');
+                    if (typeof editChannelMessage === 'function' && messageCard.querySelector('.message-actions [onclick*="editChannelMessage"]')) {
+                        editChannelMessage(messageId);
+                        return canopyWaitForTextarea(function() {
+                            return messageCard.querySelector('.channel-inline-editor textarea[data-inline-edit-content]');
+                        });
+                    }
+                    if (typeof editMessage === 'function' && messageCard.querySelector('[data-message-actions] [onclick*="editMessage"]')) {
+                        editMessage(messageId);
+                        return canopyWaitForTextarea(function() {
+                            return messageCard.querySelector('.dm-inline-editor textarea[data-inline-dm-content]');
+                        });
+                    }
+                }
+
+                const composerCandidates = [
+                    document.activeElement && document.activeElement.matches && document.activeElement.matches('textarea') ? document.activeElement : null,
+                    document.getElementById('message-input'),
+                    document.getElementById('postContent'),
+                    document.getElementById('messageContent'),
+                ].filter(Boolean);
+                if (composerCandidates.length) return composerCandidates[0];
+
+                return null;
+            }
+
+            async function canopyInlineSheetApply(button) {
+                const wrapper = canopyGetInlineSheetWrapper(button);
+                if (!wrapper) return;
+                const body = canopyBuildInlineSheetBody(wrapper) || canopyDecodeSheetSource(wrapper.getAttribute('data-sheet-source'));
+                const originalBody = canopyDecodeSheetSource(wrapper.getAttribute('data-sheet-source'));
+                const language = canopyInlineSheetLanguage(wrapper);
+                const textarea = await canopyResolveInlineSheetTargetTextarea(wrapper);
+                if (!textarea) {
+                    return canopyCopyTextToClipboard(canopyInlineSheetFence(body, language))
+                        .then(function() {
+                            if (typeof showAlert === 'function') {
+                                showAlert('No editable message or composer was available. The sheet block was copied instead.', 'info');
+                            }
+                        })
+                        .catch(function() {
+                            if (typeof showAlert === 'function') {
+                                showAlert('No editable message or composer was available, and copying the sheet block failed.', 'danger');
+                            }
+                        });
+                }
+
+                const replaced = canopyReplaceInlineSheetBlock(
+                    textarea.value,
+                    originalBody,
+                    body,
+                    language,
+                    canopyInlineSheetOccurrence(wrapper)
+                );
+                if (replaced == null) {
+                    canopyInsertSheetAtSelection(textarea, canopyInlineSheetFence(body, language));
+                } else {
+                    textarea.value = replaced;
+                }
+                wrapper.setAttribute('data-sheet-source', canopyEncodeSheetSource(body));
+                textarea.dispatchEvent(new Event('input', { bubbles: true }));
+                textarea.focus();
+                if (typeof showAlert === 'function') {
+                    showAlert('Sheet applied to the editor. Save the message or post to persist it.', 'success');
+                }
+            }
+
+            if (typeof window !== 'undefined') {
+                window.canopyInlineSheetAddColumn = canopyInlineSheetAddColumn;
+                window.canopyInlineSheetAddRow = canopyInlineSheetAddRow;
+                window.canopyInlineSheetApply = canopyInlineSheetApply;
+                window.canopyInlineSheetCancelEdit = canopyInlineSheetCancelEdit;
+                window.canopyInlineSheetCopy = canopyInlineSheetCopy;
+                window.canopyInlineSheetRefreshEditor = canopyInlineSheetRefreshEditor;
+                window.canopyInlineSheetRemoveColumn = canopyInlineSheetRemoveColumn;
+                window.canopyInlineSheetRemoveRow = canopyInlineSheetRemoveRow;
+                window.canopyInlineSheetStartEdit = canopyInlineSheetStartEdit;
+            }
+
+            function renderInlineSheetBlock(body, language, occurrenceIndex) {
+                const engine = canopyGetSheetEngine();
+                const spec = engine && typeof engine.parseInlineSheetRows === 'function'
+                    ? engine.parseInlineSheetRows(body)
+                    : null;
+                if (!spec) {
+                    return renderInlineSheetFallback(body);
+                }
+                const evaluated = engine && typeof engine.evaluateInlineSheetSpec === 'function'
+                    ? engine.evaluateInlineSheetSpec(spec)
+                    : null;
+                if (!evaluated) {
+                    return renderInlineSheetFallback(body);
+                }
+                return canopyRenderInlineSheetView(
+                    spec,
+                    evaluated,
+                    String(body || '').trim(),
+                    language || 'sheet',
+                    occurrenceIndex
+                );
+            }
+
             let _channelIndexPromise = null;
             let _channelIndexMap = null;
             let _channelIndexList = null;
@@ -639,23 +1475,31 @@
 		        function renderRichContent(text) {
 	            if (!text) return '';
 
+	            const rawText = String(text);
+            const protectedBlocks = [];
+            const BLOCK_PLACEHOLDER = '\x00BLOCK_';
+            let sheetBlockOccurrence = 0;
+            const protectedText = rawText.replace(/```([A-Za-z0-9_-]+)?\n?([\s\S]*?)```/g, function(match, language, body) {
+                const lang = String(language || '').trim().toLowerCase();
+                const inner = String(body || '').replace(/^\n/, '').replace(/\n$/, '');
+                const idx = protectedBlocks.length;
+                if (lang === 'sheet' || lang === 'spreadsheet') {
+                    protectedBlocks.push(renderInlineSheetBlock(inner, lang, sheetBlockOccurrence));
+                    sheetBlockOccurrence += 1;
+                } else {
+                    const escaped = _escapeHtml(inner.trim());
+                    protectedBlocks.push('<div class="channel-code-wrap position-relative mb-2">' +
+                        '<button type="button" class="channel-code-copy-btn btn btn-sm position-absolute top-0 end-0 m-1" title="Copy to clipboard" aria-label="Copy">' +
+                        '<i class="bi bi-clipboard"></i></button>' +
+                        '<pre class="channel-code p-2 pe-4 rounded mb-0" style="background:var(--canopy-bg-tertiary); border:1px solid var(--canopy-border); overflow-x:auto;"><code>' + escaped + '</code></pre></div>');
+                }
+                return BLOCK_PLACEHOLDER + idx + '\x00';
+            });
+
 	            // Escape HTML first to prevent XSS
             const div = document.createElement('div');
-            div.textContent = text;
+            div.textContent = protectedText;
             let html = div.innerHTML;
-
-            // Preserve code blocks without parsing mentions/links inside them
-            const codeBlocks = [];
-            const CODE_PLACEHOLDER = '\x00CODE_';
-            html = html.replace(/```[\s\S]*?```/g, function(match) {
-                var inner = match.slice(3, -3).trim();
-                const idx = codeBlocks.length;
-                codeBlocks.push('<div class="channel-code-wrap position-relative mb-2">' +
-                    '<button type="button" class="channel-code-copy-btn btn btn-sm position-absolute top-0 end-0 m-1" title="Copy to clipboard" aria-label="Copy">' +
-                    '<i class="bi bi-clipboard"></i></button>' +
-                    '<pre class="channel-code p-2 pe-4 rounded mb-0" style="background:var(--canopy-bg-tertiary); border:1px solid var(--canopy-border); overflow-x:auto;"><code>' + inner + '</code></pre></div>');
-                return CODE_PLACEHOLDER + idx + '\x00';
-            });
 
             html = linkifyMentions(html);
             html = linkifyChannels(html);
@@ -767,8 +1611,8 @@
                 textPart = textPart.trim();
                 let out = '';
                 if (textPart) {
-                    const hasCode = textPart.includes(CODE_PLACEHOLDER);
-                    if (hasCode) {
+                    const hasProtectedBlock = textPart.includes(BLOCK_PLACEHOLDER);
+                    if (hasProtectedBlock) {
                         out += '<div class="mb-1">' + textPart + '</div>';
                     } else {
                         out += '<p class="mb-1">' + textPart + '</p>';
@@ -781,9 +1625,9 @@
                 html = html.replace(EMBED_PLACEHOLDER + '0\x00', embeds[0]);
             }
 
-	            if (codeBlocks.length) {
-	                for (let i = 0; i < codeBlocks.length; i++) {
-	                    html = html.replace(CODE_PLACEHOLDER + i + '\x00', codeBlocks[i]);
+	            if (protectedBlocks.length) {
+	                for (let i = 0; i < protectedBlocks.length; i++) {
+	                    html = html.replace(BLOCK_PLACEHOLDER + i + '\x00', protectedBlocks[i]);
 	                }
 	            }
 
@@ -797,7 +1641,7 @@
 
 	            // Wrap in paragraph or div (div if we have block elements like <pre> so markup stays valid)
             if (!html.includes('embed-preview') && !html.includes('embed-grid')) {
-                if (html.includes('<pre') || html.includes('<pre ')) {
+                if (html.includes('<pre') || html.includes('<pre ') || html.includes('<div') || html.includes('<table')) {
                     html = '<div class="rich-content">' + html + '</div>';
                 } else {
                     html = '<p class="mb-0">' + html + '</p>';
@@ -2252,6 +3096,15 @@
 	                return sender || recipient || null;
 	            }
 
+            function directMessageInvolvesLocalUser(evt) {
+                if (!evt || evt.kind !== 'direct_message') return true;
+                const ref = evt.ref || {};
+                const sender = ref.sender_id || '';
+                const recipient = ref.recipient_id || '';
+                if (!localUserId) return true;
+                return sender === localUserId || recipient === localUserId;
+            }
+
             function eventRefKey(evt) {
                 if (!evt) return null;
                 const ref = evt.ref || {};
@@ -2519,6 +3372,7 @@
                             const ref = evt.ref || {};
                             const originUser = ref.user_id || ref.sender_id || ref.author_id || '';
                             if (localUserId && originUser === localUserId) return;
+                            if (!directMessageInvolvesLocalUser(evt)) return;
 
                             recordEvent(evt);
                         });
