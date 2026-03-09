@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.58] - 2026-03-09
+
+### Fixed
+- **DM search and scroll layout fixes** — DM search now pages through relevant message history before filtering decrypted content and attachment metadata, so older encrypted-at-rest matches are no longer missed behind newer non-matching rows. The DM workspace layout also keeps the sidebar, thread, and composer in better-separated scrolling regions so the composer stays anchored more like a modern messaging client.
+
+---
+
 ## [0.4.57] - 2026-03-09
 
 ### Fixed

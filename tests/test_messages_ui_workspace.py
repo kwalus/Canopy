@@ -231,6 +231,99 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertIn('/ajax/messages/thread_snapshot', body)
         self.assertIn("function refreshMessages() {\n        loadDmSnapshot(", body)
         self.assertIn('/ajax/mention_suggestions?', body)
+        self.assertIn('setupMessageDropzone();', body)
+        self.assertIn("composer.addEventListener('drop'", body)
+        self.assertNotIn("threadPane.addEventListener('paste'", body)
+        self.assertIn('grid-template-rows: auto minmax(0, 1fr);', body)
+        self.assertIn('position: sticky;', body)
+
+    def test_messages_search_renders_matching_results(self) -> None:
+        response = self.client.get('/messages?search=relay')
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn('Search DMs and group chats', body)
+        self.assertIn('Relay delivered through broker', body)
+
+    def test_message_search_decrypts_before_matching(self) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO messages (
+                id, sender_id, recipient_id, content, message_type, status,
+                created_at, delivered_at, read_at, edited_at, metadata
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                'DM-encrypted', 'peer-a', 'owner', 'cipher:relay', 'text', 'delivered',
+                '2026-03-07T10:09:00+00:00', '2026-03-07T10:09:01+00:00', None, None, None,
+            ),
+        )
+        self.conn.commit()
+        self.message_manager.data_encryptor = types.SimpleNamespace(
+            is_enabled=True,
+            decrypt=lambda value: 'relay decrypted note' if value == 'cipher:relay' else value,
+        )
+
+        results = self.message_manager.search_messages('owner', 'decrypted', limit=20)
+
+        self.assertTrue(any(message.id == 'DM-encrypted' for message in results))
+
+    def test_message_search_pages_past_recent_non_matches_for_older_encrypted_hit(self) -> None:
+        newer_rows = []
+        for index in range(405):
+            newer_rows.append(
+                (
+                    f'DM-filler-{index}',
+                    'peer-a',
+                    'owner',
+                    f'noise message {index}',
+                    'text',
+                    'delivered',
+                    f'2026-03-08T11:{index // 60:02d}:{index % 60:02d}+00:00',
+                    f'2026-03-08T11:{index // 60:02d}:{index % 60:02d}+00:00',
+                    None,
+                    None,
+                    None,
+                )
+            )
+        self.conn.executemany(
+            """
+            INSERT INTO messages (
+                id, sender_id, recipient_id, content, message_type, status,
+                created_at, delivered_at, read_at, edited_at, metadata
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            newer_rows,
+        )
+        self.conn.execute(
+            """
+            INSERT INTO messages (
+                id, sender_id, recipient_id, content, message_type, status,
+                created_at, delivered_at, read_at, edited_at, metadata
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                'DM-older-encrypted',
+                'peer-a',
+                'owner',
+                'cipher:older-hit',
+                'text',
+                'delivered',
+                '2026-03-07T09:59:00+00:00',
+                '2026-03-07T09:59:01+00:00',
+                None,
+                None,
+                None,
+            ),
+        )
+        self.conn.commit()
+        self.message_manager.data_encryptor = types.SimpleNamespace(
+            is_enabled=True,
+            decrypt=lambda value: 'very old relay search hit' if value == 'cipher:older-hit' else value,
+        )
+
+        results = self.message_manager.search_messages('owner', 'relay search hit', limit=20)
+
+        self.assertTrue(any(message.id == 'DM-older-encrypted' for message in results))
 
     def test_ajax_messages_thread_snapshot_returns_partial_fragments(self) -> None:
         response = self.client.get('/ajax/messages/thread_snapshot?with=peer-a')
