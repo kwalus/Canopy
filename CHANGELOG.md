@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.56] - 2026-03-09
+
+### Changed
+- **Mesh connectivity reliability hardening** — Reconnect now prefers current discovery-backed peer endpoints over stale persisted ones, while endpoint-level diagnostics retain source, attempt, and failure history so operators can see why a peer is not connectable instead of only seeing generic reconnect churn.
+
+### Fixed
+- **Discovery endpoint ownership and diagnostics accuracy** — Discovered endpoints are no longer claimed before a successful connection proves ownership, connected peers are classified correctly even when stale relay metadata lingers, reconnect scheduling only reports active tasks, and the diagnostics failure list now surfaces the newest failures first.
+
+---
+
 ## [0.4.55] - 2026-03-08
 
 ### Changed

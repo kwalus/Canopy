@@ -45,6 +45,7 @@ def _make_mock_p2p_manager(
     im = MagicMock()
     im.peer_display_names = {}
     im.peer_endpoints = {}
+    im.known_peers = {}
 
     conn_mgr = MagicMock()
     conn_mgr.get_connection.return_value = None
@@ -54,12 +55,15 @@ def _make_mock_p2p_manager(
     p2p.connection_manager = conn_mgr
     p2p._active_relays = active_relays
     p2p.get_connected_peers.return_value = connected_peers
+    p2p.get_discovered_peers.return_value = []
+    p2p.get_peer_endpoint_diagnostics.return_value = []
     p2p.get_activity_events.return_value = activity_events
     p2p.get_relay_status.return_value = {
         'relay_policy': relay_policy,
         'active_relays': active_relays,
         'routing_table': {},
     }
+    p2p._reconnect_tasks = {}
     return p2p
 
 
@@ -148,7 +152,7 @@ class TestConnectionDiagnosticsEndpoint(unittest.TestCase):
 
     def test_relayed_peer_is_reported_as_relayed(self):
         """A peer in active_relays is labelled as a relayed connection."""
-        self.p2p_manager.get_connected_peers.return_value = ['peer-abc']
+        self.p2p_manager.get_connected_peers.return_value = []
         self.p2p_manager._active_relays = {'peer-abc': 'relay-xyz'}
         self.p2p_manager.identity_manager.peer_display_names = {'relay-xyz': 'Relay Node'}
         self._authenticate()
@@ -160,6 +164,18 @@ class TestConnectionDiagnosticsEndpoint(unittest.TestCase):
         self.assertEqual(peers[0]['connection_type'], 'relayed')
         self.assertEqual(peers[0]['relay_via'], 'relay-xyz')
         self.assertEqual(peers[0]['relay_via_name'], 'Relay Node')
+
+    def test_connected_peer_wins_over_stale_relay_marker(self):
+        """A live connected peer should still be shown as direct."""
+        self.p2p_manager.get_connected_peers.return_value = ['peer-abc']
+        self.p2p_manager._active_relays = {'peer-abc': 'relay-xyz'}
+        self._authenticate()
+        with patch('canopy.network.invite.generate_invite', side_effect=Exception('no-op')):
+            response = self.client.get('/ajax/connection_diagnostics')
+        data = response.get_json()
+        peers = data.get('peers', [])
+        self.assertEqual(len(peers), 1)
+        self.assertEqual(peers[0]['connection_type'], 'direct')
 
     def test_relay_only_peer_included_in_peers(self):
         """A peer in active_relays but not directly connected appears in the list."""
@@ -191,6 +207,24 @@ class TestConnectionDiagnosticsEndpoint(unittest.TestCase):
         data = response.get_json()
         self.assertLessEqual(len(data.get('recent_failures', [])), 5)
 
+    def test_recent_failures_prefers_most_recent_entries(self):
+        """The diagnostics feed should show the newest failures first."""
+        events = [
+            {
+                'kind': 'connection', 'status': 'failed',
+                'peer_id': f'peer-{i}', 'endpoint': f'ws://x:{i}',
+                'detail': f'failure-{i}', 'timestamp': 1000.0 + i,
+            }
+            for i in range(10)
+        ]
+        self.p2p_manager.get_activity_events.return_value = events
+        self._authenticate()
+        with patch('canopy.network.invite.generate_invite', side_effect=Exception('no-op')):
+            response = self.client.get('/ajax/connection_diagnostics')
+        data = response.get_json()
+        failures = data.get('recent_failures', [])
+        self.assertEqual([item['peer_id'] for item in failures[:3]], ['peer-9', 'peer-8', 'peer-7'])
+
     def test_latency_included_when_available(self):
         """Peer latency is included when the connection object tracks it."""
         self.p2p_manager.get_connected_peers.return_value = ['peer-abc']
@@ -218,6 +252,69 @@ class TestConnectionDiagnosticsEndpoint(unittest.TestCase):
             sess['user_id'] = 'test-user'
         response = client.get('/ajax/connection_diagnostics')
         self.assertEqual(response.status_code, 503)
+
+    def test_disconnected_known_peer_included_with_endpoint_details(self):
+        """Known but disconnected peers should still appear with endpoint diagnostics."""
+        self.p2p_manager.identity_manager.known_peers = {'peer-abc': object()}
+        self.p2p_manager.identity_manager.peer_endpoints = {
+            'peer-abc': ['ws://192.168.1.50:7771']
+        }
+        self.p2p_manager.get_discovered_peers.return_value = [
+            {
+                'peer_id': 'peer-abc',
+                'address': '192.168.1.50',
+                'addresses': ['192.168.1.50'],
+                'port': 7771,
+                'connected': False,
+            }
+        ]
+        self.p2p_manager.get_peer_endpoint_diagnostics.side_effect = lambda peer_id: (
+            [{
+                'endpoint': 'ws://192.168.1.50:7771',
+                'sources': ['stored', 'discovered'],
+                'currently_connected': False,
+                'attempt_count': 2,
+                'success_count': 0,
+                'consecutive_failures': 2,
+                'last_attempt_at': 2000.0,
+                'last_success_at': None,
+                'last_failure_at': 2000.0,
+                'last_failure_reason': 'timeout',
+                'last_failure_detail': 'Connection timed out',
+                'last_status': 'failed',
+            }] if peer_id == 'peer-abc' else []
+        )
+        self._authenticate()
+        with patch('canopy.network.invite.generate_invite', side_effect=Exception('no-op')):
+            response = self.client.get('/ajax/connection_diagnostics')
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        peers = data.get('peers', [])
+        self.assertEqual(len(peers), 1)
+        self.assertEqual(peers[0]['peer_id'], 'peer-abc')
+        self.assertEqual(peers[0]['connection_type'], 'known')
+        self.assertTrue(peers[0]['discovered'])
+        self.assertEqual(peers[0]['endpoint_details'][0]['sources'], ['stored', 'discovered'])
+        self.assertEqual(peers[0]['last_failure']['reason'], 'timeout')
+
+    def test_completed_reconnect_task_is_not_reported_as_scheduled(self):
+        """Finished reconnect tasks should not look active in diagnostics."""
+        class _DoneTask:
+            def cancelled(self):
+                return False
+
+            def done(self):
+                return True
+
+        self.p2p_manager.identity_manager.known_peers = {'peer-abc': object()}
+        self.p2p_manager._reconnect_tasks = {'peer-abc': _DoneTask()}
+        self._authenticate()
+        with patch('canopy.network.invite.generate_invite', side_effect=Exception('no-op')):
+            response = self.client.get('/ajax/connection_diagnostics')
+        data = response.get_json()
+        peers = data.get('peers', [])
+        self.assertEqual(len(peers), 1)
+        self.assertFalse(peers[0]['reconnect_scheduled'])
 
 
 if __name__ == '__main__':

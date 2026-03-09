@@ -191,6 +191,7 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
         )
         manager.connection_manager = types.SimpleNamespace(
             get_connected_peers=lambda: ['peer-remote'],
+            get_connection=lambda peer_id: types.SimpleNamespace(capabilities={}),
             connections={'peer-remote': types.SimpleNamespace(address='10.99.0.8')},
         )
         manager.get_peer_device_profile = None
@@ -253,6 +254,55 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
                 pass
 
         self.assertIn(manager._RECONNECT_MAX_BACKOFF_STAGE + 1, attempts)
+
+    async def test_startup_reconnect_prefers_discovered_endpoints_over_stale_persisted(self) -> None:
+        manager = self._build_manager()
+        manager.identity_manager.known_peers['peer-remote'] = types.SimpleNamespace()
+        manager.identity_manager.peer_endpoints['peer-remote'] = ['ws://10.0.0.2:7771']
+        manager.discovery = types.SimpleNamespace(
+            get_peer=lambda peer_id: DiscoveredPeer(
+                peer_id=peer_id,
+                address='192.168.1.100',
+                addresses=['192.168.1.100'],
+                port=7771,
+                discovered_at=0.0,
+            )
+        )
+        attempts: list[str] = []
+        sync_calls: list[str] = []
+        connected_peers: set[str] = set()
+
+        async def _connect(peer_id: str, endpoint: str) -> bool:
+            attempts.append(endpoint)
+            if endpoint == 'ws://192.168.1.100:7771':
+                connected_peers.add(peer_id)
+                return True
+            return False
+
+        async def _enqueue(peer_id: str) -> None:
+            sync_calls.append(peer_id)
+
+        manager._connect_to_endpoint = _connect  # type: ignore[assignment]
+        manager._enqueue_sync = _enqueue  # type: ignore[assignment]
+        manager.connection_manager = types.SimpleNamespace(
+            is_connected=lambda peer_id: peer_id in connected_peers
+        )
+
+        original_sleep = asyncio.sleep
+
+        async def _fast_sleep(_delay: float) -> None:
+            return None
+
+        with patch('canopy.network.manager.asyncio.sleep', new=_fast_sleep):
+            await manager._reconnect_known_peers()
+        await original_sleep(0)
+
+        self.assertEqual(attempts, ['ws://192.168.1.100:7771'])
+        self.assertEqual(sync_calls, ['peer-remote'])
+        self.assertIn(
+            'ws://192.168.1.100:7771',
+            manager.identity_manager.peer_endpoints.get('peer-remote', []),
+        )
 
 
 if __name__ == '__main__':

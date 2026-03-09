@@ -13577,8 +13577,43 @@ def create_ui_blueprint() -> Blueprint:
             conn_mgr = getattr(p2p_manager, 'connection_manager', None)
             active_relays = dict(getattr(p2p_manager, '_active_relays', {}))
 
+            connected_peer_ids = list(p2p_manager.get_connected_peers() or [])
+            discovered_rows = []
+            try:
+                discovered_rows = list(p2p_manager.get_discovered_peers() or [])
+            except Exception:
+                discovered_rows = []
+
+            discovered_by_peer: dict[str, dict[str, Any]] = {}
+            for row in discovered_rows:
+                if not isinstance(row, dict):
+                    continue
+                peer_id = str(row.get('peer_id') or '').strip()
+                if peer_id:
+                    discovered_by_peer[peer_id] = row
+
+            ordered_peer_ids: list[str] = []
+            for peer_id in connected_peer_ids:
+                if peer_id and peer_id not in ordered_peer_ids:
+                    ordered_peer_ids.append(peer_id)
+            for peer_id in active_relays.keys():
+                if peer_id and peer_id not in ordered_peer_ids:
+                    ordered_peer_ids.append(peer_id)
+            for peer_id in (getattr(im, 'known_peers', {}) or {}).keys():
+                if peer_id and peer_id not in ordered_peer_ids:
+                    ordered_peer_ids.append(peer_id)
+            for peer_id in (getattr(im, 'peer_endpoints', {}) or {}).keys():
+                if peer_id and peer_id not in ordered_peer_ids:
+                    ordered_peer_ids.append(peer_id)
+            for peer_id in discovered_by_peer.keys():
+                if peer_id and peer_id not in ordered_peer_ids:
+                    ordered_peer_ids.append(peer_id)
+
             peers: list[dict[str, Any]] = []
-            for peer_id in p2p_manager.get_connected_peers():
+            endpoint_diagnostics_fn = getattr(p2p_manager, 'get_peer_endpoint_diagnostics', None)
+            reconnect_tasks = getattr(p2p_manager, '_reconnect_tasks', {}) or {}
+            for peer_id in ordered_peer_ids:
+                is_connected_peer = peer_id in connected_peer_ids
                 is_relayed = peer_id in active_relays
                 relay_via = active_relays.get(peer_id)
                 relay_via_name: Optional[str] = None
@@ -13589,40 +13624,73 @@ def create_ui_blueprint() -> Blueprint:
                     )
                 conn = conn_mgr.get_connection(peer_id) if conn_mgr else None
                 latency_ms = getattr(conn, 'last_ping_latency_ms', None) if conn else None
+                endpoint_details: list[dict[str, Any]] = []
+                if callable(endpoint_diagnostics_fn):
+                    try:
+                        endpoint_details = list(endpoint_diagnostics_fn(peer_id) or [])
+                    except Exception:
+                        endpoint_details = []
+                if not endpoint_details:
+                    endpoint_details = [
+                        {
+                            'endpoint': endpoint,
+                            'sources': ['stored'],
+                            'currently_connected': False,
+                            'attempt_count': 0,
+                            'success_count': 0,
+                            'consecutive_failures': 0,
+                            'last_attempt_at': None,
+                            'last_success_at': None,
+                            'last_failure_at': None,
+                            'last_failure_reason': None,
+                            'last_failure_detail': None,
+                            'last_status': None,
+                        }
+                        for endpoint in list((getattr(im, 'peer_endpoints', {}) or {}).get(peer_id, []))
+                    ]
+                last_failure = None
+                last_failure_at = None
+                for item in endpoint_details:
+                    candidate_ts = item.get('last_failure_at')
+                    if candidate_ts is None:
+                        continue
+                    if last_failure_at is None or candidate_ts > last_failure_at:
+                        last_failure_at = candidate_ts
+                        last_failure = {
+                            'endpoint': item.get('endpoint'),
+                            'reason': item.get('last_failure_reason'),
+                            'detail': item.get('last_failure_detail'),
+                            'timestamp': candidate_ts,
+                        }
+                reconnect_task = reconnect_tasks.get(peer_id)
+                reconnect_scheduled = False
+                if reconnect_task is not None:
+                    try:
+                        cancelled = getattr(reconnect_task, 'cancelled', lambda: False)()
+                        done = getattr(reconnect_task, 'done', lambda: False)()
+                        reconnect_scheduled = not cancelled and not done
+                    except Exception:
+                        reconnect_scheduled = True
+                discovered_entry = discovered_by_peer.get(peer_id, {})
                 peers.append({
                     'peer_id': peer_id,
                     'display_name': im.peer_display_names.get(peer_id, ''),
-                    'connection_type': 'relayed' if is_relayed else 'direct',
+                    'connection_type': 'direct' if is_connected_peer else ('relayed' if is_relayed else 'known'),
                     'relay_via': relay_via,
                     'relay_via_name': relay_via_name,
                     'latency_ms': latency_ms,
                     'connected_at': conn.connected_at if conn else None,
                     'last_activity': conn.last_activity if conn else None,
-                    'endpoints': list(im.peer_endpoints.get(peer_id, [])),
+                    'endpoints': [item.get('endpoint') for item in endpoint_details if item.get('endpoint')],
+                    'endpoint_details': endpoint_details,
+                    'discovered': bool(discovered_entry),
+                    'reconnect_scheduled': reconnect_scheduled,
+                    'last_failure': last_failure,
                 })
-
-            direct_set = {p['peer_id'] for p in peers}
-            for dest_peer, relay_peer in active_relays.items():
-                if dest_peer not in direct_set:
-                    relay_name = (
-                        im.peer_display_names.get(relay_peer)
-                        or relay_peer[:12]
-                    )
-                    peers.append({
-                        'peer_id': dest_peer,
-                        'display_name': im.peer_display_names.get(dest_peer, ''),
-                        'connection_type': 'relayed',
-                        'relay_via': relay_peer,
-                        'relay_via_name': relay_name,
-                        'latency_ms': None,
-                        'connected_at': None,
-                        'last_activity': None,
-                        'endpoints': list(im.peer_endpoints.get(dest_peer, [])),
-                    })
 
             recent_failures: list[dict[str, Any]] = []
             try:
-                for event in p2p_manager.get_activity_events(limit=200):
+                for event in reversed(list(p2p_manager.get_activity_events(limit=200) or [])):
                     kind = event.get('kind')
                     status = (event.get('status') or '').lower()
                     if kind == 'connection' and status in {'failed', 'disconnected'}:
