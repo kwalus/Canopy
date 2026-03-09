@@ -22,6 +22,11 @@ from enum import Enum
 from .database import DatabaseManager
 from ..security.api_keys import ApiKeyManager, Permission
 from ..security.encryption import RecipientEncryptor
+from .events import (
+    EVENT_DM_MESSAGE_CREATED,
+    EVENT_DM_MESSAGE_DELETED,
+    EVENT_DM_MESSAGE_EDITED,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -414,8 +419,45 @@ class MessageManager:
         self.db = db_manager
         self.api_key_manager = api_key_manager
         self.data_encryptor = data_encryptor
+        self.workspace_events: Any = None
         self.max_message_length = 4096  # 4KB for text messages
         self.max_broadcast_recipients = 100
+
+    def _emit_dm_event(
+        self,
+        *,
+        event_type: str,
+        message: Message,
+        dedupe_key: str,
+        created_at: Optional[Any] = None,
+    ) -> None:
+        manager = self.workspace_events
+        if not manager or not message:
+            return
+        metadata = message.metadata if isinstance(message.metadata, dict) else {}
+        is_group_dm = isinstance(metadata.get('group_members'), list) and bool(metadata.get('group_members'))
+        if not message.recipient_id and not is_group_dm:
+            return
+        attachments = metadata.get('attachments') or []
+        preview = build_dm_preview(message.content or '', attachments)
+        manager.emit_event(
+            event_type=event_type,
+            actor_user_id=message.sender_id,
+            target_user_id=None,
+            message_id=message.id,
+            visibility_scope='dm',
+            dedupe_key=dedupe_key,
+            created_at=created_at or message.created_at,
+            payload={
+                'preview': preview,
+                'sender_id': message.sender_id,
+                'recipient_id': message.recipient_id,
+                'group_id': metadata.get('group_id'),
+                'group_members': metadata.get('group_members') or [],
+                'attachments_count': len(attachments) if isinstance(attachments, list) else 0,
+                'edited_at': message.edited_at.isoformat() if getattr(message, 'edited_at', None) else None,
+            },
+        )
     
     def create_message(self, sender_id: str, content: str, 
                       recipient_id: Optional[str] = None,
@@ -492,7 +534,13 @@ class MessageManager:
                     WHERE id = ?
                 """, (message.id,))
                 conn.commit()
-            
+
+            self._emit_dm_event(
+                event_type=EVENT_DM_MESSAGE_CREATED,
+                message=message,
+                dedupe_key=f"{EVENT_DM_MESSAGE_CREATED}:{message.id}",
+                created_at=message.created_at,
+            )
             logger.info(f"Sent message {message.id}")
             return True
             
@@ -679,7 +727,8 @@ class MessageManager:
             with self.db.get_connection() as conn:
                 # Check if user is the sender
                 cursor = conn.execute("""
-                    SELECT sender_id FROM messages WHERE id = ?
+                    SELECT sender_id, recipient_id, content, message_type, created_at, delivered_at, read_at, edited_at, metadata
+                    FROM messages WHERE id = ?
                 """, (message_id,))
                 
                 row = cursor.fetchone()
@@ -709,6 +758,26 @@ class MessageManager:
                 
                 if success:
                     logger.info(f"Deleted message {message_id}")
+                    deleted_message = Message(
+                        id=message_id,
+                        sender_id=row['sender_id'],
+                        recipient_id=row['recipient_id'],
+                        content=self.data_encryptor.decrypt(row['content']) if self.data_encryptor and self.data_encryptor.is_enabled else row['content'],
+                        message_type=MessageType(row['message_type']),
+                        status=MessageStatus.READ if row['read_at'] else (
+                            MessageStatus.DELIVERED if row['delivered_at'] else MessageStatus.SENT
+                        ),
+                        created_at=datetime.fromisoformat(row['created_at']),
+                        metadata=json.loads(row['metadata']) if row['metadata'] else None,
+                        delivered_at=datetime.fromisoformat(row['delivered_at']) if row['delivered_at'] else None,
+                        read_at=datetime.fromisoformat(row['read_at']) if row['read_at'] else None,
+                        edited_at=datetime.fromisoformat(row['edited_at']) if row['edited_at'] else None,
+                    )
+                    self._emit_dm_event(
+                        event_type=EVENT_DM_MESSAGE_DELETED,
+                        message=deleted_message,
+                        dedupe_key=f"{EVENT_DM_MESSAGE_DELETED}:{message_id}",
+                    )
                     # Best-effort attachment cleanup (only if unreferenced)
                     if file_manager and metadata and metadata.get('attachments'):
                         for att in metadata.get('attachments') or []:
@@ -788,6 +857,42 @@ class MessageManager:
                 )
                 conn.commit()
 
+                updated_message = Message(
+                    id=message_id,
+                    sender_id=row['sender_id'],
+                    recipient_id=None,
+                    content=content,
+                    message_type=MessageType(final_message_type),
+                    status=MessageStatus.DELIVERED,
+                    created_at=datetime.now(timezone.utc),
+                    metadata=final_metadata,
+                    edited_at=datetime.fromisoformat(edited_at_db.replace(' ', 'T') + '+00:00'),
+                )
+                recipient_row = conn.execute(
+                    "SELECT recipient_id, created_at, delivered_at, read_at FROM messages WHERE id = ?",
+                    (message_id,),
+                ).fetchone()
+                if recipient_row:
+                    updated_message.recipient_id = recipient_row['recipient_id']
+                    try:
+                        updated_message.created_at = datetime.fromisoformat(recipient_row['created_at'])
+                    except Exception:
+                        pass
+                    try:
+                        updated_message.delivered_at = datetime.fromisoformat(recipient_row['delivered_at']) if recipient_row['delivered_at'] else None
+                    except Exception:
+                        updated_message.delivered_at = None
+                    try:
+                        updated_message.read_at = datetime.fromisoformat(recipient_row['read_at']) if recipient_row['read_at'] else None
+                    except Exception:
+                        updated_message.read_at = None
+
+                self._emit_dm_event(
+                    event_type=EVENT_DM_MESSAGE_EDITED,
+                    message=updated_message,
+                    dedupe_key=f"{EVENT_DM_MESSAGE_EDITED}:{message_id}:{edited_at_db}",
+                    created_at=edited_at_db,
+                )
                 logger.info(f"Updated message {message_id}")
                 return True
         except Exception as e:

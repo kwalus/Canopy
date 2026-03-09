@@ -323,6 +323,35 @@ class DatabaseManager:
                 );
                     CREATE INDEX IF NOT EXISTS idx_agent_presence_checkin
                     ON agent_presence(last_checkin_at);
+
+                -- Local workspace event journal (additive read/delivery model)
+                CREATE TABLE IF NOT EXISTS workspace_events (
+                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_id TEXT UNIQUE NOT NULL,
+                    event_type TEXT NOT NULL,
+                    actor_user_id TEXT,
+                    target_user_id TEXT,
+                    channel_id TEXT,
+                    post_id TEXT,
+                    message_id TEXT,
+                    visibility_scope TEXT NOT NULL,
+                    dedupe_key TEXT,
+                    payload_json TEXT,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_workspace_events_created_at
+                    ON workspace_events(created_at);
+                CREATE INDEX IF NOT EXISTS idx_workspace_events_event_type_created
+                    ON workspace_events(event_type, created_at);
+                CREATE INDEX IF NOT EXISTS idx_workspace_events_target_created
+                    ON workspace_events(target_user_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_workspace_events_message_created
+                    ON workspace_events(message_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_workspace_events_channel_created
+                    ON workspace_events(channel_id, created_at);
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_events_dedupe
+                    ON workspace_events(dedupe_key)
+                    WHERE dedupe_key IS NOT NULL;
                     """)
 
                     if self._identity_portability_enabled():

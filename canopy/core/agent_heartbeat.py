@@ -97,6 +97,7 @@ def build_agent_heartbeat_snapshot(
     user_id: str,
     mention_manager: Any = None,
     inbox_manager: Any = None,
+    workspace_event_manager: Any = None,
 ) -> Dict[str, Any]:
     """
     Build a heartbeat payload for a user/agent.
@@ -120,6 +121,7 @@ def build_agent_heartbeat_snapshot(
             "last_inbox_id": None,
             "last_inbox_seq": None,
             "last_event_seq": None,
+            "workspace_event_seq": None,
             "active_tasks": 0,
             "assigned_open_tasks": 0,
             "assigned_in_progress_tasks": 0,
@@ -157,6 +159,7 @@ def build_agent_heartbeat_snapshot(
     watcher_requests = 0
     owned_handoffs = 0
     directives_hash = None
+    workspace_event_seq = None
     username = None
     display_name = None
 
@@ -359,6 +362,12 @@ def build_agent_heartbeat_snapshot(
         except Exception:
             pass
 
+    if workspace_event_manager:
+        try:
+            workspace_event_seq = workspace_event_manager.get_latest_seq()
+        except Exception:
+            workspace_event_seq = None
+
     active_tasks = assigned_open_tasks + assigned_in_progress_tasks + assigned_blocked_tasks
     pending_work_total = active_tasks + active_objectives + active_requests + owned_handoffs
     needs_catchup = (unacked_mentions > 0 or pending_inbox > 0)
@@ -384,6 +393,7 @@ def build_agent_heartbeat_snapshot(
         "last_inbox_id": last_inbox_id,
         "last_inbox_seq": last_inbox_seq,
         "last_event_seq": last_event_seq,
+        "workspace_event_seq": workspace_event_seq,
         # Backward-compatible key retained; now scoped to assigned actionable tasks.
         "active_tasks": active_tasks,
         "assigned_open_tasks": assigned_open_tasks,

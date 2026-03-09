@@ -49,6 +49,7 @@ from ..core.agent_heartbeat import (
     build_agent_heartbeat_snapshot,
     build_actionable_work_preview,
 )
+from ..core.events import PATCH1_EVENT_TYPES
 from ..core.agent_presence import (
     record_agent_checkin,
     get_agent_presence_records,
@@ -5149,6 +5150,7 @@ def create_api_blueprint() -> Blueprint:
                 user_id=user_id,
                 mention_manager=mention_manager,
                 inbox_manager=inbox_manager,
+                workspace_event_manager=current_app.config.get('WORKSPACE_EVENT_MANAGER'),
             )
             actionable_work = build_actionable_work_preview(
                 db_manager=db_manager,
@@ -5464,6 +5466,104 @@ def create_api_blueprint() -> Blueprint:
             logger.error(f"Agent catchup failed: {e}")
             return jsonify({'error': 'Internal server error'}), 500
 
+    @api.route('/events', methods=['GET'])
+    @require_auth(allow_session=True)
+    def list_workspace_events():
+        """List locally materialized workspace events visible to the caller."""
+        try:
+            workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
+            if not workspace_event_manager:
+                return jsonify({
+                    'items': [],
+                    'after_seq': 0,
+                    'next_after_seq': 0,
+                    'latest_seq': 0,
+                    'has_more': False,
+                    'supported_types': sorted(PATCH1_EVENT_TYPES),
+                })
+
+            key_info = getattr(g, 'api_key_info', None)
+            user_id = getattr(key_info, 'user_id', None) or session.get('user_id')
+            if not user_id:
+                return jsonify({'error': 'Authentication required'}), 401
+
+            after_seq_raw = request.args.get('after_seq', '0')
+            try:
+                after_seq_value = max(0, int(after_seq_raw or 0))
+            except Exception:
+                after_seq_value = 0
+            limit_raw = request.args.get('limit', '50')
+            types_raw = request.args.getlist('types')
+            if len(types_raw) == 1 and ',' in str(types_raw[0]):
+                types_raw = [part.strip() for part in str(types_raw[0]).split(',')]
+            types = [str(item).strip() for item in types_raw if str(item).strip()]
+            requested_types = [item for item in types if item in PATCH1_EVENT_TYPES]
+
+            can_read_messages = True
+            if key_info is not None:
+                can_read_messages = bool(key_info.has_permission(Permission.READ_MESSAGES))
+
+            result = workspace_event_manager.list_events_for_user(
+                user_id=user_id,
+                after_seq=after_seq_value,
+                limit=limit_raw,
+                types=requested_types or None,
+                can_read_messages=can_read_messages,
+            )
+            return jsonify({
+                'items': result.get('items', []),
+                'after_seq': after_seq_value,
+                'next_after_seq': int(result.get('next_after_seq') or 0),
+                'latest_seq': int(workspace_event_manager.get_latest_seq() or 0),
+                'has_more': bool(result.get('has_more', False)),
+                'supported_types': sorted(PATCH1_EVENT_TYPES),
+                'applied_types': requested_types,
+            })
+        except Exception as e:
+            logger.error(f"Workspace events failed: {e}")
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/events/diagnostics', methods=['GET'])
+    @require_auth(allow_session=True)
+    def workspace_event_diagnostics():
+        """Return operator diagnostics for the local workspace event journal."""
+        try:
+            workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
+            if not workspace_event_manager:
+                return jsonify({'error': 'Workspace events unavailable'}), 503
+
+            key_info = getattr(g, 'api_key_info', None)
+            caller_user_id = getattr(key_info, 'user_id', None) or session.get('user_id')
+            db_manager = current_app.config.get('DB_MANAGER')
+            owner_user_id = db_manager.get_instance_owner_user_id() if db_manager else None
+            if not caller_user_id or not owner_user_id or caller_user_id != owner_user_id:
+                return jsonify({'error': 'Only instance owner can view event diagnostics'}), 403
+
+            try:
+                limit = max(1, min(int(request.args.get('limit', 50)), 200))
+            except Exception:
+                limit = 50
+            diagnostics = workspace_event_manager.get_diagnostics(limit=limit)
+            oldest_created_at = diagnostics.get('oldest_created_at')
+            oldest_age_seconds = None
+            if oldest_created_at:
+                try:
+                    oldest_dt = datetime.fromisoformat(str(oldest_created_at).replace('Z', '+00:00'))
+                    if oldest_dt.tzinfo is None:
+                        oldest_dt = oldest_dt.replace(tzinfo=timezone.utc)
+                    oldest_age_seconds = max(
+                        0,
+                        int((datetime.now(timezone.utc) - oldest_dt).total_seconds()),
+                    )
+                except Exception:
+                    oldest_age_seconds = None
+            diagnostics['oldest_age_seconds'] = oldest_age_seconds
+            diagnostics['supported_types'] = sorted(PATCH1_EVENT_TYPES)
+            return jsonify(diagnostics)
+        except Exception as e:
+            logger.error(f"Workspace event diagnostics failed: {e}")
+            return jsonify({'error': 'Internal server error'}), 500
+
     @api.route('/agents/me/inbox/rebuild', methods=['POST'])
     @require_auth(Permission.READ_FEED)
     def agent_inbox_rebuild():
@@ -5543,6 +5643,7 @@ def create_api_blueprint() -> Blueprint:
                 user_id=user_id,
                 mention_manager=mention_manager,
                 inbox_manager=inbox_manager,
+                workspace_event_manager=current_app.config.get('WORKSPACE_EVENT_MANAGER'),
             )
             return jsonify(snapshot)
         except Exception as e:

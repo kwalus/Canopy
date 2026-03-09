@@ -59,6 +59,7 @@ from ..core.agent_presence import (
     get_agent_presence_records,
     build_agent_presence_payload,
 )
+from ..core.events import PATCH1_EVENT_TYPES
 from ..core.file_preview import build_file_preview
 from ..core.messaging import (
     build_dm_security_summary,
@@ -1299,11 +1300,13 @@ def create_ui_blueprint() -> Blueprint:
         db_manager, _, _, _, _, _, _, _, _, _, _ = get_app_components(current_app)
         mention_manager = current_app.config.get('MENTION_MANAGER')
         inbox_manager = current_app.config.get('INBOX_MANAGER')
+        workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
         return build_agent_heartbeat_snapshot(
             db_manager=db_manager,
             user_id=user_id,
             mention_manager=mention_manager,
             inbox_manager=inbox_manager,
+            workspace_event_manager=workspace_event_manager,
         )
 
     def _normalized_account_type(
@@ -4844,6 +4847,57 @@ def create_ui_blueprint() -> Blueprint:
         except Exception as e:
             logger.error(f"Admin list users error: {e}")
             return jsonify({'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/admin/workspace-events/status', methods=['GET'])
+    @require_login
+    @require_admin
+    def ajax_admin_workspace_events_status():
+        """Admin diagnostics for the local unified workspace event journal."""
+        try:
+            manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
+            if not manager:
+                return jsonify({'success': False, 'error': 'Workspace event manager unavailable'}), 503
+
+            try:
+                limit = max(5, min(int(request.args.get('limit', 20)), 60))
+            except Exception:
+                limit = 20
+
+            diagnostics = manager.get_diagnostics(limit=limit)
+
+            def _age_seconds(iso_value: Any) -> Optional[int]:
+                if not iso_value:
+                    return None
+                try:
+                    dt = datetime.fromisoformat(str(iso_value).replace('Z', '+00:00'))
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    return max(0, int((datetime.now(timezone.utc) - dt).total_seconds()))
+                except Exception:
+                    return None
+
+            diagnostics['oldest_age_seconds'] = _age_seconds(diagnostics.get('oldest_created_at'))
+            diagnostics['latest_age_seconds'] = _age_seconds(diagnostics.get('latest_created_at'))
+            diagnostics['supported_types'] = sorted(PATCH1_EVENT_TYPES)
+
+            heartbeat = _build_agent_heartbeat_snapshot(get_current_user())
+            heartbeat_view = {
+                'workspace_event_seq': heartbeat.get('workspace_event_seq'),
+                'last_event_seq': heartbeat.get('last_event_seq'),
+                'pending_inbox': heartbeat.get('pending_inbox'),
+                'unacked_mentions': heartbeat.get('unacked_mentions'),
+                'needs_action': heartbeat.get('needs_action'),
+                'needs_catchup': heartbeat.get('needs_catchup'),
+                'poll_hint_seconds': heartbeat.get('poll_hint_seconds'),
+            }
+            return jsonify({
+                'success': True,
+                'diagnostics': diagnostics,
+                'heartbeat': heartbeat_view,
+            })
+        except Exception as e:
+            logger.error(f"Admin workspace event diagnostics error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
     @ui.route('/ajax/admin/identity-portability/status', methods=['GET'])
     @require_login

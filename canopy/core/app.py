@@ -34,7 +34,10 @@ from .search import SearchManager
 from ..security.api_keys import ApiKeyManager
 from ..security.trust import TrustManager
 from .messaging import (
+    Message,
     MessageManager,
+    MessageStatus,
+    MessageType,
     build_dm_preview,
     build_dm_security_summary,
     filter_local_dm_targets,
@@ -51,6 +54,11 @@ from .mentions import (
     record_mention_activity,
     broadcast_mention_interaction,
     sync_edited_mention_activity,
+)
+from .events import (
+    EVENT_ATTACHMENT_AVAILABLE,
+    EVENT_DM_MESSAGE_DELETED,
+    WorkspaceEventManager,
 )
 from .large_attachments import (
     LARGE_ATTACHMENT_CAPABILITY,
@@ -77,6 +85,136 @@ from ..api.routes import create_api_blueprint
 from ..ui.routes import create_ui_blueprint
 
 logger = logging.getLogger('canopy.app')
+
+
+def _coerce_app_datetime(value: Any) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        if isinstance(value, datetime):
+            dt = value
+        else:
+            raw = str(value).strip()
+            if not raw:
+                return None
+            try:
+                dt = datetime.fromisoformat(raw.replace('Z', '+00:00'))
+            except Exception:
+                try:
+                    dt = datetime.strptime(raw, '%Y-%m-%d %H:%M:%S.%f')
+                except Exception:
+                    dt = datetime.strptime(raw, '%Y-%m-%d %H:%M:%S')
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except Exception:
+        return None
+
+
+def _finalize_inbound_dm_message(
+    db_manager: Any,
+    message_manager: MessageManager,
+    msg: Optional[Message],
+    canonical_message_id: str,
+) -> bool:
+    """Finalize an inbound DM so journal writes use the canonical stored ID."""
+    if not msg:
+        return False
+    canonical_id = str(canonical_message_id or '').strip()
+    if canonical_id and msg.id != canonical_id:
+        try:
+            with db_manager.get_connection() as conn:
+                cur = conn.execute(
+                    "UPDATE messages SET id = ? WHERE id = ?",
+                    (canonical_id, msg.id),
+                )
+                conn.commit()
+            if (cur.rowcount or 0) <= 0:
+                return False
+            msg.id = canonical_id
+        except Exception:
+            return False
+    return bool(message_manager.send_message(msg))
+
+
+def _apply_inbound_dm_delete(
+    db_manager: Any,
+    message_manager: MessageManager,
+    inbox_manager: Any,
+    message_id: str,
+) -> bool:
+    """Delete a materialized inbound DM and emit one local delete journal event."""
+    message_id = str(message_id or '').strip()
+    if not message_id:
+        return False
+    deleted_row = None
+    try:
+        with db_manager.get_connection() as conn:
+            deleted_row = conn.execute(
+                """
+                SELECT id, sender_id, recipient_id, content, message_type,
+                       created_at, delivered_at, read_at, edited_at, metadata
+                FROM messages
+                WHERE id = ?
+                """,
+                (message_id,),
+            ).fetchone()
+            if not deleted_row:
+                return False
+            cur = conn.execute(
+                "DELETE FROM messages WHERE id = ?",
+                (message_id,),
+            )
+            deleted = (cur.rowcount or 0) > 0
+            conn.commit()
+    except Exception:
+        raise
+
+    if not deleted or not deleted_row:
+        return False
+
+    try:
+        raw_content = deleted_row['content']
+        if message_manager.data_encryptor and message_manager.data_encryptor.is_enabled:
+            raw_content = message_manager.data_encryptor.decrypt(raw_content)
+        metadata = json.loads(deleted_row['metadata']) if deleted_row['metadata'] else None
+        deleted_message = Message(
+            id=deleted_row['id'],
+            sender_id=deleted_row['sender_id'],
+            recipient_id=deleted_row['recipient_id'],
+            content=raw_content,
+            message_type=MessageType(deleted_row['message_type']),
+            status=MessageStatus.READ if deleted_row['read_at'] else (
+                MessageStatus.DELIVERED if deleted_row['delivered_at'] else MessageStatus.SENT
+            ),
+            created_at=_coerce_app_datetime(deleted_row['created_at']) or datetime.now(timezone.utc),
+            metadata=metadata,
+            delivered_at=_coerce_app_datetime(deleted_row['delivered_at']),
+            read_at=_coerce_app_datetime(deleted_row['read_at']),
+            edited_at=_coerce_app_datetime(deleted_row['edited_at']),
+        )
+        message_manager._emit_dm_event(
+            event_type=EVENT_DM_MESSAGE_DELETED,
+            message=deleted_message,
+            dedupe_key=f"{EVENT_DM_MESSAGE_DELETED}:{message_id}",
+        )
+    except Exception as emit_err:
+        logger.warning("Failed to emit inbound DM delete event for %s: %s", message_id, emit_err)
+
+    if inbox_manager:
+        try:
+            inbox_manager.remove_source_triggers(
+                source_type='dm',
+                source_id=message_id,
+                trigger_type='dm',
+            )
+        except Exception as inbox_err:
+            logger.warning(
+                "Failed to remove DM inbox triggers for deleted message %s: %s",
+                message_id,
+                inbox_err,
+            )
+    return True
 
 
 def create_app(config: Optional[Config] = None) -> Flask:
@@ -115,6 +253,11 @@ def create_app(config: Optional[Config] = None) -> Flask:
         api_key_manager = ApiKeyManager(db_manager)
         app.config['API_KEY_MANAGER'] = api_key_manager
         logger.info("API key manager initialized successfully")
+
+        logger.info("Initializing workspace event manager...")
+        workspace_event_manager = WorkspaceEventManager(db_manager)
+        app.config['WORKSPACE_EVENT_MANAGER'] = workspace_event_manager
+        logger.info("Workspace event manager initialized successfully")
         
         logger.info("Initializing trust manager...")
         trust_manager = TrustManager(db_manager)
@@ -123,6 +266,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
         
         logger.info("Initializing message manager...")
         message_manager = MessageManager(db_manager, api_key_manager)
+        message_manager.workspace_events = workspace_event_manager
         app.config['MESSAGE_MANAGER'] = message_manager
         logger.info("Message manager initialized successfully")
 
@@ -206,12 +350,14 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
         logger.info("Initializing mention manager...")
         mention_manager = MentionManager(db_manager)
+        mention_manager.workspace_events = workspace_event_manager
         app.config['MENTION_MANAGER'] = mention_manager
         logger.info("Mention manager initialized successfully")
 
         logger.info("Initializing inbox manager...")
         from .inbox import InboxManager
         inbox_manager = InboxManager(db_manager, trust_manager=trust_manager)
+        inbox_manager.workspace_events = workspace_event_manager
         app.config['INBOX_MANAGER'] = inbox_manager
         logger.info("Inbox manager initialized successfully")
         
@@ -259,6 +405,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
             }
 
             updated = 0
+            available_dm_message_ids: list[str] = []
 
             def _maybe_replace_attachment(att: Any) -> tuple[Any, bool]:
                 if not isinstance(att, dict):
@@ -342,6 +489,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                 (json.dumps(metadata), row['id']),
                             )
                             updated += 1
+                            available_dm_message_ids.append(str(row['id']))
 
                     conn.commit()
             except Exception as repl_err:
@@ -351,6 +499,25 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     origin_file_id,
                     repl_err,
                 )
+            if available_dm_message_ids and workspace_event_manager and local_file:
+                for message_id in available_dm_message_ids:
+                    workspace_event_manager.emit_event(
+                        event_type=EVENT_ATTACHMENT_AVAILABLE,
+                        actor_user_id=None,
+                        target_user_id=None,
+                        message_id=message_id,
+                        visibility_scope='dm',
+                        dedupe_key=f"{EVENT_ATTACHMENT_AVAILABLE}:dm:{message_id}:{local_file.id}",
+                        payload={
+                            'origin_file_id': origin_file_id,
+                            'source_peer_id': source_peer_id,
+                            'local_file_id': local_file.id,
+                            'file_name': local_file.original_name,
+                            'content_type': local_file.content_type,
+                            'size': local_file.size,
+                            'checksum': local_file.checksum,
+                        },
+                    )
             return updated
 
         def _request_remote_large_attachment(
@@ -5620,15 +5787,15 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 )
                 if msg:
                     # Override the auto-generated ID with the sender's ID for dedup
-                    try:
-                        with db_manager.get_connection() as conn:
-                            conn.execute(
-                                "UPDATE messages SET id = ? WHERE id = ?",
-                                (mid, msg.id))
-                            conn.commit()
-                    except Exception:
-                        pass  # If ID conflicts, original insert is fine
-                    message_manager.send_message(msg)
+                    sent_ok = _finalize_inbound_dm_message(
+                        db_manager,
+                        message_manager,
+                        msg,
+                        mid,
+                    )
+                    if not sent_ok:
+                        logger.warning(f"Failed to finalize P2P DM {mid} from {sender_id}")
+                        return
                     channel_manager.mark_message_processed(mid)
                     try:
                         if inbox_manager:
@@ -5707,26 +5874,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     # Legacy `message` delete signals originated from the DM UI.
                     # Channel-message deletes now use the explicit `channel_message` type.
                     try:
-                        with db_manager.get_connection() as conn:
-                            cur = conn.execute(
-                                "DELETE FROM messages WHERE id = ?",
-                                (data_id,),
-                            )
-                            conn.commit()
-                            deleted = cur.rowcount > 0
-                        if deleted and inbox_manager:
-                            try:
-                                inbox_manager.remove_source_triggers(
-                                    source_type='dm',
-                                    source_id=data_id,
-                                    trigger_type='dm',
-                                )
-                            except Exception as inbox_err:
-                                logger.warning(
-                                    "Failed to remove DM inbox triggers for deleted message %s: %s",
-                                    data_id,
-                                    inbox_err,
-                                )
+                        deleted = _apply_inbound_dm_delete(
+                            db_manager,
+                            message_manager,
+                            inbox_manager,
+                            data_id,
+                        )
                     except Exception as del_err:
                         logger.error(f"Failed to delete direct message {data_id}: {del_err}")
 

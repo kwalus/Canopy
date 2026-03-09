@@ -109,6 +109,95 @@
     margin-top: 0.25rem;
 }
 
+.workspace-event-counts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+}
+
+.workspace-event-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.3rem 0.58rem;
+    border-radius: 999px;
+    border: 1px solid rgba(122, 151, 215, 0.24);
+    background: rgba(15, 29, 49, 0.74);
+    color: #d9e7ff;
+    font-size: 0.72rem;
+    letter-spacing: 0.03em;
+}
+
+.workspace-event-chip strong {
+    color: #8ef0d6;
+    font-weight: 700;
+}
+
+.workspace-event-list {
+    max-height: 340px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.workspace-event-item {
+    border: 1px solid rgba(122, 151, 215, 0.22);
+    border-radius: 14px;
+    background: linear-gradient(145deg, rgba(18, 33, 56, 0.84), rgba(12, 24, 43, 0.78));
+    padding: 0.75rem 0.8rem;
+    margin-bottom: 0.6rem;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.workspace-event-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.45rem;
+    margin-bottom: 0.35rem;
+}
+
+.workspace-event-type {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #7dd3fc;
+    font-weight: 700;
+}
+
+.workspace-event-seq {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.72rem;
+    color: #9cb2cf;
+}
+
+.workspace-event-preview {
+    color: #dde9ff;
+    font-size: 0.88rem;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.workspace-event-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.5rem;
+}
+
+.workspace-event-meta .badge {
+    border: 1px solid rgba(122, 151, 215, 0.22);
+    background: rgba(8, 17, 30, 0.5);
+    color: #b8c8e6;
+    font-weight: 500;
+}
+
 .queue-list {
     max-height: 320px;
     overflow-y: auto;
@@ -352,6 +441,37 @@
     white-space: nowrap;
 }
 
+.admin-page-header {
+    gap: 0.7rem;
+    flex-wrap: wrap;
+}
+
+.admin-summary-row {
+    --bs-gutter-y: 0.75rem;
+}
+
+.admin-transfer-select {
+    max-width: 220px;
+}
+
+.admin-users-search-wrap {
+    max-width: 360px;
+}
+
+.admin-users-actions {
+    min-width: 180px;
+}
+
+.keys-new-key-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.keys-new-key-row .form-control {
+    min-width: 0;
+}
+
 @media (max-width: 1400px) {
     .id-port-panel .row.g-2 {
         --bs-gutter-x: 0.45rem;
@@ -409,19 +529,126 @@
     .id-port-panel pre {
         max-height: 170px !important;
     }
+
+    .workspace-shell .card-header .d-flex.align-items-center.gap-2 {
+        width: 100%;
+    }
+
+    .workspace-shell #workspace-search {
+        max-width: none !important;
+    }
+}
+
+@media (max-width: 768px) {
+    .admin-page-header h1 {
+        font-size: 1.35rem;
+    }
+
+    .admin-summary-row .card-body {
+        padding: 0.75rem;
+    }
+
+    .ops-grid {
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    }
+
+    .admin-users-search-wrap {
+        max-width: none;
+        width: 100%;
+    }
+
+    .admin-users-actions {
+        width: 100%;
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .admin-users-actions .btn {
+        width: 100%;
+    }
+
+    #admin-users-table td {
+        vertical-align: top;
+    }
+
+    #keys-panel .form-check-inline {
+        display: flex;
+        width: 100%;
+        margin-right: 0;
+        margin-bottom: 0.4rem;
+    }
+
+    #keys-panel .form-check-inline .form-check-input {
+        margin-top: 0.2rem;
+    }
+
+    .workspace-shell .card-header .d-flex.align-items-center.gap-2 {
+        justify-content: space-between;
+    }
+
+    .workspace-shell .workspace-avatar-wrap {
+        width: 60px;
+        height: 60px;
+        border-radius: 12px;
+    }
+
+    .workspace-shell .workspace-panel {
+        padding: 0.75rem;
+    }
+}
+
+@media (max-width: 576px) {
+    .admin-page-header {
+        margin-bottom: 0.75rem !important;
+    }
+
+    .admin-summary-row .h4 {
+        font-size: 1.1rem;
+    }
+
+    .admin-transfer-controls {
+        align-items: stretch;
+    }
+
+    .admin-transfer-controls .form-label {
+        width: 100%;
+    }
+
+    .admin-transfer-select,
+    #transfer-admin-btn {
+        max-width: none;
+        width: 100%;
+    }
+
+    .admin-users-actions {
+        grid-template-columns: 1fr;
+    }
+
+    .ops-value {
+        font-size: 1.06rem;
+    }
+
+    #keys-panel {
+        padding: 0.75rem !important;
+    }
+
+    .keys-new-key-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
 }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="d-flex justify-content-between align-items-center mb-4 admin-page-header">
     <h1 class="h3 mb-0">
         <i class="bi bi-shield-lock"></i> Admin
     </h1>
 </div>
 
-<div class="row mb-4">
-    <div class="col-md-4">
+<div class="row mb-4 admin-summary-row">
+    <div class="col-md-4 admin-summary-col">
         <div class="card">
             <div class="card-body d-flex align-items-center">
                 <div class="me-3"><i class="bi bi-people fs-2 text-primary"></i></div>
@@ -432,7 +659,7 @@
             </div>
         </div>
     </div>
-    <div class="col-md-4">
+    <div class="col-md-4 admin-summary-col">
         <div class="card">
             <div class="card-body d-flex align-items-center">
                 <div class="me-3"><i class="bi bi-hourglass-split fs-2 text-warning"></i></div>
@@ -443,7 +670,7 @@
             </div>
         </div>
     </div>
-    <div class="col-md-4">
+    <div class="col-md-4 admin-summary-col">
         <div class="card">
             <div class="card-body d-flex align-items-center">
                 <div class="me-3"><i class="bi bi-robot fs-2 text-info"></i></div>
@@ -623,6 +850,67 @@
         <h6 class="mb-2">Recent failures / security blocks</h6>
         <div id="mesh-diag-failures" class="small text-muted">
             No recent failures.
+        </div>
+    </div>
+</div>
+
+<div class="card subsystem-shell mb-4">
+    <div class="card-header">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div>
+                <h5 class="mb-0"><i class="bi bi-broadcast-pin me-1"></i> Workspace Event Journal</h5>
+                <div class="small text-muted">Operator view of the local Patch 1 event spine before UI consumers migrate onto it.</div>
+            </div>
+            <button type="button" class="btn btn-outline-info btn-sm" id="workspace-event-refresh-btn">
+                <i class="bi bi-arrow-clockwise me-1"></i>Refresh Events
+            </button>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="ops-grid mb-3">
+            <div class="ops-tile">
+                <div class="ops-label">Journal Rows</div>
+                <div class="ops-value" id="workspace-event-count">—</div>
+            </div>
+            <div class="ops-tile">
+                <div class="ops-label">Latest Seq</div>
+                <div class="ops-value" id="workspace-event-latest-seq">—</div>
+            </div>
+            <div class="ops-tile">
+                <div class="ops-label">Oldest Row Age</div>
+                <div class="ops-value" id="workspace-event-oldest-age">—</div>
+            </div>
+            <div class="ops-tile">
+                <div class="ops-label">Newest Row Age</div>
+                <div class="ops-value" id="workspace-event-latest-age">—</div>
+            </div>
+            <div class="ops-tile">
+                <div class="ops-label">Admin Cursor</div>
+                <div class="ops-value" id="workspace-event-admin-cursor">—</div>
+                <div class="ops-meta">Legacy cursor: <span id="workspace-event-legacy-cursor">—</span></div>
+            </div>
+            <div class="ops-tile">
+                <div class="ops-label">Needs Action</div>
+                <div class="ops-value" id="workspace-event-needs-action">—</div>
+                <div class="ops-meta">Inbox <span id="workspace-event-pending-inbox">—</span> · Mentions <span id="workspace-event-unacked-mentions">—</span></div>
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <div class="small text-muted mb-2">Type distribution</div>
+            <div class="workspace-event-counts" id="workspace-event-type-counts">
+                <span class="text-muted small">Loading...</span>
+            </div>
+        </div>
+
+        <div>
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                <div class="small text-muted">Most recent journal rows</div>
+                <div class="small text-muted">Owner-only diagnostics view</div>
+            </div>
+            <div class="workspace-event-list" id="workspace-event-items">
+                <div class="small text-muted">Loading workspace events...</div>
+            </div>
         </div>
     </div>
 </div>
@@ -820,9 +1108,9 @@
     </div>
     <div class="card-body">
         <p class="text-muted small mb-2">You can transfer instance admin to another registered user. They will be able to approve agents, manage users, and transfer admin again.</p>
-        <div class="d-flex flex-wrap align-items-center gap-2">
+        <div class="d-flex flex-wrap align-items-center gap-2 admin-transfer-controls">
             <label for="transfer-select" class="form-label mb-0 small">Transfer admin to:</label>
-            <select id="transfer-select" class="form-select form-select-sm" style="max-width: 220px;">
+            <select id="transfer-select" class="form-select form-select-sm admin-transfer-select">
                 <option value="">— Choose user —</option>
                 {% for u in users %}
                 {% if u.get('is_registered') and not u.get('origin_peer') and (u.get('status') or 'active') == 'active' %}
@@ -1182,7 +1470,7 @@
     </div>
     <div class="card-body">
         <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
-            <div class="input-group input-group-sm" style="max-width: 360px;">
+            <div class="input-group input-group-sm admin-users-search-wrap">
                 <span class="input-group-text"><i class="bi bi-search"></i></span>
                 <input type="text" class="form-control" id="admin-users-search" placeholder="Search username / display name / user ID">
             </div>
@@ -1278,7 +1566,7 @@
                         </td>
                         <td>{{ u.created_at[:10] if u.created_at else '-' }}</td>
                         <td>
-                            <div class="d-flex flex-wrap gap-1">
+                            <div class="d-flex flex-wrap gap-1 admin-users-actions">
                                 <button type="button"
                                         class="btn btn-outline-success btn-sm admin-classification-save-btn"
                                         data-user-id="{{ u.id }}"
@@ -1326,7 +1614,7 @@
         </div>
         <!-- Inline API keys panel (no modal — stays in page flow to avoid z-index/obstruction) -->
         <div id="keys-panel" class="mt-3 p-3 rounded border border-secondary" style="display: none; background: var(--canopy-bg-tertiary, rgba(30,30,50,0.4));">
-            <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="d-flex justify-content-between align-items-center mb-2 keys-panel-header">
                 <h6 class="mb-0">API keys — <span id="keys-panel-username"></span></h6>
                 <button type="button" class="btn btn-sm btn-outline-secondary" id="keys-panel-close" aria-label="Close">Close</button>
             </div>
@@ -1352,7 +1640,7 @@
             <button type="button" class="btn btn-primary btn-sm" id="keys-create-btn">Create key</button>
             <div id="keys-new-key-area" class="mt-3 p-2 rounded border bg-dark bg-opacity-25" style="display: none;">
                 <p class="small text-warning mb-1">Copy this key now; it will not be shown again.</p>
-                <div class="d-flex gap-2 align-items-center">
+                <div class="keys-new-key-row">
                     <input type="text" class="form-control form-control-sm font-monospace" id="keys-new-key-input" readonly>
                     <button type="button" class="btn btn-sm btn-outline-secondary" id="keys-copy-key-btn">Copy</button>
                 </div>
@@ -1584,6 +1872,98 @@
     }
     refreshMeshDiagnostics();
     setInterval(refreshMeshDiagnostics, 20000);
+
+    function formatAgeCompact(seconds) {
+        const value = Number(seconds);
+        if (!Number.isFinite(value) || value < 0) return '—';
+        if (value < 60) return `${value}s`;
+        if (value < 3600) return `${Math.round(value / 60)}m`;
+        if (value < 86400) return `${Math.round(value / 3600)}h`;
+        return `${Math.round(value / 86400)}d`;
+    }
+
+    function renderWorkspaceEventTypeCounts(typeCounts, supportedTypes) {
+        const container = document.getElementById('workspace-event-type-counts');
+        if (!container) return;
+        const counts = typeCounts || {};
+        const supported = Array.isArray(supportedTypes) ? supportedTypes : [];
+        if (!supported.length) {
+            container.innerHTML = '<span class="text-muted small">No supported event types reported.</span>';
+            return;
+        }
+        container.innerHTML = supported.map(type => {
+            const count = Number(counts[type] || 0);
+            return `<span class="workspace-event-chip"><strong>${count}</strong><span>${escapeHtml(type)}</span></span>`;
+        }).join('');
+    }
+
+    function renderWorkspaceEventItems(items) {
+        const container = document.getElementById('workspace-event-items');
+        if (!container) return;
+        const rows = Array.isArray(items) ? items : [];
+        if (!rows.length) {
+            container.innerHTML = '<div class="small text-muted">No workspace events recorded yet.</div>';
+            return;
+        }
+        container.innerHTML = rows.map(item => {
+            const preview = item?.payload_preview ? escapeHtml(item.payload_preview) : '<span class="text-muted">No preview payload</span>';
+            const actor = item?.actor_user_id ? `<span class="badge">actor ${escapeHtml(item.actor_user_id)}</span>` : '';
+            const target = item?.target_user_id ? `<span class="badge">target ${escapeHtml(item.target_user_id)}</span>` : '';
+            const scope = item?.visibility_scope ? `<span class="badge">scope ${escapeHtml(item.visibility_scope)}</span>` : '';
+            const payloadKeys = Array.isArray(item?.payload_keys) && item.payload_keys.length
+                ? `<span class="badge">keys ${escapeHtml(item.payload_keys.join(', '))}</span>`
+                : '';
+            const createdAt = item?.created_at ? new Date(item.created_at).toLocaleString() : '—';
+            return `
+                <div class="workspace-event-item">
+                    <div class="workspace-event-head">
+                        <div class="workspace-event-type">
+                            <i class="bi bi-dot"></i>
+                            <span>${escapeHtml(item?.event_type || 'unknown')}</span>
+                        </div>
+                        <div class="workspace-event-seq">
+                            <span>#${escapeHtml(String(item?.seq ?? '—'))}</span>
+                            <span>•</span>
+                            <span>${escapeHtml(createdAt)}</span>
+                        </div>
+                    </div>
+                    <div class="workspace-event-preview">${preview}</div>
+                    <div class="workspace-event-meta">
+                        ${actor}
+                        ${target}
+                        ${scope}
+                        ${payloadKeys}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    async function refreshWorkspaceEventDiagnostics() {
+        const { ok, data } = await api('GET', '/ajax/admin/workspace-events/status?limit=24');
+        if (!ok || !data.success) return;
+        const diagnostics = data.diagnostics || {};
+        const heartbeat = data.heartbeat || {};
+
+        setMeshDiagValue('workspace-event-count', String(diagnostics.count || 0));
+        setMeshDiagValue('workspace-event-latest-seq', String(diagnostics.latest_seq || 0));
+        setMeshDiagValue('workspace-event-oldest-age', formatAgeCompact(diagnostics.oldest_age_seconds));
+        setMeshDiagValue('workspace-event-latest-age', formatAgeCompact(diagnostics.latest_age_seconds));
+        setMeshDiagValue('workspace-event-admin-cursor', String(heartbeat.workspace_event_seq || 0));
+        setMeshDiagValue('workspace-event-legacy-cursor', String(heartbeat.last_event_seq || 0));
+        setMeshDiagValue('workspace-event-needs-action', heartbeat.needs_action ? 'yes' : 'no');
+        setMeshDiagValue('workspace-event-pending-inbox', String(heartbeat.pending_inbox || 0));
+        setMeshDiagValue('workspace-event-unacked-mentions', String(heartbeat.unacked_mentions || 0));
+        renderWorkspaceEventTypeCounts(diagnostics.type_counts, diagnostics.supported_types);
+        renderWorkspaceEventItems(diagnostics.items);
+    }
+
+    const workspaceEventRefreshBtn = document.getElementById('workspace-event-refresh-btn');
+    if (workspaceEventRefreshBtn) {
+        workspaceEventRefreshBtn.addEventListener('click', () => refreshWorkspaceEventDiagnostics());
+    }
+    refreshWorkspaceEventDiagnostics();
+    setInterval(refreshWorkspaceEventDiagnostics, 20000);
 
     function setIdPortValue(id, value) {
         const el = document.getElementById(id);

@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.61] - 2026-03-09
+
+### Added
+- **Unified workspace event journal Patch 1** — Canopy now persists a local, additive `workspace_events` journal for DM create/edit/delete, mention create/acknowledge, inbox item create/update, and DM-scoped attachment availability. The journal is cursorable via `GET /api/v1/events` and exposed as an additive `workspace_event_seq` heartbeat field without changing the legacy `last_event_seq` contract.
+
+### Changed
+- **Workspace event diagnostics and admin visibility** — The workspace journal now includes richer diagnostics summaries and a dedicated admin diagnostics surface so operators can inspect recent event rows, event-type distribution, and the journal cursor state during local mesh testing without relying on raw API inspection.
+
 ## [0.4.60] - 2026-03-09
 
 ### Added
@@ -586,6 +594,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 ### Changed
 - Waitress WSGI server replaces the Flask development server for production deployments.
 - `X-API-Key` header is now the standard authentication method for external/agent clients; browser sessions use session cookies.
+- Added Patch 1 of the local workspace event journal: DM/mention/inbox events plus DM-scoped `attachment.available` events are now emitted into a bounded local cursorable feed (`GET /api/v1/events`) while heartbeat keeps the old `last_event_seq` semantics and adds `workspace_event_seq`.
 
 ---
 

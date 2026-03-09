@@ -1999,11 +1999,13 @@ class CanopyMCPServer:
                 inbox_manager = app.config.get('INBOX_MANAGER')
                 task_manager = app.config.get('TASK_MANAGER')
                 circle_manager = app.config.get('CIRCLE_MANAGER')
+                workspace_event_manager = app.config.get('WORKSPACE_EVENT_MANAGER')
                 heartbeat_snapshot = build_agent_heartbeat_snapshot(
                     db_manager=db_manager,
                     user_id=self.user_id,
                     mention_manager=mention_manager,
                     inbox_manager=inbox_manager,
+                    workspace_event_manager=workspace_event_manager,
                 )
                 actionable_work = build_actionable_work_preview(
                     db_manager=db_manager,
@@ -2149,11 +2151,13 @@ class CanopyMCPServer:
                 inbox_manager = app.config.get('INBOX_MANAGER')
                 task_manager = app.config.get('TASK_MANAGER')
                 circle_manager = app.config.get('CIRCLE_MANAGER')
+                workspace_event_manager = app.config.get('WORKSPACE_EVENT_MANAGER')
                 heartbeat_snapshot = build_agent_heartbeat_snapshot(
                     db_manager=db_manager,
                     user_id=self.user_id,
                     mention_manager=mention_manager,
                     inbox_manager=inbox_manager,
+                    workspace_event_manager=workspace_event_manager,
                 )
                 actionable_work = build_actionable_work_preview(
                     db_manager=db_manager,
@@ -3191,11 +3195,13 @@ class CanopyMCPServer:
                 db_manager, _, _, _, _, _, _, _, _, _, _ = _get_app_components_any(app)
                 mention_manager = app.config.get('MENTION_MANAGER')
                 inbox_manager = app.config.get('INBOX_MANAGER')
+                workspace_event_manager = app.config.get('WORKSPACE_EVENT_MANAGER')
                 payload = build_agent_heartbeat_snapshot(
                     db_manager=db_manager,
                     user_id=self.user_id,
                     mention_manager=mention_manager,
                     inbox_manager=inbox_manager,
+                    workspace_event_manager=workspace_event_manager,
                 )
                 return [TextContent(type="text", text=json.dumps(payload, indent=2))]
         except Exception as e:

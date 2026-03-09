@@ -19,6 +19,8 @@ import secrets
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
 
+from .events import EVENT_MENTION_ACKNOWLEDGED, EVENT_MENTION_CREATED
+
 logger = logging.getLogger(__name__)
 
 
@@ -403,6 +405,7 @@ class MentionManager:
 
     def __init__(self, db_manager):
         self.db = db_manager
+        self.workspace_events: Any = None
         self._ensure_tables()
 
     def _ensure_tables(self) -> None:
@@ -837,6 +840,7 @@ class MentionManager:
             return []
 
         inserted: List[str] = []
+        inserted_pairs: List[Tuple[str, str]] = []
         unique_users = list(dict.fromkeys([uid for uid in user_ids if uid]))
         meta_json = json.dumps(metadata) if metadata else None
         base_time = datetime.now(timezone.utc)
@@ -860,9 +864,41 @@ class MentionManager:
                     )
                     if cur.rowcount:
                         inserted.append(mention_id)
+                        inserted_pairs.append((mention_id, uid))
                 conn.commit()
         except Exception as e:
             logger.error(f"Failed to record mention events: {e}")
+        if inserted and self.workspace_events:
+            meta_base: Dict[str, Any] = dict(metadata or {})
+            if channel_id:
+                meta_base.setdefault('channel_id', channel_id)
+            if author_id:
+                meta_base.setdefault('author_id', author_id)
+            if origin_peer:
+                meta_base.setdefault('origin_peer', origin_peer)
+            if source_type == 'channel_message':
+                meta_base.setdefault('message_id', source_id)
+            elif source_type == 'feed_post':
+                meta_base.setdefault('post_id', source_id)
+            for mention_id, uid in inserted_pairs:
+                self.workspace_events.emit_event(
+                    event_type=EVENT_MENTION_CREATED,
+                    actor_user_id=author_id,
+                    target_user_id=uid,
+                    channel_id=channel_id,
+                    message_id=source_id if source_type == 'channel_message' else None,
+                    post_id=source_id if source_type == 'feed_post' else None,
+                    visibility_scope='user',
+                    dedupe_key=f"{EVENT_MENTION_CREATED}:{mention_id}",
+                    payload={
+                        'mention_id': mention_id,
+                        'source_type': source_type,
+                        'source_id': source_id,
+                        'preview': preview or '',
+                        'metadata': meta_base,
+                    },
+                    created_at=base_time,
+                )
         return inserted
 
     def sync_source_mentions(
@@ -1183,14 +1219,23 @@ class MentionManager:
         try:
             with self.db.get_connection() as conn:
                 placeholders = ",".join("?" for _ in ids)
+                ack_rows = conn.execute(
+                    f"""
+                    SELECT id, source_type, source_id, channel_id, preview
+                    FROM mention_events
+                    WHERE user_id = ? AND id IN ({placeholders})
+                    """,
+                    [user_id] + ids,
+                ).fetchall()
+                now_iso = datetime.now(timezone.utc).isoformat()
                 params = [user_id] + ids
                 cur = conn.execute(
                     f"""
                     UPDATE mention_events
-                    SET acknowledged_at = CURRENT_TIMESTAMP, status = 'acknowledged'
+                    SET acknowledged_at = ?, status = 'acknowledged'
                     WHERE user_id = ? AND id IN ({placeholders})
                     """,
-                    params,
+                    [now_iso] + params,
                 )
                 updated = cur.rowcount or 0
                 if updated == 0 and ids:
@@ -1251,6 +1296,26 @@ class MentionManager:
                         released_claims,
                         user_id,
                     )
+                if updated and self.workspace_events:
+                    for row in ack_rows or []:
+                        self.workspace_events.emit_event(
+                            event_type=EVENT_MENTION_ACKNOWLEDGED,
+                            actor_user_id=user_id,
+                            target_user_id=user_id,
+                            channel_id=row['channel_id'],
+                            message_id=row['source_id'] if row['source_type'] == 'channel_message' else None,
+                            post_id=row['source_id'] if row['source_type'] == 'feed_post' else None,
+                            visibility_scope='user',
+                            dedupe_key=f"{EVENT_MENTION_ACKNOWLEDGED}:{row['id']}:{now_iso}",
+                            created_at=now_iso,
+                            payload={
+                                'mention_id': row['id'],
+                                'source_type': row['source_type'],
+                                'source_id': row['source_id'],
+                                'preview': row['preview'] or '',
+                                'acknowledged_at': now_iso,
+                            },
+                        )
                 return updated
         except Exception as e:
             logger.error(f"Failed to acknowledge mention events: {e}")

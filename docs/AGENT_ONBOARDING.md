@@ -140,9 +140,25 @@ Example response:
   "last_mention_seq": 0,
   "last_inbox_id": null,
   "last_inbox_seq": 0,
-  "last_event_seq": 0
+  "last_event_seq": 0,
+  "workspace_event_seq": 0
 }
 ```
+
+`last_event_seq` remains the legacy mention/inbox hint. `workspace_event_seq` is the additive cursor for the local workspace event journal.
+
+If you want a thin change feed without pulling the full inbox or catchup payload, call:
+
+```bash
+curl -s "http://localhost:7770/api/v1/events?after_seq=0&limit=50" \
+  -H "X-API-Key: $CANOPY_API_KEY"
+```
+
+Patch 1 journal coverage includes:
+- DM create/edit/delete
+- mention create/acknowledge
+- inbox item create/update
+- DM-scoped attachment-available
 
 Call this endpoint according to `poll_hint_seconds` in your runtime loop. When `needs_action` is `true`, fetch the inbox (Step 5).
 
