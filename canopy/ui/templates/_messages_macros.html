@@ -28,19 +28,46 @@
 
 {% macro render_dm_attachment(attachment, message_id, idx) -%}
     {% set attachment_file_id = attachment.id or attachment.file_id or ((attachment.url.split('/files/')[1].split('/')[0]) if attachment.url and '/files/' in attachment.url else None) %}
+    {% set remote_large = attachment.large_attachment or attachment.storage_mode == 'remote_large' %}
+    {% set remote_payload = {
+        'origin_file_id': attachment.origin_file_id or attachment.id or attachment.file_id,
+        'source_peer_id': attachment.source_peer_id or attachment.origin_peer,
+        'name': attachment.name,
+        'type': attachment.type,
+        'size': attachment.size,
+        'checksum': attachment.checksum,
+        'large_attachment': true,
+        'storage_mode': attachment.storage_mode or 'remote_large'
+    } %}
     {% set lower_name = (attachment.name or '')|lower %}
     {% set spreadsheet_preview = lower_name.endswith('.csv') or lower_name.endswith('.tsv') or lower_name.endswith('.xlsx') or lower_name.endswith('.xlsm') %}
     {% set previewable = attachment_file_id and (lower_name.endswith('.md') or lower_name.endswith('.markdown') or lower_name.endswith('.txt') or lower_name.endswith('.log') or lower_name.endswith('.json') or lower_name.endswith('.py') or lower_name.endswith('.js') or lower_name.endswith('.ts') or spreadsheet_preview or lower_name.endswith('.yaml') or lower_name.endswith('.yml') or lower_name.endswith('.xml') or lower_name.endswith('.tex') or lower_name.endswith('.html') or lower_name.endswith('.css') or lower_name.endswith('.sh') or lower_name.endswith('.bat') or lower_name.endswith('.cfg') or lower_name.endswith('.ini') or lower_name.endswith('.toml')) %}
     {% set preview_id = 'dm-attachment-preview-' ~ message_id ~ '-' ~ idx %}
 
     {% if attachment.type and attachment.type.startswith('image/') %}
-        <div class="dm-attachment dm-attachment-image">
-            <img src="{{ attachment.url }}" alt="{{ attachment.name }}" onclick="viewImage('{{ attachment.url }}')">
-            <div class="dm-attachment-meta">
-                <span>{{ attachment.name }}</span>
-                <small>{{ attachment.size | filesizeformat if attachment.size is defined and attachment.size is not none else '—' }}</small>
+        {% if attachment.url %}
+            <div class="dm-attachment dm-attachment-image">
+                <img src="{{ attachment.url }}" alt="{{ attachment.name }}" onclick="viewImage('{{ attachment.url }}')">
+                <div class="dm-attachment-meta">
+                    <span>{{ attachment.name }}</span>
+                    <small>{{ attachment.size | filesizeformat if attachment.size is defined and attachment.size is not none else '—' }}</small>
+                </div>
             </div>
-        </div>
+        {% else %}
+            <div class="dm-attachment dm-attachment-card">
+                <div class="dm-attachment-title-row">
+                    <div>
+                        <strong>{{ attachment.name }}</strong>
+                        <small>{{ attachment.type }} • {{ attachment.size | filesizeformat if attachment.size is defined and attachment.size is not none else '—' }}</small>
+                    </div>
+                    {% if remote_large %}
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick='requestRemoteAttachmentDownload({{ remote_payload|tojson }}, this)'>
+                            <i class="bi bi-cloud-download"></i>
+                        </button>
+                    {% endif %}
+                </div>
+            </div>
+        {% endif %}
     {% elif attachment.type and attachment.type.startswith('audio/') %}
         <div class="dm-attachment dm-attachment-card">
             <div class="dm-attachment-title-row">
@@ -52,6 +79,10 @@
                     <a href="{{ attachment.url }}" class="btn btn-sm btn-outline-primary" download="{{ attachment.name }}">
                         <i class="bi bi-download"></i>
                     </a>
+                {% elif remote_large %}
+                    <button type="button" class="btn btn-sm btn-outline-primary" onclick='requestRemoteAttachmentDownload({{ remote_payload|tojson }}, this)'>
+                        <i class="bi bi-cloud-download"></i>
+                    </button>
                 {% endif %}
             </div>
             {% if attachment.url %}
@@ -91,6 +122,10 @@
                         <a href="{{ attachment.url }}" class="btn btn-sm btn-outline-primary" download="{{ attachment.name }}">
                             <i class="bi bi-download"></i>
                         </a>
+                    {% elif remote_large %}
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick='requestRemoteAttachmentDownload({{ remote_payload|tojson }}, this)'>
+                            <i class="bi bi-cloud-download"></i>
+                        </button>
                     {% endif %}
                 </div>
             </div>

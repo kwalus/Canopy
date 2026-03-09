@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.60] - 2026-03-09
+
+### Added
+- **Managed large-attachment store v1** — Attachments larger than the fixed `10 MB` sync threshold now propagate across the mesh as metadata-first references instead of inline payload blobs. Nodes can store them under an admin-configured managed external root, track remote transfer state locally, and fetch them from the source peer in bounded chunks with checksum validation.
+
+### Changed
+- **Large-attachment download policy controls** — Settings now expose a node-wide `Automatic`, `Manual`, or `Paused` download mode for large remote attachments. `Automatic` is the default to preserve availability when peers are only online briefly, while `Manual` and `Paused` let low-disk operators keep metadata without background fetch.
+
+### Fixed
+- **Peer-side large-attachment authorization** — Source-peer visibility checks now correctly recognize metadata-first attachment identifiers (`origin_file_id`, `remote_file_id`) and open/public channel or feed references, so authorized peers can fetch large attachments without false denials while still remaining deny-by-default.
+
 ## [0.4.59] - 2026-03-09
 
 ### Fixed

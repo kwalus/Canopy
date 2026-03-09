@@ -52,6 +52,17 @@ from .mentions import (
     broadcast_mention_interaction,
     sync_edited_mention_activity,
 )
+from .large_attachments import (
+    LARGE_ATTACHMENT_CAPABILITY,
+    LARGE_ATTACHMENT_CHUNK_SIZE,
+    LARGE_ATTACHMENT_DOWNLOAD_AUTO,
+    LARGE_ATTACHMENT_DOWNLOAD_MANUAL,
+    LARGE_ATTACHMENT_DOWNLOAD_PAUSED,
+    get_attachment_origin_file_id,
+    get_attachment_source_peer_id,
+    get_large_attachment_download_mode,
+    is_large_attachment_reference,
+)
 from ..network.manager import P2PNetworkManager
 from ..network.routing import (
     decrypt_with_channel_key,
@@ -60,6 +71,7 @@ from ..network.routing import (
     decode_channel_key_material,
     encrypt_key_for_peer,
 )
+from ..security.file_access import evaluate_file_access_for_peer
 from ..security.encryption import DataEncryptor
 from ..api.routes import create_api_blueprint
 from ..ui.routes import create_ui_blueprint
@@ -214,6 +226,562 @@ def create_app(config: Optional[Config] = None) -> Flask:
         # Safely get relay policy for logging
         relay_policy = getattr(p2p_manager, 'relay_policy', 'broker_only')
         logger.info(f"P2P network manager initialized (relay_policy={relay_policy})")
+
+        _large_attachment_state_lock = threading.Lock()
+        _incoming_large_attachment_states: dict[str, dict[str, Any]] = {}
+        _large_attachment_temp_root = Path(config.storage.data_dir or './data') / 'tmp' / 'large_attachment_transfers'
+        _large_attachment_temp_root.mkdir(parents=True, exist_ok=True)
+
+        def _replace_large_attachment_references(
+            source_peer_id: str,
+            origin_file_id: str,
+            local_file_id: str,
+        ) -> int:
+            """Rewrite remote large-attachment placeholders to local file metadata."""
+            if not source_peer_id or not origin_file_id or not local_file_id:
+                return 0
+            local_file = file_manager.get_file(local_file_id)
+            if not local_file:
+                return 0
+
+            replacement = {
+                'id': local_file.id,
+                'name': local_file.original_name,
+                'type': local_file.content_type,
+                'size': local_file.size,
+                'url': local_file.url,
+                'origin_file_id': origin_file_id,
+                'source_peer_id': source_peer_id,
+                'large_attachment': False,
+                'storage_mode': 'local_cached',
+                'download_status': 'completed',
+                'checksum': local_file.checksum,
+            }
+
+            updated = 0
+
+            def _maybe_replace_attachment(att: Any) -> tuple[Any, bool]:
+                if not isinstance(att, dict):
+                    return att, False
+                att_origin = get_attachment_origin_file_id(att)
+                att_source = get_attachment_source_peer_id(att)
+                if att_origin == origin_file_id and att_source == source_peer_id:
+                    return dict(replacement), True
+                return att, False
+
+            try:
+                with db_manager.get_connection() as conn:
+                    channel_rows = conn.execute(
+                        "SELECT id, attachments FROM channel_messages WHERE attachments LIKE ?",
+                        (f'%{origin_file_id}%',),
+                    ).fetchall()
+                    for row in channel_rows:
+                        try:
+                            attachments = json.loads(row['attachments'] or '[]')
+                        except Exception:
+                            continue
+                        changed = False
+                        normalized = []
+                        for att in attachments if isinstance(attachments, list) else []:
+                            new_att, did_change = _maybe_replace_attachment(att)
+                            changed = changed or did_change
+                            normalized.append(new_att)
+                        if changed:
+                            conn.execute(
+                                "UPDATE channel_messages SET attachments = ? WHERE id = ?",
+                                (json.dumps(normalized), row['id']),
+                            )
+                            updated += 1
+
+                    feed_rows = conn.execute(
+                        "SELECT id, metadata FROM feed_posts WHERE metadata LIKE ?",
+                        (f'%{origin_file_id}%',),
+                    ).fetchall()
+                    for row in feed_rows:
+                        try:
+                            metadata = json.loads(row['metadata'] or '{}')
+                        except Exception:
+                            continue
+                        attachments = (metadata or {}).get('attachments') or []
+                        changed = False
+                        normalized = []
+                        for att in attachments if isinstance(attachments, list) else []:
+                            new_att, did_change = _maybe_replace_attachment(att)
+                            changed = changed or did_change
+                            normalized.append(new_att)
+                        if changed:
+                            metadata = dict(metadata or {})
+                            metadata['attachments'] = normalized
+                            conn.execute(
+                                "UPDATE feed_posts SET metadata = ? WHERE id = ?",
+                                (json.dumps(metadata), row['id']),
+                            )
+                            updated += 1
+
+                    dm_rows = conn.execute(
+                        "SELECT id, metadata FROM messages WHERE metadata LIKE ?",
+                        (f'%{origin_file_id}%',),
+                    ).fetchall()
+                    for row in dm_rows:
+                        try:
+                            metadata = json.loads(row['metadata'] or '{}')
+                        except Exception:
+                            continue
+                        attachments = (metadata or {}).get('attachments') or []
+                        changed = False
+                        normalized = []
+                        for att in attachments if isinstance(attachments, list) else []:
+                            new_att, did_change = _maybe_replace_attachment(att)
+                            changed = changed or did_change
+                            normalized.append(new_att)
+                        if changed:
+                            metadata = dict(metadata or {})
+                            metadata['attachments'] = normalized
+                            conn.execute(
+                                "UPDATE messages SET metadata = ? WHERE id = ?",
+                                (json.dumps(metadata), row['id']),
+                            )
+                            updated += 1
+
+                    conn.commit()
+            except Exception as repl_err:
+                logger.warning(
+                    "Failed to rewrite large attachment references for %s/%s: %s",
+                    source_peer_id,
+                    origin_file_id,
+                    repl_err,
+                )
+            return updated
+
+        def _request_remote_large_attachment(
+            attachment: dict[str, Any],
+            *,
+            force: bool = False,
+            source_context: Optional[dict[str, Any]] = None,
+        ) -> bool:
+            """Request a remote large attachment from its source peer."""
+            source_peer_id = get_attachment_source_peer_id(attachment)
+            origin_file_id = get_attachment_origin_file_id(attachment)
+            if not source_peer_id or not origin_file_id or not p2p_manager:
+                return False
+            if not p2p_manager.peer_supports_capability(source_peer_id, LARGE_ATTACHMENT_CAPABILITY):
+                return False
+            if not p2p_manager.connection_manager or not p2p_manager.connection_manager.is_connected(source_peer_id):
+                return False
+
+            download_mode = get_large_attachment_download_mode(db_manager)
+            if not force and download_mode != LARGE_ATTACHMENT_DOWNLOAD_AUTO:
+                return False
+            if force and download_mode == LARGE_ATTACHMENT_DOWNLOAD_PAUSED:
+                return False
+
+            transfer = file_manager.get_remote_attachment_transfer(source_peer_id, origin_file_id)
+            local_file_id = str((transfer or {}).get('local_file_id') or '').strip()
+            if local_file_id and file_manager.get_file(local_file_id):
+                return True
+
+            request_id = f"LAR{secrets.token_hex(8)}"
+            file_manager.upsert_remote_attachment_transfer(
+                origin_peer_id=source_peer_id,
+                origin_file_id=origin_file_id,
+                file_name=attachment.get('name'),
+                content_type=attachment.get('type'),
+                size=attachment.get('size'),
+                checksum=attachment.get('checksum'),
+                status='requested',
+                last_request_id=request_id,
+                error=None,
+            )
+            sent = p2p_manager.send_large_attachment_request(
+                to_peer=source_peer_id,
+                request_id=request_id,
+                origin_file_id=origin_file_id,
+                source_context=source_context or {},
+            )
+            if not sent:
+                file_manager.upsert_remote_attachment_transfer(
+                    origin_peer_id=source_peer_id,
+                    origin_file_id=origin_file_id,
+                    status='error',
+                    error='request_send_failed',
+                )
+            return bool(sent)
+
+        def _normalize_incoming_attachment_entry(
+            attachment: Any,
+            *,
+            uploaded_by: str,
+            default_source_peer_id: str,
+            source_context: Optional[dict[str, Any]] = None,
+        ) -> Optional[dict[str, Any]]:
+            if not isinstance(attachment, dict):
+                return None
+
+            if attachment.get('data'):
+                try:
+                    import base64 as _b64_att
+                    file_bytes = _b64_att.b64decode(attachment['data'])
+                    finfo = file_manager.save_file(
+                        file_data=file_bytes,
+                        original_name=attachment.get('name', 'file'),
+                        content_type=attachment.get('type', 'application/octet-stream'),
+                        uploaded_by=uploaded_by,
+                    )
+                    if finfo:
+                        return {
+                            'id': finfo.id,
+                            'name': finfo.original_name,
+                            'type': finfo.content_type,
+                            'size': finfo.size,
+                            'url': finfo.url,
+                            'checksum': finfo.checksum,
+                        }
+                except Exception as save_err:
+                    logger.debug("Failed to save inline attachment: %s", save_err)
+
+            if is_large_attachment_reference(attachment):
+                source_peer_id = get_attachment_source_peer_id(attachment) or str(default_source_peer_id or '').strip()
+                origin_file_id = get_attachment_origin_file_id(attachment) or str(attachment.get('id') or '').strip()
+                checksum = str(attachment.get('checksum') or '').strip()
+                if source_peer_id and origin_file_id:
+                    transfer = file_manager.get_remote_attachment_transfer(source_peer_id, origin_file_id)
+                    local_file_id = str((transfer or {}).get('local_file_id') or '').strip()
+                    if local_file_id:
+                        finfo = file_manager.get_file(local_file_id)
+                        if finfo:
+                            return {
+                                'id': finfo.id,
+                                'name': finfo.original_name,
+                                'type': finfo.content_type,
+                                'size': finfo.size,
+                                'url': finfo.url,
+                                'checksum': finfo.checksum,
+                                'origin_file_id': origin_file_id,
+                                'source_peer_id': source_peer_id,
+                                'storage_mode': 'local_cached',
+                                'download_status': 'completed',
+                            }
+
+                    file_manager.upsert_remote_attachment_transfer(
+                        origin_peer_id=source_peer_id,
+                        origin_file_id=origin_file_id,
+                        file_name=attachment.get('name'),
+                        content_type=attachment.get('type'),
+                        size=attachment.get('size'),
+                        checksum=checksum or None,
+                        status='pending',
+                        error=None,
+                    )
+                    normalized = {
+                        'name': attachment.get('name', 'file'),
+                        'type': attachment.get('type', 'application/octet-stream'),
+                        'size': attachment.get('size', 0),
+                        'checksum': checksum,
+                        'origin_file_id': origin_file_id,
+                        'source_peer_id': source_peer_id,
+                        'large_attachment': True,
+                        'storage_mode': 'remote_large',
+                        'download_status': str((transfer or {}).get('status') or 'pending').strip().lower() or 'pending',
+                    }
+                    if get_large_attachment_download_mode(db_manager) == LARGE_ATTACHMENT_DOWNLOAD_AUTO:
+                        _request_remote_large_attachment(
+                            normalized,
+                            force=False,
+                            source_context=source_context,
+                        )
+                    return normalized
+
+            return {k: v for k, v in attachment.items() if k != 'data' and k != 'url'}
+
+        def _on_large_attachment_request(
+            request_id: Optional[str],
+            origin_file_id: Optional[str],
+            requester_peer: Optional[str],
+            source_context: Optional[dict[str, Any]],
+            from_peer: str,
+        ) -> None:
+            req_id = str(request_id or '').strip()
+            file_id = str(origin_file_id or '').strip()
+            requester = str(from_peer or requester_peer or '').strip()
+            if not req_id or not file_id or not requester:
+                return
+            if requester_peer and str(requester_peer).strip() and str(requester_peer).strip() != requester:
+                logger.warning(
+                    "Ignoring mismatched large attachment requester for %s: claimed=%s actual=%s",
+                    file_id,
+                    requester_peer,
+                    requester,
+                )
+
+            file_info = file_manager.get_file(file_id)
+            if not file_info:
+                p2p_manager.send_large_attachment_error(
+                    to_peer=requester,
+                    request_id=req_id,
+                    origin_file_id=file_id,
+                    error='file_not_found',
+                )
+                return
+
+            access = evaluate_file_access_for_peer(
+                db_manager=db_manager,
+                file_id=file_id,
+                requester_peer_id=requester,
+                file_uploaded_by=file_info.uploaded_by,
+            )
+            if not access.allowed:
+                p2p_manager.send_large_attachment_error(
+                    to_peer=requester,
+                    request_id=req_id,
+                    origin_file_id=file_id,
+                    error=f"access_denied:{access.reason}",
+                )
+                return
+
+            result = file_manager.get_file_data(file_id)
+            if not result:
+                p2p_manager.send_large_attachment_error(
+                    to_peer=requester,
+                    request_id=req_id,
+                    origin_file_id=file_id,
+                    error='file_data_unavailable',
+                )
+                return
+            file_data, resolved_info = result
+
+            def _worker() -> None:
+                import base64 as _b64_tx
+                total_chunks = max(1, (len(file_data) + LARGE_ATTACHMENT_CHUNK_SIZE - 1) // LARGE_ATTACHMENT_CHUNK_SIZE)
+                for chunk_index in range(total_chunks):
+                    start = chunk_index * LARGE_ATTACHMENT_CHUNK_SIZE
+                    end = min(len(file_data), start + LARGE_ATTACHMENT_CHUNK_SIZE)
+                    data_b64 = _b64_tx.b64encode(file_data[start:end]).decode('ascii')
+                    sent = p2p_manager.send_large_attachment_chunk(
+                        to_peer=requester,
+                        request_id=req_id,
+                        origin_file_id=file_id,
+                        file_name=resolved_info.original_name,
+                        content_type=resolved_info.content_type,
+                        checksum=resolved_info.checksum,
+                        size=resolved_info.size,
+                        uploaded_by=resolved_info.uploaded_by,
+                        chunk_index=chunk_index,
+                        total_chunks=total_chunks,
+                        data_b64=data_b64,
+                    )
+                    if not sent:
+                        logger.warning(
+                            "Failed to send large attachment chunk %s/%s for %s to %s",
+                            chunk_index + 1,
+                            total_chunks,
+                            file_id,
+                            requester,
+                        )
+                        break
+
+            threading.Thread(
+                target=_worker,
+                name=f"canopy-large-attachment-send-{file_id[:8]}",
+                daemon=True,
+            ).start()
+
+        def _finalize_incoming_large_attachment(state: dict[str, Any]) -> None:
+            request_id = str(state.get('request_id') or '').strip()
+            origin_file_id = str(state.get('origin_file_id') or '').strip()
+            source_peer_id = str(state.get('source_peer_id') or '').strip()
+            tmp_path = Path(state.get('tmp_path'))
+            if not tmp_path.exists():
+                file_manager.upsert_remote_attachment_transfer(
+                    origin_peer_id=source_peer_id,
+                    origin_file_id=origin_file_id,
+                    status='error',
+                    error='missing_temp_file',
+                    last_request_id=request_id or None,
+                )
+                return
+
+            try:
+                file_bytes = tmp_path.read_bytes()
+                checksum = file_manager._calculate_checksum(file_bytes)
+                expected_checksum = str(state.get('checksum') or '').strip()
+                if expected_checksum and checksum != expected_checksum:
+                    raise ValueError('checksum_mismatch')
+                uploaded_by = str(state.get('uploaded_by') or '').strip()
+                if not uploaded_by:
+                    uploaded_by = str(db_manager.get_instance_owner_user_id() or '').strip()
+                if not uploaded_by:
+                    with db_manager.get_connection() as conn:
+                        fallback_row = conn.execute(
+                            "SELECT id FROM users WHERE id != 'system' ORDER BY created_at ASC LIMIT 1"
+                        ).fetchone()
+                    uploaded_by = str((fallback_row['id'] if fallback_row and hasattr(fallback_row, 'keys') else fallback_row[0]) or '').strip() if fallback_row else ''
+                if not uploaded_by:
+                    raise ValueError('uploaded_by_unavailable')
+                finfo = file_manager.save_file(
+                    file_data=file_bytes,
+                    original_name=str(state.get('file_name') or 'attachment'),
+                    content_type=str(state.get('content_type') or 'application/octet-stream'),
+                    uploaded_by=uploaded_by,
+                )
+                if not finfo:
+                    raise ValueError('save_failed')
+                file_manager.upsert_remote_attachment_transfer(
+                    origin_peer_id=source_peer_id,
+                    origin_file_id=origin_file_id,
+                    local_file_id=finfo.id,
+                    file_name=finfo.original_name,
+                    content_type=finfo.content_type,
+                    size=finfo.size,
+                    checksum=finfo.checksum,
+                    status='completed',
+                    last_request_id=request_id or None,
+                    error=None,
+                )
+                _replace_large_attachment_references(source_peer_id, origin_file_id, finfo.id)
+            except Exception as finalize_err:
+                file_manager.upsert_remote_attachment_transfer(
+                    origin_peer_id=source_peer_id,
+                    origin_file_id=origin_file_id,
+                    status='error',
+                    last_request_id=request_id or None,
+                    error=str(finalize_err),
+                )
+                logger.warning(
+                    "Failed to finalize large attachment %s from %s: %s",
+                    origin_file_id,
+                    source_peer_id,
+                    finalize_err,
+                )
+            finally:
+                try:
+                    tmp_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+        def _on_large_attachment_chunk(
+            request_id: Optional[str],
+            origin_file_id: Optional[str],
+            file_name: Optional[str],
+            content_type: Optional[str],
+            checksum: Optional[str],
+            size: Optional[int],
+            uploaded_by: Optional[str],
+            chunk_index: Optional[int],
+            total_chunks: Optional[int],
+            data_b64: Optional[str],
+            source_peer_id: Optional[str],
+            from_peer: str,
+        ) -> None:
+            req_id = str(request_id or '').strip()
+            origin_id = str(origin_file_id or '').strip()
+            source_peer = str(source_peer_id or from_peer or '').strip()
+            if not req_id or not origin_id or data_b64 is None or not source_peer:
+                return
+
+            try:
+                idx = int(chunk_index or 0)
+                total = max(1, int(total_chunks or 1))
+            except Exception:
+                return
+
+            import base64 as _b64_rx
+            try:
+                chunk_bytes = _b64_rx.b64decode(data_b64)
+            except Exception:
+                file_manager.upsert_remote_attachment_transfer(
+                    origin_peer_id=source_peer,
+                    origin_file_id=origin_id,
+                    status='error',
+                    last_request_id=req_id,
+                    error='chunk_decode_failed',
+                )
+                return
+
+            finalize_state: Optional[dict[str, Any]] = None
+            with _large_attachment_state_lock:
+                state = _incoming_large_attachment_states.get(req_id)
+                if state is None:
+                    temp_path = _large_attachment_temp_root / f"{req_id}.part"
+                    state = {
+                        'request_id': req_id,
+                        'origin_file_id': origin_id,
+                        'source_peer_id': source_peer,
+                        'file_name': file_name or 'attachment',
+                        'content_type': content_type or 'application/octet-stream',
+                        'checksum': checksum or '',
+                        'size': int(size or 0),
+                        'uploaded_by': str(uploaded_by or '').strip() or None,
+                        'total_chunks': total,
+                        'next_index': 0,
+                        'pending_chunks': {},
+                        'tmp_path': str(temp_path),
+                    }
+                    _incoming_large_attachment_states[req_id] = state
+
+                if idx in state['pending_chunks'] or idx < int(state.get('next_index', 0) or 0):
+                    return
+
+                state['pending_chunks'][idx] = chunk_bytes
+                temp_path = Path(state['tmp_path'])
+                temp_path.parent.mkdir(parents=True, exist_ok=True)
+                with temp_path.open('ab') as handle:
+                    while state['next_index'] in state['pending_chunks']:
+                        next_chunk = state['pending_chunks'].pop(state['next_index'])
+                        handle.write(next_chunk)
+                        state['next_index'] += 1
+
+                if state['next_index'] >= state['total_chunks']:
+                    finalize_state = dict(state)
+                    _incoming_large_attachment_states.pop(req_id, None)
+
+            if finalize_state:
+                _finalize_incoming_large_attachment(finalize_state)
+
+        def _on_large_attachment_error(
+            request_id: Optional[str],
+            origin_file_id: Optional[str],
+            error: Optional[str],
+            source_peer_id: Optional[str],
+            from_peer: str,
+        ) -> None:
+            source_peer = str(source_peer_id or from_peer or '').strip()
+            origin_id = str(origin_file_id or '').strip()
+            req_id = str(request_id or '').strip()
+            if not source_peer or not origin_id:
+                return
+            file_manager.upsert_remote_attachment_transfer(
+                origin_peer_id=source_peer,
+                origin_file_id=origin_id,
+                status='error',
+                last_request_id=req_id or None,
+                error=str(error or 'transfer_failed'),
+            )
+
+        def _retry_pending_large_attachments_for_peer(peer_id: str) -> None:
+            if not peer_id:
+                return
+            if get_large_attachment_download_mode(db_manager) != LARGE_ATTACHMENT_DOWNLOAD_AUTO:
+                return
+            for transfer in file_manager.list_pending_remote_attachment_transfers(
+                origin_peer_id=peer_id,
+                statuses=['pending', 'error'],
+                limit=500,
+            ):
+                attachment = {
+                    'origin_file_id': transfer.get('origin_file_id'),
+                    'source_peer_id': transfer.get('origin_peer_id'),
+                    'name': transfer.get('file_name'),
+                    'type': transfer.get('content_type'),
+                    'size': transfer.get('size'),
+                    'checksum': transfer.get('checksum'),
+                    'large_attachment': True,
+                    'storage_mode': 'remote_large',
+                }
+                _request_remote_large_attachment(attachment, force=True, source_context={'retry': True})
+
+        p2p_manager.on_large_attachment_request = _on_large_attachment_request
+        p2p_manager.on_large_attachment_chunk = _on_large_attachment_chunk
+        p2p_manager.on_large_attachment_error = _on_large_attachment_error
 
         identity_portability_manager = IdentityPortabilityManager(
             db_manager=db_manager,
@@ -715,39 +1283,20 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     file_id_map = {}  # sender file_id -> local file_id (so we can fix /files/ in content)
                     for att in attachments:
                         original_id = att.get('id')
-                        data_b64 = att.get('data')
-                        if data_b64:
-                            try:
-                                file_bytes = _b64.b64decode(data_b64)
-                                file_info = file_manager.save_file(
-                                    file_data=file_bytes,
-                                    original_name=att.get('name', 'p2p_file'),
-                                    content_type=att.get('type', 'application/octet-stream'),
-                                    uploaded_by=user_id,
-                                )
-                                if file_info:
-                                    if original_id:
-                                        file_id_map[original_id] = file_info.id
-                                    processed_attachments.append({
-                                        'id': file_info.id,
-                                        'name': file_info.original_name,
-                                        'type': file_info.content_type,
-                                        'size': file_info.size,
-                                        'url': file_info.url,
-                                    })
-                                    logger.info(f"Saved P2P attachment: {file_info.id} "
-                                                f"({file_info.original_name}, {file_info.size} bytes)")
-                            except Exception as e:
-                                logger.error(f"Failed to save P2P attachment: {e}", exc_info=True)
-                        else:
-                            # Attachment metadata without data (file too large
-                            # or sender had no file_manager) — keep reference
-                            processed_attachments.append({
-                                'name': att.get('name', 'file'),
-                                'type': att.get('type', ''),
-                                'size': att.get('size', 0),
-                                'url': '',
-                            })
+                        normalized = _normalize_incoming_attachment_entry(
+                            att,
+                            uploaded_by=user_id,
+                            default_source_peer_id=from_peer,
+                            source_context={
+                                'source_type': 'channel_message',
+                                'source_id': message_id,
+                                'channel_id': channel_id,
+                            },
+                        )
+                        if normalized:
+                            if original_id and normalized.get('id'):
+                                file_id_map[original_id] = normalized['id']
+                            processed_attachments.append(normalized)
 
                     if processed_attachments:
                         message_type = 'file'
@@ -2767,6 +3316,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     _mark_stale_pending_decrypt()
                     _retry_member_sync_delivery_for_peer(peer_id)
                     _retry_channel_key_delivery_for_peer(peer_id)
+                    _retry_pending_large_attachments_for_peer(peer_id)
                 except Exception as retry_err:
                     logger.debug(
                         "Peer-connect retry worker failed for %s: %s",
@@ -3046,43 +3596,55 @@ def create_app(config: Optional[Config] = None) -> Flask:
                             msg['content'] = ''
                             msg['crypto_state'] = 'encrypted'
 
-                    # Embed file data for small attachments (<=10MB per file,
-                    # cap total embedded size) so peers that receive the message
-                    # via catchup get the file too. Avoids "file not available"
-                    # for e.g. short audio clips. Larger catchups still omit
-                    # file data to prevent timeouts.
+                    # Normalize attachments for catch-up:
+                    # small files are still embedded inline (up to a bounded
+                    # total), larger files become remote-large placeholders
+                    # that upgraded peers can auto-fetch.
                     _catchup_embed_limit = 20 * 1024 * 1024  # 20MB total
-                    _catchup_embed_per_file = 10 * 1024 * 1024  # 10MB per file
                     _catchup_embedded = 0
-                    if file_manager and _catchup_embedded < _catchup_embed_limit:
+                    if file_manager and p2p_manager and _catchup_embedded < _catchup_embed_limit:
                         import base64 as _b64_catchup
                         for msg in all_messages:
                             atts = msg.get('attachments') or []
                             if not atts:
                                 continue
+                            normalized_atts = []
                             for att in atts:
-                                if not isinstance(att, dict) or att.get('data'):
+                                if not isinstance(att, dict):
                                     continue
-                                if _catchup_embedded >= _catchup_embed_limit:
-                                    break
-                                fid = att.get('id')
-                                if not fid:
+                                entry = p2p_manager._build_p2p_attachment_entry(att)
+                                if not entry:
                                     continue
-                                try:
-                                    result = file_manager.get_file_data(fid)
-                                    if not result:
-                                        continue
-                                    file_data, file_info = result
-                                    if len(file_data) > _catchup_embed_per_file:
-                                        continue
-                                    if _catchup_embedded + len(file_data) > _catchup_embed_limit:
-                                        continue
-                                    att['data'] = _b64_catchup.b64encode(file_data).decode('ascii')
-                                    _catchup_embedded += len(file_data)
-                                    logger.debug(f"Catchup: embedding attachment {fid} "
-                                                  f"({len(file_data)} bytes) for peer {from_peer}")
-                                except Exception as emb_err:
-                                    logger.debug(f"Catchup: skip embedding {fid}: {emb_err}")
+                                if entry.get('data'):
+                                    try:
+                                        embedded_size = len(_b64_catchup.b64decode(entry['data']))
+                                    except Exception:
+                                        embedded_size = int(entry.get('size') or 0)
+                                    if _catchup_embedded + embedded_size > _catchup_embed_limit:
+                                        entry.pop('data', None)
+                                        entry.pop('url', None)
+                                        entry.setdefault('origin_file_id', entry.get('id'))
+                                        entry.setdefault('source_peer_id', p2p_manager.get_peer_id())
+                                        entry['large_attachment'] = True
+                                        entry['storage_mode'] = 'remote_large'
+                                        entry['download_status'] = 'pending'
+                                    else:
+                                        _catchup_embedded += embedded_size
+                                        logger.debug(
+                                            "Catchup: embedding attachment %s (%d bytes) for peer %s",
+                                            entry.get('id'),
+                                            embedded_size,
+                                            from_peer,
+                                        )
+                                elif entry.get('id'):
+                                    entry.pop('url', None)
+                                    entry.setdefault('origin_file_id', entry.get('id'))
+                                    entry.setdefault('source_peer_id', p2p_manager.get_peer_id())
+                                    entry.setdefault('large_attachment', True)
+                                    entry.setdefault('storage_mode', 'remote_large')
+                                    entry.setdefault('download_status', 'pending')
+                                normalized_atts.append(entry)
+                            msg['attachments'] = normalized_atts
                             if _catchup_embedded >= _catchup_embed_limit:
                                 break
 
@@ -3138,6 +3700,27 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                         fp['display_name'] = u.get('display_name') or u.get('username')
                                 except Exception:
                                     pass
+                            try:
+                                metadata_blob = json.loads(fp.get('metadata') or '{}')
+                            except Exception:
+                                metadata_blob = {}
+                            if isinstance(metadata_blob, dict) and metadata_blob.get('attachments') and p2p_manager:
+                                normalized_feed_atts = []
+                                for att in metadata_blob.get('attachments') or []:
+                                    entry = p2p_manager._build_p2p_attachment_entry(att) if isinstance(att, dict) else None
+                                    if not entry:
+                                        continue
+                                    if not entry.get('data') and entry.get('id'):
+                                        entry.pop('url', None)
+                                        entry.setdefault('origin_file_id', entry.get('id'))
+                                        entry.setdefault('source_peer_id', p2p_manager.get_peer_id())
+                                        entry.setdefault('large_attachment', True)
+                                        entry.setdefault('storage_mode', 'remote_large')
+                                        entry.setdefault('download_status', 'pending')
+                                    normalized_feed_atts.append(entry)
+                                metadata_blob = dict(metadata_blob)
+                                metadata_blob['attachments'] = normalized_feed_atts
+                                fp['metadata'] = metadata_blob
                             feed_posts.append(fp)
                         extra_data['feed_posts'] = feed_posts
                 except Exception as fp_err:
@@ -3351,39 +3934,24 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
                     # Process file attachments — decode base64 data and
                     # save to local FileManager, just like live messages.
-                    import base64 as _b64_cu
                     attachments_json = None
                     atts = msg.get('attachments')
                     if atts:
                         processed_atts = []
                         for att in atts:
-                            data_b64 = att.get('data')
-                            if data_b64:
-                                try:
-                                    file_bytes = _b64_cu.b64decode(data_b64)
-                                    finfo = file_manager.save_file(
-                                        file_data=file_bytes,
-                                        original_name=att.get('name', 'catchup_file'),
-                                        content_type=att.get('type', 'application/octet-stream'),
-                                        uploaded_by=user_id,
-                                    )
-                                    if finfo:
-                                        processed_atts.append({
-                                            'id': finfo.id,
-                                            'name': finfo.original_name,
-                                            'type': finfo.content_type,
-                                            'size': finfo.size,
-                                            'url': finfo.url,
-                                        })
-                                        logger.info(f"Catchup: saved attachment {finfo.id} "
-                                                    f"({finfo.original_name}, {finfo.size} bytes)")
-                                        continue
-                                except Exception as fe:
-                                    logger.error(f"Catchup: failed to save attachment: {fe}")
-                            # No data or save failed — keep metadata reference
-                            processed_atts.append({
-                                k: v for k, v in att.items() if k != 'data'
-                            })
+                            normalized = _normalize_incoming_attachment_entry(
+                                att,
+                                uploaded_by=user_id,
+                                default_source_peer_id=from_peer,
+                                source_context={
+                                    'source_type': 'channel_message',
+                                    'source_id': mid,
+                                    'channel_id': channel_id,
+                                    'catchup': True,
+                                },
+                            )
+                            if normalized:
+                                processed_atts.append(normalized)
                         attachments_json = json.dumps(processed_atts)
                         message_type = 'file'
 
@@ -3934,34 +4502,17 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     try:
                         processed_attachments = []
                         for att in metadata.get('attachments') or []:
-                            if not isinstance(att, dict):
-                                continue
-                            data_b64 = att.get('data')
-                            if data_b64 and file_manager:
-                                try:
-                                    import base64 as _b64_feed
-                                    file_bytes = _b64_feed.b64decode(data_b64)
-                                    finfo = file_manager.save_file(
-                                        file_data=file_bytes,
-                                        original_name=att.get('name', 'feed_file'),
-                                        content_type=att.get('type', 'application/octet-stream'),
-                                        uploaded_by=author_id,
-                                    )
-                                    if finfo:
-                                        processed_attachments.append({
-                                            'id': finfo.id,
-                                            'name': finfo.original_name,
-                                            'type': finfo.content_type,
-                                            'size': finfo.size,
-                                            'url': finfo.url,
-                                        })
-                                        continue
-                                except Exception:
-                                    pass
-                            # No data or save failed — keep metadata reference (strip data)
-                            processed_attachments.append({
-                                k: v for k, v in att.items() if k != 'data'
-                            })
+                            normalized = _normalize_incoming_attachment_entry(
+                                att,
+                                uploaded_by=author_id,
+                                default_source_peer_id=from_peer,
+                                source_context={
+                                    'source_type': 'feed_post',
+                                    'source_id': post_id,
+                                },
+                            )
+                            if normalized:
+                                processed_attachments.append(normalized)
                         metadata = dict(metadata)
                         metadata['attachments'] = processed_attachments
                     except Exception:
@@ -4946,33 +5497,17 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     try:
                         processed_attachments = []
                         for att in meta_payload.get('attachments') or []:
-                            if not isinstance(att, dict):
-                                continue
-                            data_b64 = att.get('data')
-                            if data_b64 and file_manager:
-                                try:
-                                    import base64 as _b64_dm
-                                    file_bytes = _b64_dm.b64decode(data_b64)
-                                    finfo = file_manager.save_file(
-                                        file_data=file_bytes,
-                                        original_name=att.get('name', 'dm_file'),
-                                        content_type=att.get('type', 'application/octet-stream'),
-                                        uploaded_by=sender_id,
-                                    )
-                                    if finfo:
-                                        processed_attachments.append({
-                                            'id': finfo.id,
-                                            'name': finfo.original_name,
-                                            'type': finfo.content_type,
-                                            'size': finfo.size,
-                                            'url': finfo.url,
-                                        })
-                                        continue
-                                except Exception:
-                                    pass
-                            processed_attachments.append({
-                                k: v for k, v in att.items() if k != 'data'
-                            })
+                            normalized = _normalize_incoming_attachment_entry(
+                                att,
+                                uploaded_by=sender_id,
+                                default_source_peer_id=from_peer,
+                                source_context={
+                                    'source_type': 'dm',
+                                    'source_id': message_id,
+                                },
+                            )
+                            if normalized:
+                                processed_attachments.append(normalized)
                         meta_payload = dict(meta_payload)
                         meta_payload['attachments'] = processed_attachments
                     except Exception:

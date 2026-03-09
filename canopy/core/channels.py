@@ -1953,6 +1953,43 @@ class ChannelManager:
             logger.error(f"Failed to get all device profiles: {e}")
         return profiles
 
+    def get_peer_device_profiles(self, peer_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+        """Return stored peer device profiles for the requested peer IDs only."""
+        cleaned_ids = [
+            str(peer_id or '').strip()
+            for peer_id in (peer_ids or [])
+            if str(peer_id or '').strip()
+        ]
+        if not cleaned_ids:
+            return {}
+        try:
+            with self.db.get_connection() as conn:
+                placeholders = ",".join("?" for _ in cleaned_ids)
+                rows = conn.execute(
+                    f"""
+                    SELECT peer_id, display_name, description, avatar_b64, avatar_mime
+                    FROM peer_device_profiles
+                    WHERE peer_id IN ({placeholders})
+                    """,
+                    cleaned_ids,
+                ).fetchall()
+            profiles: Dict[str, Dict[str, Any]] = {}
+            for row in rows or []:
+                peer_id = str(row[0] or '').strip()
+                if not peer_id:
+                    continue
+                profiles[peer_id] = {
+                    'peer_id': peer_id,
+                    'display_name': row[1] or peer_id[:12],
+                    'description': row[2] or '',
+                    'avatar_b64': row[3] or '',
+                    'avatar_mime': row[4] or '',
+                }
+            return profiles
+        except Exception as e:
+            logger.error(f"Failed to get peer device profiles: {e}")
+            return {}
+
     @staticmethod
     def _normalize_channel_name(name: str) -> str:
         """Strip leading '#' characters from a channel name.

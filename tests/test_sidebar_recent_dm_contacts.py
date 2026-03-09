@@ -161,6 +161,7 @@ class TestSidebarRecentDmContacts(unittest.TestCase):
         self.profile_manager = MagicMock()
         self.profile_manager.get_profile.return_value = None
         self.channel_manager = MagicMock()
+        self.channel_manager.get_peer_device_profiles.return_value = {}
         self.channel_manager.get_all_peer_device_profiles.return_value = {}
         self.p2p_manager = _FakeP2PManager()
         self.trust_manager = MagicMock()
@@ -230,6 +231,21 @@ class TestSidebarRecentDmContacts(unittest.TestCase):
         self.assertEqual(contacts[0].get('unread_count'), 1)
         self.assertEqual(contacts[0].get('target_message_id'), 'DM-a-unread')
         self.assertEqual(contacts[0].get('status_state'), 'online')
+
+    def test_peer_activity_delta_request_omits_recent_dm_contacts_when_unchanged(self) -> None:
+        first = self.client.get('/ajax/peer_activity')
+        self.assertEqual(first.status_code, 200)
+        first_payload = first.get_json() or {}
+
+        response = self.client.get(
+            f"/ajax/peer_activity?peer_rev={first_payload.get('peer_rev')}&dm_rev={first_payload.get('dm_rev')}"
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+
+        self.assertTrue(payload.get('success'))
+        self.assertFalse(payload.get('dm_changed'))
+        self.assertEqual(payload.get('recent_dm_contacts'), [])
 
 
 if __name__ == '__main__':

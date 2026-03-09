@@ -3,11 +3,11 @@
 {% block title %}Feed - Canopy{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="d-flex justify-content-between align-items-center mb-4 feed-page-header">
     <h1 class="h3 mb-0">
         <i class="bi bi-newspaper"></i> Social Feed
     </h1>
-    <div class="d-flex gap-2">
+    <div class="d-flex gap-2 feed-page-actions">
         <button class="btn btn-primary" type="button" onclick="openComposer()">
             <i class="bi bi-plus-circle"></i> Create Post
         </button>
@@ -229,10 +229,10 @@
             </div>
         </form>
 
-            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-                <div class="d-flex gap-2 flex-wrap">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 composer-action-row">
+                <div class="d-flex gap-2 flex-wrap composer-action-tools">
                     <input type="file" id="post-file-input" style="display: none;" multiple
-                       accept="image/*,video/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.yaml,.yml,.xml">
+                       accept="image/*,video/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.tsv,.xlsx,.xlsm,.yaml,.yml,.xml">
                 <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('post-file-input').click()">
                     <i class="bi bi-paperclip"></i> Attach Files
                 </button>
@@ -244,7 +244,7 @@
                     <i class="bi bi-eraser"></i> Clear
                 </button>
             </div>
-            <div class="d-flex align-items-center gap-2">
+            <div class="d-flex align-items-center gap-2 composer-submit-row">
                 <div id="feed-mention-macro-buttons" class="mention-macro-buttons" style="display: none;"></div>
                 <button type="button" class="btn btn-primary" onclick="createPost()">
                     <i class="bi bi-send"></i> Share Post
@@ -257,8 +257,8 @@
 <!-- Feed Controls -->
 <div class="card mb-4">
     <div class="card-body">
-        <div class="row align-items-center">
-            <div class="col-md-6">
+        <div class="row align-items-center feed-controls-row g-2">
+            <div class="col-md-6 feed-controls-search">
                 <div class="input-group">
                     <input type="text" class="form-control" id="searchInput" 
                            placeholder="Search posts..." value="{{ search_query or '' }}">
@@ -267,7 +267,7 @@
                     </button>
                 </div>
             </div>
-            <div class="col-md-3">
+            <div class="col-md-3 feed-controls-algorithm">
                 <div class="d-flex gap-2">
                     <select class="form-select" id="algorithmSelect" onchange="changeAlgorithm()">
                         <option value="chronological" {% if algorithm == 'chronological' %}selected{% endif %}>Latest First</option>
@@ -280,7 +280,7 @@
                     </button>
                 </div>
             </div>
-            <div class="col-md-3">
+            <div class="col-md-3 feed-controls-stats">
                 {% if feed_stats %}
                     <small class="text-muted">
                         {{ feed_stats.total_posts }} posts • {{ feed_stats.unique_authors }} authors
@@ -295,7 +295,7 @@
 <div id="algoSettingsPanel" class="row mb-3" style="display: none;">
     <div class="col-lg-8 mx-auto">
         <div class="card border-info">
-            <div class="card-header bg-info bg-opacity-10 d-flex justify-content-between align-items-center">
+            <div class="card-header bg-info bg-opacity-10 d-flex justify-content-between align-items-center algo-settings-header">
                 <h6 class="mb-0"><i class="bi bi-sliders me-2"></i>My Algorithm Settings</h6>
                 <button class="btn btn-sm btn-outline-secondary" onclick="toggleAlgoSettings()"><i class="bi bi-x"></i></button>
             </div>
@@ -385,7 +385,7 @@
                     </div>
                 </div>
 
-                <div class="d-flex gap-2">
+                <div class="d-flex gap-2 algo-settings-actions">
                     <button class="btn btn-primary btn-sm" onclick="saveAlgoSettings()">
                         <i class="bi bi-check-lg me-1"></i>Save & Apply
                     </button>
@@ -518,7 +518,7 @@
                                     {% set audio_files = [] %}
                                     {% set others = [] %}
                                     {% for attachment in post.metadata.attachments %}
-                                        {% if attachment.type.startswith('image/') %}
+                                        {% if attachment.type.startswith('image/') and attachment.url %}
                                             {% if images.append(attachment) %}{% endif %}
                                         {% elif attachment.type.startswith('audio/') %}
                                             {% if audio_files.append(attachment) %}{% endif %}
@@ -546,6 +546,17 @@
                                             </div>
                                         {% endif %}
                                         {% for attachment in audio_files %}
+                                            {% set remote_large = attachment.large_attachment or attachment.storage_mode == 'remote_large' %}
+                                            {% set remote_payload = {
+                                                'origin_file_id': attachment.origin_file_id or attachment.id or attachment.file_id,
+                                                'source_peer_id': attachment.source_peer_id or attachment.origin_peer,
+                                                'name': attachment.name,
+                                                'type': attachment.type,
+                                                'size': attachment.size,
+                                                'checksum': attachment.checksum,
+                                                'large_attachment': true,
+                                                'storage_mode': attachment.storage_mode or 'remote_large'
+                                            } %}
                                             <div class="attachment-item mb-2 p-2 border rounded">
                                                 <div class="d-flex align-items-center flex-wrap">
                                                     <i class="bi bi-music-note me-2"></i>
@@ -563,6 +574,10 @@
                                                             <i class="bi bi-shield-lock"></i>
                                                         </button>
                                                     </div>
+                                                    {% elif remote_large %}
+                                                    <button type="button" class="btn btn-sm btn-outline-primary ms-2" onclick='requestRemoteAttachmentDownload({{ remote_payload|tojson }}, this)'>
+                                                        <i class="bi bi-cloud-download"></i> Download
+                                                    </button>
                                                     {% else %}
                                                     <span class="small text-muted ms-2" title="File will be available when it syncs to this device">Not on this device yet — will appear when synced</span>
                                                     {% endif %}
@@ -570,15 +585,50 @@
                                             </div>
                                         {% endfor %}
                                         {% for attachment in others %}
+                                            {% set remote_large = attachment.large_attachment or attachment.storage_mode == 'remote_large' %}
+                                            {% set remote_payload = {
+                                                'origin_file_id': attachment.origin_file_id or attachment.id or attachment.file_id,
+                                                'source_peer_id': attachment.source_peer_id or attachment.origin_peer,
+                                                'name': attachment.name,
+                                                'type': attachment.type,
+                                                'size': attachment.size,
+                                                'checksum': attachment.checksum,
+                                                'large_attachment': true,
+                                                'storage_mode': attachment.storage_mode or 'remote_large'
+                                            } %}
+                                            {% set attachment_file_id = attachment.id or attachment.file_id or ((attachment.url.split('/files/')[1].split('/')[0]) if attachment.url and '/files/' in attachment.url else None) %}
+                                            {% set lower_name = (attachment.name or '')|lower %}
+                                            {% set spreadsheet_preview = lower_name.endswith('.csv') or lower_name.endswith('.tsv') or lower_name.endswith('.xlsx') or lower_name.endswith('.xlsm') %}
+                                            {% set previewable = attachment_file_id and (lower_name.endswith('.md') or lower_name.endswith('.markdown') or lower_name.endswith('.txt') or lower_name.endswith('.log') or lower_name.endswith('.json') or lower_name.endswith('.py') or lower_name.endswith('.js') or lower_name.endswith('.ts') or spreadsheet_preview or lower_name.endswith('.yaml') or lower_name.endswith('.yml') or lower_name.endswith('.xml') or lower_name.endswith('.tex') or lower_name.endswith('.html') or lower_name.endswith('.css') or lower_name.endswith('.sh') or lower_name.endswith('.bat') or lower_name.endswith('.cfg') or lower_name.endswith('.ini') or lower_name.endswith('.toml')) %}
+                                            {% set preview_id = 'feed-attachment-preview-' ~ post.id ~ '-' ~ loop.index0 %}
                                             <div class="attachment-item mb-2 p-2 border rounded">
                                                 <div class="d-flex align-items-center">
-                                                    <i class="bi bi-{% if attachment.type.startswith('video/') %}camera-video{% elif 'pdf' in (attachment.type or '') %}file-pdf{% else %}file-earmark{% endif %} me-2"></i>
+                                                    <i class="bi bi-{% if attachment.type.startswith('video/') %}camera-video{% elif 'pdf' in (attachment.type or '') %}file-pdf{% elif lower_name.endswith('.csv') or lower_name.endswith('.tsv') or lower_name.endswith('.xlsx') or lower_name.endswith('.xlsm') %}file-earmark-spreadsheet{% else %}file-earmark{% endif %} me-2"></i>
                                                     <div class="flex-grow-1">
                                                         <strong>{{ attachment.name }}</strong>
                                                         <small class="text-muted d-block">{{ attachment.type or '' }} • {% if attachment.size is defined and attachment.size is not none %}{{ (attachment.size / 1024) | round(1) }} KB{% else %}—{% endif %}</small>
+                                                        {% if spreadsheet_preview %}
+                                                        <div class="attachment-meta-badges">
+                                                            <span class="badge rounded-pill text-bg-info-subtle text-info-emphasis">Sheet</span>
+                                                            {% if lower_name.endswith('.xlsm') %}
+                                                            <span class="badge rounded-pill text-bg-warning">Macros disabled</span>
+                                                            {% endif %}
+                                                        </div>
+                                                        {% endif %}
                                                     </div>
                                                     {% if attachment.url %}
                                                     <div class="d-flex align-items-center gap-2">
+                                                        {% if previewable %}
+                                                        <button type="button"
+                                                                class="btn btn-sm btn-outline-secondary"
+                                                                data-preview-toggle="{{ preview_id }}"
+                                                                data-preview-label="{{ 'Open sheet' if spreadsheet_preview else 'Preview' }}"
+                                                                data-preview-expanded-label="{{ 'Hide sheet' if spreadsheet_preview else 'Collapse' }}"
+                                                                onclick="toggleAttachmentPreview('{{ preview_id }}', '/ajax/files/{{ attachment_file_id }}/preview')">
+                                                            <i class="bi bi-eye"></i>
+                                                            <span class="preview-label">{{ 'Open sheet' if spreadsheet_preview else 'Preview' }}</span>
+                                                        </button>
+                                                        {% endif %}
                                                         <button class="btn btn-sm btn-outline-primary" onclick="downloadFile('{{ attachment.url }}', '{{ attachment.name }}')">
                                                             <i class="bi bi-download"></i> Download
                                                         </button>
@@ -586,10 +636,17 @@
                                                             <i class="bi bi-shield-lock"></i>
                                                         </button>
                                                     </div>
+                                                    {% elif remote_large %}
+                                                    <button type="button" class="btn btn-sm btn-outline-primary" onclick='requestRemoteAttachmentDownload({{ remote_payload|tojson }}, this)'>
+                                                        <i class="bi bi-cloud-download"></i> Download
+                                                    </button>
                                                     {% else %}
                                                     <span class="small text-muted" title="File will be available when it syncs to this device">Not on this device yet — will appear when synced</span>
                                                     {% endif %}
                                                 </div>
+                                                {% if previewable %}
+                                                <div id="{{ preview_id }}" class="file-preview-wrapper mt-2" style="display:none;"></div>
+                                                {% endif %}
                                             </div>
                                         {% endfor %}
                                     </div>
@@ -1261,7 +1318,7 @@
                                         
                                         <!-- Hidden file input -->
                                         <input type="file" id="comment-file-input-{{ post.id }}" style="display: none;" multiple 
-                                               accept="image/*,video/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.yaml,.yml,.xml" onchange="handleCommentFileSelect('{{ post.id }}', this)">
+                                               accept="image/*,video/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.tsv,.xlsx,.xlsm,.yaml,.yml,.xml" onchange="handleCommentFileSelect('{{ post.id }}', this)">
                                     </div>
                                     
                                     <!-- Comments List -->
@@ -1638,7 +1695,89 @@
     white-space: nowrap;
 }
 
+.feed-page-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
+
+.composer-action-row {
+    gap: 0.5rem;
+}
+
+.composer-action-tools {
+    align-items: center;
+}
+
+.composer-submit-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.feed-controls-row {
+    row-gap: 0.65rem;
+}
+
+.feed-controls-stats {
+    text-align: right;
+}
+
 @media (max-width: 768px) {
+    .feed-page-header {
+        align-items: flex-start !important;
+        gap: 0.45rem;
+    }
+    .feed-page-actions {
+        width: 100%;
+        justify-content: flex-start;
+    }
+    .feed-page-actions .btn {
+        min-height: 40px;
+    }
+    .composer-action-row {
+        align-items: stretch !important;
+    }
+    .composer-action-tools,
+    .composer-submit-row {
+        width: 100%;
+    }
+    .composer-action-tools .btn,
+    .composer-submit-row .btn {
+        flex: 1 1 calc(50% - 0.25rem);
+        min-height: 40px;
+    }
+    .feed-controls-stats {
+        text-align: left;
+    }
+    .feed-controls-algorithm .d-flex {
+        width: 100%;
+    }
+    .feed-controls-algorithm select {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+    .algo-settings-header {
+        flex-wrap: wrap;
+        gap: 0.4rem;
+    }
+    .algo-settings-actions {
+        flex-wrap: wrap;
+    }
+    .algo-settings-actions .btn {
+        flex: 1 1 100%;
+    }
+    .post-attachments .attachment-item .d-flex {
+        flex-wrap: wrap;
+        row-gap: 0.5rem;
+    }
+    .post-attachments .attachment-item .d-flex .d-flex.align-items-center.gap-2 {
+        margin-left: 0 !important;
+        width: 100%;
+        justify-content: flex-end;
+    }
     .mention-builder-search-wrap {
         min-width: 100%;
     }
@@ -3275,6 +3414,34 @@
 }
 @media (max-width: 576px) {
     .icon-action-btn { font-size: 0.78rem; }
+    .feed-page-actions .btn {
+        width: 100%;
+    }
+    .composer-action-tools .btn,
+    .composer-submit-row .btn {
+        flex: 1 1 100%;
+    }
+    .feed-page-header h1 {
+        font-size: 1.15rem;
+    }
+}
+@media (max-width: 430px) {
+    #post-composer .card-body {
+        padding: 0.75rem;
+    }
+    .feed-page-header h1 {
+        font-size: 1.05rem;
+    }
+    .feed-page-actions .btn {
+        --bs-btn-padding-y: 0.28rem;
+        --bs-btn-padding-x: 0.52rem;
+        --bs-btn-font-size: 0.76rem;
+    }
+    .feed-controls-row .btn,
+    .feed-controls-row .form-select,
+    .feed-controls-row .form-control {
+        font-size: 0.82rem;
+    }
 }
 </style>
 {% endblock %}
@@ -3293,10 +3460,11 @@
 	    let feedMentionLoading = false;
         let feedMentionCandidatesFetchedAt = 0;
         const FEED_MENTION_CACHE_TTL_MS = 30000;
-	    let feedMentionContext = null;
+        let feedMentionContext = null;
         let feedChannelCandidates = null;
         let feedChannelLoading = false;
         let feedChannelContext = null;
+        const feedLikeInFlight = new Set();
 
 	    function openComposer() {
 	        const composer = document.getElementById('post-composer');
@@ -4679,11 +4847,13 @@
         const allowedMimeTypes = [
             'image/', 'video/', 'audio/', 'application/pdf', 'text/', 'application/msword',
             'application/json', 'application/xml', 'application/x-yaml',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-excel.sheet.macroenabled.12',
             'application/javascript', 'application/typescript', 'application/octet-stream',
         ];
         const allowedExtensions = [
             '.md', '.txt', '.tex', '.json', '.py', '.js', '.ts', '.log',
-            '.csv', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
+            '.csv', '.tsv', '.xlsx', '.xlsm', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
             '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx',
         ];
         const fileType = String(file.type || '').toLowerCase();
@@ -4810,7 +4980,7 @@
                            data-inline-post-file-input
                            style="display:none;"
                            multiple
-                           accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml">
+                           accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.tsv,.xlsx,.xlsm,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml">
                     <button type="button" class="btn btn-sm btn-outline-secondary" data-inline-post-add-files>
                         <i class="bi bi-paperclip"></i> Add Files
                     </button>
@@ -4899,7 +5069,7 @@
                     <div class="mb-2"><strong>Current Files:</strong></div>
                     ${state.existingAttachments.map((attachment, index) => `
                         <div class="file-preview-item d-inline-flex align-items-center gap-2 me-2 mb-2 p-2 rounded" style="background: var(--canopy-bg-secondary); border: 1px solid var(--canopy-border);">
-                            <i class="bi bi-${getPostFileIcon((attachment && attachment.type) || '')}"></i>
+                            <i class="bi bi-${getPostFileIcon((attachment && attachment.type) || '', (attachment && attachment.name) || '')}"></i>
                             <span class="small">${escapeHtml((attachment && attachment.name) || 'file')}</span>
                             <button type="button" class="btn-close btn-sm" onclick="removeInlinePostExistingAttachment('${postId}', ${index})" style="font-size: 0.7rem;"></button>
                         </div>
@@ -4919,7 +5089,7 @@
                     <div class="mb-2"><strong>New Files:</strong></div>
                     ${state.newAttachments.map((file, index) => `
                         <div class="file-preview-item d-inline-flex align-items-center gap-2 me-2 mb-2 p-2 rounded" style="background: var(--canopy-bg-tertiary); border: 1px solid var(--canopy-border);">
-                            <i class="bi bi-${getPostFileIcon(file.type)}"></i>
+                            <i class="bi bi-${getPostFileIcon(file.type, file.name)}"></i>
                             <span class="small">${escapeHtml(file.name)}</span>
                             <button type="button" class="btn-close btn-sm" onclick="removeInlinePostEditFile('${postId}', ${index})" style="font-size: 0.7rem;"></button>
                         </div>
@@ -5072,25 +5242,50 @@
     }
     
     function toggleLike(postId) {
+        const normalizedId = String(postId || '').trim();
+        if (!normalizedId) return;
+        if (feedLikeInFlight.has(normalizedId)) return;
+
+        const button = document.querySelector(`.like-btn[data-item-id="${CSS.escape(normalizedId)}"]`);
+        if (!button) return;
+        const currentLiked = button.dataset.liked === 'true';
+        const countEl = button.querySelector('.like-count');
+        const currentCount = Math.max(0, parseInt(countEl?.textContent || '0', 10) || 0);
+        const optimisticLiked = !currentLiked;
+        const optimisticCount = Math.max(0, currentCount + (optimisticLiked ? 1 : -1));
+
+        updateLikeButton(normalizedId, optimisticLiked, { total_likes: optimisticCount });
+        button.disabled = true;
+        button.classList.add('opacity-75');
+        feedLikeInFlight.add(normalizedId);
+
         apiCall('/ajax/toggle_post_like', {
             method: 'POST',
             body: JSON.stringify({
-                post_id: postId
+                post_id: normalizedId
             })
         })
         .then(data => {
             if (data.success) {
-                updateLikeButton(postId, data.liked, data.interactions);
+                updateLikeButton(normalizedId, data.liked, data.interactions || { total_likes: optimisticCount });
+            } else {
+                throw new Error(data?.error || 'Like update failed');
             }
         })
         .catch(error => {
             console.error('Error toggling like:', error);
+            updateLikeButton(normalizedId, currentLiked, { total_likes: currentCount });
             showAlert('Failed to update like', 'danger');
+        })
+        .finally(() => {
+            feedLikeInFlight.delete(normalizedId);
+            button.disabled = false;
+            button.classList.remove('opacity-75');
         });
     }
     
     function updateLikeButton(postId, liked, interactions) {
-        const button = document.querySelector(`[data-item-id="${postId}"]`);
+        const button = document.querySelector(`.like-btn[data-item-id="${CSS.escape(String(postId))}"]`);
         if (!button) return;
         
         const likeText = button.querySelector('.like-text');
@@ -5117,7 +5312,8 @@
             icon.classList.add('bi-heart');
         }
         
-        likeCount.textContent = interactions.total_likes;
+        const totalLikes = Math.max(0, parseInt(interactions?.total_likes ?? likeCount?.textContent ?? '0', 10) || 0);
+        if (likeCount) likeCount.textContent = String(totalLikes);
     }
     
     function copyToClipboard(btn, postId) {
@@ -5194,7 +5390,7 @@
                         
                         <!-- Hidden file input -->
                         <input type="file" id="comment-file-input-${postId}" style="display: none;" multiple 
-                               accept="image/*,video/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.yaml,.yml,.xml" onchange="handleCommentFileSelect('${postId}', this)">
+                               accept="image/*,video/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.tsv,.xlsx,.xlsm,.yaml,.yml,.xml" onchange="handleCommentFileSelect('${postId}', this)">
                     </div>
                 </div>
             `;
@@ -5299,9 +5495,11 @@
         const maxSize = 100 * 1024 * 1024; // 100MB for comments
         const allowedMimeTypes = ['image/', 'video/', 'audio/', 'application/pdf', 'text/', 'application/msword',
                                   'application/json', 'application/xml', 'application/x-yaml',
+                                  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                                  'application/vnd.ms-excel.sheet.macroenabled.12',
                                   'application/javascript', 'application/typescript', 'application/octet-stream'];
         const allowedExtensions = ['.md', '.txt', '.tex', '.json', '.py', '.js', '.ts', '.log',
-                                   '.csv', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
+                                   '.csv', '.tsv', '.xlsx', '.xlsm', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
                                    '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx'];
         
         files.forEach(file => {
@@ -5353,7 +5551,7 @@
         preview.innerHTML = files.map((file, index) => `
             <div class="comment-file-item d-inline-flex align-items-center gap-1 me-2 mb-1 p-1 rounded" 
                  style="background: var(--canopy-bg-secondary); border: 1px solid var(--canopy-border); font-size: 0.8rem;">
-                <i class="bi bi-${getPostFileIcon(file.type)}"></i>
+                <i class="bi bi-${getPostFileIcon(file.type, file.name)}"></i>
                 <span class="small">${file.name}</span>
                 <button type="button" class="btn-close btn-sm" onclick="removeCommentFile('${postId}', ${index})" 
                         style="font-size: 0.6rem; padding: 0.1rem;"></button>
@@ -5566,9 +5764,11 @@
         const maxSize = 100 * 1024 * 1024; // 100MB
         const allowedMimeTypes = ['image/', 'video/', 'audio/', 'application/pdf', 'text/', 'application/msword',
                                   'application/json', 'application/xml', 'application/x-yaml',
+                                  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                                  'application/vnd.ms-excel.sheet.macroenabled.12',
                                   'application/javascript', 'application/typescript', 'application/octet-stream'];
         const allowedExtensions = ['.md', '.txt', '.tex', '.json', '.py', '.js', '.ts', '.log',
-                                   '.csv', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
+                                   '.csv', '.tsv', '.xlsx', '.xlsm', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
                                    '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx'];
         
         files.forEach(file => {
@@ -5618,7 +5818,7 @@
         preview.style.display = 'block';
         preview.innerHTML = selectedPostFiles.map((file, index) => `
             <div class="file-preview-item">
-                <i class="bi bi-${getPostFileIcon(file.type)}"></i>
+                <i class="bi bi-${getPostFileIcon(file.type, file.name)}"></i>
                 <span>${file.name}</span>
                 <button type="button" class="btn-close" onclick="removePostFile(${index})"></button>
             </div>
@@ -5630,11 +5830,14 @@
         updatePostFilePreview();
     }
     
-    function getPostFileIcon(type) {
-        if (type.startsWith('image/')) return 'image';
-        if (type.startsWith('video/')) return 'camera-video';
-        if (type.startsWith('audio/')) return 'music-note';
-        if (type.includes('pdf')) return 'file-pdf';
+    function getPostFileIcon(type, name = '') {
+        const lowerType = String(type || '').toLowerCase();
+        const lowerName = String(name || '').toLowerCase();
+        if (lowerType.startsWith('image/')) return 'image';
+        if (lowerType.startsWith('video/')) return 'camera-video';
+        if (lowerType.startsWith('audio/')) return 'music-note';
+        if (lowerType.includes('pdf')) return 'file-pdf';
+        if (lowerType.includes('spreadsheet') || lowerType.includes('excel') || /\.(csv|tsv|xlsx|xlsm)$/.test(lowerName)) return 'file-earmark-spreadsheet';
         return 'file-earmark';
     }
     

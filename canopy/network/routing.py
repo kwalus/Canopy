@@ -168,6 +168,9 @@ class MessageType(Enum):
     CHANNEL_KEY_DISTRIBUTION = "channel_key_distribution"  # Wrapped channel key delivery
     CHANNEL_KEY_REQUEST = "channel_key_request"            # Request key delivery/re-send
     CHANNEL_KEY_ACK = "channel_key_ack"                    # Ack key import result
+    LARGE_ATTACHMENT_REQUEST = "large_attachment_request"  # Request remote large attachment
+    LARGE_ATTACHMENT_CHUNK = "large_attachment_chunk"      # Chunked large attachment transfer
+    LARGE_ATTACHMENT_ERROR = "large_attachment_error"      # Large attachment transfer failure
     PRINCIPAL_ANNOUNCE = "principal_announce"              # Identity portability principal metadata
     PRINCIPAL_KEY_UPDATE = "principal_key_update"          # Principal key rotation/revocation update
     BOOTSTRAP_GRANT_SYNC = "bootstrap_grant_sync"          # Sync bootstrap grant artifact
@@ -257,6 +260,9 @@ class MessageRouter:
         MessageType.CHANNEL_KEY_DISTRIBUTION,
         MessageType.CHANNEL_KEY_REQUEST,
         MessageType.CHANNEL_KEY_ACK,
+        MessageType.LARGE_ATTACHMENT_REQUEST,
+        MessageType.LARGE_ATTACHMENT_CHUNK,
+        MessageType.LARGE_ATTACHMENT_ERROR,
         MessageType.PRINCIPAL_ANNOUNCE,
         MessageType.PRINCIPAL_KEY_UPDATE,
         MessageType.BOOTSTRAP_GRANT_SYNC,
@@ -330,6 +336,9 @@ class MessageRouter:
         self.on_channel_key_distribution: Optional[Any] = None
         self.on_channel_key_request: Optional[Any] = None
         self.on_channel_key_ack: Optional[Any] = None
+        self.on_large_attachment_request: Optional[Any] = None
+        self.on_large_attachment_chunk: Optional[Any] = None
+        self.on_large_attachment_error: Optional[Any] = None
         self.on_principal_announce: Optional[Any] = None
         self.on_principal_key_update: Optional[Any] = None
         self.on_bootstrap_grant_sync: Optional[Any] = None
@@ -1030,6 +1039,52 @@ class MessageRouter:
             except Exception as e:
                 logger.error(f"Error delivering channel key ack locally: {e}", exc_info=True)
 
+        elif message.type == MessageType.LARGE_ATTACHMENT_REQUEST and self.on_large_attachment_request:
+            try:
+                meta = payload.get('metadata', {})
+                self.on_large_attachment_request(
+                    request_id=meta.get('request_id'),
+                    origin_file_id=meta.get('origin_file_id'),
+                    requester_peer=meta.get('requester_peer') or message.from_peer,
+                    source_context=meta.get('source_context') or {},
+                    from_peer=message.from_peer,
+                )
+            except Exception as e:
+                logger.error(f"Error delivering large attachment request locally: {e}", exc_info=True)
+
+        elif message.type == MessageType.LARGE_ATTACHMENT_CHUNK and self.on_large_attachment_chunk:
+            try:
+                meta = payload.get('metadata', {})
+                self.on_large_attachment_chunk(
+                    request_id=meta.get('request_id'),
+                    origin_file_id=meta.get('origin_file_id'),
+                    file_name=meta.get('file_name'),
+                    content_type=meta.get('content_type'),
+                    checksum=meta.get('checksum'),
+                    size=meta.get('size'),
+                    uploaded_by=meta.get('uploaded_by'),
+                    chunk_index=meta.get('chunk_index'),
+                    total_chunks=meta.get('total_chunks'),
+                    data_b64=meta.get('data'),
+                    source_peer_id=meta.get('source_peer_id') or message.from_peer,
+                    from_peer=message.from_peer,
+                )
+            except Exception as e:
+                logger.error(f"Error delivering large attachment chunk locally: {e}", exc_info=True)
+
+        elif message.type == MessageType.LARGE_ATTACHMENT_ERROR and self.on_large_attachment_error:
+            try:
+                meta = payload.get('metadata', {})
+                self.on_large_attachment_error(
+                    request_id=meta.get('request_id'),
+                    origin_file_id=meta.get('origin_file_id'),
+                    error=meta.get('error'),
+                    source_peer_id=meta.get('source_peer_id') or message.from_peer,
+                    from_peer=message.from_peer,
+                )
+            except Exception as e:
+                logger.error(f"Error delivering large attachment error locally: {e}", exc_info=True)
+
         elif message.type == MessageType.PRINCIPAL_ANNOUNCE and self.on_principal_announce:
             try:
                 meta = payload.get('metadata', {})
@@ -1555,6 +1610,92 @@ class MessageRouter:
         }
 
         message = self.create_message(MessageType.CHANNEL_KEY_ACK, to_peer, payload)
+        self.sign_message(message)
+        return await self._route_to_peer(message)
+
+    async def send_large_attachment_request(
+        self,
+        *,
+        to_peer: str,
+        request_id: str,
+        origin_file_id: str,
+        requester_peer: str,
+        source_context: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Request a chunked large attachment from its source peer."""
+        payload = {
+            'content': '',
+            'metadata': {
+                'type': 'large_attachment_request',
+                'request_id': request_id,
+                'origin_file_id': origin_file_id,
+                'requester_peer': requester_peer,
+                'source_context': source_context or {},
+            },
+        }
+        message = self.create_message(MessageType.LARGE_ATTACHMENT_REQUEST, to_peer, payload)
+        self.sign_message(message)
+        return await self._route_to_peer(message)
+
+    async def send_large_attachment_chunk(
+        self,
+        *,
+        to_peer: str,
+        request_id: str,
+        origin_file_id: str,
+        file_name: str,
+        content_type: str,
+        checksum: str,
+        size: int,
+        uploaded_by: Optional[str],
+        chunk_index: int,
+        total_chunks: int,
+        data_b64: str,
+        source_peer_id: str,
+    ) -> bool:
+        """Send one chunk of a large attachment to a peer."""
+        payload = {
+            'content': '',
+            'metadata': {
+                'type': 'large_attachment_chunk',
+                'request_id': request_id,
+                'origin_file_id': origin_file_id,
+                'file_name': file_name,
+                'content_type': content_type,
+                'checksum': checksum,
+                'size': size,
+                'uploaded_by': uploaded_by,
+                'chunk_index': chunk_index,
+                'total_chunks': total_chunks,
+                'data': data_b64,
+                'source_peer_id': source_peer_id,
+            },
+        }
+        message = self.create_message(MessageType.LARGE_ATTACHMENT_CHUNK, to_peer, payload)
+        self.sign_message(message)
+        return await self._route_to_peer(message)
+
+    async def send_large_attachment_error(
+        self,
+        *,
+        to_peer: str,
+        request_id: str,
+        origin_file_id: str,
+        error: str,
+        source_peer_id: str,
+    ) -> bool:
+        """Send a failure marker for a large attachment transfer."""
+        payload = {
+            'content': '',
+            'metadata': {
+                'type': 'large_attachment_error',
+                'request_id': request_id,
+                'origin_file_id': origin_file_id,
+                'error': error,
+                'source_peer_id': source_peer_id,
+            },
+        }
+        message = self.create_message(MessageType.LARGE_ATTACHMENT_ERROR, to_peer, payload)
         self.sign_message(message)
         return await self._route_to_peer(message)
 

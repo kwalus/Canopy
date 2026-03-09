@@ -727,6 +727,51 @@
             padding: 8px 4px;
         }
 
+        .sidebar-peer-more {
+            margin-top: 4px;
+        }
+
+        .sidebar-peer-more-btn {
+            width: 100%;
+            border-radius: 10px;
+            border: 1px dashed rgba(255, 255, 255, 0.12);
+            background: rgba(255, 255, 255, 0.035);
+            color: var(--canopy-text-muted);
+            font-size: 0.72rem;
+            font-weight: 600;
+            letter-spacing: 0.03em;
+            padding: 8px 10px;
+            transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+        }
+
+        .sidebar-peer-more-btn:hover {
+            color: var(--canopy-text-primary);
+            border-color: rgba(56, 189, 248, 0.28);
+            background: rgba(56, 189, 248, 0.08);
+        }
+
+        .peer-modal-search {
+            margin-bottom: 12px;
+        }
+
+        .peer-modal-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 58vh;
+            overflow-y: auto;
+        }
+
+        .peer-modal-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+            color: var(--canopy-text-muted);
+            font-size: 0.76rem;
+        }
+
         .trust-pill {
             font-size: 0.62rem;
             padding: 2px 6px;
@@ -5135,6 +5180,11 @@
                                 <div class="sidebar-peer-empty">No active peers</div>
                             {% endif %}
                         </div>
+                        <div class="sidebar-peer-more" id="sidebar-peer-more" style="display:none;">
+                            <button type="button" class="sidebar-peer-more-btn" id="sidebar-peer-more-btn">
+                                View more peers
+                            </button>
+                        </div>
                     </div>
                     {% endif %}
 
@@ -5247,7 +5297,9 @@
             peerProfiles: {{ sidebar_peer_profiles|tojson if sidebar_peer_profiles is defined else '{}' }},
             peerTrust: {{ sidebar_peer_trust|tojson if sidebar_peer_trust is defined else '{}' }},
             connectedPeers: {{ sidebar_connected_peers|tojson if sidebar_connected_peers is defined else '[]' }},
+            peerRev: {{ sidebar_peer_rev|tojson if sidebar_peer_rev is defined else '""' }},
             recentDmContacts: {{ sidebar_recent_dm_contacts|tojson if sidebar_recent_dm_contacts is defined else '[]' }},
+            dmRev: {{ sidebar_dm_rev|tojson if sidebar_dm_rev is defined else '""' }},
             userId: {{ (user_id or 'local_user')|tojson }},
             profileTheme: {{ (profile.theme_preference if profile else 'dark')|tojson }},
             localUserId: {{ session.get('user_id')|tojson }},
@@ -5274,6 +5326,30 @@
                     <div class="font-monospace small mb-3" id="file-access-title">—</div>
                     <div id="file-access-summary" class="mb-3"></div>
                     <div id="file-access-evidence"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="sidebarPeersModal" tabindex="-1" aria-labelledby="sidebarPeersModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div>
+                        <h5 class="modal-title" id="sidebarPeersModalLabel">Connected Peers</h5>
+                        <div class="small text-muted" id="sidebar-peers-modal-subtitle">Mesh connections on this node</div>
+                    </div>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="peer-modal-meta">
+                        <span id="sidebar-peers-modal-count">0 connected</span>
+                        <span id="sidebar-peers-modal-overflow"></span>
+                    </div>
+                    <div class="peer-modal-search">
+                        <input type="search" class="form-control" id="sidebar-peers-search" placeholder="Search peers by name or ID">
+                    </div>
+                    <div class="peer-modal-list" id="sidebar-peers-modal-list"></div>
                 </div>
             </div>
         </div>

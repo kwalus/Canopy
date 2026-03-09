@@ -28,6 +28,12 @@ from ..core.messaging import (
     encrypt_dm_transport_bundle,
     is_local_dm_user,
 )
+from ..core.large_attachments import (
+    LARGE_ATTACHMENT_CAPABILITY,
+    LARGE_ATTACHMENT_THRESHOLD,
+    LARGE_ATTACHMENT_CHUNK_SIZE,
+    build_large_attachment_metadata,
+)
 from .identity import IdentityManager, PeerIdentity
 from .discovery import PeerDiscovery, DiscoveredPeer
 from .connection import ConnectionManager, PeerConnection
@@ -92,6 +98,9 @@ class P2PNetworkManager:
         self.on_channel_key_distribution: Optional[Callable] = None
         self.on_channel_key_request: Optional[Callable] = None
         self.on_channel_key_ack: Optional[Callable] = None
+        self.on_large_attachment_request: Optional[Callable] = None
+        self.on_large_attachment_chunk: Optional[Callable] = None
+        self.on_large_attachment_error: Optional[Callable] = None
         self.on_principal_announce: Optional[Callable] = None
         self.on_principal_key_update: Optional[Callable] = None
         self.on_bootstrap_grant_sync: Optional[Callable] = None
@@ -220,6 +229,7 @@ class P2PNetworkManager:
             caps.append('sync_digest_v1')
         if bool(getattr(sec_cfg, 'identity_portability_enabled', False)):
             caps.append('identity_portability_v1')
+        caps.append(LARGE_ATTACHMENT_CAPABILITY)
 
         out: list[str] = []
         seen = set()
@@ -278,6 +288,58 @@ class P2PNetworkManager:
         except Exception:
             pass
         return False
+
+    def _build_p2p_attachment_entry(self, attachment: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Prepare one attachment payload for P2P propagation."""
+        if not isinstance(attachment, dict):
+            return None
+
+        file_id = attachment.get('id', attachment.get('file_id'))
+        entry: Dict[str, Any] = {
+            'name': attachment.get('name', attachment.get('original_name', 'file')),
+            'type': attachment.get('type', attachment.get('content_type', 'application/octet-stream')),
+            'size': attachment.get('size', 0),
+        }
+        if file_id:
+            entry['id'] = file_id
+
+        if not file_id or not self.file_manager:
+            return entry
+
+        try:
+            result = self.file_manager.get_file_data(file_id)
+            if not result:
+                return entry
+            file_data, file_info = result
+            if len(file_data) <= LARGE_ATTACHMENT_THRESHOLD:
+                import base64
+                entry['data'] = base64.b64encode(file_data).decode('ascii')
+                logger.info(
+                    "Attached file %s (%d bytes) to P2P payload",
+                    file_id,
+                    len(file_data),
+                )
+                return entry
+
+            local_peer_id = ''
+            try:
+                local_peer_id = str(self.get_peer_id() or '').strip()
+            except Exception:
+                local_peer_id = ''
+            entry.update(build_large_attachment_metadata(
+                file_info=file_info,
+                source_peer_id=local_peer_id,
+                download_status='pending',
+            ))
+            entry.pop('url', None)
+            logger.info(
+                "Prepared large attachment metadata for %s (%d bytes)",
+                file_id,
+                len(file_data),
+            )
+        except Exception as e:
+            logger.error("Failed to read file %s for P2P transfer: %s", file_id, e)
+        return entry
 
     def _normalize_capability_items(self, raw_caps: Any) -> list[str]:
         values = raw_caps if isinstance(raw_caps, (list, tuple, set)) else []
@@ -626,6 +688,12 @@ class P2PNetworkManager:
                 self.message_router.on_channel_key_request = self.on_channel_key_request
             if self.on_channel_key_ack:
                 self.message_router.on_channel_key_ack = self.on_channel_key_ack
+            if self.on_large_attachment_request:
+                self.message_router.on_large_attachment_request = self.on_large_attachment_request
+            if self.on_large_attachment_chunk:
+                self.message_router.on_large_attachment_chunk = self.on_large_attachment_chunk
+            if self.on_large_attachment_error:
+                self.message_router.on_large_attachment_error = self.on_large_attachment_error
             if self.on_principal_announce:
                 self.message_router.on_principal_announce = self.on_principal_announce
             if self.on_principal_key_update:
@@ -2520,32 +2588,11 @@ class P2PNetworkManager:
         # Embed file data for each attachment so peers can store locally.
         # Include original file_id so receivers can rewrite /files/ORIGINAL in content to /files/LOCAL.
         if attachments:
-            import base64
             p2p_attachments = []
             for att in attachments:
-                file_id = att.get('id', att.get('file_id'))
-                att_entry = {
-                    'name': att.get('name', att.get('original_name', 'file')),
-                    'type': att.get('type', att.get('content_type', 'application/octet-stream')),
-                    'size': att.get('size', 0),
-                }
-                if file_id:
-                    att_entry['id'] = file_id
-                # Read file bytes if we have a file_manager and a file id
-                if file_id and self.file_manager:
-                    try:
-                        result = self.file_manager.get_file_data(file_id)
-                        if result:
-                            file_data, file_info = result
-                            if len(file_data) <= 10 * 1024 * 1024:  # 10MB limit
-                                att_entry['data'] = base64.b64encode(file_data).decode('ascii')
-                                logger.info(f"Attached file {file_id} ({len(file_data)} bytes) to P2P broadcast")
-                            else:
-                                logger.warning(f"File {file_id} too large for inline P2P transfer "
-                                             f"({len(file_data)} bytes, limit 10MB)")
-                    except Exception as e:
-                        logger.error(f"Failed to read file {file_id} for P2P broadcast: {e}")
-                p2p_attachments.append(att_entry)
+                att_entry = self._build_p2p_attachment_entry(att)
+                if att_entry:
+                    p2p_attachments.append(att_entry)
 
             metadata['attachments'] = p2p_attachments
             metadata['message_type'] = 'file'
@@ -2615,27 +2662,11 @@ class P2PNetworkManager:
             attachments = meta_metadata.get('attachments') if isinstance(meta_metadata, dict) else []
             attachments = attachments or []
             if attachments:
-                import base64
                 enriched = []
                 for att in attachments:
-                    if not isinstance(att, dict):
-                        continue
-                    entry = dict(att)
-                    file_id = entry.get('id') or entry.get('file_id')
-                    if file_id and self.file_manager:
-                        try:
-                            result = self.file_manager.get_file_data(file_id)
-                            if result:
-                                file_data, _ = result
-                                if len(file_data) <= 10 * 1024 * 1024:
-                                    entry['data'] = base64.b64encode(file_data).decode('ascii')
-                                else:
-                                    logger.warning(
-                                        f"Feed attachment {file_id} too large for P2P (size={len(file_data)} bytes)"
-                                    )
-                        except Exception as e:
-                            logger.error(f"Failed to read feed attachment {file_id} for P2P: {e}")
-                    enriched.append(entry)
+                    entry = self._build_p2p_attachment_entry(att)
+                    if entry:
+                        enriched.append(entry)
                 if isinstance(meta_metadata, dict):
                     meta_metadata['attachments'] = enriched
         except Exception as e:
@@ -2746,27 +2777,11 @@ class P2PNetworkManager:
             attachments = dm_metadata.get('attachments') if isinstance(dm_metadata, dict) else []
             attachments = attachments or []
             if attachments:
-                import base64
                 enriched = []
                 for att in attachments:
-                    if not isinstance(att, dict):
-                        continue
-                    entry = dict(att)
-                    file_id = entry.get('id') or entry.get('file_id')
-                    if file_id and self.file_manager:
-                        try:
-                            result = self.file_manager.get_file_data(file_id)
-                            if result:
-                                file_data, _ = result
-                                if len(file_data) <= 10 * 1024 * 1024:
-                                    entry['data'] = base64.b64encode(file_data).decode('ascii')
-                                else:
-                                    logger.warning(
-                                        f"DM attachment {file_id} too large for P2P (size={len(file_data)} bytes)"
-                                    )
-                        except Exception as e:
-                            logger.error(f"Failed to read DM attachment {file_id} for P2P: {e}")
-                    enriched.append(entry)
+                    entry = self._build_p2p_attachment_entry(att)
+                    if entry:
+                        enriched.append(entry)
                 if isinstance(dm_metadata, dict):
                     dm_metadata['attachments'] = enriched
             user_metadata = dm_metadata
@@ -3119,6 +3134,113 @@ class P2PNetworkManager:
                 f.result()
             except Exception as exc:
                 logger.error("Error sending channel key ack: %s", exc)
+
+        future.add_done_callback(_on_done)
+        return True
+
+    def send_large_attachment_request(
+        self,
+        *,
+        to_peer: str,
+        request_id: str,
+        origin_file_id: str,
+        source_context: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Request a remote large attachment from its source peer."""
+        if not self._running or not self._event_loop or not self.message_router:
+            return False
+        future = asyncio.run_coroutine_threadsafe(
+            self.message_router.send_large_attachment_request(
+                to_peer=to_peer,
+                request_id=request_id,
+                origin_file_id=origin_file_id,
+                requester_peer=self.get_peer_id(),
+                source_context=source_context or {},
+            ),
+            self._event_loop,
+        )
+
+        def _on_done(f: Any) -> None:
+            try:
+                f.result()
+            except Exception as exc:
+                logger.error("Error sending large attachment request: %s", exc)
+
+        future.add_done_callback(_on_done)
+        return True
+
+    def send_large_attachment_chunk(
+        self,
+        *,
+        to_peer: str,
+        request_id: str,
+        origin_file_id: str,
+        file_name: str,
+        content_type: str,
+        checksum: str,
+        size: int,
+        uploaded_by: Optional[str],
+        chunk_index: int,
+        total_chunks: int,
+        data_b64: str,
+    ) -> bool:
+        """Send one chunk of a large attachment to a peer."""
+        if not self._running or not self._event_loop or not self.message_router:
+            return False
+        future = asyncio.run_coroutine_threadsafe(
+            self.message_router.send_large_attachment_chunk(
+                to_peer=to_peer,
+                request_id=request_id,
+                origin_file_id=origin_file_id,
+                file_name=file_name,
+                content_type=content_type,
+                checksum=checksum,
+                size=size,
+                uploaded_by=uploaded_by,
+                chunk_index=chunk_index,
+                total_chunks=total_chunks,
+                data_b64=data_b64,
+                source_peer_id=self.get_peer_id(),
+            ),
+            self._event_loop,
+        )
+
+        def _on_done(f: Any) -> None:
+            try:
+                f.result()
+            except Exception as exc:
+                logger.error("Error sending large attachment chunk: %s", exc)
+
+        future.add_done_callback(_on_done)
+        return True
+
+    def send_large_attachment_error(
+        self,
+        *,
+        to_peer: str,
+        request_id: str,
+        origin_file_id: str,
+        error: str,
+    ) -> bool:
+        """Send a failure marker for a large attachment transfer."""
+        if not self._running or not self._event_loop or not self.message_router:
+            return False
+        future = asyncio.run_coroutine_threadsafe(
+            self.message_router.send_large_attachment_error(
+                to_peer=to_peer,
+                request_id=request_id,
+                origin_file_id=origin_file_id,
+                error=error,
+                source_peer_id=self.get_peer_id(),
+            ),
+            self._event_loop,
+        )
+
+        def _on_done(f: Any) -> None:
+            try:
+                f.result()
+            except Exception as exc:
+                logger.error("Error sending large attachment error: %s", exc)
 
         future.add_done_callback(_on_done)
         return True

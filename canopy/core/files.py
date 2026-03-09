@@ -21,6 +21,11 @@ import base64
 
 from .database import DatabaseManager
 from .logging_config import log_performance, LogOperation
+from .large_attachments import (
+    LARGE_ATTACHMENT_THRESHOLD,
+    get_large_attachment_store_root,
+    resolve_large_attachment_store_root,
+)
 
 # Pillow for thumbnail generation (optional — graceful degradation)
 try:
@@ -76,6 +81,9 @@ class FileManager:
         '.log': 'text/plain',
         '.json': 'application/json',
         '.csv': 'text/csv',
+        '.tsv': 'text/csv',
+        '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        '.xlsm': 'application/vnd.ms-excel.sheet.macroenabled.12',
         '.tex': 'text/x-tex',
         '.latex': 'application/x-latex',
         '.jpg': 'image/jpeg',
@@ -107,6 +115,8 @@ class FileManager:
         'text/plain': '.txt',
         'application/json': '.json',
         'text/csv': '.csv',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+        'application/vnd.ms-excel.sheet.macroenabled.12': '.xlsm',
         'text/x-tex': '.tex',
         'application/x-latex': '.tex',
         'image/jpeg': '.jpg',
@@ -170,6 +180,12 @@ class FileManager:
         _add(self._project_root / 'data' / 'files')
         _add(Path.cwd() / 'data' / 'files')
 
+        configured_large_root = resolve_large_attachment_store_root(
+            get_large_attachment_store_root(self.db)
+        )
+        if configured_large_root:
+            _add(configured_large_root)
+
         # If storage path is device-scoped (.../devices/<id>/files), add common alternates.
         parts = list(self.storage_path.parts)
         if 'devices' in parts:
@@ -181,6 +197,15 @@ class FileManager:
                 _add(Path.home() / '.canopy' / 'data' / 'devices' / device_id / 'files')
 
         return roots
+
+    def _select_storage_root(self, file_size: int) -> Path:
+        """Choose the on-disk storage root for a new file."""
+        configured_large_root = resolve_large_attachment_store_root(
+            get_large_attachment_store_root(self.db)
+        )
+        if configured_large_root and int(file_size or 0) > LARGE_ATTACHMENT_THRESHOLD:
+            return configured_large_root
+        return self.storage_path
 
     def _resolve_file_disk_path(self, stored_path: str) -> Path:
         """Resolve a DB file_path to an on-disk file path with compatibility fallbacks."""
@@ -276,6 +301,29 @@ class FileManager:
                     CREATE INDEX IF NOT EXISTS idx_files_content_type ON files(content_type);
                     CREATE INDEX IF NOT EXISTS idx_files_uploaded_at ON files(uploaded_at);
                     CREATE INDEX IF NOT EXISTS idx_file_access_log_file_id ON file_access_log(file_id);
+
+                    -- Remote transfer tracking for large attachments fetched over P2P.
+                    CREATE TABLE IF NOT EXISTS remote_attachment_transfers (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        origin_peer_id TEXT NOT NULL,
+                        origin_file_id TEXT NOT NULL,
+                        local_file_id TEXT,
+                        file_name TEXT,
+                        content_type TEXT,
+                        size INTEGER,
+                        checksum TEXT,
+                        status TEXT NOT NULL DEFAULT 'pending',
+                        last_request_id TEXT,
+                        error TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(origin_peer_id, origin_file_id)
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_remote_attachment_transfers_peer
+                        ON remote_attachment_transfers(origin_peer_id, status);
+                    CREATE INDEX IF NOT EXISTS idx_remote_attachment_transfers_origin_file
+                        ON remote_attachment_transfers(origin_file_id);
                 """)
                 conn.commit()
                 logger.info("File database tables ensured successfully")
@@ -441,6 +489,8 @@ class FileManager:
             return 'audio'
         elif content_type in ['application/pdf', 'application/msword', 
                               'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                              'application/vnd.ms-excel.sheet.macroenabled.12',
                               'text/plain', 'text/csv', 'text/markdown',
                               'text/x-tex', 'application/x-latex',
                               'text/html', 'application/xml', 'text/xml',
@@ -613,12 +663,18 @@ class FileManager:
             
             # Determine storage category and path
             category = self._get_file_category(content_type)
-            file_path = self.storage_path / category / stored_name
+            storage_root = self._select_storage_root(len(file_data))
+            (storage_root / "images").mkdir(parents=True, exist_ok=True)
+            (storage_root / "videos").mkdir(parents=True, exist_ok=True)
+            (storage_root / "documents").mkdir(parents=True, exist_ok=True)
+            (storage_root / "audio").mkdir(parents=True, exist_ok=True)
+            (storage_root / "other").mkdir(parents=True, exist_ok=True)
+            file_path = storage_root / category / stored_name
 
-            # Verify the resolved path is within storage directory (prevent path traversal)
+            # Verify the resolved path is within the selected storage root (prevent path traversal)
             try:
                 file_path = file_path.resolve()
-                storage_path_resolved = self.storage_path.resolve()
+                storage_path_resolved = storage_root.resolve()
                 if not str(file_path).startswith(str(storage_path_resolved)):
                     logger.error(f"Path traversal attempt detected: {file_path}")
                     return None
@@ -672,6 +728,134 @@ class FileManager:
         except Exception as e:
             logger.error(f"Failed to save file {original_name}: {e}", exc_info=True)
             return None
+
+    def get_remote_attachment_transfer(self, origin_peer_id: str,
+                                       origin_file_id: str) -> Optional[Dict[str, Any]]:
+        """Return tracked transfer state for a remote large attachment."""
+        if not origin_peer_id or not origin_file_id:
+            return None
+        try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    """
+                    SELECT origin_peer_id, origin_file_id, local_file_id, file_name,
+                           content_type, size, checksum, status, last_request_id,
+                           error, created_at, updated_at
+                    FROM remote_attachment_transfers
+                    WHERE origin_peer_id = ? AND origin_file_id = ?
+                    """,
+                    (origin_peer_id, origin_file_id),
+                ).fetchone()
+                return dict(row) if row else None
+        except Exception as e:
+            logger.debug(
+                "Failed to load remote attachment transfer %s/%s: %s",
+                origin_peer_id,
+                origin_file_id,
+                e,
+            )
+            return None
+
+    def upsert_remote_attachment_transfer(
+        self,
+        *,
+        origin_peer_id: str,
+        origin_file_id: str,
+        file_name: Optional[str] = None,
+        content_type: Optional[str] = None,
+        size: Optional[int] = None,
+        checksum: Optional[str] = None,
+        status: str = 'pending',
+        last_request_id: Optional[str] = None,
+        error: Optional[str] = None,
+        local_file_id: Optional[str] = None,
+    ) -> bool:
+        """Create or update tracked transfer state for a remote large attachment."""
+        if not origin_peer_id or not origin_file_id:
+            return False
+        try:
+            with self.db.get_connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO remote_attachment_transfers (
+                        origin_peer_id, origin_file_id, local_file_id, file_name,
+                        content_type, size, checksum, status, last_request_id,
+                        error, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(origin_peer_id, origin_file_id) DO UPDATE SET
+                        local_file_id = COALESCE(excluded.local_file_id, remote_attachment_transfers.local_file_id),
+                        file_name = COALESCE(excluded.file_name, remote_attachment_transfers.file_name),
+                        content_type = COALESCE(excluded.content_type, remote_attachment_transfers.content_type),
+                        size = COALESCE(excluded.size, remote_attachment_transfers.size),
+                        checksum = COALESCE(excluded.checksum, remote_attachment_transfers.checksum),
+                        status = COALESCE(excluded.status, remote_attachment_transfers.status),
+                        last_request_id = COALESCE(excluded.last_request_id, remote_attachment_transfers.last_request_id),
+                        error = excluded.error,
+                        updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (
+                        origin_peer_id,
+                        origin_file_id,
+                        local_file_id,
+                        file_name,
+                        content_type,
+                        size,
+                        checksum,
+                        status,
+                        last_request_id,
+                        error,
+                    ),
+                )
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.error(
+                "Failed to upsert remote attachment transfer %s/%s: %s",
+                origin_peer_id,
+                origin_file_id,
+                e,
+                exc_info=True,
+            )
+            return False
+
+    def list_pending_remote_attachment_transfers(
+        self,
+        *,
+        origin_peer_id: Optional[str] = None,
+        statuses: Optional[List[str]] = None,
+        limit: int = 200,
+    ) -> List[Dict[str, Any]]:
+        """List remote large-attachment transfers that still need action."""
+        try:
+            clauses = []
+            params: List[Any] = []
+            if origin_peer_id:
+                clauses.append("origin_peer_id = ?")
+                params.append(origin_peer_id)
+            wanted = [str(s).strip().lower() for s in (statuses or ['pending', 'requested', 'error']) if str(s).strip()]
+            if wanted:
+                placeholders = ",".join("?" for _ in wanted)
+                clauses.append(f"LOWER(status) IN ({placeholders})")
+                params.extend(wanted)
+            where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+            params.append(max(1, int(limit or 200)))
+            with self.db.get_connection() as conn:
+                rows = conn.execute(
+                    f"""
+                    SELECT origin_peer_id, origin_file_id, local_file_id, file_name,
+                           content_type, size, checksum, status, last_request_id,
+                           error, created_at, updated_at
+                    FROM remote_attachment_transfers
+                    {where_sql}
+                    ORDER BY updated_at DESC
+                    LIMIT ?
+                    """,
+                    params,
+                ).fetchall()
+            return [dict(row) for row in rows]
+        except Exception as e:
+            logger.debug("Failed to list pending remote attachment transfers: %s", e)
+            return []
     
     @log_performance('files')
     def get_file(self, file_id: str) -> Optional[FileInfo]:
@@ -1029,7 +1213,13 @@ class FileManager:
                             WHEN content_type LIKE 'image/%' THEN 'images'
                             WHEN content_type LIKE 'video/%' THEN 'videos'
                             WHEN content_type LIKE 'audio/%' THEN 'audio'
-                            WHEN content_type IN ('application/pdf', 'text/plain', 'application/msword') THEN 'documents'
+                            WHEN content_type IN (
+                                'application/pdf',
+                                'text/plain',
+                                'application/msword',
+                                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                                'application/vnd.ms-excel.sheet.macroenabled.12'
+                            ) THEN 'documents'
                             ELSE 'other'
                         END as category,
                         COUNT(*) as count,

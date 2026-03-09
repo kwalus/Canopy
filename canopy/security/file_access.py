@@ -57,7 +57,12 @@ def _metadata_contains_file(metadata: Optional[Dict[str, Any]], file_id: str) ->
     for att in attachments:
         if not isinstance(att, dict):
             continue
-        if (att.get('id') == file_id) or (att.get('file_id') == file_id):
+        if (
+            (att.get('id') == file_id)
+            or (att.get('file_id') == file_id)
+            or (att.get('origin_file_id') == file_id)
+            or (att.get('remote_file_id') == file_id)
+        ):
             return True
     return False
 
@@ -85,6 +90,49 @@ def _is_dm_visible_to_user(row: Dict[str, Any], user_id: str) -> bool:
         if isinstance(members, list) and user_id in members:
             return True
 
+    return False
+
+
+def _is_dm_visible_to_peer(db_manager: Any, row: Dict[str, Any], requester_peer_id: str) -> bool:
+    """Return True when a remote peer hosts at least one visible DM participant."""
+    if not requester_peer_id:
+        return False
+
+    peer_id = str(requester_peer_id).strip()
+    if not peer_id:
+        return False
+
+    candidate_user_ids = {
+        str(row.get('sender_id') or '').strip(),
+        str(row.get('recipient_id') or '').strip(),
+    }
+    meta = _parse_json_blob(row.get('metadata'), {})
+    if isinstance(meta, dict):
+        members = meta.get('group_members') or []
+        if isinstance(members, list):
+            for member_id in members:
+                member_text = str(member_id or '').strip()
+                if member_text:
+                    candidate_user_ids.add(member_text)
+
+    candidate_user_ids.discard('')
+    if not candidate_user_ids or db_manager is None:
+        return False
+
+    try:
+        placeholders = ",".join("?" for _ in candidate_user_ids)
+        with db_manager.get_connection() as conn:
+            rows = conn.execute(
+                f"SELECT id, origin_peer FROM users WHERE id IN ({placeholders})",
+                list(candidate_user_ids),
+            ).fetchall()
+    except Exception:
+        return False
+
+    for user_row in rows:
+        origin_peer = str((user_row['origin_peer'] if hasattr(user_row, 'keys') else '') or '').strip()
+        if origin_peer and origin_peer == peer_id:
+            return True
     return False
 
 
@@ -141,9 +189,10 @@ def evaluate_file_access(
             # Channel messages (attachments + content references)
             channel_rows = conn.execute(
                 """
-                SELECT id, channel_id, attachments, content
-                FROM channel_messages
-                WHERE attachments LIKE ? OR content LIKE ?
+                SELECT m.id, m.channel_id, m.attachments, m.content, c.privacy_mode
+                FROM channel_messages m
+                LEFT JOIN channels c ON c.id = m.channel_id
+                WHERE m.attachments LIKE ? OR m.content LIKE ?
                 """,
                 (f'%{file_id}%', f'%/files/{file_id}%')
             ).fetchall()
@@ -242,6 +291,140 @@ def evaluate_file_access(
     # Deny-by-default: no positive evidence was found.  All branches below
     # must remain denials so that new code paths cannot accidentally grant
     # access by falling through to this point.
+    if evidences:
+        return FileAccessResult(False, 'no-visible-reference', evidences[:max_evidence])
+    return FileAccessResult(False, 'unreferenced', evidences)
+
+
+def evaluate_file_access_for_peer(
+    *,
+    db_manager: Any,
+    file_id: str,
+    requester_peer_id: str,
+    file_uploaded_by: Optional[str] = None,
+    max_evidence: int = 25,
+) -> FileAccessResult:
+    """Evaluate whether a remote peer may fetch a file for one of its users.
+
+    This is intentionally conservative. Public/network feed posts are allowed,
+    DM visibility is granted only if the requesting peer hosts a participant,
+    and private-channel visibility is granted only if the requesting peer hosts
+    at least one channel member.
+    """
+    evidences: List[FileAccessEvidence] = []
+
+    if not file_id or not requester_peer_id:
+        return FileAccessResult(False, 'missing-peer')
+    if db_manager is None:
+        return FileAccessResult(False, 'missing-db')
+
+    try:
+        with db_manager.get_connection() as conn:
+            channel_rows = conn.execute(
+                """
+                SELECT m.id, m.channel_id, m.attachments, m.content, c.privacy_mode
+                FROM channel_messages m
+                LEFT JOIN channels c ON c.id = m.channel_id
+                WHERE attachments LIKE ? OR content LIKE ?
+                """,
+                (f'%{file_id}%', f'%/files/{file_id}%')
+            ).fetchall()
+            for row in channel_rows:
+                attachments = _parse_json_blob(row['attachments'], [])
+                referenced = False
+                if isinstance(attachments, list):
+                    for att in attachments:
+                        if not isinstance(att, dict):
+                            continue
+                        if (
+                            att.get('id') == file_id
+                            or att.get('file_id') == file_id
+                            or att.get('origin_file_id') == file_id
+                            or att.get('remote_file_id') == file_id
+                        ):
+                            referenced = True
+                            break
+                if not referenced and not _contains_file_reference(row['content'], file_id):
+                    continue
+
+                member_row = conn.execute(
+                    """
+                    SELECT 1
+                    FROM channel_members cm
+                    JOIN users u ON cm.user_id = u.id
+                    WHERE cm.channel_id = ? AND u.origin_peer = ?
+                    LIMIT 1
+                    """,
+                    (row['channel_id'], requester_peer_id),
+                ).fetchone()
+                privacy_mode = str((row['privacy_mode'] if hasattr(row, 'keys') else '') or '').strip().lower()
+                can_view = bool(member_row) or privacy_mode in {'open', 'public', 'network'}
+                evidences.append(FileAccessEvidence(
+                    source_type='channel_message',
+                    source_id=row['id'],
+                    detail=f"channel:{row['channel_id']} peer:{requester_peer_id} privacy:{privacy_mode or 'unknown'}",
+                    can_view=can_view,
+                ))
+                if can_view:
+                    return FileAccessResult(True, 'channel-peer-membership', evidences[:max_evidence])
+
+            feed_rows = conn.execute(
+                """
+                SELECT id, author_id, metadata, content, visibility
+                FROM feed_posts
+                WHERE metadata LIKE ? OR content LIKE ?
+                """,
+                (f'%{file_id}%', f'%/files/{file_id}%')
+            ).fetchall()
+            for row in feed_rows:
+                meta = _parse_json_blob(row['metadata'], {})
+                referenced = _metadata_contains_file(meta, file_id)
+                if not referenced and not _contains_file_reference(row['content'], file_id):
+                    continue
+
+                visibility = str((row['visibility'] if hasattr(row, 'keys') else '') or '').strip().lower()
+                can_view = visibility in {'public', 'network', 'open'}
+                evidences.append(FileAccessEvidence(
+                    source_type='feed_post',
+                    source_id=row['id'],
+                    detail=f"visibility:{visibility or 'unknown'}",
+                    can_view=can_view,
+                ))
+                if can_view:
+                    return FileAccessResult(True, 'feed-network-visibility', evidences[:max_evidence])
+
+            dm_rows = conn.execute(
+                """
+                SELECT id, sender_id, recipient_id, metadata, content
+                FROM messages
+                WHERE metadata LIKE ? OR content LIKE ?
+                """,
+                (f'%{file_id}%', f'%/files/{file_id}%')
+            ).fetchall()
+            for row in dm_rows:
+                meta = _parse_json_blob(row['metadata'], {})
+                referenced = _metadata_contains_file(meta, file_id)
+                if not referenced and not _contains_file_reference(row['content'], file_id):
+                    continue
+
+                row_dict = {
+                    'sender_id': row['sender_id'],
+                    'recipient_id': row['recipient_id'],
+                    'metadata': row['metadata'],
+                }
+                can_view = _is_dm_visible_to_peer(db_manager, row_dict, requester_peer_id)
+                evidences.append(FileAccessEvidence(
+                    source_type='direct_message',
+                    source_id=row['id'],
+                    detail=f"peer:{requester_peer_id}",
+                    can_view=can_view,
+                ))
+                if can_view:
+                    return FileAccessResult(True, 'direct-message-peer-visibility', evidences[:max_evidence])
+
+    except Exception:
+        return FileAccessResult(False, 'lookup-error', evidences[:max_evidence])
+
     if evidences:
         return FileAccessResult(False, 'no-visible-reference', evidences[:max_evidence])
     return FileAccessResult(False, 'unreferenced', evidences)

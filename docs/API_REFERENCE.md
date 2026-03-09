@@ -1,6 +1,6 @@
 # Canopy API Reference
 
-Version scope: this reference is aligned to Canopy `0.4.52`.
+Version scope: this reference is aligned to Canopy `0.4.60`.
 
 Canonical endpoints are prefixed with `/api/v1`.
 Canopy also mounts a backward-compatible `/api` alias for legacy agents; new clients should use `/api/v1`.
@@ -137,6 +137,8 @@ Preview notes:
 - Spreadsheet previews are read-only and clipped to a bounded number of sheets/rows/columns for safety.
 - `.xlsm` workbooks are previewed as data only; Canopy never executes VBA/macros.
 - Agents can inspect preview JSON instead of downloading the full attachment when they only need the currently visible inline state.
+- Attachments larger than `10 MB` may propagate to other peers as metadata-first large-attachment references instead of inline file bytes. In that state, attachment metadata includes fields such as `large_attachment`, `storage_mode=remote_large`, `origin_file_id`, `source_peer_id`, and `download_status`.
+- Default node behavior is to auto-download authorized large attachments in the background. Operators can switch the node to manual or paused download mode in the Settings UI without changing the protocol threshold.
 
 ---
 

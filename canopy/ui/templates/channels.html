@@ -1775,7 +1775,7 @@
                         <!-- Message Controls -->
                         <div class="input-group-append d-flex">
                             <input type="file" id="file-input" style="display: none;" multiple 
-                                   accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.avi,.mkv,.mov,.webm">
+                                   accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.tsv,.xlsx,.xlsm,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.avi,.mkv,.mov,.webm">
                             <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('file-input').click()">
                                 <i class="bi bi-paperclip"></i>
                             </button>
@@ -3669,6 +3669,7 @@ let channelMessageCache = {};
 let oldestLoadedMessageId = null;
 let loadingOlderMessages = false;
 let noMoreOlderMessages = false;
+let channelSidebarStateRev = '';
 const OLDER_MESSAGES_LIMIT = 50;
 const AUTO_REFRESH_MS = 6000;
 const channelMentionCache = {};
@@ -3689,6 +3690,8 @@ const CHANNEL_FILE_ALLOWED_MIME_EXACT = new Set([
     'application/pdf',
     'application/msword',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-excel.sheet.macroenabled.12',
     'application/json',
     'application/xml',
     'application/x-yaml',
@@ -3710,7 +3713,7 @@ const CHANNEL_FILE_ALLOWED_MIME_EXACT = new Set([
 ]);
 const CHANNEL_FILE_ALLOWED_EXTENSIONS = [
     '.md', '.txt', '.tex', '.json', '.py', '.js', '.ts', '.log',
-    '.csv', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
+    '.csv', '.tsv', '.xlsx', '.xlsm', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
     '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx',
     '.zip', '.tar', '.gz', '.tgz', '.bz2', '.tbz2', '.xz', '.7z', '.rar'
 ];
@@ -6633,9 +6636,19 @@ function applySidebarChannelState(channels) {
 }
 
 function refreshSidebarChannelState() {
-    apiCall(`/ajax/channel_sidebar_state?_t=${Date.now()}`)
+    const params = new URLSearchParams({ _t: String(Date.now()) });
+    if (channelSidebarStateRev) {
+        params.set('rev', channelSidebarStateRev);
+    }
+    apiCall(`/ajax/channel_sidebar_state?${params.toString()}`)
         .then(data => {
             if (!data || data.success === false) return;
+            if (data.rev) {
+                channelSidebarStateRev = String(data.rev || '');
+            }
+            if (data.changed === false) {
+                return;
+            }
             applySidebarChannelState(data.channels || []);
         })
         .catch(() => {});
@@ -6742,17 +6755,20 @@ function toggleThreadInboxSubscription(messageId) {
         });
 }
 
-// Text-based file extensions that support inline preview
-const TEXT_PREVIEW_EXTENSIONS = ['.md', '.txt', '.log', '.json', '.py', '.js', '.ts', '.csv', '.yaml', '.yml', '.xml', '.tex', '.html', '.css', '.sh', '.bat', '.cfg', '.ini', '.toml'];
-
-function isTextPreviewable(filename) {
-    if (!filename) return false;
-    const lower = filename.toLowerCase();
-    return TEXT_PREVIEW_EXTENSIONS.some(ext => lower.endsWith(ext));
+function isTextPreviewable(filename, contentType) {
+    return typeof canopyIsTextPreviewable === 'function' ? canopyIsTextPreviewable(filename, contentType) : false;
 }
 
-function isMarkdownFile(filename) {
-    return filename && filename.toLowerCase().endsWith('.md');
+function isSpreadsheetPreviewable(filename, contentType) {
+    return typeof canopyIsSpreadsheetPreviewable === 'function'
+        ? canopyIsSpreadsheetPreviewable(filename, contentType)
+        : false;
+}
+
+function isMarkdownFile(filename, contentType) {
+    return typeof canopyIsMarkdownPreviewable === 'function'
+        ? canopyIsMarkdownPreviewable(filename, contentType)
+        : (filename && filename.toLowerCase().endsWith('.md'));
 }
 
 // Unique ID counter for preview containers
@@ -7113,7 +7129,30 @@ function displayAttachments(attachments) {
         html += buildMediaGrid(images);
     }
 
-    const notOnDeviceMsg = '<span class="small text-muted" title="File will be available when it syncs to this device"><i class="bi bi-cloud-arrow-down me-1"></i>Not on this device yet — will appear when synced</span>';
+    const escapeAttr = (value) => String(value || '').replace(/"/g, '&quot;');
+    const buildRemoteAttachmentDownloadBtn = (att) => {
+        if (!(att && (att.large_attachment || att.storage_mode === 'remote_large') && (att.origin_file_id || att.id || att.file_id) && att.source_peer_id)) {
+            return '';
+        }
+        const payload = {
+            origin_file_id: att.origin_file_id || att.id || att.file_id,
+            source_peer_id: att.source_peer_id,
+            name: att.name,
+            type: att.type,
+            size: att.size,
+            checksum: att.checksum,
+            large_attachment: true,
+            storage_mode: att.storage_mode || 'remote_large',
+        };
+        return `<button type="button" class="btn btn-sm btn-outline-primary" onclick='requestRemoteAttachmentDownload(${JSON.stringify(payload)}, this)'><i class="bi bi-cloud-download"></i> Download</button>`;
+    };
+    const notOnDeviceMsg = (att) => {
+        const remoteBtn = buildRemoteAttachmentDownloadBtn(att);
+        if (remoteBtn) {
+            return `<div class="d-flex align-items-center gap-2 ms-2">${remoteBtn}</div>`;
+        }
+        return '<span class="small text-muted" title="File will be available when it syncs to this device"><i class="bi bi-cloud-arrow-down me-1"></i>Not on this device yet — will appear when synced</span>';
+    };
     // Inline HTML5 audio player (works on Mac, Windows, Linux in all modern browsers)
     audioFiles.forEach(att => {
         const hasUrl = att.url && String(att.url).trim();
@@ -7124,7 +7163,7 @@ function displayAttachments(attachments) {
                     <a href="${att.url}" class="btn btn-sm btn-outline-primary" download="${safeName}"><i class="bi bi-download"></i> Download</a>
                     <button class="btn btn-sm btn-outline-secondary" onclick="openFileAccessInspector('${escapedUrl}')" title="Inspect access"><i class="bi bi-shield-lock"></i></button>
                </div>`
-            : notOnDeviceMsg;
+            : notOnDeviceMsg(att);
         const audioPlayer = hasUrl ? `<audio controls preload="metadata" class="mt-1 w-100" style="max-width:100%;"><source src="${att.url.replace(/"/g, '&quot;')}" type="${(att.type || 'audio/mpeg').replace(/"/g, '&quot;')}">Your browser does not support the audio element.</audio>` : '';
         html += `
             <div class="attachment-item mb-2 p-2 border rounded">
@@ -7152,7 +7191,7 @@ function displayAttachments(attachments) {
                     <a href="${att.url}" class="btn btn-sm btn-outline-primary" download="${safeName}"><i class="bi bi-download"></i> Download</a>
                     <button class="btn btn-sm btn-outline-secondary" onclick="openFileAccessInspector('${escapedUrl}')" title="Inspect access"><i class="bi bi-shield-lock"></i></button>
                </div>`
-            : notOnDeviceMsg;
+            : notOnDeviceMsg(att);
         const videoPlayer = hasUrl
             ? `<video controls preload="metadata" playsinline class="mt-2 w-100" style="max-width:100%;border-radius:10px;background:#000;">
                     <source src="${att.url.replace(/"/g, '&quot;')}" type="${(att.type || 'video/mp4').replace(/"/g, '&quot;')}">
@@ -7179,16 +7218,24 @@ function displayAttachments(attachments) {
         const hasUrl = att.url && String(att.url).trim();
         const safeName = (att.name || 'file').replace(/</g, '&lt;').replace(/"/g, '&quot;');
         const escapedUrl = hasUrl ? String(att.url).replace(/"/g, '&quot;').replace(/'/g, "\\'") : '';
-        if (isTextPreviewable(att.name)) {
+        const attachmentFileId = String(att.id || att.file_id || '').trim() || ((hasUrl && /^\/files\/([^/?#]+)/.test(att.url)) ? String(att.url).match(/^\/files\/([^/?#]+)/)[1] : '');
+        const spreadsheetPreview = isSpreadsheetPreviewable(att.name, att.type);
+        const previewable = attachmentFileId && (isTextPreviewable(att.name, att.type) || spreadsheetPreview);
+        const previewLabels = typeof canopyAttachmentPreviewLabels === 'function'
+            ? canopyAttachmentPreviewLabels(att.name, att.type)
+            : { collapsed: 'Preview', expanded: 'Collapse' };
+        const infoBadges = [];
+        if (spreadsheetPreview) infoBadges.push('<span class="badge rounded-pill text-bg-info-subtle text-info-emphasis">Sheet</span>');
+        if (String(att.name || '').toLowerCase().endsWith('.xlsm')) infoBadges.push('<span class="badge rounded-pill text-bg-warning">Macros disabled</span>');
+        if (previewable) {
             const previewId = 'file-preview-' + (++_previewIdCounter);
-            const isMd = isMarkdownFile(att.name);
-            const previewBtn = hasUrl ? `<button class="btn btn-sm btn-outline-secondary me-1" onclick="toggleFilePreview('${previewId}', '${String(att.url).replace(/'/g, "\\'")}', ${isMd})"><i class="bi bi-eye me-1"></i><span>Preview</span></button>` : '';
+            const previewBtn = hasUrl ? `<button type="button" class="btn btn-sm btn-outline-secondary me-1" data-preview-toggle="${previewId}" data-preview-label="${previewLabels.collapsed}" data-preview-expanded-label="${previewLabels.expanded}" onclick="toggleAttachmentPreview('${previewId}', '/ajax/files/${encodeURIComponent(attachmentFileId)}/preview')"><i class="bi bi-eye me-1"></i><span class="preview-label">${previewLabels.collapsed}</span></button>` : '';
             const downloadBtn = hasUrl ? `
                 <div class="d-flex align-items-center gap-2">
                     <a href="${att.url}" class="btn btn-sm btn-outline-primary" download="${safeName}"><i class="bi bi-download"></i></a>
                     <button class="btn btn-sm btn-outline-secondary" onclick="openFileAccessInspector('${escapedUrl}')" title="Inspect access"><i class="bi bi-shield-lock"></i></button>
                 </div>
-            ` : notOnDeviceMsg;
+            ` : notOnDeviceMsg(att);
             html += `
                 <div class="attachment-item mb-2 p-2 border rounded">
                     <div class="d-flex align-items-center">
@@ -7196,6 +7243,7 @@ function displayAttachments(attachments) {
                         <div class="flex-grow-1">
                             <strong>${safeName}</strong>
                             <small class="text-muted d-block">${(att.type || '').replace(/</g, '&lt;')} • ${formatFileSize(att.size)}</small>
+                            ${infoBadges.length ? `<div class="attachment-meta-badges">${infoBadges.join('')}</div>` : ''}
                         </div>
                         ${previewBtn}
                         ${downloadBtn}
@@ -7209,7 +7257,7 @@ function displayAttachments(attachments) {
                     <a href="${att.url}" class="btn btn-sm btn-outline-primary" download="${safeName}"><i class="bi bi-download"></i> Download</a>
                     <button class="btn btn-sm btn-outline-secondary" onclick="openFileAccessInspector('${escapedUrl}')" title="Inspect access"><i class="bi bi-shield-lock"></i></button>
                 </div>
-            ` : notOnDeviceMsg;
+            ` : notOnDeviceMsg(att);
             html += `
                 <div class="attachment-item mb-2 p-2 border rounded">
                     <div class="d-flex align-items-center">
@@ -7689,44 +7737,9 @@ async function _startMSELiveViewer(streamId, playbackUrl, slot, mediaKind) {
 }
 
 function toggleFilePreview(previewId, url, isMarkdown) {
-    const wrapper = document.getElementById(previewId);
-    if (!wrapper) return;
-
-    // Toggle visibility
-    if (wrapper.style.display !== 'none') {
-        wrapper.style.display = 'none';
-        // Update button text
-        const btn = wrapper.parentElement.querySelector('.btn-outline-secondary span');
-        if (btn) btn.textContent = 'Preview';
-        return;
-    }
-
-    // Show and load content if not already loaded
-    wrapper.style.display = 'block';
-    const btn = wrapper.parentElement.querySelector('.btn-outline-secondary span');
-    if (btn) btn.textContent = 'Collapse';
-
-    if (wrapper.dataset.loaded) return;
-
-    wrapper.innerHTML = '<div class="text-muted p-2"><i class="bi bi-hourglass-split me-1"></i>Loading preview...</div>';
-
-    fetch(url)
-        .then(resp => {
-            if (!resp.ok) throw new Error('Failed to fetch file');
-            return resp.text();
-        })
-        .then(text => {
-            wrapper.dataset.loaded = 'true';
-            if (isMarkdown && typeof marked !== 'undefined') {
-                wrapper.innerHTML = `<div class="file-preview-container md-preview">${marked.parse(text)}</div>`;
-            } else {
-                const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                wrapper.innerHTML = `<div class="file-preview-container code-preview"><pre><code>${escaped}</code></pre></div>`;
-            }
-        })
-        .catch(err => {
-            wrapper.innerHTML = `<div class="text-danger p-2"><i class="bi bi-exclamation-triangle me-1"></i>Could not load preview: ${err.message}</div>`;
-        });
+    const match = /^\/files\/([^/?#]+)/.exec(String(url || ''));
+    if (!match || typeof toggleAttachmentPreview !== 'function') return;
+    toggleAttachmentPreview(previewId, `/ajax/files/${encodeURIComponent(match[1])}/preview`);
 }
 
 function getFileIcon(type, name) {
@@ -7737,6 +7750,7 @@ function getFileIcon(type, name) {
     if (lowerType.startsWith('audio/')) return 'music-note';
     if (lowerType.includes('pdf')) return 'file-pdf';
     if (lowerType.includes('json')) return 'filetype-json';
+    if (lowerType.includes('spreadsheet') || lowerType.includes('excel')) return 'file-earmark-spreadsheet';
     if (lowerType.startsWith('text/')) return 'file-text';
     if (name) {
         const lower = name.toLowerCase();
@@ -7748,6 +7762,7 @@ function getFileIcon(type, name) {
         if (lower.endsWith('.ts')) return 'filetype-tsx';
         if (lower.endsWith('.xml') || lower.endsWith('.html')) return 'filetype-xml';
         if (lower.endsWith('.csv')) return 'filetype-csv';
+        if (lower.endsWith('.tsv') || lower.endsWith('.xlsx') || lower.endsWith('.xlsm')) return 'file-earmark-spreadsheet';
         if (lower.endsWith('.txt') || lower.endsWith('.log') || lower.endsWith('.tex')) return 'file-text';
         if (lower.endsWith('.yaml') || lower.endsWith('.yml') || lower.endsWith('.toml') || lower.endsWith('.ini') || lower.endsWith('.cfg')) return 'file-code';
     }
@@ -8610,7 +8625,7 @@ function beginInlineChannelMessageEdit(message) {
                        data-inline-file-input
                        style="display:none;"
                        multiple
-                       accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mkv,.mov,.webm">
+                       accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.tsv,.xlsx,.xlsm,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mkv,.mov,.webm">
                 <button type="button" class="btn btn-sm btn-outline-secondary" data-inline-add-files>
                     <i class="bi bi-paperclip"></i> Add Files
                 </button>

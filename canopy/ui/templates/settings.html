@@ -1,10 +1,88 @@
 {% extends "base.html" %}
 
 {% block title %}Settings - Canopy{% endblock %}
+{% block extra_css %}
+<style>
+.settings-page-header {
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.settings-page-title {
+    min-width: 0;
+}
+
+.settings-page-refresh {
+    white-space: nowrap;
+}
+
+.settings-advanced-grid {
+    --bs-gutter-y: 0.85rem;
+}
+
+.settings-landing-row,
+.settings-device-row,
+.settings-relay-row,
+.settings-health-grid {
+    row-gap: 0.75rem;
+}
+
+@media (max-width: 992px) {
+    .settings-page-refresh {
+        margin-left: auto;
+    }
+}
+
+@media (max-width: 768px) {
+    .settings-page-header h1 {
+        font-size: 1.35rem;
+    }
+
+    .settings-page-refresh {
+        width: 100%;
+        min-height: 40px;
+    }
+
+    #device-avatar-preview {
+        width: 84px !important;
+        height: 84px !important;
+    }
+
+    .settings-advanced-col .btn {
+        min-height: 40px;
+    }
+}
+
+@media (max-width: 576px) {
+    .settings-page-header {
+        margin-bottom: 0.75rem !important;
+    }
+
+    .settings-page-header p {
+        font-size: 0.75rem;
+    }
+
+    .settings-landing-row .col-md-4,
+    .settings-relay-row .col-md-6,
+    .settings-device-row .col-md-3,
+    .settings-device-row .col-md-9 {
+        width: 100%;
+    }
+
+    .settings-advanced-col {
+        width: 100%;
+    }
+
+    .settings-health-grid .col-md-3 {
+        width: 50%;
+    }
+}
+</style>
+{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
+<div class="d-flex justify-content-between align-items-center mb-4 settings-page-header">
+    <div class="settings-page-title">
         <h1 class="h3 mb-1">
             <i class="bi bi-gear"></i> Settings
         </h1>
@@ -12,7 +90,7 @@
             Configure your Canopy instance and view system information
         </p>
     </div>
-    <button class="btn btn-outline-primary btn-sm" onclick="refreshSettings()">
+    <button class="btn btn-outline-primary btn-sm settings-page-refresh" onclick="refreshSettings()">
         <i class="bi bi-arrow-clockwise"></i> Refresh
     </button>
 </div>
@@ -32,7 +110,7 @@
                 </p>
                 <dl class="row">
                     <dt class="col-sm-4">Version:</dt>
-                    <dd class="col-sm-8"><code>0.1.0</code></dd>
+                    <dd class="col-sm-8"><code>{{ canopy_version }}</code></dd>
                     
                     <dt class="col-sm-4">Host:</dt>
                     <dd class="col-sm-8"><code>{{ config.network.host }}</code></dd>
@@ -261,7 +339,7 @@
                     Choose which page Canopy opens to when you log in. 
                     By default, desktop opens to Channels and mobile opens to the Social Feed for optimal experience.
                 </p>
-                <div class="row align-items-center">
+                <div class="row align-items-center settings-landing-row">
                     <div class="col-md-4">
                         <select class="form-select" id="landingPageSelect" onchange="saveLandingPreference()">
                             <option value="">Auto (Channels on desktop, Feed on mobile)</option>
@@ -294,7 +372,7 @@
                     Channels and content originating from this device will be tagged with this profile.
                     This helps identify which of your devices created content when you run Canopy on multiple machines.
                 </p>
-                <div class="row">
+                <div class="row settings-device-row">
                     <div class="col-md-3 text-center mb-3">
                         <div id="device-avatar-preview" style="width:100px; height:100px; border-radius:50%; margin:0 auto; background:var(--canopy-bg-card); border:2px dashed var(--canopy-border); display:flex; align-items:center; justify-content:center; overflow:hidden;">
                             <i class="bi bi-pc-display-horizontal" style="font-size:2rem; opacity:0.4;" id="device-avatar-placeholder"></i>
@@ -342,7 +420,7 @@
                     a third peer can help them communicate. This setting controls how your node participates in helping others connect.
                 </p>
 
-                <div class="row mb-3">
+                <div class="row mb-3 settings-relay-row">
                     <div class="col-md-6">
                         <label class="form-label"><strong>Relay Policy</strong></label>
                         <select class="form-select" id="relayPolicySelect" onchange="updateRelayPolicy()">
@@ -385,6 +463,60 @@
     </div>
 </div>
 
+<!-- Large Attachment Store -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-hdd-network"></i> Large Attachment Store
+                </h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    Files larger than <strong>{{ large_attachment_threshold_mb }} MB</strong> use Canopy's managed large-attachment path.
+                    The protocol threshold is fixed for compatibility; only the local storage root and download policy are configurable.
+                </p>
+                <div class="row g-3">
+                    <div class="col-lg-6">
+                        <label for="largeAttachmentStoreRoot" class="form-label">Storage Root</label>
+                        <input type="text"
+                               class="form-control"
+                               id="largeAttachmentStoreRoot"
+                               value="{{ large_attachment_store_root }}"
+                               placeholder="/path/to/attachment-store"
+                               {% if not is_admin %}disabled{% endif %}>
+                        <small class="text-muted d-block mt-1">
+                            Canopy manages a dedicated <code>canopy-large-attachments</code> subfolder under this root.
+                        </small>
+                    </div>
+                    <div class="col-lg-4">
+                        <label for="largeAttachmentDownloadMode" class="form-label">Download Policy</label>
+                        <select class="form-select" id="largeAttachmentDownloadMode" {% if not is_admin %}disabled{% endif %}>
+                            <option value="auto" {% if large_attachment_download_mode == 'auto' %}selected{% endif %}>Automatic</option>
+                            <option value="manual" {% if large_attachment_download_mode == 'manual' %}selected{% endif %}>Manual</option>
+                            <option value="paused" {% if large_attachment_download_mode == 'paused' %}selected{% endif %}>Paused</option>
+                        </select>
+                        <small class="text-muted d-block mt-1">
+                            Automatic downloads fetch eligible remote large attachments while the source peer is online.
+                        </small>
+                    </div>
+                    <div class="col-lg-2 d-flex align-items-end">
+                        <button class="btn btn-primary w-100" onclick="saveLargeAttachmentSettings()" {% if not is_admin %}disabled{% endif %}>
+                            <i class="bi bi-check-lg"></i> Save
+                        </button>
+                    </div>
+                </div>
+                <div class="mt-2">
+                    <span id="large-attachment-settings-status" class="text-muted small">
+                        {% if not is_admin %}Instance admin only.{% endif %}
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Advanced Actions -->
 <div class="row mt-4">
     <div class="col-12">
@@ -399,8 +531,8 @@
                     <i class="bi bi-exclamation-triangle text-warning"></i>
                     <strong>Warning:</strong> These actions affect your data. Use with caution.
                 </p>
-                <div class="row">
-                    <div class="col-md-3">
+                <div class="row settings-advanced-grid">
+                    <div class="col-md-3 settings-advanced-col">
                         <div class="d-grid">
                             <button class="btn btn-outline-warning" id="cleanup-db-btn" onclick="cleanupDatabase()">
                                 <i class="bi bi-trash"></i> Cleanup Database
@@ -409,7 +541,7 @@
                         </div>
                     </div>
                     
-                    <div class="col-md-3">
+                    <div class="col-md-3 settings-advanced-col">
                         <div class="d-grid">
                             <button class="btn btn-outline-info" id="export-data-btn" onclick="exportData()">
                                 <i class="bi bi-download"></i> Export Data
@@ -418,7 +550,7 @@
                         </div>
                     </div>
 
-                    <div class="col-md-3">
+                    <div class="col-md-3 settings-advanced-col">
                         <div class="d-grid">
                             <button class="btn btn-outline-danger" id="import-data-btn" onclick="openImportDataPicker()"
                                     {% if not is_admin %}disabled title="Instance admin only"{% endif %}>
@@ -431,7 +563,7 @@
                         </div>
                     </div>
                     
-                    <div class="col-md-3">
+                    <div class="col-md-3 settings-advanced-col">
                         <div class="d-grid">
                             <button class="btn btn-outline-danger" id="reset-system-btn" onclick="resetSystem()">
                                 <i class="bi bi-arrow-clockwise"></i> Reset System
@@ -509,7 +641,7 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
                 </h5>
             </div>
             <div class="card-body">
-                <div class="row text-center">
+                <div class="row text-center settings-health-grid">
                     <div class="col-md-3">
                         <div class="text-success">
                             <i class="bi bi-check-circle fs-1"></i>
@@ -919,6 +1051,46 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
             }
         })
         .catch(err => showAlert('Error: ' + err, 'danger'));
+    }
+
+    function saveLargeAttachmentSettings() {
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+        const status = document.getElementById('large-attachment-settings-status');
+        const storeRoot = document.getElementById('largeAttachmentStoreRoot')?.value || '';
+        const downloadMode = document.getElementById('largeAttachmentDownloadMode')?.value || 'auto';
+
+        fetch('/ajax/settings/large-attachments', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken,
+            },
+            body: JSON.stringify({
+                store_root: storeRoot,
+                download_mode: downloadMode,
+            }),
+        })
+        .then(async (response) => {
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || !data.success) {
+                throw new Error(data.error || 'Failed to save settings');
+            }
+            return data;
+        })
+        .then((data) => {
+            if (status) {
+                status.textContent = `Saved. Threshold remains fixed at ${data.threshold_mb} MB.`;
+                status.style.color = 'var(--bs-success)';
+            }
+            showAlert('Large attachment settings updated.', 'success');
+        })
+        .catch((err) => {
+            if (status) {
+                status.textContent = `Error: ${err.message || err}`;
+                status.style.color = 'var(--bs-danger)';
+            }
+            showAlert('Failed to save large attachment settings: ' + (err.message || err), 'danger');
+        });
     }
 
     // --- Landing page preference ---

@@ -76,7 +76,10 @@
         const canopyPeerProfiles = window.CANOPY_VARS ? window.CANOPY_VARS.peerProfiles : {};
         const canopyPeerTrust = window.CANOPY_VARS ? (window.CANOPY_VARS.peerTrust || {}) : {};
         const canopyInitialConnectedPeers = window.CANOPY_VARS ? (window.CANOPY_VARS.connectedPeers || []) : [];
+        const canopyInitialPeerRev = window.CANOPY_VARS ? (window.CANOPY_VARS.peerRev || '') : '';
         const canopyInitialRecentDmContacts = window.CANOPY_VARS ? (window.CANOPY_VARS.recentDmContacts || []) : [];
+        const canopyInitialDmRev = window.CANOPY_VARS ? (window.CANOPY_VARS.dmRev || '') : '';
+        const SIDEBAR_VISIBLE_PEER_LIMIT = 12;
         window.canopyPeerProfiles = canopyPeerProfiles || {};
         window.canopyPeerTrust = canopyPeerTrust || {};
         window.canopyInitialConnectedPeers = canopyInitialConnectedPeers || [];
@@ -123,6 +126,13 @@
             if (!peerTrust || typeof peerTrust !== 'object' || !window.canopyPeerTrust) return;
             Object.keys(peerTrust).forEach(peerId => {
                 window.canopyPeerTrust[peerId] = peerTrust[peerId];
+            });
+        }
+
+        function syncCanopyPeerProfiles(peerProfiles) {
+            if (!peerProfiles || typeof peerProfiles !== 'object' || !window.canopyPeerProfiles) return;
+            Object.keys(peerProfiles).forEach(peerId => {
+                window.canopyPeerProfiles[peerId] = peerProfiles[peerId];
             });
         }
 
@@ -195,6 +205,8 @@
         const canopySidebarPeerState = {
             seeded: false,
             peers: new Map(),
+            totalCount: 0,
+            currentRev: canopyInitialPeerRev || '',
         };
 
         function seedSidebarPeerState() {
@@ -241,6 +253,8 @@
 
         function renderSidebarPeers() {
             const listEl = document.getElementById('sidebar-peer-list');
+            const moreWrap = document.getElementById('sidebar-peer-more');
+            const moreBtn = document.getElementById('sidebar-peer-more-btn');
             if (!listEl) return;
             const activePeers = Array.from(canopySidebarPeerState.peers.values())
                 .filter(record => record && record.active)
@@ -257,13 +271,25 @@
                 empty.textContent = 'No active peers';
                 listEl.appendChild(empty);
                 setSidebarPeerCount(0);
+                if (moreWrap) moreWrap.style.display = 'none';
                 return;
             }
 
-            activePeers.forEach(record => {
+            const visiblePeers = activePeers.slice(0, SIDEBAR_VISIBLE_PEER_LIMIT);
+            visiblePeers.forEach(record => {
                 listEl.appendChild(createSidebarPeerElement(record));
             });
             setSidebarPeerCount(activePeers.length);
+            const overflowCount = Math.max(0, activePeers.length - visiblePeers.length);
+            if (moreWrap && moreBtn) {
+                if (overflowCount > 0) {
+                    moreWrap.style.display = '';
+                    moreBtn.textContent = `View ${overflowCount} more peer${overflowCount === 1 ? '' : 's'}`;
+                } else {
+                    moreWrap.style.display = 'none';
+                }
+            }
+            renderSidebarPeerModalList();
         }
 
         window.syncCanopySidebarPeers = function(payload) {
@@ -272,13 +298,41 @@
                 renderSidebarPeers();
                 return;
             }
+            if (payload.peer_changed === false) {
+                if (payload.peer_rev) {
+                    canopySidebarPeerState.currentRev = String(payload.peer_rev || '');
+                }
+                if (typeof payload.connected_peer_count === 'number') {
+                    canopySidebarPeerState.totalCount = Math.max(0, Number(payload.connected_peer_count) || 0);
+                }
+                return;
+            }
 
             syncCanopyPeerTrust(payload.peer_trust);
+            syncCanopyPeerProfiles(payload.peer_profiles);
+            if (payload.peer_rev) {
+                canopySidebarPeerState.currentRev = String(payload.peer_rev || '');
+            }
 
             const nowSeconds = Number(payload.server_time) || (Date.now() / 1000);
             const connectedPeerIds = Array.isArray(payload.connected_peer_ids)
                 ? payload.connected_peer_ids.filter(Boolean)
                 : Object.keys(payload.peers || {});
+            canopySidebarPeerState.totalCount = Math.max(
+                0,
+                Number(payload.connected_peer_count || connectedPeerIds.length) || connectedPeerIds.length
+            );
+
+            if (!connectedPeerIds.length && canopySidebarPeerState.totalCount === 0) {
+                canopySidebarPeerState.peers.forEach((record, peerId) => {
+                    record.active = false;
+                    record.missCount = 0;
+                    canopySidebarPeerState.peers.set(peerId, record);
+                });
+                renderSidebarPeers();
+                return;
+            }
+
             const seenNow = new Set(connectedPeerIds);
 
             connectedPeerIds.forEach((peerId, index) => {
@@ -312,7 +366,69 @@
         document.addEventListener('DOMContentLoaded', function() {
             seedSidebarPeerState();
             renderSidebarPeers();
+            const moreBtn = document.getElementById('sidebar-peer-more-btn');
+            if (moreBtn) {
+                moreBtn.addEventListener('click', openSidebarPeersModal);
+            }
+            const peerSearch = document.getElementById('sidebar-peers-search');
+            if (peerSearch) {
+                peerSearch.addEventListener('input', function() {
+                    renderSidebarPeerModalList(this.value || '');
+                });
+            }
         });
+
+        function getActiveSidebarPeers() {
+            return Array.from(canopySidebarPeerState.peers.values())
+                .filter(record => record && record.active)
+                .sort((a, b) => {
+                    const orderDiff = (a.order || 0) - (b.order || 0);
+                    if (orderDiff !== 0) return orderDiff;
+                    return String(a.displayName || a.peerId || '').localeCompare(String(b.displayName || b.peerId || ''));
+                });
+        }
+
+        function renderSidebarPeerModalList(filterText) {
+            const listEl = document.getElementById('sidebar-peers-modal-list');
+            const countEl = document.getElementById('sidebar-peers-modal-count');
+            const overflowEl = document.getElementById('sidebar-peers-modal-overflow');
+            if (!listEl) return;
+            const needle = String(filterText || '').trim().toLowerCase();
+            const activePeers = getActiveSidebarPeers();
+            const matches = needle
+                ? activePeers.filter(record => {
+                    const name = String(record.displayName || '').toLowerCase();
+                    const peerId = String(record.peerId || '').toLowerCase();
+                    return name.includes(needle) || peerId.includes(needle);
+                })
+                : activePeers;
+            listEl.innerHTML = '';
+            if (countEl) {
+                countEl.textContent = `${activePeers.length} connected`;
+            }
+            if (overflowEl) {
+                overflowEl.textContent = needle ? `${matches.length} match${matches.length === 1 ? '' : 'es'}` : '';
+            }
+            if (!matches.length) {
+                const empty = document.createElement('div');
+                empty.className = 'sidebar-peer-empty';
+                empty.textContent = needle ? 'No peers match this search' : 'No active peers';
+                listEl.appendChild(empty);
+                return;
+            }
+            matches.forEach(record => {
+                listEl.appendChild(createSidebarPeerElement(record));
+            });
+        }
+
+        function openSidebarPeersModal() {
+            const modalEl = document.getElementById('sidebarPeersModal');
+            if (!modalEl || typeof bootstrap === 'undefined' || !bootstrap.Modal) return;
+            const search = document.getElementById('sidebar-peers-search');
+            if (search) search.value = '';
+            renderSidebarPeerModalList('');
+            bootstrap.Modal.getOrCreateInstance(modalEl).show();
+        }
 
         function canopySidebarDmHref(contact) {
             const routes = (window.CANOPY_VARS && window.CANOPY_VARS.urls) || {};
@@ -324,6 +440,11 @@
             const targetMessageId = contact && contact.target_message_id ? String(contact.target_message_id).trim() : '';
             return `${url.pathname}${url.search}${targetMessageId ? `#message-${targetMessageId}` : ''}`;
         }
+
+        const canopySidebarDmState = {
+            contacts: Array.isArray(canopyInitialRecentDmContacts) ? canopyInitialRecentDmContacts.slice(0) : [],
+            currentRev: canopyInitialDmRev || '',
+        };
 
         function canopyRenderSidebarDmContacts(contacts) {
             const listEl = document.getElementById('sidebar-dm-list');
@@ -416,14 +537,26 @@
         }
 
         window.syncCanopySidebarDmContacts = function(payload) {
-            const contacts = payload && Array.isArray(payload.recent_dm_contacts)
-                ? payload.recent_dm_contacts
-                : canopyInitialRecentDmContacts;
-            canopyRenderSidebarDmContacts(contacts);
+            if (!payload || typeof payload !== 'object') {
+                canopyRenderSidebarDmContacts(canopySidebarDmState.contacts);
+                return;
+            }
+            if (payload && payload.dm_rev) {
+                canopySidebarDmState.currentRev = String(payload.dm_rev || '');
+            }
+            if (payload.dm_changed === false) {
+                return;
+            }
+            if (Array.isArray(payload.recent_dm_contacts) && payload.recent_dm_contacts.length) {
+                canopySidebarDmState.contacts = payload.recent_dm_contacts.slice(0);
+            } else if (Array.isArray(payload.recent_dm_contacts) && payload.recent_dm_contacts.length === 0) {
+                canopySidebarDmState.contacts = [];
+            }
+            canopyRenderSidebarDmContacts(canopySidebarDmState.contacts);
         };
 
         document.addEventListener('DOMContentLoaded', function() {
-            canopyRenderSidebarDmContacts(canopyInitialRecentDmContacts);
+            canopyRenderSidebarDmContacts(canopySidebarDmState.contacts);
         });
 
         window.renderAvatarStack = function(container, options) {
@@ -3497,14 +3630,22 @@
             }
 
             function poll() {
-                fetch('/ajax/peer_activity')
+                const params = new URLSearchParams();
+                if (canopySidebarPeerState.currentRev) {
+                    params.set('peer_rev', canopySidebarPeerState.currentRev);
+                }
+                if (canopySidebarDmState.currentRev) {
+                    params.set('dm_rev', canopySidebarDmState.currentRev);
+                }
+                const query = params.toString();
+                fetch(`/ajax/peer_activity${query ? `?${query}` : ''}`)
                     .then(r => r.json())
                     .then(data => {
                         if (!data || data.success === false) return;
-                        if (window.syncCanopySidebarPeers) {
+                        if (window.syncCanopySidebarPeers && (data.peer_changed !== false || data.peer_rev)) {
                             window.syncCanopySidebarPeers(data);
                         }
-                        if (window.syncCanopySidebarDmContacts) {
+                        if (window.syncCanopySidebarDmContacts && (data.dm_changed !== false || data.dm_rev)) {
                             window.syncCanopySidebarDmContacts(data);
                         }
                         const incoming = data.events || [];
@@ -5044,6 +5185,57 @@
                     document.getElementById('file-access-evidence').innerHTML =
                         '<div class="small text-muted">Try again after the file syncs.</div>';
                 });
+        }
+
+        function requestRemoteAttachmentDownload(attachment, triggerEl) {
+            const payload = (attachment && typeof attachment === 'object') ? attachment : null;
+            if (!payload || !payload.origin_file_id || !payload.source_peer_id) {
+                if (typeof showAlert === 'function') showAlert('Remote attachment metadata is incomplete.', 'warning');
+                return Promise.resolve(false);
+            }
+
+            const button = triggerEl instanceof HTMLElement ? triggerEl : null;
+            const originalHtml = button ? button.innerHTML : '';
+            if (button) {
+                button.disabled = true;
+                button.innerHTML = '<i class="bi bi-hourglass-split"></i>';
+            }
+
+            return fetch('/ajax/files/request-remote-download', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
+                },
+                body: JSON.stringify({ attachment: payload }),
+            })
+                .then(async (response) => {
+                    const data = await response.json().catch(() => ({}));
+                    if (!response.ok || !data.success) {
+                        throw new Error(data.error || 'Could not request download');
+                    }
+                    if (typeof showAlert === 'function') {
+                        showAlert('Large attachment download requested. It will appear when the transfer completes.', 'success');
+                    }
+                    return true;
+                })
+                .catch((err) => {
+                    if (typeof showAlert === 'function') {
+                        showAlert(err.message || 'Could not request download', 'danger');
+                    }
+                    return false;
+                })
+                .finally(() => {
+                    if (button) {
+                        button.disabled = false;
+                        button.innerHTML = originalHtml;
+                    }
+                });
+        }
+
+        if (typeof window !== 'undefined') {
+            window.openFileAccessInspector = openFileAccessInspector;
+            window.requestRemoteAttachmentDownload = requestRemoteAttachmentDownload;
         }
 
         // Initialize sidebar toggle when DOM is ready

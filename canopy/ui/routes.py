@@ -13,6 +13,7 @@ Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor I
 import logging
 import os
 import json
+import hashlib
 import secrets
 import base64
 import time
@@ -64,6 +65,20 @@ from ..core.messaging import (
     build_dm_preview,
     compute_group_id,
     filter_local_dm_targets,
+)
+from ..core.large_attachments import (
+    LARGE_ATTACHMENT_CAPABILITY,
+    LARGE_ATTACHMENT_DOWNLOAD_AUTO,
+    LARGE_ATTACHMENT_DOWNLOAD_MANUAL,
+    LARGE_ATTACHMENT_DOWNLOAD_PAUSED,
+    LARGE_ATTACHMENT_THRESHOLD,
+    get_attachment_origin_file_id,
+    get_attachment_source_peer_id,
+    get_large_attachment_download_mode,
+    get_large_attachment_store_root,
+    is_large_attachment_reference,
+    normalize_large_attachment_download_mode,
+    set_large_attachment_settings,
 )
 from ..network.routing import (
     encrypt_key_for_peer,
@@ -345,23 +360,28 @@ def create_ui_blueprint() -> Blueprint:
         try:
             db_manager, _, trust_manager, message_manager, channel_manager, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
             connected_peers = p2p_manager.get_connected_peers() if p2p_manager else []
-            peer_profiles = channel_manager.get_all_peer_device_profiles() if channel_manager else {}
-            trust_map = {}
-            if trust_manager:
-                for pid in connected_peers:
-                    trust_map[pid] = trust_manager.get_trust_score(pid)
-            recent_dm_contacts = _build_sidebar_dm_contacts(
+            peer_snapshot = _build_sidebar_peer_snapshot(
+                list(connected_peers or []),
+                trust_manager,
+                channel_manager,
+            )
+            dm_snapshot = _build_sidebar_dm_snapshot(
                 db_manager,
                 profile_manager,
                 p2p_manager,
                 session.get('user_id'),
                 limit=5,
-            ) if message_manager else []
+            ) if message_manager else {
+                'recent_dm_contacts': [],
+                'dm_rev': _stable_ui_revision([]),
+            }
             out = {
-                'sidebar_connected_peers': connected_peers,
-                'sidebar_peer_profiles': peer_profiles,
-                'sidebar_peer_trust': trust_map,
-                'sidebar_recent_dm_contacts': recent_dm_contacts,
+                'sidebar_connected_peers': peer_snapshot['connected_peer_ids'],
+                'sidebar_peer_profiles': peer_snapshot['peer_profiles'],
+                'sidebar_peer_trust': peer_snapshot['peer_trust'],
+                'sidebar_peer_rev': peer_snapshot['peer_rev'],
+                'sidebar_recent_dm_contacts': dm_snapshot['recent_dm_contacts'],
+                'sidebar_dm_rev': dm_snapshot['dm_rev'],
             }
             # Admin link and badge (instance owner only)
             owner_id = db_manager.get_instance_owner_user_id()
@@ -1364,6 +1384,103 @@ def create_ui_blueprint() -> Blueprint:
         if value > maximum:
             return maximum
         return value
+
+    def _stable_ui_revision(payload: Any) -> str:
+        """Return a stable short revision string for UI delta polling."""
+        try:
+            encoded = json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=True)
+        except Exception:
+            encoded = str(payload)
+        return hashlib.sha1(encoded.encode('utf-8')).hexdigest()[:16]
+
+    def _load_connected_peer_profiles(channel_manager: Any, peer_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """Return device profiles for connected peers only."""
+        cleaned = [
+            str(peer_id or '').strip()
+            for peer_id in (peer_ids or [])
+            if str(peer_id or '').strip()
+        ]
+        if not channel_manager or not cleaned:
+            return {}
+        def _normalize_profiles(raw_profiles: Any) -> dict[str, dict[str, Any]]:
+            if not isinstance(raw_profiles, dict):
+                return {}
+            normalized: dict[str, dict[str, Any]] = {}
+            for peer_id in cleaned:
+                profile = raw_profiles.get(peer_id)
+                if not isinstance(profile, dict):
+                    continue
+                normalized[peer_id] = {
+                    'peer_id': str(profile.get('peer_id') or peer_id).strip() or peer_id,
+                    'display_name': profile.get('display_name') or peer_id[:12],
+                    'description': profile.get('description') or '',
+                    'avatar_b64': profile.get('avatar_b64') or '',
+                    'avatar_mime': profile.get('avatar_mime') or '',
+                }
+            return normalized
+        if hasattr(channel_manager, 'get_peer_device_profiles'):
+            try:
+                profiles = _normalize_profiles(channel_manager.get_peer_device_profiles(cleaned))
+                if profiles:
+                    return profiles
+            except Exception:
+                pass
+        try:
+            all_profiles = channel_manager.get_all_peer_device_profiles() or {}
+        except Exception:
+            all_profiles = {}
+        return _normalize_profiles(all_profiles)
+
+    def _build_sidebar_peer_snapshot(
+        connected_peer_ids: list[str],
+        trust_manager: Any,
+        channel_manager: Any,
+    ) -> dict[str, Any]:
+        """Build a compact connected-peer snapshot for the shared sidebar."""
+        peer_ids = [
+            str(peer_id or '').strip()
+            for peer_id in (connected_peer_ids or [])
+            if str(peer_id or '').strip()
+        ]
+        trust_map: dict[str, Any] = {}
+        if trust_manager:
+            for peer_id in peer_ids:
+                try:
+                    trust_map[peer_id] = trust_manager.get_trust_score(peer_id)
+                except Exception:
+                    continue
+        peer_profiles = _load_connected_peer_profiles(channel_manager, peer_ids)
+        return {
+            'connected_peer_ids': peer_ids,
+            'peer_trust': trust_map,
+            'peer_profiles': peer_profiles,
+            'connected_peer_count': len(peer_ids),
+            'peer_rev': _stable_ui_revision({
+                'connected_peer_ids': peer_ids,
+                'peer_trust': trust_map,
+                'peer_profiles': peer_profiles,
+            }),
+        }
+
+    def _build_sidebar_dm_snapshot(
+        db_manager: Any,
+        profile_manager: Any,
+        p2p_manager: Any,
+        user_id: str,
+        *,
+        limit: int = 5,
+    ) -> dict[str, Any]:
+        contacts = _build_sidebar_dm_contacts(
+            db_manager,
+            profile_manager,
+            p2p_manager,
+            user_id,
+            limit=limit,
+        )
+        return {
+            'recent_dm_contacts': contacts,
+            'dm_rev': _stable_ui_revision(contacts),
+        }
 
     def _build_sidebar_dm_contacts(
         db_manager: Any,
@@ -3584,6 +3701,7 @@ def create_ui_blueprint() -> Blueprint:
         try:
             db_manager, _, _, _, _, _, _, _, _, config, _ = _get_app_components_any(current_app)
             user_id = get_current_user()
+            from .. import __version__ as canopy_version
             
             # Get database statistics
             db_stats = db_manager.get_database_stats()
@@ -3594,13 +3712,100 @@ def create_ui_blueprint() -> Blueprint:
                                  config=config.to_dict(),
                                  db_stats=db_stats,
                                  user_id=user_id,
+                                 canopy_version=canopy_version,
                                  auto_approve_agents=auto_approve_agents,
+                                 large_attachment_threshold_mb=int(LARGE_ATTACHMENT_THRESHOLD / 1024 / 1024),
+                                 large_attachment_store_root=get_large_attachment_store_root(db_manager),
+                                 large_attachment_download_mode=get_large_attachment_download_mode(db_manager),
                                  is_admin=_is_admin())
                                  
         except Exception as e:
             logger.error(f"Settings error: {e}")
             flash('Error loading settings', 'error')
             return render_template('error.html', error=str(e))
+
+    @ui.route('/ajax/settings/large-attachments', methods=['POST'])
+    @require_login
+    @require_admin
+    def update_large_attachment_settings():
+        """Persist managed large-attachment storage settings for this node."""
+        try:
+            db_manager, _, _, _, _, _, _, _, _, _, _ = _get_app_components_any(current_app)
+            data = request.get_json(silent=True) or {}
+            store_root = str(data.get('store_root') or '').strip()
+            download_mode = normalize_large_attachment_download_mode(data.get('download_mode'))
+            ok = set_large_attachment_settings(
+                db_manager,
+                store_root=store_root,
+                download_mode=download_mode,
+            )
+            if not ok:
+                return jsonify({'success': False, 'error': 'Failed to save settings'}), 500
+            return jsonify({
+                'success': True,
+                'store_root': get_large_attachment_store_root(db_manager),
+                'download_mode': get_large_attachment_download_mode(db_manager),
+                'threshold_mb': int(LARGE_ATTACHMENT_THRESHOLD / 1024 / 1024),
+            })
+        except Exception as e:
+            logger.error(f"Failed to update large attachment settings: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/files/request-remote-download', methods=['POST'])
+    @require_login
+    def request_remote_attachment_download():
+        """Trigger a remote large-attachment fetch for the local node."""
+        try:
+            db_manager, _, _, _, _, file_manager, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+            data = request.get_json(silent=True) or {}
+            attachment = data.get('attachment') or {}
+            if not isinstance(attachment, dict):
+                return jsonify({'success': False, 'error': 'Invalid attachment payload'}), 400
+
+            origin_file_id = get_attachment_origin_file_id(attachment)
+            source_peer_id = get_attachment_source_peer_id(attachment)
+            if not origin_file_id or not source_peer_id or not is_large_attachment_reference(attachment):
+                return jsonify({'success': False, 'error': 'Attachment is not a remote large attachment'}), 400
+            if get_large_attachment_download_mode(db_manager) == LARGE_ATTACHMENT_DOWNLOAD_PAUSED:
+                return jsonify({'success': False, 'error': 'Large attachment downloads are paused on this node'}), 409
+            if not p2p_manager:
+                return jsonify({'success': False, 'error': 'P2P manager unavailable'}), 503
+            if not p2p_manager.connection_manager or not p2p_manager.connection_manager.is_connected(source_peer_id):
+                return jsonify({'success': False, 'error': 'Source peer is not currently connected'}), 409
+            if not p2p_manager.peer_supports_capability(source_peer_id, LARGE_ATTACHMENT_CAPABILITY):
+                return jsonify({'success': False, 'error': 'Source peer does not support large attachment fetch'}), 409
+
+            request_id = f"LAR{secrets.token_hex(8)}"
+            file_manager.upsert_remote_attachment_transfer(
+                origin_peer_id=source_peer_id,
+                origin_file_id=origin_file_id,
+                file_name=attachment.get('name'),
+                content_type=attachment.get('type'),
+                size=attachment.get('size'),
+                checksum=attachment.get('checksum'),
+                status='requested',
+                last_request_id=request_id,
+                error=None,
+            )
+            sent = p2p_manager.send_large_attachment_request(
+                to_peer=source_peer_id,
+                request_id=request_id,
+                origin_file_id=origin_file_id,
+                source_context={'manual': True},
+            )
+            if not sent:
+                file_manager.upsert_remote_attachment_transfer(
+                    origin_peer_id=source_peer_id,
+                    origin_file_id=origin_file_id,
+                    status='error',
+                    error='request_send_failed',
+                )
+                return jsonify({'success': False, 'error': 'Failed to send download request'}), 502
+
+            return jsonify({'success': True, 'request_id': request_id})
+        except Exception as e:
+            logger.error(f"Failed to request remote attachment download: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
     # Claim instance admin — when no owner, or recovery with CANOPY_ADMIN_CLAIM_SECRET
     @ui.route('/claim-admin', methods=['GET', 'POST'])
@@ -3920,8 +4125,10 @@ def create_ui_blueprint() -> Blueprint:
     def ajax_peer_activity():
         """Return last inbound/outbound activity timestamps for connected peers."""
         try:
-            db_manager, _, trust_manager, message_manager, _, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+            db_manager, _, trust_manager, message_manager, channel_manager, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
             since_arg = request.args.get('since')
+            peer_rev_client = str(request.args.get('peer_rev') or '').strip()
+            dm_rev_client = str(request.args.get('dm_rev') or '').strip()
             since = None
             if since_arg is not None and since_arg != '':
                 try:
@@ -3935,7 +4142,12 @@ def create_ui_blueprint() -> Blueprint:
                     'peers': {},
                     'connected_peer_ids': [],
                     'peer_trust': {},
+                    'peer_profiles': {},
+                    'peer_rev': _stable_ui_revision([]),
+                    'peer_changed': not bool(peer_rev_client),
                     'recent_dm_contacts': [],
+                    'dm_rev': _stable_ui_revision([]),
+                    'dm_changed': not bool(dm_rev_client),
                     'events': [],
                     'server_time': time.time(),
                 })
@@ -3961,29 +4173,54 @@ def create_ui_blueprint() -> Blueprint:
                 except Exception:
                     events = []
 
-            trust_map = {}
-            if trust_manager:
-                for peer_id in connected_peer_ids:
-                    try:
-                        trust_map[peer_id] = trust_manager.get_trust_score(peer_id)
-                    except Exception:
-                        continue
+            peer_snapshot = _build_sidebar_peer_snapshot(
+                connected_peer_ids,
+                trust_manager,
+                channel_manager,
+            )
+            dm_snapshot = _build_sidebar_dm_snapshot(
+                db_manager,
+                profile_manager,
+                p2p_manager,
+                get_current_user(),
+                limit=5,
+            ) if message_manager else {
+                'recent_dm_contacts': [],
+                'dm_rev': _stable_ui_revision([]),
+            }
+            peer_changed = peer_snapshot['peer_rev'] != peer_rev_client
+            dm_changed = dm_snapshot['dm_rev'] != dm_rev_client
 
-            return jsonify({
+            payload = {
                 'success': True,
-                'peers': peers,
-                'connected_peer_ids': connected_peer_ids,
-                'peer_trust': trust_map,
-                'recent_dm_contacts': _build_sidebar_dm_contacts(
-                    db_manager,
-                    profile_manager,
-                    p2p_manager,
-                    get_current_user(),
-                    limit=5,
-                ) if message_manager else [],
+                'peer_rev': peer_snapshot['peer_rev'],
+                'peer_changed': peer_changed,
+                'dm_rev': dm_snapshot['dm_rev'],
+                'dm_changed': dm_changed,
                 'events': events,
                 'server_time': time.time(),
-            })
+            }
+            if peer_changed:
+                payload.update({
+                    'peers': peers,
+                    'connected_peer_ids': peer_snapshot['connected_peer_ids'],
+                    'peer_trust': peer_snapshot['peer_trust'],
+                    'peer_profiles': peer_snapshot['peer_profiles'],
+                    'connected_peer_count': peer_snapshot['connected_peer_count'],
+                })
+            else:
+                payload.update({
+                    'peers': {},
+                    'connected_peer_ids': [],
+                    'peer_trust': {},
+                    'peer_profiles': {},
+                    'connected_peer_count': peer_snapshot['connected_peer_count'],
+                })
+            if dm_changed:
+                payload['recent_dm_contacts'] = dm_snapshot['recent_dm_contacts']
+            else:
+                payload['recent_dm_contacts'] = []
+            return jsonify(payload)
         except Exception as e:
             logger.error(f"Peer activity error: {e}", exc_info=True)
             return jsonify({'success': False, 'error': 'Failed to get peer activity'}), 500
@@ -6050,6 +6287,7 @@ def create_ui_blueprint() -> Blueprint:
         try:
             _, _, _, _, channel_manager, _, _, _, _, _, _ = _get_app_components_any(current_app)
             user_id = get_current_user()
+            client_rev = str(request.args.get('rev') or '').strip()
             channels = channel_manager.get_user_channels(user_id)
             payload = []
             for ch in channels:
@@ -6069,10 +6307,13 @@ def create_ui_blueprint() -> Blueprint:
                     'notifications_enabled': bool(getattr(ch, 'notifications_enabled', True)),
                     'crypto_mode': getattr(ch, 'crypto_mode', '') or '',
                 })
-            return jsonify({'success': True, 'channels': payload, 'count': len(payload)})
+            rev = _stable_ui_revision(payload)
+            if client_rev and client_rev == rev:
+                return jsonify({'success': True, 'changed': False, 'channels': [], 'count': len(payload), 'rev': rev})
+            return jsonify({'success': True, 'changed': True, 'channels': payload, 'count': len(payload), 'rev': rev})
         except Exception as e:
             logger.error(f"Channel sidebar state error: {e}")
-            return jsonify({'success': False, 'channels': [], 'count': 0})
+            return jsonify({'success': False, 'changed': False, 'channels': [], 'count': 0})
 
     @ui.route('/ajax/content_contexts/extract', methods=['POST'])
     @require_login
@@ -14286,7 +14527,39 @@ def create_ui_blueprint() -> Blueprint:
                 limit = int(request.args.get('limit', 500))
             except (TypeError, ValueError):
                 limit = 500
-            limit = max(1, min(limit, 1000))
+            limit = max(1, min(limit, 250))
+
+            def _rank_users(rows: list[dict[str, Any]], needle: str) -> list[dict[str, Any]]:
+                if not needle:
+                    return sorted(
+                        rows,
+                        key=lambda user: (
+                            str(user.get('display_name') or user.get('username') or user.get('user_id') or '').strip().lower(),
+                            str(user.get('user_id') or '').strip().lower(),
+                        ),
+                    )
+                ranked: list[tuple[int, str, dict[str, Any]]] = []
+                for user in rows:
+                    display_name = str(user.get('display_name') or '').strip().lower()
+                    username_val = str(user.get('username') or '').strip().lower()
+                    handle_val = str(user.get('handle') or '').strip().lower()
+                    uid_val = str(user.get('user_id') or '').strip().lower()
+
+                    rank = None
+                    if handle_val.startswith(needle) or username_val.startswith(needle):
+                        rank = 0
+                    elif display_name.startswith(needle) or uid_val.startswith(needle):
+                        rank = 1
+                    elif needle in handle_val or needle in username_val:
+                        rank = 2
+                    elif needle in display_name or needle in uid_val:
+                        rank = 3
+
+                    if rank is None:
+                        continue
+                    ranked.append((rank, display_name or username_val or uid_val, user))
+                ranked.sort(key=lambda item: (item[0], item[1]))
+                return [item[2] for item in ranked]
 
             users = []
             if channel_id:
@@ -14300,41 +14573,112 @@ def create_ui_blueprint() -> Blueprint:
                         return jsonify({'error': 'Forbidden'}), 403
 
                 members = channel_manager.get_channel_members_list(channel_id) if channel_manager else []
+                candidate_users = []
                 for m in members:
                     uid = m.get('user_id')
                     if not uid or uid in ('system', 'local_user'):
                         continue
-                    # Prefer profile display name (e.g. set via MCP canopy_update_profile) so agents show up correctly
-                    display_name = m.get('display_name') or m.get('username') or uid
-                    prof = None
-                    if profile_manager:
-                        prof = profile_manager.get_profile(uid)
-                        if prof and (prof.display_name or prof.username):
-                            display_name = prof.display_name or prof.username
                     username_val = m.get('username') or uid
-                    users.append({
+                    display_name = m.get('display_name') or username_val or uid
+                    candidate_users.append({
                         'user_id': uid,
                         'username': username_val,
                         'display_name': display_name,
                         'handle': _clean_mention_handle(display_name, username_val, uid),
-                        'avatar_url': prof.avatar_url if profile_manager and prof else None,
                         'account_type': (m.get('account_type') or '').strip().lower() or None,
                     })
+                users = _rank_users(candidate_users, query)[:limit]
             else:
-                all_info = profile_manager.get_all_users_display_info() if profile_manager else {}
-                for uid, info in all_info.items():
-                    if uid in ('system', 'local_user'):
+                candidate_limit = limit if not query else min(max(limit * 4, 40), 200)
+                with db_manager.get_connection() as conn:
+                    table_cols = set()
+                    try:
+                        for col_row in conn.execute("PRAGMA table_info(users)").fetchall():
+                            name = col_row['name'] if isinstance(col_row, sqlite3.Row) else col_row[1]
+                            table_cols.add(str(name))
+                    except Exception:
+                        table_cols = {'id', 'username', 'display_name', 'account_type', 'status', 'agent_directives', 'origin_peer'}
+
+                    select_cols = ['id']
+                    if 'username' in table_cols:
+                        select_cols.append('username')
+                    if 'display_name' in table_cols:
+                        select_cols.append('display_name')
+                    if 'avatar_file_id' in table_cols:
+                        select_cols.append('avatar_file_id')
+                    if 'origin_peer' in table_cols:
+                        select_cols.append('origin_peer')
+                    if 'account_type' in table_cols:
+                        select_cols.append('account_type')
+                    if 'status' in table_cols:
+                        select_cols.append('status')
+                    if 'agent_directives' in table_cols:
+                        select_cols.append('agent_directives')
+                    select_sql = ', '.join(select_cols)
+                    username_expr = "lower(COALESCE(username, ''))" if 'username' in table_cols else "''"
+                    display_name_expr = "lower(COALESCE(display_name, ''))" if 'display_name' in table_cols else "''"
+                    if 'display_name' in table_cols and 'username' in table_cols:
+                        sort_expr = "lower(COALESCE(display_name, username, id))"
+                    elif 'display_name' in table_cols:
+                        sort_expr = "lower(COALESCE(display_name, id))"
+                    elif 'username' in table_cols:
+                        sort_expr = "lower(COALESCE(username, id))"
+                    else:
+                        sort_expr = "lower(COALESCE(id, ''))"
+
+                    if query:
+                        like_value = f"%{query}%"
+                        query_filters = [f"{username_expr} LIKE ?", f"{display_name_expr} LIKE ?", "lower(COALESCE(id, '')) LIKE ?"]
+                        rows = conn.execute(
+                            f"""
+                            SELECT {select_sql}
+                            FROM users
+                            WHERE id NOT IN ('system', 'local_user')
+                              AND (
+                                {' OR '.join(query_filters)}
+                              )
+                            ORDER BY {sort_expr} ASC
+                            LIMIT ?
+                            """,
+                            (like_value, like_value, like_value, candidate_limit),
+                        ).fetchall()
+                    else:
+                        rows = conn.execute(
+                            f"""
+                            SELECT {select_sql}
+                            FROM users
+                            WHERE id NOT IN ('system', 'local_user')
+                            ORDER BY {sort_expr} ASC
+                            LIMIT ?
+                            """,
+                            (candidate_limit,),
+                        ).fetchall()
+                for row in rows or []:
+                    uid = str(row['id'] or '').strip()
+                    if not uid:
                         continue
-                    uname = info.get('username') or uid
-                    dname = info.get('display_name') or info.get('username') or uid
+                    row_keys = set(row.keys()) if hasattr(row, 'keys') else set()
+                    uname = row['username'] if 'username' in row_keys else uid
+                    uname = uname or uid
+                    dname = row['display_name'] if 'display_name' in row_keys else uname
+                    dname = dname or uname or uid
+                    avatar_file_id = row['avatar_file_id'] if 'avatar_file_id' in row_keys else None
+                    account_type = row['account_type'] if 'account_type' in row_keys else None
+                    origin_peer = row['origin_peer'] if 'origin_peer' in row_keys else ''
+                    status = row['status'] if 'status' in row_keys else None
+                    agent_directives = row['agent_directives'] if 'agent_directives' in row_keys else None
                     users.append({
                         'user_id': uid,
                         'username': uname,
                         'display_name': dname,
                         'handle': _clean_mention_handle(dname, uname, uid),
-                        'avatar_url': info.get('avatar_url'),
-                        'account_type': (info.get('account_type') or '').strip().lower() or None,
+                        'avatar_url': f"/files/{avatar_file_id}" if avatar_file_id else None,
+                        'account_type': (account_type or '').strip().lower() or None,
+                        'origin_peer': origin_peer,
+                        'status': status,
+                        'agent_directives': agent_directives,
                     })
+                users = _rank_users(users, query)[:limit]
 
             deduped_users = []
             seen_user_ids: set[str] = set()
@@ -14347,9 +14691,6 @@ def create_ui_blueprint() -> Blueprint:
                 deduped_users.append(user)
             users = deduped_users
 
-            # Ensure account_type is available for mention-builder UIs
-            # (agents vs humans) even when upstream profile/member payloads
-            # do not include it.
             user_ids = [u.get('user_id') for u in users if u.get('user_id')]
             if user_ids:
                 user_meta_map: dict[str, dict[str, Any]] = {}
@@ -14371,6 +14712,12 @@ def create_ui_blueprint() -> Blueprint:
                         select_cols.append('status')
                     if 'agent_directives' in table_cols:
                         select_cols.append('agent_directives')
+                    if 'avatar_file_id' in table_cols:
+                        select_cols.append('avatar_file_id')
+                    if 'username' in table_cols:
+                        select_cols.append('username')
+                    if 'display_name' in table_cols:
+                        select_cols.append('display_name')
 
                     rows = conn.execute(
                         f"SELECT {', '.join(select_cols)} FROM users WHERE id IN ({placeholders})",
@@ -14389,6 +14736,24 @@ def create_ui_blueprint() -> Blueprint:
                     uid = user.get('user_id')
                     meta = user_meta_map.get(uid) or {}
                     presence_record = presence_records.get(uid) or {}
+                    user['username'] = user.get('username') or meta.get('username') or uid
+                    user['display_name'] = user.get('display_name') or meta.get('display_name') or user['username']
+                    if not user.get('avatar_url') and meta.get('avatar_file_id'):
+                        user['avatar_url'] = f"/files/{meta.get('avatar_file_id')}"
+                    if profile_manager:
+                        try:
+                            prof = profile_manager.get_profile(uid)
+                        except Exception:
+                            prof = None
+                        if prof:
+                            user['display_name'] = getattr(prof, 'display_name', None) or getattr(prof, 'username', None) or user['display_name']
+                            user['username'] = getattr(prof, 'username', None) or user['username']
+                            user['avatar_url'] = getattr(prof, 'avatar_url', None) or user.get('avatar_url')
+                    user['handle'] = _clean_mention_handle(
+                        user.get('display_name'),
+                        user.get('username'),
+                        uid,
+                    )
                     account_type_norm = _normalized_account_type(
                         user.get('account_type') or meta.get('account_type'),
                         status=user.get('status') or meta.get('status'),
@@ -14414,44 +14779,6 @@ def create_ui_blueprint() -> Blueprint:
                     user['presence_color'] = presence.get('color')
                     user['presence_age_seconds'] = presence.get('age_seconds')
                     user['presence_age_text'] = presence.get('age_text')
-
-            def _norm(value: Any) -> str:
-                return str(value or '').strip().lower()
-
-            if query:
-                ranked = []
-                for user in users:
-                    display_name = _norm(user.get('display_name'))
-                    username_val = _norm(user.get('username'))
-                    handle_val = _norm(user.get('handle'))
-                    uid_val = _norm(user.get('user_id'))
-
-                    rank = None
-                    if handle_val.startswith(query) or username_val.startswith(query):
-                        rank = 0
-                    elif display_name.startswith(query) or uid_val.startswith(query):
-                        rank = 1
-                    elif query in handle_val or query in username_val:
-                        rank = 2
-                    elif query in display_name or query in uid_val:
-                        rank = 3
-
-                    if rank is None:
-                        continue
-
-                    ranked.append((rank, display_name or username_val or uid_val, user))
-
-                ranked.sort(key=lambda item: (item[0], item[1]))
-                users = [item[2] for item in ranked]
-            else:
-                users.sort(
-                    key=lambda user: (
-                        _norm(user.get('display_name') or user.get('username') or user.get('user_id')),
-                        _norm(user.get('user_id')),
-                    )
-                )
-
-            users = users[:limit]
             return jsonify({'success': True, 'users': users})
         except Exception as e:
             logger.error(f"Mention suggestions error: {e}")
