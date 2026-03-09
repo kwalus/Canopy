@@ -14583,6 +14583,21 @@ def create_ui_blueprint() -> Blueprint:
                 limit = 500
             limit = max(1, min(limit, 250))
 
+            def _peer_label(peer_id: str) -> str:
+                pid = str(peer_id or '').strip()
+                if not pid:
+                    return ''
+                try:
+                    if p2p_manager and getattr(p2p_manager, 'identity_manager', None):
+                        label = (
+                            getattr(p2p_manager.identity_manager, 'peer_display_names', {}) or {}
+                        ).get(pid)
+                        if label:
+                            return str(label).strip()
+                except Exception:
+                    pass
+                return pid[:10]
+
             def _rank_users(rows: list[dict[str, Any]], needle: str) -> list[dict[str, Any]]:
                 if not needle:
                     return sorted(
@@ -14820,6 +14835,17 @@ def create_ui_blueprint() -> Blueprint:
                     user['is_remote'] = is_remote
                     if origin_peer:
                         user['origin_peer'] = origin_peer
+                    origin_peer_label = _peer_label(origin_peer) if origin_peer else ''
+                    if origin_peer_label:
+                        user['origin_peer_label'] = origin_peer_label
+                    locality_label = (
+                        f"Remote via {origin_peer_label}"
+                        if origin_peer_label
+                        else ('Remote peer' if is_remote else 'Local account')
+                    )
+                    if not is_remote:
+                        locality_label = 'Local account'
+                    user['locality_label'] = locality_label
 
                     presence = build_agent_presence_payload(
                         last_check_in_at=presence_record.get('last_check_in_at'),

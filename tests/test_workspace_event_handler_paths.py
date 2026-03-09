@@ -163,6 +163,27 @@ class TestWorkspaceEventHandlerPaths(unittest.TestCase):
             },
         )
 
+    def _seed_remote_shadow(self, user_id: str, origin_peer: str) -> None:
+        with self.app.app_context():
+            with self.db_manager.get_connection() as conn:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO users (
+                        id, username, public_key, password_hash, display_name,
+                        origin_peer, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    """,
+                    (
+                        user_id,
+                        f'peer-{user_id[:8]}',
+                        '',
+                        None,
+                        'Remote Shadow',
+                        origin_peer,
+                    ),
+                )
+                conn.commit()
+
     def test_real_inbound_dm_create_emits_one_created_event_with_canonical_id(self) -> None:
         with self.app.app_context():
             self.p2p_manager.on_direct_message(
@@ -252,6 +273,85 @@ class TestWorkspaceEventHandlerPaths(unittest.TestCase):
             self.assertIsNone(remaining_message)
             self.assertEqual(inbox_after, 0)
             self.assertEqual([row['message_id'] for row in delete_events], ['DM-handler-delete'])
+
+    def test_profile_sync_does_not_reassign_existing_remote_origin(self) -> None:
+        self._seed_remote_shadow('remote-user', 'peer-windy')
+
+        with self.app.app_context():
+            self.p2p_manager.on_profile_sync(
+                profile_data={
+                    'user_id': 'remote-user',
+                    'peer_id': 'peer-relay',
+                    'display_name': 'Remote User',
+                    'profile_hash': 'hash-profile-1',
+                },
+                from_peer='peer-relay',
+            )
+            with self.db_manager.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT origin_peer FROM users WHERE id = ?",
+                    ('remote-user',),
+                ).fetchone()
+
+        self.assertIsNotNone(row)
+        self.assertEqual(row['origin_peer'], 'peer-windy')
+
+    def test_real_inbound_dm_repairs_remote_origin_from_sender_peer(self) -> None:
+        self._seed_remote_shadow('remote-user', 'peer-stale')
+
+        with self.app.app_context():
+            self.p2p_manager.on_direct_message(
+                sender_id='remote-user',
+                recipient_id='agent-local',
+                content='repair origin',
+                message_id='DM-handler-repair',
+                timestamp='2026-03-09T12:03:00+00:00',
+                display_name='Remote User',
+                metadata={},
+                update_only=False,
+                edited_at=None,
+                from_peer='peer-windy',
+            )
+            with self.db_manager.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT origin_peer FROM users WHERE id = ?",
+                    ('remote-user',),
+                ).fetchone()
+
+        self.assertIsNotNone(row)
+        self.assertEqual(row['origin_peer'], 'peer-windy')
+
+    def test_catchup_uses_message_origin_peer_not_relay_peer_for_shadow_updates(self) -> None:
+        self._seed_remote_shadow('remote-user', 'peer-stale')
+
+        with self.app.app_context():
+            self.p2p_manager.on_catchup_response(
+                messages=[
+                    {
+                        'id': 'M-catchup-origin',
+                        'channel_id': 'C-catchup',
+                        'user_id': 'remote-user',
+                        'content': 'hello from catchup',
+                        'created_at': '2026-03-09T12:04:00+00:00',
+                        'origin_peer': 'peer-windy',
+                        'display_name': 'Remote User',
+                    }
+                ],
+                from_peer='peer-relay',
+                feed_posts=[],
+                circle_entries=[],
+                circle_votes=[],
+                circles=[],
+                tasks=[],
+            )
+            with self.db_manager.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT origin_peer FROM users WHERE id = ?",
+                    ('remote-user',),
+                ).fetchone()
+
+        self.assertIsNotNone(row)
+        self.assertEqual(row['origin_peer'], 'peer-windy')
 
 
 if __name__ == '__main__':

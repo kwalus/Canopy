@@ -878,6 +878,11 @@
         color: var(--canopy-text-secondary);
     }
 
+    .recipient-chip-locality {
+        font-size: 0.68rem;
+        color: rgba(141, 243, 189, 0.82);
+    }
+
     .recipient-chip button {
         border: none;
         background: transparent;
@@ -945,6 +950,40 @@
     .recipient-suggestion-id {
         font-size: 0.75rem;
         color: var(--canopy-text-secondary);
+    }
+
+    .recipient-suggestion-meta {
+        display: flex;
+        align-items: center;
+        gap: 0.42rem;
+        flex-wrap: wrap;
+    }
+
+    .recipient-suggestion-locality {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 1.3rem;
+        padding: 0.1rem 0.44rem;
+        border-radius: 999px;
+        font-size: 0.67rem;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        border: 1px solid rgba(110, 148, 255, 0.2);
+        color: rgba(206, 221, 255, 0.92);
+        background: rgba(110, 148, 255, 0.08);
+    }
+
+    .recipient-suggestion-locality.remote {
+        color: #8df3bd;
+        border-color: rgba(46, 214, 125, 0.24);
+        background: rgba(46, 214, 125, 0.11);
+    }
+
+    .recipient-suggestion-locality.local {
+        color: #a8c9ff;
+        border-color: rgba(90, 140, 255, 0.24);
+        background: rgba(90, 140, 255, 0.11);
     }
 
     .recipient-suggestion-state {

@@ -41,6 +41,7 @@ from .messaging import (
     build_dm_preview,
     build_dm_security_summary,
     filter_local_dm_targets,
+    is_local_dm_user,
     unwrap_dm_transport_bundle,
 )
 from .channels import ChannelManager
@@ -1085,12 +1086,19 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 except Exception:
                     pass
 
-        def _ensure_origin_peer(user_id: str, peer_id: str) -> None:
-            """Update origin_peer for remote users when they send from a new peer.
+        def _ensure_origin_peer(
+            user_id: str,
+            peer_id: str,
+            *,
+            allow_remote_reassign: bool = False,
+        ) -> None:
+            """Set or update origin_peer for remote-shadow users.
 
-            Protects local users (origin_peer is NULL/empty or matches our
-            own peer) from being overwritten, but allows remote users to
-            migrate between peers so member_sync reaches the right place.
+            Passive sync surfaces such as profile propagation should not
+            rewrite remote ownership, because those packets can arrive via
+            relays or stale peers. Only direct authored evidence (DMs,
+            posts, channel messages, catchup rows carrying an explicit
+            origin) is allowed to reassign an existing remote origin.
             """
             if not user_id or not peer_id:
                 return
@@ -1106,7 +1114,11 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     current_peer = (row['origin_peer'] if 'origin_peer' in row.keys() else None) or ''
                     if current_peer == peer_id:
                         return
-                    if not current_peer or current_peer == local_peer:
+                    if current_peer == local_peer:
+                        return
+                    if not current_peer and is_local_dm_user(db_manager, p2p_manager, user_id):
+                        return
+                    if current_peer and not allow_remote_reassign:
                         return
                     conn.execute(
                         "UPDATE users SET origin_peer = ? WHERE id = ?",
@@ -1127,7 +1139,13 @@ def create_app(config: Optional[Config] = None) -> Flask:
             base = base.strip('._-')
             return base or 'peer'
 
-        def _ensure_shadow_user(user_id: str, display_name: Optional[str], from_peer: str) -> None:
+        def _ensure_shadow_user(
+            user_id: str,
+            display_name: Optional[str],
+            from_peer: str,
+            *,
+            allow_origin_reassign: bool = False,
+        ) -> None:
             """Create/update a shadow user safely, avoiding username collisions."""
             if not user_id or not from_peer:
                 return
@@ -1147,7 +1165,11 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                 conn.commit()
                     except Exception:
                         pass
-                    _ensure_origin_peer(user_id, from_peer)
+                    _ensure_origin_peer(
+                        user_id,
+                        from_peer,
+                        allow_remote_reassign=allow_origin_reassign,
+                    )
                     return
 
                 base = _sanitize_shadow_username(display_name or f"peer-{from_peer[:8]}")
@@ -1195,7 +1217,11 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     except Exception as e:
                         logger.warning(f"Could not create shadow user for {user_id}: {e}")
 
-                _ensure_origin_peer(user_id, from_peer)
+                _ensure_origin_peer(
+                    user_id,
+                    from_peer,
+                    allow_remote_reassign=allow_origin_reassign,
+                )
             except Exception as e:
                 logger.warning(f"Shadow user ensure failed for {user_id}: {e}")
 
@@ -1374,7 +1400,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 # IMPORTANT: shadow users are created per user_id (not per
                 # peer) so that different users on the same peer device
                 # appear with their own display names.
-                _ensure_shadow_user(user_id, display_name, from_peer)
+                _ensure_shadow_user(
+                    user_id,
+                    display_name,
+                    effective_origin_peer,
+                    allow_origin_reassign=True,
+                )
 
                 # Ensure the channel exists locally (auto-create if received
                 # from a peer who has a channel we don't know about yet).
@@ -4068,7 +4099,13 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     catchup_display = msg.get('display_name') or msg.get('author_display_name')
 
                     # Ensure shadow user exists (per-user-id, not per-peer)
-                    _ensure_shadow_user(user_id, catchup_display, from_peer)
+                    catchup_origin_peer = str(msg.get('origin_peer') or from_peer or '').strip() or str(from_peer or '').strip()
+                    _ensure_shadow_user(
+                        user_id,
+                        catchup_display,
+                        catchup_origin_peer,
+                        allow_origin_reassign=True,
+                    )
 
                     # Ensure channel exists
                     with db_manager.get_connection() as conn:
@@ -4163,7 +4200,19 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         author_id = fp.get('author_id', f'peer_{from_peer}')
                         content = fp.get('content', '')
                         display_name = fp.get('display_name')
-                        _ensure_shadow_user(author_id, display_name, from_peer)
+                        feed_origin_peer = ''
+                        try:
+                            if isinstance(fp.get('metadata'), dict):
+                                feed_origin_peer = str(fp.get('metadata', {}).get('origin_peer') or '').strip()
+                        except Exception:
+                            feed_origin_peer = ''
+                        feed_origin_peer = str(fp.get('origin_peer') or feed_origin_peer or from_peer or '').strip() or str(from_peer or '').strip()
+                        _ensure_shadow_user(
+                            author_id,
+                            display_name,
+                            feed_origin_peer,
+                            allow_origin_reassign=True,
+                        )
                         with db_manager.get_connection() as conn:
                             existing = conn.execute(
                                 "SELECT 1 FROM feed_posts WHERE id = ?", (pid,)
@@ -4422,6 +4471,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
                             remote_user_id,
                             profile_data.get('display_name'),
                             remote_peer_id,
+                            allow_origin_reassign=False,
                         )
                         if db_manager.get_user(remote_user_id):
                             target_user_id = remote_user_id
@@ -4438,7 +4488,11 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 # message with the wrong display name).
                 profile_manager.update_from_remote(target_user_id, profile_data,
                                                    force_display_name=True)
-                _ensure_origin_peer(target_user_id, remote_peer_id)
+                _ensure_origin_peer(
+                    target_user_id,
+                    remote_peer_id,
+                    allow_remote_reassign=False,
+                )
                 logger.debug(f"Profile sync from {from_peer}: updated {target_user_id} "
                              f"(display_name={profile_data.get('display_name')})")
 
@@ -4646,7 +4700,19 @@ def create_app(config: Optional[Config] = None) -> Flask:
             """Store an incoming P2P feed post locally. Updates content/metadata when post already exists (edit broadcast)."""
             try:
                 # Ensure shadow user exists (reuse channel message logic)
-                _ensure_shadow_user(author_id, display_name, from_peer)
+                feed_origin_peer = ''
+                try:
+                    if isinstance(metadata, dict):
+                        feed_origin_peer = str(metadata.get('origin_peer') or '').strip()
+                except Exception:
+                    feed_origin_peer = ''
+                feed_origin_peer = feed_origin_peer or str(from_peer or '').strip()
+                _ensure_shadow_user(
+                    author_id,
+                    display_name,
+                    feed_origin_peer,
+                    allow_origin_reassign=True,
+                )
 
                 # Normalise timestamp
                 normalised_ts = None
@@ -5376,7 +5442,13 @@ def create_app(config: Optional[Config] = None) -> Flask:
             """Apply an incoming P2P interaction locally (idempotent)."""
             try:
                 # Ensure shadow user exists
-                _ensure_shadow_user(user_id, display_name, from_peer)
+                interaction_origin_peer = str((metadata or {}).get('origin_peer') or from_peer or '').strip() or str(from_peer or '').strip()
+                _ensure_shadow_user(
+                    user_id,
+                    display_name,
+                    interaction_origin_peer,
+                    allow_origin_reassign=True,
+                )
                 meta = metadata or {}
 
                 if action == 'mention':
@@ -5639,7 +5711,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         existing_msg = None
 
                 # Ensure shadow user exists for sender
-                _ensure_shadow_user(sender_id, display_name, from_peer)
+                _ensure_shadow_user(
+                    sender_id,
+                    display_name,
+                    str(from_peer or '').strip(),
+                    allow_origin_reassign=True,
+                )
 
                 meta_payload = metadata if isinstance(metadata, dict) else {}
                 local_peer_id_for_dm = str((p2p_manager.get_peer_id() if p2p_manager else '') or '').strip()

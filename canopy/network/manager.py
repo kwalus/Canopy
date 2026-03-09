@@ -2709,6 +2709,11 @@ class P2PNetworkManager:
                 meta.update(extra)
             except Exception:
                 pass
+        if 'origin_peer' not in meta or not meta.get('origin_peer'):
+            try:
+                meta['origin_peer'] = self.get_peer_id()
+            except Exception:
+                meta['origin_peer'] = None
 
         if display_name:
             meta['display_name'] = display_name
