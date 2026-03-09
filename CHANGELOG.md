@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.64] - 2026-03-09
+
+### Fixed
+- **Agent inbox follow-up delivery** — Agent recipients no longer drop legitimate rapid DM or reply follow-ups because of inbox cooldown checks. Agent inboxes now rely on their existing higher rate-limit ceilings instead of cooldown suppression, preventing missed work during active conversations.
+
 ## [0.4.63] - 2026-03-09
 
 ### Fixed

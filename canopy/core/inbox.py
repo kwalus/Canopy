@@ -302,6 +302,10 @@ class InboxManager:
         return merged
 
     def _cooldown_ok(self, agent_user_id: str, sender_user_id: Optional[str], config: Dict[str, Any]) -> bool:
+        # Agent inboxes already use much higher rate-limit ceilings; cooldowns
+        # are too blunt and can hide legitimate rapid follow-up work.
+        if self._get_account_type(agent_user_id) == 'agent':
+            return True
         try:
             cooldown = int(config.get("cooldown_seconds") or 0)
             sender_cooldown = int(config.get("sender_cooldown_seconds") or 0)

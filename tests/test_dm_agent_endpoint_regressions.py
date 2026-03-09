@@ -473,6 +473,53 @@ class TestDmAgentEndpointRegressions(unittest.TestCase):
         self.assertEqual(self.p2p_manager.direct_messages[0]['recipient_id'], 'author')
         self.channel_manager.send_message.assert_not_called()
 
+    def test_agent_dm_followups_are_not_dropped_by_persisted_cooldown_config(self) -> None:
+        self.inbox_manager.set_config(
+            'agent-local',
+            {
+                'cooldown_seconds': 10,
+                'sender_cooldown_seconds': 30,
+                'agent_sender_cooldown_seconds': 60,
+            },
+        )
+
+        first_resp = self.client.post(
+            '/api/v1/messages',
+            json={
+                'content': 'First DM',
+                'recipient_id': 'agent-local',
+            },
+            headers=self._headers('key-author'),
+        )
+        self.assertEqual(first_resp.status_code, 201)
+        first_id = (first_resp.get_json() or {}).get('message', {}).get('id')
+        self.assertTrue(first_id)
+
+        second_resp = self.client.post(
+            '/api/v1/messages',
+            json={
+                'content': 'Second DM right away',
+                'recipient_id': 'agent-local',
+            },
+            headers=self._headers('key-author'),
+        )
+        self.assertEqual(second_resp.status_code, 201)
+        second_id = (second_resp.get_json() or {}).get('message', {}).get('id')
+        self.assertTrue(second_id)
+
+        inbox_rows = self.conn.execute(
+            """
+            SELECT source_id, sender_user_id, trigger_type
+            FROM agent_inbox
+            WHERE agent_user_id = ?
+            ORDER BY created_at ASC
+            """,
+            ('agent-local',),
+        ).fetchall()
+        self.assertEqual([row['source_id'] for row in inbox_rows], [first_id, second_id])
+        self.assertTrue(all(row['sender_user_id'] == 'author' for row in inbox_rows))
+        self.assertTrue(all(row['trigger_type'] == 'dm' for row in inbox_rows))
+
     def test_recipient_ids_ignores_sender_when_only_one_real_recipient(self) -> None:
         send_resp = self.client.post(
             '/api/v1/messages',
