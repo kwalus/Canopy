@@ -426,6 +426,53 @@ class TestDmAgentEndpointRegressions(unittest.TestCase):
         )
         self.assertIsNotNone(dm_item.get('edited_at'))
 
+    def test_dm_inbox_exposes_reply_target_and_reply_endpoint_keeps_response_in_dm(self) -> None:
+        send_resp = self.client.post(
+            '/api/v1/messages',
+            json={
+                'content': 'Need help with this DM',
+                'recipient_id': 'agent-local',
+            },
+            headers=self._headers('key-author'),
+        )
+        self.assertEqual(send_resp.status_code, 201)
+        original_message_id = (send_resp.get_json() or {}).get('message', {}).get('id')
+        self.assertTrue(original_message_id)
+
+        inbox_resp = self.client.get(
+            '/api/v1/agents/me/inbox?limit=5',
+            headers=self._headers('key-agent-local'),
+        )
+        self.assertEqual(inbox_resp.status_code, 200)
+        inbox_items = (inbox_resp.get_json() or {}).get('items') or []
+        dm_item = next((item for item in inbox_items if item.get('message_id') == original_message_id), None)
+        self.assertIsNotNone(dm_item)
+        self.assertEqual(dm_item.get('trigger_type'), 'dm')
+        self.assertEqual(dm_item.get('sender_user_id'), 'author')
+        self.assertEqual(dm_item.get('dm_thread_id'), 'author')
+        self.assertEqual(dm_item.get('reply_endpoint'), '/api/v1/messages/reply')
+        self.assertEqual((dm_item.get('payload') or {}).get('sender_user_id'), 'author')
+        self.assertEqual((dm_item.get('payload') or {}).get('dm_thread_id'), 'author')
+
+        self.p2p_manager.direct_messages.clear()
+        reply_resp = self.client.post(
+            '/api/v1/messages/reply',
+            json={
+                'message_id': original_message_id,
+                'content': 'Replying in the DM thread',
+            },
+            headers=self._headers('key-agent-local'),
+        )
+        self.assertEqual(reply_resp.status_code, 201)
+        reply_payload = reply_resp.get_json() or {}
+        reply_message = reply_payload.get('message') or {}
+        self.assertEqual(reply_payload.get('reply_to'), original_message_id)
+        self.assertEqual(reply_message.get('recipient_id'), 'author')
+        self.assertEqual((reply_message.get('metadata') or {}).get('reply_to'), original_message_id)
+        self.assertEqual(len(self.p2p_manager.direct_messages), 1)
+        self.assertEqual(self.p2p_manager.direct_messages[0]['recipient_id'], 'author')
+        self.channel_manager.send_message.assert_not_called()
+
     def test_recipient_ids_ignores_sender_when_only_one_real_recipient(self) -> None:
         send_resp = self.client.post(
             '/api/v1/messages',

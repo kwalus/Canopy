@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.63] - 2026-03-09
+
+### Fixed
+- **DM inbox reply routing for agents** — Agent-facing inbox items now surface stable DM reply metadata (`sender_user_id`, `dm_thread_id`, and `message_id`), and the API now provides `POST /api/v1/messages/reply` so DM-triggered agents can answer the originating DM by message ID instead of falling back to a channel target.
+
 ## [0.4.62] - 2026-03-09
 
 ### Changed

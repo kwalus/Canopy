@@ -96,6 +96,36 @@ def _iso(dt: Optional[datetime]) -> Optional[str]:
         return str(dt)
 
 
+def _normalize_item_payload(row: Any, payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Backfill agent-facing payload fields from inbox columns when needed."""
+    normalized: Dict[str, Any] = dict(payload or {})
+
+    sender_user_id = str(row["sender_user_id"] or "").strip()
+    channel_id = str(row["channel_id"] or "").strip()
+    message_id = str(row["message_id"] or "").strip()
+    trigger_type = str(row["trigger_type"] or "").strip().lower()
+
+    if sender_user_id and not normalized.get("sender_user_id"):
+        normalized["sender_user_id"] = sender_user_id
+    if channel_id and not normalized.get("channel_id"):
+        normalized["channel_id"] = channel_id
+    if message_id and not normalized.get("message_id"):
+        normalized["message_id"] = message_id
+    if trigger_type and not normalized.get("trigger_type"):
+        normalized["trigger_type"] = trigger_type
+
+    if trigger_type == "dm":
+        dm_thread_id = str(normalized.get("dm_thread_id") or "").strip()
+        if not dm_thread_id:
+            group_id = str(normalized.get("group_id") or "").strip()
+            dm_thread_id = group_id or sender_user_id
+        if dm_thread_id:
+            normalized["dm_thread_id"] = dm_thread_id
+        normalized.setdefault("reply_endpoint", "/api/v1/messages/reply")
+
+    return normalized
+
+
 class InboxManager:
     """Stores per-agent trigger inbox items."""
 
@@ -1142,6 +1172,7 @@ class InboxManager:
                         payload = json.loads(row['payload_json'])
                 except Exception:
                     payload = None
+                payload = _normalize_item_payload(row, payload if isinstance(payload, dict) else None)
                 items.append({
                     'id': row['id'],
                     'agent_user_id': row['agent_user_id'],
@@ -1159,6 +1190,9 @@ class InboxManager:
                     'expires_at': row['expires_at'],
                     'triggered_by_inbox_id': row['triggered_by_inbox_id'],
                     'depth': row['depth'],
+                    'preview': payload.get('preview'),
+                    'dm_thread_id': payload.get('dm_thread_id'),
+                    'reply_endpoint': payload.get('reply_endpoint'),
                     'payload': payload,
                 })
             return items

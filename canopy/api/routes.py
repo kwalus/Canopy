@@ -2996,6 +2996,171 @@ def create_api_blueprint() -> Blueprint:
             logger.error(f"Failed to send message: {e}")
             return jsonify({'error': 'Internal server error'}), 500
 
+    @api.route('/messages/reply', methods=['POST'])
+    @require_auth(Permission.WRITE_MESSAGES)
+    def reply_to_message():
+        """Reply to an existing direct message by original message ID."""
+        db_manager, _, _, message_manager, _, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+        if not message_manager:
+            return jsonify({'error': 'Messaging not available'}), 503
+        try:
+            data = request.get_json() or {}
+            original_message_id = str(
+                data.get('message_id') or data.get('original_message_id') or ''
+            ).strip()
+            content = str(data.get('content') or '')
+            metadata = data.get('metadata')
+            if not isinstance(metadata, dict):
+                metadata = {}
+            else:
+                metadata = dict(metadata)
+            attachments = data.get('attachments')
+            if isinstance(attachments, list):
+                metadata['attachments'] = attachments
+
+            if data.get('channel_id'):
+                return jsonify({
+                    'error': 'Wrong endpoint: POST /api/v1/messages/reply is for DM replies only. '
+                             'Use POST /api/v1/channels/messages for channel posts.'
+                }), 400
+
+            if not original_message_id:
+                return jsonify({'error': 'message_id required'}), 400
+
+            original = message_manager.get_message(original_message_id)
+            if not original:
+                return jsonify({'error': 'Original message not found'}), 404
+
+            original_meta = original.metadata if isinstance(original.metadata, dict) else {}
+            group_members = [
+                str(member_id).strip()
+                for member_id in (original_meta.get('group_members') or [])
+                if str(member_id).strip()
+            ]
+            participants = set(group_members)
+            if original.sender_id:
+                participants.add(str(original.sender_id).strip())
+            if original.recipient_id:
+                participants.add(str(original.recipient_id).strip())
+            if g.api_key_info.user_id not in participants:
+                return jsonify({'error': 'You are not allowed to reply to this direct message'}), 403
+
+            has_attachments = bool(metadata.get('attachments')) if isinstance(metadata, dict) else False
+            if not content and not has_attachments:
+                return jsonify({'error': 'Message content or attachments required'}), 400
+
+            if group_members:
+                group_id = str(original_meta.get('group_id') or original.recipient_id or '').strip()
+                recipients = [member_id for member_id in group_members if member_id != g.api_key_info.user_id]
+                if not recipients:
+                    return jsonify({'error': 'No other group members to reply to'}), 400
+                reply_meta = dict(metadata)
+                reply_meta.update({
+                    'reply_to': original_message_id,
+                    'group_id': group_id or compute_group_id(sorted(set(group_members))),
+                    'group_members': sorted(set(group_members)),
+                    'is_group': True,
+                })
+                reply_meta['security'] = build_dm_security_summary(
+                    db_manager,
+                    p2p_manager,
+                    recipients,
+                )
+                effective_recipient_id = reply_meta['group_id']
+                broadcast_targets = recipients
+            else:
+                recipient_id = (
+                    str(original.sender_id).strip()
+                    if str(original.sender_id or '').strip() != g.api_key_info.user_id
+                    else str(original.recipient_id or '').strip()
+                )
+                if not recipient_id:
+                    return jsonify({'error': 'Unable to determine DM recipient'}), 400
+                reply_meta = dict(metadata)
+                reply_meta['reply_to'] = original_message_id
+                reply_meta['security'] = build_dm_security_summary(
+                    db_manager,
+                    p2p_manager,
+                    [recipient_id],
+                )
+                effective_recipient_id = recipient_id
+                broadcast_targets = [recipient_id]
+
+            msg_type = MessageType.FILE if (reply_meta.get('attachments') or []) else MessageType.TEXT
+            message = message_manager.create_message(
+                sender_id=g.api_key_info.user_id,
+                recipient_id=effective_recipient_id,
+                content=content,
+                message_type=msg_type,
+                metadata=reply_meta if reply_meta else None,
+            )
+            if not message or not message_manager.send_message(message):
+                return jsonify({'error': 'Failed to send reply'}), 500
+
+            try:
+                inbox_manager = current_app.config.get('INBOX_MANAGER')
+                if inbox_manager:
+                    local_target_ids = filter_local_dm_targets(db_manager, p2p_manager, broadcast_targets)
+                    if local_target_ids:
+                        inbox_payload = {
+                            'content': content,
+                            'message_id': message.id,
+                            'reply_to': original_message_id,
+                            'attachments': reply_meta.get('attachments') or [],
+                            'security': reply_meta.get('security'),
+                        }
+                        if reply_meta.get('group_id'):
+                            inbox_payload['group_id'] = reply_meta.get('group_id')
+                        if reply_meta.get('group_members'):
+                            inbox_payload['group_members'] = reply_meta.get('group_members')
+                        if reply_meta.get('is_group') is not None:
+                            inbox_payload['is_group'] = bool(reply_meta.get('is_group'))
+                        inbox_manager.sync_source_triggers(
+                            source_type='dm',
+                            source_id=message.id,
+                            trigger_type='dm',
+                            target_ids=local_target_ids,
+                            sender_user_id=g.api_key_info.user_id,
+                            preview=build_dm_preview(content, reply_meta.get('attachments') or []),
+                            payload=inbox_payload,
+                            message_id=message.id,
+                            source_content=content,
+                        )
+            except Exception as inbox_err:
+                logger.warning(f"Failed to create DM reply inbox trigger: {inbox_err}")
+
+            if broadcast_targets and p2p_manager and p2p_manager.is_running():
+                try:
+                    sender_display = None
+                    if profile_manager:
+                        profile = profile_manager.get_profile(g.api_key_info.user_id)
+                        if profile:
+                            sender_display = profile.display_name or profile.username
+                    for target_recipient_id in broadcast_targets:
+                        p2p_manager.broadcast_direct_message(
+                            sender_id=g.api_key_info.user_id,
+                            recipient_id=target_recipient_id,
+                            content=content,
+                            message_id=message.id,
+                            timestamp=message.created_at.isoformat(),
+                            display_name=sender_display,
+                            metadata=reply_meta if reply_meta else None,
+                        )
+                except Exception as p2p_err:
+                    logger.warning(f"Failed to broadcast DM reply via P2P: {p2p_err}")
+
+            response_payload = {
+                'success': True,
+                'message': message.to_dict(),
+                'reply_to': original_message_id,
+            }
+            if reply_meta.get('group_id'):
+                response_payload['group_id'] = reply_meta.get('group_id')
+            return jsonify(response_payload), 201
+        except Exception as e:
+            logger.error(f"Failed to reply to message: {e}")
+            return jsonify({'error': 'Internal server error'}), 500
+
     @api.route('/messages/<message_id>', methods=['PATCH', 'PUT'])
     @require_auth(Permission.WRITE_MESSAGES)
     def update_message(message_id):
@@ -5352,9 +5517,13 @@ def create_api_blueprint() -> Blueprint:
                             'message_id': item.get('message_id'),
                             'channel_id': item.get('channel_id'),
                             'sender_user_id': item.get('sender_user_id'),
+                            'trigger_type': item.get('trigger_type'),
+                            'dm_thread_id': item.get('dm_thread_id'),
+                            'reply_endpoint': item.get('reply_endpoint'),
                             'preview': item.get('preview'),
                             'created_at': item.get('created_at'),
                             'status': item.get('status'),
+                            'payload': item.get('payload'),
                         })
                 except Exception:
                     session_inbox_items = []
