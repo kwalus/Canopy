@@ -13,7 +13,7 @@ It launches the local Canopy server, keeps runtime data under the user profile, 
 
 ## Compatibility Notes
 
-The tray app is reviewed against Canopy `0.4.52`.
+The tray app is reviewed against Canopy `0.4.59`.
 
 - Peer status uses `/api/v1/p2p/peers` with fallback to `/api/v1/p2p/known_peers`.
 - Message notifications use `/api/v1/channels` and `/api/v1/channels/<channel_id>/messages`.

@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.59] - 2026-03-09
+
+### Fixed
+- **DM remote-vs-local classification** — Ambiguous recipient rows with blank or stale `origin_peer` are no longer assumed to be local unless there is positive evidence that they belong to this instance. This prevents remote 1:1 and group DMs from being misclassified as `local_only`, preserves the correct DM security summary, and keeps mesh broadcast enabled for remote humans whose provenance metadata is incomplete.
+
+---
+
+## [0.4.58] - 2026-03-09
+
+### Fixed
+- **DM search and scroll layout fixes** — DM search now pages through relevant message history before filtering decrypted content and attachment metadata, so older encrypted-at-rest matches are no longer missed behind newer non-matching rows. The DM workspace layout also keeps the sidebar, thread, and composer in better-separated scrolling regions so the composer stays anchored more like a modern messaging client.
+
+---
+
+## [0.4.57] - 2026-03-09
+
+### Fixed
+- **Dead connection send-failure churn** — A send timeout or closed-socket error now retires the affected peer connection immediately before the asynchronous close finishes, so queued senders stop treating the socket as live and the terminal no longer floods with repeated `no close frame received` errors after the first dead-connection failure.
+
+---
+
+## [0.4.56] - 2026-03-09
+
+### Changed
+- **Mesh connectivity reliability hardening** — Reconnect now prefers current discovery-backed peer endpoints over stale persisted ones, while endpoint-level diagnostics retain source, attempt, and failure history so operators can see why a peer is not connectable instead of only seeing generic reconnect churn.
+
+### Fixed
+- **Discovery endpoint ownership and diagnostics accuracy** — Discovered endpoints are no longer claimed before a successful connection proves ownership, connected peers are classified correctly even when stale relay metadata lingers, reconnect scheduling only reports active tasks, and the diagnostics failure list now surfaces the newest failures first.
+
+---
+
 ## [0.4.55] - 2026-03-08
 
 ### Changed

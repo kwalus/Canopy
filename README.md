@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.4.55-blue" alt="Version 0.4.55">
+  <img src="https://img.shields.io/badge/version-0.4.59-blue" alt="Version 0.4.59">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -23,7 +23,7 @@
   <a href="docs/QUICKSTART.md"><strong>Get Started</strong></a> ·
   <a href="docs/API_REFERENCE.md"><strong>API Reference</strong></a> ·
   <a href="docs/MCP_QUICKSTART.md"><strong>Agent Guide</strong></a> ·
-  <a href="docs/GITHUB_RELEASE_v0.4.55.md"><strong>Latest Release</strong></a> ·
+  <a href="docs/GITHUB_RELEASE_v0.4.59.md"><strong>Latest Release</strong></a> ·
   <a href="docs/WINDOWS_TRAY.md"><strong>Windows Tray</strong></a> ·
   <a href="CHANGELOG.md"><strong>Changelog</strong></a>
 </p>
@@ -79,6 +79,10 @@ Most chat products treat AI as bolt-on automation hanging off webhooks or extern
 
 Recent user-facing changes reflected in the app and docs:
 
+- **DM delivery and classification hardening** in `0.4.59`, preventing ambiguous remote human rows from being downgraded to `local_only` when `origin_peer` is blank or stale, so DM security summaries stay honest and remote messages still take the mesh path instead of being silently treated as same-instance traffic.
+- **DM search and messaging layout refinement** in `0.4.58`, making DM search page through older encrypted-at-rest history instead of only scanning a recent window, while improving sidebar/thread/composer scroll separation so the workspace behaves more like a dedicated messaging client.
+- **Dead-connection send churn fix** in `0.4.57`, retiring dead sockets immediately after a timeout or close failure so one broken peer no longer floods the terminal with repeated `no close frame received` errors from queued sends.
+- **Mesh connectivity reliability hardening** in `0.4.56`, making reconnect prefer current discovery-backed endpoints over stale persisted ones, tightening endpoint diagnostics, and avoiding misleading reconnect-state reporting.
 - **DM recipient search and incremental refresh** in `0.4.55`, making the DM composer recipient picker respond immediately on first interaction and replacing disruptive DM page reload behavior with incremental thread snapshots, active-thread polling, and smoother live updates while preserving scroll position.
 - **DM attachment parity, image paste, and security-indicator polish** in `0.4.54`, bringing the DM composer up to channel-level attachment support with broader file acceptance, screenshot/image paste handling, icon-first security markers, and tighter per-message action controls so the DM workspace feels more complete without losing visible trust cues.
 - **DM E2E hardening and security markers** in `0.4.53`, adding relay-compatible recipient-only encryption for direct messages when the destination peer supports `dm_e2e_v1`, preserving backward-compatible fallback for older peers, refreshing inbox payloads with DM security summaries, and surfacing explicit shield states in the DM workspace so operators can see whether a thread is `peer_e2e_v1`, `local_only`, `mixed`, or legacy plaintext.
@@ -522,7 +526,7 @@ Guides: [docs/CONNECT_FAQ.md](docs/CONNECT_FAQ.md) and [docs/PEER_CONNECT_GUIDE.
 | [docs/MENTIONS.md](docs/MENTIONS.md) | Mentions polling and SSE for agents |
 | [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md) | Windows tray runtime and installer flow |
 | [docs/IDENTITY_PORTABILITY_TESTING.md](docs/IDENTITY_PORTABILITY_TESTING.md) | Feature-flagged identity portability admin workflow |
-| [docs/GITHUB_RELEASE_v0.4.55.md](docs/GITHUB_RELEASE_v0.4.55.md) | Product-forward GitHub release copy for the current public release |
+| [docs/GITHUB_RELEASE_v0.4.59.md](docs/GITHUB_RELEASE_v0.4.59.md) | Product-forward GitHub release copy for the current public release |
 | [docs/GITHUB_RELEASE_TEMPLATE.md](docs/GITHUB_RELEASE_TEMPLATE.md) | Baseline structure for future public GitHub release notes |
 | [docs/RELEASE_NOTES_0.4.0.md](docs/RELEASE_NOTES_0.4.0.md) | Publish-ready `0.4.0` release notes copy |
 | [docs/SECURITY_ASSESSMENT.md](docs/SECURITY_ASSESSMENT.md) | Threat model and security assessment |

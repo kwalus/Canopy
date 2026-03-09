@@ -26,6 +26,7 @@ from ..core.messaging import (
     DM_E2E_CAPABILITY,
     build_dm_security_summary,
     encrypt_dm_transport_bundle,
+    is_local_dm_user,
 )
 from .identity import IdentityManager, PeerIdentity
 from .discovery import PeerDiscovery, DiscoveredPeer
@@ -102,6 +103,8 @@ class P2PNetworkManager:
         # Recent peer activity events for UI (thread-safe; event-loop thread writes, Flask reads).
         self._activity_lock = threading.Lock()
         self._activity_events: Deque[Dict[str, Any]] = deque(maxlen=200)
+        self._endpoint_health_lock = threading.Lock()
+        self._endpoint_health: Dict[str, Dict[str, Dict[str, Any]]] = {}
         
         # Callback that returns list of public channels for sync
         self.get_public_channels_for_sync: Optional[Callable] = None
@@ -319,15 +322,14 @@ class P2PNetworkManager:
             if not row:
                 unknown_peer_ids.append(recipient_id)
                 continue
-            username = str(row.get('username') or '').strip()
-            origin_peer = str(row.get('origin_peer') or '').strip()
-            if username.startswith('peer-') and origin_peer and origin_peer != local_peer_id:
-                target_peer_id = origin_peer
-            elif not origin_peer or origin_peer == local_peer_id:
+            if is_local_dm_user(self.db, self, recipient_id):
                 local_recipient_ids.append(recipient_id)
                 continue
-            else:
-                target_peer_id = origin_peer
+            origin_peer = str(row.get('origin_peer') or '').strip()
+            if not origin_peer or origin_peer == local_peer_id:
+                unknown_peer_ids.append(recipient_id)
+                continue
+            target_peer_id = origin_peer
 
             if target_peer_id not in remote_peer_ids:
                 remote_peer_ids.append(target_peer_id)
@@ -724,21 +726,18 @@ class P2PNetworkManager:
         """
         await asyncio.sleep(3)  # Let WebSocket server and mDNS settle first
         
-        known_endpoints = self.identity_manager.peer_endpoints
+        known_peer_ids = set(self.identity_manager.peer_endpoints.keys())
+        known_peer_ids.update((getattr(self.identity_manager, 'known_peers', {}) or {}).keys())
         local_id = self.local_identity.peer_id if self.local_identity else ''
         attempted = 0
         connected = 0
 
-        # Iterate over a snapshot since we may prune endpoints as we go.
-        for peer_id, endpoints in list(known_endpoints.items()):
+        for peer_id in list(known_peer_ids):
             if peer_id == local_id:
                 continue
             if self.connection_manager and self.connection_manager.is_connected(peer_id):
                 continue
-            endpoints = self._sanitize_endpoints(peer_id, endpoints)
-            if endpoints != known_endpoints.get(peer_id, []):
-                self.identity_manager.peer_endpoints[peer_id] = endpoints
-                self.identity_manager._save_known_peers()
+            endpoints = self._get_connectable_peer_endpoints(peer_id, prefer_discovered=True)
             if not endpoints:
                 continue
 
@@ -877,6 +876,39 @@ class P2PNetworkManager:
             return stored
         return self._get_discovered_peer_endpoints(peer_id)
 
+    @staticmethod
+    def _merge_endpoint_lists(*endpoint_groups: list[str]) -> list[str]:
+        """Merge endpoint lists while preserving order and removing duplicates."""
+        merged: list[str] = []
+        seen: set[str] = set()
+        for group in endpoint_groups:
+            for endpoint in group or []:
+                if endpoint in seen:
+                    continue
+                seen.add(endpoint)
+                merged.append(endpoint)
+        return merged
+
+    def _get_connectable_peer_endpoints(self, peer_id: str, prefer_discovered: bool = True) -> list[str]:
+        """Return the best available endpoints for dialing a peer.
+
+        Live discovery is preferred for connection attempts because it is more
+        likely to reflect current LAN reality than persisted endpoint state.
+        """
+        stored = self._sanitize_endpoints(
+            peer_id,
+            self.identity_manager.peer_endpoints.get(peer_id, []),
+        )
+        if stored != self.identity_manager.peer_endpoints.get(peer_id, []):
+            self.identity_manager.peer_endpoints[peer_id] = stored
+            self.identity_manager._save_known_peers()
+        discovered = self._get_discovered_peer_endpoints(peer_id)
+        if discovered:
+            self._remember_discovered_peer_endpoints(peer_id)
+        if prefer_discovered:
+            return self._merge_endpoint_lists(discovered, stored)
+        return self._merge_endpoint_lists(stored, discovered)
+
     def _remember_discovered_peer_endpoints(self, peer_id: str) -> list[str]:
         """Persist endpoints learned from mDNS discovery for later reconnect."""
         endpoints = self._get_discovered_peer_endpoints(peer_id)
@@ -887,7 +919,10 @@ class P2PNetworkManager:
         for endpoint in endpoints:
             if endpoint in existing:
                 continue
-            self.identity_manager.record_endpoint(peer_id, endpoint, claim=True)
+            # Do not "claim" a discovered endpoint until a real connection
+            # succeeds. Discovery can be stale or wrong; successful connect
+            # paths already claim the endpoint authoritatively.
+            self.identity_manager.record_endpoint(peer_id, endpoint, claim=False)
             existing.add(endpoint)
             changed = True
         if changed:
@@ -897,6 +932,122 @@ class P2PNetworkManager:
                 peer_id,
             )
         return endpoints
+
+    def _record_endpoint_result(
+        self,
+        peer_id: str,
+        endpoint: Optional[str],
+        *,
+        success: bool,
+        reason: Optional[str] = None,
+        detail: Optional[str] = None,
+        sources: Optional[list[str]] = None,
+    ) -> None:
+        """Track endpoint-level health so diagnostics can explain failures."""
+        canon = self._canonicalize_endpoint(endpoint or '')
+        if not peer_id or not canon:
+            return
+        now = time.time()
+        with self._endpoint_health_lock:
+            peer_entries = self._endpoint_health.setdefault(peer_id, {})
+            entry = peer_entries.setdefault(
+                canon,
+                {
+                    'endpoint': canon,
+                    'attempt_count': 0,
+                    'success_count': 0,
+                    'consecutive_failures': 0,
+                    'last_attempt_at': None,
+                    'last_success_at': None,
+                    'last_failure_at': None,
+                    'last_failure_reason': None,
+                    'last_failure_detail': None,
+                    'last_status': None,
+                    'sources': [],
+                },
+            )
+            entry['attempt_count'] = int(entry.get('attempt_count') or 0) + 1
+            entry['last_attempt_at'] = now
+            if sources:
+                merged_sources = list(entry.get('sources') or [])
+                for source in sources:
+                    text = str(source or '').strip()
+                    if text and text not in merged_sources:
+                        merged_sources.append(text)
+                entry['sources'] = merged_sources
+            if success:
+                entry['success_count'] = int(entry.get('success_count') or 0) + 1
+                entry['consecutive_failures'] = 0
+                entry['last_success_at'] = now
+                entry['last_status'] = 'connected'
+            else:
+                entry['consecutive_failures'] = int(entry.get('consecutive_failures') or 0) + 1
+                entry['last_failure_at'] = now
+                entry['last_failure_reason'] = str(reason or 'connection_failed')
+                entry['last_failure_detail'] = str(detail or reason or 'Connection failed')
+                entry['last_status'] = 'failed'
+
+    def _current_connection_endpoint(self, peer_id: str) -> Optional[str]:
+        """Return the currently active endpoint for a peer, if known."""
+        if not self.connection_manager or not peer_id:
+            return None
+        conn = self.connection_manager.get_connection(peer_id)
+        if not conn:
+            return None
+        address = str(getattr(conn, 'address', '') or '').strip()
+        port = int(getattr(conn, 'port', 0) or 0)
+        if not address or port <= 0:
+            return None
+        return f"{self.ws_scheme}://{self._format_endpoint_host(address)}:{port}"
+
+    def get_peer_endpoint_diagnostics(self, peer_id: str) -> list[Dict[str, Any]]:
+        """Return endpoint-source and health information for one peer."""
+        stored = self._sanitize_endpoints(
+            peer_id,
+            self.identity_manager.peer_endpoints.get(peer_id, []),
+        )
+        discovered = self._get_discovered_peer_endpoints(peer_id)
+        active = self._current_connection_endpoint(peer_id)
+        endpoint_order = self._merge_endpoint_lists(
+            [active] if active else [],
+            discovered,
+            stored,
+        )
+
+        with self._endpoint_health_lock:
+            peer_health = dict(self._endpoint_health.get(peer_id, {}) or {})
+
+        rows: list[Dict[str, Any]] = []
+        endpoint_order = self._merge_endpoint_lists(endpoint_order, list(peer_health.keys()))
+        for endpoint in endpoint_order:
+            canon = self._canonicalize_endpoint(endpoint) or endpoint
+            health = dict(peer_health.get(canon, {}) or {})
+            sources: list[str] = []
+            if endpoint in discovered:
+                sources.append('discovered')
+            if endpoint in stored:
+                sources.append('stored')
+            if active and canon == active:
+                sources.append('active')
+            for source in health.get('sources') or []:
+                text = str(source or '').strip()
+                if text and text not in sources:
+                    sources.append(text)
+            rows.append({
+                'endpoint': canon,
+                'sources': sources,
+                'currently_connected': bool(active and canon == active),
+                'attempt_count': int(health.get('attempt_count') or 0),
+                'success_count': int(health.get('success_count') or 0),
+                'consecutive_failures': int(health.get('consecutive_failures') or 0),
+                'last_attempt_at': health.get('last_attempt_at'),
+                'last_success_at': health.get('last_success_at'),
+                'last_failure_at': health.get('last_failure_at'),
+                'last_failure_reason': health.get('last_failure_reason'),
+                'last_failure_detail': health.get('last_failure_detail'),
+                'last_status': health.get('last_status'),
+            })
+        return rows
 
     async def _connect_to_endpoint(self, peer_id: str, endpoint: str) -> bool:
         """Connect to a peer using a ws:// or wss:// endpoint string."""
@@ -921,6 +1072,18 @@ class P2PNetworkManager:
                 f"Reconnect: endpoint {endpoint} requires TLS, but TLS is disabled; "
                 f"connection may fail."
             )
+        endpoint_sources: list[str] = []
+        stored = set(
+            self._sanitize_endpoints(
+                peer_id,
+                self.identity_manager.peer_endpoints.get(peer_id, []),
+            )
+        )
+        discovered = set(self._get_discovered_peer_endpoints(peer_id))
+        if canon in discovered:
+            endpoint_sources.append('discovered')
+        if canon in stored:
+            endpoint_sources.append('stored')
         self._record_connection_event(
             peer_id,
             status='attempt',
@@ -931,6 +1094,13 @@ class P2PNetworkManager:
         if ok and canon:
             # Claim the endpoint so stale mappings don't keep retrying the wrong peer_id.
             self.identity_manager.record_endpoint(peer_id, canon, claim=True)
+            self._record_endpoint_result(
+                peer_id,
+                canon,
+                success=True,
+                detail='Connected successfully',
+                sources=endpoint_sources,
+            )
             self._record_connection_event(
                 peer_id,
                 status='connected',
@@ -938,10 +1108,28 @@ class P2PNetworkManager:
                 endpoint=canon,
             )
         elif not ok:
+            failure_reason = 'connection_failed'
+            failure_detail = 'Connection failed'
+            if hasattr(self.connection_manager, 'get_last_connect_failure'):
+                try:
+                    failure = self.connection_manager.get_last_connect_failure(peer_id, host, port)
+                except Exception:
+                    failure = None
+                if isinstance(failure, dict):
+                    failure_reason = str(failure.get('reason') or failure_reason)
+                    failure_detail = str(failure.get('detail') or failure_detail)
+            self._record_endpoint_result(
+                peer_id,
+                canon or endpoint,
+                success=False,
+                reason=failure_reason,
+                detail=failure_detail,
+                sources=endpoint_sources,
+            )
             self._record_connection_event(
                 peer_id,
                 status='failed',
-                detail='Connection failed',
+                detail=failure_detail,
                 endpoint=canon or endpoint,
             )
         return ok
@@ -991,13 +1179,7 @@ class P2PNetworkManager:
                 self._reconnect_tasks.pop(peer_id, None)
                 return
 
-            endpoints = self._sanitize_endpoints(
-                peer_id,
-                self.identity_manager.peer_endpoints.get(peer_id, []),
-            )
-            if endpoints != self.identity_manager.peer_endpoints.get(peer_id, []):
-                self.identity_manager.peer_endpoints[peer_id] = endpoints
-                self.identity_manager._save_known_peers()
+            endpoints = self._get_connectable_peer_endpoints(peer_id, prefer_discovered=True)
             if not endpoints:
                 logger.debug(f"Reconnect: no endpoints for {peer_id}, giving up")
                 self._reconnect_tasks.pop(peer_id, None)
@@ -1760,7 +1942,7 @@ class P2PNetworkManager:
         """Background task: try to upgrade a relay route to a direct connection."""
         if not self._event_loop or self._event_loop.is_closed():
             return
-        endpoints = list(self.identity_manager.peer_endpoints.get(peer_id, []))
+        endpoints = self._get_connectable_peer_endpoints(peer_id, prefer_discovered=True)
         if not endpoints:
             return
         connection_manager = self.connection_manager
@@ -1774,10 +1956,7 @@ class P2PNetworkManager:
                 return
             for ep in endpoints:
                 try:
-                    addr = ep.replace('ws://', '').replace('wss://', '')
-                    host, port_str = addr.rsplit(':', 1)
-                    port = int(port_str)
-                    ok = await connection_manager.connect_to_peer(peer_id, host, port)
+                    ok = await self._connect_to_endpoint(peer_id, ep)
                     if ok:
                         self._active_relays.pop(peer_id, None)
                         logger.info(
@@ -1911,10 +2090,7 @@ class P2PNetworkManager:
             # Stale/done entry — drop it so we can reschedule.
             self._reconnect_tasks.pop(peer_id, None)
 
-        endpoints = self._sanitize_endpoints(peer_id, self.identity_manager.peer_endpoints.get(peer_id, []))
-        if endpoints != self.identity_manager.peer_endpoints.get(peer_id, []):
-            self.identity_manager.peer_endpoints[peer_id] = endpoints
-            self.identity_manager._save_known_peers()
+        endpoints = self._get_connectable_peer_endpoints(peer_id, prefer_discovered=True)
 
         if endpoints and self._running:
             logger.info(
@@ -2536,13 +2712,8 @@ class P2PNetworkManager:
             return False
         local_peer_id = self.local_identity.peer_id if self.local_identity else ''
         recipient_row = self._get_dm_recipient_row(recipient_id)
-        recipient_username = str((recipient_row or {}).get('username') or '').strip()
         recipient_origin_peer = str((recipient_row or {}).get('origin_peer') or '').strip()
-        recipient_is_local = bool(
-            recipient_row
-            and (not recipient_origin_peer or recipient_origin_peer == local_peer_id)
-            and not recipient_username.startswith('peer-')
-        )
+        recipient_is_local = bool(recipient_row and is_local_dm_user(self.db, self, recipient_id))
         if recipient_is_local:
             logger.debug(
                 "Skipping P2P DM broadcast for local recipient %s (message=%s)",

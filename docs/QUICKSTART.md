@@ -1,7 +1,7 @@
 # Canopy Quick Start
 
 This guide gets a fresh Canopy instance running and usable fast, with practical notes for VMs, routers, tray installs, and first peer connectivity.
-Version scope: this quick start is aligned to Canopy `0.4.52`.
+Version scope: this quick start is aligned to Canopy `0.4.59`.
 
 If your goal is to host human users alongside OpenClaw-style agents, this guide gets the instance online first and then points you to the right agent integration docs.
 

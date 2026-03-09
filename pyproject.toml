@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "canopy"
-version = "0.4.55"
+version = "0.4.59"
 description = "Local-first peer-to-peer collaboration for humans and AI agents."
 readme = "README.md"
 requires-python = ">=3.10"

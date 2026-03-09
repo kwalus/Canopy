@@ -286,9 +286,40 @@ def is_local_dm_user(db_manager: Any, p2p_manager: Any, user_id: Optional[str]) 
     except Exception:
         local_peer_id = None
     origin_peer = str(row.get("origin_peer") or "").strip()
-    if origin_peer and origin_peer != str(local_peer_id or "").strip():
+    local_peer_id = str(local_peer_id or "").strip()
+    if origin_peer:
+        return bool(local_peer_id and origin_peer == local_peer_id)
+
+    # Blank origin metadata is ambiguous on legacy or partially synced peers.
+    # Only treat the recipient as local when we have positive local-account
+    # evidence, otherwise fall back to mesh delivery instead of silently
+    # downgrading the DM to local_only.
+    if str(row.get("password_hash") or "").strip():
+        return True
+    if bool(row.get("is_registered")):
+        return True
+
+    try:
+        with db_manager.get_connection() as conn:
+            row_user_key = None
+            row_api_key = None
+            try:
+                row_user_key = conn.execute(
+                    "SELECT 1 FROM user_keys WHERE user_id = ? LIMIT 1",
+                    (uid,),
+                ).fetchone()
+            except Exception:
+                row_user_key = None
+            try:
+                row_api_key = conn.execute(
+                    "SELECT 1 FROM api_keys WHERE user_id = ? AND COALESCE(revoked, 0) = 0 LIMIT 1",
+                    (uid,),
+                ).fetchone()
+            except Exception:
+                row_api_key = None
+        return bool(row_user_key or row_api_key)
+    except Exception:
         return False
-    return True
 
 
 def filter_local_dm_targets(db_manager: Any, p2p_manager: Any, user_ids: Sequence[str]) -> List[str]:
@@ -816,51 +847,77 @@ class MessageManager:
     def search_messages(self, user_id: str, query: str, limit: int = 20) -> List[Message]:
         """Search messages by content."""
         try:
+            clean_query = str(query or '').strip()
+            if not clean_query:
+                return []
+            query_folded = clean_query.casefold()
+            target_limit = max(int(limit or 20), 1)
+            fetch_limit = max(target_limit * 25, 400)
+            offset = 0
             with self.db.get_connection() as conn:
-                cursor = conn.execute("""
-                    SELECT m.*, u.username as sender_username 
-                    FROM messages m
-                    LEFT JOIN users u ON m.sender_id = u.id
-                    WHERE (
-                        m.sender_id = ?
-                        OR m.recipient_id = ?
-                        OR m.recipient_id IS NULL
-                        OR EXISTS (
-                            SELECT 1
-                            FROM json_each(
-                                CASE WHEN json_valid(m.metadata) THEN m.metadata ELSE '{}' END,
-                                '$.group_members'
-                            ) gm
-                            WHERE CAST(gm.value AS TEXT) = ?
-                        )
-                    )
-                    AND m.content LIKE ?
-                    ORDER BY m.created_at DESC
-                    LIMIT ?
-                """, (user_id, user_id, user_id, f"%{query}%", limit))
-                
                 messages = []
-                for row in cursor.fetchall():
-                    # Decrypt content if encrypted
-                    content = row['content']
-                    if self.data_encryptor and self.data_encryptor.is_enabled:
-                        content = self.data_encryptor.decrypt(content)
-                    
-                    message = Message(
-                        id=row['id'],
-                        sender_id=row['sender_id'],
-                        recipient_id=row['recipient_id'],
-                        content=content,
-                        message_type=MessageType(row['message_type']),
-                        status=MessageStatus.DELIVERED,
-                        created_at=datetime.fromisoformat(row['created_at']),
-                        metadata=json.loads(row['metadata']) if row['metadata'] else None,
-                        delivered_at=datetime.fromisoformat(row['delivered_at']) if row['delivered_at'] else None,
-                        read_at=datetime.fromisoformat(row['read_at']) if row['read_at'] else None,
-                        edited_at=datetime.fromisoformat(row['edited_at']) if row['edited_at'] else None
-                    )
-                    messages.append(message)
-                
+                while len(messages) < target_limit:
+                    cursor = conn.execute("""
+                        SELECT m.*, u.username as sender_username 
+                        FROM messages m
+                        LEFT JOIN users u ON m.sender_id = u.id
+                        WHERE (
+                            m.sender_id = ?
+                            OR m.recipient_id = ?
+                            OR m.recipient_id IS NULL
+                            OR EXISTS (
+                                SELECT 1
+                                FROM json_each(
+                                    CASE WHEN json_valid(m.metadata) THEN m.metadata ELSE '{}' END,
+                                    '$.group_members'
+                                ) gm
+                                WHERE CAST(gm.value AS TEXT) = ?
+                            )
+                        )
+                        ORDER BY m.created_at DESC
+                        LIMIT ? OFFSET ?
+                    """, (user_id, user_id, user_id, fetch_limit, offset))
+                    rows = cursor.fetchall()
+                    if not rows:
+                        break
+
+                    for row in rows:
+                        # Decrypt content if encrypted
+                        content = row['content']
+                        if self.data_encryptor and self.data_encryptor.is_enabled:
+                            content = self.data_encryptor.decrypt(content)
+
+                        metadata = json.loads(row['metadata']) if row['metadata'] else None
+                        searchable_chunks = [str(content or '')]
+                        if isinstance(metadata, dict):
+                            for attachment in metadata.get('attachments') or []:
+                                if isinstance(attachment, dict):
+                                    searchable_chunks.append(str(attachment.get('name') or ''))
+                                    searchable_chunks.append(str(attachment.get('type') or ''))
+                        if not any(query_folded in chunk.casefold() for chunk in searchable_chunks if chunk):
+                            continue
+
+                        message = Message(
+                            id=row['id'],
+                            sender_id=row['sender_id'],
+                            recipient_id=row['recipient_id'],
+                            content=content,
+                            message_type=MessageType(row['message_type']),
+                            status=MessageStatus.DELIVERED,
+                            created_at=datetime.fromisoformat(row['created_at']),
+                            metadata=metadata,
+                            delivered_at=datetime.fromisoformat(row['delivered_at']) if row['delivered_at'] else None,
+                            read_at=datetime.fromisoformat(row['read_at']) if row['read_at'] else None,
+                            edited_at=datetime.fromisoformat(row['edited_at']) if row['edited_at'] else None
+                        )
+                        messages.append(message)
+                        if len(messages) >= target_limit:
+                            break
+
+                    if len(rows) < fetch_limit:
+                        break
+                    offset += len(rows)
+
                 return messages
                 
         except Exception as e:

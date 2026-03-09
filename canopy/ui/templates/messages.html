@@ -6,10 +6,18 @@
 {% block extra_css %}
 <style>
     .messages-page {
-        display: flex;
-        flex-direction: column;
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
         gap: 1rem;
         min-height: calc(100vh - 140px);
+        height: calc(100vh - 140px);
+    }
+
+    @supports (height: 100dvh) {
+        .messages-page {
+            min-height: calc(100dvh - 140px);
+            height: calc(100dvh - 140px);
+        }
     }
 
     .messages-topbar {
@@ -40,7 +48,8 @@
         display: grid;
         grid-template-columns: minmax(260px, 330px) minmax(0, 1fr);
         gap: 1rem;
-        min-height: calc(100vh - 250px);
+        min-height: 0;
+        height: 100%;
     }
 
     .dm-sidebar,
@@ -50,6 +59,7 @@
         border-radius: 22px;
         box-shadow: 0 20px 48px rgba(3, 10, 22, 0.28);
         min-width: 0;
+        min-height: 0;
     }
 
     .dm-sidebar {
@@ -57,7 +67,7 @@
         display: flex;
         flex-direction: column;
         gap: 0.9rem;
-        min-height: 0;
+        overflow: hidden;
     }
 
     .dm-sidebar-search {
@@ -86,6 +96,7 @@
     }
 
     .dm-sidebar-scroll {
+        flex: 1 1 auto;
         display: flex;
         flex-direction: column;
         gap: 1rem;
@@ -383,6 +394,7 @@
 
     .dm-thread-scroll {
         flex: 1 1 auto;
+        min-height: 0;
         overflow-y: auto;
         padding: 1rem;
         display: flex;
@@ -698,6 +710,21 @@
         display: flex;
         flex-direction: column;
         gap: 0.75rem;
+        flex-shrink: 0;
+        position: sticky;
+        bottom: 0;
+        z-index: 5;
+    }
+
+    .dm-composer.dragover {
+        border-top-color: rgba(46, 214, 125, 0.34);
+        box-shadow: inset 0 0 0 1px rgba(46, 214, 125, 0.18);
+        background: linear-gradient(180deg, rgba(15, 31, 43, 0.98), rgba(11, 25, 37, 0.99));
+    }
+
+    .dm-composer.dragover .dm-composer-input-wrap {
+        border-radius: 18px;
+        box-shadow: 0 0 0 1px rgba(46, 214, 125, 0.24);
     }
 
     .dm-composer-topline {
@@ -942,7 +969,6 @@
     @media (max-width: 991.98px) {
         .messages-page {
             gap: 0.85rem;
-            min-height: auto;
         }
 
         .messages-shell {
@@ -951,11 +977,11 @@
 
         .messages-shell {
             grid-template-columns: 1fr;
-            min-height: auto;
+            grid-template-rows: minmax(180px, 32vh) minmax(0, 1fr);
         }
 
         .dm-sidebar {
-            max-height: 32vh;
+            max-height: none;
         }
 
         .dm-thread-scroll {
@@ -976,6 +1002,18 @@
 
         .messages-topbar {
             gap: 0.7rem;
+        }
+
+        .messages-page {
+            min-height: calc(100vh - 120px);
+            height: calc(100vh - 120px);
+        }
+
+        @supports (height: 100dvh) {
+            .messages-page {
+                min-height: calc(100dvh - 120px);
+                height: calc(100dvh - 120px);
+            }
         }
 
         .messages-topbar-copy h1 {
@@ -1379,6 +1417,7 @@
     let dmLastThreadToken = {{ thread_state_token|tojson }};
     let pendingDmSnapshot = null;
     let dmPollTimer = null;
+    let dmComposerDragDepth = 0;
 
     function matchesInitialRecipients() {
         const current = selectedRecipients.map(rec => rec.user_id).filter(Boolean).sort();
@@ -1791,11 +1830,6 @@
         if (messageInput) {
             messageInput.addEventListener('paste', handleMessagePaste);
         }
-
-        const threadPane = document.querySelector('.dm-thread-pane');
-        if (threadPane) {
-            threadPane.addEventListener('paste', handleMessagePaste);
-        }
     }
 
     function handleMessagePaste(e) {
@@ -1821,6 +1855,61 @@
         if (hasImage) {
             e.preventDefault();
         }
+    }
+
+    function setDmComposerDragState(active) {
+        const composer = document.getElementById('dm-composer');
+        if (!composer) return;
+        composer.classList.toggle('dragover', !!active);
+    }
+
+    function setupMessageDropzone() {
+        const composer = document.getElementById('dm-composer');
+        if (!composer) return;
+
+        const dragHasFiles = (event) => {
+            const transfer = event.dataTransfer;
+            if (!transfer) return false;
+            const types = Array.from(transfer.types || []);
+            return types.includes('Files') || !!(transfer.files && transfer.files.length);
+        };
+
+        composer.addEventListener('dragenter', (event) => {
+            if (!dragHasFiles(event)) return;
+            event.preventDefault();
+            dmComposerDragDepth += 1;
+            setDmComposerDragState(true);
+        });
+
+        composer.addEventListener('dragover', (event) => {
+            if (!dragHasFiles(event)) return;
+            event.preventDefault();
+            if (event.dataTransfer) {
+                event.dataTransfer.dropEffect = 'copy';
+            }
+            setDmComposerDragState(true);
+        });
+
+        composer.addEventListener('dragleave', (event) => {
+            if (!dragHasFiles(event)) return;
+            event.preventDefault();
+            dmComposerDragDepth = Math.max(0, dmComposerDragDepth - 1);
+            if (dmComposerDragDepth === 0) {
+                setDmComposerDragState(false);
+            }
+        });
+
+        composer.addEventListener('drop', (event) => {
+            if (!dragHasFiles(event)) return;
+            event.preventDefault();
+            dmComposerDragDepth = 0;
+            setDmComposerDragState(false);
+            const files = Array.from(event.dataTransfer?.files || []);
+            if (!files.length) return;
+            addMessageFiles(files);
+            const textarea = document.getElementById('messageContent');
+            if (textarea) textarea.focus();
+        });
     }
 
     function normalizeRecipientInput(value) {
@@ -2584,6 +2673,7 @@
         updateComposerTarget();
         setupMessageFileUpload();
         setupMessagePasteHandler();
+        setupMessageDropzone();
         setupRecipientPicker();
         applyDmRichContent();
 
