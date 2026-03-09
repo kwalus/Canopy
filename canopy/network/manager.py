@@ -26,6 +26,7 @@ from ..core.messaging import (
     DM_E2E_CAPABILITY,
     build_dm_security_summary,
     encrypt_dm_transport_bundle,
+    is_local_dm_user,
 )
 from .identity import IdentityManager, PeerIdentity
 from .discovery import PeerDiscovery, DiscoveredPeer
@@ -321,15 +322,14 @@ class P2PNetworkManager:
             if not row:
                 unknown_peer_ids.append(recipient_id)
                 continue
-            username = str(row.get('username') or '').strip()
-            origin_peer = str(row.get('origin_peer') or '').strip()
-            if username.startswith('peer-') and origin_peer and origin_peer != local_peer_id:
-                target_peer_id = origin_peer
-            elif not origin_peer or origin_peer == local_peer_id:
+            if is_local_dm_user(self.db, self, recipient_id):
                 local_recipient_ids.append(recipient_id)
                 continue
-            else:
-                target_peer_id = origin_peer
+            origin_peer = str(row.get('origin_peer') or '').strip()
+            if not origin_peer or origin_peer == local_peer_id:
+                unknown_peer_ids.append(recipient_id)
+                continue
+            target_peer_id = origin_peer
 
             if target_peer_id not in remote_peer_ids:
                 remote_peer_ids.append(target_peer_id)
@@ -2712,13 +2712,8 @@ class P2PNetworkManager:
             return False
         local_peer_id = self.local_identity.peer_id if self.local_identity else ''
         recipient_row = self._get_dm_recipient_row(recipient_id)
-        recipient_username = str((recipient_row or {}).get('username') or '').strip()
         recipient_origin_peer = str((recipient_row or {}).get('origin_peer') or '').strip()
-        recipient_is_local = bool(
-            recipient_row
-            and (not recipient_origin_peer or recipient_origin_peer == local_peer_id)
-            and not recipient_username.startswith('peer-')
-        )
+        recipient_is_local = bool(recipient_row and is_local_dm_user(self.db, self, recipient_id))
         if recipient_is_local:
             logger.debug(
                 "Skipping P2P DM broadcast for local recipient %s (message=%s)",

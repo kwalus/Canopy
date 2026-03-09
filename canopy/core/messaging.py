@@ -286,9 +286,40 @@ def is_local_dm_user(db_manager: Any, p2p_manager: Any, user_id: Optional[str]) 
     except Exception:
         local_peer_id = None
     origin_peer = str(row.get("origin_peer") or "").strip()
-    if origin_peer and origin_peer != str(local_peer_id or "").strip():
+    local_peer_id = str(local_peer_id or "").strip()
+    if origin_peer:
+        return bool(local_peer_id and origin_peer == local_peer_id)
+
+    # Blank origin metadata is ambiguous on legacy or partially synced peers.
+    # Only treat the recipient as local when we have positive local-account
+    # evidence, otherwise fall back to mesh delivery instead of silently
+    # downgrading the DM to local_only.
+    if str(row.get("password_hash") or "").strip():
+        return True
+    if bool(row.get("is_registered")):
+        return True
+
+    try:
+        with db_manager.get_connection() as conn:
+            row_user_key = None
+            row_api_key = None
+            try:
+                row_user_key = conn.execute(
+                    "SELECT 1 FROM user_keys WHERE user_id = ? LIMIT 1",
+                    (uid,),
+                ).fetchone()
+            except Exception:
+                row_user_key = None
+            try:
+                row_api_key = conn.execute(
+                    "SELECT 1 FROM api_keys WHERE user_id = ? AND COALESCE(revoked, 0) = 0 LIMIT 1",
+                    (uid,),
+                ).fetchone()
+            except Exception:
+                row_api_key = None
+        return bool(row_user_key or row_api_key)
+    except Exception:
         return False
-    return True
 
 
 def filter_local_dm_targets(db_manager: Any, p2p_manager: Any, user_ids: Sequence[str]) -> List[str]:

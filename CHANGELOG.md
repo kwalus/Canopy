@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.59] - 2026-03-09
+
+### Fixed
+- **DM remote-vs-local classification** — Ambiguous recipient rows with blank or stale `origin_peer` are no longer assumed to be local unless there is positive evidence that they belong to this instance. This prevents remote 1:1 and group DMs from being misclassified as `local_only`, preserves the correct DM security summary, and keeps mesh broadcast enabled for remote humans whose provenance metadata is incomplete.
+
+---
+
 ## [0.4.58] - 2026-03-09
 
 ### Fixed
