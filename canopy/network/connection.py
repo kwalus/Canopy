@@ -139,6 +139,8 @@ class PeerConnection:
     handshake_version: Optional[str] = None
     canopy_version: Optional[str] = None
     protocol_version: Optional[int] = None
+    failure_reason: Optional[str] = None
+    failure_detail: Optional[str] = None
     _send_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
     
     def is_connected(self) -> bool:
@@ -216,6 +218,7 @@ class ConnectionManager:
         
         # Connection tracking
         self.connections: Dict[str, PeerConnection] = {}
+        self._last_connect_failures: Dict[str, Dict[str, Any]] = {}
         self.max_connections = 50
         
         # Server
@@ -238,6 +241,31 @@ class ConnectionManager:
         tls_tag = ' (TLS)' if self.enable_tls else ''
         logger.info(f"Initialized ConnectionManager for {local_peer_id} "
                      f"on {host}:{port}{tls_tag}")
+
+    @staticmethod
+    def _format_endpoint_host(host: str) -> str:
+        """Format a host for endpoint rendering, preserving IPv6 brackets."""
+        text = str(host or '').strip()
+        if ':' in text and not text.startswith('['):
+            return f"[{text}]"
+        return text
+
+    def _failure_key(self, peer_id: str, address: str, port: int) -> str:
+        return f"{peer_id}|{self._format_endpoint_host(address)}|{int(port)}"
+
+    def _record_connect_failure(self, peer_id: str, address: str, port: int,
+                                reason: str, detail: str) -> None:
+        self._last_connect_failures[self._failure_key(peer_id, address, port)] = {
+            'reason': str(reason or 'connection_failed'),
+            'detail': str(detail or reason or 'Connection failed'),
+            'timestamp': time.time(),
+        }
+
+    def _clear_connect_failure(self, peer_id: str, address: str, port: int) -> None:
+        self._last_connect_failures.pop(self._failure_key(peer_id, address, port), None)
+
+    def get_last_connect_failure(self, peer_id: str, address: str, port: int) -> Optional[Dict[str, Any]]:
+        return dict(self._last_connect_failures.get(self._failure_key(peer_id, address, port), {}) or {}) or None
 
     def _get_handshake_capabilities(self) -> List[str]:
         """Return deduplicated capability list advertised in handshakes."""
@@ -370,6 +398,7 @@ class ConnectionManager:
         # (e.g., ws://127.0.0.1:7771) gets associated with our own peer_id.
         if peer_id == self.local_peer_id:
             logger.warning("Refusing to connect to self (peer_id=%s) at %s:%s", peer_id, address, port)
+            self._record_connect_failure(peer_id, address, port, 'self_connect_blocked', 'Refusing to connect to self')
             return False
 
         # Check if already connected
@@ -382,6 +411,13 @@ class ConnectionManager:
         # Check connection limit
         if len(self.connections) >= self.max_connections:
             logger.warning(f"Connection limit reached ({self.max_connections})")
+            self._record_connect_failure(
+                peer_id,
+                address,
+                port,
+                'connection_limit_reached',
+                f'Connection limit reached ({self.max_connections})',
+            )
             return False
         
         logger.info(f"Connecting to peer {peer_id} at {address}:{port}...")
@@ -441,6 +477,7 @@ class ConnectionManager:
                 connection.state = ConnectionState.AUTHENTICATED
                 connection.connected_at = time.time()
                 connection.update_activity()
+                self._clear_connect_failure(peer_id, address, port)
 
                 logger.info(f"Successfully connected to {peer_id}")
 
@@ -449,7 +486,10 @@ class ConnectionManager:
 
                 return True
 
-            logger.warning(f"Handshake failed with {peer_id}")
+            reason = str(getattr(connection, 'failure_reason', None) or 'handshake_failed')
+            detail = str(getattr(connection, 'failure_detail', None) or f'Handshake failed with {peer_id}')
+            logger.warning(f"Handshake failed with {peer_id}: {detail}")
+            self._record_connect_failure(peer_id, address, port, reason, detail)
             await self._disconnect_connection(connection, notify=False)
             return False
 
@@ -460,6 +500,9 @@ class ConnectionManager:
                 "(will try other addresses or retry)"
             )
             connection.state = ConnectionState.FAILED
+            connection.failure_reason = 'timeout'
+            connection.failure_detail = 'Connection timed out'
+            self._record_connect_failure(peer_id, address, port, 'timeout', 'Connection timed out')
             await self._disconnect_connection(connection, notify=False)
             return False
         except Exception as e:
@@ -469,6 +512,9 @@ class ConnectionManager:
                 exc_info=True,
             )
             connection.state = ConnectionState.FAILED
+            connection.failure_reason = type(e).__name__
+            connection.failure_detail = str(e)
+            self._record_connect_failure(peer_id, address, port, type(e).__name__, str(e))
             await self._disconnect_connection(connection, notify=False)
             return False
     
@@ -715,12 +761,16 @@ class ConnectionManager:
             
             if response.get('type') != 'handshake_ack':
                 logger.warning(f"Invalid handshake response: {response.get('type')}")
+                connection.failure_reason = 'invalid_handshake_response'
+                connection.failure_detail = f"Invalid handshake response: {response.get('type')}"
                 return False
             
             # Verify the peer's response signature
             resp_signature_hex = response.get('signature')
             if not resp_signature_hex:
                 logger.warning(f"Handshake response from {connection.peer_id} has no signature")
+                connection.failure_reason = 'missing_handshake_signature'
+                connection.failure_detail = 'Handshake response has no signature'
                 return False
             
             # Reconstruct the signed payload from the response
@@ -730,6 +780,8 @@ class ConnectionManager:
             
             if not all([resp_peer_id, resp_ed25519_pub, resp_x25519_pub]):
                 logger.warning("Handshake response missing required identity fields")
+                connection.failure_reason = 'missing_identity_fields'
+                connection.failure_detail = 'Handshake response missing required identity fields'
                 return False
             
             # Base fields only for signature verification (backward compatible).
@@ -751,6 +803,8 @@ class ConnectionManager:
             # Verify peer_id matches the public key
             if not self.identity_manager.verify_peer_id(resp_peer_id, resp_ed25519_pub_bytes):
                 logger.warning(f"Peer ID {resp_peer_id} does not match public key!")
+                connection.failure_reason = 'peer_id_public_key_mismatch'
+                connection.failure_detail = f"Peer ID {resp_peer_id} does not match public key"
                 return False
 
             # Verify the responding peer is who we expected to connect to.
@@ -758,6 +812,10 @@ class ConnectionManager:
                 logger.warning(
                     f"Handshake peer-id mismatch! Expected {connection.peer_id}, "
                     f"got {resp_peer_id}. Rejecting connection.")
+                connection.failure_reason = 'handshake_peer_id_mismatch'
+                connection.failure_detail = (
+                    f"Handshake peer-id mismatch: expected {connection.peer_id}, got {resp_peer_id}"
+                )
                 try:
                     host = connection.address
                     port = connection.port
@@ -785,6 +843,8 @@ class ConnectionManager:
                 verified = remote_identity.verify(fallback_bytes, resp_signature)
             if not verified:
                 logger.warning(f"Handshake signature verification FAILED for {resp_peer_id}")
+                connection.failure_reason = 'handshake_signature_verification_failed'
+                connection.failure_detail = f'Handshake signature verification failed for {resp_peer_id}'
                 return False
             
             # Store the verified peer identity
@@ -818,6 +878,10 @@ class ConnectionManager:
                         "Rejecting %s due to protocol mismatch (reject_protocol_mismatch enabled)",
                         connection.peer_id,
                     )
+                    connection.failure_reason = 'protocol_mismatch'
+                    connection.failure_detail = (
+                        f"Protocol mismatch: local={self.local_protocol_version} remote={remote_protocol}"
+                    )
                     return False
             elif remote_canopy != self.local_canopy_version:
                 logger.info(
@@ -832,6 +896,8 @@ class ConnectionManager:
             
         except Exception as e:
             logger.error(f"Handshake failed: {e}", exc_info=True)
+            connection.failure_reason = type(e).__name__
+            connection.failure_detail = str(e)
             return False
     
     async def _complete_handshake(self, connection: PeerConnection, 
@@ -961,10 +1027,13 @@ class ConnectionManager:
         try:
             data = json.dumps(message)
             async with connection._send_lock:
+                current = self.connections.get(peer_id)
+                if current is not connection or not connection.is_connected():
+                    return False
                 # 15-second timeout prevents hanging on dead connections
                 # where TCP hasn't detected the failure yet.
                 websocket = connection.websocket
-                if websocket is None:
+                if websocket is None or getattr(websocket, 'closed', False):
                     return False
                 await asyncio.wait_for(
                     websocket.send(data),
@@ -974,6 +1043,9 @@ class ConnectionManager:
             return True
 
         except asyncio.TimeoutError:
+            connection.state = ConnectionState.DISCONNECTED
+            connection.failure_reason = 'send_timeout'
+            connection.failure_detail = 'Send timed out'
             logger.error(f"Failed to send to {peer_id}: "
                          f"send timed out (15s), connection likely dead")
             # Force-close the dead connection so it can be re-established
@@ -982,7 +1054,12 @@ class ConnectionManager:
             return False
 
         except Exception as e:
+            connection.state = ConnectionState.DISCONNECTED
+            connection.failure_reason = type(e).__name__
+            connection.failure_detail = str(e)
             logger.error(f"Failed to send to {peer_id}: {e}")
+            asyncio.ensure_future(
+                self._disconnect_connection(connection, notify=False))
             return False
     
     async def _disconnect_connection(self, connection: PeerConnection, *, notify: bool = True) -> None:

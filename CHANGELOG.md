@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.57] - 2026-03-09
+
+### Fixed
+- **Dead connection send-failure churn** — A send timeout or closed-socket error now retires the affected peer connection immediately before the asynchronous close finishes, so queued senders stop treating the socket as live and the terminal no longer floods with repeated `no close frame received` errors after the first dead-connection failure.
+
+---
+
 ## [0.4.56] - 2026-03-09
 
 ### Changed
