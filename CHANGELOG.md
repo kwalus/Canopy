@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [0.4.62] - 2026-03-09
+
+### Changed
+- **Second-pass UI polish across shared, DM, and channel surfaces** — Refined keyboard focus visibility, reduced-motion behavior, safe-area composer spacing, and scroll-region stability in `base.html`, `messages.html`, and `channels.html` without changing route contracts or page structure.
+
 ## [0.4.61] - 2026-03-09
 
 ### Added

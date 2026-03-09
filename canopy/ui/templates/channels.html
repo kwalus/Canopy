@@ -723,6 +723,8 @@
         background: transparent;
         position: relative;
         z-index: 1;
+        overscroll-behavior: contain;
+        scrollbar-gutter: stable both-edges;
     }
 
     #load-older-banner {
@@ -1151,12 +1153,19 @@
         flex: 1;
         overflow-y: auto;
         min-height: 0; /* allow flex shrink for scroll */
+        overscroll-behavior: contain;
+        scrollbar-gutter: stable;
     }
     /* Tighter channel items */
     .channel-item {
         padding: 5px 8px !important;
         margin-bottom: 2px !important;
         font-size: 0.88rem;
+    }
+
+    .channel-item:focus-within {
+        border-color: rgba(34, 197, 94, 0.34);
+        box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.14);
     }
     .channel-item .channel-name {
         font-size: 0.88rem;
@@ -1165,6 +1174,59 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+        position: relative;
+        display: block;
+        padding-right: 0.1rem;
+        outline: none;
+    }
+    .channel-item .channel-name .channel-name-inner {
+        display: inline-block;
+        min-width: 100%;
+        vertical-align: top;
+        will-change: transform;
+    }
+    .channel-item .channel-name.channel-name-overflow {
+        cursor: pointer;
+    }
+    .channel-item .channel-name.channel-name-overflow::after {
+        content: attr(data-full-name);
+        position: absolute;
+        left: 0;
+        top: calc(100% + 0.45rem);
+        max-width: min(320px, 72vw);
+        padding: 0.48rem 0.72rem;
+        border-radius: 0.78rem;
+        border: 1px solid rgba(119, 150, 219, 0.38);
+        background: linear-gradient(135deg, rgba(9, 16, 30, 0.98), rgba(18, 33, 59, 0.96));
+        color: #eef5ff;
+        font-size: 0.78rem;
+        line-height: 1.35;
+        white-space: normal;
+        word-break: break-word;
+        box-shadow: 0 14px 32px rgba(3, 8, 18, 0.42);
+        opacity: 0;
+        pointer-events: none;
+        transform: translateY(4px) scale(0.985);
+        transition: opacity 160ms ease, transform 160ms ease;
+        z-index: 48;
+        backdrop-filter: blur(12px);
+    }
+    .channel-item .channel-name.channel-name-overflow::before {
+        content: '';
+        position: absolute;
+        left: 0.95rem;
+        top: calc(100% + 0.18rem);
+        width: 0.7rem;
+        height: 0.7rem;
+        border-left: 1px solid rgba(119, 150, 219, 0.38);
+        border-top: 1px solid rgba(119, 150, 219, 0.38);
+        background: rgba(12, 22, 40, 0.98);
+        transform: translateY(4px) rotate(45deg);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 160ms ease, transform 160ms ease;
+        z-index: 47;
+        box-shadow: -4px -4px 10px rgba(3, 8, 18, 0.12);
     }
     .channel-item-head {
         min-width: 0;
@@ -1528,7 +1590,9 @@
                     onclick="selectChannel({{ channel.id|tojson }}, {{ channel.name|tojson }})">
                     <div class="d-flex align-items-center channel-item-head">
                         <i class="bi bi-{% if channel.channel_type == 'private' %}lock{% elif channel.channel_type == 'dm' %}person{% elif channel.privacy_mode == 'guarded' %}shield-check{% else %}hash{% endif %} me-2"></i>
-                        <span class="channel-name">{{ channel.name }}</span>
+                        <span class="channel-name" data-full-name="{{ channel.name|e }}">
+                            <span class="channel-name-inner">{{ channel.name }}</span>
+                        </span>
                         <span class="ms-auto d-flex align-items-center gap-1 channel-row-actions">
                             <button type="button"
                                     class="btn btn-link btn-sm p-0 channel-pin-btn"
@@ -2029,6 +2093,19 @@
 }
 
 @media (hover: hover) and (pointer: fine) {
+    .channel-item .channel-name.channel-name-overflow:hover::after,
+    .channel-item .channel-name.channel-name-overflow:hover::before,
+    .channel-item .channel-name.channel-name-overflow:focus-visible::after,
+    .channel-item .channel-name.channel-name-overflow:focus-visible::before {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+
+    .channel-item .channel-name.channel-name-overflow:hover .channel-name-inner,
+    .channel-item .channel-name.channel-name-overflow:focus-visible .channel-name-inner {
+        animation: channelNameMarquee 3.8s cubic-bezier(0.22, 0.61, 0.36, 1) 0.16s infinite alternate;
+    }
+
     .channel-row-actions .btn[data-action-label]::after {
         content: attr(data-action-label);
         position: absolute;
@@ -2058,7 +2135,37 @@
     }
 }
 
+@keyframes channelNameMarquee {
+    0%, 18% {
+        transform: translateX(0);
+    }
+    82%, 100% {
+        transform: translateX(calc(var(--channel-name-shift, 0px) * -1));
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .channel-item,
+    .message-item,
+    .channel-row-actions .btn,
+    .channel-item .channel-name .channel-name-inner,
+    #load-older-banner {
+        animation: none !important;
+        transition: none !important;
+    }
+
+    .channel-item .channel-name.channel-name-overflow:hover .channel-name-inner,
+    .channel-item .channel-name.channel-name-overflow:focus-visible .channel-name-inner {
+        animation: none !important;
+        transform: none !important;
+    }
+}
+
 @media (max-width: 768px) {
+    .channel-item .channel-name.channel-name-overflow::after {
+        max-width: min(260px, 78vw);
+    }
+
     .channel-row-actions .btn {
         min-width: 1.48rem;
         min-height: 1.48rem;
@@ -3743,8 +3850,10 @@ function toggleChannelSidebar() {
     if (isMobile) {
         sidebar.classList.toggle('show');
         if (backdrop) backdrop.classList.toggle('show', sidebar.classList.contains('show'));
+        setTimeout(scheduleChannelNameOverflowSync, 180);
     } else {
         sidebar.classList.toggle('collapsed');
+        setTimeout(scheduleChannelNameOverflowSync, 180);
     }
 }
 
@@ -3768,6 +3877,42 @@ function bindChannelItemHandlers() {
             selectChannel(channelId, channelName);
         });
         item.dataset.boundClick = '1';
+    });
+}
+
+function syncChannelNameOverflowState(nameEl) {
+    if (!nameEl) return;
+    const inner = nameEl.querySelector('.channel-name-inner');
+    if (!inner) return;
+    const fullName = (inner.textContent || '').trim();
+    nameEl.setAttribute('data-full-name', fullName);
+    nameEl.setAttribute('aria-label', fullName);
+    nameEl.removeAttribute('tabindex');
+    nameEl.classList.remove('channel-name-overflow');
+    nameEl.style.removeProperty('--channel-name-shift');
+    if (!fullName) return;
+
+    const outerWidth = Math.ceil(nameEl.clientWidth || 0);
+    const innerWidth = Math.ceil(inner.scrollWidth || 0);
+    const overflow = innerWidth - outerWidth;
+    if (overflow > 10) {
+        nameEl.classList.add('channel-name-overflow');
+        nameEl.style.setProperty('--channel-name-shift', `${overflow + 18}px`);
+        nameEl.setAttribute('tabindex', '0');
+    }
+}
+
+function syncAllChannelNameOverflowStates() {
+    document.querySelectorAll('.channel-item .channel-name').forEach(syncChannelNameOverflowState);
+}
+
+let channelNameOverflowSyncQueued = false;
+function scheduleChannelNameOverflowSync() {
+    if (channelNameOverflowSyncQueued) return;
+    channelNameOverflowSyncQueued = true;
+    requestAnimationFrame(() => {
+        channelNameOverflowSyncQueued = false;
+        syncAllChannelNameOverflowStates();
     });
 }
 
@@ -6526,7 +6671,9 @@ function applySidebarChannelState(channels) {
             div.innerHTML = `
                 <div class="d-flex align-items-center channel-item-head">
                     <i class="bi bi-${icon} me-2"></i>
-                    <span class="channel-name">${escapeHtml(ch.name)}</span>
+                    <span class="channel-name" data-full-name="${escapeHtml(ch.name)}" aria-label="${escapeHtml(ch.name)}">
+                        <span class="channel-name-inner">${escapeHtml(ch.name)}</span>
+                    </span>
                     <span class="ms-auto d-flex align-items-center gap-1 channel-row-actions">
                         <button type="button"
                                 class="btn btn-link btn-sm p-0 channel-pin-btn"
@@ -6586,7 +6733,13 @@ function applySidebarChannelState(channels) {
         }
         if (ch.name) {
             const nameEl = item.querySelector('.channel-name');
-            if (nameEl) nameEl.textContent = ch.name;
+            if (nameEl) {
+                const inner = nameEl.querySelector('.channel-name-inner');
+                if (inner) inner.textContent = ch.name;
+                else nameEl.textContent = ch.name;
+                nameEl.setAttribute('data-full-name', ch.name);
+                nameEl.setAttribute('aria-label', ch.name);
+            }
         }
         const iconEl = item.querySelector('i.bi');
         if (iconEl) {
@@ -6633,6 +6786,7 @@ function applySidebarChannelState(channels) {
     bindChannelQuickActionHandlers();
     bindChannelPinHandlers();
     sortChannelListByPins();
+    scheduleChannelNameOverflowSync();
 }
 
 function refreshSidebarChannelState() {
@@ -9902,15 +10056,30 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('Selected files array:', selectedFiles);
         updateCurrentChannelIdUI(currentChannelId);
         syncChannelViewportMetrics();
-        window.addEventListener('resize', syncChannelViewportMetrics);
-        window.addEventListener('orientationchange', () => setTimeout(syncChannelViewportMetrics, 120));
+        window.addEventListener('resize', () => {
+            syncChannelViewportMetrics();
+            scheduleChannelNameOverflowSync();
+        });
+        window.addEventListener('orientationchange', () => setTimeout(() => {
+            syncChannelViewportMetrics();
+            scheduleChannelNameOverflowSync();
+        }, 120));
         if (window.visualViewport) {
-            window.visualViewport.addEventListener('resize', syncChannelViewportMetrics);
+            window.visualViewport.addEventListener('resize', () => {
+                syncChannelViewportMetrics();
+                scheduleChannelNameOverflowSync();
+            });
         }
         const navbarCollapse = document.getElementById('navbarNav');
         if (navbarCollapse) {
-            navbarCollapse.addEventListener('shown.bs.collapse', syncChannelViewportMetrics);
-            navbarCollapse.addEventListener('hidden.bs.collapse', syncChannelViewportMetrics);
+            navbarCollapse.addEventListener('shown.bs.collapse', () => {
+                syncChannelViewportMetrics();
+                scheduleChannelNameOverflowSync();
+            });
+            navbarCollapse.addEventListener('hidden.bs.collapse', () => {
+                syncChannelViewportMetrics();
+                scheduleChannelNameOverflowSync();
+            });
         }
         refreshChannelMentionListOptions();
         renderChannelMentionMacroButtons();
@@ -9950,6 +10119,7 @@ document.addEventListener('DOMContentLoaded', function() {
         applyAllChannelPinStates();
         bindChannelPinHandlers();
         sortChannelListByPins();
+        scheduleChannelNameOverflowSync();
 
 	        setupFileUpload();
 	        setupChannelPasteHandler();
