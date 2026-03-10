@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.68] - 2026-03-10
+
+### Added
+- **Structured composer review pass and expanded structured feedback** - The shared structured-composer helper now recognizes additional canonical block families (`circle`, `contract`, and `skill`) while feed and channel post-send feedback can now report durable `contract` and `circle` materialization alongside the original coordination objects.
+
 ## [0.4.67] - 2026-03-10
 
 ### Added

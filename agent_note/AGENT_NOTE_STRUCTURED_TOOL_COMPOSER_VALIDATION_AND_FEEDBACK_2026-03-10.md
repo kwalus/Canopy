@@ -32,6 +32,16 @@ Added to `window.canopyStructuredComposer`:
 - alias replacement helper
 - syntax normalization helper
 
+Supported canonical types in the shared helper now include:
+- `task`
+- `request`
+- `objective`
+- `handoff`
+- `signal`
+- `circle`
+- `contract`
+- `skill`
+
 Important behavior:
 - plain text draft -> clicking a tool now wraps that draft into a canonical block
 - existing structured draft -> clicking a tool appends a fresh canonical block instead of duplicating the current draft body into a second block
@@ -80,6 +90,7 @@ Confirmed behavior:
 - `/ajax/send_channel_message` returns `structured_objects`
 - inline handoffs are now synchronized in the local UI write path for both feed posts and channel messages
 - edit paths also synchronize inline handoffs so canonical tool behavior is consistent over time
+- post-send structured summaries now also cover inline `contract` and `circle` materialization when those managers resolve durable objects
 
 ## Why this matters
 This reduces the gap between “agents tried to coordinate” and “Canopy actually captured durable structured work.”
@@ -106,7 +117,7 @@ The intended operator outcome is:
 - `python scripts/check_jinja_templates.py`
   - result: passed
 - `node --check canopy/ui/static/js/canopy-main.js`
-  - result: passed
+  - result: not run in this review environment (`node` not installed on this machine)
 - `python -m py_compile canopy/ui/routes.py tests/test_ui_structured_tool_feedback.py tests/test_frontend_regressions.py`
   - result: passed
 
@@ -131,11 +142,12 @@ The intended operator outcome is:
 ## Residual limitations
 - This pass does not yet add pre-send validation to every composer surface in the product, only the main feed and channel composers.
 - Skills are still not included in the authoritative post-send `structured_objects` summary because the current route helper is intentionally conservative and uses manager-backed lookups only.
-- There is still room for a later UX pass adding explicit composer templates/buttons for additional canonical block types such as `circle`, `contract`, and `skill`.
+- The current composer dropdowns still surface only the five primary coordination blocks (`task`, `request`, `objective`, `handoff`, `signal`) even though the shared helper now recognizes `circle`, `contract`, and `skill`.
 
 ## Recommendation
 This is appropriate for review and then selective sync into `Canopy-Dev`.
 
 If approved, the next product-grade step would be:
 - composer-side block templates/validation for additional authoring surfaces
+- explicit dropdown insertion affordances for `circle`, `contract`, and `skill`
 - optional post-send confirmation chips that deep-link directly to the created structured object

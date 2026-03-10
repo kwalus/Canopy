@@ -45,9 +45,13 @@ class TestFrontendRegressions(unittest.TestCase):
         feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
         self.assertIn('id="channel-structured-validation"', channels_template)
         self.assertIn('id="channel-structured-result"', channels_template)
+        self.assertIn('id="channel-structured-tools-toggle"', channels_template)
+        self.assertIn("function updateChannelStructuredTriggerState(result)", channels_template)
         self.assertIn("support.applyTemplateToDraft(toolType, raw)", channels_template)
         self.assertIn('id="feed-structured-validation"', feed_template)
         self.assertIn('id="feed-structured-result"', feed_template)
+        self.assertIn('id="feed-structured-tools-toggle"', feed_template)
+        self.assertIn("function updateFeedStructuredTriggerState(result)", feed_template)
         self.assertIn("function updateFeedStructuredValidation()", feed_template)
         self.assertIn("const structuredValidation = updateFeedStructuredValidation();", feed_template)
 

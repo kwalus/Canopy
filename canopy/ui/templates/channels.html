@@ -709,15 +709,57 @@
         font-size: 0.76rem;
         color: var(--canopy-text-secondary);
     }
-    .structured-composer-toolbar {
-        align-items: center;
-    }
-    .structured-composer-toolbar .dropdown-menu {
+    .structured-tool-trigger-group .dropdown-menu {
         min-width: 14rem;
     }
-    .structured-composer-note {
-        font-size: 0.76rem;
-        color: var(--canopy-text-secondary);
+    .structured-tool-trigger {
+        position: relative;
+        width: 2.35rem;
+        min-width: 2.35rem;
+        padding-inline: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 0.85rem;
+    }
+    .structured-tool-trigger::after {
+        display: none;
+    }
+    .structured-tool-trigger .bi {
+        font-size: 1rem;
+    }
+    .structured-tool-trigger-dot {
+        position: absolute;
+        top: 0.42rem;
+        right: 0.42rem;
+        width: 0.42rem;
+        height: 0.42rem;
+        border-radius: 999px;
+        background: rgba(125, 211, 252, 0.72);
+        box-shadow: 0 0 0 0.14rem rgba(8, 15, 28, 0.92);
+        opacity: 0;
+        transform: scale(0.8);
+        transition: opacity 0.18s ease, transform 0.18s ease, background 0.18s ease;
+        pointer-events: none;
+    }
+    .structured-tool-trigger.is-active {
+        border-color: rgba(56, 189, 248, 0.42);
+        background: rgba(56, 189, 248, 0.12);
+        color: #c8f1ff;
+    }
+    .structured-tool-trigger.is-active .structured-tool-trigger-dot {
+        opacity: 1;
+        transform: scale(1);
+    }
+    .structured-tool-trigger.has-warning {
+        border-color: rgba(250, 204, 21, 0.45);
+        background: rgba(250, 204, 21, 0.12);
+        color: #fde68a;
+    }
+    .structured-tool-trigger.has-warning .structured-tool-trigger-dot {
+        opacity: 1;
+        transform: scale(1);
+        background: rgba(250, 204, 21, 0.9);
     }
     .structured-panel {
         display: flex;
@@ -2011,28 +2053,6 @@
                         </div>
                         <div id="channel-structured-nudge-actions" class="structured-nudge-actions"></div>
                     </div>
-                    <div class="task-inline-toggle mb-2 structured-composer-toolbar">
-                        <div class="task-inline-info">
-                            <span class="badge bg-info-subtle text-info-emphasis">Tools</span>
-                            <small class="structured-composer-note ms-2">Insert canonical coordination blocks for agents and humans.</small>
-                        </div>
-                        <div class="btn-group btn-group-sm">
-                            <button type="button"
-                                    class="btn btn-outline-info dropdown-toggle"
-                                    id="channel-structured-tools-toggle"
-                                    data-bs-toggle="dropdown"
-                                    aria-expanded="false">
-                                <i class="bi bi-diagram-3 me-1"></i>Structured tools
-                            </button>
-                            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="channel-structured-tools-toggle">
-                                <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('task')"><i class="bi bi-check2-square me-2"></i>Task block</button></li>
-                                <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('request')"><i class="bi bi-question-circle me-2"></i>Request block</button></li>
-                                <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('objective')"><i class="bi bi-bullseye me-2"></i>Objective block</button></li>
-                                <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('handoff')"><i class="bi bi-arrow-left-right me-2"></i>Handoff block</button></li>
-                                <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('signal')"><i class="bi bi-broadcast-pin me-2"></i>Signal block</button></li>
-                            </ul>
-                        </div>
-                    </div>
                     <div id="channel-structured-validation" class="task-inline-toggle mb-2 structured-panel" style="display: none;">
                         <div class="structured-panel-header">
                             <div class="task-inline-info">
@@ -2089,6 +2109,25 @@
                                     title="Team mention builder" onclick="toggleChannelMentionBuilder()">
                                 <i class="bi bi-people"></i>
                             </button>
+                            <div class="btn-group structured-tool-trigger-group">
+                                <button type="button"
+                                        class="btn btn-outline-secondary dropdown-toggle structured-tool-trigger"
+                                        id="channel-structured-tools-toggle"
+                                        data-bs-toggle="dropdown"
+                                        aria-expanded="false"
+                                        aria-label="Insert structured coordination block"
+                                        title="Insert structured coordination block">
+                                    <i class="bi bi-diagram-3"></i>
+                                    <span class="structured-tool-trigger-dot"></span>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="channel-structured-tools-toggle">
+                                    <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('task')"><i class="bi bi-check2-square me-2"></i>Task block</button></li>
+                                    <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('request')"><i class="bi bi-question-circle me-2"></i>Request block</button></li>
+                                    <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('objective')"><i class="bi bi-bullseye me-2"></i>Objective block</button></li>
+                                    <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('handoff')"><i class="bi bi-arrow-left-right me-2"></i>Handoff block</button></li>
+                                    <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('signal')"><i class="bi bi-broadcast-pin me-2"></i>Signal block</button></li>
+                                </ul>
+                            </div>
                             <div id="channel-mention-macro-buttons" class="mention-macro-buttons" style="display: none;"></div>
                             <div class="btn-group">
                                 <button type="button"
@@ -9067,15 +9106,39 @@ function renderChannelStructuredValidation(result) {
     panel.style.display = 'flex';
 }
 
+function updateChannelStructuredTriggerState(result) {
+    const button = document.getElementById('channel-structured-tools-toggle');
+    const input = document.getElementById('message-input');
+    const support = window.canopyStructuredComposer;
+    if (!button) return;
+    const content = String(input && input.value ? input.value : '');
+    const hasBlocks = !!(support && typeof support.hasStructuredToolBlock === 'function' && support.hasStructuredToolBlock(content));
+    const hasWarning = !!(result && result.blocking);
+    button.classList.toggle('is-active', hasBlocks && !hasWarning);
+    button.classList.toggle('has-warning', hasWarning);
+    if (hasWarning) {
+        button.title = 'Structured block issue needs correction';
+        button.setAttribute('aria-label', 'Structured block issue needs correction');
+    } else if (hasBlocks) {
+        button.title = 'Structured block detected';
+        button.setAttribute('aria-label', 'Structured block detected');
+    } else {
+        button.title = 'Insert structured coordination block';
+        button.setAttribute('aria-label', 'Insert structured coordination block');
+    }
+}
+
 function updateChannelStructuredValidation() {
     const input = document.getElementById('message-input');
     const support = window.canopyStructuredComposer;
     if (!input || !support || typeof support.validate !== 'function') {
         renderChannelStructuredValidation({ issues: [] });
+        updateChannelStructuredTriggerState({ issues: [], blocking: false });
         return { issues: [], blocking: false };
     }
     const result = support.validate(input.value || '');
     renderChannelStructuredValidation(result);
+    updateChannelStructuredTriggerState(result);
     if (String(input.value || '').trim()) {
         renderChannelStructuredResult([]);
     }
@@ -9171,6 +9234,7 @@ function sendMessage(event) {
             updateChannelTaskToggle();
             updateChannelStructuredNudge();
             renderChannelStructuredValidation({ issues: [] });
+            updateChannelStructuredTriggerState({ issues: [], blocking: false });
             renderChannelStructuredResult(data.structured_objects || []);
             // Always append incrementally after sending — avoids the
             // flash/spinner from a full loadChannelMessages() reload
