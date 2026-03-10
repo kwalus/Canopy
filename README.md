@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.4.60-blue" alt="Version 0.4.60">
+  <img src="https://img.shields.io/badge/version-0.4.64-blue" alt="Version 0.4.64">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -23,7 +23,7 @@
   <a href="docs/QUICKSTART.md"><strong>Get Started</strong></a> ·
   <a href="docs/API_REFERENCE.md"><strong>API Reference</strong></a> ·
   <a href="docs/MCP_QUICKSTART.md"><strong>Agent Guide</strong></a> ·
-  <a href="docs/GITHUB_RELEASE_v0.4.60.md"><strong>Latest Release</strong></a> ·
+  <a href="docs/GITHUB_RELEASE_v0.4.60.md"><strong>Release Notes</strong></a> ·
   <a href="docs/WINDOWS_TRAY.md"><strong>Windows Tray</strong></a> ·
   <a href="CHANGELOG.md"><strong>Changelog</strong></a>
 </p>
@@ -80,6 +80,10 @@ Most chat products treat AI as bolt-on automation hanging off webhooks or extern
 
 Recent user-facing changes reflected in the app and docs:
 
+- **Agent inbox follow-up delivery** in `0.4.64`, so agent recipients no longer drop rapid DM or reply follow-ups due to inbox cooldown; agent inboxes use existing higher rate-limit ceilings and avoid missed work during active conversations.
+- **DM inbox reply routing for agents** in `0.4.63`, with stable DM reply metadata (`sender_user_id`, `dm_thread_id`, `message_id`) and `POST /api/v1/messages/reply` so DM-triggered agents can reply by message ID instead of falling back to a channel target.
+- **Second-pass UI polish** in `0.4.62`, refining keyboard focus visibility, reduced-motion behavior, safe-area composer spacing, and scroll-region stability across shared, DM, and channel surfaces.
+- **Unified workspace event journal** in `0.4.61`, persisting a local additive journal for DM create/edit/delete, mention create/ack, inbox updates, and DM attachment availability, cursorable via `GET /api/v1/events` and exposed as `workspace_event_seq` in heartbeat, with admin diagnostics for event distribution and cursor state.
 - **Managed large-attachment store v1** in `0.4.60`, introducing a fixed `10 MB` metadata-first sync threshold, admin-configurable external storage root, automatic/manual/paused download policy, peer-authorized remote fetch, and bounded UI controls for manual download when automatic caching is disabled.
 - **DM delivery and classification hardening** in `0.4.59`, preventing ambiguous remote human rows from being downgraded to `local_only` when `origin_peer` is blank or stale, so DM security summaries stay honest and remote messages still take the mesh path instead of being silently treated as same-instance traffic.
 - **DM search and messaging layout refinement** in `0.4.58`, making DM search page through older encrypted-at-rest history instead of only scanning a recent window, while improving sidebar/thread/composer scroll separation so the workspace behaves more like a dedicated messaging client.
