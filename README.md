@@ -170,6 +170,8 @@ cd Canopy
 
 Detailed first-run guide: [docs/QUICKSTART.md](docs/QUICKSTART.md)
 
+**User data:** By default Canopy stores the database and files under the project (`./data/devices/<device_id>/`). If the project is in a synced or git-backed folder, set `CANOPY_DATA_ROOT` to a directory outside the project (e.g. `$HOME/CanopyData`) before first run so user data is not synced or committed. See [docs/QUICKSTART.md](docs/QUICKSTART.md#keeping-user-data-out-of-the-project-recommended).
+
 ### Option E (Windows tray distribution)
 
 If you are packaging Canopy for non-Python Windows users, build the tray app and optional installer:

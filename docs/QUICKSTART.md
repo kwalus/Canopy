@@ -109,6 +109,26 @@ Expected: JSON response containing a healthy status.
 
 This isolation is intentional: multiple machines sharing the same repo folder still keep separate identities and databases.
 
+### Keeping user data out of the project (recommended)
+
+By default, Canopy stores the database, peer identity, and uploaded files under the project directory (`./data/devices/<device_id>/`). If your project lives in a **synced folder** (Dropbox, iCloud, OneDrive) or a **git repo**, that can cause problems: user data may get synced or accidentally committed, and multiple machines can collide on the same path.
+
+**Recommendation:** Put user data in a directory outside the project, for example your home folder or Documents. Set `CANOPY_DATA_ROOT` before first run so all device data (DB, identity, files) is created there and never inside the repo:
+
+```bash
+# macOS/Linux — e.g. home directory or Documents
+export CANOPY_DATA_ROOT="$HOME/CanopyData"
+python -m canopy
+```
+
+```powershell
+# Windows (PowerShell)
+$env:CANOPY_DATA_ROOT = "$env:USERPROFILE\CanopyData"
+python -m canopy
+```
+
+Canopy will create `CANOPY_DATA_ROOT/devices/<device_id>/` and use it for the database, peer identity, and file storage. You can set this in your shell profile or in an install script so every run uses the same location. Packaged tray builds already use a per-user app data directory; this env var is for development or script-based installs where you want to avoid storing user data inside the project tree.
+
 ---
 
 ## 5) First 10-minute checklist

@@ -42,6 +42,7 @@ venv.bak/
 
 # Canopy specific
 data/
+data-fresh/
 logs/
 *.db
 *.db-journal
