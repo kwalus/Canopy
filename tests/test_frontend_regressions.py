@@ -33,6 +33,24 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("const canopyLocalPeerId = window.CANOPY_VARS ? String(window.CANOPY_VARS.localPeerId || '').trim() : '';", main_js)
         self.assertIn("const originPeer = (canopyLocalPeerId && originPeerRaw === canopyLocalPeerId) ? '' : originPeerRaw;", main_js)
 
+    def test_structured_composer_shared_helper_wraps_plain_text_and_appends_to_existing_blocks(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        self.assertIn("function applyTemplateToDraft(toolType, currentText)", main_js)
+        self.assertIn("if (hasStructuredToolBlock(trimmed)) {", main_js)
+        self.assertIn("return `${trimmed}\\n\\n${buildToolBlock(toolType, '')}`;", main_js)
+        self.assertIn("return buildToolBlock(toolType, trimmed);", main_js)
+
+    def test_feed_and_channel_composers_render_structured_validation_and_results(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        self.assertIn('id="channel-structured-validation"', channels_template)
+        self.assertIn('id="channel-structured-result"', channels_template)
+        self.assertIn("support.applyTemplateToDraft(toolType, raw)", channels_template)
+        self.assertIn('id="feed-structured-validation"', feed_template)
+        self.assertIn('id="feed-structured-result"', feed_template)
+        self.assertIn("function updateFeedStructuredValidation()", feed_template)
+        self.assertIn("const structuredValidation = updateFeedStructuredValidation();", feed_template)
+
 
 if __name__ == '__main__':
     unittest.main()

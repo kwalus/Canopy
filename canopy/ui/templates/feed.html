@@ -192,6 +192,45 @@
                 </div>
             </div>
 
+            <div class="task-inline-toggle mb-3 structured-composer-toolbar">
+                <div class="task-inline-info">
+                    <span class="badge bg-info-subtle text-info-emphasis">Structured tools</span>
+                    <small class="structured-composer-note ms-2">Use canonical blocks so Canopy can materialize real tasks, requests, objectives, handoffs, and signals.</small>
+                </div>
+                <div class="dropdown">
+                    <button class="btn btn-sm btn-outline-info dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="bi bi-magic me-1"></i>Insert block
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <li><button type="button" class="dropdown-item" onclick="insertFeedStructuredTemplate('task')"><i class="bi bi-check2-square me-2"></i>Task block</button></li>
+                        <li><button type="button" class="dropdown-item" onclick="insertFeedStructuredTemplate('request')"><i class="bi bi-question-circle me-2"></i>Request block</button></li>
+                        <li><button type="button" class="dropdown-item" onclick="insertFeedStructuredTemplate('objective')"><i class="bi bi-bullseye me-2"></i>Objective block</button></li>
+                        <li><button type="button" class="dropdown-item" onclick="insertFeedStructuredTemplate('handoff')"><i class="bi bi-arrow-left-right me-2"></i>Handoff block</button></li>
+                        <li><button type="button" class="dropdown-item" onclick="insertFeedStructuredTemplate('signal')"><i class="bi bi-broadcast-pin me-2"></i>Signal block</button></li>
+                    </ul>
+                </div>
+            </div>
+
+            <div id="feed-structured-validation" class="task-inline-toggle mb-3 structured-panel" style="display: none;">
+                <div class="structured-panel-header">
+                    <div class="task-inline-info">
+                        <span class="badge bg-warning-subtle text-warning-emphasis">Needs cleanup</span>
+                        <small id="feed-structured-validation-summary" class="structured-panel-summary ms-2"></small>
+                    </div>
+                    <div class="structured-validation-actions" id="feed-structured-validation-global-actions"></div>
+                </div>
+                <div id="feed-structured-validation-list" class="structured-validation-list"></div>
+            </div>
+            <div id="feed-structured-result" class="task-inline-toggle mb-3 structured-panel" style="display: none;">
+                <div class="structured-panel-header">
+                    <div class="task-inline-info">
+                        <span class="badge bg-success-subtle text-success">Materialized</span>
+                        <small id="feed-structured-result-summary" class="structured-panel-summary ms-2"></small>
+                    </div>
+                </div>
+                <div id="feed-structured-result-list" class="structured-panel-list"></div>
+            </div>
+
             <!-- Media Upload Section -->
             <div id="mediaSection" class="mb-3" style="display: none;">
                 <label for="mediaFile" class="form-label">Upload Media</label>
@@ -1433,6 +1472,91 @@
     font-size: 0.7rem;
     text-transform: uppercase;
     letter-spacing: 0.08em;
+}
+.structured-composer-toolbar {
+    align-items: center;
+}
+.structured-composer-toolbar .dropdown-menu {
+    min-width: 14rem;
+}
+.structured-composer-note {
+    font-size: 0.78rem;
+    color: var(--canopy-text-secondary);
+}
+.structured-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+}
+.structured-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.7rem;
+}
+.structured-panel-summary {
+    font-size: 0.78rem;
+    color: var(--canopy-text-secondary);
+}
+.structured-panel-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.42rem;
+    width: 100%;
+}
+.structured-panel-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border-radius: 999px;
+    padding: 0.34rem 0.68rem;
+    border: 1px solid rgba(56, 189, 248, 0.26);
+    background: rgba(56, 189, 248, 0.12);
+    color: #d4f2ff;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+.structured-panel-chip small {
+    font-size: 0.68rem;
+    color: rgba(212, 242, 255, 0.7);
+}
+.structured-validation-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+}
+.structured-validation-item {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    padding-top: 0.45rem;
+}
+.structured-validation-item:first-child {
+    border-top: none;
+    padding-top: 0;
+}
+.structured-validation-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+}
+.structured-validation-copy strong {
+    font-size: 0.76rem;
+    color: var(--canopy-text-primary);
+}
+.structured-validation-copy span {
+    font-size: 0.76rem;
+    color: var(--canopy-text-secondary);
+}
+.structured-validation-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    justify-content: flex-end;
 }
 
 .mention-builder-panel {
@@ -4254,6 +4378,159 @@
             toggle.checked = confirmed;
         }
 
+        function notifyFeedComposerUpdate() {
+            const textarea = document.getElementById('postContent');
+            if (!textarea) return;
+            textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        function getFeedToolLabel(toolType) {
+            const support = window.canopyStructuredComposer;
+            if (support && support.labels && support.labels[toolType]) {
+                return support.labels[toolType];
+            }
+            const fallback = {
+                task: 'Task',
+                request: 'Request',
+                objective: 'Objective',
+                handoff: 'Handoff',
+                signal: 'Signal',
+                circle: 'Circle',
+                contract: 'Contract',
+                skill: 'Skill',
+            };
+            return fallback[toolType] || 'Structured item';
+        }
+
+        function feedStructuredResultIcon(itemType) {
+            const icons = {
+                task: 'check2-square',
+                request: 'question-circle',
+                objective: 'bullseye',
+                signal: 'broadcast-pin',
+                handoff: 'arrow-left-right',
+                contract: 'file-earmark-text',
+                circle: 'people',
+                skill: 'mortarboard',
+            };
+            return icons[itemType] || 'stars';
+        }
+
+        function renderFeedStructuredResult(items) {
+            const panel = document.getElementById('feed-structured-result');
+            const summary = document.getElementById('feed-structured-result-summary');
+            const list = document.getElementById('feed-structured-result-list');
+            if (!panel || !summary || !list) return;
+
+            const normalized = Array.isArray(items) ? items.filter(Boolean) : [];
+            if (!normalized.length) {
+                panel.style.display = 'none';
+                summary.textContent = '';
+                list.innerHTML = '';
+                return;
+            }
+
+            summary.textContent = normalized.length === 1
+                ? `${getFeedToolLabel(normalized[0].type || 'item')} materialized from this post.`
+                : `${normalized.length} structured objects materialized from this post.`;
+            list.innerHTML = normalized.map((item) => {
+                const title = item.title ? escapeHtml(String(item.title)) : getFeedToolLabel(item.type || 'item');
+                const status = item.status ? `<small>${escapeHtml(String(item.status))}</small>` : '';
+                return `<span class="structured-panel-chip"><i class="bi bi-${feedStructuredResultIcon(item.type)}"></i>${title}${status}</span>`;
+            }).join('');
+            panel.style.display = 'flex';
+        }
+
+        function insertFeedStructuredTemplate(toolType) {
+            const textarea = document.getElementById('postContent');
+            if (!textarea) return;
+            const support = window.canopyStructuredComposer;
+            const raw = String(textarea.value || '');
+            const nextValue = support && typeof support.applyTemplateToDraft === 'function'
+                ? support.applyTemplateToDraft(toolType, raw)
+                : raw.trim();
+            textarea.value = nextValue;
+            textarea.focus();
+            notifyFeedComposerUpdate();
+            showAlert(`${getFeedToolLabel(toolType)} template inserted.`, 'success');
+        }
+
+        function applyFeedStructuredAliasFix(fromTag, toTag) {
+            const textarea = document.getElementById('postContent');
+            const support = window.canopyStructuredComposer;
+            if (!textarea || !support || typeof support.replaceStructuredTagAlias !== 'function') return;
+            textarea.value = support.replaceStructuredTagAlias(textarea.value || '', fromTag, toTag);
+            textarea.focus();
+            notifyFeedComposerUpdate();
+        }
+
+        function normalizeFeedStructuredBlocks() {
+            const textarea = document.getElementById('postContent');
+            const support = window.canopyStructuredComposer;
+            if (!textarea || !support || typeof support.normalizeDecoratedStructuredTags !== 'function') return;
+            textarea.value = support.normalizeDecoratedStructuredTags(textarea.value || '');
+            textarea.focus();
+            notifyFeedComposerUpdate();
+        }
+
+        function renderFeedStructuredValidation(result) {
+            const panel = document.getElementById('feed-structured-validation');
+            const summary = document.getElementById('feed-structured-validation-summary');
+            const list = document.getElementById('feed-structured-validation-list');
+            const globalActions = document.getElementById('feed-structured-validation-global-actions');
+            if (!panel || !summary || !list || !globalActions) return;
+
+            const issues = result && Array.isArray(result.issues) ? result.issues : [];
+            if (!issues.length) {
+                panel.style.display = 'none';
+                summary.textContent = '';
+                list.innerHTML = '';
+                globalActions.innerHTML = '';
+                return;
+            }
+
+            summary.textContent = issues.length === 1
+                ? 'One structured block issue needs correction.'
+                : `${issues.length} structured block issues need correction.`;
+
+            const needsNormalize = issues.some((issue) => issue && issue.kind === 'decorated_tag');
+            globalActions.innerHTML = needsNormalize
+                ? '<button type="button" class="btn btn-sm btn-outline-warning" onclick="normalizeFeedStructuredBlocks()">Normalize block syntax</button>'
+                : '';
+
+            list.innerHTML = issues.map((issue) => {
+                const heading = issue.line ? `Line ${issue.line}` : getFeedToolLabel(issue.tag || 'item');
+                const fixButton = issue.suggestedTag
+                    ? `<button type="button" class="btn btn-sm btn-outline-warning" onclick="applyFeedStructuredAliasFix('${escapeHtml(String(issue.tag || ''))}', '${escapeHtml(String(issue.suggestedTag || ''))}')">Convert to ${escapeHtml(getFeedToolLabel(issue.suggestedTag))}</button>`
+                    : '';
+                return `
+                    <div class="structured-validation-item">
+                        <div class="structured-validation-copy">
+                            <strong>${escapeHtml(heading)}</strong>
+                            <span>${escapeHtml(String(issue.message || 'Fix this structured block before posting.'))}</span>
+                        </div>
+                        <div class="structured-validation-actions">${fixButton}</div>
+                    </div>
+                `;
+            }).join('');
+            panel.style.display = 'flex';
+        }
+
+        function updateFeedStructuredValidation() {
+            const textarea = document.getElementById('postContent');
+            const support = window.canopyStructuredComposer;
+            if (!textarea || !support || typeof support.validate !== 'function') {
+                renderFeedStructuredValidation({ issues: [] });
+                return { issues: [], blocking: false };
+            }
+            const result = support.validate(textarea.value || '');
+            renderFeedStructuredValidation(result);
+            if (String(textarea.value || '').trim()) {
+                renderFeedStructuredResult([]);
+            }
+            return result;
+        }
+
 	    function resetComposer() {
 	        const form = document.getElementById('createPostForm');
 	        if (form) form.reset();
@@ -4271,6 +4548,8 @@
 	        handleVisibilityChange();
 	        handleExpiryChange();
             updatePostTaskToggle();
+            renderFeedStructuredValidation({ issues: [] });
+            renderFeedStructuredResult([]);
 	    }
 
 	    function clearComposer() {
@@ -4765,6 +5044,12 @@
                     content = adjusted.trim();
                 }
             }
+
+            const structuredValidation = updateFeedStructuredValidation();
+            if (structuredValidation && structuredValidation.blocking) {
+                showAlert('Fix the structured block issues before sharing this post.', 'warning');
+                return;
+            }
         
         let metadata = {};
         let permissions = visibility === 'custom' ? customPermissions : null;
@@ -4806,7 +5091,8 @@
 	        .then(response => {
 	            showAlert('Post created successfully!', 'success');
 	            resetComposer();
-	            setTimeout(refreshFeed, 600);
+                renderFeedStructuredResult(response.structured_objects || []);
+	            setTimeout(refreshFeed, 900);
 	        })
 	        .catch(error => {
 	            showAlert(error.error || 'Failed to create post', 'danger');
@@ -5999,6 +6285,7 @@
                 postContent.addEventListener('input', () => {
                     handlePostMentionInput();
                     updatePostTaskToggle();
+                    updateFeedStructuredValidation();
                     updateCharCounter();
                 });
                 postContent.addEventListener('keydown', (e) => {
@@ -6018,6 +6305,7 @@
                 });
             }
             updatePostTaskToggle();
+            updateFeedStructuredValidation();
             if (window.applyInlineTaskAvatars) {
                 window.applyInlineTaskAvatars();
             }

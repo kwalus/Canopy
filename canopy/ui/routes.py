@@ -8044,6 +8044,26 @@ def create_ui_blueprint() -> Blueprint:
                 except Exception as contract_err:
                     logger.warning(f"Inline contract creation failed: {contract_err}")
 
+                # Inline handoff creation from [handoff] blocks
+                try:
+                    handoff_manager = current_app.config.get('HANDOFF_MANAGER')
+                    if handoff_manager:
+                        handoff_visibility = 'network' if visibility_enum.value in ('public', 'network') else 'local'
+                        _sync_inline_handoffs_from_content(
+                            handoff_manager=handoff_manager,
+                            content=content,
+                            scope='feed',
+                            source_id=post.id,
+                            actor_id=user_id,
+                            source_type='feed_post',
+                            visibility=handoff_visibility,
+                            origin_peer=p2p_manager.get_peer_id() if p2p_manager else None,
+                            created_at=post.created_at.isoformat() if getattr(post, 'created_at', None) else None,
+                            channel_id=None,
+                        )
+                except Exception as handoff_err:
+                    logger.warning(f"Inline handoff creation failed: {handoff_err}")
+
                 # Inline skill registration from [skill] blocks
                 try:
                     skill_manager = current_app.config.get('SKILL_MANAGER')
@@ -8140,6 +8160,19 @@ def create_ui_blueprint() -> Blueprint:
                 except Exception as mention_err:
                     logger.warning(f"Feed mention processing failed: {mention_err}")
 
+                structured_objects = _collect_inline_structured_summaries(
+                    content=content,
+                    scope='feed',
+                    source_id=post.id,
+                    task_manager=current_app.config.get('TASK_MANAGER'),
+                    objective_manager=current_app.config.get('OBJECTIVE_MANAGER'),
+                    request_manager=current_app.config.get('REQUEST_MANAGER'),
+                    signal_manager=current_app.config.get('SIGNAL_MANAGER'),
+                    contract_manager=current_app.config.get('CONTRACT_MANAGER'),
+                    circle_manager=current_app.config.get('CIRCLE_MANAGER'),
+                    handoff_manager=current_app.config.get('HANDOFF_MANAGER'),
+                )
+
                 return jsonify({
                     'success': True,
                     'post': post.to_dict() if hasattr(post, 'to_dict') else {
@@ -8150,7 +8183,8 @@ def create_ui_blueprint() -> Blueprint:
                         'created_at': post.created_at.isoformat(),
                         'expires_at': post.expires_at.isoformat() if getattr(post, 'expires_at', None) else None,
                         'metadata': post.metadata
-                    }
+                    },
+                    'structured_objects': structured_objects,
                 })
             else:
                 return jsonify({'error': 'Failed to create post'}), 500
@@ -8468,6 +8502,34 @@ def create_ui_blueprint() -> Blueprint:
                         )
                 except Exception as contract_err:
                     logger.warning(f"Inline contract sync failed on post update: {contract_err}")
+
+                # Sync inline handoffs from edited feed content
+                try:
+                    handoff_manager = current_app.config.get('HANDOFF_MANAGER')
+                    if handoff_manager:
+                        effective_visibility = visibility_enum.value if visibility_enum else existing_post.visibility.value
+                        handoff_visibility = 'network' if effective_visibility in ('public', 'network') else 'local'
+                        origin_peer = getattr(existing_post, 'origin_peer', None)
+                        if not origin_peer and p2p_manager:
+                            try:
+                                origin_peer = p2p_manager.get_peer_id()
+                            except Exception:
+                                origin_peer = None
+                        _sync_inline_handoffs_from_content(
+                            handoff_manager=handoff_manager,
+                            content=content,
+                            scope='feed',
+                            source_id=post_id,
+                            actor_id=user_id,
+                            source_type='feed_post',
+                            visibility=handoff_visibility,
+                            origin_peer=origin_peer,
+                            created_at=existing_post.created_at.isoformat()
+                            if getattr(existing_post, 'created_at', None) else None,
+                            channel_id=None,
+                        )
+                except Exception as handoff_err:
+                    logger.warning(f"Inline handoff sync failed on post update: {handoff_err}")
 
                 # Broadcast edited post to P2P peers so they update locally
                 if p2p_manager and p2p_manager.is_running():
@@ -11320,6 +11382,36 @@ def create_ui_blueprint() -> Blueprint:
                 except Exception as contract_err:
                     logger.warning(f"Inline contract creation failed: {contract_err}")
 
+                # Inline handoff creation from [handoff] blocks
+                try:
+                    handoff_manager = current_app.config.get('HANDOFF_MANAGER')
+                    if handoff_manager:
+                        handoff_visibility = 'network'
+                        try:
+                            with db_manager.get_connection() as conn:
+                                row = conn.execute(
+                                    "SELECT privacy_mode FROM channels WHERE id = ?",
+                                    (channel_id,)
+                                ).fetchone()
+                                if row and row['privacy_mode'] and row['privacy_mode'] != 'open':
+                                    handoff_visibility = 'local'
+                        except Exception:
+                            handoff_visibility = 'local'
+                        _sync_inline_handoffs_from_content(
+                            handoff_manager=handoff_manager,
+                            content=content,
+                            scope='channel',
+                            source_id=message.id,
+                            actor_id=user_id,
+                            source_type='channel_message',
+                            visibility=handoff_visibility,
+                            origin_peer=p2p_manager.get_peer_id() if p2p_manager else None,
+                            created_at=message.created_at.isoformat() if getattr(message, 'created_at', None) else None,
+                            channel_id=channel_id,
+                        )
+                except Exception as handoff_err:
+                    logger.warning(f"Inline handoff creation failed: {handoff_err}")
+
                 # Inline skill registration from [skill] blocks
                 try:
                     skill_manager = current_app.config.get('SKILL_MANAGER')
@@ -11461,9 +11553,23 @@ def create_ui_blueprint() -> Blueprint:
                     except Exception as reply_err:
                         logger.debug(f"Thread reply inbox trigger skipped: {reply_err}")
 
+                structured_objects = _collect_inline_structured_summaries(
+                    content=content,
+                    scope='channel',
+                    source_id=message.id,
+                    task_manager=current_app.config.get('TASK_MANAGER'),
+                    objective_manager=current_app.config.get('OBJECTIVE_MANAGER'),
+                    request_manager=current_app.config.get('REQUEST_MANAGER'),
+                    signal_manager=current_app.config.get('SIGNAL_MANAGER'),
+                    contract_manager=current_app.config.get('CONTRACT_MANAGER'),
+                    circle_manager=current_app.config.get('CIRCLE_MANAGER'),
+                    handoff_manager=current_app.config.get('HANDOFF_MANAGER'),
+                )
+
                 return jsonify({
                     'success': True,
-                    'message': message.to_dict()
+                    'message': message.to_dict(),
+                    'structured_objects': structured_objects,
                 })
             else:
                 logger.error(f"Failed to send message to channel {channel_id}")
@@ -12168,6 +12274,37 @@ def create_ui_blueprint() -> Blueprint:
                         )
                 except Exception as contract_err:
                     logger.warning(f"Inline contract sync failed on channel edit: {contract_err}")
+
+                # Sync inline handoffs from edited channel message
+                try:
+                    handoff_manager = current_app.config.get('HANDOFF_MANAGER')
+                    if handoff_manager:
+                        privacy_mode = None
+                        try:
+                            with db_manager.get_connection() as conn:
+                                prow = conn.execute(
+                                    "SELECT privacy_mode FROM channels WHERE id = ?",
+                                    (row['channel_id'],)
+                                ).fetchone()
+                            if prow:
+                                privacy_mode = prow['privacy_mode']
+                        except Exception:
+                            privacy_mode = None
+                        handoff_visibility = 'local' if privacy_mode and privacy_mode != 'open' else 'network'
+                        _sync_inline_handoffs_from_content(
+                            handoff_manager=handoff_manager,
+                            content=content,
+                            scope='channel',
+                            source_id=message_id,
+                            actor_id=user_id,
+                            source_type='channel_message',
+                            visibility=handoff_visibility,
+                            origin_peer=p2p_manager.get_peer_id() if p2p_manager else None,
+                            created_at=row['created_at'],
+                            channel_id=row['channel_id'],
+                        )
+                except Exception as handoff_err:
+                    logger.warning(f"Inline handoff sync failed on channel edit: {handoff_err}")
 
                 try:
                     sync_edited_mention_activity(
@@ -14394,6 +14531,232 @@ def create_ui_blueprint() -> Blueprint:
         if editor_ids is not None:
             merged['editors'] = editor_ids
         return merged
+
+    def _append_structured_object_summary(
+        items: list[dict[str, Any]],
+        *,
+        object_type: str,
+        object_id: Optional[str],
+        title: Optional[str],
+        status: Optional[str] = None,
+    ) -> None:
+        if not object_id:
+            return
+        payload: dict[str, Any] = {
+            'type': object_type,
+            'id': object_id,
+        }
+        if title:
+            payload['title'] = str(title).strip()
+        if status:
+            payload['status'] = str(status).strip()
+        items.append(payload)
+
+    def _sync_inline_handoffs_from_content(
+        *,
+        handoff_manager: Any,
+        content: str,
+        scope: str,
+        source_id: str,
+        actor_id: str,
+        source_type: str,
+        visibility: str,
+        origin_peer: Optional[str] = None,
+        created_at: Optional[str] = None,
+        channel_id: Optional[str] = None,
+    ) -> None:
+        from ..core.handoffs import parse_handoff_blocks, derive_handoff_id
+
+        if not handoff_manager:
+            return
+        specs = parse_handoff_blocks(content or '')
+        if not specs:
+            return
+
+        for idx, spec in enumerate(cast(Any, specs)):
+            spec = cast(Any, spec)
+            if not getattr(spec, 'confirmed', True):
+                continue
+            handoff_id = derive_handoff_id(scope, source_id, idx, len(specs), override=spec.handoff_id)
+            handoff_manager.upsert_handoff(
+                handoff_id=handoff_id,
+                source_type=source_type,
+                source_id=source_id,
+                channel_id=channel_id,
+                author_id=actor_id,
+                title=spec.title,
+                summary=spec.summary,
+                next_steps=spec.next_steps,
+                owner=spec.owner,
+                tags=spec.tags,
+                raw=spec.raw,
+                visibility=visibility,
+                origin_peer=origin_peer,
+                created_at=created_at,
+                updated_at=datetime.now(timezone.utc).isoformat(),
+                required_capabilities=spec.required_capabilities,
+                escalation_level=spec.escalation_level,
+                return_to=spec.return_to,
+                context_payload=spec.context_payload,
+            )
+
+    def _collect_inline_structured_summaries(
+        *,
+        content: str,
+        scope: str,
+        source_id: str,
+        task_manager: Any = None,
+        objective_manager: Any = None,
+        request_manager: Any = None,
+        signal_manager: Any = None,
+        contract_manager: Any = None,
+        circle_manager: Any = None,
+        handoff_manager: Any = None,
+    ) -> list[dict[str, Any]]:
+        summaries: list[dict[str, Any]] = []
+        body = content or ''
+        if not body.strip():
+            return summaries
+
+        try:
+            from ..core.tasks import parse_task_blocks, derive_task_id
+
+            task_specs = parse_task_blocks(body)
+            for idx, spec in enumerate(cast(Any, task_specs)):
+                spec = cast(Any, spec)
+                if not getattr(spec, 'confirmed', True):
+                    continue
+                task_id = derive_task_id(scope, source_id, idx, len(task_specs), override=spec.task_id)
+                task = task_manager.get_task(task_id) if task_manager else None
+                if task:
+                    _append_structured_object_summary(
+                        summaries,
+                        object_type='task',
+                        object_id=getattr(task, 'id', task_id),
+                        title=getattr(task, 'title', spec.title),
+                        status=getattr(task, 'status', None),
+                    )
+        except Exception as task_summary_err:
+            logger.debug(f"Structured task summary skipped: {task_summary_err}")
+
+        try:
+            from ..core.objectives import parse_objective_blocks, derive_objective_id
+
+            objective_specs = parse_objective_blocks(body)
+            for idx, spec in enumerate(cast(Any, objective_specs)):
+                spec = cast(Any, spec)
+                objective_id = derive_objective_id(scope, source_id, idx, len(objective_specs), override=spec.objective_id)
+                objective = objective_manager.get_objective(objective_id) if objective_manager else None
+                if objective:
+                    _append_structured_object_summary(
+                        summaries,
+                        object_type='objective',
+                        object_id=objective.get('id') if isinstance(objective, dict) else getattr(objective, 'id', objective_id),
+                        title=objective.get('title') if isinstance(objective, dict) else getattr(objective, 'title', spec.title),
+                        status=objective.get('status') if isinstance(objective, dict) else getattr(objective, 'status', None),
+                    )
+        except Exception as objective_summary_err:
+            logger.debug(f"Structured objective summary skipped: {objective_summary_err}")
+
+        try:
+            from ..core.requests import parse_request_blocks, derive_request_id
+
+            request_specs = parse_request_blocks(body)
+            for idx, spec in enumerate(cast(Any, request_specs)):
+                spec = cast(Any, spec)
+                if not getattr(spec, 'confirmed', True):
+                    continue
+                request_id = derive_request_id(scope, source_id, idx, len(request_specs), override=spec.request_id)
+                request_obj = request_manager.get_request(request_id) if request_manager else None
+                if request_obj:
+                    _append_structured_object_summary(
+                        summaries,
+                        object_type='request',
+                        object_id=request_obj.get('id') if isinstance(request_obj, dict) else request_id,
+                        title=request_obj.get('title') if isinstance(request_obj, dict) else getattr(request_obj, 'title', spec.title),
+                        status=request_obj.get('status') if isinstance(request_obj, dict) else getattr(request_obj, 'status', None),
+                    )
+        except Exception as request_summary_err:
+            logger.debug(f"Structured request summary skipped: {request_summary_err}")
+
+        try:
+            from ..core.signals import parse_signal_blocks, derive_signal_id
+
+            signal_specs = parse_signal_blocks(body)
+            for idx, spec in enumerate(cast(Any, signal_specs)):
+                spec = cast(Any, spec)
+                signal_id = derive_signal_id(scope, source_id, idx, len(signal_specs), override=spec.signal_id)
+                signal_obj = signal_manager.get_signal(signal_id) if signal_manager else None
+                if signal_obj:
+                    _append_structured_object_summary(
+                        summaries,
+                        object_type='signal',
+                        object_id=signal_obj.get('id') if isinstance(signal_obj, dict) else signal_id,
+                        title=signal_obj.get('title') if isinstance(signal_obj, dict) else getattr(signal_obj, 'title', spec.title),
+                        status=signal_obj.get('status') if isinstance(signal_obj, dict) else getattr(signal_obj, 'status', None),
+                    )
+        except Exception as signal_summary_err:
+            logger.debug(f"Structured signal summary skipped: {signal_summary_err}")
+
+        try:
+            from ..core.contracts import parse_contract_blocks, derive_contract_id
+
+            contract_specs = parse_contract_blocks(body)
+            for idx, spec in enumerate(contract_specs):
+                if not spec.confirmed:
+                    continue
+                contract_id = derive_contract_id(scope, source_id, idx, len(contract_specs), override=spec.contract_id)
+                contract_obj = contract_manager.get_contract(contract_id) if contract_manager else None
+                if contract_obj:
+                    _append_structured_object_summary(
+                        summaries,
+                        object_type='contract',
+                        object_id=contract_obj.get('id') if isinstance(contract_obj, dict) else contract_id,
+                        title=contract_obj.get('title') if isinstance(contract_obj, dict) else getattr(contract_obj, 'title', spec.title),
+                        status=contract_obj.get('status') if isinstance(contract_obj, dict) else getattr(contract_obj, 'status', None),
+                    )
+        except Exception as contract_summary_err:
+            logger.debug(f"Structured contract summary skipped: {contract_summary_err}")
+
+        try:
+            from ..core.circles import parse_circle_blocks, derive_circle_id
+
+            circle_specs = parse_circle_blocks(body)
+            for idx, spec in enumerate(cast(Any, circle_specs)):
+                spec = cast(Any, spec)
+                circle_id = derive_circle_id(scope, source_id, idx, len(circle_specs), override=spec.circle_id)
+                circle_obj = circle_manager.get_circle(circle_id) if circle_manager else None
+                if circle_obj:
+                    _append_structured_object_summary(
+                        summaries,
+                        object_type='circle',
+                        object_id=getattr(circle_obj, 'id', circle_id),
+                        title=getattr(circle_obj, 'topic', spec.topic),
+                    )
+        except Exception as circle_summary_err:
+            logger.debug(f"Structured circle summary skipped: {circle_summary_err}")
+
+        try:
+            from ..core.handoffs import parse_handoff_blocks, derive_handoff_id
+
+            handoff_specs = parse_handoff_blocks(body)
+            for idx, spec in enumerate(cast(Any, handoff_specs)):
+                spec = cast(Any, spec)
+                if not getattr(spec, 'confirmed', True):
+                    continue
+                handoff_id = derive_handoff_id(scope, source_id, idx, len(handoff_specs), override=spec.handoff_id)
+                handoff_obj = handoff_manager.get_handoff(handoff_id) if handoff_manager else None
+                if handoff_obj:
+                    _append_structured_object_summary(
+                        summaries,
+                        object_type='handoff',
+                        object_id=getattr(handoff_obj, 'id', handoff_id),
+                        title=getattr(handoff_obj, 'title', spec.title),
+                    )
+        except Exception as handoff_summary_err:
+            logger.debug(f"Structured handoff summary skipped: {handoff_summary_err}")
+
+        return summaries
 
     def _sync_inline_tasks_from_content(
         *,

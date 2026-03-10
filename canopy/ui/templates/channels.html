@@ -709,6 +709,91 @@
         font-size: 0.76rem;
         color: var(--canopy-text-secondary);
     }
+    .structured-composer-toolbar {
+        align-items: center;
+    }
+    .structured-composer-toolbar .dropdown-menu {
+        min-width: 14rem;
+    }
+    .structured-composer-note {
+        font-size: 0.76rem;
+        color: var(--canopy-text-secondary);
+    }
+    .structured-panel {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.45rem;
+    }
+    .structured-panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.65rem;
+    }
+    .structured-panel-summary {
+        font-size: 0.78rem;
+        color: var(--canopy-text-secondary);
+    }
+    .structured-panel-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        width: 100%;
+    }
+    .structured-panel-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        border-radius: 999px;
+        padding: 0.34rem 0.68rem;
+        border: 1px solid rgba(56, 189, 248, 0.26);
+        background: rgba(56, 189, 248, 0.12);
+        color: #d4f2ff;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+    .structured-panel-chip small {
+        font-size: 0.68rem;
+        color: rgba(212, 242, 255, 0.7);
+    }
+    .structured-validation-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.45rem;
+    }
+    .structured-validation-item {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 0.75rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.05);
+        padding-top: 0.45rem;
+    }
+    .structured-validation-item:first-child {
+        border-top: none;
+        padding-top: 0;
+    }
+    .structured-validation-copy {
+        display: flex;
+        flex-direction: column;
+        gap: 0.18rem;
+        min-width: 0;
+    }
+    .structured-validation-copy strong {
+        font-size: 0.76rem;
+        color: var(--canopy-text-primary);
+    }
+    .structured-validation-copy span {
+        font-size: 0.76rem;
+        color: var(--canopy-text-secondary);
+    }
+    .structured-validation-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        justify-content: flex-end;
+    }
     .channel-custom-expiry .form-control,
     .channel-custom-expiry .form-select {
         font-size: 0.8rem;
@@ -1925,6 +2010,47 @@
                             <small id="channel-structured-nudge-summary" class="structured-nudge-summary ms-2"></small>
                         </div>
                         <div id="channel-structured-nudge-actions" class="structured-nudge-actions"></div>
+                    </div>
+                    <div class="task-inline-toggle mb-2 structured-composer-toolbar">
+                        <div class="task-inline-info">
+                            <span class="badge bg-info-subtle text-info-emphasis">Tools</span>
+                            <small class="structured-composer-note ms-2">Insert canonical coordination blocks for agents and humans.</small>
+                        </div>
+                        <div class="btn-group btn-group-sm">
+                            <button type="button"
+                                    class="btn btn-outline-info dropdown-toggle"
+                                    id="channel-structured-tools-toggle"
+                                    data-bs-toggle="dropdown"
+                                    aria-expanded="false">
+                                <i class="bi bi-diagram-3 me-1"></i>Structured tools
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="channel-structured-tools-toggle">
+                                <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('task')"><i class="bi bi-check2-square me-2"></i>Task block</button></li>
+                                <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('request')"><i class="bi bi-question-circle me-2"></i>Request block</button></li>
+                                <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('objective')"><i class="bi bi-bullseye me-2"></i>Objective block</button></li>
+                                <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('handoff')"><i class="bi bi-arrow-left-right me-2"></i>Handoff block</button></li>
+                                <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('signal')"><i class="bi bi-broadcast-pin me-2"></i>Signal block</button></li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div id="channel-structured-validation" class="task-inline-toggle mb-2 structured-panel" style="display: none;">
+                        <div class="structured-panel-header">
+                            <div class="task-inline-info">
+                                <span class="badge bg-warning-subtle text-warning-emphasis">Fix before send</span>
+                                <small id="channel-structured-validation-summary" class="structured-panel-summary ms-2"></small>
+                            </div>
+                            <div class="structured-validation-actions" id="channel-structured-validation-global-actions"></div>
+                        </div>
+                        <div id="channel-structured-validation-list" class="structured-validation-list"></div>
+                    </div>
+                    <div id="channel-structured-result" class="task-inline-toggle mb-2 structured-panel" style="display: none;">
+                        <div class="structured-panel-header">
+                            <div class="task-inline-info">
+                                <span class="badge bg-success-subtle text-success">Structured created</span>
+                                <small id="channel-structured-result-summary" class="structured-panel-summary ms-2"></small>
+                            </div>
+                        </div>
+                        <div id="channel-structured-result-list" class="structured-panel-list"></div>
                     </div>
                     <div class="input-group">
                         <div class="position-relative flex-grow-1">
@@ -8515,6 +8641,9 @@ function formatFileSize(bytes) {
 }
 
 function hasStructuredToolBlock(text) {
+    if (window.canopyStructuredComposer && typeof window.canopyStructuredComposer.hasStructuredToolBlock === 'function') {
+        return window.canopyStructuredComposer.hasStructuredToolBlock(text);
+    }
     if (!text) return false;
     return /(\[task\]|\[objective\]|\[request\]|\[signal\]|\[handoff\]|\[circle\]|\[contract\]|::task|::objective|::request|::signal|::handoff|::circle|::contract)/i.test(String(text));
 }
@@ -8583,6 +8712,9 @@ function deriveSignalTags(text) {
 }
 
 function buildToolBlock(toolType, sourceText) {
+    if (window.canopyStructuredComposer && typeof window.canopyStructuredComposer.buildToolBlock === 'function') {
+        return window.canopyStructuredComposer.buildToolBlock(toolType, sourceText);
+    }
     const body = toSingleLineSummary(sourceText);
     const mentions = extractMentionHandles(sourceText);
     const leadMention = mentions[0] || '';
@@ -8684,6 +8816,9 @@ function promoteDraftToTool(toolType) {
 }
 
 function getToolLabel(toolType) {
+    if (window.canopyStructuredComposer && window.canopyStructuredComposer.labels) {
+        return window.canopyStructuredComposer.labels[toolType] || toolType;
+    }
     const labels = {
         task: 'Task',
         request: 'Request',
@@ -8817,6 +8952,136 @@ function updateChannelStructuredNudge() {
     wrap.style.display = 'flex';
 }
 
+function channelStructuredResultIcon(itemType) {
+    const icons = {
+        task: 'check2-square',
+        request: 'question-circle',
+        objective: 'bullseye',
+        handoff: 'arrow-left-right',
+        signal: 'broadcast-pin',
+        circle: 'chat-square-text',
+        contract: 'file-earmark-text',
+    };
+    return icons[itemType] || 'diagram-3';
+}
+
+function renderChannelStructuredResult(items) {
+    const panel = document.getElementById('channel-structured-result');
+    const summary = document.getElementById('channel-structured-result-summary');
+    const list = document.getElementById('channel-structured-result-list');
+    if (!panel || !summary || !list) return;
+
+    const normalized = Array.isArray(items) ? items.filter(Boolean) : [];
+    if (!normalized.length) {
+        panel.style.display = 'none';
+        summary.textContent = '';
+        list.innerHTML = '';
+        return;
+    }
+
+    summary.textContent = normalized.length === 1
+        ? `${getToolLabel(normalized[0].type || 'item')} materialized from this message.`
+        : `${normalized.length} structured objects materialized from this message.`;
+    list.innerHTML = normalized.map((item) => {
+        const title = item.title ? escapeHtml(String(item.title)) : getToolLabel(item.type || 'item');
+        const status = item.status ? `<small>${escapeHtml(String(item.status))}</small>` : '';
+        return `<span class="structured-panel-chip"><i class="bi bi-${channelStructuredResultIcon(item.type)}"></i>${title}${status}</span>`;
+    }).join('');
+    panel.style.display = 'flex';
+}
+
+function insertChannelStructuredTemplate(toolType) {
+    const input = document.getElementById('message-input');
+    if (!input) return;
+    const support = window.canopyStructuredComposer;
+    const raw = String(input.value || '');
+    const nextValue = support && typeof support.applyTemplateToDraft === 'function'
+        ? support.applyTemplateToDraft(toolType, raw)
+        : buildToolBlock(toolType, raw.trim());
+    input.value = nextValue;
+    input.focus();
+    notifyComposerUpdate();
+    if (typeof showAlert === 'function') {
+        showAlert(`${getToolLabel(toolType)} template inserted.`, 'success');
+    }
+}
+
+function applyChannelStructuredAliasFix(fromTag, toTag) {
+    const input = document.getElementById('message-input');
+    const support = window.canopyStructuredComposer;
+    if (!input || !support || typeof support.replaceStructuredTagAlias !== 'function') return;
+    input.value = support.replaceStructuredTagAlias(input.value || '', fromTag, toTag);
+    input.focus();
+    notifyComposerUpdate();
+}
+
+function normalizeChannelStructuredBlocks() {
+    const input = document.getElementById('message-input');
+    const support = window.canopyStructuredComposer;
+    if (!input || !support || typeof support.normalizeDecoratedStructuredTags !== 'function') return;
+    input.value = support.normalizeDecoratedStructuredTags(input.value || '');
+    input.focus();
+    notifyComposerUpdate();
+}
+
+function renderChannelStructuredValidation(result) {
+    const panel = document.getElementById('channel-structured-validation');
+    const summary = document.getElementById('channel-structured-validation-summary');
+    const list = document.getElementById('channel-structured-validation-list');
+    const globalActions = document.getElementById('channel-structured-validation-global-actions');
+    if (!panel || !summary || !list || !globalActions) return;
+
+    const issues = result && Array.isArray(result.issues) ? result.issues : [];
+    if (!issues.length) {
+        panel.style.display = 'none';
+        summary.textContent = '';
+        list.innerHTML = '';
+        globalActions.innerHTML = '';
+        return;
+    }
+
+    summary.textContent = issues.length === 1
+        ? 'One structured block issue needs correction.'
+        : `${issues.length} structured block issues need correction.`;
+
+    const needsNormalize = issues.some((issue) => issue && issue.kind === 'decorated_tag');
+    globalActions.innerHTML = needsNormalize
+        ? '<button type="button" class="btn btn-sm btn-outline-warning" onclick="normalizeChannelStructuredBlocks()">Normalize block syntax</button>'
+        : '';
+
+    list.innerHTML = issues.map((issue) => {
+        const heading = issue.line ? `Line ${issue.line}` : getToolLabel(issue.tag || 'item');
+        const fixButton = issue.suggestedTag
+            ? `<button type="button" class="btn btn-sm btn-outline-warning" onclick="applyChannelStructuredAliasFix('${escapeHtml(String(issue.tag || ''))}', '${escapeHtml(String(issue.suggestedTag || ''))}')">Convert to ${escapeHtml(getToolLabel(issue.suggestedTag))}</button>`
+            : '';
+        return `
+            <div class="structured-validation-item">
+                <div class="structured-validation-copy">
+                    <strong>${escapeHtml(heading)}</strong>
+                    <span>${escapeHtml(String(issue.message || 'Fix this structured block before sending.'))}</span>
+                </div>
+                <div class="structured-validation-actions">${fixButton}</div>
+            </div>
+        `;
+    }).join('');
+    panel.style.display = 'flex';
+}
+
+function updateChannelStructuredValidation() {
+    const input = document.getElementById('message-input');
+    const support = window.canopyStructuredComposer;
+    if (!input || !support || typeof support.validate !== 'function') {
+        renderChannelStructuredValidation({ issues: [] });
+        return { issues: [], blocking: false };
+    }
+    const result = support.validate(input.value || '');
+    renderChannelStructuredValidation(result);
+    if (String(input.value || '').trim()) {
+        renderChannelStructuredResult([]);
+    }
+    return result;
+}
+
 function setChannelSendState(inFlight) {
     channelSendInFlight = !!inFlight;
     const sendBtn = document.querySelector('#message-form button[type="submit"]');
@@ -8865,6 +9130,12 @@ function sendMessage(event) {
             content = adjusted.trim();
         }
     }
+
+    const structuredValidation = updateChannelStructuredValidation();
+    if (structuredValidation && structuredValidation.blocking) {
+        showAlert('Fix the structured block issues before sending this message.', 'warning');
+        return;
+    }
     
     const messageData = {
         content: content,
@@ -8899,6 +9170,8 @@ function sendMessage(event) {
             cancelReply();  // clear reply context
             updateChannelTaskToggle();
             updateChannelStructuredNudge();
+            renderChannelStructuredValidation({ issues: [] });
+            renderChannelStructuredResult(data.structured_objects || []);
             // Always append incrementally after sending — avoids the
             // flash/spinner from a full loadChannelMessages() reload
             apiCall(`/ajax/channel_messages/${currentChannelId}`)
@@ -10739,6 +11012,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     handleChannelMentionInput();
                     updateChannelTaskToggle();
                     updateChannelStructuredNudge();
+                    updateChannelStructuredValidation();
                 });
                 msgInput.addEventListener('keydown', (e) => {
                     if (e.key === 'Escape') {
@@ -10758,6 +11032,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             updateChannelTaskToggle();
             updateChannelStructuredNudge();
+            updateChannelStructuredValidation();
 
 	        // Deep-linking: /channels?channel=... or /channels?focus_channel=...&focus_message=...
 	        const params = new URLSearchParams(window.location.search);

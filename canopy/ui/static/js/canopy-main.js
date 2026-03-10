@@ -72,6 +72,266 @@
             }, 5000);
 	        }
 
+        (function initStructuredComposerSupport(global) {
+            const SUPPORTED_TAGS = new Set([
+                'task',
+                'objective',
+                'request',
+                'signal',
+                'handoff',
+                'circle',
+                'contract',
+                'skill',
+            ]);
+            const CANONICAL_TEMPLATE_TYPES = ['task', 'request', 'objective', 'handoff', 'signal'];
+            const TOOL_LABELS = {
+                task: 'Task',
+                request: 'Request',
+                objective: 'Objective',
+                handoff: 'Handoff',
+                signal: 'Signal',
+                circle: 'Circle',
+                contract: 'Contract',
+                skill: 'Skill',
+            };
+            const TAG_SUGGESTIONS = {
+                artifact: 'signal',
+                findings: 'signal',
+                finding: 'signal',
+                status: 'signal',
+                update: 'signal',
+                request_accepted: 'handoff',
+                'request-accepted': 'handoff',
+                accepted_request: 'handoff',
+            };
+
+            function normalizeToolBody(text) {
+                if (!text) return '';
+                return String(text)
+                    .replace(/\r\n?/g, '\n')
+                    .replace(/\n{3,}/g, '\n\n')
+                    .trim();
+            }
+
+            function maskCodeFences(text) {
+                return String(text || '').replace(/```[\s\S]*?```/g, (match) => '\u0000'.repeat(match.length));
+            }
+
+            function toSingleLineSummary(text, maxLen = 360) {
+                const clean = normalizeToolBody(text)
+                    .replace(/\s*\n+\s*/g, ' / ')
+                    .replace(/\s{2,}/g, ' ')
+                    .trim();
+                if (!clean) return '';
+                return clean.length > maxLen ? `${clean.slice(0, maxLen - 3).trim()}...` : clean;
+            }
+
+            function deriveToolTitle(text, fallback) {
+                const clean = normalizeToolBody(text);
+                if (!clean) return fallback;
+                const first = clean.split('\n')[0] || '';
+                const compact = first
+                    .replace(/^(?:[@#][\w.\-]+\s*)+/, '')
+                    .replace(/^[>\-*0-9.\s]+/, '')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+                if (!compact) return fallback;
+                return compact.length > 90 ? `${compact.slice(0, 87).trim()}...` : compact;
+            }
+
+            function extractMentionHandles(text, limit = 8) {
+                if (!text || limit <= 0) return [];
+                const matches = String(text).matchAll(/(?:^|\s)@([A-Za-z0-9_.-]{1,64})/g);
+                const seen = new Set();
+                const handles = [];
+                for (const match of matches) {
+                    const raw = String(match && match[1] ? match[1] : '').trim();
+                    if (!raw) continue;
+                    const key = raw.toLowerCase();
+                    if (seen.has(key)) continue;
+                    seen.add(key);
+                    handles.push(`@${raw}`);
+                    if (handles.length >= limit) break;
+                }
+                return handles;
+            }
+
+            function deriveSignalTags(text) {
+                const lc = String(text || '').toLowerCase();
+                const tags = [];
+                const addTag = (tag) => {
+                    if (tags.indexOf(tag) === -1) tags.push(tag);
+                };
+
+                if (/\b(latency|benchmark|p50|p95|p99|slo|kpi|metric|throughput|mean|median|ci|confidence)\b/.test(lc)) addTag('metrics');
+                if (/\b(security|access|forbidden|auth|permission|private|governance|trust)\b/.test(lc)) addTag('security');
+                if (/\b(relay|mesh|peer|catchup|sync|connect|ws:|websocket|nat|turn|stun)\b/.test(lc)) addTag('network');
+                if (/\b(fix|bug|error|regression|issue|failed|failure|incident)\b/.test(lc)) addTag('incident');
+                if (/\b(experiment|dataset|csv|json|evidence|figure|chart|plot|artifact)\b/.test(lc)) addTag('evidence');
+                if (!tags.length) addTag('update');
+                return tags.slice(0, 3);
+            }
+
+            function buildToolBlock(toolType, sourceText) {
+                const body = toSingleLineSummary(sourceText);
+                const mentions = extractMentionHandles(sourceText);
+                const leadMention = mentions[0] || '';
+                const assigneesCsv = mentions.join(', ');
+                const objectiveMembersCsv = mentions.map((handle, idx) => (idx === 0 ? `${handle} (lead)` : handle)).join(', ');
+                const defaults = {
+                    task: 'Action item',
+                    request: 'Coordination request',
+                    objective: 'Execution objective',
+                    handoff: 'Ownership handoff',
+                    signal: 'Operational finding',
+                };
+                const fallback = defaults[toolType] || 'Structured item';
+                const title = deriveToolTitle(sourceText, fallback);
+                const assigneeLine = leadMention ? `\nassignee: ${leadMention}` : '';
+                const requestMemberLine = assigneesCsv ? `\nassignees: ${assigneesCsv}` : '';
+                const objectiveMemberLine = objectiveMembersCsv ? `\nmembers: ${objectiveMembersCsv}` : '';
+                const handoffOwnerLine = leadMention ? `\nowner: ${leadMention}` : '';
+                const signalOwnerLine = leadMention ? `\nowner: ${leadMention}` : '';
+                const signalTags = deriveSignalTags(sourceText).join(', ');
+
+                if (toolType === 'task') {
+                    return `[task]\ntitle: ${title}\ndescription: ${body || 'Define the work to execute.'}${assigneeLine}\npriority: normal\n[/task]`;
+                }
+                if (toolType === 'request') {
+                    return `[request]\ntitle: ${title}\nrequest: ${body || 'Please complete this request.'}${requestMemberLine}\nrequired_output: Reply with owner, status, and evidence.\npriority: normal\n[/request]`;
+                }
+                if (toolType === 'objective') {
+                    return `[objective]\ntitle: ${title}\ndescription: ${body || 'Track this as a multi-step objective.'}${objectiveMemberLine}\ntasks:\n- [ ] Confirm owner\n- [ ] Execute\n- [ ] Report results\n[/objective]`;
+                }
+                if (toolType === 'handoff') {
+                    return `[handoff]\ntitle: ${title}\nsummary: ${body || 'Transfer ownership with clear next steps.'}${handoffOwnerLine}\nnext:\n- Confirm owner\n- Execute and report back\n[/handoff]`;
+                }
+                if (toolType === 'signal') {
+                    return `[signal]\ntype: finding\ntitle: ${title}\nsummary: ${body || 'Record this as durable structured context.'}${signalOwnerLine}\ntags: ${signalTags}\n[/signal]`;
+                }
+                return sourceText || '';
+            }
+
+            function applyTemplateToDraft(toolType, currentText) {
+                const raw = String(currentText || '');
+                const trimmed = raw.trim();
+                if (!trimmed) {
+                    return buildToolBlock(toolType, '');
+                }
+                if (hasStructuredToolBlock(trimmed)) {
+                    return `${trimmed}\n\n${buildToolBlock(toolType, '')}`;
+                }
+                return buildToolBlock(toolType, trimmed);
+            }
+
+            function hasStructuredToolBlock(text) {
+                const masked = maskCodeFences(text);
+                return /(\[(task|objective|request|signal|handoff|circle|contract|skill)\]|\[\/(task|objective|request|signal|handoff|circle|contract|skill)\]|::(task|objective|request|signal|handoff|circle|contract|skill)\b)/i.test(masked);
+            }
+
+            function replaceStructuredTagAlias(text, fromTag, toTag) {
+                if (!text || !fromTag || !toTag) return String(text || '');
+                const escapedFrom = String(fromTag).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const openPattern = new RegExp(`(^|\\n)(\\s*)\\[${escapedFrom}\\](?=\\s|$)`, 'gi');
+                const closePattern = new RegExp(`(^|\\n)(\\s*)\\[\\/${escapedFrom}\\](?=\\s|$)`, 'gi');
+                return String(text)
+                    .replace(openPattern, (_, prefix, indent) => `${prefix}${indent}[${toTag}]`)
+                    .replace(closePattern, (_, prefix, indent) => `${prefix}${indent}[/${toTag}]`);
+            }
+
+            function normalizeDecoratedStructuredTags(text) {
+                if (!text) return '';
+                return String(text).replace(
+                    /^(\s*)(?:\*\*|__|\*|_|>+)\s*(\[(?:\/)?(?:task|objective|request|signal|handoff|circle|contract|skill)\])/gim,
+                    '$1$2'
+                );
+            }
+
+            function validateStructuredComposerText(text) {
+                const raw = String(text || '');
+                const masked = maskCodeFences(raw);
+                const issues = [];
+                const lines = raw.split(/\r?\n/);
+                const openCounts = Object.create(null);
+                const closeCounts = Object.create(null);
+
+                lines.forEach((line, index) => {
+                    const trimmed = line.trim();
+                    if (!trimmed) return;
+
+                    const decorated = trimmed.match(/^(?:\*\*|__|\*|_|>+)\s*(\[(?:\/)?([A-Za-z][A-Za-z0-9_-]*)\])/);
+                    if (decorated && SUPPORTED_TAGS.has(String(decorated[2] || '').toLowerCase())) {
+                        issues.push({
+                            kind: 'decorated_tag',
+                            line: index + 1,
+                            tag: String(decorated[2] || '').toLowerCase(),
+                            message: `Line ${index + 1}: remove markdown decoration so the block starts directly with [${String(decorated[2] || '').toLowerCase()}].`,
+                        });
+                    }
+
+                    const maskedLine = masked.split(/\r?\n/)[index] || '';
+                    if (maskedLine.indexOf('\u0000') !== -1) return;
+
+                    const tagMatch = trimmed.match(/^\[(\/?)([A-Za-z][A-Za-z0-9_-]*)\]/);
+                    if (!tagMatch) return;
+                    const isClose = tagMatch[1] === '/';
+                    const rawTag = String(tagMatch[2] || '').trim();
+                    const tag = rawTag.toLowerCase();
+                    if (!SUPPORTED_TAGS.has(tag)) {
+                        issues.push({
+                            kind: 'unknown_tag',
+                            line: index + 1,
+                            tag,
+                            suggestedTag: TAG_SUGGESTIONS[tag] || null,
+                            message: TAG_SUGGESTIONS[tag]
+                                ? `Line ${index + 1}: [${rawTag}] is not a canonical block. Use [${TAG_SUGGESTIONS[tag]}] instead.`
+                                : `Line ${index + 1}: [${rawTag}] is not a supported Canopy tool block.`,
+                        });
+                        return;
+                    }
+                    if (isClose) closeCounts[tag] = (closeCounts[tag] || 0) + 1;
+                    else openCounts[tag] = (openCounts[tag] || 0) + 1;
+                });
+
+                SUPPORTED_TAGS.forEach((tag) => {
+                    const openCount = openCounts[tag] || 0;
+                    const closeCount = closeCounts[tag] || 0;
+                    if (openCount > closeCount) {
+                        issues.push({
+                            kind: 'missing_close',
+                            tag,
+                            line: null,
+                            message: `Add [/${tag}] before sending so the ${TOOL_LABELS[tag] || tag} block closes cleanly.`,
+                        });
+                    } else if (closeCount > openCount) {
+                        issues.push({
+                            kind: 'missing_open',
+                            tag,
+                            line: null,
+                            message: `Remove the extra [/${tag}] or add the missing [${tag}] block opener.`,
+                        });
+                    }
+                });
+
+                return {
+                    issues,
+                    blocking: issues.length > 0,
+                };
+            }
+
+            global.canopyStructuredComposer = {
+                supportedTags: Array.from(SUPPORTED_TAGS),
+                templateTypes: CANONICAL_TEMPLATE_TYPES.slice(),
+                labels: Object.assign({}, TOOL_LABELS),
+                buildToolBlock,
+                applyTemplateToDraft,
+                hasStructuredToolBlock,
+                validate: validateStructuredComposerText,
+                replaceStructuredTagAlias,
+                normalizeDecoratedStructuredTags,
+            };
+        })(window);
+
         // --- Peer/user avatar helpers (stacked avatars) ---
         const canopyPeerProfiles = window.CANOPY_VARS ? window.CANOPY_VARS.peerProfiles : {};
         const canopyPeerTrust = window.CANOPY_VARS ? (window.CANOPY_VARS.peerTrust || {}) : {};
