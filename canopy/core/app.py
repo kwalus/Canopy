@@ -4635,9 +4635,8 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         api_user_ids = set()
 
                     rows = conn.execute(
-                        "SELECT id, username, origin_peer, public_key FROM users "
+                        "SELECT id, username, origin_peer, public_key, password_hash FROM users "
                         "WHERE id != 'system' AND id != 'local_user' "
-                        "AND password_hash IS NOT NULL AND password_hash != '' "
                         "AND COALESCE(status, 'active') = 'active' "
                         "ORDER BY created_at ASC"
                     ).fetchall()
@@ -4648,11 +4647,15 @@ def create_app(config: Optional[Config] = None) -> Flask:
                             username = (row['username'] or '').strip().lower()
                             origin_peer = (row['origin_peer'] or '').strip()
                             has_public_key = bool((row['public_key'] or '').strip())
+                            has_password = bool((row['password_hash'] or '').strip())
                         except Exception:
                             user_id = row[0]
                             username = ''
                             origin_peer = ''
                             has_public_key = False
+                            has_password = False
+
+                        has_api_key = user_id in api_user_ids
 
                         is_local = False
                         if origin_peer:
@@ -4661,10 +4664,11 @@ def create_app(config: Optional[Config] = None) -> Flask:
                             # Legacy fallback: local users may have no origin_peer.
                             # Avoid relaying synthetic shadow rows (peer-* without
                             # local credentials) as if they were local profiles.
-                            if username.startswith('peer-') and not has_public_key and user_id not in api_user_ids:
+                            has_local_auth_evidence = bool(has_password or has_public_key or has_api_key)
+                            if username.startswith('peer-') and not has_local_auth_evidence:
                                 is_local = False
                             else:
-                                is_local = True
+                                is_local = has_local_auth_evidence
 
                         if is_local and user_id and user_id not in seen:
                             seen.add(user_id)

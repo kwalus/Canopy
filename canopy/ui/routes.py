@@ -104,6 +104,21 @@ def _is_private_ip(host: str) -> bool:
         return False
 
 
+def _normalize_origin_peer_value(origin_peer: Any, local_peer_id: Optional[str] = None) -> Optional[str]:
+    """Treat local-peer origin markers as local, not remote."""
+    origin = str(origin_peer or '').strip()
+    if not origin:
+        return None
+    local_peer = str(local_peer_id or '').strip()
+    if local_peer and origin == local_peer:
+        return None
+    return origin
+
+
+def _is_remote_origin_peer(origin_peer: Any, local_peer_id: Optional[str] = None) -> bool:
+    return _normalize_origin_peer_value(origin_peer, local_peer_id) is not None
+
+
 def _resolve_p2p_stream(stream_id: str, db_manager: Any, p2p_manager: Any) -> Optional[dict[str, Any]]:
     """Find the origin peer for a stream not stored locally and return a remote playback URL.
 
@@ -361,6 +376,7 @@ def create_ui_blueprint() -> Blueprint:
         try:
             db_manager, _, trust_manager, message_manager, channel_manager, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
             connected_peers = p2p_manager.get_connected_peers() if p2p_manager else []
+            local_peer_id = p2p_manager.get_peer_id() if p2p_manager else None
             peer_snapshot = _build_sidebar_peer_snapshot(
                 list(connected_peers or []),
                 trust_manager,
@@ -383,6 +399,7 @@ def create_ui_blueprint() -> Blueprint:
                 'sidebar_peer_rev': peer_snapshot['peer_rev'],
                 'sidebar_recent_dm_contacts': dm_snapshot['recent_dm_contacts'],
                 'sidebar_dm_rev': dm_snapshot['dm_rev'],
+                'sidebar_local_peer_id': local_peer_id,
             }
             # Admin link and badge (instance owner only)
             owner_id = db_manager.get_instance_owner_user_id()
@@ -1353,6 +1370,13 @@ def create_ui_blueprint() -> Blueprint:
         if not user_ids:
             return
         presence_records = get_agent_presence_records(db_manager=db_manager, user_ids=user_ids)
+        local_peer_id = None
+        try:
+            _, _, _, _, _, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+            local_peer_id = p2p_manager.get_peer_id() if p2p_manager else None
+        except Exception:
+            local_peer_id = None
+
         for user in users:
             uid = str(user.get('id') or user.get('user_id') or '').strip()
             presence_record = presence_records.get(uid) or {}
@@ -1363,7 +1387,8 @@ def create_ui_blueprint() -> Blueprint:
                 has_presence_checkin=bool(presence_record.get('last_check_in_at')),
             )
             user['account_type'] = account_type
-            origin_peer = str(user.get('origin_peer') or '').strip()
+            origin_peer = _normalize_origin_peer_value(user.get('origin_peer'), local_peer_id)
+            user['origin_peer'] = origin_peer
             presence = build_agent_presence_payload(
                 last_check_in_at=presence_record.get('last_check_in_at'),
                 is_remote=bool(origin_peer),
@@ -1722,9 +1747,11 @@ def create_ui_blueprint() -> Blueprint:
         audit_limit: int = 25,
     ) -> dict[str, Any]:
         user_id = user_row.get('id')
-        db_manager, _, _, _, channel_manager, _, _, _, profile_manager, _, _ = _get_app_components_any(current_app)
+        db_manager, _, _, _, channel_manager, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
         mention_manager = current_app.config.get('MENTION_MANAGER')
         inbox_manager = current_app.config.get('INBOX_MANAGER')
+        local_peer_id = p2p_manager.get_peer_id() if p2p_manager else None
+        normalized_origin_peer = _normalize_origin_peer_value(user_row.get('origin_peer'), local_peer_id)
 
         profile = None
         try:
@@ -1761,9 +1788,9 @@ def create_ui_blueprint() -> Blueprint:
                 'account_type': user_row.get('account_type') or 'human',
                 'status': user_row.get('status') or 'active',
                 'theme_preference': theme_preference,
-                'origin_peer': user_row.get('origin_peer'),
+                'origin_peer': normalized_origin_peer,
                 'created_at': user_row.get('created_at'),
-                'is_local': not bool(user_row.get('origin_peer')),
+                'is_local': not bool(normalized_origin_peer),
             },
             'inbox': {
                 'available': bool(inbox_manager),
@@ -13928,7 +13955,8 @@ def create_ui_blueprint() -> Blueprint:
     def ajax_get_user_display_info():
         """AJAX endpoint to get user display information for avatars/names."""
         try:
-            db_manager, _, _, _, _, _, _, _, profile_manager, _, _ = _get_app_components_any(current_app)
+            db_manager, _, _, _, _, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+            local_peer_id = p2p_manager.get_peer_id() if p2p_manager else None
             
             user_ids = request.args.get('user_ids', '').split(',')
             user_ids = [uid.strip() for uid in user_ids if uid.strip()]
@@ -14000,7 +14028,7 @@ def create_ui_blueprint() -> Blueprint:
                     has_presence_checkin=bool((presence_records.get(user_id) or {}).get('last_check_in_at')),
                 )
                 status = str(status or 'active').strip().lower() or 'active'
-                origin_peer = str(origin_peer or '').strip() or None
+                origin_peer = _normalize_origin_peer_value(origin_peer, local_peer_id)
 
                 user_info[user_id] = {
                     'display_name': display_name,
@@ -14758,7 +14786,8 @@ def create_ui_blueprint() -> Blueprint:
     def ajax_mention_suggestions():
         """Return mentionable users (optionally scoped to a channel)."""
         try:
-            db_manager, _, _, _, channel_manager, _, _, _, profile_manager, _, _ = _get_app_components_any(current_app)
+            db_manager, _, _, _, channel_manager, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+            local_peer_id = p2p_manager.get_peer_id() if p2p_manager else None
             user_id = get_current_user()
             channel_id = request.args.get('channel_id')
             query = str(request.args.get('q') or '').strip().lower()
@@ -15000,11 +15029,10 @@ def create_ui_blueprint() -> Blueprint:
                         has_presence_checkin=bool(presence_record.get('last_check_in_at')),
                     )
                     user['account_type'] = account_type_norm
-                    origin_peer = origin_peer_map.get(uid) or ''
+                    origin_peer = _normalize_origin_peer_value(origin_peer_map.get(uid), local_peer_id)
                     is_remote = bool(origin_peer)
                     user['is_remote'] = is_remote
-                    if origin_peer:
-                        user['origin_peer'] = origin_peer
+                    user['origin_peer'] = origin_peer
 
                     presence = build_agent_presence_payload(
                         last_check_in_at=presence_record.get('last_check_in_at'),

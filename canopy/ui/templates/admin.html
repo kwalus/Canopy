@@ -2903,7 +2903,12 @@
 
         if (workspaceSelectedName) workspaceSelectedName.textContent = selectedWorkspaceUserLabel || 'Unknown user';
         if (workspaceSelectedMeta) {
-            const remoteLabel = user.origin_peer ? `remote via ${user.origin_peer}` : 'local';
+            const localPeerId = (window.CANOPY_VARS && window.CANOPY_VARS.localPeerId)
+                ? String(window.CANOPY_VARS.localPeerId).trim()
+                : '';
+            const originPeer = String(user.origin_peer || '').trim();
+            const isRemote = !!(originPeer && (!localPeerId || originPeer !== localPeerId));
+            const remoteLabel = isRemote ? `remote via ${originPeer}` : 'local';
             workspaceSelectedMeta.textContent = `@${user.username || user.id || ''} · ${user.account_type || 'human'} · ${user.status || 'active'} · ${remoteLabel}`;
         }
 

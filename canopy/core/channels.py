@@ -659,8 +659,6 @@ class ChannelManager:
                     CREATE INDEX IF NOT EXISTS idx_channel_messages_thread ON channel_messages(thread_id);
                     -- Unique constraint for public channel names
                     CREATE UNIQUE INDEX IF NOT EXISTS idx_channels_public_name ON channels(name) WHERE channel_type = 'public';
-                    CREATE INDEX IF NOT EXISTS idx_channels_last_activity ON channels(last_activity_at);
-                    CREATE INDEX IF NOT EXISTS idx_channels_lifecycle_archived ON channels(lifecycle_archived_at, lifecycle_preserved);
 
                     -- Private-channel E2E key state (phase-1 scaffolding).
                     CREATE TABLE IF NOT EXISTS channel_keys (
@@ -766,6 +764,16 @@ class ChannelManager:
                     except Exception:
                         conn.execute(sql)
                         logger.info(f"Added {col} column to channels table")
+
+                try:
+                    conn.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_channels_last_activity ON channels(last_activity_at)"
+                    )
+                    conn.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_channels_lifecycle_archived ON channels(lifecycle_archived_at, lifecycle_preserved)"
+                    )
+                except Exception as idx_err:
+                    logger.debug(f"Could not create channel lifecycle indexes: {idx_err}")
 
                 # Add expires_at column to channel_messages if missing
                 try:

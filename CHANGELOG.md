@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.66] - 2026-03-10
+
+### Fixed
+- **Debug-hood follow-up hardening** — Remote profile sync now carries and applies `account_type`, local profile-card sync no longer depends on password-only account shapes, channel reply buttons no longer rely on fragile inline JavaScript interpolation, YouTube mini-player updates avoid eager startup reparenting, and identity/admin UI now treats `origin_peer == local_peer_id` as local instead of remote.
+
 ## [0.4.65] - 2026-03-10
 
 ### Added

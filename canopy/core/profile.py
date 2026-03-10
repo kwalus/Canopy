@@ -470,19 +470,38 @@ class ProfileManager:
     def get_profile_card(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Build a shareable profile card for P2P transmission.
 
-        Returns a dict with username, display_name, bio, and an optional
-        base64-encoded avatar thumbnail (max ~64 KB JPEG).  Returns None
-        if the user does not exist.
+        Returns a dict with username, display_name, bio, account_type, and
+        an optional base64-encoded avatar thumbnail (max ~64 KB JPEG).
+        Returns None if the user does not exist.
         """
         profile = self.get_profile(user_id)
         if not profile:
             return None
+
+        account_type = 'human'
+        try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT account_type FROM users WHERE id = ?",
+                    (user_id,),
+                ).fetchone()
+            if row:
+                raw_account_type = ''
+                if hasattr(row, 'keys'):
+                    raw_account_type = str(row['account_type'] or '').strip().lower()
+                else:
+                    raw_account_type = str(row[0] or '').strip().lower()
+                if raw_account_type in ('human', 'agent'):
+                    account_type = raw_account_type
+        except Exception:
+            pass
 
         card: Dict[str, Any] = {
             'user_id': profile.user_id,
             'username': profile.username,
             'display_name': profile.display_name or profile.username,
             'bio': profile.bio or '',
+            'account_type': account_type,
         }
 
         # Include avatar thumbnail if available (required for P2P propagation to other peers)
@@ -564,6 +583,7 @@ class ProfileManager:
         """
         display_name = profile_data.get('display_name')
         bio = profile_data.get('bio')
+        remote_account_type = str(profile_data.get('account_type') or '').strip().lower()
         avatar_b64 = profile_data.get('avatar_thumbnail')
         avatar_ct = profile_data.get('avatar_content_type', 'image/jpeg')
         remote_username = profile_data.get('username', '')
@@ -574,7 +594,7 @@ class ProfileManager:
             # Ensure user row exists
             with self.db.get_connection() as conn:
                 row = conn.execute(
-                    "SELECT id, display_name, bio, avatar_file_id FROM users WHERE id = ?",
+                    "SELECT id, display_name, bio, avatar_file_id, account_type FROM users WHERE id = ?",
                     (user_id,)
                 ).fetchone()
 
@@ -588,6 +608,10 @@ class ProfileManager:
                     updates['display_name'] = display_name
             if bio is not None and bio != (row['bio'] or ''):
                 updates['bio'] = bio
+            if remote_account_type in ('human', 'agent'):
+                current_account_type = str(row['account_type'] or '').strip().lower()
+                if remote_account_type != current_account_type:
+                    updates['account_type'] = remote_account_type
 
             # Save avatar thumbnail — only if content actually changed
             if avatar_b64 and self.file_manager:

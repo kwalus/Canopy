@@ -61,6 +61,27 @@ class _FakeDbManager:
         return dict(row) if row else None
 
 
+class _LegacyChannelSchemaDbManager(_FakeDbManager):
+    def __init__(self) -> None:
+        super().__init__()
+        self.conn.execute("DROP TABLE IF EXISTS channels")
+        self.conn.execute(
+            """
+            CREATE TABLE channels (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                channel_type TEXT NOT NULL,
+                created_by TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                description TEXT,
+                topic TEXT,
+                crypto_mode TEXT DEFAULT 'legacy_plaintext'
+            )
+            """
+        )
+        self.conn.commit()
+
+
 class TestChannelLifecycle(unittest.TestCase):
     def setUp(self) -> None:
         self.db = _FakeDbManager()
@@ -173,6 +194,24 @@ class TestChannelLifecycle(unittest.TestCase):
 
         self.assertIsNotNone(result)
         self.assertEqual(result['ttl_days'], 365)
+
+    def test_ensure_tables_migrates_legacy_channel_schema_before_indexes(self) -> None:
+        legacy_db = _LegacyChannelSchemaDbManager()
+        try:
+            manager = ChannelManager(legacy_db, MagicMock())
+            row = legacy_db.conn.execute(
+                "SELECT last_activity_at, lifecycle_ttl_days, lifecycle_preserved, lifecycle_archived_at, lifecycle_archive_reason FROM channels LIMIT 1"
+            ).fetchone()
+            self.assertIsNotNone(row)
+            idx_names = {
+                r[0]
+                for r in legacy_db.conn.execute("SELECT name FROM sqlite_master WHERE type = 'index'").fetchall()
+            }
+            self.assertIn('idx_channels_last_activity', idx_names)
+            self.assertIn('idx_channels_lifecycle_archived', idx_names)
+            self.assertIsNotNone(manager)
+        finally:
+            legacy_db.conn.close()
 
 
 if __name__ == '__main__':

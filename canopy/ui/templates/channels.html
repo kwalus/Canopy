@@ -5273,6 +5273,8 @@ function renderMessage(message, userInfo, isReply) {
     const skillHtml = message.skills ? renderSkillCards(message) : '';
     const notesHtml = renderCommunityNotesBlock('channel_message', message.id, message.community_notes || []);
     const displayContent = (message.display_content !== undefined && message.display_content !== null) ? message.display_content : (message.content || '');
+    const replyPreview = escapeHtml(String(message.content || '').replace(/\s+/g, ' ').trim().slice(0, 80) || '(attachment)');
+    const replyAuthor = escapeHtml(user.display_name || user.username || message.user_id || 'Unknown');
     const editedBadge = message.edited_at
         ? `<span class="badge bg-secondary-subtle text-light border rounded-pill channel-edited-badge" data-edited-badge="1" title="Edited ${message.edited_at}">
                 <i class="bi bi-pencil-square me-1"></i> Edited
@@ -5346,7 +5348,10 @@ function renderMessage(message, userInfo, isReply) {
                             <span class="like-count action-count">${message.like_count || 0}</span>
                         </button>
                         <button class="btn btn-sm btn-outline-secondary icon-action-btn"
-                                onclick="setReplyTo('${message.id}', '${user.display_name.replace(/'/g, "\\'")}', \`${escapeHtml(message.content || '').slice(0, 80).replace(/`/g, "'")}\`)"
+                                onclick="setReplyFromButton(this)"
+                                data-reply-message-id="${message.id}"
+                                data-reply-author="${replyAuthor}"
+                                data-reply-preview="${replyPreview}"
                                 title="Reply in thread"
                                 aria-label="Reply in thread">
                             <i class="bi bi-reply"></i><span class="action-label">Reply</span>
@@ -7434,6 +7439,15 @@ function setReplyTo(messageId, authorName, preview) {
     document.getElementById('reply-author').textContent = authorName;
     document.getElementById('reply-preview').textContent = preview || '(attachment)';
     document.getElementById('message-input').focus();
+}
+
+function setReplyFromButton(button) {
+    if (!button) return;
+    const messageId = button.getAttribute('data-reply-message-id') || '';
+    if (!messageId) return;
+    const authorName = button.getAttribute('data-reply-author') || 'Unknown';
+    const preview = button.getAttribute('data-reply-preview') || '(attachment)';
+    setReplyTo(messageId, authorName, preview);
 }
 
 function cancelReply() {

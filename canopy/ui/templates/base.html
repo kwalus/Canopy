@@ -5355,6 +5355,7 @@
             userId: {{ (user_id or 'local_user')|tojson }},
             profileTheme: {{ (profile.theme_preference if profile else 'dark')|tojson }},
             localUserId: {{ session.get('user_id')|tojson }},
+            localPeerId: {{ sidebar_local_peer_id|tojson if sidebar_local_peer_id is defined else 'null' }},
             urls: {
                 feed: {{ url_for('ui.feed')|tojson }},
                 channels: {{ url_for('ui.channels')|tojson }},
