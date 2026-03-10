@@ -9297,6 +9297,15 @@ def create_api_blueprint() -> Blueprint:
                             channel_type=channel.channel_type.value,
                             description=channel.description or '',
                             privacy_mode=channel.privacy_mode,
+                            last_activity_at=(
+                                channel.last_activity_at.isoformat() if getattr(channel, 'last_activity_at', None) else None
+                            ),
+                            lifecycle_ttl_days=channel.lifecycle_ttl_days,
+                            lifecycle_preserved=channel.lifecycle_preserved,
+                            lifecycle_archived_at=(
+                                channel.archived_at.isoformat() if getattr(channel, 'archived_at', None) else None
+                            ),
+                            lifecycle_archive_reason=channel.archive_reason,
                             created_by_user_id=channel.created_by,
                             member_peer_ids=_api_mpids,
                             initial_members_by_peer=_api_mbp,
@@ -9377,8 +9386,16 @@ def create_api_blueprint() -> Blueprint:
                 try:
                     with db_manager.get_connection() as conn:
                         row = conn.execute(
-                            "SELECT name, channel_type, description, created_by FROM channels WHERE id = ?",
-                            (channel_id,)
+                            """
+                            SELECT name, channel_type, description, created_by,
+                                   COALESCE(last_activity_at, created_at) AS last_activity_at,
+                                   COALESCE(lifecycle_ttl_days, ?) AS lifecycle_ttl_days,
+                                   COALESCE(lifecycle_preserved, 0) AS lifecycle_preserved,
+                                   lifecycle_archived_at, lifecycle_archive_reason
+                            FROM channels
+                            WHERE id = ?
+                            """,
+                            (channel_manager.DEFAULT_CHANNEL_LIFECYCLE_DAYS, channel_id),
                         ).fetchone()
                     if row:
                         member_peer_ids: Optional[list[str]] = None
@@ -9405,6 +9422,11 @@ def create_api_blueprint() -> Blueprint:
                             channel_type=row['channel_type'],
                             description=row['description'] or '',
                             privacy_mode=privacy_mode,
+                            last_activity_at=row['last_activity_at'],
+                            lifecycle_ttl_days=row['lifecycle_ttl_days'],
+                            lifecycle_preserved=bool(row['lifecycle_preserved']),
+                            lifecycle_archived_at=row['lifecycle_archived_at'],
+                            lifecycle_archive_reason=row['lifecycle_archive_reason'],
                             created_by_user_id=row['created_by'] if row and 'created_by' in row.keys() else None,
                             member_peer_ids=member_peer_ids,
                             initial_members_by_peer=members_by_peer,
@@ -9415,6 +9437,94 @@ def create_api_blueprint() -> Blueprint:
             return jsonify({'success': True, 'privacy_mode': privacy_mode})
         except Exception as e:
             logger.error(f"Failed to update channel privacy: {e}")
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/channels/<channel_id>/lifecycle', methods=['PATCH', 'PUT'])
+    @require_auth(Permission.WRITE_FEED)
+    def update_channel_lifecycle(channel_id):
+        """Update channel lifecycle policy (preserve/archive/TTL)."""
+        db_manager, _, _, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+        try:
+            data = request.get_json() or {}
+            ttl_days = data.get('ttl_days')
+            preserved = data.get('preserved')
+            archived = data.get('archived')
+
+            local_peer_id = None
+            try:
+                if p2p_manager:
+                    local_peer_id = p2p_manager.get_peer_id()
+            except Exception:
+                local_peer_id = None
+
+            owner_id = db_manager.get_instance_owner_user_id()
+            allow_admin = owner_id is not None and owner_id == g.api_key_info.user_id
+
+            result = channel_manager.update_channel_lifecycle_settings(
+                channel_id=channel_id,
+                user_id=g.api_key_info.user_id,
+                ttl_days=ttl_days,
+                preserved=preserved if preserved is None or isinstance(preserved, bool) else str(preserved).lower() in {'1', 'true', 'yes', 'on'},
+                archived=archived if archived is None or isinstance(archived, bool) else str(archived).lower() in {'1', 'true', 'yes', 'on'},
+                allow_admin=allow_admin,
+                local_peer_id=local_peer_id,
+            )
+            if not result:
+                return jsonify({'error': 'Not authorized to update lifecycle'}), 403
+
+            if p2p_manager and p2p_manager.is_running():
+                try:
+                    with db_manager.get_connection() as conn:
+                        row = conn.execute(
+                            """
+                            SELECT name, channel_type, description, created_by, privacy_mode,
+                                   COALESCE(last_activity_at, created_at) AS last_activity_at
+                            FROM channels
+                            WHERE id = ?
+                            """,
+                            (channel_id,),
+                        ).fetchone()
+                    if row:
+                        privacy_mode = str((row['privacy_mode'] if hasattr(row, 'keys') and 'privacy_mode' in row.keys() else 'open') or 'open').strip().lower()
+                        member_peer_ids: Optional[list[str]] = None
+                        members_by_peer: Optional[dict[str, list[str]]] = None
+                        if privacy_mode in {'private', 'confidential'}:
+                            local_peer = p2p_manager.get_peer_id() if p2p_manager else None
+                            member_peer_ids = channel_manager.get_member_peer_ids(channel_id, local_peer)
+                            members_by_peer = {}
+                            try:
+                                members = channel_manager.get_channel_members_list(channel_id)
+                                for member in members:
+                                    uid = member.get('user_id')
+                                    if not uid:
+                                        continue
+                                    user_row = db_manager.get_user(uid)
+                                    peer_key = (user_row.get('origin_peer') if user_row else '') or local_peer
+                                    if peer_key and peer_key in member_peer_ids:
+                                        members_by_peer.setdefault(peer_key, []).append(uid)
+                            except Exception:
+                                members_by_peer = None
+                        p2p_manager.broadcast_channel_announce(
+                            channel_id=channel_id,
+                            name=row['name'],
+                            channel_type=row['channel_type'],
+                            description=row['description'] or '',
+                            privacy_mode=privacy_mode,
+                            last_activity_at=row['last_activity_at'],
+                            lifecycle_ttl_days=result.get('ttl_days'),
+                            lifecycle_preserved=result.get('preserved'),
+                            lifecycle_archived_at=result.get('archived_at'),
+                            lifecycle_archive_reason=result.get('archive_reason'),
+                            created_by_user_id=row['created_by'] if row and 'created_by' in row.keys() else None,
+                            member_peer_ids=member_peer_ids,
+                            initial_members_by_peer=members_by_peer,
+                        )
+                except Exception as ann_err:
+                    logger.warning(f"Channel lifecycle announce failed: {ann_err}")
+
+            return jsonify({'success': True, 'lifecycle': result})
+        except Exception as e:
+            logger.error(f"Failed to update channel lifecycle: {e}")
             return jsonify({'error': 'Internal server error'}), 500
 
     # Channel member management endpoints

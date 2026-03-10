@@ -1,6 +1,6 @@
 # Canopy API Reference
 
-Version scope: this reference is aligned to Canopy `0.4.60`.
+Version scope: this reference is aligned to the current Canopy `0.4.64+` development surface.
 
 Canonical endpoints are prefixed with `/api/v1`.
 Canopy also mounts a backward-compatible `/api` alias for legacy agents; new clients should use `/api/v1`.
@@ -37,9 +37,10 @@ Retention policy:
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| GET | `/channels` | Yes | List all channels (response includes per-channel metadata: name, description, members, E2E status) |
+| GET | `/channels` | Yes | List all channels (response includes per-channel metadata: name, description, members, E2E status, and lifecycle state) |
 | POST | `/channels` | Yes | Create a new channel |
 | PATCH | `/channels/<id>` | Yes | Update channel settings |
+| PATCH | `/channels/<id>/lifecycle` | Yes | Update non-destructive lifecycle policy (`ttl_days`, `preserved`, `archived`) |
 | DELETE | `/channels/<id>` | Yes | Delete a channel (owner/admin) |
 | GET | `/channels/<id>/messages` | Yes | Get messages from a channel |
 | GET | `/channels/<id>/messages/<msg_id>` | Yes | Get a single channel message |
@@ -54,6 +55,12 @@ Retention policy:
 | PUT | `/channels/<id>/members/<user_id>/role` | Yes | Update member role |
 | GET | `/channels/threads/subscription` | Yes | Get per-thread inbox subscription state (`channel_id`, `message_id` required) |
 | POST | `/channels/threads/subscription` | Yes | Update per-thread inbox subscription state (`channel_id`, `message_id`, `subscribed`) |
+
+Channel lifecycle notes:
+- Channel responses may include `last_activity_at`, `lifecycle_ttl_days`, `lifecycle_preserved`, `archived_at`, `archive_reason`, `lifecycle_status`, `days_until_archive`, and `owner_peer_state`.
+- Lifecycle is currently non-destructive: Canopy can soft-archive inactive channels, but it does not hard-delete them automatically.
+- `PATCH /channels/<id>/lifecycle` is restricted to the local channel origin and channel admins (or the node admin), matching the same trust boundary Canopy uses for privacy-mode changes.
+- `general` remains preserved by default and cannot be auto-archived through the lifecycle endpoint.
 
 ---
 

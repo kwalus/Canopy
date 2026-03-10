@@ -926,6 +926,11 @@ class MessageRouter:
                     created_by_peer=meta.get('created_by_peer', message.from_peer),
                     created_by_user_id=meta.get('created_by_user_id'),
                     privacy_mode=meta.get('privacy_mode'),
+                    last_activity_at=meta.get('last_activity_at'),
+                    lifecycle_ttl_days=meta.get('lifecycle_ttl_days'),
+                    lifecycle_preserved=meta.get('lifecycle_preserved'),
+                    lifecycle_archived_at=meta.get('lifecycle_archived_at'),
+                    lifecycle_archive_reason=meta.get('lifecycle_archive_reason'),
                     from_peer=message.from_peer,
                     initial_members=meta.get('initial_members'),
                 )
@@ -1402,6 +1407,11 @@ class MessageRouter:
                                      created_by_peer: str,
                                      created_by_user_id: Optional[str] = None,
                                      privacy_mode: Optional[str] = None,
+                                     last_activity_at: Optional[str] = None,
+                                     lifecycle_ttl_days: Optional[int] = None,
+                                     lifecycle_preserved: Optional[bool] = None,
+                                     lifecycle_archived_at: Optional[str] = None,
+                                     lifecycle_archive_reason: Optional[str] = None,
                                      to_peer: Optional[str] = None,
                                      initial_members: Optional[list[Any]] = None) -> bool:
         """
@@ -1424,6 +1434,16 @@ class MessageRouter:
             metadata['created_by_user_id'] = str(created_by_user_id)
         if initial_members:
             metadata['initial_members'] = initial_members
+        if last_activity_at:
+            metadata['last_activity_at'] = str(last_activity_at)
+        if lifecycle_ttl_days is not None:
+            metadata['lifecycle_ttl_days'] = int(lifecycle_ttl_days)
+        if lifecycle_preserved is not None:
+            metadata['lifecycle_preserved'] = bool(lifecycle_preserved)
+        if lifecycle_archived_at:
+            metadata['lifecycle_archived_at'] = str(lifecycle_archived_at)
+        if lifecycle_archive_reason:
+            metadata['lifecycle_archive_reason'] = str(lifecycle_archive_reason)
 
         payload = {
             'content': '',

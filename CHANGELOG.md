@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ---
 
+## [Unreleased]
+
+## [0.4.65] - 2026-03-10
+
+### Added
+- **Channel lifecycle controls (soft archive only)** — Channels now carry additive lifecycle metadata (`last_activity_at`, inactivity TTL, preserve flag, archive timestamp/reason) plus a new lifecycle update surface in the UI and REST API. Inactivity currently results in soft archive state only; this release does not introduce automatic hard deletion.
+
+### Changed
+- **Lifecycle-aware channel sync and sidebar state** — Channel announce/sync metadata now includes lifecycle policy and archive state, channel activity automatically revives archived channels, and the Channels UI now surfaces preserved/cooling/archived state in both the sidebar rows and header controls.
+
 ## [0.4.64] - 2026-03-09
 
 ### Fixed

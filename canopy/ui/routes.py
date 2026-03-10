@@ -3647,6 +3647,44 @@ def create_ui_blueprint() -> Blueprint:
         except Exception:
             return redirect(url_for('ui.channels'))
 
+    def _enrich_channel_lifecycle_state(channels, channel_manager, p2p_manager):
+        """Attach derived lifecycle/owner state to channel view objects."""
+        if not channels or not channel_manager:
+            return channels or []
+        local_peer_id = None
+        connected_peer_ids = set()
+        known_peer_ids = set()
+        try:
+            if p2p_manager:
+                local_peer_id = p2p_manager.get_peer_id()
+                connected_peer_ids = set(p2p_manager.get_connected_peers() or [])
+                known_peer_ids = set(
+                    (getattr(getattr(p2p_manager, 'identity_manager', None), 'known_peers', {}) or {}).keys()
+                )
+        except Exception:
+            connected_peer_ids = set()
+            known_peer_ids = set()
+
+        for channel in channels:
+            try:
+                lifecycle = channel_manager.describe_channel_lifecycle(
+                    channel,
+                    local_peer_id=local_peer_id,
+                    connected_peer_ids=connected_peer_ids,
+                    known_peer_ids=known_peer_ids,
+                )
+                channel.lifecycle_status = lifecycle.get('status') or 'active'
+                channel.lifecycle_ttl_days = lifecycle.get('ttl_days')
+                channel.lifecycle_preserved = bool(lifecycle.get('preserved'))
+                channel.archived_at = lifecycle.get('archived_at')
+                channel.archive_reason = lifecycle.get('archive_reason')
+                channel.last_activity_at = lifecycle.get('last_activity_at') or channel.last_activity_at
+                channel.days_until_archive = lifecycle.get('days_until_archive')
+                channel.owner_peer_state = lifecycle.get('owner_peer_state')
+            except Exception:
+                continue
+        return channels
+
     # Channels interface (Slack-style)
     @ui.route('/channels')
     @require_login
@@ -3659,6 +3697,7 @@ def create_ui_blueprint() -> Blueprint:
             
             # Get user's channels
             channels = channel_manager.get_user_channels(user_id)
+            channels = _enrich_channel_lifecycle_state(channels, channel_manager, p2p_manager)
             logger.debug(f"Channels page: user_id={user_id}, channels_count={len(channels)}")
             for channel in channels:
                 logger.debug(f"Channel: id={channel.id}, name={channel.name}, type={channel.channel_type}")
@@ -6339,10 +6378,11 @@ def create_ui_blueprint() -> Blueprint:
         channels that were added after page load (e.g. via member_sync).
         """
         try:
-            _, _, _, _, channel_manager, _, _, _, _, _, _ = _get_app_components_any(current_app)
+            _, _, _, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
             user_id = get_current_user()
             client_rev = str(request.args.get('rev') or '').strip()
             channels = channel_manager.get_user_channels(user_id)
+            channels = _enrich_channel_lifecycle_state(channels, channel_manager, p2p_manager)
             payload = []
             for ch in channels:
                 ctype = ch.channel_type
@@ -6360,6 +6400,16 @@ def create_ui_blueprint() -> Blueprint:
                     'unread_count': int(getattr(ch, 'unread_count', 0) or 0),
                     'notifications_enabled': bool(getattr(ch, 'notifications_enabled', True)),
                     'crypto_mode': getattr(ch, 'crypto_mode', '') or '',
+                    'lifecycle_status': getattr(ch, 'lifecycle_status', 'active') or 'active',
+                    'lifecycle_ttl_days': int(getattr(ch, 'lifecycle_ttl_days', channel_manager.DEFAULT_CHANNEL_LIFECYCLE_DAYS) or channel_manager.DEFAULT_CHANNEL_LIFECYCLE_DAYS),
+                    'lifecycle_preserved': bool(getattr(ch, 'lifecycle_preserved', False)),
+                    'archived_at': (
+                        getattr(ch, 'archived_at', None).isoformat()
+                        if getattr(ch, 'archived_at', None) else None
+                    ),
+                    'archive_reason': getattr(ch, 'archive_reason', None),
+                    'days_until_archive': getattr(ch, 'days_until_archive', None),
+                    'owner_peer_state': getattr(ch, 'owner_peer_state', None),
                 })
             rev = _stable_ui_revision(payload)
             if client_rev and client_rev == rev:
@@ -11585,8 +11635,16 @@ def create_ui_blueprint() -> Blueprint:
                 try:
                     with db_manager.get_connection() as conn:
                         row = conn.execute(
-                            "SELECT name, channel_type, description, created_by FROM channels WHERE id = ?",
-                            (channel_id,)
+                            """
+                            SELECT name, channel_type, description, created_by,
+                                   COALESCE(last_activity_at, created_at) AS last_activity_at,
+                                   COALESCE(lifecycle_ttl_days, ?) AS lifecycle_ttl_days,
+                                   COALESCE(lifecycle_preserved, 0) AS lifecycle_preserved,
+                                   lifecycle_archived_at, lifecycle_archive_reason
+                            FROM channels
+                            WHERE id = ?
+                            """,
+                            (channel_manager.DEFAULT_CHANNEL_LIFECYCLE_DAYS, channel_id),
                         ).fetchone()
                     if row:
                         member_peer_ids: Optional[list[str]] = None
@@ -11613,6 +11671,11 @@ def create_ui_blueprint() -> Blueprint:
                             channel_type=row['channel_type'],
                             description=row['description'] or '',
                             privacy_mode=privacy_mode,
+                            last_activity_at=row['last_activity_at'],
+                            lifecycle_ttl_days=row['lifecycle_ttl_days'],
+                            lifecycle_preserved=bool(row['lifecycle_preserved']),
+                            lifecycle_archived_at=row['lifecycle_archived_at'],
+                            lifecycle_archive_reason=row['lifecycle_archive_reason'],
                             created_by_user_id=row['created_by'] if row and 'created_by' in row.keys() else None,
                             member_peer_ids=member_peer_ids,
                             initial_members_by_peer=members_by_peer,
@@ -11623,6 +11686,119 @@ def create_ui_blueprint() -> Blueprint:
             return jsonify({'success': True, 'privacy_mode': privacy_mode})
         except Exception as e:
             logger.error(f"Update channel privacy error: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/update_channel_lifecycle', methods=['POST'])
+    @require_login
+    def ajax_update_channel_lifecycle():
+        """Update channel lifecycle controls (preserve, archive, inactivity TTL)."""
+        try:
+            db_manager, _, _, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+            user_id = get_current_user()
+            data = request.get_json() or {}
+            channel_id = str(data.get('channel_id') or '').strip()
+            if not channel_id:
+                return jsonify({'error': 'Channel ID required'}), 400
+
+            ttl_days = data.get('ttl_days')
+            preserved = data.get('preserved')
+            archived = data.get('archived')
+
+            local_peer_id = None
+            try:
+                if p2p_manager:
+                    local_peer_id = p2p_manager.get_peer_id()
+            except Exception:
+                local_peer_id = None
+
+            result = channel_manager.update_channel_lifecycle_settings(
+                channel_id=channel_id,
+                user_id=user_id,
+                ttl_days=ttl_days,
+                preserved=preserved if preserved is None or isinstance(preserved, bool) else str(preserved).lower() in {'1', 'true', 'yes', 'on'},
+                archived=archived if archived is None or isinstance(archived, bool) else str(archived).lower() in {'1', 'true', 'yes', 'on'},
+                allow_admin=_is_admin(),
+                local_peer_id=local_peer_id,
+            )
+            if not result:
+                return jsonify({'error': 'Not authorized to update channel lifecycle'}), 403
+
+            response_lifecycle = dict(result)
+            try:
+                for ch in _enrich_channel_lifecycle_state(
+                    channel_manager.get_user_channels(user_id),
+                    channel_manager,
+                    p2p_manager,
+                ):
+                    if str(getattr(ch, 'id', '')) != channel_id:
+                        continue
+                    response_lifecycle = {
+                        'status': getattr(ch, 'lifecycle_status', result.get('status')),
+                        'ttl_days': getattr(ch, 'lifecycle_ttl_days', result.get('ttl_days')),
+                        'preserved': bool(getattr(ch, 'lifecycle_preserved', result.get('preserved'))),
+                        'archived_at': getattr(ch, 'archived_at', None).isoformat() if getattr(ch, 'archived_at', None) else None,
+                        'archive_reason': getattr(ch, 'archive_reason', result.get('archive_reason')),
+                        'days_until_archive': getattr(ch, 'days_until_archive', None),
+                        'owner_peer_state': getattr(ch, 'owner_peer_state', None),
+                        'last_activity_at': getattr(ch, 'last_activity_at', None).isoformat() if getattr(ch, 'last_activity_at', None) else None,
+                    }
+                    break
+            except Exception:
+                response_lifecycle = dict(result)
+
+            if p2p_manager and p2p_manager.is_running():
+                try:
+                    with db_manager.get_connection() as conn:
+                        row = conn.execute(
+                            """
+                            SELECT name, channel_type, description, created_by, privacy_mode,
+                                   COALESCE(last_activity_at, created_at) AS last_activity_at
+                            FROM channels
+                            WHERE id = ?
+                            """,
+                            (channel_id,),
+                        ).fetchone()
+                    if row:
+                        privacy_mode = str((row['privacy_mode'] if hasattr(row, 'keys') and 'privacy_mode' in row.keys() else 'open') or 'open').strip().lower()
+                        member_peer_ids: Optional[list[str]] = None
+                        members_by_peer: Optional[dict[str, list[str]]] = None
+                        if privacy_mode in {'private', 'confidential'}:
+                            local_peer = p2p_manager.get_peer_id() if p2p_manager else None
+                            member_peer_ids = channel_manager.get_member_peer_ids(channel_id, local_peer)
+                            members_by_peer = {}
+                            try:
+                                members = channel_manager.get_channel_members_list(channel_id)
+                                for member in members:
+                                    uid = member.get('user_id')
+                                    if not uid:
+                                        continue
+                                    user_row = db_manager.get_user(uid)
+                                    peer_key = (user_row.get('origin_peer') if user_row else '') or local_peer
+                                    if peer_key and peer_key in member_peer_ids:
+                                        members_by_peer.setdefault(peer_key, []).append(uid)
+                            except Exception:
+                                members_by_peer = None
+                        p2p_manager.broadcast_channel_announce(
+                            channel_id=channel_id,
+                            name=row['name'],
+                            channel_type=row['channel_type'],
+                            description=row['description'] or '',
+                            privacy_mode=privacy_mode,
+                            last_activity_at=row['last_activity_at'],
+                            lifecycle_ttl_days=response_lifecycle.get('ttl_days'),
+                            lifecycle_preserved=response_lifecycle.get('preserved'),
+                            lifecycle_archived_at=response_lifecycle.get('archived_at'),
+                            lifecycle_archive_reason=response_lifecycle.get('archive_reason'),
+                            created_by_user_id=row['created_by'] if row and 'created_by' in row.keys() else None,
+                            member_peer_ids=member_peer_ids,
+                            initial_members_by_peer=members_by_peer,
+                        )
+                except Exception as ann_err:
+                    logger.warning(f"Channel lifecycle announce failed: {ann_err}")
+
+            return jsonify({'success': True, 'lifecycle': response_lifecycle})
+        except Exception as e:
+            logger.error(f"Update channel lifecycle error: {e}", exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
     @ui.route('/ajax/update_channel_notifications', methods=['POST'])
@@ -12405,6 +12581,15 @@ def create_ui_blueprint() -> Blueprint:
                             channel_type=channel.channel_type.value,
                             description=channel.description or '',
                             privacy_mode=channel.privacy_mode,
+                            last_activity_at=(
+                                channel.last_activity_at.isoformat() if getattr(channel, 'last_activity_at', None) else None
+                            ),
+                            lifecycle_ttl_days=channel.lifecycle_ttl_days,
+                            lifecycle_preserved=channel.lifecycle_preserved,
+                            lifecycle_archived_at=(
+                                channel.archived_at.isoformat() if getattr(channel, 'archived_at', None) else None
+                            ),
+                            lifecycle_archive_reason=channel.archive_reason,
                             created_by_user_id=channel.created_by,
                             member_peer_ids=m_peer_ids,
                             initial_members_by_peer=m_by_peer,
@@ -14583,21 +14768,6 @@ def create_ui_blueprint() -> Blueprint:
                 limit = 500
             limit = max(1, min(limit, 250))
 
-            def _peer_label(peer_id: str) -> str:
-                pid = str(peer_id or '').strip()
-                if not pid:
-                    return ''
-                try:
-                    if p2p_manager and getattr(p2p_manager, 'identity_manager', None):
-                        label = (
-                            getattr(p2p_manager.identity_manager, 'peer_display_names', {}) or {}
-                        ).get(pid)
-                        if label:
-                            return str(label).strip()
-                except Exception:
-                    pass
-                return pid[:10]
-
             def _rank_users(rows: list[dict[str, Any]], needle: str) -> list[dict[str, Any]]:
                 if not needle:
                     return sorted(
@@ -14835,17 +15005,6 @@ def create_ui_blueprint() -> Blueprint:
                     user['is_remote'] = is_remote
                     if origin_peer:
                         user['origin_peer'] = origin_peer
-                    origin_peer_label = _peer_label(origin_peer) if origin_peer else ''
-                    if origin_peer_label:
-                        user['origin_peer_label'] = origin_peer_label
-                    locality_label = (
-                        f"Remote via {origin_peer_label}"
-                        if origin_peer_label
-                        else ('Remote peer' if is_remote else 'Local account')
-                    )
-                    if not is_remote:
-                        locality_label = 'Local account'
-                    user['locality_label'] = locality_label
 
                     presence = build_agent_presence_payload(
                         last_check_in_at=presence_record.get('last_check_in_at'),

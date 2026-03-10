@@ -894,6 +894,60 @@
         line-height: 1;
         padding: 0.2rem 0.42rem;
     }
+    #channel-lifecycle-badge {
+        font-size: 0.62rem;
+        line-height: 1;
+        padding: 0.2rem 0.42rem;
+    }
+    #channel-lifecycle-badge.preserved {
+        color: #7dd3fc;
+        background: rgba(14, 165, 233, 0.14);
+        border: 1px solid rgba(125, 211, 252, 0.24);
+    }
+    #channel-lifecycle-badge.cooling {
+        color: #fbbf24;
+        background: rgba(245, 158, 11, 0.16);
+        border: 1px solid rgba(251, 191, 36, 0.28);
+    }
+    #channel-lifecycle-badge.archived {
+        color: #cbd5e1;
+        background: rgba(100, 116, 139, 0.16);
+        border: 1px solid rgba(148, 163, 184, 0.2);
+    }
+    .channel-lifecycle-menu {
+        width: min(320px, 92vw);
+        padding: 0;
+        overflow: hidden;
+    }
+    .channel-lifecycle-summary {
+        padding: 0.85rem 0.95rem 0.7rem;
+        background: linear-gradient(160deg, rgba(24, 32, 56, 0.94), rgba(18, 25, 44, 0.96));
+    }
+    .channel-lifecycle-summary-title {
+        font-size: 0.86rem;
+        font-weight: 600;
+        color: var(--canopy-text-primary);
+        margin-bottom: 0.2rem;
+    }
+    .channel-lifecycle-summary-line {
+        font-size: 0.74rem;
+        color: var(--canopy-text-muted);
+        line-height: 1.35;
+    }
+    .channel-lifecycle-ttl-group {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        width: 100%;
+        gap: 0.28rem;
+    }
+    .channel-lifecycle-ttl-group .btn {
+        border-radius: 0.5rem !important;
+    }
+    .channel-lifecycle-ttl-group .btn.active {
+        color: #06121f;
+        background: #7dd3fc;
+        border-color: #7dd3fc;
+    }
     .channel-header-right {
         display: flex;
         align-items: center;
@@ -950,7 +1004,8 @@
             display: none;
         }
         .copy-channel-id-label,
-        #channel-e2e-badge .me-1 {
+        #channel-e2e-badge .me-1,
+        #channel-lifecycle-toggle .channel-lifecycle-label {
             display: none;
         }
         .channel-header-search {
@@ -1577,7 +1632,8 @@
             <!-- Channel List -->
             <div class="channel-list p-2">
                 {% for channel in channels %}
-                <div class="channel-item p-2 rounded mb-1 {% if loop.first %}active{% endif %}" 
+                {% set lifecycle_status = channel.lifecycle_status or 'active' %}
+                <div class="channel-item p-2 rounded mb-1 {% if loop.first %}active{% endif %} {% if lifecycle_status == 'archived' %}lifecycle-archived{% elif lifecycle_status == 'cooling' %}lifecycle-cooling{% elif lifecycle_status == 'preserved' %}lifecycle-preserved{% endif %}" 
                      data-channel-id="{{ channel.id }}"
                      data-privacy-mode="{{ channel.privacy_mode }}"
                      data-member-count="{{ channel.member_count if channel.member_count is not none else 0 }}"
@@ -1587,12 +1643,33 @@
                      data-origin-peer="{{ channel.origin_peer or '' }}"
                      data-notifications-enabled="{{ 'true' if channel.notifications_enabled else 'false' }}"
                      data-channel-desc="{{ channel.description|e }}"
+                     data-lifecycle-status="{{ lifecycle_status }}"
+                     data-lifecycle-ttl-days="{{ channel.lifecycle_ttl_days if channel.lifecycle_ttl_days is not none else 180 }}"
+                     data-lifecycle-preserved="{{ 'true' if channel.lifecycle_preserved else 'false' }}"
+                     data-archived-at="{{ channel.archived_at.isoformat() if channel.archived_at else '' }}"
+                     data-archive-reason="{{ channel.archive_reason or '' }}"
+                     data-days-until-archive="{{ channel.days_until_archive if channel.days_until_archive is not none else '' }}"
+                     data-owner-peer-state="{{ channel.owner_peer_state or '' }}"
+                     data-last-activity-at="{{ channel.last_activity_at.isoformat() if channel.last_activity_at else '' }}"
                     onclick="selectChannel({{ channel.id|tojson }}, {{ channel.name|tojson }})">
                     <div class="d-flex align-items-center channel-item-head">
                         <i class="bi bi-{% if channel.channel_type == 'private' %}lock{% elif channel.channel_type == 'dm' %}person{% elif channel.privacy_mode == 'guarded' %}shield-check{% else %}hash{% endif %} me-2"></i>
                         <span class="channel-name" data-full-name="{{ channel.name|e }}">
                             <span class="channel-name-inner">{{ channel.name }}</span>
                         </span>
+                        {% if lifecycle_status == 'preserved' %}
+                        <span class="channel-lifecycle-chip preserved" title="Preserved: this channel will not auto-archive">
+                            <i class="bi bi-infinity"></i>
+                        </span>
+                        {% elif lifecycle_status == 'cooling' %}
+                        <span class="channel-lifecycle-chip cooling" title="Cooling: auto-archive in {{ channel.days_until_archive if channel.days_until_archive is not none else '?' }} day(s) without activity">
+                            <i class="bi bi-hourglass-split"></i>
+                        </span>
+                        {% elif lifecycle_status == 'archived' %}
+                        <span class="channel-lifecycle-chip archived" title="Archived after inactivity">
+                            <i class="bi bi-archive"></i>
+                        </span>
+                        {% endif %}
                         <span class="ms-auto d-flex align-items-center gap-1 channel-row-actions">
                             <button type="button"
                                     class="btn btn-link btn-sm p-0 channel-pin-btn"
@@ -1681,6 +1758,7 @@
                                 <span id="channel-e2e-badge" class="badge bg-success-subtle text-success border rounded-pill d-none" title="End-to-end encrypted channel">
                                     <i class="bi bi-shield-lock-fill me-1"></i>E2E
                                 </span>
+                                <span id="channel-lifecycle-badge" class="badge rounded-pill d-none"></span>
                             </div>
                         </div>
                     </div>
@@ -1710,6 +1788,41 @@
                                         <small class="text-muted d-block">Targeted submesh + strict membership</small>
                                     </a></li>
                                 </ul>
+                            </div>
+                            <div class="dropdown">
+                                <button class="btn btn-outline-secondary btn-sm dropdown-toggle channel-lifecycle-btn"
+                                        id="channel-lifecycle-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                                    <i class="bi bi-clock-history" id="channel-lifecycle-icon"></i>
+                                    <span class="channel-lifecycle-label" id="channel-lifecycle-label">Lifecycle</span>
+                                </button>
+                                <div class="dropdown-menu dropdown-menu-end channel-lifecycle-menu" aria-labelledby="channel-lifecycle-toggle">
+                                    <div class="channel-lifecycle-summary">
+                                        <div class="channel-lifecycle-summary-title" id="channel-lifecycle-summary-status">Auto-archive enabled</div>
+                                        <div class="channel-lifecycle-summary-line" id="channel-lifecycle-summary-meta">This channel will archive after inactivity.</div>
+                                        <div class="channel-lifecycle-summary-line" id="channel-lifecycle-summary-owner">Owner state: local</div>
+                                    </div>
+                                    <div class="dropdown-divider"></div>
+                                    <div class="px-3 pt-2 pb-1">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary w-100" id="channel-lifecycle-preserve-btn" onclick="toggleChannelPreserve()">
+                                            Preserve channel
+                                        </button>
+                                    </div>
+                                    <div class="px-3 pb-2">
+                                        <div class="small text-muted mb-2">Auto-archive after inactivity</div>
+                                        <div class="btn-group btn-group-sm channel-lifecycle-ttl-group" role="group" aria-label="Channel lifecycle TTL">
+                                            <button type="button" class="btn btn-outline-secondary" data-ttl-days="30" onclick="setChannelLifecycleTtl(30)">30d</button>
+                                            <button type="button" class="btn btn-outline-secondary" data-ttl-days="90" onclick="setChannelLifecycleTtl(90)">90d</button>
+                                            <button type="button" class="btn btn-outline-secondary" data-ttl-days="180" onclick="setChannelLifecycleTtl(180)">180d</button>
+                                            <button type="button" class="btn btn-outline-secondary" data-ttl-days="365" onclick="setChannelLifecycleTtl(365)">1y</button>
+                                            <button type="button" class="btn btn-outline-secondary" data-ttl-days="730" onclick="setChannelLifecycleTtl(730)">2y</button>
+                                        </div>
+                                    </div>
+                                    <div class="dropdown-divider"></div>
+                                    <div class="px-3 pb-2 d-flex gap-2">
+                                        <button type="button" class="btn btn-sm btn-outline-warning flex-grow-1" id="channel-archive-btn" onclick="archiveCurrentChannel()">Archive now</button>
+                                        <button type="button" class="btn btn-sm btn-outline-success flex-grow-1 d-none" id="channel-restore-btn" onclick="restoreCurrentChannel()">Restore</button>
+                                    </div>
+                                </div>
                             </div>
                             <button class="btn btn-outline-secondary btn-sm" id="channel-mute-toggle"
                                     onclick="toggleChannelNotifications()" title="Mute notifications">
@@ -1982,6 +2095,50 @@
 
 .channel-item.active .text-muted {
     color: rgba(255, 255, 255, 0.8) !important;
+}
+
+.channel-item.lifecycle-archived:not(.active) {
+    background: rgba(118, 127, 147, 0.08);
+}
+
+.channel-item.lifecycle-cooling:not(.active) {
+    background: rgba(245, 158, 11, 0.08);
+}
+
+.channel-item.lifecycle-preserved:not(.active) {
+    background: rgba(56, 189, 248, 0.06);
+}
+
+.channel-lifecycle-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.1rem;
+    min-height: 1.1rem;
+    margin-left: 0.28rem;
+    border-radius: 999px;
+    font-size: 0.64rem;
+    border: 1px solid transparent;
+    background: rgba(148, 163, 184, 0.14);
+    color: rgba(226, 232, 240, 0.88);
+}
+
+.channel-lifecycle-chip.preserved {
+    color: #7dd3fc;
+    background: rgba(14, 165, 233, 0.14);
+    border-color: rgba(125, 211, 252, 0.24);
+}
+
+.channel-lifecycle-chip.cooling {
+    color: #fbbf24;
+    background: rgba(245, 158, 11, 0.16);
+    border-color: rgba(251, 191, 36, 0.28);
+}
+
+.channel-lifecycle-chip.archived {
+    color: #cbd5e1;
+    background: rgba(100, 116, 139, 0.16);
+    border-color: rgba(148, 163, 184, 0.2);
 }
 
 .channel-item.channel-pinned {
@@ -3756,6 +3913,14 @@ let currentChannelMemberIds = new Set();
 let currentChannelPrivacy = 'open';
 let currentChannelType = 'public';
 let currentChannelOriginPeer = '';
+let currentChannelLifecycleStatus = 'active';
+let currentChannelLifecycleTtlDays = 180;
+let currentChannelLifecyclePreserved = false;
+let currentChannelArchivedAt = '';
+let currentChannelArchiveReason = '';
+let currentChannelDaysUntilArchive = null;
+let currentChannelOwnerPeerState = '';
+let currentChannelLastActivityAt = '';
 let memberGateActive = false;
 let memberDirectory = [];
 let createMemberSelections = [];
@@ -4166,6 +4331,9 @@ function sortChannelListByPins() {
         const aPinned = a.dataset.pinned === 'true' ? 0 : 1;
         const bPinned = b.dataset.pinned === 'true' ? 0 : 1;
         if (aPinned !== bPinned) return aPinned - bPinned;
+        const aArchived = String(a.dataset.lifecycleStatus || '').toLowerCase() === 'archived' ? 1 : 0;
+        const bArchived = String(b.dataset.lifecycleStatus || '').toLowerCase() === 'archived' ? 1 : 0;
+        if (aArchived !== bArchived) return aArchived - bArchived;
         const aIdx = parseInt(a.dataset.sortIndex || '0', 10) || 0;
         const bIdx = parseInt(b.dataset.sortIndex || '0', 10) || 0;
         return aIdx - bIdx;
@@ -4314,6 +4482,366 @@ function setChannelPrivacyUI(mode, canEdit, reason) {
     updateChannelE2EBadge();
 }
 
+function parseChannelLifecycleBool(value, fallback = false) {
+    if (typeof value === 'boolean') return value;
+    const normalized = String(value == null ? '' : value).trim().toLowerCase();
+    if (!normalized) return fallback;
+    return ['1', 'true', 'yes', 'on'].includes(normalized);
+}
+
+function parseChannelLifecycleInt(value, fallback = null) {
+    const parsed = parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function getCurrentChannelLifecyclePermissions() {
+    const isGeneral = String(currentChannelId || '') === 'general' || String(currentChannelType || '').toLowerCase() === 'general';
+    const isOriginLocal = !currentChannelOriginPeer || (localPeerId && currentChannelOriginPeer === localPeerId);
+    const canManage = !!(isOriginLocal && (isAdmin || String(currentChannelRole || '').toLowerCase() === 'admin'));
+    let reason = '';
+    if (isGeneral) {
+        reason = 'General is always preserved';
+    } else if (!isOriginLocal) {
+        reason = 'Only the channel origin can change lifecycle policy';
+    } else if (!canManage) {
+        reason = 'Only channel admins can change lifecycle policy';
+    }
+    return {
+        canManage: !isGeneral && canManage,
+        isGeneral,
+        reason,
+    };
+}
+
+function getChannelLifecycleStateFromItem(item) {
+    if (!item) {
+        return {
+            status: 'active',
+            ttlDays: 180,
+            preserved: false,
+            archivedAt: '',
+            archiveReason: '',
+            daysUntilArchive: null,
+            ownerPeerState: '',
+            lastActivityAt: '',
+        };
+    }
+    const preserved = parseChannelLifecycleBool(item.getAttribute('data-lifecycle-preserved'));
+    const archivedAt = String(item.getAttribute('data-archived-at') || '').trim();
+    let status = String(item.getAttribute('data-lifecycle-status') || '').trim().toLowerCase() || 'active';
+    if (!status || status === 'inactive') {
+        status = archivedAt ? 'archived' : (preserved ? 'preserved' : 'active');
+    }
+    if (preserved && status !== 'archived') {
+        status = 'preserved';
+    }
+    return {
+        status,
+        ttlDays: parseChannelLifecycleInt(item.getAttribute('data-lifecycle-ttl-days'), 180),
+        preserved,
+        archivedAt,
+        archiveReason: String(item.getAttribute('data-archive-reason') || '').trim(),
+        daysUntilArchive: parseChannelLifecycleInt(item.getAttribute('data-days-until-archive'), null),
+        ownerPeerState: String(item.getAttribute('data-owner-peer-state') || '').trim().toLowerCase(),
+        lastActivityAt: String(item.getAttribute('data-last-activity-at') || '').trim(),
+    };
+}
+
+function getChannelLifecycleVisualState(lifecycle) {
+    const status = String((lifecycle && lifecycle.status) || 'active').toLowerCase();
+    const ttlDays = parseChannelLifecycleInt(lifecycle && lifecycle.ttlDays, 180);
+    const daysUntilArchive = parseChannelLifecycleInt(lifecycle && lifecycle.daysUntilArchive, null);
+    const ownerPeerState = String((lifecycle && lifecycle.ownerPeerState) || '').toLowerCase();
+    const ownerLabels = {
+        local: 'Owner state: local',
+        connected: 'Owner state: connected',
+        known: 'Owner state: known but offline',
+        unknown: 'Owner state: unknown',
+    };
+    if (status === 'preserved') {
+        return {
+            chipClass: 'preserved',
+            chipIcon: 'bi-infinity',
+            chipTitle: 'Preserved: this channel will not auto-archive',
+            badgeClass: 'preserved',
+            badgeText: 'Preserved',
+            buttonClass: 'btn-outline-info',
+            buttonIcon: 'bi-infinity',
+            buttonLabel: 'Preserved',
+            summaryTitle: 'Preserved channel',
+            summaryMeta: 'This channel will remain active until you re-enable lifecycle expiry.',
+            ownerLine: ownerLabels[ownerPeerState] || ownerLabels.unknown,
+        };
+    }
+    if (status === 'archived') {
+        return {
+            chipClass: 'archived',
+            chipIcon: 'bi-archive',
+            chipTitle: 'Archived after inactivity',
+            badgeClass: 'archived',
+            badgeText: 'Archived',
+            buttonClass: 'btn-outline-secondary',
+            buttonIcon: 'bi-archive',
+            buttonLabel: 'Archived',
+            summaryTitle: 'Archived after inactivity',
+            summaryMeta: 'The channel is archived. Any new activity or manual restore will bring it back to active.',
+            ownerLine: ownerLabels[ownerPeerState] || ownerLabels.unknown,
+        };
+    }
+    if (status === 'cooling') {
+        return {
+            chipClass: 'cooling',
+            chipIcon: 'bi-hourglass-split',
+            chipTitle: `Cooling: auto-archive in ${daysUntilArchive != null ? daysUntilArchive : '?'} day(s) without activity`,
+            badgeClass: 'cooling',
+            badgeText: daysUntilArchive != null ? `${daysUntilArchive}d left` : 'Cooling',
+            buttonClass: 'btn-outline-warning',
+            buttonIcon: 'bi-hourglass-split',
+            buttonLabel: 'Cooling',
+            summaryTitle: 'Cooling toward archive',
+            summaryMeta: `This channel will auto-archive after ${ttlDays} days of inactivity${daysUntilArchive != null ? ` (${daysUntilArchive} day(s) remaining)` : ''}.`,
+            ownerLine: ownerLabels[ownerPeerState] || ownerLabels.unknown,
+        };
+    }
+    return {
+        chipClass: '',
+        chipIcon: '',
+        chipTitle: '',
+        badgeClass: '',
+        badgeText: '',
+        buttonClass: 'btn-outline-secondary',
+        buttonIcon: 'bi-clock-history',
+        buttonLabel: 'Lifecycle',
+        summaryTitle: 'Auto-archive enabled',
+        summaryMeta: `This channel will archive after ${ttlDays} days of inactivity.`,
+        ownerLine: ownerLabels[ownerPeerState] || ownerLabels.unknown,
+    };
+}
+
+function renderChannelLifecycleChip(lifecycle) {
+    const visual = getChannelLifecycleVisualState(lifecycle);
+    if (!visual.chipClass || !visual.chipIcon) return '';
+    return `
+        <span class="channel-lifecycle-chip ${visual.chipClass}" title="${escapeHtml(visual.chipTitle)}">
+            <i class="bi ${visual.chipIcon}"></i>
+        </span>
+    `;
+}
+
+function applyChannelLifecycleToItem(item, lifecycle) {
+    if (!item) return;
+    const state = {
+        status: String((lifecycle && lifecycle.status) || 'active').toLowerCase() || 'active',
+        ttlDays: parseChannelLifecycleInt(lifecycle && lifecycle.ttlDays, 180),
+        preserved: !!(lifecycle && lifecycle.preserved),
+        archivedAt: String((lifecycle && lifecycle.archivedAt) || '').trim(),
+        archiveReason: String((lifecycle && lifecycle.archiveReason) || '').trim(),
+        daysUntilArchive: parseChannelLifecycleInt(lifecycle && lifecycle.daysUntilArchive, null),
+        ownerPeerState: String((lifecycle && lifecycle.ownerPeerState) || '').trim().toLowerCase(),
+        lastActivityAt: String((lifecycle && lifecycle.lastActivityAt) || '').trim(),
+    };
+    if (state.preserved && state.status !== 'archived') {
+        state.status = 'preserved';
+    }
+    item.setAttribute('data-lifecycle-status', state.status);
+    item.setAttribute('data-lifecycle-ttl-days', String(state.ttlDays));
+    item.setAttribute('data-lifecycle-preserved', state.preserved ? 'true' : 'false');
+    item.setAttribute('data-archived-at', state.archivedAt);
+    item.setAttribute('data-archive-reason', state.archiveReason);
+    item.setAttribute('data-days-until-archive', state.daysUntilArchive == null ? '' : String(state.daysUntilArchive));
+    item.setAttribute('data-owner-peer-state', state.ownerPeerState);
+    item.setAttribute('data-last-activity-at', state.lastActivityAt);
+    item.classList.remove('lifecycle-archived', 'lifecycle-cooling', 'lifecycle-preserved');
+    if (state.status === 'archived') {
+        item.classList.add('lifecycle-archived');
+    } else if (state.status === 'cooling') {
+        item.classList.add('lifecycle-cooling');
+    } else if (state.status === 'preserved') {
+        item.classList.add('lifecycle-preserved');
+    }
+
+    const existingChip = item.querySelector('.channel-lifecycle-chip');
+    const nameEl = item.querySelector('.channel-name');
+    const chipMarkup = renderChannelLifecycleChip(state);
+    if (existingChip) existingChip.remove();
+    if (chipMarkup && nameEl) {
+        nameEl.insertAdjacentHTML('afterend', chipMarkup);
+    }
+}
+
+function setChannelLifecycleUI(lifecycle, permissions) {
+    const toggle = document.getElementById('channel-lifecycle-toggle');
+    const icon = document.getElementById('channel-lifecycle-icon');
+    const label = document.getElementById('channel-lifecycle-label');
+    const badge = document.getElementById('channel-lifecycle-badge');
+    const summaryStatus = document.getElementById('channel-lifecycle-summary-status');
+    const summaryMeta = document.getElementById('channel-lifecycle-summary-meta');
+    const summaryOwner = document.getElementById('channel-lifecycle-summary-owner');
+    const preserveBtn = document.getElementById('channel-lifecycle-preserve-btn');
+    const archiveBtn = document.getElementById('channel-archive-btn');
+    const restoreBtn = document.getElementById('channel-restore-btn');
+    const ttlButtons = Array.from(document.querySelectorAll('.channel-lifecycle-ttl-group [data-ttl-days]'));
+    if (!toggle || !icon || !label || !badge || !summaryStatus || !summaryMeta || !summaryOwner || !preserveBtn || !archiveBtn || !restoreBtn) {
+        return;
+    }
+
+    const visual = getChannelLifecycleVisualState(lifecycle);
+    toggle.classList.remove('btn-outline-secondary', 'btn-outline-warning', 'btn-outline-info');
+    toggle.classList.add(visual.buttonClass);
+    icon.className = `bi ${visual.buttonIcon}`;
+    label.textContent = visual.buttonLabel;
+
+    const badgeVisible = !!visual.badgeText;
+    badge.className = 'badge rounded-pill';
+    badge.classList.toggle('d-none', !badgeVisible);
+    if (badgeVisible) {
+        badge.classList.add(visual.badgeClass);
+        badge.textContent = visual.badgeText;
+    } else {
+        badge.textContent = '';
+    }
+
+    summaryStatus.textContent = visual.summaryTitle;
+    summaryMeta.textContent = visual.summaryMeta;
+    summaryOwner.textContent = visual.ownerLine;
+
+    const canManage = !!(permissions && permissions.canManage);
+    const isGeneral = !!(permissions && permissions.isGeneral);
+    const reason = (permissions && permissions.reason) || '';
+    toggle.setAttribute('title', reason || 'Inspect lifecycle policy');
+    toggle.setAttribute('aria-label', reason || 'Inspect lifecycle policy');
+
+    preserveBtn.disabled = !canManage;
+    preserveBtn.classList.toggle('active', !!lifecycle.preserved && lifecycle.status !== 'archived');
+    preserveBtn.textContent = lifecycle.preserved && lifecycle.status !== 'archived' ? 'Preserved' : (isGeneral ? 'General is preserved' : 'Preserve channel');
+    preserveBtn.setAttribute('title', canManage ? (lifecycle.preserved ? 'Disable preserve mode' : 'Prevent this channel from auto-archiving') : reason);
+
+    ttlButtons.forEach(btn => {
+        const btnDays = parseChannelLifecycleInt(btn.getAttribute('data-ttl-days'), 0);
+        btn.classList.toggle('active', btnDays === parseChannelLifecycleInt(lifecycle.ttlDays, 180));
+        btn.disabled = !canManage;
+        btn.title = canManage ? `Auto-archive after ${btnDays} days of inactivity` : reason;
+    });
+
+    archiveBtn.disabled = !canManage;
+    archiveBtn.classList.toggle('d-none', lifecycle.status === 'archived');
+    archiveBtn.title = canManage ? 'Archive this channel now' : reason;
+    restoreBtn.disabled = !canManage;
+    restoreBtn.classList.toggle('d-none', lifecycle.status !== 'archived');
+    restoreBtn.title = canManage ? 'Restore this channel to active state' : reason;
+}
+
+function applyChannelLifecycleFromSelection(channelId) {
+    const selectedItem = document.querySelector(`[data-channel-id="${channelId}"]`);
+    if (!selectedItem) return;
+    const lifecycle = getChannelLifecycleStateFromItem(selectedItem);
+    currentChannelLifecycleStatus = lifecycle.status;
+    currentChannelLifecycleTtlDays = lifecycle.ttlDays;
+    currentChannelLifecyclePreserved = lifecycle.preserved;
+    currentChannelArchivedAt = lifecycle.archivedAt;
+    currentChannelArchiveReason = lifecycle.archiveReason;
+    currentChannelDaysUntilArchive = lifecycle.daysUntilArchive;
+    currentChannelOwnerPeerState = lifecycle.ownerPeerState;
+    currentChannelLastActivityAt = lifecycle.lastActivityAt;
+    setChannelLifecycleUI(lifecycle, getCurrentChannelLifecyclePermissions());
+}
+
+function updateSelectedChannelLifecycle(lifecycle) {
+    if (!currentChannelId) return;
+    const item = document.querySelector(`.channel-item[data-channel-id="${CSS.escape(String(currentChannelId))}"]`);
+    if (!item) return;
+    applyChannelLifecycleToItem(item, lifecycle);
+    applyChannelLifecycleFromSelection(currentChannelId);
+    sortChannelListByPins();
+}
+
+function updateChannelLifecycle(payload) {
+    if (!currentChannelId) return Promise.resolve();
+    const requestBody = Object.assign({ channel_id: currentChannelId }, payload || {});
+    return apiCall('/ajax/update_channel_lifecycle', {
+        method: 'POST',
+        body: JSON.stringify(requestBody)
+    }).then((data) => {
+        const lifecycle = data && data.lifecycle ? {
+            status: data.lifecycle.status,
+            ttlDays: data.lifecycle.ttl_days,
+            preserved: data.lifecycle.preserved,
+            archivedAt: data.lifecycle.archived_at,
+            archiveReason: data.lifecycle.archive_reason,
+            daysUntilArchive: data.lifecycle.days_until_archive,
+            ownerPeerState: data.lifecycle.owner_peer_state,
+            lastActivityAt: data.lifecycle.last_activity_at,
+        } : null;
+        if (lifecycle) {
+            updateSelectedChannelLifecycle(lifecycle);
+        }
+        refreshSidebarChannelState();
+        return data;
+    });
+}
+
+function toggleChannelPreserve() {
+    const permissions = getCurrentChannelLifecyclePermissions();
+    if (!permissions.canManage) {
+        showAlert(permissions.reason || 'Not authorized to update lifecycle policy', 'warning');
+        return;
+    }
+    const nextPreserved = !currentChannelLifecyclePreserved;
+    updateChannelLifecycle({ preserved: nextPreserved })
+        .then(() => {
+            showAlert(nextPreserved ? 'Channel will stay preserved' : 'Channel preserve mode disabled', 'success');
+        })
+        .catch((error) => {
+            showAlert(error.error || 'Failed to update channel lifecycle', 'danger');
+        });
+}
+
+function setChannelLifecycleTtl(days) {
+    const permissions = getCurrentChannelLifecyclePermissions();
+    if (!permissions.canManage) {
+        showAlert(permissions.reason || 'Not authorized to update lifecycle policy', 'warning');
+        return;
+    }
+    updateChannelLifecycle({ ttl_days: days })
+        .then(() => {
+            showAlert(`Channel inactivity window set to ${days} day(s)`, 'success');
+        })
+        .catch((error) => {
+            showAlert(error.error || 'Failed to update channel lifecycle', 'danger');
+        });
+}
+
+function archiveCurrentChannel() {
+    const permissions = getCurrentChannelLifecyclePermissions();
+    if (!permissions.canManage) {
+        showAlert(permissions.reason || 'Not authorized to archive this channel', 'warning');
+        return;
+    }
+    if (!confirm('Archive this channel now? New activity will restore it automatically.')) return;
+    updateChannelLifecycle({ archived: true })
+        .then(() => {
+            showAlert('Channel archived', 'success');
+        })
+        .catch((error) => {
+            showAlert(error.error || 'Failed to archive channel', 'danger');
+        });
+}
+
+function restoreCurrentChannel() {
+    const permissions = getCurrentChannelLifecyclePermissions();
+    if (!permissions.canManage) {
+        showAlert(permissions.reason || 'Not authorized to restore this channel', 'warning');
+        return;
+    }
+    updateChannelLifecycle({ archived: false })
+        .then(() => {
+            showAlert('Channel restored', 'success');
+        })
+        .catch((error) => {
+            showAlert(error.error || 'Failed to restore channel', 'danger');
+        });
+}
+
 function updateChannelE2EBadge() {
     const badge = document.getElementById('channel-e2e-badge');
     if (!badge) return;
@@ -4371,10 +4899,14 @@ function hydrateCurrentChannelMeta() {
     updateChannelMembersCount(currentChannelMemberCount);
     updateMemberGate();
     updateChannelActionVisibility();
+    applyChannelLifecycleFromSelection(currentChannelId);
 }
 
 function updateChannelActionVisibility() {
     applyAllChannelQuickActionStates();
+    if (currentChannelId) {
+        applyChannelLifecycleFromSelection(currentChannelId);
+    }
 }
 
 function setChannelPrivacy(mode) {
@@ -6654,6 +7186,16 @@ function applySidebarChannelState(channels) {
             const privacy = String(ch.privacy_mode || 'open').toLowerCase();
             const ctype = String(ch.channel_type || 'public').toLowerCase();
             const icon = ctype === 'private' ? 'lock' : ctype === 'dm' ? 'person' : (privacy === 'guarded' ? 'shield-check' : 'hash');
+            const lifecycle = {
+                status: String(ch.lifecycle_status || 'active').toLowerCase(),
+                ttlDays: parseChannelLifecycleInt(ch.lifecycle_ttl_days, 180),
+                preserved: !!ch.lifecycle_preserved,
+                archivedAt: String(ch.archived_at || ''),
+                archiveReason: String(ch.archive_reason || ''),
+                daysUntilArchive: parseChannelLifecycleInt(ch.days_until_archive, null),
+                ownerPeerState: String(ch.owner_peer_state || ''),
+                lastActivityAt: String(ch.last_activity_at || ''),
+            };
             const div = document.createElement('div');
             div.className = 'channel-item p-2 rounded mb-1';
             div.setAttribute('data-channel-id', ch.id);
@@ -6665,6 +7207,14 @@ function applySidebarChannelState(channels) {
             div.setAttribute('data-origin-peer', ch.origin_peer || '');
             div.setAttribute('data-notifications-enabled', ch.notifications_enabled !== false ? 'true' : 'false');
             div.setAttribute('data-channel-desc', ch.description || '');
+            div.setAttribute('data-lifecycle-status', lifecycle.status);
+            div.setAttribute('data-lifecycle-ttl-days', String(lifecycle.ttlDays));
+            div.setAttribute('data-lifecycle-preserved', lifecycle.preserved ? 'true' : 'false');
+            div.setAttribute('data-archived-at', lifecycle.archivedAt);
+            div.setAttribute('data-archive-reason', lifecycle.archiveReason);
+            div.setAttribute('data-days-until-archive', lifecycle.daysUntilArchive == null ? '' : String(lifecycle.daysUntilArchive));
+            div.setAttribute('data-owner-peer-state', lifecycle.ownerPeerState);
+            div.setAttribute('data-last-activity-at', lifecycle.lastActivityAt);
             div.onclick = () => selectChannel(ch.id, ch.name);
             const unread = Math.max(0, parseInt(ch.unread_count || 0, 10) || 0);
             const channelIdAttr = escapeHtml(String(ch.id));
@@ -6674,6 +7224,7 @@ function applySidebarChannelState(channels) {
                     <span class="channel-name" data-full-name="${escapeHtml(ch.name)}" aria-label="${escapeHtml(ch.name)}">
                         <span class="channel-name-inner">${escapeHtml(ch.name)}</span>
                     </span>
+                    ${renderChannelLifecycleChip(lifecycle)}
                     <span class="ms-auto d-flex align-items-center gap-1 channel-row-actions">
                         <button type="button"
                                 class="btn btn-link btn-sm p-0 channel-pin-btn"
@@ -6728,6 +7279,23 @@ function applySidebarChannelState(channels) {
         item.setAttribute('data-member-count', String(ch.member_count || 0));
         item.setAttribute('data-user-role', ch.user_role || item.getAttribute('data-user-role') || 'member');
         item.setAttribute('data-origin-peer', ch.origin_peer || item.getAttribute('data-origin-peer') || '');
+        applyChannelLifecycleToItem(item, {
+            status: String(ch.lifecycle_status || item.getAttribute('data-lifecycle-status') || 'active').toLowerCase(),
+            ttlDays: parseChannelLifecycleInt(
+                Object.prototype.hasOwnProperty.call(ch, 'lifecycle_ttl_days') ? ch.lifecycle_ttl_days : item.getAttribute('data-lifecycle-ttl-days'),
+                180,
+            ),
+            preserved: Object.prototype.hasOwnProperty.call(ch, 'lifecycle_preserved')
+                ? !!ch.lifecycle_preserved
+                : parseChannelLifecycleBool(item.getAttribute('data-lifecycle-preserved')),
+            archivedAt: Object.prototype.hasOwnProperty.call(ch, 'archived_at') ? String(ch.archived_at || '') : String(item.getAttribute('data-archived-at') || ''),
+            archiveReason: Object.prototype.hasOwnProperty.call(ch, 'archive_reason') ? String(ch.archive_reason || '') : String(item.getAttribute('data-archive-reason') || ''),
+            daysUntilArchive: Object.prototype.hasOwnProperty.call(ch, 'days_until_archive')
+                ? parseChannelLifecycleInt(ch.days_until_archive, null)
+                : parseChannelLifecycleInt(item.getAttribute('data-days-until-archive'), null),
+            ownerPeerState: Object.prototype.hasOwnProperty.call(ch, 'owner_peer_state') ? String(ch.owner_peer_state || '') : String(item.getAttribute('data-owner-peer-state') || ''),
+            lastActivityAt: Object.prototype.hasOwnProperty.call(ch, 'last_activity_at') ? String(ch.last_activity_at || '') : String(item.getAttribute('data-last-activity-at') || ''),
+        });
         if (Object.prototype.hasOwnProperty.call(ch, 'description')) {
             item.setAttribute('data-channel-desc', ch.description || '');
         }
@@ -6778,6 +7346,7 @@ function applySidebarChannelState(channels) {
             applyChannelPrivacyFromSelection(currentChannelId);
             applyChannelNotificationsFromSelection(currentChannelId);
             updateChannelE2EBadge();
+            applyChannelLifecycleFromSelection(currentChannelId);
         }
     });
     applyAllChannelQuickActionStates();
@@ -10211,7 +10780,7 @@ document.addEventListener('DOMContentLoaded', function() {
 	        }
 
 	        // Load messages for first channel (default) if we didn't deep-link.
-		        if (!didSelectFocus) {
+        if (!didSelectFocus) {
                 if (currentChannelId) {
 	                    console.log('Loading messages for channel:', currentChannelId);
 	                    loadChannelMessages(currentChannelId);
@@ -10220,6 +10789,7 @@ document.addEventListener('DOMContentLoaded', function() {
 	                    applyChannelPrivacyFromSelection(currentChannelId);
 	                    applyChannelNotificationsFromSelection(currentChannelId);
 	                    hydrateCurrentChannelMeta();
+                        applyChannelLifecycleFromSelection(currentChannelId);
 	                } else {
 	                    console.log('No current channel set');
 	                }

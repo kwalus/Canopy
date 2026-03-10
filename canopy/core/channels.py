@@ -63,11 +63,19 @@ class Channel:
     member_count: int = 0
     unread_count: int = 0
     last_message_at: Optional[datetime] = None
+    last_activity_at: Optional[datetime] = None
     origin_peer: Optional[str] = None
     privacy_mode: str = 'open'
     user_role: str = 'member'
     notifications_enabled: bool = True
     crypto_mode: str = 'legacy_plaintext'
+    lifecycle_ttl_days: Optional[int] = None
+    lifecycle_preserved: bool = False
+    archived_at: Optional[datetime] = None
+    archive_reason: Optional[str] = None
+    lifecycle_status: str = 'active'
+    days_until_archive: Optional[int] = None
+    owner_peer_state: Optional[str] = None
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert channel to dictionary."""
@@ -82,11 +90,19 @@ class Channel:
             'member_count': self.member_count,
             'unread_count': self.unread_count,
             'last_message_at': self.last_message_at.isoformat() if self.last_message_at else None,
+            'last_activity_at': self.last_activity_at.isoformat() if self.last_activity_at else None,
             'origin_peer': self.origin_peer,
             'privacy_mode': self.privacy_mode,
             'user_role': self.user_role,
             'notifications_enabled': self.notifications_enabled,
             'crypto_mode': self.crypto_mode,
+            'lifecycle_ttl_days': self.lifecycle_ttl_days,
+            'lifecycle_preserved': self.lifecycle_preserved,
+            'archived_at': self.archived_at.isoformat() if self.archived_at else None,
+            'archive_reason': self.archive_reason,
+            'lifecycle_status': self.lifecycle_status,
+            'days_until_archive': self.days_until_archive,
+            'owner_peer_state': self.owner_peer_state,
         }
 
 
@@ -220,6 +236,10 @@ class ChannelManager:
 
     DEFAULT_TTL_DAYS = 90  # Quarterly default
     DEFAULT_TTL_SECONDS = DEFAULT_TTL_DAYS * 24 * 3600
+    DEFAULT_CHANNEL_LIFECYCLE_DAYS = 180
+    MAX_CHANNEL_LIFECYCLE_DAYS = 730
+    CHANNEL_LIFECYCLE_WARNING_DAYS = 14
+    CHANNEL_LIFECYCLE_SCAN_INTERVAL_SECONDS = 60
     # Upper bound on message retention to prevent unbounded growth.
     MAX_TTL_DAYS = 730  # 2 years
     MAX_TTL_SECONDS = MAX_TTL_DAYS * 24 * 3600
@@ -273,6 +293,8 @@ class ChannelManager:
         self.api_key_manager = api_key_manager
         self._channel_key_lock = threading.RLock()
         self._channel_key_cache: Dict[Tuple[str, str], bytes] = {}
+        self._lifecycle_scan_lock = threading.RLock()
+        self._last_lifecycle_scan_at: Optional[datetime] = None
         
         # Ensure database tables exist
         with LogOperation("Channel tables initialization"):
@@ -309,6 +331,164 @@ class ChannelManager:
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         return dt.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+
+    @classmethod
+    def _normalize_channel_lifecycle_ttl_days(
+        cls,
+        ttl_days: Optional[Any],
+        default: Optional[int] = None,
+    ) -> Optional[int]:
+        """Clamp lifecycle TTL days to a safe supported range."""
+        fallback = cls.DEFAULT_CHANNEL_LIFECYCLE_DAYS if default is None else default
+        if ttl_days is None:
+            return fallback
+        try:
+            ttl_val = int(ttl_days)
+        except (TypeError, ValueError):
+            return fallback
+        if ttl_val <= 0:
+            return fallback
+        return max(1, min(ttl_val, cls.MAX_CHANNEL_LIFECYCLE_DAYS))
+
+    def _run_channel_lifecycle_scan(
+        self,
+        conn: Any,
+        now: Optional[datetime] = None,
+    ) -> int:
+        """Soft-archive inactive channels based on lifecycle metadata."""
+        now_dt = now or datetime.now(timezone.utc)
+        if now_dt.tzinfo is None:
+            now_dt = now_dt.replace(tzinfo=timezone.utc)
+        now_db = self._format_db_timestamp(now_dt)
+        cursor = conn.execute(
+            """
+            UPDATE channels
+               SET lifecycle_archived_at = COALESCE(lifecycle_archived_at, ?),
+                   lifecycle_archive_reason = COALESCE(lifecycle_archive_reason, 'inactive_ttl')
+             WHERE COALESCE(lifecycle_preserved, 0) = 0
+               AND COALESCE(channel_type, 'public') NOT IN ('dm', 'group_dm', 'general')
+               AND lifecycle_archived_at IS NULL
+               AND julianday(COALESCE(last_activity_at, created_at)) +
+                   COALESCE(lifecycle_ttl_days, ?) <= julianday(?)
+            """,
+            (now_db, self.DEFAULT_CHANNEL_LIFECYCLE_DAYS, now_db),
+        )
+        return int(getattr(cursor, 'rowcount', 0) or 0)
+
+    def _maybe_run_channel_lifecycle_scan(self, force: bool = False) -> None:
+        """Throttle lifecycle scans so sidebar polling does not churn the DB."""
+        now_dt = datetime.now(timezone.utc)
+        if not force and self._last_lifecycle_scan_at:
+            delta = (now_dt - self._last_lifecycle_scan_at).total_seconds()
+            if delta < self.CHANNEL_LIFECYCLE_SCAN_INTERVAL_SECONDS:
+                return
+        with self._lifecycle_scan_lock:
+            if not force and self._last_lifecycle_scan_at:
+                delta = (now_dt - self._last_lifecycle_scan_at).total_seconds()
+                if delta < self.CHANNEL_LIFECYCLE_SCAN_INTERVAL_SECONDS:
+                    return
+            try:
+                with self.db.get_connection() as conn:
+                    archived = self._run_channel_lifecycle_scan(conn, now=now_dt)
+                    conn.commit()
+                if archived:
+                    logger.info("Soft-archived %d inactive channel(s)", archived)
+            except Exception as e:
+                logger.debug(f"Channel lifecycle scan skipped: {e}")
+            finally:
+                self._last_lifecycle_scan_at = now_dt
+
+    def touch_channel_activity(
+        self,
+        channel_id: str,
+        activity_at: Optional[Any] = None,
+        revive_archived: bool = True,
+    ) -> bool:
+        """Refresh a channel's activity timestamp and optionally unarchive it."""
+        if not channel_id:
+            return False
+        activity_dt = self._parse_datetime(activity_at) or datetime.now(timezone.utc)
+        activity_db = self._format_db_timestamp(activity_dt)
+        try:
+            with self.db.get_connection() as conn:
+                if revive_archived:
+                    conn.execute(
+                        """
+                        UPDATE channels
+                           SET last_activity_at = ?,
+                               lifecycle_archived_at = NULL,
+                               lifecycle_archive_reason = NULL
+                         WHERE id = ?
+                        """,
+                        (activity_db, channel_id),
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE channels SET last_activity_at = ? WHERE id = ?",
+                        (activity_db, channel_id),
+                    )
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.debug(f"Failed to touch channel activity for {channel_id}: {e}")
+            return False
+
+    def describe_channel_lifecycle(
+        self,
+        channel: Channel,
+        now: Optional[datetime] = None,
+        local_peer_id: Optional[str] = None,
+        connected_peer_ids: Optional[set[str]] = None,
+        known_peer_ids: Optional[set[str]] = None,
+    ) -> Dict[str, Any]:
+        """Return derived lifecycle state for one channel."""
+        now_dt = now or datetime.now(timezone.utc)
+        if now_dt.tzinfo is None:
+            now_dt = now_dt.replace(tzinfo=timezone.utc)
+
+        last_activity = channel.last_activity_at or channel.last_message_at or channel.created_at
+        ttl_days = self._normalize_channel_lifecycle_ttl_days(
+            channel.lifecycle_ttl_days,
+            default=self.DEFAULT_CHANNEL_LIFECYCLE_DAYS,
+        )
+        archived_at = channel.archived_at
+        preserved = bool(channel.lifecycle_preserved)
+        warning_window = self.CHANNEL_LIFECYCLE_WARNING_DAYS
+
+        owner_state = 'unknown'
+        origin_peer = str(channel.origin_peer or '').strip()
+        if not origin_peer or (local_peer_id and origin_peer == local_peer_id):
+            owner_state = 'local'
+        elif connected_peer_ids is not None and origin_peer in connected_peer_ids:
+            owner_state = 'connected'
+        elif known_peer_ids is not None and origin_peer in known_peer_ids:
+            owner_state = 'known'
+
+        status = 'active'
+        days_until_archive: Optional[int] = None
+        if archived_at:
+            status = 'archived'
+        elif preserved:
+            status = 'preserved'
+        elif last_activity and ttl_days:
+            due_at = last_activity + timedelta(days=ttl_days)
+            remaining_seconds = (due_at - now_dt).total_seconds()
+            days_until_archive = max(0, int((remaining_seconds + 86399) // 86400))
+            if remaining_seconds <= 0:
+                status = 'inactive'
+            elif days_until_archive <= warning_window:
+                status = 'cooling'
+
+        return {
+            'status': status,
+            'ttl_days': ttl_days,
+            'preserved': preserved,
+            'last_activity_at': last_activity,
+            'archived_at': archived_at,
+            'archive_reason': channel.archive_reason,
+            'days_until_archive': days_until_archive,
+            'owner_peer_state': owner_state,
+        }
 
     def _resolve_expiry(self,
                         expires_at: Optional[Any] = None,
@@ -421,9 +601,14 @@ class ChannelManager:
                         channel_type TEXT NOT NULL,
                         created_by TEXT NOT NULL,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        last_activity_at TIMESTAMP,
                         description TEXT,
                         topic TEXT,
                         crypto_mode TEXT DEFAULT 'legacy_plaintext',
+                        lifecycle_ttl_days INTEGER DEFAULT 180,
+                        lifecycle_preserved BOOLEAN DEFAULT 0,
+                        lifecycle_archived_at TIMESTAMP,
+                        lifecycle_archive_reason TEXT,
                         FOREIGN KEY (created_by) REFERENCES users (id)
                     );
                     
@@ -474,6 +659,8 @@ class ChannelManager:
                     CREATE INDEX IF NOT EXISTS idx_channel_messages_thread ON channel_messages(thread_id);
                     -- Unique constraint for public channel names
                     CREATE UNIQUE INDEX IF NOT EXISTS idx_channels_public_name ON channels(name) WHERE channel_type = 'public';
+                    CREATE INDEX IF NOT EXISTS idx_channels_last_activity ON channels(last_activity_at);
+                    CREATE INDEX IF NOT EXISTS idx_channels_lifecycle_archived ON channels(lifecycle_archived_at, lifecycle_preserved);
 
                     -- Private-channel E2E key state (phase-1 scaffolding).
                     CREATE TABLE IF NOT EXISTS channel_keys (
@@ -563,6 +750,22 @@ class ChannelManager:
                         "ALTER TABLE channels ADD COLUMN crypto_mode TEXT DEFAULT 'legacy_plaintext'"
                     )
                     logger.info("Added crypto_mode column to channels table")
+
+                for col, sql in [
+                    ('last_activity_at', "ALTER TABLE channels ADD COLUMN last_activity_at TIMESTAMP"),
+                    (
+                        'lifecycle_ttl_days',
+                        f"ALTER TABLE channels ADD COLUMN lifecycle_ttl_days INTEGER DEFAULT {self.DEFAULT_CHANNEL_LIFECYCLE_DAYS}",
+                    ),
+                    ('lifecycle_preserved', "ALTER TABLE channels ADD COLUMN lifecycle_preserved BOOLEAN DEFAULT 0"),
+                    ('lifecycle_archived_at', "ALTER TABLE channels ADD COLUMN lifecycle_archived_at TIMESTAMP"),
+                    ('lifecycle_archive_reason', "ALTER TABLE channels ADD COLUMN lifecycle_archive_reason TEXT"),
+                ]:
+                    try:
+                        conn.execute(f"SELECT {col} FROM channels LIMIT 1")
+                    except Exception:
+                        conn.execute(sql)
+                        logger.info(f"Added {col} column to channels table")
 
                 # Add expires_at column to channel_messages if missing
                 try:
@@ -664,6 +867,39 @@ class ChannelManager:
                 except Exception as e:
                     logger.debug(f"Channel name '#' migration skipped: {e}")
 
+                try:
+                    conn.execute(
+                        """
+                        UPDATE channels
+                           SET lifecycle_ttl_days = COALESCE(lifecycle_ttl_days, ?)
+                        """,
+                        (self.DEFAULT_CHANNEL_LIFECYCLE_DAYS,),
+                    )
+                    conn.execute(
+                        """
+                        UPDATE channels
+                           SET lifecycle_preserved = 1
+                         WHERE id = 'general'
+                            OR channel_type = 'general'
+                        """
+                    )
+                    conn.execute(
+                        """
+                        UPDATE channels
+                           SET last_activity_at = COALESCE(
+                               last_activity_at,
+                               (
+                                   SELECT MAX(COALESCE(cm.last_activity_at, cm.created_at))
+                                     FROM channel_messages cm
+                                    WHERE cm.channel_id = channels.id
+                               ),
+                               created_at
+                           )
+                        """
+                    )
+                except Exception as lifecycle_backfill_err:
+                    logger.debug(f"Channel lifecycle backfill skipped: {lifecycle_backfill_err}")
+
                 # Peer device profiles — store name, description, avatar
                 # received from remote peers so the UI can show them.
                 conn.execute("""
@@ -764,9 +1000,18 @@ class ChannelManager:
                     
                     # Create the general channel
                     conn.execute("""
-                        INSERT INTO channels (id, name, channel_type, created_by, description, privacy_mode)
-                        VALUES ('general', 'general', 'public', 'system', 'General discussion channel', 'open')
-                    """)
+                        INSERT INTO channels (
+                            id, name, channel_type, created_by, description, privacy_mode,
+                            last_activity_at, lifecycle_ttl_days, lifecycle_preserved
+                        )
+                        VALUES (
+                            'general', 'general', 'public', 'system', 'General discussion channel', 'open',
+                            CURRENT_TIMESTAMP, ?, 1
+                        )
+                    """, (self.DEFAULT_CHANNEL_LIFECYCLE_DAYS,))
+                    conn.execute(
+                        "UPDATE channels SET lifecycle_preserved = 1, last_activity_at = COALESCE(last_activity_at, created_at) WHERE id = 'general'",
+                    )
                     
                     # Add local user to the general channel
                     conn.execute("""
@@ -2119,28 +2364,48 @@ class ChannelManager:
             logger.debug(f"Generated channel ID: {channel_id}")
             
             # Create channel object
+            created_at = datetime.now(timezone.utc)
+            lifecycle_preserved = channel_type == ChannelType.GENERAL or name == 'general'
+            lifecycle_ttl_days = self.DEFAULT_CHANNEL_LIFECYCLE_DAYS
             channel = Channel(
                 id=channel_id,
                 name=name,
                 channel_type=channel_type,
                 created_by=created_by,
-                created_at=datetime.now(timezone.utc),
+                created_at=created_at,
+                last_activity_at=created_at,
                 description=description,
                 origin_peer=origin_peer,
                 privacy_mode=privacy_mode or 'open',
                 user_role='admin',
                 crypto_mode=self.CRYPTO_MODE_LEGACY,
+                lifecycle_ttl_days=lifecycle_ttl_days,
+                lifecycle_preserved=lifecycle_preserved,
+                lifecycle_status='preserved' if lifecycle_preserved else 'active',
             )
             
             with LogOperation(f"Database insert for channel {channel_id}"):
                 with self.db.get_connection() as conn:
                     # Insert channel
                     conn.execute("""
-                        INSERT INTO channels (id, name, channel_type, created_by, description, privacy_mode, origin_peer)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO channels (
+                            id, name, channel_type, created_by, created_at,
+                            last_activity_at, description, privacy_mode, origin_peer,
+                            lifecycle_ttl_days, lifecycle_preserved
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
-                        channel_id, name, channel_type.value, created_by, description,
-                        privacy_mode or 'open', origin_peer
+                        channel_id,
+                        name,
+                        channel_type.value,
+                        created_by,
+                        self._format_db_timestamp(created_at),
+                        self._format_db_timestamp(created_at),
+                        description,
+                        privacy_mode or 'open',
+                        origin_peer,
+                        lifecycle_ttl_days,
+                        1 if lifecycle_preserved else 0,
                     ))
                     
                     # Add creator as admin member
@@ -2201,14 +2466,20 @@ class ChannelManager:
             List of dicts with id, name, type, description, origin_peer.
         """
         try:
+            self._maybe_run_channel_lifecycle_scan()
             with self.db.get_connection() as conn:
                 rows = conn.execute("""
                     SELECT id, name, channel_type, description,
-                           created_at, origin_peer, privacy_mode
+                           created_at, origin_peer, privacy_mode,
+                           COALESCE(last_activity_at, created_at) AS last_activity_at,
+                           COALESCE(lifecycle_ttl_days, ?) AS lifecycle_ttl_days,
+                           COALESCE(lifecycle_preserved, 0) AS lifecycle_preserved,
+                           lifecycle_archived_at,
+                           lifecycle_archive_reason
                     FROM channels
                     WHERE (channel_type = 'public' OR channel_type = 'general')
                       AND COALESCE(privacy_mode, 'open') NOT IN ('private', 'confidential')
-                """).fetchall()
+                """, (self.DEFAULT_CHANNEL_LIFECYCLE_DAYS,)).fetchall()
                 return [
                     {
                         'id': r[0],
@@ -2217,6 +2488,11 @@ class ChannelManager:
                         'desc': r[3] or '',
                         'origin_peer': r[5] or '',
                         'privacy_mode': r[6] or 'open',
+                        'last_activity_at': r[7],
+                        'lifecycle_ttl_days': r[8],
+                        'lifecycle_preserved': bool(r[9]),
+                        'lifecycle_archived_at': r[10],
+                        'lifecycle_archive_reason': r[11],
                     }
                     for r in rows
                 ]
@@ -2229,7 +2505,12 @@ class ChannelManager:
                                   local_user_id: Optional[str],
                                   origin_peer: Optional[str] = None,
                                   privacy_mode: str = 'open',
-                                  initial_members: Optional[list[Any]] = None) -> Optional[Channel]:
+                                  last_activity_at: Optional[Any] = None,
+                                  initial_members: Optional[list[Any]] = None,
+                                  lifecycle_ttl_days: Optional[int] = None,
+                                  lifecycle_preserved: bool = False,
+                                  lifecycle_archived_at: Optional[Any] = None,
+                                  lifecycle_archive_reason: Optional[str] = None) -> Optional[Channel]:
         """
         Create a channel with a specific ID received from P2P sync.
         
@@ -2271,12 +2552,38 @@ class ChannelManager:
                     origin_peer=origin_peer,
                 )
 
+                created_at = datetime.now(timezone.utc)
+                last_activity_dt = self._parse_datetime(last_activity_at) or created_at
+                ttl_days = self._normalize_channel_lifecycle_ttl_days(
+                    lifecycle_ttl_days,
+                    default=self.DEFAULT_CHANNEL_LIFECYCLE_DAYS,
+                )
+                archived_dt = self._parse_datetime(lifecycle_archived_at)
+                preserved = bool(lifecycle_preserved or channel_id == 'general' or channel_type == 'general')
+
                 conn.execute("""
-                    INSERT INTO channels (id, name, channel_type, created_by,
-                                          description, origin_peer, privacy_mode)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (channel_id, name, channel_type, sync_creator_id,
-                      description, origin_peer, privacy_mode or 'open'))
+                    INSERT INTO channels (
+                        id, name, channel_type, created_by, created_at,
+                        last_activity_at, description, origin_peer, privacy_mode,
+                        lifecycle_ttl_days, lifecycle_preserved,
+                        lifecycle_archived_at, lifecycle_archive_reason
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    channel_id,
+                    name,
+                    channel_type,
+                    sync_creator_id,
+                    self._format_db_timestamp(created_at),
+                    self._format_db_timestamp(last_activity_dt),
+                    description,
+                    origin_peer,
+                    privacy_mode or 'open',
+                    ttl_days,
+                    1 if preserved else 0,
+                    self._format_db_timestamp(archived_dt) if archived_dt else None,
+                    lifecycle_archive_reason,
+                ))
 
                 added = 0
                 mode = (privacy_mode or '').lower()
@@ -2370,10 +2677,16 @@ class ChannelManager:
                 name=name,
                 channel_type=ChannelType(channel_type) if channel_type in [e.value for e in ChannelType] else ChannelType.PUBLIC,
                 created_by=sync_creator_id,
-                created_at=datetime.now(timezone.utc),
+                created_at=created_at,
+                last_activity_at=last_activity_dt,
                 description=description,
                 privacy_mode=privacy_mode or 'open',
                 crypto_mode=self.CRYPTO_MODE_LEGACY,
+                lifecycle_ttl_days=ttl_days,
+                lifecycle_preserved=preserved,
+                archived_at=archived_dt,
+                archive_reason=lifecycle_archive_reason,
+                lifecycle_status='archived' if archived_dt else ('preserved' if preserved else 'active'),
             )
             logger.info(f"Created synced channel {channel_id}: {name}")
             return channel
@@ -2386,7 +2699,12 @@ class ChannelManager:
                                 remote_type: str, remote_desc: str,
                                 local_user_id: str,
                                 from_peer: str,
-                                privacy_mode: str = 'open') -> Optional[str]:
+                                privacy_mode: str = 'open',
+                                last_activity_at: Optional[Any] = None,
+                                lifecycle_ttl_days: Optional[int] = None,
+                                lifecycle_preserved: bool = False,
+                                lifecycle_archived_at: Optional[Any] = None,
+                                lifecycle_archive_reason: Optional[str] = None) -> Optional[str]:
         """
         Handle a remote channel that may conflict with a local one.
         
@@ -2408,6 +2726,7 @@ class ChannelManager:
         # General channel is always open, never downgraded by remote metadata
         if remote_id == 'general':
             privacy_mode = 'open'
+            lifecycle_preserved = True
         try:
             with self.db.get_connection() as conn:
                 # Already have this exact channel?
@@ -2464,12 +2783,74 @@ class ChannelManager:
                                 remote_id, from_peer, old_origin_peer or 'local/unknown',
                                 old_privacy, privacy_mode,
                             )
+                    ttl_days = self._normalize_channel_lifecycle_ttl_days(
+                        lifecycle_ttl_days,
+                        default=self.DEFAULT_CHANNEL_LIFECYCLE_DAYS,
+                    )
+                    incoming_last_activity = self._parse_datetime(last_activity_at)
+                    archived_dt = self._parse_datetime(lifecycle_archived_at)
+                    old_ttl_days = None
+                    old_preserved = False
+                    old_archived_at = None
+                    old_archive_reason = None
+                    old_last_activity = None
+                    try:
+                        extra_row = conn.execute(
+                            """
+                            SELECT lifecycle_ttl_days, COALESCE(lifecycle_preserved, 0) AS lifecycle_preserved,
+                                   last_activity_at,
+                                   lifecycle_archived_at, lifecycle_archive_reason
+                            FROM channels WHERE id = ?
+                            """,
+                            (remote_id,),
+                        ).fetchone()
+                        if extra_row:
+                            old_ttl_days = extra_row['lifecycle_ttl_days']
+                            old_preserved = bool(extra_row['lifecycle_preserved'])
+                            old_last_activity = self._parse_datetime(extra_row['last_activity_at'])
+                            old_archived_at = extra_row['lifecycle_archived_at']
+                            old_archive_reason = extra_row['lifecycle_archive_reason']
+                    except Exception:
+                        pass
+                    if can_apply_remote_metadata:
+                        if ttl_days and ttl_days != self._normalize_channel_lifecycle_ttl_days(old_ttl_days, default=ttl_days):
+                            needs_update = True
+                        if bool(lifecycle_preserved) != bool(old_preserved):
+                            needs_update = True
+                        if incoming_last_activity and (old_last_activity is None or incoming_last_activity > old_last_activity):
+                            needs_update = True
+                        if bool(archived_dt) != bool(self._parse_datetime(old_archived_at)):
+                            needs_update = True
+                        if lifecycle_archive_reason != old_archive_reason:
+                            needs_update = True
                     if needs_update:
                         try:
                             conn.execute(
-                                "UPDATE channels SET name = ?, description = ?, privacy_mode = ?, "
-                                "origin_peer = COALESCE(origin_peer, ?) WHERE id = ?",
-                                (new_name, new_desc, new_privacy, from_peer, remote_id)
+                                """
+                                UPDATE channels
+                                   SET name = ?,
+                                       description = ?,
+                                       privacy_mode = ?,
+                                       origin_peer = COALESCE(origin_peer, ?),
+                                       last_activity_at = COALESCE(?, last_activity_at),
+                                       lifecycle_ttl_days = ?,
+                                       lifecycle_preserved = ?,
+                                       lifecycle_archived_at = ?,
+                                       lifecycle_archive_reason = ?
+                                 WHERE id = ?
+                                """,
+                                (
+                                    new_name,
+                                    new_desc,
+                                    new_privacy,
+                                    from_peer,
+                                    self._format_db_timestamp(incoming_last_activity) if incoming_last_activity else None,
+                                    ttl_days,
+                                    1 if lifecycle_preserved else 0,
+                                    self._format_db_timestamp(archived_dt) if archived_dt else None,
+                                    lifecycle_archive_reason,
+                                    remote_id,
+                                )
                             )
                             conn.commit()
                             logger.info(f"Updated channel {remote_id}: "
@@ -2522,11 +2903,31 @@ class ChannelManager:
                         conn.execute("DELETE FROM channels WHERE id = ?", (local_id,))
 
                         conn.execute("""
-                            INSERT INTO channels (id, name, channel_type, created_by,
-                                                  description, origin_peer, privacy_mode)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """, (remote_id, remote_name, remote_type, sync_creator_id,
-                              remote_desc, from_peer, privacy_mode or 'open'))
+                            INSERT INTO channels (
+                                id, name, channel_type, created_by, created_at,
+                                last_activity_at, description, origin_peer, privacy_mode,
+                                lifecycle_ttl_days, lifecycle_preserved,
+                                lifecycle_archived_at, lifecycle_archive_reason
+                            )
+                            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (
+                            remote_id,
+                            remote_name,
+                            remote_type,
+                            sync_creator_id,
+                            self._format_db_timestamp(self._parse_datetime(last_activity_at) or datetime.now(timezone.utc)),
+                            remote_desc,
+                            from_peer,
+                            privacy_mode or 'open',
+                            self._normalize_channel_lifecycle_ttl_days(
+                                lifecycle_ttl_days,
+                                default=self.DEFAULT_CHANNEL_LIFECYCLE_DAYS,
+                            ),
+                            1 if lifecycle_preserved else 0,
+                            self._format_db_timestamp(self._parse_datetime(lifecycle_archived_at))
+                            if self._parse_datetime(lifecycle_archived_at) else None,
+                            lifecycle_archive_reason,
+                        ))
 
                         for user_id, role in members:
                             conn.execute("""
@@ -2547,7 +2948,12 @@ class ChannelManager:
                         self.create_channel_from_sync(
                             remote_id, disambig_name, remote_type, remote_desc,
                             local_user_id, origin_peer=from_peer,
-                            privacy_mode=privacy_mode
+                            privacy_mode=privacy_mode,
+                            last_activity_at=last_activity_at,
+                            lifecycle_ttl_days=lifecycle_ttl_days,
+                            lifecycle_preserved=lifecycle_preserved,
+                            lifecycle_archived_at=lifecycle_archived_at,
+                            lifecycle_archive_reason=lifecycle_archive_reason,
                         )
                         return remote_id
 
@@ -2555,7 +2961,12 @@ class ChannelManager:
             self.create_channel_from_sync(
                 remote_id, remote_name, remote_type, remote_desc, local_user_id,
                 origin_peer=from_peer,
-                privacy_mode=privacy_mode
+                privacy_mode=privacy_mode,
+                last_activity_at=last_activity_at,
+                lifecycle_ttl_days=lifecycle_ttl_days,
+                lifecycle_preserved=lifecycle_preserved,
+                lifecycle_archived_at=lifecycle_archived_at,
+                lifecycle_archive_reason=lifecycle_archive_reason,
             )
             return remote_id
 
@@ -2663,6 +3074,112 @@ class ChannelManager:
         except Exception as e:
             logger.error(f"Failed to update channel privacy: {e}", exc_info=True)
             return False
+
+    def update_channel_lifecycle_settings(
+        self,
+        channel_id: str,
+        user_id: str,
+        ttl_days: Optional[Any] = None,
+        preserved: Optional[bool] = None,
+        archived: Optional[bool] = None,
+        archive_reason: Optional[str] = None,
+        allow_admin: bool = False,
+        local_peer_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Update non-destructive lifecycle settings for a channel."""
+        try:
+            normalized_ttl = None
+            if ttl_days is not None:
+                normalized_ttl = self._normalize_channel_lifecycle_ttl_days(
+                    ttl_days,
+                    default=self.DEFAULT_CHANNEL_LIFECYCLE_DAYS,
+                )
+
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    """
+                    SELECT created_by, origin_peer, channel_type,
+                           COALESCE(lifecycle_ttl_days, ?) AS lifecycle_ttl_days,
+                           COALESCE(lifecycle_preserved, 0) AS lifecycle_preserved,
+                           lifecycle_archived_at, lifecycle_archive_reason,
+                           COALESCE(last_activity_at, created_at) AS last_activity_at,
+                           created_at
+                    FROM channels
+                    WHERE id = ?
+                    """,
+                    (self.DEFAULT_CHANNEL_LIFECYCLE_DAYS, channel_id),
+                ).fetchone()
+                if not row:
+                    return None
+
+                channel_type = str(row['channel_type'] or 'public').strip().lower()
+                if channel_id == 'general' or channel_type == 'general':
+                    archived = False
+                    preserved = True if preserved is None else bool(preserved)
+
+                origin_peer = str(row['origin_peer'] or '').strip()
+                is_origin_local = not origin_peer or (local_peer_id and origin_peer == local_peer_id)
+                if not is_origin_local:
+                    return None
+                role_row = conn.execute(
+                    "SELECT role FROM channel_members WHERE channel_id = ? AND user_id = ?",
+                    (channel_id, user_id),
+                ).fetchone()
+                role = role_row['role'] if role_row and hasattr(role_row, 'keys') else (role_row[0] if role_row else None)
+                if role != 'admin' and not allow_admin:
+                    return None
+
+                next_ttl = normalized_ttl if normalized_ttl is not None else int(row['lifecycle_ttl_days'] or self.DEFAULT_CHANNEL_LIFECYCLE_DAYS)
+                next_preserved = bool(row['lifecycle_preserved']) if preserved is None else bool(preserved)
+                next_archived_at = self._parse_datetime(row['lifecycle_archived_at'])
+                next_archive_reason = row['lifecycle_archive_reason']
+
+                if archived is True:
+                    next_archived_at = datetime.now(timezone.utc)
+                    next_archive_reason = archive_reason or 'manual_archive'
+                elif archived is False:
+                    next_archived_at = None
+                    next_archive_reason = None
+
+                conn.execute(
+                    """
+                    UPDATE channels
+                       SET lifecycle_ttl_days = ?,
+                           lifecycle_preserved = ?,
+                           lifecycle_archived_at = ?,
+                           lifecycle_archive_reason = ?
+                     WHERE id = ?
+                    """,
+                    (
+                        next_ttl,
+                        1 if next_preserved else 0,
+                        self._format_db_timestamp(next_archived_at) if next_archived_at else None,
+                        next_archive_reason,
+                        channel_id,
+                    ),
+                )
+                conn.commit()
+
+                last_activity = self._parse_datetime(row['last_activity_at']) or self._parse_datetime(row['created_at']) or datetime.now(timezone.utc)
+                status = 'archived' if next_archived_at else ('preserved' if next_preserved else 'active')
+                if not next_preserved and not next_archived_at:
+                    due_at = last_activity + timedelta(days=next_ttl)
+                    remaining_seconds = (due_at - datetime.now(timezone.utc)).total_seconds()
+                    if remaining_seconds <= 0:
+                        status = 'inactive'
+                    elif remaining_seconds <= self.CHANNEL_LIFECYCLE_WARNING_DAYS * 86400:
+                        status = 'cooling'
+
+                return {
+                    'ttl_days': next_ttl,
+                    'preserved': next_preserved,
+                    'archived_at': self._format_db_timestamp(next_archived_at) if next_archived_at else None,
+                    'archive_reason': next_archive_reason,
+                    'status': status,
+                }
+        except Exception as e:
+            logger.error(f"Failed to update channel lifecycle settings: {e}", exc_info=True)
+            return None
 
     def update_channel_notifications(self, channel_id: str, user_id: str,
                                      enabled: bool) -> bool:
@@ -3013,6 +3530,17 @@ class ChannelManager:
                         except Exception as resurface_err:
                             logger.debug(f"Reply resurfacing skipped: {resurface_err}")
 
+                    conn.execute(
+                        """
+                        UPDATE channels
+                           SET last_activity_at = ?,
+                               lifecycle_archived_at = NULL,
+                               lifecycle_archive_reason = NULL
+                         WHERE id = ?
+                        """,
+                        (created_db, channel_id),
+                    )
+
                     conn.commit()
             
             logger.info(f"Successfully sent message {message_id} to channel {channel_id}")
@@ -3063,6 +3591,25 @@ class ChannelManager:
                         message_id,
                     )
                 )
+                try:
+                    channel_row = conn.execute(
+                        "SELECT channel_id FROM channel_messages WHERE id = ?",
+                        (message_id,),
+                    ).fetchone()
+                    if channel_row:
+                        channel_id = channel_row['channel_id'] if hasattr(channel_row, 'keys') else channel_row[0]
+                        conn.execute(
+                            """
+                            UPDATE channels
+                               SET last_activity_at = ?,
+                                   lifecycle_archived_at = NULL,
+                                   lifecycle_archive_reason = NULL
+                             WHERE id = ?
+                            """,
+                            (edited_db, channel_id),
+                        )
+                except Exception:
+                    pass
                 conn.commit()
                 logger.info(f"Updated channel message {message_id}")
                 return True
@@ -3916,12 +4463,18 @@ class ChannelManager:
         logger.debug(f"Getting channels for user {user_id}")
         
         try:
+            self._maybe_run_channel_lifecycle_scan()
             with self.db.get_connection() as conn:
                 policy = self._load_user_channel_governance(conn, user_id)
                 cursor = conn.execute("""
                     SELECT c.*, cm.last_read_at, cm.notifications_enabled, cm.role as user_role,
                            COUNT(DISTINCT cm2.user_id) as member_count,
                            MAX(msg.created_at) as last_message_at,
+                           COALESCE(c.last_activity_at, c.created_at) AS channel_last_activity_at,
+                           COALESCE(c.lifecycle_ttl_days, ?) AS lifecycle_ttl_days,
+                           COALESCE(c.lifecycle_preserved, 0) AS lifecycle_preserved,
+                           c.lifecycle_archived_at,
+                           c.lifecycle_archive_reason,
                            (SELECT COUNT(*)
                             FROM channel_messages unread
                             WHERE unread.channel_id = c.id
@@ -3935,8 +4488,9 @@ class ChannelManager:
                         ON c.id = msg.channel_id
                        AND (msg.expires_at IS NULL OR msg.expires_at > CURRENT_TIMESTAMP)
                     GROUP BY c.id, cm.last_read_at, cm.notifications_enabled, cm.role
-                    ORDER BY COALESCE(last_message_at, c.created_at) DESC
-                """, (user_id,))
+                    ORDER BY CASE WHEN c.lifecycle_archived_at IS NULL THEN 0 ELSE 1 END,
+                             COALESCE(c.last_activity_at, last_message_at, c.created_at) DESC
+                """, (self.DEFAULT_CHANNEL_LIFECYCLE_DAYS, user_id))
                 
                 channels = []
                 for row in cursor.fetchall():
@@ -3985,6 +4539,7 @@ class ChannelManager:
                         topic=row['topic'],
                         member_count=row['member_count'],
                         last_message_at=datetime.fromisoformat(row['last_message_at'].replace('Z', '+00:00')) if row['last_message_at'] else None,
+                        last_activity_at=self._parse_datetime(row['channel_last_activity_at']),
                         origin_peer=origin_peer,
                         privacy_mode=privacy_mode,
                         user_role=user_role,
@@ -3995,7 +4550,14 @@ class ChannelManager:
                             if 'crypto_mode' in row.keys() and row['crypto_mode']
                             else self.CRYPTO_MODE_LEGACY
                         ),
+                        lifecycle_ttl_days=int(row['lifecycle_ttl_days'] or self.DEFAULT_CHANNEL_LIFECYCLE_DAYS),
+                        lifecycle_preserved=bool(row['lifecycle_preserved']),
+                        archived_at=self._parse_datetime(row['lifecycle_archived_at']),
+                        archive_reason=row['lifecycle_archive_reason'],
                     )
+                    lifecycle = self.describe_channel_lifecycle(channel)
+                    channel.lifecycle_status = str(lifecycle['status'])
+                    channel.days_until_archive = lifecycle['days_until_archive']
                     channels.append(channel)
                 
                 logger.debug(f"Retrieved {len(channels)} channels for user {user_id}")

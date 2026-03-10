@@ -1652,6 +1652,16 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                 message_id,
                             )
                         )
+                        conn.execute(
+                            """
+                            UPDATE channels
+                               SET last_activity_at = COALESCE(?, CURRENT_TIMESTAMP),
+                                   lifecycle_archived_at = NULL,
+                                   lifecycle_archive_reason = NULL
+                             WHERE id = ?
+                            """,
+                            (normalised_ts, channel_id),
+                        )
                         conn.commit()
                     channel_manager.mark_message_processed(message_id)
                     try:
@@ -1713,6 +1723,16 @@ def create_app(config: Optional[Config] = None) -> Flask:
                           crypto_state_db,
                           key_id_db,
                           nonce_db))
+                    conn.execute(
+                        """
+                        UPDATE channels
+                           SET last_activity_at = COALESCE(?, CURRENT_TIMESTAMP),
+                               lifecycle_archived_at = NULL,
+                               lifecycle_archive_reason = NULL
+                         WHERE id = ?
+                        """,
+                        (normalised_ts, channel_id),
+                    )
                     conn.commit()
 
                 # Mark as processed so catch-up won't re-insert after restart
@@ -2360,7 +2380,10 @@ def create_app(config: Optional[Config] = None) -> Flask:
         # --- Channel announce callback ---
         def _on_channel_announce(channel_id, name, channel_type,
                                   description, created_by_peer, created_by_user_id, privacy_mode,
-                                  from_peer, initial_members=None):
+                                  last_activity_at=None,
+                                  lifecycle_ttl_days=None, lifecycle_preserved=None,
+                                  lifecycle_archived_at=None, lifecycle_archive_reason=None,
+                                  from_peer=None, initial_members=None):
             """Handle a CHANNEL_ANNOUNCE from a connected peer.
 
             For private/confidential channels, initial_members specifies exactly which
@@ -2435,7 +2458,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         local_user_id=creator_hint,
                         origin_peer=from_peer,
                         privacy_mode=targeted_mode,
+                        last_activity_at=last_activity_at,
                         initial_members=local_members,
+                        lifecycle_ttl_days=lifecycle_ttl_days,
+                        lifecycle_preserved=bool(lifecycle_preserved),
+                        lifecycle_archived_at=lifecycle_archived_at,
+                        lifecycle_archive_reason=lifecycle_archive_reason,
                     )
                     if result:
                         logger.info(f"Created targeted channel {channel_id} from {from_peer} "
@@ -2479,6 +2507,11 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     local_user_id=creator_hint or local_user,
                     from_peer=from_peer,
                     privacy_mode=mode,
+                    last_activity_at=last_activity_at,
+                    lifecycle_ttl_days=lifecycle_ttl_days,
+                    lifecycle_preserved=bool(lifecycle_preserved),
+                    lifecycle_archived_at=lifecycle_archived_at,
+                    lifecycle_archive_reason=lifecycle_archive_reason,
                 )
                 if merge_result:
                     logger.info(f"Channel announce from {from_peer}: "
@@ -3557,6 +3590,11 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     ch_type = ch.get('type', 'public')
                     ch_desc = ch.get('desc', '')
                     ch_privacy = ch.get('privacy_mode') or 'open'
+                    ch_last_activity_at = ch.get('last_activity_at')
+                    ch_ttl_days = ch.get('lifecycle_ttl_days')
+                    ch_preserved = bool(ch.get('lifecycle_preserved'))
+                    ch_archived_at = ch.get('lifecycle_archived_at')
+                    ch_archive_reason = ch.get('lifecycle_archive_reason')
                     # Use the channel's original origin_peer if available;
                     # fall back to the peer that sent the sync.
                     ch_origin = ch.get('origin_peer') or from_peer
@@ -3570,6 +3608,11 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         local_user_id=local_user,
                         from_peer=ch_origin,
                         privacy_mode=ch_privacy,
+                        last_activity_at=ch_last_activity_at,
+                        lifecycle_ttl_days=ch_ttl_days,
+                        lifecycle_preserved=ch_preserved,
+                        lifecycle_archived_at=ch_archived_at,
+                        lifecycle_archive_reason=ch_archive_reason,
                     )
                     if result:
                         synced += 1
@@ -4177,6 +4220,16 @@ def create_app(config: Optional[Config] = None) -> Flask:
                               message_type, attachments_json,
                               normalised_ts, origin_peer, expires_db, parent_message_id,
                               encrypted_content_db, crypto_state_db, key_id_db, nonce_db))
+                        conn.execute(
+                            """
+                            UPDATE channels
+                               SET last_activity_at = COALESCE(?, CURRENT_TIMESTAMP),
+                                   lifecycle_archived_at = NULL,
+                                   lifecycle_archive_reason = NULL
+                             WHERE id = ?
+                            """,
+                            (normalised_ts, channel_id),
+                        )
                         conn.commit()
 
                     channel_manager.mark_message_processed(mid)

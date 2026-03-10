@@ -30,6 +30,7 @@ from canopy.ui.routes import create_ui_blueprint
 class TestChannelSidebarStateDelta(unittest.TestCase):
     def setUp(self) -> None:
         self.channel_manager = MagicMock()
+        self.channel_manager.DEFAULT_CHANNEL_LIFECYCLE_DAYS = 180
         self.channel_manager.get_user_channels.return_value = [
             SimpleNamespace(
                 id='general',
@@ -43,6 +44,14 @@ class TestChannelSidebarStateDelta(unittest.TestCase):
                 unread_count=2,
                 notifications_enabled=True,
                 crypto_mode='',
+                lifecycle_status='preserved',
+                lifecycle_ttl_days=180,
+                lifecycle_preserved=True,
+                archived_at=None,
+                archive_reason=None,
+                days_until_archive=None,
+                owner_peer_state='local',
+                last_activity_at=None,
             ),
             SimpleNamespace(
                 id='ops',
@@ -56,8 +65,26 @@ class TestChannelSidebarStateDelta(unittest.TestCase):
                 unread_count=0,
                 notifications_enabled=False,
                 crypto_mode='channel_e2e_v1',
+                lifecycle_status='cooling',
+                lifecycle_ttl_days=90,
+                lifecycle_preserved=False,
+                archived_at=None,
+                archive_reason=None,
+                days_until_archive=7,
+                owner_peer_state='known',
+                last_activity_at=None,
             ),
         ]
+        self.channel_manager.describe_channel_lifecycle.side_effect = lambda channel, **kwargs: {
+            'status': getattr(channel, 'lifecycle_status', 'active'),
+            'ttl_days': getattr(channel, 'lifecycle_ttl_days', 180),
+            'preserved': bool(getattr(channel, 'lifecycle_preserved', False)),
+            'archived_at': getattr(channel, 'archived_at', None),
+            'archive_reason': getattr(channel, 'archive_reason', None),
+            'days_until_archive': getattr(channel, 'days_until_archive', None),
+            'owner_peer_state': getattr(channel, 'owner_peer_state', 'unknown'),
+            'last_activity_at': getattr(channel, 'last_activity_at', None),
+        }
 
         components = (
             MagicMock(),
@@ -102,6 +129,10 @@ class TestChannelSidebarStateDelta(unittest.TestCase):
         channels = payload.get('channels') or []
         self.assertEqual(channels[0].get('id'), 'general')
         self.assertEqual(channels[1].get('crypto_mode'), 'channel_e2e_v1')
+        self.assertEqual(channels[0].get('lifecycle_status'), 'preserved')
+        self.assertTrue(channels[0].get('lifecycle_preserved'))
+        self.assertEqual(channels[1].get('lifecycle_status'), 'cooling')
+        self.assertEqual(channels[1].get('days_until_archive'), 7)
 
     def test_channel_sidebar_state_returns_empty_channels_when_revision_matches(self) -> None:
         first = self.client.get('/ajax/channel_sidebar_state')
