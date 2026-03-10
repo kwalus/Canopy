@@ -1114,7 +1114,10 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     current_peer = (row['origin_peer'] if 'origin_peer' in row.keys() else None) or ''
                     if current_peer == peer_id:
                         return
-                    if current_peer == local_peer:
+                    if current_peer == local_peer and (
+                        not allow_remote_reassign
+                        or is_local_dm_user(db_manager, p2p_manager, user_id)
+                    ):
                         return
                     if not current_peer and is_local_dm_user(db_manager, p2p_manager, user_id):
                         return

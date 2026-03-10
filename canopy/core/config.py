@@ -51,6 +51,7 @@ class SecurityConfig:
     sync_digest_enabled: bool = False  # Optional Merkle-assisted catch-up optimization
     sync_digest_require_capability: bool = True  # Only use when peer advertises support
     sync_digest_max_channels_per_request: int = 200
+    identity_portability_enabled: bool = False  # Distributed-auth Phase 1 (metadata + grants)
 
 
 @dataclass
@@ -216,6 +217,10 @@ class Config:
             'CANOPY_SYNC_DIGEST_REQUIRE_CAPABILITY',
             config.security.sync_digest_require_capability,
         )
+        config.security.identity_portability_enabled = _env_bool(
+            'CANOPY_IDENTITY_PORTABILITY_ENABLED',
+            config.security.identity_portability_enabled,
+        )
         if digest_max := os.getenv('CANOPY_SYNC_DIGEST_MAX_CHANNELS'):
             try:
                 config.security.sync_digest_max_channels_per_request = max(1, int(digest_max))
@@ -293,6 +298,7 @@ class Config:
                 'sync_digest_enabled': self.security.sync_digest_enabled,
                 'sync_digest_require_capability': self.security.sync_digest_require_capability,
                 'sync_digest_max_channels_per_request': self.security.sync_digest_max_channels_per_request,
+                'identity_portability_enabled': self.security.identity_portability_enabled,
             },
             'storage': {
                 'database_path': self.storage.database_path,

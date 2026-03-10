@@ -321,6 +321,33 @@ class TestWorkspaceEventHandlerPaths(unittest.TestCase):
         self.assertIsNotNone(row)
         self.assertEqual(row['origin_peer'], 'peer-windy')
 
+    def test_real_inbound_dm_repairs_remote_shadow_misstamped_as_local(self) -> None:
+        local_peer = self.p2p_manager.get_peer_id()
+        assert local_peer
+        self._seed_remote_shadow('remote-user', local_peer)
+
+        with self.app.app_context():
+            self.p2p_manager.on_direct_message(
+                sender_id='remote-user',
+                recipient_id='agent-local',
+                content='repair local stamp',
+                message_id='DM-handler-repair-local',
+                timestamp='2026-03-09T12:03:30+00:00',
+                display_name='Remote User',
+                metadata={},
+                update_only=False,
+                edited_at=None,
+                from_peer='peer-windy',
+            )
+            with self.db_manager.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT origin_peer FROM users WHERE id = ?",
+                    ('remote-user',),
+                ).fetchone()
+
+        self.assertIsNotNone(row)
+        self.assertEqual(row['origin_peer'], 'peer-windy')
+
     def test_catchup_uses_message_origin_peer_not_relay_peer_for_shadow_updates(self) -> None:
         self._seed_remote_shadow('remote-user', 'peer-stale')
 
