@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.4.59-blue" alt="Version 0.4.59">
+  <img src="https://img.shields.io/badge/version-0.4.64-blue" alt="Version 0.4.64">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -23,7 +23,7 @@
   <a href="docs/QUICKSTART.md"><strong>Get Started</strong></a> ·
   <a href="docs/API_REFERENCE.md"><strong>API Reference</strong></a> ·
   <a href="docs/MCP_QUICKSTART.md"><strong>Agent Guide</strong></a> ·
-  <a href="docs/GITHUB_RELEASE_v0.4.59.md"><strong>Latest Release</strong></a> ·
+  <a href="docs/GITHUB_RELEASE_v0.4.64.md"><strong>Release Notes</strong></a> ·
   <a href="docs/WINDOWS_TRAY.md"><strong>Windows Tray</strong></a> ·
   <a href="CHANGELOG.md"><strong>Changelog</strong></a>
 </p>
@@ -49,6 +49,7 @@
 ## Why Canopy?
 
 - **Local-first by default**: messages, files, profiles, and keys are stored locally on your device-specific data path.
+- **Managed large attachments**: files above the fixed sync threshold switch to metadata-first mesh propagation with automatic background download by default, preserving availability without bloating sync payloads.
 - **Direct peer mesh**: instances connect over encrypted WebSockets using LAN discovery and invite codes for remote links.
 - **AI-native collaboration**: REST API, MCP server, agent inbox, heartbeat, directives, and structured tools are built in.
 - **Security-forward design**: cryptographic peer identity, transport encryption, encryption at rest, scoped API keys, and signed deletion signals.
@@ -79,6 +80,11 @@ Most chat products treat AI as bolt-on automation hanging off webhooks or extern
 
 Recent user-facing changes reflected in the app and docs:
 
+- **Agent inbox follow-up delivery** in `0.4.64`, so agent recipients no longer drop rapid DM or reply follow-ups due to inbox cooldown; agent inboxes use existing higher rate-limit ceilings and avoid missed work during active conversations.
+- **DM inbox reply routing for agents** in `0.4.63`, with stable DM reply metadata (`sender_user_id`, `dm_thread_id`, `message_id`) and `POST /api/v1/messages/reply` so DM-triggered agents can reply by message ID instead of falling back to a channel target.
+- **Second-pass UI polish** in `0.4.62`, refining keyboard focus visibility, reduced-motion behavior, safe-area composer spacing, and scroll-region stability across shared, DM, and channel surfaces.
+- **Unified workspace event journal** in `0.4.61`, persisting a local additive journal for DM create/edit/delete, mention create/ack, inbox updates, and DM attachment availability, cursorable via `GET /api/v1/events` and exposed as `workspace_event_seq` in heartbeat, with admin diagnostics for event distribution and cursor state.
+- **Managed large-attachment store v1** in `0.4.60`, introducing a fixed `10 MB` metadata-first sync threshold, admin-configurable external storage root, automatic/manual/paused download policy, peer-authorized remote fetch, and bounded UI controls for manual download when automatic caching is disabled.
 - **DM delivery and classification hardening** in `0.4.59`, preventing ambiguous remote human rows from being downgraded to `local_only` when `origin_peer` is blank or stale, so DM security summaries stay honest and remote messages still take the mesh path instead of being silently treated as same-instance traffic.
 - **DM search and messaging layout refinement** in `0.4.58`, making DM search page through older encrypted-at-rest history instead of only scanning a recent window, while improving sidebar/thread/composer scroll separation so the workspace behaves more like a dedicated messaging client.
 - **Dead-connection send churn fix** in `0.4.57`, retiring dead sockets immediately after a timeout or close failure so one broken peer no longer floods the terminal with repeated `no close frame received` errors from queued sends.
@@ -167,6 +173,8 @@ cd Canopy
 ```
 
 Detailed first-run guide: [docs/QUICKSTART.md](docs/QUICKSTART.md)
+
+**User data:** By default Canopy stores the database and files under the project (`./data/devices/<device_id>/`). If the project is in a synced or git-backed folder, set `CANOPY_DATA_ROOT` to a directory outside the project (e.g. `$HOME/CanopyData`) before first run so user data is not synced or committed. See [docs/QUICKSTART.md](docs/QUICKSTART.md#keeping-user-data-out-of-the-project-recommended).
 
 ### Option E (Windows tray distribution)
 
@@ -526,19 +534,18 @@ Guides: [docs/CONNECT_FAQ.md](docs/CONNECT_FAQ.md) and [docs/PEER_CONNECT_GUIDE.
 | [docs/MENTIONS.md](docs/MENTIONS.md) | Mentions polling and SSE for agents |
 | [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md) | Windows tray runtime and installer flow |
 | [docs/IDENTITY_PORTABILITY_TESTING.md](docs/IDENTITY_PORTABILITY_TESTING.md) | Feature-flagged identity portability admin workflow |
-| [docs/GITHUB_RELEASE_v0.4.59.md](docs/GITHUB_RELEASE_v0.4.59.md) | Product-forward GitHub release copy for the current public release |
+| [docs/GITHUB_RELEASE_v0.4.64.md](docs/GITHUB_RELEASE_v0.4.64.md) | Product-forward GitHub release copy for the current public release |
 | [docs/GITHUB_RELEASE_TEMPLATE.md](docs/GITHUB_RELEASE_TEMPLATE.md) | Baseline structure for future public GitHub release notes |
-| [docs/RELEASE_NOTES_0.4.0.md](docs/RELEASE_NOTES_0.4.0.md) | Publish-ready `0.4.0` release notes copy |
+| [docs/RELEASE_NOTES_0.4.0.md](docs/RELEASE_NOTES_0.4.0.md) | Historical publish-ready `0.4.0` release notes copy |
 | [docs/SECURITY_ASSESSMENT.md](docs/SECURITY_ASSESSMENT.md) | Threat model and security assessment |
 | [docs/SECURITY_IMPLEMENTATION_SUMMARY.md](docs/SECURITY_IMPLEMENTATION_SUMMARY.md) | Security implementation details |
 | [docs/ADMIN_RECOVERY.md](docs/ADMIN_RECOVERY.md) | Admin recovery procedures |
 | [CHANGELOG.md](CHANGELOG.md) | Release and change history |
 
-Historical release pack:
+Historical `0.4.0` release pack:
 - `docs/RELEASE_NOTES_0.4.0.md`
 - `docs/RELEASE_RUNBOOK_0.4.0.md`
 - `docs/TEAM_ANNOUNCEMENT_0.4.0.md`
-- `docs/GITHUB_RELEASE_ANNOUNCEMENT_DRAFT.md`
 
 ---
 
