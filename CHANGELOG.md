@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.67] - 2026-03-10
+
+### Added
+- **Structured composer validation and materialization feedback** - Feed and channel composers now provide canonical structured block templates, pre-send validation for malformed or aliased blocks, inline normalization/fix actions, and post-send feedback showing which structured objects actually materialized.
+
 ## [0.4.66] - 2026-03-10
 
 ### Fixed
