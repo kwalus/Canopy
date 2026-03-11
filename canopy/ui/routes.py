@@ -1844,6 +1844,11 @@ def create_ui_blueprint() -> Blueprint:
                 'config': {},
                 'items': [],
                 'audit': [],
+                'discrepancies': {
+                    'completed_without_completion_ref': 0,
+                    'skipped_without_completion_ref': 0,
+                    'items': [],
+                },
             },
             'mentions': {
                 'available': bool(mention_manager),
@@ -1902,7 +1907,11 @@ def create_ui_blueprint() -> Blueprint:
                             'status': item.get('status'),
                             'priority': item.get('priority'),
                             'created_at': item.get('created_at'),
+                            'seen_at': item.get('seen_at'),
                             'handled_at': item.get('handled_at'),
+                            'completed_at': item.get('completed_at'),
+                            'completion_ref': item.get('completion_ref'),
+                            'has_completion_ref': bool(item.get('completion_ref')),
                             'preview': ((item.get('payload') or {}).get('preview') or '')[:220],
                         }
                         for item in (items or [])
@@ -1920,6 +1929,25 @@ def create_ui_blueprint() -> Blueprint:
                         }
                         for row in (audit or [])
                     ],
+                    'discrepancies': {
+                        'completed_without_completion_ref': int(((stats or {}).get('discrepancy_counts') or {}).get('completed_without_completion_ref', 0) or 0),
+                        'skipped_without_completion_ref': int(((stats or {}).get('discrepancy_counts') or {}).get('skipped_without_completion_ref', 0) or 0),
+                        'items': [
+                            {
+                                'id': item.get('id'),
+                                'status': item.get('status'),
+                                'trigger_type': item.get('trigger_type'),
+                                'source_type': item.get('source_type'),
+                                'source_id': item.get('source_id'),
+                                'created_at': item.get('created_at'),
+                                'completed_at': item.get('completed_at'),
+                                'handled_at': item.get('handled_at'),
+                                'preview': ((item.get('payload') or {}).get('preview') or '')[:220],
+                            }
+                            for item in (items or [])
+                            if item.get('status') in {'completed', 'handled', 'skipped'} and not item.get('completion_ref')
+                        ][:10],
+                    },
                 })
             except Exception as inbox_err:
                 logger.warning(f"Admin workspace inbox snapshot failed for {user_id}: {inbox_err}")

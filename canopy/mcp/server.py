@@ -226,7 +226,7 @@ class CanopyMCPServer:
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "status": {"type": "string", "description": "Filter by status (pending|handled|skipped|expired)"},
+                            "status": {"type": "string", "description": "Filter by status (pending|seen|completed|handled|skipped|expired)"},
                             "limit": {"type": "integer", "description": "Maximum items to retrieve (default: 50)", "default": 50},
                             "since": {"type": "string", "description": "Optional. ISO timestamp to fetch items after."},
                             "include_handled": {"type": "boolean", "description": "Include handled items (default: false)", "default": False}
@@ -239,7 +239,7 @@ class CanopyMCPServer:
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "status": {"type": "string", "description": "Filter by status (pending|handled|skipped|expired)"}
+                            "status": {"type": "string", "description": "Filter by status (pending|seen|completed|handled|skipped|expired)"}
                         }
                     }
                 ),
@@ -290,12 +290,13 @@ class CanopyMCPServer:
                 ),
                 Tool(
                     name="canopy_ack_inbox",
-                    description="Update agent inbox items (mark handled/skipped/pending)",
+                    description="Update agent inbox items (mark seen/completed/skipped/pending) with optional completion linkage",
                     inputSchema={
                         "type": "object",
                         "properties": {
                             "ids": {"type": "array", "items": {"type": "string"}, "description": "Inbox item IDs"},
-                            "status": {"type": "string", "description": "New status (handled|skipped|pending)", "default": "handled"}
+                            "status": {"type": "string", "description": "New status (seen|completed|handled|skipped|pending)", "default": "handled"},
+                            "completion_ref": {"type": "object", "description": "Optional evidence link when completing work, e.g. {source_type, source_id, message_id, post_id}"}
                         },
                         "required": ["ids"]
                     }
@@ -1900,6 +1901,9 @@ class CanopyMCPServer:
             if not isinstance(ids, list) or not ids:
                 return [TextContent(type="text", text="Error: ids must be a non-empty list")]
             status = args.get("status", "handled")
+            completion_ref = args.get("completion_ref")
+            if completion_ref is not None and not isinstance(completion_ref, dict):
+                return [TextContent(type="text", text="Error: completion_ref must be an object if provided")]
 
             from canopy.core.app import create_app
 
@@ -1912,6 +1916,7 @@ class CanopyMCPServer:
                     user_id=self.user_id,
                     ids=ids,
                     status=status,
+                    completion_ref=completion_ref,
                 )
                 payload = {"updated": count}
                 return [TextContent(type="text", text=json.dumps(payload, indent=2))]

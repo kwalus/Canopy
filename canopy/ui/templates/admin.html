@@ -1460,15 +1460,20 @@
 
                     <div class="row g-3">
                         <div class="col-md-6">
-                            <div class="d-flex justify-content-between align-items-center mb-1">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
                                 <h6 class="mb-0">Inbox</h6>
                                 <div class="small text-muted">
                                     pending <strong id="workspace-inbox-pending-count">0</strong> · total <strong id="workspace-inbox-total-count">0</strong>
                                 </div>
                             </div>
                             <div class="small text-muted mb-2" id="workspace-inbox-rejections"></div>
+                            <div class="small text-muted mb-2" id="workspace-inbox-discrepancies">No completion gaps detected.</div>
                             <div class="workspace-list" id="workspace-inbox-items">
                                 <p class="small text-muted mb-0">No inbox data yet.</p>
+                            </div>
+                            <div class="small text-muted mt-2 mb-1">Completion gaps</div>
+                            <div class="workspace-list" id="workspace-inbox-discrepancy-items">
+                                <p class="small text-muted mb-0">No discrepancy data yet.</p>
                             </div>
                             <div class="small text-muted mt-2 mb-1">Recent audit</div>
                             <div class="workspace-list" id="workspace-inbox-audit">
@@ -2845,7 +2850,9 @@
     const workspaceInboxPendingCount = document.getElementById('workspace-inbox-pending-count');
     const workspaceInboxTotalCount = document.getElementById('workspace-inbox-total-count');
     const workspaceInboxRejections = document.getElementById('workspace-inbox-rejections');
+    const workspaceInboxDiscrepancies = document.getElementById('workspace-inbox-discrepancies');
     const workspaceInboxItems = document.getElementById('workspace-inbox-items');
+    const workspaceInboxDiscrepancyItems = document.getElementById('workspace-inbox-discrepancy-items');
     const workspaceInboxAudit = document.getElementById('workspace-inbox-audit');
     const workspaceMentionUnackedCount = document.getElementById('workspace-mention-unacked-count');
     const workspaceMentionItems = document.getElementById('workspace-mention-items');
@@ -2976,10 +2983,21 @@
         if (workspaceMentionUnackedCount) workspaceMentionUnackedCount.textContent = String(mentions.unacked_count || 0);
 
         const rejectionCounts = ((inbox.stats || {}).rejection_counts) || {};
+        const discrepancyState = inbox.discrepancies || {};
+        const completedWithoutEvidence = Number(discrepancyState.completed_without_completion_ref || 0);
+        const skippedWithoutEvidence = Number(discrepancyState.skipped_without_completion_ref || 0);
         const rejectionText = Object.keys(rejectionCounts).length
             ? Object.entries(rejectionCounts).map(([k, v]) => `${k}: ${v}`).join(' • ')
             : 'No recent rejection reasons.';
         if (workspaceInboxRejections) workspaceInboxRejections.textContent = rejectionText;
+        if (workspaceInboxDiscrepancies) {
+            const parts = [];
+            if (completedWithoutEvidence) parts.push(`completed without evidence: ${completedWithoutEvidence}`);
+            if (skippedWithoutEvidence) parts.push(`skipped without evidence: ${skippedWithoutEvidence}`);
+            workspaceInboxDiscrepancies.textContent = parts.length
+                ? parts.join(' • ')
+                : 'No completion gaps detected.';
+        }
 
         if (workspaceInboxConfig) {
             workspaceInboxConfig.textContent = JSON.stringify(inbox.config || {}, null, 2);
@@ -3063,10 +3081,33 @@
             'No inbox items found.',
             (item) => {
                 const preview = item.preview || '(no preview)';
+                const detailBits = [];
+                if (item.seen_at) detailBits.push(`seen ${formatTime(item.seen_at)}`);
+                if (item.completed_at) detailBits.push(`completed ${formatTime(item.completed_at)}`);
+                if (item.handled_at && !item.completed_at) detailBits.push(`handled ${formatTime(item.handled_at)}`);
+                detailBits.push(item.has_completion_ref ? 'evidence linked' : 'no evidence link');
                 return (
                     `<div class="workspace-list-item">` +
                         `<div class="workspace-list-title">${escapeHtml(item.trigger_type || item.source_type || 'item')} · ${escapeHtml(item.status || 'pending')}</div>` +
                         `<div class="workspace-list-meta">${escapeHtml(item.source_type || '')}:${escapeHtml(item.source_id || '')} · ${formatTime(item.created_at)}</div>` +
+                        `<div class="workspace-list-meta">${escapeHtml(detailBits.join(' • '))}</div>` +
+                        `<div class="small text-muted">${escapeHtml(preview)}</div>` +
+                    `</div>`
+                );
+            }
+        );
+
+        renderWorkspaceList(
+            workspaceInboxDiscrepancyItems,
+            discrepancyState.items || [],
+            'No completion gaps found.',
+            (item) => {
+                const preview = item.preview || '(no preview)';
+                const trailingTime = item.completed_at || item.handled_at || item.created_at;
+                return (
+                    `<div class="workspace-list-item">` +
+                        `<div class="workspace-list-title">${escapeHtml(item.status || 'completed')} · missing completion_ref</div>` +
+                        `<div class="workspace-list-meta">${escapeHtml(item.source_type || '')}:${escapeHtml(item.source_id || '')} · ${formatTime(trailingTime)}</div>` +
                         `<div class="small text-muted">${escapeHtml(preview)}</div>` +
                     `</div>`
                 );

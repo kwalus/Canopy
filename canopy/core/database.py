@@ -263,7 +263,10 @@ class DatabaseManager:
                     status TEXT DEFAULT 'pending',
                     priority TEXT DEFAULT 'normal',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    seen_at TIMESTAMP,
                     handled_at TIMESTAMP,
+                    completed_at TIMESTAMP,
+                    completion_ref_json TEXT,
                     expires_at TIMESTAMP,
                     triggered_by_inbox_id TEXT,
                     depth INTEGER DEFAULT 0,
@@ -734,6 +737,29 @@ class DatabaseManager:
                     CREATE INDEX IF NOT EXISTS idx_agent_runtime_inbox_fetch
                         ON agent_runtime_state(last_inbox_fetch_at);
                 """)
+
+            cursor = conn.execute("PRAGMA table_info(agent_inbox)")
+            inbox_columns = {row[1] for row in cursor.fetchall()}
+            if "seen_at" not in inbox_columns:
+                logger.info("Migration: Adding seen_at column to agent_inbox")
+                conn.execute("ALTER TABLE agent_inbox ADD COLUMN seen_at TIMESTAMP")
+            if "completed_at" not in inbox_columns:
+                logger.info("Migration: Adding completed_at column to agent_inbox")
+                conn.execute("ALTER TABLE agent_inbox ADD COLUMN completed_at TIMESTAMP")
+            if "completion_ref_json" not in inbox_columns:
+                logger.info("Migration: Adding completion_ref_json column to agent_inbox")
+                conn.execute("ALTER TABLE agent_inbox ADD COLUMN completion_ref_json TEXT")
+
+            logger.info("Migration: Normalizing legacy handled inbox rows")
+            conn.execute(
+                """
+                UPDATE agent_inbox
+                SET status = 'completed',
+                    seen_at = COALESCE(seen_at, handled_at, created_at),
+                    completed_at = COALESCE(completed_at, handled_at)
+                WHERE status = 'handled'
+                """
+            )
 
             # Migration: content_contexts table for best-effort extracted text context
             conn.executescript("""

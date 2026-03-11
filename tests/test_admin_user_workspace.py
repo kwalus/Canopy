@@ -122,9 +122,28 @@ class _FakeInboxManager:
                 'status': 'pending',
                 'priority': 'normal',
                 'created_at': '2026-02-22T10:00:00+00:00',
+                'seen_at': None,
                 'handled_at': None,
+                'completed_at': None,
+                'completion_ref': None,
                 'payload': {'preview': 'Please check this issue.'},
-            }
+            },
+            {
+                'id': 'INB-2',
+                'source_type': 'feed_post',
+                'source_id': 'post-9',
+                'channel_id': None,
+                'sender_user_id': 'user-beta',
+                'trigger_type': 'mention',
+                'status': 'completed',
+                'priority': 'normal',
+                'created_at': '2026-02-22T09:00:00+00:00',
+                'seen_at': '2026-02-22T09:01:00+00:00',
+                'handled_at': '2026-02-22T09:04:00+00:00',
+                'completed_at': '2026-02-22T09:04:00+00:00',
+                'completion_ref': None,
+                'payload': {'preview': 'Responded privately without linking evidence.'},
+            },
         ][: max(1, limit)]
 
     def list_audit(self, user_id: str, limit: int = 50, since=None):
@@ -144,8 +163,12 @@ class _FakeInboxManager:
     def get_stats(self, user_id: str, window_hours: int = 24):
         return {
             'window_hours': window_hours,
-            'status_counts': {'pending': 3, 'handled': 2},
+            'status_counts': {'pending': 3, 'completed': 2},
             'rejection_counts': {'cooldown': 2},
+            'discrepancy_counts': {
+                'completed_without_completion_ref': 1,
+                'skipped_without_completion_ref': 0,
+            },
         }
 
     def get_config(self, user_id: str):
@@ -539,6 +562,10 @@ class TestAdminUserWorkspace(unittest.TestCase):
         workspace = payload.get('workspace') or {}
         self.assertEqual((workspace.get('user') or {}).get('id'), 'agent-local')
         self.assertEqual((workspace.get('inbox') or {}).get('pending_count'), 3)
+        discrepancies = (workspace.get('inbox') or {}).get('discrepancies') or {}
+        self.assertEqual(discrepancies.get('completed_without_completion_ref'), 1)
+        self.assertEqual(len(discrepancies.get('items') or []), 1)
+        self.assertEqual((discrepancies.get('items') or [])[0].get('id'), 'INB-2')
         self.assertEqual((workspace.get('mentions') or {}).get('unacked_count'), 1)
         runtime = workspace.get('runtime') or {}
         self.assertEqual(runtime.get('last_event_cursor_seen'), 57)

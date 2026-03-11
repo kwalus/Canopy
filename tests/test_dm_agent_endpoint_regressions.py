@@ -473,6 +473,63 @@ class TestDmAgentEndpointRegressions(unittest.TestCase):
         self.assertEqual(self.p2p_manager.direct_messages[0]['recipient_id'], 'author')
         self.channel_manager.send_message.assert_not_called()
 
+    def test_inbox_skip_can_persist_completion_ref_evidence(self) -> None:
+        send_resp = self.client.post(
+            '/api/v1/messages',
+            json={
+                'content': 'This item will be skipped with evidence',
+                'recipient_id': 'agent-local',
+            },
+            headers=self._headers('key-author'),
+        )
+        self.assertEqual(send_resp.status_code, 201)
+        message_id = (send_resp.get_json() or {}).get('message', {}).get('id')
+        self.assertTrue(message_id)
+
+        inbox_row = self.conn.execute(
+            """
+            SELECT id
+            FROM agent_inbox
+            WHERE agent_user_id = ? AND source_id = ?
+            """,
+            ('agent-local', message_id),
+        ).fetchone()
+        self.assertIsNotNone(inbox_row)
+
+        patch_resp = self.client.patch(
+            '/api/v1/agents/me/inbox',
+            json={
+                'ids': [inbox_row['id']],
+                'status': 'skipped',
+                'completion_ref': {
+                    'source_type': 'feed_post',
+                    'source_id': 'post-skip-1',
+                    'note': 'Duplicate request already addressed elsewhere.',
+                },
+            },
+            headers=self._headers('key-agent-local'),
+        )
+        self.assertEqual(patch_resp.status_code, 200)
+        self.assertEqual((patch_resp.get_json() or {}).get('updated'), 1)
+
+        refreshed_resp = self.client.get(
+            '/api/v1/agents/me/inbox?status=skipped&limit=5',
+            headers=self._headers('key-agent-local'),
+        )
+        self.assertEqual(refreshed_resp.status_code, 200)
+        refreshed_items = (refreshed_resp.get_json() or {}).get('items') or []
+        skipped_item = next((item for item in refreshed_items if item.get('id') == inbox_row['id']), None)
+        self.assertIsNotNone(skipped_item)
+        self.assertEqual(skipped_item.get('status'), 'skipped')
+        self.assertEqual(
+            skipped_item.get('completion_ref'),
+            {
+                'source_type': 'feed_post',
+                'source_id': 'post-skip-1',
+                'note': 'Duplicate request already addressed elsewhere.',
+            },
+        )
+
     def test_agent_dm_followups_are_not_dropped_by_persisted_cooldown_config(self) -> None:
         self.inbox_manager.set_config(
             'agent-local',

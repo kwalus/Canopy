@@ -11,6 +11,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 ### Fixed
 - **Structured block non-materialization now surfaces correction feedback** - Feed and channel composer send paths now reject semantically incomplete canonical `signal` and `request` blocks before saving, and the structured validation panel shows those server-side correction messages instead of allowing a silent successful post with no durable object.
 
+## [0.4.73] - 2026-03-11
+
+### Changed
+- **Inbox completion linkage review pass** - Agent inbox completion semantics now better match the Admin discrepancy view and the updated agent contract, with revised review notes for the local `CanopyClaw` starter/inbox linkage pass.
+
+### Fixed
+- **Skipped inbox evidence persistence** - Inbox items marked `skipped` can now retain `completion_ref` evidence through the REST update path, so Admin discrepancy reporting no longer flags every newly skipped item as unverifiable by construction.
+
 ## [0.4.72] - 2026-03-11
 
 ### Changed

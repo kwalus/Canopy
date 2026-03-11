@@ -79,7 +79,7 @@ DEFAULT_AGENT_INBOX_CONFIG: Dict[str, Any] = {
     "audit_retention_days": 14,
 }
 
-ALLOWED_STATUSES = {"pending", "handled", "skipped", "expired"}
+ALLOWED_STATUSES = {"pending", "seen", "completed", "handled", "skipped", "expired"}
 MAX_TRIGGER_DEPTH = 3  # Cascade prevention: reject triggers beyond this depth
 
 
@@ -94,6 +94,41 @@ def _iso(dt: Optional[datetime]) -> Optional[str]:
         return dt.isoformat()
     except Exception:
         return str(dt)
+
+
+def _normalize_storage_status(status: Optional[str]) -> str:
+    normalized = str(status or "").strip().lower()
+    if normalized == "handled":
+        return "completed"
+    if normalized not in ALLOWED_STATUSES:
+        return "pending"
+    return normalized
+
+
+def _normalize_output_status(status: Optional[str]) -> str:
+    normalized = str(status or "").strip().lower()
+    if normalized == "handled":
+        return "completed"
+    return normalized or "pending"
+
+
+def _sanitize_completion_ref(value: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(value, dict):
+        return None
+    sanitized: Dict[str, Any] = {}
+    for key, raw in value.items():
+        token = str(key or "").strip()
+        if not token:
+            continue
+        if raw is None:
+            continue
+        if isinstance(raw, (dict, list)):
+            sanitized[token] = raw
+            continue
+        text = str(raw).strip()
+        if text:
+            sanitized[token] = text
+    return sanitized or None
 
 
 def _normalize_item_payload(row: Any, payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -154,7 +189,10 @@ class InboxManager:
                         status TEXT DEFAULT 'pending',
                         priority TEXT DEFAULT 'normal',
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        seen_at TIMESTAMP,
                         handled_at TIMESTAMP,
+                        completed_at TIMESTAMP,
+                        completion_ref_json TEXT,
                         expires_at TIMESTAMP,
                         triggered_by_inbox_id TEXT,
                         depth INTEGER DEFAULT 0,
@@ -193,6 +231,26 @@ class InboxManager:
                         ON agent_inbox_audit(agent_user_id, created_at);
                     CREATE INDEX IF NOT EXISTS idx_agent_inbox_audit_reason
                         ON agent_inbox_audit(reason);
+                    """
+                )
+                columns = {
+                    str(row["name"]).strip()
+                    for row in conn.execute("PRAGMA table_info(agent_inbox)").fetchall()
+                    if hasattr(row, "__getitem__") and row["name"]
+                }
+                if "seen_at" not in columns:
+                    conn.execute("ALTER TABLE agent_inbox ADD COLUMN seen_at TIMESTAMP")
+                if "completed_at" not in columns:
+                    conn.execute("ALTER TABLE agent_inbox ADD COLUMN completed_at TIMESTAMP")
+                if "completion_ref_json" not in columns:
+                    conn.execute("ALTER TABLE agent_inbox ADD COLUMN completion_ref_json TEXT")
+                conn.execute(
+                    """
+                    UPDATE agent_inbox
+                    SET status = 'completed',
+                        completed_at = COALESCE(completed_at, handled_at),
+                        seen_at = COALESCE(seen_at, handled_at, created_at)
+                    WHERE status = 'handled'
                     """
                 )
                 conn.commit()
@@ -1136,7 +1194,7 @@ class InboxManager:
             return []
         self._expire_items(user_id)
 
-        status = (status or '').strip().lower()
+        status = _normalize_storage_status(status)
         if status and status not in ALLOWED_STATUSES:
             status = ''
         try:
@@ -1187,10 +1245,17 @@ class InboxManager:
                     'sender_user_id': row['sender_user_id'],
                     'origin_peer': row['origin_peer'],
                     'trigger_type': row['trigger_type'],
-                    'status': row['status'],
+                    'status': _normalize_output_status(row['status']),
                     'priority': row['priority'],
                     'created_at': row['created_at'],
+                    'seen_at': row['seen_at'],
                     'handled_at': row['handled_at'],
+                    'completed_at': row['completed_at'],
+                    'completion_ref': (
+                        json.loads(row['completion_ref_json'])
+                        if row['completion_ref_json']
+                        else None
+                    ),
                     'expires_at': row['expires_at'],
                     'triggered_by_inbox_id': row['triggered_by_inbox_id'],
                     'depth': row['depth'],
@@ -1208,7 +1273,7 @@ class InboxManager:
         if not user_id:
             return 0
         self._expire_items(user_id)
-        status = (status or '').strip().lower()
+        status = _normalize_storage_status(status)
         params: List[Any] = [user_id]
         where = "WHERE agent_user_id = ?"
         if status and status in ALLOWED_STATUSES:
@@ -1224,44 +1289,96 @@ class InboxManager:
         except Exception:
             return 0
 
-    def update_items(self, user_id: str, ids: Sequence[str], status: str) -> int:
+    def update_items(
+        self,
+        user_id: str,
+        ids: Sequence[str],
+        status: str,
+        completion_ref: Optional[Dict[str, Any]] = None,
+    ) -> int:
         if not user_id or not ids:
             return 0
-        status = (status or '').strip().lower()
+        requested_status = str(status or '').strip().lower()
+        status = _normalize_storage_status(status)
         if status not in ALLOWED_STATUSES:
             return 0
         ids_clean = [i for i in ids if i]
         if not ids_clean:
             return 0
+        sanitized_completion_ref = _sanitize_completion_ref(completion_ref)
         try:
             with self.db.get_connection() as conn:
                 placeholders = ",".join("?" for _ in ids_clean)
                 affected_rows = conn.execute(
                     f"""
                     SELECT id, source_type, source_id, message_id, channel_id, sender_user_id,
-                           priority, payload_json
+                           priority, payload_json, seen_at, handled_at, completed_at, completion_ref_json
                     FROM agent_inbox
                     WHERE agent_user_id = ? AND id IN ({placeholders})
                     """,
                     [user_id] + ids_clean,
                 ).fetchall()
-                handled_at = None if status == 'pending' else _now_utc().isoformat()
-                params: List[Any] = [status]
-                params.append(handled_at)
-                params.append(user_id)
-                params.extend(ids_clean)
-                cur = conn.execute(
-                    f"""
-                    UPDATE agent_inbox
-                    SET status = ?, handled_at = ?
-                    WHERE agent_user_id = ? AND id IN ({placeholders})
-                    """,
-                    params,
-                )
-                conn.commit()
-                updated = cur.rowcount or 0
-            if updated and self.workspace_events:
+                updated = 0
+                event_rows: List[Dict[str, Any]] = []
+                now_iso = _now_utc().isoformat()
                 for row in affected_rows or []:
+                    current_seen_at = row['seen_at']
+                    current_completed_at = row['completed_at']
+                    current_completion_ref = row['completion_ref_json']
+                    if status == 'pending':
+                        next_seen_at = current_seen_at
+                        next_handled_at = None
+                        next_completed_at = None
+                        next_completion_ref_json = None
+                    else:
+                        next_seen_at = current_seen_at or now_iso
+                        next_handled_at = now_iso
+                        if status in {'completed', 'skipped'}:
+                            next_completed_at = current_completed_at or now_iso
+                            next_completion_ref_json = (
+                                json.dumps(sanitized_completion_ref)
+                                if sanitized_completion_ref is not None
+                                else current_completion_ref
+                            )
+                        else:
+                            next_completed_at = current_completed_at
+                            next_completion_ref_json = current_completion_ref
+                    cur = conn.execute(
+                        """
+                        UPDATE agent_inbox
+                        SET status = ?, seen_at = ?, handled_at = ?, completed_at = ?, completion_ref_json = ?
+                        WHERE agent_user_id = ? AND id = ?
+                        """,
+                        (
+                            status,
+                            next_seen_at,
+                            next_handled_at,
+                            next_completed_at,
+                            next_completion_ref_json,
+                            user_id,
+                            row['id'],
+                        ),
+                    )
+                    if cur.rowcount:
+                        updated += cur.rowcount or 0
+                        event_rows.append({
+                            'id': row['id'],
+                            'source_type': row['source_type'],
+                            'source_id': row['source_id'],
+                            'message_id': row['message_id'],
+                            'channel_id': row['channel_id'],
+                            'priority': row['priority'],
+                            'payload_json': row['payload_json'],
+                            'status': status,
+                            'handled_at': next_handled_at,
+                            'completion_ref': (
+                                json.loads(next_completion_ref_json)
+                                if next_completion_ref_json else None
+                            ),
+                        })
+                conn.commit()
+            if updated and self.workspace_events:
+                for row in event_rows:
                     preview = ''
                     try:
                         loaded = json.loads(row['payload_json']) if row['payload_json'] else {}
@@ -1269,7 +1386,7 @@ class InboxManager:
                             preview = str(loaded.get('preview') or '').strip()
                     except Exception:
                         preview = ''
-                    handled_suffix = handled_at or 'pending'
+                    handled_suffix = row['handled_at'] or 'pending'
                     self.workspace_events.emit_event(
                         event_type=EVENT_INBOX_ITEM_UPDATED,
                         actor_user_id=user_id,
@@ -1277,16 +1394,17 @@ class InboxManager:
                         channel_id=row['channel_id'],
                         message_id=row['message_id'],
                         visibility_scope='user',
-                        dedupe_key=f"{EVENT_INBOX_ITEM_UPDATED}:{row['id']}:{status}:{handled_suffix}",
-                        created_at=handled_at or _now_utc().isoformat(),
+                        dedupe_key=f"{EVENT_INBOX_ITEM_UPDATED}:{row['id']}:{requested_status}:{handled_suffix}",
+                        created_at=row['handled_at'] or _now_utc().isoformat(),
                         payload={
                             'inbox_id': row['id'],
                             'source_type': row['source_type'],
                             'source_id': row['source_id'],
-                            'status': status,
-                            'handled_at': handled_at,
+                            'status': _normalize_output_status(row['status']),
+                            'handled_at': row['handled_at'],
                             'priority': row['priority'] or 'normal',
                             'preview': preview,
+                            'completion_ref': row['completion_ref'],
                         },
                     )
             return updated
@@ -1347,6 +1465,7 @@ class InboxManager:
         since = (_now_utc() - timedelta(hours=window_hours)).isoformat()
         status_counts: Dict[str, int] = {}
         rejection_counts: Dict[str, int] = {}
+        discrepancy_counts: Dict[str, int] = {}
         try:
             with self.db.get_connection() as conn:
                 rows = conn.execute(
@@ -1359,7 +1478,32 @@ class InboxManager:
                     (user_id,),
                 ).fetchall()
                 for row in rows:
-                    status_counts[str(row["status"])] = int(row["n"])
+                    normalized_status = _normalize_output_status(row["status"])
+                    status_counts[normalized_status] = status_counts.get(normalized_status, 0) + int(row["n"])
+
+                discrepancy_rows = conn.execute(
+                    """
+                    SELECT
+                        SUM(CASE
+                            WHEN status IN ('completed', 'handled')
+                             AND (completion_ref_json IS NULL OR TRIM(completion_ref_json) = '')
+                            THEN 1 ELSE 0 END
+                        ) AS completed_without_completion_ref,
+                        SUM(CASE
+                            WHEN status = 'skipped'
+                             AND (completion_ref_json IS NULL OR TRIM(completion_ref_json) = '')
+                            THEN 1 ELSE 0 END
+                        ) AS skipped_without_completion_ref
+                    FROM agent_inbox
+                    WHERE agent_user_id = ?
+                    """,
+                    (user_id,),
+                ).fetchone()
+                if discrepancy_rows:
+                    discrepancy_counts = {
+                        "completed_without_completion_ref": int(discrepancy_rows["completed_without_completion_ref"] or 0),
+                        "skipped_without_completion_ref": int(discrepancy_rows["skipped_without_completion_ref"] or 0),
+                    }
 
                 rows = conn.execute(
                     """
@@ -1379,6 +1523,7 @@ class InboxManager:
             "window_hours": window_hours,
             "status_counts": status_counts,
             "rejection_counts": rejection_counts,
+            "discrepancy_counts": discrepancy_counts,
         }
 
     def list_audit(self, user_id: str, limit: int = 50, since: Optional[str] = None) -> List[Dict[str, Any]]:

@@ -5165,10 +5165,14 @@ def create_api_blueprint() -> Blueprint:
             if not isinstance(ids, list):
                 return jsonify({'error': 'ids must be a list'}), 400
             status = (data.get('status') or 'handled').strip().lower()
+            completion_ref = data.get('completion_ref')
+            if completion_ref is not None and not isinstance(completion_ref, dict):
+                return jsonify({'error': 'completion_ref must be an object'}), 400
             updated = inbox_manager.update_items(
                 user_id=g.api_key_info.user_id,
                 ids=ids,
                 status=status,
+                completion_ref=completion_ref,
             )
             return jsonify({'updated': updated})
         except Exception as e:
@@ -5185,10 +5189,14 @@ def create_api_blueprint() -> Blueprint:
                 return jsonify({'updated': 0})
             data = request.get_json() or {}
             status = (data.get('status') or 'handled').strip().lower()
+            completion_ref = data.get('completion_ref')
+            if completion_ref is not None and not isinstance(completion_ref, dict):
+                return jsonify({'error': 'completion_ref must be an object'}), 400
             updated = inbox_manager.update_items(
                 user_id=g.api_key_info.user_id,
                 ids=[item_id],
                 status=status,
+                completion_ref=completion_ref,
             )
             return jsonify({'updated': updated})
         except Exception as e:
