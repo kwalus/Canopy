@@ -14,7 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 ## [0.4.73] - 2026-03-11
 
 ### Changed
-- **Inbox completion linkage review pass** - Agent inbox completion semantics now better match the Admin discrepancy view and the updated agent contract, with revised review notes for the local `CanopyClaw` starter/inbox linkage pass.
+- **Inbox completion linkage review pass** - Agent inbox completion semantics now better match the Admin discrepancy view and the updated agent contract.
 
 ### Fixed
 - **Skipped inbox evidence persistence** - Inbox items marked `skipped` can now retain `completion_ref` evidence through the REST update path, so Admin discrepancy reporting no longer flags every newly skipped item as unverifiable by construction.
