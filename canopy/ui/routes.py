@@ -1512,6 +1512,47 @@ def create_ui_blueprint() -> Blueprint:
             'dm_rev': _stable_ui_revision(contacts),
         }
 
+    def _build_channel_sidebar_snapshot(
+        channel_manager: Any,
+        p2p_manager: Any,
+        user_id: str,
+    ) -> dict[str, Any]:
+        channels = channel_manager.get_user_channels(user_id) if channel_manager else []
+        channels = _enrich_channel_lifecycle_state(channels, channel_manager, p2p_manager)
+        payload = []
+        default_ttl = getattr(channel_manager, 'DEFAULT_CHANNEL_LIFECYCLE_DAYS', 180)
+        for ch in channels:
+            ctype = ch.channel_type
+            if hasattr(ctype, 'value'):
+                ctype = ctype.value
+            payload.append({
+                'id': ch.id,
+                'name': ch.name,
+                'description': getattr(ch, 'description', '') or '',
+                'channel_type': str(ctype or 'public'),
+                'privacy_mode': getattr(ch, 'privacy_mode', 'open') or 'open',
+                'origin_peer': getattr(ch, 'origin_peer', '') or '',
+                'user_role': getattr(ch, 'user_role', 'member') or 'member',
+                'member_count': int(getattr(ch, 'member_count', 0) or 0),
+                'unread_count': int(getattr(ch, 'unread_count', 0) or 0),
+                'notifications_enabled': bool(getattr(ch, 'notifications_enabled', True)),
+                'crypto_mode': getattr(ch, 'crypto_mode', '') or '',
+                'lifecycle_status': getattr(ch, 'lifecycle_status', 'active') or 'active',
+                'lifecycle_ttl_days': int(getattr(ch, 'lifecycle_ttl_days', default_ttl) or default_ttl),
+                'lifecycle_preserved': bool(getattr(ch, 'lifecycle_preserved', False)),
+                'archived_at': (
+                    getattr(ch, 'archived_at', None).isoformat()
+                    if getattr(ch, 'archived_at', None) else None
+                ),
+                'archive_reason': getattr(ch, 'archive_reason', None),
+                'days_until_archive': getattr(ch, 'days_until_archive', None),
+                'owner_peer_state': getattr(ch, 'owner_peer_state', None),
+            })
+        return {
+            'channels': payload,
+            'rev': _stable_ui_revision(payload),
+        }
+
     def _build_sidebar_dm_contacts(
         db_manager: Any,
         profile_manager: Any,
@@ -3732,10 +3773,18 @@ def create_ui_blueprint() -> Blueprint:
             _, _, _, _, channel_manager, _, _, _, _, config, p2p_manager = _get_app_components_any(current_app)
             from ..core.polls import poll_edit_window_seconds
             user_id = get_current_user()
+            workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
+            try:
+                # Capture the cursor before building sidebar state so the
+                # initial page render never advances past unseen channel changes.
+                workspace_event_cursor = int((workspace_event_manager.get_latest_seq() if workspace_event_manager else 0) or 0)
+            except Exception:
+                workspace_event_cursor = 0
             
             # Get user's channels
             channels = channel_manager.get_user_channels(user_id)
             channels = _enrich_channel_lifecycle_state(channels, channel_manager, p2p_manager)
+            channel_sidebar_snapshot = _build_channel_sidebar_snapshot(channel_manager, p2p_manager, user_id)
             logger.debug(f"Channels page: user_id={user_id}, channels_count={len(channels)}")
             for channel in channels:
                 logger.debug(f"Channel: id={channel.id}, name={channel.name}, type={channel.channel_type}")
@@ -3766,6 +3815,8 @@ def create_ui_blueprint() -> Blueprint:
                                  local_device=local_device,
                                  local_peer_id=local_peer_id,
                                  is_admin=_is_admin(),
+                                 channel_sidebar_rev=channel_sidebar_snapshot.get('rev', ''),
+                                 workspace_event_cursor=workspace_event_cursor,
                                  poll_edit_window_seconds=poll_edit_window_seconds())
                                  
         except Exception as e:
@@ -6442,40 +6493,31 @@ def create_ui_blueprint() -> Blueprint:
             _, _, _, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
             user_id = get_current_user()
             client_rev = str(request.args.get('rev') or '').strip()
-            channels = channel_manager.get_user_channels(user_id)
-            channels = _enrich_channel_lifecycle_state(channels, channel_manager, p2p_manager)
-            payload = []
-            for ch in channels:
-                ctype = ch.channel_type
-                if hasattr(ctype, 'value'):
-                    ctype = ctype.value
-                payload.append({
-                    'id': ch.id,
-                    'name': ch.name,
-                    'description': getattr(ch, 'description', '') or '',
-                    'channel_type': str(ctype or 'public'),
-                    'privacy_mode': getattr(ch, 'privacy_mode', 'open') or 'open',
-                    'origin_peer': getattr(ch, 'origin_peer', '') or '',
-                    'user_role': getattr(ch, 'user_role', 'member') or 'member',
-                    'member_count': int(getattr(ch, 'member_count', 0) or 0),
-                    'unread_count': int(getattr(ch, 'unread_count', 0) or 0),
-                    'notifications_enabled': bool(getattr(ch, 'notifications_enabled', True)),
-                    'crypto_mode': getattr(ch, 'crypto_mode', '') or '',
-                    'lifecycle_status': getattr(ch, 'lifecycle_status', 'active') or 'active',
-                    'lifecycle_ttl_days': int(getattr(ch, 'lifecycle_ttl_days', channel_manager.DEFAULT_CHANNEL_LIFECYCLE_DAYS) or channel_manager.DEFAULT_CHANNEL_LIFECYCLE_DAYS),
-                    'lifecycle_preserved': bool(getattr(ch, 'lifecycle_preserved', False)),
-                    'archived_at': (
-                        getattr(ch, 'archived_at', None).isoformat()
-                        if getattr(ch, 'archived_at', None) else None
-                    ),
-                    'archive_reason': getattr(ch, 'archive_reason', None),
-                    'days_until_archive': getattr(ch, 'days_until_archive', None),
-                    'owner_peer_state': getattr(ch, 'owner_peer_state', None),
-                })
-            rev = _stable_ui_revision(payload)
+            workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
+            try:
+                workspace_event_cursor = int((workspace_event_manager.get_latest_seq() if workspace_event_manager else 0) or 0)
+            except Exception:
+                workspace_event_cursor = 0
+            snapshot = _build_channel_sidebar_snapshot(channel_manager, p2p_manager, user_id)
+            payload = snapshot['channels']
+            rev = snapshot['rev']
             if client_rev and client_rev == rev:
-                return jsonify({'success': True, 'changed': False, 'channels': [], 'count': len(payload), 'rev': rev})
-            return jsonify({'success': True, 'changed': True, 'channels': payload, 'count': len(payload), 'rev': rev})
+                return jsonify({
+                    'success': True,
+                    'changed': False,
+                    'channels': [],
+                    'count': len(payload),
+                    'rev': rev,
+                    'workspace_event_cursor': workspace_event_cursor,
+                })
+            return jsonify({
+                'success': True,
+                'changed': True,
+                'channels': payload,
+                'count': len(payload),
+                'rev': rev,
+                'workspace_event_cursor': workspace_event_cursor,
+            })
         except Exception as e:
             logger.error(f"Channel sidebar state error: {e}")
             return jsonify({'success': False, 'changed': False, 'channels': [], 'count': 0})

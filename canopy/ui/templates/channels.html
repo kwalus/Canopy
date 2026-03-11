@@ -4106,9 +4106,20 @@ let channelMessageCache = {};
 let oldestLoadedMessageId = null;
 let loadingOlderMessages = false;
 let noMoreOlderMessages = false;
-let channelSidebarStateRev = '';
+let channelSidebarStateRev = {{ (channel_sidebar_rev or '')|tojson }};
+let channelSidebarEventCursor = Number({{ workspace_event_cursor|default(0)|int }}) || 0;
+let channelSidebarEventPollInFlight = false;
+let channelSidebarSnapshotInFlight = false;
+let queuedChannelSidebarSnapshot = false;
+let channelSidebarEventPollHandle = null;
+let channelSidebarSafetyHandle = null;
 const OLDER_MESSAGES_LIMIT = 50;
 const AUTO_REFRESH_MS = 6000;
+const CHANNEL_SIDEBAR_EVENT_TYPES = [
+    'channel.message.created',
+    'channel.message.read',
+    'channel.state.updated',
+];
 const channelMentionCache = {};
 const channelMentionCacheFetchedAt = {};
 const CHANNEL_MENTION_CACHE_TTL_MS = 30000;
@@ -7529,22 +7540,98 @@ function applySidebarChannelState(channels) {
 }
 
 function refreshSidebarChannelState() {
+    if (channelSidebarSnapshotInFlight) {
+        queuedChannelSidebarSnapshot = true;
+        return Promise.resolve({ queued: true });
+    }
+    channelSidebarSnapshotInFlight = true;
     const params = new URLSearchParams({ _t: String(Date.now()) });
     if (channelSidebarStateRev) {
         params.set('rev', channelSidebarStateRev);
     }
-    apiCall(`/ajax/channel_sidebar_state?${params.toString()}`)
+    return apiCall(`/ajax/channel_sidebar_state?${params.toString()}`)
         .then(data => {
             if (!data || data.success === false) return;
             if (data.rev) {
                 channelSidebarStateRev = String(data.rev || '');
+            }
+            if (Number(data.workspace_event_cursor || 0) > Number(channelSidebarEventCursor || 0)) {
+                channelSidebarEventCursor = Number(data.workspace_event_cursor || 0);
             }
             if (data.changed === false) {
                 return;
             }
             applySidebarChannelState(data.channels || []);
         })
-        .catch(() => {});
+        .catch(() => null)
+        .finally(() => {
+            channelSidebarSnapshotInFlight = false;
+            if (queuedChannelSidebarSnapshot) {
+                queuedChannelSidebarSnapshot = false;
+                window.setTimeout(() => {
+                    refreshSidebarChannelState();
+                }, 0);
+            }
+        });
+}
+
+function pollChannelSidebarEvents() {
+    if (channelSidebarEventPollInFlight) {
+        return;
+    }
+    const channelList = document.getElementById('channel-list');
+    if (!channelList) {
+        return;
+    }
+    channelSidebarEventPollInFlight = true;
+    const query = new URLSearchParams();
+    query.set('after_seq', String(Number(channelSidebarEventCursor || 0)));
+    query.set('limit', '100');
+    CHANNEL_SIDEBAR_EVENT_TYPES.forEach((eventType) => query.append('types', eventType));
+
+    fetch(`/api/v1/events?${query.toString()}`, {
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    })
+        .then((res) => {
+            if (!res.ok) {
+                throw new Error(`Channel sidebar event poll failed (${res.status})`);
+            }
+            return res.json();
+        })
+        .then((data) => {
+            if (!data || typeof data !== 'object') return;
+            const nextSeq = Number(data.next_after_seq || 0);
+            if (nextSeq > Number(channelSidebarEventCursor || 0)) {
+                channelSidebarEventCursor = nextSeq;
+            }
+            const items = Array.isArray(data.items) ? data.items : [];
+            if (!items.length) {
+                return;
+            }
+            refreshSidebarChannelState();
+        })
+        .catch(() => {})
+        .finally(() => {
+            channelSidebarEventPollInFlight = false;
+        });
+}
+
+function startChannelSidebarEventPolling() {
+    if (channelSidebarEventPollHandle) {
+        window.clearInterval(channelSidebarEventPollHandle);
+        channelSidebarEventPollHandle = null;
+    }
+    if (channelSidebarSafetyHandle) {
+        window.clearInterval(channelSidebarSafetyHandle);
+        channelSidebarSafetyHandle = null;
+    }
+    pollChannelSidebarEvents();
+    channelSidebarEventPollHandle = window.setInterval(pollChannelSidebarEvents, 2500);
+    channelSidebarSafetyHandle = window.setInterval(() => {
+        refreshSidebarChannelState();
+    }, 30000);
 }
 
 function pollChannelMessages() {
@@ -11055,7 +11142,7 @@ document.addEventListener('DOMContentLoaded', function() {
             setupEmojiPicker();
 	        setInterval(updateChannelExpiryBadges, 60000);
 	        setInterval(pollChannelMessages, AUTO_REFRESH_MS);
-            setInterval(refreshSidebarChannelState, AUTO_REFRESH_MS);
+            startChannelSidebarEventPolling();
             document.addEventListener('visibilitychange', () => {
                 if (!document.hidden) {
                     setTimeout(() => pollChannelMessages(), 100);

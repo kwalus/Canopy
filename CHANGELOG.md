@@ -11,6 +11,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 ### Fixed
 - **Structured block non-materialization now surfaces correction feedback** - Feed and channel composer send paths now reject semantically incomplete canonical `signal` and `request` blocks before saving, and the structured validation panel shows those server-side correction messages instead of allowing a silent successful post with no durable object.
 
+## [0.4.71] - 2026-03-11
+
+### Changed
+- **Unified workspace event journal Patch 4 for the channel sidebar** - The Channels page sidebar now uses the local workspace event journal as its change detector and only refreshes from the existing sidebar snapshot route when channel-relevant events arrive, while preserving the established snapshot render path and safety refresh.
+
+### Fixed
+- **Initial channel sidebar cursor race hardening** - The `/channels` page now captures its workspace-event cursor before building the initial sidebar snapshot, preventing the channel sidebar consumer from advancing past unseen channel changes on first render during concurrent activity.
+
 ## [0.4.70] - 2026-03-11
 
 ### Changed

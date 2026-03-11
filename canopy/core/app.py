@@ -58,6 +58,7 @@ from .mentions import (
 )
 from .events import (
     EVENT_ATTACHMENT_AVAILABLE,
+    EVENT_CHANNEL_MESSAGE_CREATED,
     EVENT_DM_MESSAGE_DELETED,
     WorkspaceEventManager,
 )
@@ -289,6 +290,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
         
         logger.info("Initializing channel manager...")
         channel_manager = ChannelManager(db_manager, api_key_manager)
+        channel_manager.workspace_events = workspace_event_manager
         app.config['CHANNEL_MANAGER'] = channel_manager
         logger.info("Channel manager initialized successfully")
 
@@ -1740,6 +1742,19 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
                 logger.info(f"Stored P2P channel message {mid} in #{channel_id}"
                             f"{' with ' + str(len(processed_attachments)) + ' attachment(s)' if processed_attachments else ''}")
+                try:
+                    channel_manager._emit_channel_user_event(
+                        channel_id=channel_id,
+                        event_type=EVENT_CHANNEL_MESSAGE_CREATED,
+                        actor_user_id=user_id,
+                        payload={
+                            'message_id': mid,
+                            'preview': build_preview(content_rewritten or '') or '',
+                        },
+                        dedupe_suffix=mid,
+                    )
+                except Exception:
+                    pass
 
                 # Inline circles from [circle] blocks (allow update-only)
                 try:

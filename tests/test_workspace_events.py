@@ -33,6 +33,9 @@ from canopy.core.agent_heartbeat import build_agent_heartbeat_snapshot
 from canopy.core.app import _apply_inbound_dm_delete, _finalize_inbound_dm_message
 from canopy.core.events import (
     EVENT_ATTACHMENT_AVAILABLE,
+    EVENT_CHANNEL_MESSAGE_CREATED,
+    EVENT_CHANNEL_MESSAGE_READ,
+    EVENT_CHANNEL_STATE_UPDATED,
     EVENT_DM_MESSAGE_CREATED,
     EVENT_DM_MESSAGE_DELETED,
     EVENT_DM_MESSAGE_READ,
@@ -536,6 +539,49 @@ class TestWorkspaceEvents(unittest.TestCase):
         read_items = [item for item in body['items'] if item['event_type'] == EVENT_DM_MESSAGE_READ]
         self.assertEqual(len(read_items), 1)
         self.assertEqual(read_items[0]['message_id'], 'DM-read-1')
+
+    def test_user_scoped_channel_events_are_visible_to_target_user(self) -> None:
+        self.workspace_events.emit_event(
+            event_type=EVENT_CHANNEL_MESSAGE_CREATED,
+            actor_user_id='agent-b',
+            target_user_id='agent-a',
+            channel_id='general',
+            visibility_scope='user',
+            dedupe_key='channel:user:created:1',
+            payload={'message_id': 'CH-1', 'preview': 'hello'},
+        )
+        self.workspace_events.emit_event(
+            event_type=EVENT_CHANNEL_MESSAGE_READ,
+            actor_user_id='agent-a',
+            target_user_id='agent-a',
+            channel_id='general',
+            visibility_scope='user',
+            dedupe_key='channel:user:read:1',
+            payload={'reason': 'channel_read'},
+        )
+        self.workspace_events.emit_event(
+            event_type=EVENT_CHANNEL_STATE_UPDATED,
+            actor_user_id='owner-user',
+            target_user_id='agent-a',
+            channel_id='general',
+            visibility_scope='user',
+            dedupe_key='channel:user:state:1',
+            payload={'reason': 'member_added'},
+        )
+
+        body = self.client.get(
+            '/api/v1/events?types=channel.message.created&types=channel.message.read&types=channel.state.updated',
+            headers={'X-API-Key': 'agent-key'},
+        ).get_json()
+
+        items = body['items']
+        self.assertEqual(len(items), 3)
+        event_types = [item['event_type'] for item in items]
+        self.assertIn(EVENT_CHANNEL_MESSAGE_CREATED, event_types)
+        self.assertIn(EVENT_CHANNEL_MESSAGE_READ, event_types)
+        self.assertIn(EVENT_CHANNEL_STATE_UPDATED, event_types)
+        previews = [item.get('payload', {}).get('preview') for item in items]
+        self.assertIn('hello', previews)
 
     def test_attachment_available_is_dm_only_in_patch1(self) -> None:
         self.conn.execute(
