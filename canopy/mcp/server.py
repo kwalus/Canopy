@@ -58,6 +58,7 @@ from canopy.core.agent_heartbeat import (
     build_agent_heartbeat_snapshot,
     build_actionable_work_preview,
 )
+from canopy.core.inbox import AGENT_SETTABLE_STATUSES
 from canopy.security.api_keys import Permission
 
 # Set up logging
@@ -295,8 +296,8 @@ class CanopyMCPServer:
                         "type": "object",
                         "properties": {
                             "ids": {"type": "array", "items": {"type": "string"}, "description": "Inbox item IDs"},
-                            "status": {"type": "string", "description": "New status (seen|completed|handled|skipped|pending)", "default": "handled"},
-                            "completion_ref": {"type": "object", "description": "Optional evidence link when completing work, e.g. {source_type, source_id, message_id, post_id}"}
+                            "status": {"type": "string", "description": "New status (seen|completed|skipped|pending); legacy alias 'handled' maps to completed. 'expired' is system-only and will be rejected.", "default": "handled"},
+                            "completion_ref": {"type": "object", "description": "Optional evidence link when completing or skipping work, e.g. {source_type, source_id, message_id, post_id}"}
                         },
                         "required": ["ids"]
                     }
@@ -1904,6 +1905,9 @@ class CanopyMCPServer:
             completion_ref = args.get("completion_ref")
             if completion_ref is not None and not isinstance(completion_ref, dict):
                 return [TextContent(type="text", text="Error: completion_ref must be an object if provided")]
+            normalized_status = str(status or "").strip().lower()
+            if normalized_status not in AGENT_SETTABLE_STATUSES:
+                return [TextContent(type="text", text=f"Error: invalid status '{normalized_status}'. Must be one of: seen, completed, skipped, pending (or legacy alias handled)")]
 
             from canopy.core.app import create_app
 

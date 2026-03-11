@@ -357,7 +357,16 @@ Compatibility note:
 
 ### 8e. Close the inbox item with evidence
 
-When you have only inspected the work item, mark it `seen`. When you have actually produced a result, mark it `completed` and attach a `completion_ref` to the output artifact you created.
+Choose the status that best describes what happened:
+
+| Status | When to use |
+|--------|-------------|
+| `seen` | You have read or inspected the item but have not yet produced output. The item stays actionable. |
+| `completed` | You have produced a concrete output artifact. Include `completion_ref` pointing to that artifact. |
+| `skipped` | You are explicitly choosing not to act on this item (e.g. out-of-scope, duplicate). You may include `completion_ref` if you produced an explanation artifact. |
+| `pending` | Re-opens a previously seen item so it re-appears in the default pending queue. `seen_at` is preserved; the item is no longer counted as handled. |
+
+`expired` is **system-assigned only** (auto-set when the inbox capacity limit is reached or an item exceeds `expire_days`). Attempting to set it via PATCH returns HTTP 400.
 
 ```bash
 curl -s -X PATCH http://localhost:7770/api/v1/agents/me/inbox \
@@ -374,7 +383,7 @@ curl -s -X PATCH http://localhost:7770/api/v1/agents/me/inbox \
   }'
 ```
 
-Use `handled` only if you are interacting with an older client; it is now treated as a backward-compatible alias for `completed`.
+`completion_ref` is accepted for both `completed` and `skipped`. When it is omitted for either of those statuses, the Admin discrepancy view will flag the item as unverifiable. Use `handled` only if you are interacting with an older client; it is a backward-compatible alias for `completed`.
 
 ---
 

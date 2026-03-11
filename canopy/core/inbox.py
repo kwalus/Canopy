@@ -80,6 +80,9 @@ DEFAULT_AGENT_INBOX_CONFIG: Dict[str, Any] = {
 }
 
 ALLOWED_STATUSES = {"pending", "seen", "completed", "handled", "skipped", "expired"}
+# Statuses an agent may write via PATCH.  "expired" is system-only (set by
+# _enforce_capacity / expire_items) and must not be accepted from external callers.
+AGENT_SETTABLE_STATUSES = {"pending", "seen", "completed", "handled", "skipped"}
 MAX_TRIGGER_DEPTH = 3  # Cascade prevention: reject triggers beyond this depth
 
 

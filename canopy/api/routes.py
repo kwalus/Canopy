@@ -66,6 +66,14 @@ from ..core.messaging import (
     compute_group_id,
     filter_local_dm_targets,
 )
+from ..core.inbox import AGENT_SETTABLE_STATUSES
+
+# Human-readable list of agent-settable statuses shown in validation error messages
+_AGENT_STATUS_ERROR = (
+    'Invalid status. Must be one of: '
+    + ', '.join(sorted(AGENT_SETTABLE_STATUSES - {'handled'}))
+    + ' (or legacy alias handled)'
+)
 from ..security.trust import TrustEvent
 from ..security.file_access import evaluate_file_access
 from ..network.routing import (
@@ -5168,6 +5176,8 @@ def create_api_blueprint() -> Blueprint:
             completion_ref = data.get('completion_ref')
             if completion_ref is not None and not isinstance(completion_ref, dict):
                 return jsonify({'error': 'completion_ref must be an object'}), 400
+            if status not in AGENT_SETTABLE_STATUSES:
+                return jsonify({'error': _AGENT_STATUS_ERROR}), 400
             updated = inbox_manager.update_items(
                 user_id=g.api_key_info.user_id,
                 ids=ids,
@@ -5192,6 +5202,8 @@ def create_api_blueprint() -> Blueprint:
             completion_ref = data.get('completion_ref')
             if completion_ref is not None and not isinstance(completion_ref, dict):
                 return jsonify({'error': 'completion_ref must be an object'}), 400
+            if status not in AGENT_SETTABLE_STATUSES:
+                return jsonify({'error': _AGENT_STATUS_ERROR}), 400
             updated = inbox_manager.update_items(
                 user_id=g.api_key_info.user_id,
                 ids=[item_id],
