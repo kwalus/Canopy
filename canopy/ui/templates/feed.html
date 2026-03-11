@@ -5162,7 +5162,12 @@
 	            setTimeout(refreshFeed, 900);
 	        })
 	        .catch(error => {
-	            showAlert(error.error || 'Failed to create post', 'danger');
+                if (error && error.structured_validation) {
+                    renderFeedStructuredValidation(error.structured_validation);
+                    updateFeedStructuredTriggerState(error.structured_validation);
+                    renderFeedStructuredResult([]);
+                }
+	            showAlert(error.error || 'Failed to create post', error && error.structured_validation ? 'warning' : 'danger');
 	        });
 	    }
     

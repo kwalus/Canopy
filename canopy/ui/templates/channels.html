@@ -9257,6 +9257,13 @@ function sendMessage(event) {
     })
     .catch(error => {
         console.error('Error sending message:', error);
+        if (error && error.structured_validation) {
+            renderChannelStructuredValidation(error.structured_validation);
+            updateChannelStructuredTriggerState(error.structured_validation);
+            renderChannelStructuredResult([]);
+            showAlert(error.error || 'Fix the structured block issues before sending this message.', 'warning');
+            return;
+        }
         alert('Failed to send message: ' + (error.error || error.message || 'Unknown error'));
     })
     .finally(() => {

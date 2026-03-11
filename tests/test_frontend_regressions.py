@@ -54,6 +54,8 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("function updateFeedStructuredTriggerState(result)", feed_template)
         self.assertIn("function updateFeedStructuredValidation()", feed_template)
         self.assertIn("const structuredValidation = updateFeedStructuredValidation();", feed_template)
+        self.assertIn("error && error.structured_validation", feed_template)
+        self.assertIn("error && error.structured_validation", channels_template)
 
 
 if __name__ == '__main__':

@@ -7612,6 +7612,12 @@ def create_ui_blueprint() -> Blueprint:
             
             if not content and not file_attachments:
                 return jsonify({'error': 'Post content or attachments required'}), 400
+            structured_validation = _validate_structured_semantics(content)
+            if structured_validation.get('blocking'):
+                return jsonify({
+                    'error': 'Fix the structured block issues before sharing this post.',
+                    'structured_validation': structured_validation,
+                }), 400
             
             # Process file attachments if any (same as channel messages)
             processed_attachments = []
@@ -10869,6 +10875,12 @@ def create_ui_blueprint() -> Blueprint:
             
             if not content and not file_attachments:
                 return jsonify({'error': 'Message content or attachments required'}), 400
+            structured_validation = _validate_structured_semantics(content)
+            if structured_validation.get('blocking'):
+                return jsonify({
+                    'error': 'Fix the structured block issues before sending this message.',
+                    'structured_validation': structured_validation,
+                }), 400
             
             if not channel_id:
                 return jsonify({'error': 'Channel ID required'}), 400
@@ -14531,6 +14543,80 @@ def create_ui_blueprint() -> Blueprint:
         if editor_ids is not None:
             merged['editors'] = editor_ids
         return merged
+
+    def _mask_code_fences_preserve_length(text: str) -> str:
+        if not text:
+            return ''
+        return re.sub(r"```[\s\S]*?```", lambda m: '\0' * len(m.group(0)), text)
+
+    def _iter_canonical_structured_blocks(text: str, tag: str) -> list[dict[str, Any]]:
+        source = text or ''
+        masked = _mask_code_fences_preserve_length(source)
+        pattern = re.compile(rf"\[{re.escape(tag)}\]([\s\S]*?)\[/{re.escape(tag)}\]", re.IGNORECASE)
+        blocks: list[dict[str, Any]] = []
+        for match in pattern.finditer(masked):
+            start = match.start()
+            blocks.append({
+                'tag': tag,
+                'line': source.count('\n', 0, start) + 1,
+                'raw': source[match.start():match.end()],
+                'body': source[match.start(1):match.end(1)],
+            })
+        return blocks
+
+    def _body_has_prefixed_field(body: str, prefixes: tuple[str, ...]) -> bool:
+        if not body:
+            return False
+        pattern = re.compile(
+            rf"^\s*(?:{'|'.join(re.escape(prefix) for prefix in prefixes)})\s*:",
+            re.IGNORECASE,
+        )
+        return any(pattern.match(line or '') for line in body.splitlines())
+
+    def _validate_structured_semantics(text: str) -> dict[str, Any]:
+        issues: list[dict[str, Any]] = []
+        source = text or ''
+        if not source.strip():
+            return {'issues': issues, 'blocking': False}
+
+        signal_title_prefixes = (
+            'title', 'name', 'decision', 'outcome', 'finding', 'result',
+            'conclusion', 'topic', 'subject',
+        )
+        request_title_prefixes = ('title', 'subject', 'name')
+        request_content_prefixes = (
+            'request', 'ask', 'description', 'details', 'body',
+            'required_output', 'deliverable', 'deliverables', 'output', 'success',
+        )
+
+        for block in _iter_canonical_structured_blocks(source, 'signal'):
+            body = str(block.get('body') or '')
+            if _body_has_prefixed_field(body, signal_title_prefixes):
+                continue
+            issues.append({
+                'kind': 'semantic_incomplete',
+                'tag': 'signal',
+                'line': block.get('line'),
+                'message': 'This [signal] block has valid syntax but will not materialize without `title:` or a derivable field such as `outcome:`, `decision:`, `finding:`, `result:`, `conclusion:`, `topic:`, or `subject:`.',
+            })
+
+        for block in _iter_canonical_structured_blocks(source, 'request'):
+            body = str(block.get('body') or '')
+            has_title = _body_has_prefixed_field(body, request_title_prefixes)
+            has_content = _body_has_prefixed_field(body, request_content_prefixes)
+            if has_title or has_content:
+                continue
+            issues.append({
+                'kind': 'semantic_incomplete',
+                'tag': 'request',
+                'line': block.get('line'),
+                'message': 'This [request] block has valid syntax but will not materialize without `title:` or canonical request content such as `request:` or `required_output:`.',
+            })
+
+        return {
+            'issues': issues,
+            'blocking': bool(issues),
+        }
 
     def _append_structured_object_summary(
         items: list[dict[str, Any]],

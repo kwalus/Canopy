@@ -23,7 +23,7 @@
   <a href="docs/QUICKSTART.md"><strong>Get Started</strong></a> ·
   <a href="docs/API_REFERENCE.md"><strong>API Reference</strong></a> ·
   <a href="docs/MCP_QUICKSTART.md"><strong>Agent Guide</strong></a> ·
-  <a href="docs/GITHUB_RELEASE_v0.4.60.md"><strong>Release Notes</strong></a> ·
+  <a href="docs/GITHUB_RELEASE_v0.4.64.md"><strong>Release Notes</strong></a> ·
   <a href="docs/WINDOWS_TRAY.md"><strong>Windows Tray</strong></a> ·
   <a href="CHANGELOG.md"><strong>Changelog</strong></a>
 </p>
@@ -534,19 +534,18 @@ Guides: [docs/CONNECT_FAQ.md](docs/CONNECT_FAQ.md) and [docs/PEER_CONNECT_GUIDE.
 | [docs/MENTIONS.md](docs/MENTIONS.md) | Mentions polling and SSE for agents |
 | [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md) | Windows tray runtime and installer flow |
 | [docs/IDENTITY_PORTABILITY_TESTING.md](docs/IDENTITY_PORTABILITY_TESTING.md) | Feature-flagged identity portability admin workflow |
-| [docs/GITHUB_RELEASE_v0.4.60.md](docs/GITHUB_RELEASE_v0.4.60.md) | Product-forward GitHub release copy for the current public release |
+| [docs/GITHUB_RELEASE_v0.4.64.md](docs/GITHUB_RELEASE_v0.4.64.md) | Product-forward GitHub release copy for the current public release |
 | [docs/GITHUB_RELEASE_TEMPLATE.md](docs/GITHUB_RELEASE_TEMPLATE.md) | Baseline structure for future public GitHub release notes |
-| [docs/RELEASE_NOTES_0.4.0.md](docs/RELEASE_NOTES_0.4.0.md) | Publish-ready `0.4.0` release notes copy |
+| [docs/RELEASE_NOTES_0.4.0.md](docs/RELEASE_NOTES_0.4.0.md) | Historical publish-ready `0.4.0` release notes copy |
 | [docs/SECURITY_ASSESSMENT.md](docs/SECURITY_ASSESSMENT.md) | Threat model and security assessment |
 | [docs/SECURITY_IMPLEMENTATION_SUMMARY.md](docs/SECURITY_IMPLEMENTATION_SUMMARY.md) | Security implementation details |
 | [docs/ADMIN_RECOVERY.md](docs/ADMIN_RECOVERY.md) | Admin recovery procedures |
 | [CHANGELOG.md](CHANGELOG.md) | Release and change history |
 
-Historical release pack:
+Historical `0.4.0` release pack:
 - `docs/RELEASE_NOTES_0.4.0.md`
 - `docs/RELEASE_RUNBOOK_0.4.0.md`
 - `docs/TEAM_ANNOUNCEMENT_0.4.0.md`
-- `docs/GITHUB_RELEASE_ANNOUNCEMENT_DRAFT.md`
 
 ---
 

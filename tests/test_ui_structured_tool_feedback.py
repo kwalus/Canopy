@@ -309,6 +309,40 @@ class TestUiStructuredToolFeedback(unittest.TestCase):
         self.assertEqual(structured[0].get('title'), 'Channel coordination')
         self.assertIsNotNone(self.handoff_manager.get_handoff(structured[0].get('id')))
 
+    def test_create_post_rejects_semantically_incomplete_signal_block(self) -> None:
+        response = self.client.post(
+            '/ajax/create_post',
+            json={
+                'content': '[signal]\ntype: coordination_tiers\nTier_A: one\nTier_B: two\nTier_C: three\n[/signal]',
+                'post_type': 'text',
+                'visibility': 'network',
+                'attachments': [],
+                'source_type': 'human',
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        payload = response.get_json() or {}
+        self.assertIn('structured_validation', payload)
+        self.assertIn('signal', json.dumps(payload.get('structured_validation') or {}))
+        self.assertIsNone(self.feed_manager.last_post)
+
+    def test_send_channel_message_rejects_semantically_incomplete_request_block(self) -> None:
+        response = self.client.post(
+            '/ajax/send_channel_message',
+            json={
+                'channel_id': 'CHAN-1',
+                'content': '[request]\nkind: coordination_compliance\nowner: @agent_one\nowner: @agent_two\nrequired_fields: runtime_change\nformat: canonical signal\neta_minutes: 10\n[/request]',
+                'attachments': [],
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        payload = response.get_json() or {}
+        self.assertIn('structured_validation', payload)
+        self.assertIn('request', json.dumps(payload.get('structured_validation') or {}))
+        self.assertIsNone(self.channel_manager.last_message)
+
 
 if __name__ == '__main__':
     unittest.main()
