@@ -35,6 +35,7 @@ from canopy.core.events import (
     EVENT_ATTACHMENT_AVAILABLE,
     EVENT_DM_MESSAGE_CREATED,
     EVENT_DM_MESSAGE_DELETED,
+    EVENT_DM_MESSAGE_READ,
     EVENT_MENTION_CREATED,
     WorkspaceEventManager,
 )
@@ -497,6 +498,44 @@ class TestWorkspaceEvents(unittest.TestCase):
         deleted_items = [item for item in body['items'] if item['event_type'] == EVENT_DM_MESSAGE_DELETED]
         self.assertEqual(len(deleted_items), 1)
         self.assertEqual(deleted_items[0]['message_id'], 'DM-delete-1')
+
+    def test_mark_message_read_emits_one_read_event(self) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO messages (
+                id, sender_id, recipient_id, content, message_type,
+                status, created_at, delivered_at, read_at, edited_at, metadata
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                'DM-read-1',
+                'agent-b',
+                'agent-a',
+                'needs read',
+                'text',
+                'delivered',
+                '2026-03-09T10:00:00+00:00',
+                '2026-03-09T10:00:01+00:00',
+                None,
+                None,
+                json.dumps({'origin_peer': 'peer-remote'}),
+            ),
+        )
+        self.conn.commit()
+
+        first = self.message_manager.mark_message_read('DM-read-1', 'agent-a')
+        second = self.message_manager.mark_message_read('DM-read-1', 'agent-a')
+
+        self.assertTrue(first)
+        self.assertFalse(second)
+
+        body = self.client.get(
+            '/api/v1/events?types=dm.message.read',
+            headers={'X-API-Key': 'agent-key'},
+        ).get_json()
+        read_items = [item for item in body['items'] if item['event_type'] == EVENT_DM_MESSAGE_READ]
+        self.assertEqual(len(read_items), 1)
+        self.assertEqual(read_items[0]['message_id'], 'DM-read-1')
 
     def test_attachment_available_is_dm_only_in_patch1(self) -> None:
         self.conn.execute(

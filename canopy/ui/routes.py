@@ -375,6 +375,7 @@ def create_ui_blueprint() -> Blueprint:
             return {}
         try:
             db_manager, _, trust_manager, message_manager, channel_manager, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+            workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
             connected_peers = p2p_manager.get_connected_peers() if p2p_manager else []
             local_peer_id = p2p_manager.get_peer_id() if p2p_manager else None
             peer_snapshot = _build_sidebar_peer_snapshot(
@@ -399,6 +400,7 @@ def create_ui_blueprint() -> Blueprint:
                 'sidebar_peer_rev': peer_snapshot['peer_rev'],
                 'sidebar_recent_dm_contacts': dm_snapshot['recent_dm_contacts'],
                 'sidebar_dm_rev': dm_snapshot['dm_rev'],
+                'sidebar_dm_event_cursor': int((workspace_event_manager.get_latest_seq() if workspace_event_manager else 0) or 0),
                 'sidebar_local_peer_id': local_peer_id,
             }
             # Admin link and badge (instance owner only)
@@ -2158,6 +2160,13 @@ def create_ui_blueprint() -> Blueprint:
         search_query: str = '',
     ) -> dict[str, Any]:
         db_manager, _, _, message_manager, _, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+        workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
+        try:
+            # Capture the cursor before rebuilding sidebar/thread state so the
+            # client never advances past changes that are absent from this snapshot.
+            workspace_event_cursor = int((workspace_event_manager.get_latest_seq() if workspace_event_manager else 0) or 0)
+        except Exception:
+            workspace_event_cursor = 0
 
         if conversation_group and not conversation_group.startswith('group:'):
             conversation_group = None
@@ -2690,6 +2699,7 @@ def create_ui_blueprint() -> Blueprint:
             'conversation_group': conversation_group,
             'latest_message_id': latest_message_id,
             'latest_message_created_at': latest_message_created_at,
+            'workspace_event_cursor': workspace_event_cursor,
             'sidebar_state_token': sidebar_state_token,
             'thread_state_token': thread_state_token,
         }
@@ -2732,6 +2742,7 @@ def create_ui_blueprint() -> Blueprint:
                 'conversation_group': template_data.get('conversation_group'),
                 'latest_message_id': template_data.get('latest_message_id'),
                 'latest_message_created_at': template_data.get('latest_message_created_at'),
+                'workspace_event_cursor': template_data.get('workspace_event_cursor'),
                 'sidebar_state_token': template_data.get('sidebar_state_token'),
                 'thread_state_token': template_data.get('thread_state_token'),
                 'sidebar_html': render_template('_messages_sidebar_sections.html', **template_data),
@@ -4197,7 +4208,6 @@ def create_ui_blueprint() -> Blueprint:
             db_manager, _, trust_manager, message_manager, channel_manager, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
             since_arg = request.args.get('since')
             peer_rev_client = str(request.args.get('peer_rev') or '').strip()
-            dm_rev_client = str(request.args.get('dm_rev') or '').strip()
             since = None
             if since_arg is not None and since_arg != '':
                 try:
@@ -4214,9 +4224,6 @@ def create_ui_blueprint() -> Blueprint:
                     'peer_profiles': {},
                     'peer_rev': _stable_ui_revision([]),
                     'peer_changed': not bool(peer_rev_client),
-                    'recent_dm_contacts': [],
-                    'dm_rev': _stable_ui_revision([]),
-                    'dm_changed': not bool(dm_rev_client),
                     'events': [],
                     'server_time': time.time(),
                 })
@@ -4247,25 +4254,12 @@ def create_ui_blueprint() -> Blueprint:
                 trust_manager,
                 channel_manager,
             )
-            dm_snapshot = _build_sidebar_dm_snapshot(
-                db_manager,
-                profile_manager,
-                p2p_manager,
-                get_current_user(),
-                limit=5,
-            ) if message_manager else {
-                'recent_dm_contacts': [],
-                'dm_rev': _stable_ui_revision([]),
-            }
             peer_changed = peer_snapshot['peer_rev'] != peer_rev_client
-            dm_changed = dm_snapshot['dm_rev'] != dm_rev_client
 
             payload = {
                 'success': True,
                 'peer_rev': peer_snapshot['peer_rev'],
                 'peer_changed': peer_changed,
-                'dm_rev': dm_snapshot['dm_rev'],
-                'dm_changed': dm_changed,
                 'events': events,
                 'server_time': time.time(),
             }
@@ -4285,14 +4279,54 @@ def create_ui_blueprint() -> Blueprint:
                     'peer_profiles': {},
                     'connected_peer_count': peer_snapshot['connected_peer_count'],
                 })
-            if dm_changed:
-                payload['recent_dm_contacts'] = dm_snapshot['recent_dm_contacts']
-            else:
-                payload['recent_dm_contacts'] = []
             return jsonify(payload)
         except Exception as e:
             logger.error(f"Peer activity error: {e}", exc_info=True)
             return jsonify({'success': False, 'error': 'Failed to get peer activity'}), 500
+
+    @ui.route('/ajax/sidebar_dm_snapshot', methods=['GET'])
+    @require_login
+    def ajax_sidebar_dm_snapshot():
+        """Return the compact recent-DM sidebar snapshot for event-driven refreshes."""
+        try:
+            db_manager, _, _, message_manager, _, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+            dm_rev_client = str(request.args.get('dm_rev') or '').strip()
+            workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
+            try:
+                # Capture the cursor before rebuilding the sidebar snapshot so
+                # the client does not advance past changes absent from this payload.
+                workspace_event_cursor = int((workspace_event_manager.get_latest_seq() if workspace_event_manager else 0) or 0)
+            except Exception:
+                workspace_event_cursor = 0
+
+            if not message_manager:
+                empty_rev = _stable_ui_revision([])
+                return jsonify({
+                    'success': True,
+                    'dm_rev': empty_rev,
+                    'dm_changed': empty_rev != dm_rev_client,
+                    'recent_dm_contacts': [] if empty_rev == dm_rev_client else [],
+                    'workspace_event_cursor': workspace_event_cursor,
+                })
+
+            dm_snapshot = _build_sidebar_dm_snapshot(
+                db_manager,
+                profile_manager,
+                p2p_manager,
+                get_current_user(),
+                limit=5,
+            )
+            dm_changed = dm_snapshot['dm_rev'] != dm_rev_client
+            return jsonify({
+                'success': True,
+                'dm_rev': dm_snapshot['dm_rev'],
+                'dm_changed': dm_changed,
+                'recent_dm_contacts': dm_snapshot['recent_dm_contacts'] if dm_changed else [],
+                'workspace_event_cursor': workspace_event_cursor,
+            })
+        except Exception as e:
+            logger.error(f"Sidebar DM snapshot error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Failed to load DM sidebar snapshot'}), 500
 
     @ui.route('/ajax/p2p/diagnostics', methods=['GET'])
     @require_login

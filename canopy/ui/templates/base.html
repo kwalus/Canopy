@@ -5366,6 +5366,7 @@
             peerRev: {{ sidebar_peer_rev|tojson if sidebar_peer_rev is defined else '""' }},
             recentDmContacts: {{ sidebar_recent_dm_contacts|tojson if sidebar_recent_dm_contacts is defined else '[]' }},
             dmRev: {{ sidebar_dm_rev|tojson if sidebar_dm_rev is defined else '""' }},
+            dmEventCursor: {{ sidebar_dm_event_cursor|tojson if sidebar_dm_event_cursor is defined else '0' }},
             userId: {{ (user_id or 'local_user')|tojson }},
             profileTheme: {{ (profile.theme_preference if profile else 'dark')|tojson }},
             localUserId: {{ session.get('user_id')|tojson }},

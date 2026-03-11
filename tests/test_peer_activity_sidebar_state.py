@@ -178,19 +178,17 @@ class TestPeerActivitySidebarState(unittest.TestCase):
         first_payload = first.get_json() or {}
 
         response = self.client.get(
-            f"/ajax/peer_activity?peer_rev={first_payload.get('peer_rev')}&dm_rev={first_payload.get('dm_rev')}"
+            f"/ajax/peer_activity?peer_rev={first_payload.get('peer_rev')}"
         )
         self.assertEqual(response.status_code, 200)
         payload = response.get_json() or {}
 
         self.assertTrue(payload.get('success'))
         self.assertFalse(payload.get('peer_changed'))
-        self.assertFalse(payload.get('dm_changed'))
         self.assertEqual(payload.get('connected_peer_ids'), [])
         self.assertEqual(payload.get('peer_trust'), {})
         self.assertEqual(payload.get('peer_profiles'), {})
         self.assertEqual(payload.get('peers'), {})
-        self.assertEqual(payload.get('recent_dm_contacts'), [])
 
 
 if __name__ == '__main__':

@@ -26,6 +26,7 @@ from .events import (
     EVENT_DM_MESSAGE_CREATED,
     EVENT_DM_MESSAGE_DELETED,
     EVENT_DM_MESSAGE_EDITED,
+    EVENT_DM_MESSAGE_READ,
 )
 
 logger = logging.getLogger(__name__)
@@ -696,6 +697,7 @@ class MessageManager:
                     UPDATE messages 
                     SET read_at = CURRENT_TIMESTAMP
                     WHERE id = ? AND (
+                        read_at IS NULL AND (
                         recipient_id = ?
                         OR recipient_id IS NULL
                         OR EXISTS (
@@ -706,6 +708,7 @@ class MessageManager:
                             ) gm
                             WHERE CAST(gm.value AS TEXT) = ?
                         )
+                        )
                     )
                 """, (message_id, user_id, user_id))
                 
@@ -714,6 +717,14 @@ class MessageManager:
                 
                 if success:
                     logger.info(f"Marked message {message_id} as read by {user_id}")
+                    message = self.get_message(message_id)
+                    if message:
+                        self._emit_dm_event(
+                            event_type=EVENT_DM_MESSAGE_READ,
+                            message=message,
+                            dedupe_key=f"{EVENT_DM_MESSAGE_READ}:{message_id}:{user_id}",
+                            created_at=message.read_at or datetime.now(timezone.utc),
+                        )
                 
                 return success
                 

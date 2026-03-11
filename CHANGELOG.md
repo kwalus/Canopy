@@ -11,6 +11,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 ### Fixed
 - **Structured block non-materialization now surfaces correction feedback** - Feed and channel composer send paths now reject semantically incomplete canonical `signal` and `request` blocks before saving, and the structured validation panel shows those server-side correction messages instead of allowing a silent successful post with no durable object.
 
+## [0.4.70] - 2026-03-11
+
+### Changed
+- **Unified workspace event journal Patch 3 for the recent-DM sidebar** - The shared recent-DM sidebar now follows the local workspace event journal through a dedicated compact snapshot path instead of piggybacking on the generic peer-activity poll, while still preserving queueing and a safety resync.
+
+### Fixed
+- **Sidebar snapshot/event cursor race hardening** - The recent-DM sidebar snapshot now captures its workspace-event cursor before rebuilding contact state, preventing the shared sidebar from advancing past journal changes that are not yet represented in the returned snapshot during concurrent DM activity.
+
+## [0.4.69] - 2026-03-11
+
+### Changed
+- **Unified workspace event journal Patch 2 for DMs** - The DM workspace now uses the local workspace event journal as its live change detector, reducing idle full-snapshot churn while preserving the existing snapshot render path and safety resync behavior.
+
+### Fixed
+- **DM snapshot/event cursor race hardening** - DM snapshot responses now capture their workspace-event cursor before rebuilding sidebar and thread state, preventing the client from advancing past journal changes that are not yet included in the rendered snapshot during concurrent updates.
+
 ## [0.4.68] - 2026-03-10
 
 ### Added

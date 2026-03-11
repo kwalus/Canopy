@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 EVENT_DM_MESSAGE_CREATED = "dm.message.created"
 EVENT_DM_MESSAGE_EDITED = "dm.message.edited"
 EVENT_DM_MESSAGE_DELETED = "dm.message.deleted"
+EVENT_DM_MESSAGE_READ = "dm.message.read"
 EVENT_MENTION_CREATED = "mention.created"
 EVENT_MENTION_ACKNOWLEDGED = "mention.acknowledged"
 EVENT_INBOX_ITEM_CREATED = "inbox.item.created"
@@ -29,6 +30,7 @@ PATCH1_EVENT_TYPES = {
     EVENT_DM_MESSAGE_CREATED,
     EVENT_DM_MESSAGE_EDITED,
     EVENT_DM_MESSAGE_DELETED,
+    EVENT_DM_MESSAGE_READ,
     EVENT_MENTION_CREATED,
     EVENT_MENTION_ACKNOWLEDGED,
     EVENT_INBOX_ITEM_CREATED,
