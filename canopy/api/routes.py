@@ -66,7 +66,7 @@ from ..core.messaging import (
     compute_group_id,
     filter_local_dm_targets,
 )
-from ..core.inbox import AGENT_SETTABLE_STATUSES
+from ..core.inbox import AGENT_SETTABLE_STATUSES, ACTIONABLE_STATUSES
 
 # Human-readable list of agent-settable statuses shown in validation error messages
 _AGENT_STATUS_ERROR = (
@@ -4881,9 +4881,10 @@ def create_api_blueprint() -> Blueprint:
                         """
                         SELECT agent_user_id, COUNT(*) AS n
                         FROM agent_inbox
-                        WHERE status = 'pending'
+                        WHERE status IN (?, ?)
                         GROUP BY agent_user_id
-                        """
+                        """,
+                        (ACTIONABLE_STATUSES[0], ACTIONABLE_STATUSES[1]),
                     ).fetchall()
                     for row in inbox_rows or []:
                         inbox_counts[str(row['agent_user_id'])] = int(row['n'] or 0)
@@ -5009,7 +5010,8 @@ def create_api_blueprint() -> Blueprint:
                 try:
                     with db_manager.get_connection() as conn:
                         row = conn.execute(
-                            "SELECT COUNT(*) AS n FROM agent_inbox WHERE status = 'pending'"
+                            "SELECT COUNT(*) AS n FROM agent_inbox WHERE status IN (?, ?)",
+                            (ACTIONABLE_STATUSES[0], ACTIONABLE_STATUSES[1]),
                         ).fetchone()
                         pending_inbox_total = int((row['n'] if row else 0) or 0)
                         row = conn.execute(
@@ -5465,7 +5467,6 @@ def create_api_blueprint() -> Blueprint:
                 try:
                     inbox_items = inbox_manager.list_items(
                         user_id=user_id,
-                        status='pending',
                         limit=limit,
                         since=since_iso,
                         include_handled=False,
@@ -5548,13 +5549,13 @@ def create_api_blueprint() -> Blueprint:
             if inbox_manager:
                 try:
                     stats = inbox_manager.get_stats(user_id, window_hours=window_hours)
-                    session_inbox_count = int((stats.get('status_counts') or {}).get('pending', 0))
+                    status_counts = stats.get('status_counts') or {}
+                    session_inbox_count = int(status_counts.get('pending', 0) or 0) + int(status_counts.get('seen', 0) or 0)
                 except Exception:
                     session_inbox_count = 0
                 try:
                     preview_items = inbox_manager.list_items(
                         user_id=user_id,
-                        status='pending',
                         limit=5,
                         since=since_iso,
                         include_handled=False,
@@ -5840,7 +5841,7 @@ def create_api_blueprint() -> Blueprint:
                 limit=limit,
             )
 
-            pending_after = inbox_manager.count_items(user_id=user_id, status='pending')
+            pending_after = inbox_manager.count_items(user_id=user_id)
             result['pending_after'] = pending_after
             result['user_id'] = user_id
             result['window_hours'] = window_hours

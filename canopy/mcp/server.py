@@ -1885,9 +1885,7 @@ class CanopyMCPServer:
                     window_hours=window_hours,
                     limit=limit,
                 )
-                pending_after = inbox_manager.count_items(
-                    user_id=self.user_id, status='pending'
-                )
+                pending_after = inbox_manager.count_items(user_id=self.user_id)
                 result['pending_after'] = pending_after
                 result['user_id'] = self.user_id
                 result['window_hours'] = window_hours
@@ -2072,7 +2070,7 @@ class CanopyMCPServer:
 
                 inbox_items = []
                 if inbox_manager:
-                    inbox_items = inbox_manager.list_items(self.user_id, status='pending', limit=limit, since=since_iso, include_handled=False)
+                    inbox_items = inbox_manager.list_items(self.user_id, limit=limit, since=since_iso, include_handled=False)
 
                 task_items = []
                 if task_manager:
@@ -2206,13 +2204,13 @@ class CanopyMCPServer:
                 if inbox_manager:
                     try:
                         stats = inbox_manager.get_stats(self.user_id, window_hours=window_hours)
-                        inbox_count = int((stats.get('status_counts') or {}).get('pending', 0))
+                        status_counts = stats.get('status_counts') or {}
+                        inbox_count = int(status_counts.get('pending', 0) or 0) + int(status_counts.get('seen', 0) or 0)
                     except Exception:
                         inbox_count = 0
                     try:
                         preview_items = inbox_manager.list_items(
                             user_id=self.user_id,
-                            status='pending',
                             limit=5,
                             since=since_iso,
                             include_handled=False,

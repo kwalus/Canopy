@@ -3085,7 +3085,13 @@
                 if (item.seen_at) detailBits.push(`seen ${formatTime(item.seen_at)}`);
                 if (item.completed_at) detailBits.push(`completed ${formatTime(item.completed_at)}`);
                 if (item.handled_at && !item.completed_at) detailBits.push(`handled ${formatTime(item.handled_at)}`);
+                if (item.last_resolution_status && item.last_resolution_at && !item.completed_at) {
+                    detailBits.push(`last ${item.last_resolution_status} ${formatTime(item.last_resolution_at)}`);
+                }
                 detailBits.push(item.has_completion_ref ? 'evidence linked' : 'no evidence link');
+                if (!item.has_completion_ref && item.last_completion_ref) {
+                    detailBits.push('prior evidence retained');
+                }
                 return (
                     `<div class="workspace-list-item">` +
                         `<div class="workspace-list-title">${escapeHtml(item.trigger_type || item.source_type || 'item')} · ${escapeHtml(item.status || 'pending')}</div>` +

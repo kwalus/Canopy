@@ -11,6 +11,8 @@ import hashlib
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
+from .inbox import ACTIONABLE_STATUSES
+
 
 def _safe_int(value: Any) -> int:
     try:
@@ -218,9 +220,9 @@ def build_agent_heartbeat_snapshot(
                         """
                         SELECT COUNT(*) AS count, MAX(created_at) AS latest
                         FROM agent_inbox
-                        WHERE agent_user_id = ? AND status = 'pending'
+                        WHERE agent_user_id = ? AND status IN (?, ?)
                         """,
-                        (user_id,),
+                        (user_id, ACTIONABLE_STATUSES[0], ACTIONABLE_STATUSES[1]),
                     ).fetchone()
                     if row:
                         pending_inbox = _safe_int(row["count"])
@@ -230,11 +232,11 @@ def build_agent_heartbeat_snapshot(
                         """
                         SELECT id, created_at
                         FROM agent_inbox
-                        WHERE agent_user_id = ? AND status = 'pending'
+                        WHERE agent_user_id = ? AND status IN (?, ?)
                         ORDER BY created_at DESC
                         LIMIT 1
                         """,
-                        (user_id,),
+                        (user_id, ACTIONABLE_STATUSES[0], ACTIONABLE_STATUSES[1]),
                     ).fetchone()
                     if latest_row:
                         last_inbox_id = latest_row["id"]
@@ -347,11 +349,10 @@ def build_agent_heartbeat_snapshot(
 
     if pending_inbox == 0 and inbox_manager:
         try:
-            count_data = inbox_manager.count_items(user_id=user_id, status="pending")
+            count_data = inbox_manager.count_items(user_id=user_id)
             pending_inbox = count_data if isinstance(count_data, int) else _safe_int((count_data or {}).get("count", 0))
             preview = inbox_manager.list_items(
                 user_id=user_id,
-                status="pending",
                 limit=1,
                 include_handled=False,
             )

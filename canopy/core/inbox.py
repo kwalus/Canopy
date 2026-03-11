@@ -81,6 +81,8 @@ DEFAULT_AGENT_INBOX_CONFIG: Dict[str, Any] = {
 }
 
 ALLOWED_STATUSES = {"pending", "seen", "completed", "handled", "skipped", "expired"}
+ACTIONABLE_STATUSES = ("pending", "seen")
+TERMINAL_STATUSES = {"completed", "skipped"}
 # Statuses an agent may write via PATCH.  "expired" is system-only (set by
 # _enforce_capacity / expire_items) and must not be accepted from external callers.
 AGENT_SETTABLE_STATUSES = {"pending", "seen", "completed", "handled", "skipped"}
@@ -133,6 +135,22 @@ def _sanitize_completion_ref(value: Any) -> Optional[Dict[str, Any]]:
         if text:
             sanitized[token] = text
     return sanitized or None
+
+
+def _normalize_status_rows(value: Any) -> List[str]:
+    """Normalize a status filter to one or more storage statuses."""
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        raw_values = value
+    else:
+        raw_values = [value]
+    out: List[str] = []
+    for raw in raw_values:
+        normalized = _normalize_storage_status(raw)
+        if normalized in ALLOWED_STATUSES and normalized not in out:
+            out.append(normalized)
+    return out
 
 
 def _normalize_item_payload(row: Any, payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -204,6 +222,9 @@ class InboxManager:
                         handled_at TIMESTAMP,
                         completed_at TIMESTAMP,
                         completion_ref_json TEXT,
+                        last_resolution_status TEXT,
+                        last_resolution_at TIMESTAMP,
+                        last_completion_ref_json TEXT,
                         expires_at TIMESTAMP,
                         triggered_by_inbox_id TEXT,
                         depth INTEGER DEFAULT 0,
@@ -259,6 +280,12 @@ class InboxManager:
                     conn.execute("ALTER TABLE agent_inbox ADD COLUMN completed_at TIMESTAMP")
                 if "completion_ref_json" not in columns:
                     conn.execute("ALTER TABLE agent_inbox ADD COLUMN completion_ref_json TEXT")
+                if "last_resolution_status" not in columns:
+                    conn.execute("ALTER TABLE agent_inbox ADD COLUMN last_resolution_status TEXT")
+                if "last_resolution_at" not in columns:
+                    conn.execute("ALTER TABLE agent_inbox ADD COLUMN last_resolution_at TIMESTAMP")
+                if "last_completion_ref_json" not in columns:
+                    conn.execute("ALTER TABLE agent_inbox ADD COLUMN last_completion_ref_json TEXT")
                 conn.execute(
                     """
                     UPDATE agent_inbox
@@ -266,6 +293,17 @@ class InboxManager:
                         completed_at = COALESCE(completed_at, handled_at),
                         seen_at = COALESCE(seen_at, handled_at, created_at)
                     WHERE status = 'handled'
+                    """
+                )
+                conn.execute(
+                    """
+                    UPDATE agent_inbox
+                    SET last_resolution_status = COALESCE(last_resolution_status, CASE WHEN status IN ('completed', 'skipped') THEN status ELSE NULL END),
+                        last_resolution_at = COALESCE(last_resolution_at, completed_at, handled_at),
+                        last_completion_ref_json = COALESCE(last_completion_ref_json, completion_ref_json)
+                    WHERE status IN ('completed', 'skipped')
+                       OR completed_at IS NOT NULL
+                       OR completion_ref_json IS NOT NULL
                     """
                 )
                 conn.commit()
@@ -635,9 +673,9 @@ class InboxManager:
                     """
                     SELECT COUNT(*) AS n
                     FROM agent_inbox
-                    WHERE agent_user_id = ? AND status = 'pending'
+                    WHERE agent_user_id = ? AND status IN (?, ?)
                     """,
-                    (agent_user_id,)
+                    (agent_user_id, ACTIONABLE_STATUSES[0], ACTIONABLE_STATUSES[1])
                 ).fetchone()
                 count = int(row[0]) if row and row[0] is not None else 0
                 if count < max_pending:
@@ -649,7 +687,7 @@ class InboxManager:
                     SET status = 'expired', handled_at = CURRENT_TIMESTAMP
                     WHERE id IN (
                         SELECT id FROM agent_inbox
-                        WHERE agent_user_id = ? AND status = 'pending'
+                        WHERE agent_user_id = ? AND status IN ('pending', 'seen')
                         ORDER BY created_at ASC
                         LIMIT {to_expire}
                     )
@@ -670,7 +708,7 @@ class InboxManager:
                         UPDATE agent_inbox
                         SET status = 'expired', handled_at = CURRENT_TIMESTAMP
                         WHERE agent_user_id = ?
-                          AND status = 'pending'
+                          AND status IN ('pending', 'seen')
                           AND expires_at IS NOT NULL
                           AND expires_at <= CURRENT_TIMESTAMP
                         """,
@@ -681,7 +719,7 @@ class InboxManager:
                         """
                         UPDATE agent_inbox
                         SET status = 'expired', handled_at = CURRENT_TIMESTAMP
-                        WHERE status = 'pending'
+                        WHERE status IN ('pending', 'seen')
                           AND expires_at IS NOT NULL
                           AND expires_at <= CURRENT_TIMESTAMP
                         """
@@ -1258,9 +1296,7 @@ class InboxManager:
             return []
         self._expire_items(user_id)
 
-        status = _normalize_storage_status(status)
-        if status and status not in ALLOWED_STATUSES:
-            status = ''
+        status_filters = _normalize_status_rows(status)
         try:
             limit_val = int(limit)
         except Exception:
@@ -1270,11 +1306,12 @@ class InboxManager:
 
         params: List[Any] = [user_id]
         where = "WHERE agent_user_id = ?"
-        if status:
-            where += " AND status = ?"
-            params.append(status)
+        if status_filters:
+            placeholders = ",".join("?" for _ in status_filters)
+            where += f" AND status IN ({placeholders})"
+            params.extend(status_filters)
         elif not include_handled:
-            where += " AND status = 'pending'"
+            where += " AND status IN ('pending', 'seen')"
         if since:
             where += " AND created_at > ?"
             params.append(since)
@@ -1320,6 +1357,13 @@ class InboxManager:
                         if row['completion_ref_json']
                         else None
                     ),
+                    'last_resolution_status': _normalize_output_status(row['last_resolution_status']),
+                    'last_resolution_at': row['last_resolution_at'],
+                    'last_completion_ref': (
+                        json.loads(row['last_completion_ref_json'])
+                        if row['last_completion_ref_json']
+                        else None
+                    ),
                     'expires_at': row['expires_at'],
                     'triggered_by_inbox_id': row['triggered_by_inbox_id'],
                     'depth': row['depth'],
@@ -1333,16 +1377,19 @@ class InboxManager:
             logger.error(f"Failed to list inbox items: {e}")
             return []
 
-    def count_items(self, user_id: str, status: Optional[str] = None) -> int:
+    def count_items(self, user_id: str, status: Optional[str] = None, include_handled: bool = False) -> int:
         if not user_id:
             return 0
         self._expire_items(user_id)
-        status = _normalize_storage_status(status)
+        status_filters = _normalize_status_rows(status)
         params: List[Any] = [user_id]
         where = "WHERE agent_user_id = ?"
-        if status and status in ALLOWED_STATUSES:
-            where += " AND status = ?"
-            params.append(status)
+        if status_filters:
+            placeholders = ",".join("?" for _ in status_filters)
+            where += f" AND status IN ({placeholders})"
+            params.extend(status_filters)
+        elif not include_handled:
+            where += " AND status IN ('pending', 'seen')"
         try:
             with self.db.get_connection() as conn:
                 row = conn.execute(
@@ -1380,7 +1427,9 @@ class InboxManager:
                 affected_rows = conn.execute(
                     f"""
                     SELECT id, source_type, source_id, message_id, channel_id, sender_user_id,
-                           priority, payload_json, seen_at, handled_at, completed_at, completion_ref_json
+                           priority, payload_json, status, seen_at, handled_at, completed_at,
+                           completion_ref_json, last_resolution_status, last_resolution_at,
+                           last_completion_ref_json
                     FROM agent_inbox
                     WHERE agent_user_id = ? AND id IN ({placeholders})
                     """,
@@ -1393,6 +1442,13 @@ class InboxManager:
                     current_seen_at = row['seen_at']
                     current_completed_at = row['completed_at']
                     current_completion_ref = row['completion_ref_json']
+                    current_status = _normalize_storage_status(row['status'])
+                    current_last_resolution_status = row['last_resolution_status']
+                    current_last_resolution_at = row['last_resolution_at']
+                    current_last_completion_ref = row['last_completion_ref_json']
+                    next_last_resolution_status = current_last_resolution_status
+                    next_last_resolution_at = current_last_resolution_at
+                    next_last_completion_ref_json = current_last_completion_ref
                     if status == 'pending':
                         next_seen_at = current_seen_at
                         next_handled_at = None
@@ -1408,6 +1464,9 @@ class InboxManager:
                                 if sanitized_completion_ref is not None
                                 else current_completion_ref
                             )
+                            next_last_resolution_status = status
+                            next_last_resolution_at = next_completed_at
+                            next_last_completion_ref_json = next_completion_ref_json
                         else:
                             # Transitioning to 'seen', 'expired', or similar
                             # intermediate state: clear any stale finalization
@@ -1416,10 +1475,15 @@ class InboxManager:
                             # completion timestamps or evidence links.
                             next_completed_at = None
                             next_completion_ref_json = None
+                    if current_status in TERMINAL_STATUSES and status not in TERMINAL_STATUSES:
+                        next_last_resolution_status = current_status
+                        next_last_resolution_at = current_completed_at or row['handled_at'] or current_last_resolution_at
+                        next_last_completion_ref_json = current_completion_ref or current_last_completion_ref
                     cur = conn.execute(
                         """
                         UPDATE agent_inbox
-                        SET status = ?, seen_at = ?, handled_at = ?, completed_at = ?, completion_ref_json = ?
+                        SET status = ?, seen_at = ?, handled_at = ?, completed_at = ?, completion_ref_json = ?,
+                            last_resolution_status = ?, last_resolution_at = ?, last_completion_ref_json = ?
                         WHERE agent_user_id = ? AND id = ?
                         """,
                         (
@@ -1428,6 +1492,9 @@ class InboxManager:
                             next_handled_at,
                             next_completed_at,
                             next_completion_ref_json,
+                            next_last_resolution_status,
+                            next_last_resolution_at,
+                            next_last_completion_ref_json,
                             user_id,
                             row['id'],
                         ),
@@ -1447,6 +1514,12 @@ class InboxManager:
                             'completion_ref': (
                                 json.loads(next_completion_ref_json)
                                 if next_completion_ref_json else None
+                            ),
+                            'last_resolution_status': _normalize_output_status(next_last_resolution_status),
+                            'last_resolution_at': next_last_resolution_at,
+                            'last_completion_ref': (
+                                json.loads(next_last_completion_ref_json)
+                                if next_last_completion_ref_json else None
                             ),
                         })
                 conn.commit()
@@ -1478,6 +1551,9 @@ class InboxManager:
                             'priority': row['priority'] or 'normal',
                             'preview': preview,
                             'completion_ref': row['completion_ref'],
+                            'last_resolution_status': row['last_resolution_status'],
+                            'last_resolution_at': row['last_resolution_at'],
+                            'last_completion_ref': row['last_completion_ref'],
                         },
                     )
             return updated

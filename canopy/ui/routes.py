@@ -1880,8 +1880,8 @@ def create_ui_blueprint() -> Blueprint:
 
         if inbox_manager and user_id:
             try:
-                pending_count = inbox_manager.count_items(user_id=user_id, status='pending')
-                total_count = inbox_manager.count_items(user_id=user_id)
+                pending_count = inbox_manager.count_items(user_id=user_id)
+                total_count = inbox_manager.count_items(user_id=user_id, include_handled=True)
                 items = inbox_manager.list_items(
                     user_id=user_id,
                     status=None,
@@ -1912,6 +1912,9 @@ def create_ui_blueprint() -> Blueprint:
                             'completed_at': item.get('completed_at'),
                             'completion_ref': item.get('completion_ref'),
                             'has_completion_ref': bool(item.get('completion_ref')),
+                            'last_resolution_status': item.get('last_resolution_status'),
+                            'last_resolution_at': item.get('last_resolution_at'),
+                            'last_completion_ref': item.get('last_completion_ref'),
                             'preview': ((item.get('payload') or {}).get('preview') or '')[:220],
                         }
                         for item in (items or [])

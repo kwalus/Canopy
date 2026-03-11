@@ -105,10 +105,14 @@ class _FakeInboxManager:
     def __init__(self) -> None:
         self.rebuild_calls = []
 
-    def count_items(self, user_id: str, status=None):
+    def count_items(self, user_id: str, status=None, include_handled: bool = False):
+        if include_handled:
+            return 5
         if status == 'pending':
             return 3
-        return 5
+        if status == 'seen':
+            return 0
+        return 3
 
     def list_items(self, user_id: str, status=None, limit: int = 50, include_handled: bool = False, since=None):
         return [
@@ -126,6 +130,9 @@ class _FakeInboxManager:
                 'handled_at': None,
                 'completed_at': None,
                 'completion_ref': None,
+                'last_resolution_status': None,
+                'last_resolution_at': None,
+                'last_completion_ref': None,
                 'payload': {'preview': 'Please check this issue.'},
             },
             {
@@ -142,6 +149,9 @@ class _FakeInboxManager:
                 'handled_at': '2026-02-22T09:04:00+00:00',
                 'completed_at': '2026-02-22T09:04:00+00:00',
                 'completion_ref': None,
+                'last_resolution_status': 'completed',
+                'last_resolution_at': '2026-02-22T09:04:00+00:00',
+                'last_completion_ref': None,
                 'payload': {'preview': 'Responded privately without linking evidence.'},
             },
         ][: max(1, limit)]

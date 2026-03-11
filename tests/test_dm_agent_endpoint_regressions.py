@@ -530,6 +530,57 @@ class TestDmAgentEndpointRegressions(unittest.TestCase):
             },
         )
 
+    def test_default_inbox_endpoints_keep_seen_items_actionable(self) -> None:
+        send_resp = self.client.post(
+            '/api/v1/messages',
+            json={
+                'content': 'This item will be seen but remain actionable',
+                'recipient_id': 'agent-local',
+            },
+            headers=self._headers('key-author'),
+        )
+        self.assertEqual(send_resp.status_code, 201)
+        message_id = (send_resp.get_json() or {}).get('message', {}).get('id')
+        self.assertTrue(message_id)
+
+        inbox_row = self.conn.execute(
+            """
+            SELECT id
+            FROM agent_inbox
+            WHERE agent_user_id = ? AND source_id = ?
+            """,
+            ('agent-local', message_id),
+        ).fetchone()
+        self.assertIsNotNone(inbox_row)
+
+        patch_resp = self.client.patch(
+            '/api/v1/agents/me/inbox',
+            json={
+                'ids': [inbox_row['id']],
+                'status': 'seen',
+            },
+            headers=self._headers('key-agent-local'),
+        )
+        self.assertEqual(patch_resp.status_code, 200)
+        self.assertEqual((patch_resp.get_json() or {}).get('updated'), 1)
+
+        list_resp = self.client.get(
+            '/api/v1/agents/me/inbox?limit=10',
+            headers=self._headers('key-agent-local'),
+        )
+        self.assertEqual(list_resp.status_code, 200)
+        items = (list_resp.get_json() or {}).get('items') or []
+        seen_item = next((item for item in items if item.get('id') == inbox_row['id']), None)
+        self.assertIsNotNone(seen_item)
+        self.assertEqual(seen_item.get('status'), 'seen')
+
+        count_resp = self.client.get(
+            '/api/v1/agents/me/inbox/count',
+            headers=self._headers('key-agent-local'),
+        )
+        self.assertEqual(count_resp.status_code, 200)
+        self.assertGreaterEqual(int((count_resp.get_json() or {}).get('count') or 0), 1)
+
     def test_agent_dm_followups_are_not_dropped_by_persisted_cooldown_config(self) -> None:
         self.inbox_manager.set_config(
             'agent-local',
@@ -812,6 +863,47 @@ class TestInboxStateMachineEdgeCases(unittest.TestCase):
         self.assertIsNone(row['completion_ref_json'], "completion_ref_json must be cleared on pending reset")
         # seen_at is preserved (item was acknowledged before)
         self.assertEqual(row['seen_at'], seen_at_value, "seen_at should survive a pending reset")
+        self.assertEqual(row['last_resolution_status'], 'completed')
+        self.assertIsNotNone(row['last_resolution_at'])
+        self.assertIsNotNone(row['last_completion_ref_json'])
+
+    def test_reopen_preserves_last_resolution_evidence(self) -> None:
+        """Reopening an item must retain prior terminal-state evidence in the audit trail."""
+        inbox_id = self._create_item('msg-reopen-audit')
+
+        self.inbox.update_items(
+            user_id='agent-test',
+            ids=[inbox_id],
+            status='skipped',
+            completion_ref={'reason': 'duplicate', 'message_id': 'msg-dup-1'},
+        )
+        self.inbox.update_items(user_id='agent-test', ids=[inbox_id], status='seen')
+
+        row = self._row(inbox_id)
+        self.assertEqual(row['status'], 'seen')
+        self.assertEqual(row['last_resolution_status'], 'skipped')
+        self.assertIsNotNone(row['last_resolution_at'])
+        self.assertIsNone(row['completion_ref_json'])
+        self.assertIsNotNone(row['last_completion_ref_json'])
+        last_ref = json.loads(row['last_completion_ref_json'])
+        self.assertEqual(last_ref['reason'], 'duplicate')
+        self.assertEqual(last_ref['message_id'], 'msg-dup-1')
+
+    def test_default_actionable_list_and_count_include_seen(self) -> None:
+        """Default inbox list/count should include seen items because they remain actionable."""
+        pending_id = self._create_item('msg-actionable-pending')
+        seen_id = self._create_item('msg-actionable-seen')
+
+        self.inbox.update_items(user_id='agent-test', ids=[seen_id], status='seen')
+        self.inbox.update_items(user_id='agent-test', ids=[pending_id], status='completed')
+
+        count = self.inbox.count_items(user_id='agent-test')
+        self.assertEqual(count, 1)
+
+        items = self.inbox.list_items(user_id='agent-test', include_handled=False)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]['id'], seen_id)
+        self.assertEqual(items[0]['status'], 'seen')
 
     def test_repeated_completion_with_new_ref_updates_evidence(self) -> None:
         """Re-completing an already-completed item with a new ref must overwrite evidence."""

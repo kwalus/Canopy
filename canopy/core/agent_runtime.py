@@ -10,6 +10,8 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
+from .inbox import ACTIONABLE_STATUSES
+
 logger = logging.getLogger(__name__)
 
 _SQLITE_TS_FORMAT = "%Y-%m-%d %H:%M:%S.%f"
@@ -193,9 +195,9 @@ def build_agent_runtime_payload(db_manager: Any, user_id: str) -> Dict[str, Any]
                     """
                     SELECT MIN(created_at) AS oldest_created_at
                     FROM agent_inbox
-                    WHERE agent_user_id = ? AND status = 'pending'
+                    WHERE agent_user_id = ? AND status IN (?, ?)
                     """,
-                    (user_id,),
+                    (user_id, ACTIONABLE_STATUSES[0], ACTIONABLE_STATUSES[1]),
                 ).fetchone()
                 mention_row = conn.execute(
                     """
