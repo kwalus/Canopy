@@ -1302,7 +1302,11 @@ class InboxManager:
         if not user_id or not ids:
             return 0
         requested_status = str(status or '').strip().lower()
-        status = _normalize_storage_status(status)
+        # Reject unknown statuses before normalization so an unrecognised value
+        # cannot silently reset items to 'pending' (normalisation fallback).
+        if requested_status not in ALLOWED_STATUSES:
+            return 0
+        status = _normalize_storage_status(requested_status)
         if status not in ALLOWED_STATUSES:
             return 0
         ids_clean = [i for i in ids if i]
@@ -1344,8 +1348,13 @@ class InboxManager:
                                 else current_completion_ref
                             )
                         else:
-                            next_completed_at = current_completed_at
-                            next_completion_ref_json = current_completion_ref
+                            # Transitioning to 'seen', 'expired', or similar
+                            # intermediate state: clear any stale finalization
+                            # metadata left over from a prior completed/skipped
+                            # state so the item does not show misleading
+                            # completion timestamps or evidence links.
+                            next_completed_at = None
+                            next_completion_ref_json = None
                     cur = conn.execute(
                         """
                         UPDATE agent_inbox
