@@ -2,7 +2,9 @@
 # Stop Canopy Web UI
 # Compatible with macOS and Linux
 
-PID_FILE="/tmp/canopy_web.pid"
+CANOPY_DIR="$(cd "$(dirname "$0")" && pwd)"
+INSTANCE_NAME="$(basename "$CANOPY_DIR" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9._-' '_')"
+PID_FILE="/tmp/${INSTANCE_NAME}_canopy_web.pid"
 
 if [ -f "$PID_FILE" ]; then
     PID=$(cat "$PID_FILE")
