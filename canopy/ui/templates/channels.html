@@ -1757,7 +1757,7 @@
             </div>
             
             <!-- Channel List -->
-            <div class="channel-list p-2">
+            <div class="channel-list p-2" id="channel-list">
                 {% for channel in channels %}
                 {% set lifecycle_status = channel.lifecycle_status or 'active' %}
                 <div class="channel-item p-2 rounded mb-1 {% if loop.first %}active{% endif %} {% if lifecycle_status == 'archived' %}lifecycle-archived{% elif lifecycle_status == 'cooling' %}lifecycle-cooling{% elif lifecycle_status == 'preserved' %}lifecycle-preserved{% endif %}" 

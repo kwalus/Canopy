@@ -429,7 +429,8 @@
                     <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
                 </div>
             `;
-            document.querySelector('.flash-messages').innerHTML += keyAlert;
+            const flashContainer = document.querySelector('.flash-messages');
+            if (flashContainer) flashContainer.innerHTML += keyAlert;
         })
         .catch(error => {
             showAlert(error.error || 'Failed to generate API key', 'danger');

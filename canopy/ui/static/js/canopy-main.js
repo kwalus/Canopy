@@ -62,6 +62,7 @@
             `;
             
             const container = document.querySelector('.flash-messages');
+            if (!container) return;
             container.appendChild(alertDiv);
             
             // Auto-dismiss after 5 seconds

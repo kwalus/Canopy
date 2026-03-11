@@ -59,7 +59,27 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("const structuredValidation = updateFeedStructuredValidation();", feed_template)
         self.assertIn("error && error.structured_validation", feed_template)
         self.assertIn("error && error.structured_validation", channels_template)
+    def test_show_alert_null_checks_flash_messages_container(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        # showAlert must guard against a missing .flash-messages container
+        self.assertIn("if (!container) return;", main_js)
+        # The null-check must appear before the appendChild call
+        null_check_pos = main_js.index("if (!container) return;")
+        append_pos = main_js.index("container.appendChild(alertDiv);")
+        self.assertLess(null_check_pos, append_pos)
+
+    def test_channel_list_element_has_id_for_sidebar_badge_polling(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        # The channel list container must carry id="channel-list" so that
+        # setSidebarChannelUnreadCount, incrementSidebarChannelUnreadCount, and
+        # pollChannelSidebarEvents (all using getElementById) can find it.
+        self.assertIn('id="channel-list"', channels_template)
+
+    def test_dashboard_flash_messages_null_check(self) -> None:
+        dashboard_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'dashboard.html').read_text(encoding='utf-8')
+        # Must guard against missing .flash-messages before injecting new API key alert
+        self.assertIn("if (flashContainer) flashContainer.innerHTML += keyAlert;", dashboard_template)
+        self.assertNotIn("document.querySelector('.flash-messages').innerHTML += keyAlert;", dashboard_template)
 
 
-if __name__ == '__main__':
-    unittest.main()
+
