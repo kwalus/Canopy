@@ -1085,7 +1085,22 @@ class MessageManager:
                         for member_id in (metadata.get('group_members') or [])
                         if str(member_id).strip()
                     ]
-                    if row_group_members and user_id not in row_group_members:
+                    # Determine whether this row is a group-targeted message so we
+                    # can apply the correct membership guard.  We check the recipient
+                    # prefix and the group_id metadata field before the aliases set is
+                    # built, because the SQL WHERE clause uses an overly broad
+                    # `recipient_id LIKE 'group:%'` predicate that would otherwise
+                    # allow a non-member to read group messages that have no
+                    # group_members list (e.g. legacy or malformed rows).
+                    _rcp_early = str(row['recipient_id'] or '').strip()
+                    _gid_early = str(metadata.get('group_id') or '').strip()
+                    _is_group_msg = _rcp_early.startswith('group:') or bool(_gid_early)
+                    if _is_group_msg and (not row_group_members or user_id not in row_group_members):
+                        # Group message: only the original sender may see it when the
+                        # membership list is absent or does not include this user.
+                        if row['sender_id'] != user_id:
+                            continue
+                    elif row_group_members and user_id not in row_group_members:
                         continue
 
                     row_aliases: set[str] = set()

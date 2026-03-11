@@ -6902,7 +6902,7 @@ def create_api_blueprint() -> Blueprint:
             return jsonify({'error': 'Internal server error'}), 500
 
     @api.route('/channels/<channel_id>/messages/<message_id>', methods=['DELETE'])
-    @require_auth(Permission.READ_FEED)
+    @require_auth(Permission.WRITE_FEED)
     def delete_channel_message(channel_id, message_id):
         """Delete a channel message. Only the author can delete their own message."""
         db_manager, _, _, _, channel_manager, file_manager, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
