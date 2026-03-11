@@ -1838,7 +1838,7 @@ def create_api_blueprint() -> Blueprint:
     @api.route('/info', methods=['GET'])
     def system_info():
         """Get system information. Full stats/config only with valid API key."""
-        db_manager, api_key_manager, _, trust_manager, _, _, _, _, _, config, p2p_manager = _get_app_components_any(current_app)
+        db_manager, api_key_manager, trust_manager, _, _, _, _, _, _, config, p2p_manager = _get_app_components_any(current_app)
         try:
             from canopy import __version__ as canopy_version
         except Exception:
