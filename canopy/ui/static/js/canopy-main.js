@@ -4252,6 +4252,34 @@
                 return Number.isFinite(remembered) ? remembered : 0;
             }
 
+            function getYouTubePlayerStateSafe(el) {
+                try {
+                    const player = el && el.__canopyMiniYTPlayer;
+                    if (player && typeof player.getPlayerState === 'function') {
+                        const stateNow = Number(player.getPlayerState());
+                        if (Number.isFinite(stateNow)) return stateNow;
+                    }
+                } catch (_) {}
+                const remembered = Number((el && el.__canopyMiniYTState) || -1);
+                return Number.isFinite(remembered) ? remembered : -1;
+            }
+
+            function clearYouTubeDockResumeState(el) {
+                if (!el) return;
+                if (el.__canopyMiniYTDockRestoreTimer) {
+                    clearInterval(el.__canopyMiniYTDockRestoreTimer);
+                    delete el.__canopyMiniYTDockRestoreTimer;
+                }
+                delete el.__canopyMiniYTDockResumeAt;
+                delete el.__canopyMiniYTDockShouldResume;
+            }
+
+            function shouldPersistActiveYouTube(el) {
+                if (!el) return false;
+                if (state.dismissedEl && state.dismissedEl === el) return false;
+                return isYouTubePlayingState(getYouTubePlayerStateSafe(el));
+            }
+
             function setYouTubeDockResumeParams(el, resumeAt, shouldResume) {
                 if (!el) return;
                 try {
@@ -4311,15 +4339,11 @@
                         const timeOk = resumeAt <= 1 || Math.abs(currentNow - resumeAt) <= 1.5;
                         const stateOk = !shouldResume || stateNow === 1 || stateNow === 3;
                         if ((timeOk && stateOk) || attempts > 8) {
-                            clearInterval(el.__canopyMiniYTDockRestoreTimer);
-                            delete el.__canopyMiniYTDockRestoreTimer;
-                            delete el.__canopyMiniYTDockResumeAt;
-                            delete el.__canopyMiniYTDockShouldResume;
+                            clearYouTubeDockResumeState(el);
                         }
                     } catch (_) {
                         if (attempts > 8) {
-                            clearInterval(el.__canopyMiniYTDockRestoreTimer);
-                            delete el.__canopyMiniYTDockRestoreTimer;
+                            clearYouTubeDockResumeState(el);
                         }
                     }
                 }, 350);
@@ -4693,6 +4717,7 @@
                         const el = state.current.el;
                         const type = state.current.type;
                         if (type === 'youtube') {
+                            clearYouTubeDockResumeState(el);
                             try {
                                 const player = el.__canopyMiniYTPlayer;
                                 if (player && typeof player.pauseVideo === 'function') {
@@ -4771,6 +4796,17 @@
                 const el = state.current.el;
                 const type = state.current.type;
                 if (type !== 'youtube' || !miniVideoHost) return;
+                if (!shouldPersistActiveYouTube(el)) {
+                    clearYouTubeDockResumeState(el);
+                    state.returnUrl = null;
+                    state.dockedSubtitle = null;
+                    if (isDockedInMiniHost(el)) {
+                        miniVideoHost.style.display = 'none';
+                        miniVideoHost.innerHTML = '';
+                    }
+                    hideMini();
+                    return;
+                }
 
                 if (!state.dockedSubtitle) state.dockedSubtitle = sourceSubtitle(el);
                 const sourceEl = state.current.sourceEl;

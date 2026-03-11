@@ -27,6 +27,9 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("const shouldResume = el.__canopyMiniYTDockShouldResume === true;", main_js)
         self.assertIn("url.searchParams.set('start', String(Math.max(0, Math.floor(resumeAt))));", main_js)
         self.assertIn("el.__canopyMiniYTLastTime = cur;", main_js)
+        self.assertIn("function shouldPersistActiveYouTube(el) {", main_js)
+        self.assertIn("if (!shouldPersistActiveYouTube(el)) {", main_js)
+        self.assertIn("clearYouTubeDockResumeState(el);", main_js)
 
     def test_identity_modal_treats_local_peer_origin_as_local(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
