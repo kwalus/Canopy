@@ -55,6 +55,7 @@ from ..core.agent_presence import (
     get_agent_presence_records,
     build_agent_presence_payload,
 )
+from ..core.agent_runtime import record_agent_runtime_state
 from ..core.file_preview import build_file_preview
 from ..security.api_keys import Permission
 from ..security.csrf import validate_csrf_request
@@ -400,6 +401,33 @@ def create_api_blueprint() -> Blueprint:
             return record_agent_checkin(db_manager=db_manager, user_id=uid, source=source)
         except Exception:
             return None
+
+    def _touch_agent_runtime(
+        user_id: Optional[str],
+        *,
+        event_cursor_seen: Optional[int] = None,
+        event_fetch: bool = False,
+        inbox_fetch: bool = False,
+    ) -> None:
+        uid = (user_id or '').strip()
+        if not uid:
+            return
+        try:
+            db_manager = _get_app_components_any(current_app)[0]
+            user_row = db_manager.get_user(uid) if db_manager and hasattr(db_manager, 'get_user') else None
+            account_type = str((user_row or {}).get('account_type') or '').strip().lower()
+            if account_type != 'agent':
+                return
+            now_dt = datetime.now(timezone.utc)
+            record_agent_runtime_state(
+                db_manager=db_manager,
+                user_id=uid,
+                event_cursor_seen=event_cursor_seen,
+                event_fetch_at=now_dt if event_fetch else None,
+                inbox_fetch_at=now_dt if inbox_fetch else None,
+            )
+        except Exception:
+            return
 
     def _stable_handle_candidates(user_row: dict[str, Any]) -> list[str]:
         """Return mention handles ordered from most-stable to least-stable."""
@@ -5088,6 +5116,7 @@ def create_api_blueprint() -> Blueprint:
             if not inbox_manager:
                 return jsonify({'items': [], 'count': 0})
             _touch_agent_presence(g.api_key_info.user_id, 'inbox')
+            _touch_agent_runtime(g.api_key_info.user_id, inbox_fetch=True)
             status = request.args.get('status')
             limit = request.args.get('limit', 50)
             since = request.args.get('since')
@@ -5309,6 +5338,7 @@ def create_api_blueprint() -> Blueprint:
             profile_manager = current_app.config.get('PROFILE_MANAGER')
             user_id = g.api_key_info.user_id
             _touch_agent_presence(user_id, 'catchup')
+            _touch_agent_runtime(user_id, inbox_fetch=True)
 
             heartbeat_snapshot = build_agent_heartbeat_snapshot(
                 db_manager=db_manager,
@@ -5679,6 +5709,12 @@ def create_api_blueprint() -> Blueprint:
                 types=requested_types or None,
                 can_read_messages=can_read_messages,
             )
+            if key_info is not None:
+                _touch_agent_runtime(
+                    user_id,
+                    event_fetch=True,
+                    event_cursor_seen=int(result.get('next_after_seq') or 0),
+                )
             return jsonify({
                 'items': result.get('items', []),
                 'after_seq': after_seq_value,

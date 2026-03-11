@@ -123,6 +123,7 @@ class TestWorkspaceEvents(unittest.TestCase):
                 id TEXT PRIMARY KEY,
                 username TEXT,
                 display_name TEXT,
+                account_type TEXT,
                 agent_directives TEXT
             );
             CREATE TABLE messages (
@@ -154,14 +155,14 @@ class TestWorkspaceEvents(unittest.TestCase):
         )
         self.conn.executemany(
             """
-            INSERT INTO users (id, username, display_name, agent_directives)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO users (id, username, display_name, account_type, agent_directives)
+            VALUES (?, ?, ?, ?, ?)
             """,
             [
-                ('owner-user', 'maddog', 'Maddog', None),
-                ('agent-a', 'Agent_A', 'Agent A', None),
-                ('agent-b', 'Agent_B', 'Agent B', None),
-                ('observer', 'Observer', 'Observer', None),
+                ('owner-user', 'maddog', 'Maddog', 'human', None),
+                ('agent-a', 'Agent_A', 'Agent A', 'agent', None),
+                ('agent-b', 'Agent_B', 'Agent B', 'agent', None),
+                ('observer', 'Observer', 'Observer', 'human', None),
             ],
         )
         self.conn.commit()
@@ -216,6 +217,8 @@ class TestWorkspaceEvents(unittest.TestCase):
         app.secret_key = 'workspace-events'
         app.config['DB_MANAGER'] = self.db_manager
         app.config['WORKSPACE_EVENT_MANAGER'] = self.workspace_events
+        app.config['INBOX_MANAGER'] = MagicMock()
+        app.config['INBOX_MANAGER'].list_items.return_value = []
         api_bp = create_api_blueprint()
         app.register_blueprint(api_bp, url_prefix='/api/v1')
         self.client = app.test_client()
@@ -415,6 +418,56 @@ class TestWorkspaceEvents(unittest.TestCase):
         self.assertEqual(len(diag_body['items']), 2)
         self.assertIn('payload_keys', diag_body['items'][0])
         self.assertTrue(diag_body['items'][0]['payload_keys'])
+
+        runtime_row = self.conn.execute(
+            """
+            SELECT last_event_cursor_seen, last_event_fetch_at
+            FROM agent_runtime_state
+            WHERE user_id = ?
+            """,
+            ('agent-a',),
+        ).fetchone()
+        self.assertIsNotNone(runtime_row)
+        self.assertEqual(runtime_row['last_event_cursor_seen'], body['next_after_seq'])
+        self.assertIsNotNone(runtime_row['last_event_fetch_at'])
+
+    def test_agent_inbox_fetch_updates_runtime_state(self) -> None:
+        response = self.client.get(
+            '/api/v1/agents/me/inbox',
+            headers={'X-API-Key': 'agent-key'},
+        )
+        self.assertEqual(response.status_code, 200)
+        runtime_row = self.conn.execute(
+            """
+            SELECT last_inbox_fetch_at
+            FROM agent_runtime_state
+            WHERE user_id = ?
+            """,
+            ('agent-a',),
+        ).fetchone()
+        self.assertIsNotNone(runtime_row)
+        self.assertIsNotNone(runtime_row['last_inbox_fetch_at'])
+
+    def test_human_api_key_event_fetch_does_not_create_agent_runtime_state(self) -> None:
+        response = self.client.get(
+            '/api/v1/events',
+            headers={'X-API-Key': 'owner-key'},
+        )
+        self.assertEqual(response.status_code, 200)
+        table_row = self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_runtime_state'"
+        ).fetchone()
+        if table_row is None:
+            return
+        runtime_row = self.conn.execute(
+            """
+            SELECT last_event_cursor_seen, last_event_fetch_at
+            FROM agent_runtime_state
+            WHERE user_id = ?
+            """,
+            ('owner-user',),
+        ).fetchone()
+        self.assertIsNone(runtime_row)
 
     def test_inbound_dm_finalize_uses_canonical_message_id_for_created_event(self) -> None:
         msg = self.message_manager.create_message(

@@ -7575,6 +7575,83 @@ function refreshSidebarChannelState() {
         });
 }
 
+function setSidebarChannelUnreadCount(channelId, unreadCount) {
+    const channelList = document.getElementById('channel-list');
+    if (!channelList || !channelId) {
+        return false;
+    }
+    const item = channelList.querySelector(`.channel-item[data-channel-id="${CSS.escape(String(channelId))}"]`);
+    if (!item) {
+        return false;
+    }
+    const normalizedCount = Math.max(0, parseInt(unreadCount || 0, 10) || 0);
+    item.setAttribute('data-unread-count', String(normalizedCount));
+    const badgeHost = item.querySelector('.channel-row-actions') || item;
+    let badge = item.querySelector('.channel-unread-badge');
+    if (normalizedCount > 0 && String(currentChannelId) !== String(channelId)) {
+        if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'badge bg-danger channel-unread-badge';
+            badgeHost.appendChild(badge);
+        }
+        badge.textContent = String(normalizedCount);
+    } else if (badge) {
+        badge.remove();
+    }
+    return true;
+}
+
+function incrementSidebarChannelUnreadCount(channelId, delta) {
+    const channelList = document.getElementById('channel-list');
+    if (!channelList || !channelId) {
+        return false;
+    }
+    const item = channelList.querySelector(`.channel-item[data-channel-id="${CSS.escape(String(channelId))}"]`);
+    if (!item) {
+        return false;
+    }
+    if (String(currentChannelId) === String(channelId)) {
+        return setSidebarChannelUnreadCount(channelId, 0);
+    }
+    const currentUnread = Math.max(0, parseInt(item.getAttribute('data-unread-count') || '0', 10) || 0);
+    return setSidebarChannelUnreadCount(channelId, currentUnread + Math.max(0, parseInt(delta || 0, 10) || 0));
+}
+
+function applyChannelSidebarEventItems(items) {
+    if (!Array.isArray(items) || !items.length) {
+        return;
+    }
+    let needsSnapshotRefresh = false;
+    items.forEach((item) => {
+        const eventType = String(item && item.event_type || '').trim().toLowerCase();
+        const channelId = String(item && item.channel_id || '').trim();
+        if (!eventType || !channelId) {
+            needsSnapshotRefresh = true;
+            return;
+        }
+        if (eventType === 'channel.message.created') {
+            if (!incrementSidebarChannelUnreadCount(channelId, 1)) {
+                needsSnapshotRefresh = true;
+            }
+            return;
+        }
+        if (eventType === 'channel.message.read') {
+            if (!setSidebarChannelUnreadCount(channelId, 0)) {
+                needsSnapshotRefresh = true;
+            }
+            return;
+        }
+        if (eventType === 'channel.state.updated') {
+            needsSnapshotRefresh = true;
+            return;
+        }
+        needsSnapshotRefresh = true;
+    });
+    if (needsSnapshotRefresh) {
+        refreshSidebarChannelState();
+    }
+}
+
 function pollChannelSidebarEvents() {
     if (channelSidebarEventPollInFlight) {
         return;
@@ -7610,7 +7687,7 @@ function pollChannelSidebarEvents() {
             if (!items.length) {
                 return;
             }
-            refreshSidebarChannelState();
+            applyChannelSidebarEventItems(items);
         })
         .catch(() => {})
         .finally(() => {

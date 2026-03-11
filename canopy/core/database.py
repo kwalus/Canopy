@@ -324,6 +324,18 @@ class DatabaseManager:
                     CREATE INDEX IF NOT EXISTS idx_agent_presence_checkin
                     ON agent_presence(last_checkin_at);
 
+                CREATE TABLE IF NOT EXISTS agent_runtime_state (
+                    user_id TEXT PRIMARY KEY,
+                    last_event_fetch_at TIMESTAMP,
+                    last_event_cursor_seen INTEGER,
+                    last_inbox_fetch_at TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_agent_runtime_event_fetch
+                    ON agent_runtime_state(last_event_fetch_at);
+                CREATE INDEX IF NOT EXISTS idx_agent_runtime_inbox_fetch
+                    ON agent_runtime_state(last_inbox_fetch_at);
+
                 -- Local workspace event journal (additive read/delivery model)
                 CREATE TABLE IF NOT EXISTS workspace_events (
                     seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -702,6 +714,25 @@ class DatabaseManager:
                     );
                     CREATE INDEX IF NOT EXISTS idx_agent_presence_checkin
                         ON agent_presence(last_checkin_at);
+                """)
+
+            ars_exists = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_runtime_state'"
+            ).fetchone()
+            if not ars_exists:
+                logger.info("Migration: Creating agent_runtime_state table")
+                conn.executescript("""
+                    CREATE TABLE IF NOT EXISTS agent_runtime_state (
+                        user_id TEXT PRIMARY KEY,
+                        last_event_fetch_at TIMESTAMP,
+                        last_event_cursor_seen INTEGER,
+                        last_inbox_fetch_at TIMESTAMP,
+                        updated_at TIMESTAMP NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_agent_runtime_event_fetch
+                        ON agent_runtime_state(last_event_fetch_at);
+                    CREATE INDEX IF NOT EXISTS idx_agent_runtime_inbox_fetch
+                        ON agent_runtime_state(last_inbox_fetch_at);
                 """)
 
             # Migration: content_contexts table for best-effort extracted text context
@@ -1331,6 +1362,7 @@ class DatabaseManager:
                 _exec_optional("DELETE FROM channel_member_sync_deliveries WHERE target_user_id = ?", (user_id,))
                 _exec_optional("DELETE FROM likes WHERE user_id = ?", (user_id,))
                 _exec_optional("DELETE FROM agent_presence WHERE user_id = ?", (user_id,))
+                _exec_optional("DELETE FROM agent_runtime_state WHERE user_id = ?", (user_id,))
 
                 # Channel messages (table in channels.py, same DB): likes then parent refs then messages
                 try:

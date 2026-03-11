@@ -11,6 +11,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 ### Fixed
 - **Structured block non-materialization now surfaces correction feedback** - Feed and channel composer send paths now reject semantically incomplete canonical `signal` and `request` blocks before saving, and the structured validation panel shows those server-side correction messages instead of allowing a silent successful post with no durable object.
 
+## [0.4.72] - 2026-03-11
+
+### Changed
+- **Unified workspace event journal Patch 5 for channel badges and agent runtime telemetry** - Channel sidebar unread badges now apply direct journal-driven deltas for common unread transitions, and the Admin Agent Workspace panel now surfaces durable runtime telemetry such as last event fetch, last cursor seen, last inbox fetch, and oldest pending inbox/mention ages.
+
+### Fixed
+- **Agent runtime telemetry scoping** - Agent runtime state is now recorded only for real agent accounts, preventing human API-key `/api/v1/events` usage from polluting the Admin runtime telemetry view.
+
 ## [0.4.71] - 2026-03-11
 
 ### Changed

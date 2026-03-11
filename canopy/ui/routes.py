@@ -59,6 +59,7 @@ from ..core.agent_presence import (
     get_agent_presence_records,
     build_agent_presence_payload,
 )
+from ..core.agent_runtime import build_agent_runtime_payload
 from ..core.events import PATCH1_EVENT_TYPES
 from ..core.file_preview import build_file_preview
 from ..core.messaging import (
@@ -1849,6 +1850,17 @@ def create_ui_blueprint() -> Blueprint:
                 'unacked_count': 0,
                 'items': [],
             },
+            'runtime': {
+                'last_event_fetch_at': None,
+                'last_event_cursor_seen': None,
+                'last_inbox_fetch_at': None,
+                'oldest_pending_inbox_at': None,
+                'oldest_pending_inbox_age_seconds': None,
+                'oldest_pending_inbox_age_text': None,
+                'oldest_unacked_mention_at': None,
+                'oldest_unacked_mention_age_seconds': None,
+                'oldest_unacked_mention_age_text': None,
+            },
             'governance': {
                 'available': bool(channel_manager),
                 'policy': {
@@ -1938,6 +1950,11 @@ def create_ui_blueprint() -> Blueprint:
                 })
             except Exception as mention_err:
                 logger.warning(f"Admin workspace mentions snapshot failed for {user_id}: {mention_err}")
+
+        try:
+            workspace['runtime'] = build_agent_runtime_payload(db_manager, user_id)
+        except Exception as runtime_err:
+            logger.warning(f"Admin workspace runtime snapshot failed for {user_id}: {runtime_err}")
 
         if channel_manager and user_id:
             try:

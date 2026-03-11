@@ -384,6 +384,19 @@ class TestAdminUserWorkspace(unittest.TestCase):
                 acknowledged_at TEXT,
                 status TEXT
             );
+            CREATE TABLE agent_inbox (
+                id TEXT PRIMARY KEY,
+                agent_user_id TEXT NOT NULL,
+                status TEXT,
+                created_at TEXT
+            );
+            CREATE TABLE agent_runtime_state (
+                user_id TEXT PRIMARY KEY,
+                last_event_fetch_at TEXT,
+                last_event_cursor_seen INTEGER,
+                last_inbox_fetch_at TEXT,
+                updated_at TEXT
+            );
             """
         )
         self.conn.executemany(
@@ -430,6 +443,31 @@ class TestAdminUserWorkspace(unittest.TestCase):
                     '2026-02-22T09:00:00+00:00', '2026-02-22T09:05:00+00:00', 'acknowledged'
                 ),
             ],
+        )
+        self.conn.executemany(
+            """
+            INSERT INTO agent_inbox (
+                id, agent_user_id, status, created_at
+            ) VALUES (?, ?, ?, ?)
+            """,
+            [
+                ('INB-L-1', 'agent-local', 'pending', '2026-02-22T08:30:00+00:00'),
+                ('INB-L-2', 'agent-local', 'handled', '2026-02-22T09:30:00+00:00'),
+            ],
+        )
+        self.conn.execute(
+            """
+            INSERT INTO agent_runtime_state (
+                user_id, last_event_fetch_at, last_event_cursor_seen, last_inbox_fetch_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                'agent-local',
+                '2026-02-22T10:15:00+00:00',
+                57,
+                '2026-02-22T10:10:00+00:00',
+                '2026-02-22T10:15:00+00:00',
+            ),
         )
         self.conn.commit()
 
@@ -502,6 +540,14 @@ class TestAdminUserWorkspace(unittest.TestCase):
         self.assertEqual((workspace.get('user') or {}).get('id'), 'agent-local')
         self.assertEqual((workspace.get('inbox') or {}).get('pending_count'), 3)
         self.assertEqual((workspace.get('mentions') or {}).get('unacked_count'), 1)
+        runtime = workspace.get('runtime') or {}
+        self.assertEqual(runtime.get('last_event_cursor_seen'), 57)
+        self.assertEqual(runtime.get('last_event_fetch_at'), '2026-02-22T10:15:00+00:00')
+        self.assertEqual(runtime.get('last_inbox_fetch_at'), '2026-02-22T10:10:00+00:00')
+        self.assertIsNotNone(runtime.get('oldest_pending_inbox_age_seconds'))
+        self.assertIsNotNone(runtime.get('oldest_unacked_mention_age_seconds'))
+        self.assertRegex(runtime.get('oldest_pending_inbox_age_text') or '', r'^\d+[smhd]$')
+        self.assertRegex(runtime.get('oldest_unacked_mention_age_text') or '', r'^\d+[smhd]$')
         governance = workspace.get('governance') or {}
         self.assertTrue(governance.get('available'))
         self.assertTrue((governance.get('policy') or {}).get('enabled'))
