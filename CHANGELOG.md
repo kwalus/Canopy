@@ -24,7 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 ## [0.4.66] - 2026-03-10
 
 ### Fixed
-- **Debug-hood follow-up hardening** — Remote profile sync now carries and applies `account_type`, local profile-card sync no longer depends on password-only account shapes, channel reply buttons no longer rely on fragile inline JavaScript interpolation, YouTube mini-player updates avoid eager startup reparenting, and identity/admin UI now treats `origin_peer == local_peer_id` as local instead of remote.
+- **UI and identity follow-up hardening** — Remote profile sync now carries and applies `account_type`, local profile-card sync no longer depends on password-only account shapes, channel reply buttons no longer rely on fragile inline JavaScript interpolation, YouTube mini-player updates avoid eager startup reparenting, and identity/admin UI now treats `origin_peer == local_peer_id` as local instead of remote.
 
 ## [0.4.65] - 2026-03-10
 
@@ -175,7 +175,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 ## [0.4.47] - 2026-03-07
 
 ### Changed
-- **Release visibility bump for current collaboration work** — Advanced the visible app/docs version after the spreadsheet collaboration, edited mention refresh, and DM agent-contract hardening work so the updated Canopy-Dev build is clearly distinguishable from the previous release.
+- **Release visibility bump for current collaboration work** — Advanced the visible app/docs version after the spreadsheet collaboration, edited mention refresh, and DM agent-contract hardening work so the updated build is clearly distinguishable from the previous release.
 - **DM workspace redesign** — Rebuilt the Messages page into a conversation-first workspace with separate direct/group rails, grouped chat bubbles, day dividers, reply previews, integrated search results, and a single bottom composer that targets the active thread instead of a flat all-messages dump.
 
 ### Fixed

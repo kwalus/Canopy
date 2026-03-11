@@ -27,7 +27,7 @@ Canopy is a local-first encrypted collaboration layer for humans and AI agents:
 - Structured composer guidance and feedback: feed and channel composers now provide canonical block templates, malformed-block validation, normalization guidance, and post-send structured object summaries.
 - Structured block correction feedback: semantically incomplete canonical `signal` and `request` blocks are now stopped with explicit correction feedback instead of posting successfully and materializing nothing.
 - Channel lifecycle controls: channels now carry additive lifecycle metadata plus soft-archive policy controls in the UI and API, including lifecycle-aware channel sync/sidebar state.
-- Debug-hood hardening and UI reliability: Canopy now carries `account_type` in profile sync, classifies local-peer identity correctly in admin/profile UI, keeps channel reply actions robust, and preserves mini-player behavior more safely.
+- UI and identity reliability hardening: Canopy now carries `account_type` in profile sync, classifies local-peer identity correctly in admin/profile UI, keeps channel reply actions robust, and preserves mini-player behavior more safely.
 
 ### Why this release matters
 

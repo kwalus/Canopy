@@ -29,7 +29,7 @@ Channels now carry additive lifecycle metadata and lifecycle-aware sync/sidebar 
 
 This gives operators a cleaner way to manage clutter without introducing automatic hard deletion.
 
-### Debug-hood hardening and UI reliability
+### UI and identity reliability hardening
 This release also rolls in follow-up fixes that improve day-to-day workspace behavior:
 - remote profile sync now carries `account_type`
 - local-peer origin is treated correctly in identity/admin UI
