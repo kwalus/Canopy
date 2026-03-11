@@ -16,8 +16,9 @@ import json
 import logging
 import os
 import secrets
+import time
 from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .database import DatabaseManager
 from .events import EVENT_INBOX_ITEM_CREATED, EVENT_INBOX_ITEM_UPDATED
@@ -167,10 +168,17 @@ def _normalize_item_payload(row: Any, payload: Optional[Dict[str, Any]]) -> Dict
 class InboxManager:
     """Stores per-agent trigger inbox items."""
 
+    # Short-lived in-process cache for account_type lookups.  The type almost
+    # never changes during a session, so caching for 60 s is safe and avoids a
+    # round-trip per rate-limit / cooldown check.
+    _ACCOUNT_TYPE_CACHE_TTL = 60  # seconds
+
     def __init__(self, db_manager: DatabaseManager, trust_manager: Optional[TrustManager] = None):
         self.db = db_manager
         self.trust_manager = trust_manager
         self.workspace_events: Any = None
+        # (account_type_str, fetched_at_monotonic)
+        self._account_type_cache: Dict[str, Tuple[str, float]] = {}
         self._ensure_tables()
 
     def _ensure_tables(self) -> None:
@@ -209,6 +217,10 @@ class InboxManager:
                         ON agent_inbox(sender_user_id);
                     CREATE INDEX IF NOT EXISTS idx_agent_inbox_expires
                         ON agent_inbox(expires_at);
+                    CREATE INDEX IF NOT EXISTS idx_agent_inbox_channel_created
+                        ON agent_inbox(agent_user_id, channel_id, created_at);
+                    CREATE INDEX IF NOT EXISTS idx_agent_inbox_sender_created
+                        ON agent_inbox(agent_user_id, sender_user_id, created_at);
 
                     CREATE TABLE IF NOT EXISTS agent_inbox_config (
                         user_id TEXT PRIMARY KEY,
@@ -261,19 +273,32 @@ class InboxManager:
             logger.error(f"Failed to ensure agent_inbox tables: {e}")
 
     def _get_account_type(self, user_id: str) -> str:
-        """Return account_type for a user ('agent' or 'human')."""
+        """Return account_type for a user ('agent' or 'human').
+
+        Results are cached in-process for ``_ACCOUNT_TYPE_CACHE_TTL`` seconds to
+        avoid a DB round-trip on every rate-limit / cooldown check.
+        """
         if not user_id:
             return 'human'
+        now = time.monotonic()
+        cached = self._account_type_cache.get(user_id)
+        if cached is not None:
+            account_type, fetched_at = cached
+            if now - fetched_at < self._ACCOUNT_TYPE_CACHE_TTL:
+                return account_type
         try:
             with self.db.get_connection() as conn:
                 row = conn.execute(
                     "SELECT account_type FROM users WHERE id = ?", (user_id,)
                 ).fetchone()
             if row and row[0]:
-                return str(row[0]).lower()
+                result = str(row[0]).lower()
+            else:
+                result = 'human'
         except Exception:
-            pass
-        return 'human'
+            result = 'human'
+        self._account_type_cache[user_id] = (result, now)
+        return result
 
     def get_config(self, user_id: str) -> Dict[str, Any]:
         # Choose base defaults based on account type so agents get relaxed
@@ -449,40 +474,76 @@ class InboxManager:
         if not channel_id and not sender_user_id:
             return True
 
+        check_channel_burst = bool(channel_id and burst_limit > 0 and burst_window > 0)
+        check_channel_hourly = bool(channel_id and hourly_limit > 0 and hourly_window > 0)
+        check_sender_hourly = bool(sender_user_id and sender_hourly_limit > 0 and sender_hourly_window > 0)
+
+        if not check_channel_burst and not check_channel_hourly and not check_sender_hourly:
+            return True
+
         now = _now_utc()
         try:
             with self.db.get_connection() as conn:
-                if channel_id and burst_limit > 0 and burst_window > 0:
-                    since = (now - timedelta(seconds=burst_window)).isoformat()
-                    row = conn.execute(
-                        """
-                        SELECT COUNT(*) AS n
-                        FROM agent_inbox
-                        WHERE agent_user_id = ?
-                          AND channel_id = ?
-                          AND created_at >= ?
-                        """,
-                        (agent_user_id, channel_id, since),
-                    ).fetchone()
-                    if row and row[0] is not None and int(row[0]) >= burst_limit:
-                        return False
+                # Consolidate the two channel COUNT queries into one when both
+                # burst and hourly limits are active: the longer window always
+                # covers the shorter one, so a single scan suffices.
+                if check_channel_burst or check_channel_hourly:
+                    # Use the longer of the two windows so one query covers both.
+                    use_burst = check_channel_burst
+                    use_hourly = check_channel_hourly
+                    if use_burst and use_hourly:
+                        # Longer window is the hourly one; the burst window is a
+                        # subset of it, so count rows in the hourly window and
+                        # re-count in the burst sub-window via a CASE expression.
+                        since_hourly = (now - timedelta(seconds=hourly_window)).isoformat()
+                        since_burst = (now - timedelta(seconds=burst_window)).isoformat()
+                        row = conn.execute(
+                            """
+                            SELECT
+                                COUNT(*) AS hourly_n,
+                                SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) AS burst_n
+                            FROM agent_inbox
+                            WHERE agent_user_id = ?
+                              AND channel_id = ?
+                              AND created_at >= ?
+                            """,
+                            (since_burst, agent_user_id, channel_id, since_hourly),
+                        ).fetchone()
+                        if row:
+                            if row[0] is not None and int(row[0]) >= hourly_limit:
+                                return False
+                            if row[1] is not None and int(row[1]) >= burst_limit:
+                                return False
+                    elif use_burst:
+                        since = (now - timedelta(seconds=burst_window)).isoformat()
+                        row = conn.execute(
+                            """
+                            SELECT COUNT(*) AS n
+                            FROM agent_inbox
+                            WHERE agent_user_id = ?
+                              AND channel_id = ?
+                              AND created_at >= ?
+                            """,
+                            (agent_user_id, channel_id, since),
+                        ).fetchone()
+                        if row and row[0] is not None and int(row[0]) >= burst_limit:
+                            return False
+                    else:  # use_hourly only
+                        since = (now - timedelta(seconds=hourly_window)).isoformat()
+                        row = conn.execute(
+                            """
+                            SELECT COUNT(*) AS n
+                            FROM agent_inbox
+                            WHERE agent_user_id = ?
+                              AND channel_id = ?
+                              AND created_at >= ?
+                            """,
+                            (agent_user_id, channel_id, since),
+                        ).fetchone()
+                        if row and row[0] is not None and int(row[0]) >= hourly_limit:
+                            return False
 
-                if channel_id and hourly_limit > 0 and hourly_window > 0:
-                    since = (now - timedelta(seconds=hourly_window)).isoformat()
-                    row = conn.execute(
-                        """
-                        SELECT COUNT(*) AS n
-                        FROM agent_inbox
-                        WHERE agent_user_id = ?
-                          AND channel_id = ?
-                          AND created_at >= ?
-                        """,
-                        (agent_user_id, channel_id, since),
-                    ).fetchone()
-                    if row and row[0] is not None and int(row[0]) >= hourly_limit:
-                        return False
-
-                if sender_user_id and sender_hourly_limit > 0 and sender_hourly_window > 0:
+                if check_sender_hourly:
                     since = (now - timedelta(seconds=sender_hourly_window)).isoformat()
                     row = conn.execute(
                         """
