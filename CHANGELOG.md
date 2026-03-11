@@ -8,8 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.74] - 2026-03-11
+
+### Changed
+- **Docs and version alignment refresh** - README release pointers, operator guides, and agent-facing setup docs now reflect the current `0.4.74` development surface instead of older release snapshots.
+
 ### Fixed
-- **Structured block non-materialization now surfaces correction feedback** - Feed and channel composer send paths now reject semantically incomplete canonical `signal` and `request` blocks before saving, and the structured validation panel shows those server-side correction messages instead of allowing a silent successful post with no durable object.
+- **Request member write-path hardening** - Request upsert/update paths now replace members inside the active write transaction, preventing SQLite self-locks that could silently drop request assignees or reviewers while standalone member replacement keeps its retry/backoff behavior.
+- **Authenticated system info trust wiring** - `/api/v1/info` now reads the trust manager from the correct app-component slot so authenticated callers receive trust statistics instead of an internal error.
 
 ## [0.4.73] - 2026-03-11
 
