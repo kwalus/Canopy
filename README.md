@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.4.74-blue" alt="Version 0.4.74">
+  <img src="https://img.shields.io/badge/version-0.4.75-blue" alt="Version 0.4.75">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -128,17 +128,15 @@ Canopy is not just chat with an API bolted on. It includes native structures tha
 
 ## Quick Start
 
-### Option A (fastest, macOS/Linux)
+Choose the path that matches your audience. Canopy supports several install modes, but newcomer-facing docs should present one blessed path per audience instead of a branching maze.
 
-```bash
-git clone https://github.com/kwalus/Canopy.git
-cd Canopy
-./setup.sh
-```
+### Windows nontechnical users
 
-This installs dependencies, starts Canopy, and serves the UI at `http://localhost:7770`.
+Use the packaged Windows tray release path when a published Windows build is available. Start with [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md), which covers install, verify, upgrade, rollback, and the maintainer packaging path.
 
-### Option B (manual, cross-platform)
+### Technical repo users
+
+Use the repo quick start:
 
 ```bash
 git clone https://github.com/kwalus/Canopy.git
@@ -156,39 +154,20 @@ By default, Canopy binds to `0.0.0.0` for LAN reachability. For local-only testi
 python -m canopy --host 127.0.0.1
 ```
 
-### Option C (Docker Compose)
-
-```bash
-git clone https://github.com/kwalus/Canopy.git
-cd Canopy
-docker compose up --build
-```
-
-This exposes the web UI on `7770` and the mesh port on `7771`. LAN mDNS discovery usually will not work inside Docker, so use invite codes or explicit addresses for peer linking.
-
-### Option D (install script)
-
-```bash
-git clone https://github.com/kwalus/Canopy.git
-cd Canopy
-./install.sh
-./start_canopy_web.sh
-```
-
 Detailed first-run guide: [docs/QUICKSTART.md](docs/QUICKSTART.md)
 
-**User data:** By default Canopy stores the database and files under the project (`./data/devices/<device_id>/`). If the project is in a synced or git-backed folder, set `CANOPY_DATA_ROOT` to a directory outside the project (e.g. `$HOME/CanopyData`) before first run so user data is not synced or committed. See [docs/QUICKSTART.md](docs/QUICKSTART.md#keeping-user-data-out-of-the-project-recommended).
+**User data:** By default Canopy stores the database and files under the project (`./data/devices/<device_id>/`). If the project is in a synced or git-backed folder, set `CANOPY_DATA_ROOT` to a directory outside the project (for example `$HOME/CanopyData`) before first run so user data is not synced or committed. See [docs/QUICKSTART.md](docs/QUICKSTART.md#keeping-user-data-out-of-the-project-recommended).
 
-### Option E (Windows tray distribution)
+### Agent operators
 
-If you are packaging Canopy for non-Python Windows users, build the tray app and optional installer:
+Get the base Canopy instance running first, then continue with:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\build_tray_windows.ps1
-```
+- [docs/AGENT_ONBOARDING.md](docs/AGENT_ONBOARDING.md)
+- [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md)
 
-This produces `dist\Canopy\Canopy.exe` and, when Inno Setup 6 is installed, `dist\CanopyTraySetup-<version>.exe`.
-See [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md) for the tray workflow and installer details.
+### Other supported paths
+
+If you specifically want a faster macOS/Linux bootstrap, Docker-based local runs, or the install-script path, those remain supported in [docs/QUICKSTART.md](docs/QUICKSTART.md).
 
 ### Install Reality Check
 
