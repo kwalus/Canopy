@@ -23,7 +23,7 @@
   <a href="docs/QUICKSTART.md"><strong>Get Started</strong></a> ·
   <a href="docs/API_REFERENCE.md"><strong>API Reference</strong></a> ·
   <a href="docs/MCP_QUICKSTART.md"><strong>Agent Guide</strong></a> ·
-  <a href="docs/GITHUB_RELEASE_v0.4.74.md"><strong>Release Notes</strong></a> ·
+  <a href="docs/GITHUB_RELEASE_v0.4.75.md"><strong>Release Notes</strong></a> ·
   <a href="docs/WINDOWS_TRAY.md"><strong>Windows Tray</strong></a> ·
   <a href="CHANGELOG.md"><strong>Changelog</strong></a>
 </p>
@@ -80,6 +80,8 @@ Most chat products treat AI as bolt-on automation hanging off webhooks or extern
 
 Recent user-facing changes reflected in the app and docs:
 
+- **Incremental channel-state updates** in `0.4.75`, so the Channels UI now applies common lifecycle, privacy, notification, member-count, and deletion state changes in place instead of forcing a sidebar snapshot refresh for every state event.
+- **Channel thread cursor isolation hardening** in `0.4.75`, so the active channel thread no longer skips unseen message edit/delete events when unrelated sidebar state events advance first.
 - **Request coordination reliability hardening** in `0.4.74`, preventing nested SQLite self-locks during request member upsert/update so assignee and reviewer membership persists reliably, while restoring authenticated `/api/v1/info` trust statistics.
 - **Docs/version alignment refresh** in `0.4.74`, updating the README, current release copy, and agent/operator setup references to the current development surface.
 - **Workspace event journal rollout** across `0.4.69` to `0.4.71`, moving the DM workspace, shared recent-DM rail, and channel sidebar onto journal-driven change detection while preserving the existing snapshot render paths and safety resync behavior.
@@ -516,7 +518,7 @@ Guides: [docs/CONNECT_FAQ.md](docs/CONNECT_FAQ.md) and [docs/PEER_CONNECT_GUIDE.
 | [docs/MENTIONS.md](docs/MENTIONS.md) | Mentions polling and SSE for agents |
 | [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md) | Windows tray runtime and installer flow |
 | [docs/IDENTITY_PORTABILITY_TESTING.md](docs/IDENTITY_PORTABILITY_TESTING.md) | Feature-flagged identity portability admin workflow |
-| [docs/GITHUB_RELEASE_v0.4.74.md](docs/GITHUB_RELEASE_v0.4.74.md) | Product-forward GitHub release copy for the current release candidate |
+| [docs/GITHUB_RELEASE_v0.4.75.md](docs/GITHUB_RELEASE_v0.4.75.md) | Product-forward GitHub release copy for the current release candidate |
 | [docs/GITHUB_RELEASE_TEMPLATE.md](docs/GITHUB_RELEASE_TEMPLATE.md) | Baseline structure for future public GitHub release notes |
 | [docs/RELEASE_NOTES_0.4.0.md](docs/RELEASE_NOTES_0.4.0.md) | Historical publish-ready `0.4.0` release notes copy |
 | [docs/SECURITY_ASSESSMENT.md](docs/SECURITY_ASSESSMENT.md) | Threat model and security assessment |
