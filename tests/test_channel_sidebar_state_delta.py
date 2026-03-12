@@ -173,6 +173,20 @@ class TestChannelSidebarStateDelta(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.get_data(as_text=True)
         self.assertIn('let channelSidebarEventCursor = Number(42) || 0;', body)
+        self.assertIn('let channelThreadEventCursor = Number(42) || 0;', body)
+        self.assertIn("const CHANNEL_THREAD_EVENT_TYPES = [", body)
+        self.assertIn("function pollChannelThreadEvents() {", body)
+        self.assertIn("function refreshChannelMessagesSnapshot() {", body)
+        self.assertIn("function setSidebarChannelMemberCount(channelId, memberCount) {", body)
+        self.assertIn("function applySidebarChannelStateUpdate(channelId, payload) {", body)
+        self.assertIn("reason === 'notifications_updated'", body)
+        self.assertIn("reason === 'lifecycle_updated'", body)
+        self.assertIn("reason === 'privacy_updated'", body)
+        self.assertIn("reason === 'channel_deleted'", body)
+        self.assertIn("startChannelThreadEventPolling();", body)
+        self.assertNotIn("Number(channelSidebarEventCursor || 0),\n    );", body)
+        self.assertNotIn("Number(channelSidebarEventCursor || 0),\n            );", body)
+        self.assertNotIn("channelThreadEventCursor = Number(data.workspace_event_cursor || 0);", body)
 
 
 if __name__ == '__main__':

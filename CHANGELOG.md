@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.75] - 2026-03-11
+
+### Changed
+- **Unified workspace event journal Patch 7 for incremental channel state updates** - The Channels UI now applies common `channel.state.updated` changes in place for lifecycle, privacy, notifications, member-count, and deletion paths instead of forcing a sidebar snapshot refresh for every state change.
+
+### Fixed
+- **Channel thread event cursor isolation** - The active channel-thread consumer now keeps its own workspace-event cursor instead of borrowing the sidebar cursor, preventing unseen message edit/delete events from being skipped when unrelated sidebar state events advance first.
+- **Channel message snapshot cursor hardening** - `/ajax/channel_messages/<channel_id>` now captures its workspace-event cursor before building the message snapshot response so the thread consumer does not advance past unseen changes during concurrent activity.
+
 ## [0.4.74] - 2026-03-11
 
 ### Changed

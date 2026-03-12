@@ -34,6 +34,8 @@ from canopy.core.app import _apply_inbound_dm_delete, _finalize_inbound_dm_messa
 from canopy.core.events import (
     EVENT_ATTACHMENT_AVAILABLE,
     EVENT_CHANNEL_MESSAGE_CREATED,
+    EVENT_CHANNEL_MESSAGE_DELETED,
+    EVENT_CHANNEL_MESSAGE_EDITED,
     EVENT_CHANNEL_MESSAGE_READ,
     EVENT_CHANNEL_STATE_UPDATED,
     EVENT_DM_MESSAGE_CREATED,
@@ -260,6 +262,48 @@ class TestWorkspaceEvents(unittest.TestCase):
         count = self.conn.execute("SELECT COUNT(*) AS n FROM workspace_events").fetchone()['n']
         self.assertGreaterEqual(removed, 2)
         self.assertEqual(count, 2)
+
+    def test_channel_edit_and_delete_events_are_supported(self) -> None:
+        edit_seq = self.workspace_events.emit_event(
+            event_type=EVENT_CHANNEL_MESSAGE_EDITED,
+            actor_user_id='owner-user',
+            target_user_id='agent-a',
+            channel_id='general',
+            message_id='M-edit',
+            visibility_scope='user',
+            dedupe_key='channel-edit:M-edit:agent-a',
+            payload={'message_id': 'M-edit', 'preview': 'Edited content'},
+        )
+        delete_seq = self.workspace_events.emit_event(
+            event_type=EVENT_CHANNEL_MESSAGE_DELETED,
+            actor_user_id='owner-user',
+            target_user_id='agent-a',
+            channel_id='general',
+            message_id='M-delete',
+            visibility_scope='user',
+            dedupe_key='channel-delete:M-delete:agent-a',
+            payload={'message_id': 'M-delete'},
+        )
+
+        self.assertIsInstance(edit_seq, int)
+        self.assertIsInstance(delete_seq, int)
+
+        rows = self.conn.execute(
+            """
+            SELECT event_type, message_id
+            FROM workspace_events
+            WHERE event_type IN (?, ?)
+            ORDER BY seq ASC
+            """,
+            (EVENT_CHANNEL_MESSAGE_EDITED, EVENT_CHANNEL_MESSAGE_DELETED),
+        ).fetchall()
+        self.assertEqual(
+            [(row['event_type'], row['message_id']) for row in rows],
+            [
+                (EVENT_CHANNEL_MESSAGE_EDITED, 'M-edit'),
+                (EVENT_CHANNEL_MESSAGE_DELETED, 'M-delete'),
+            ],
+        )
 
     def test_deleted_dm_event_visibility_falls_back_to_payload(self) -> None:
         self.workspace_events.emit_event(

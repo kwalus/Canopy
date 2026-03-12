@@ -9658,6 +9658,7 @@ def create_ui_blueprint() -> Blueprint:
         """AJAX endpoint to get messages from a channel."""
         try:
             db_manager, _, _, _, channel_manager, file_manager, _, interaction_manager, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+            workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
             user_id = get_current_user()
             access = channel_manager.get_channel_access_decision(
                 channel_id=channel_id,
@@ -9673,6 +9674,10 @@ def create_ui_blueprint() -> Blueprint:
                 return jsonify({'error': 'You are not a member of this channel'}), 403
             # Mark channel as read now that the user is viewing it
             channel_manager.mark_channel_read(channel_id, user_id)
+            try:
+                workspace_event_cursor = int((workspace_event_manager.get_latest_seq() if workspace_event_manager else 0) or 0)
+            except Exception:
+                workspace_event_cursor = 0
             from ..core.polls import parse_poll, resolve_poll_end, describe_poll_status, summarize_poll
             from ..core.tasks import parse_task_blocks, strip_task_blocks, derive_task_id
             from ..core.circles import parse_circle_blocks, strip_circle_blocks, derive_circle_id
@@ -10255,7 +10260,8 @@ def create_ui_blueprint() -> Blueprint:
             return jsonify({
                 'messages': messages_data,
                 'channel_id': channel_id,
-                'count': len(messages_data)
+                'count': len(messages_data),
+                'workspace_event_cursor': workspace_event_cursor,
             })
             
         except Exception as e:
@@ -11801,7 +11807,7 @@ def create_ui_blueprint() -> Blueprint:
     def ajax_delete_channel_message():
         """AJAX endpoint to delete a channel message (own messages only)."""
         try:
-            db_manager, _, _, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+            db_manager, _, _, _, channel_manager, file_manager, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
             user_id = get_current_user()
             
             data = request.get_json(silent=True) or {}
@@ -11813,7 +11819,7 @@ def create_ui_blueprint() -> Blueprint:
             # Verify ownership: only allow deleting own messages
             with db_manager.get_connection() as conn:
                 msg = conn.execute(
-                    "SELECT user_id FROM channel_messages WHERE id = ?",
+                    "SELECT channel_id, user_id, attachments FROM channel_messages WHERE id = ?",
                     (message_id,)
                 ).fetchone()
                 
@@ -11821,9 +11827,36 @@ def create_ui_blueprint() -> Blueprint:
                     return jsonify({'error': 'Message not found'}), 404
                 if msg['user_id'] != user_id:
                     return jsonify({'error': 'You can only delete your own messages'}), 403
-                
-                conn.execute("DELETE FROM channel_messages WHERE id = ?", (message_id,))
-                conn.commit()
+                channel_id = str(msg['channel_id'] or '').strip()
+                attachment_ids = []
+                if msg['attachments']:
+                    try:
+                        parsed = json.loads(msg['attachments'] or '[]')
+                        if isinstance(parsed, list):
+                            for att in parsed:
+                                fid = att.get('id') if isinstance(att, dict) else None
+                                if fid:
+                                    attachment_ids.append(fid)
+                    except Exception:
+                        attachment_ids = []
+
+            success = channel_manager.delete_message(
+                channel_id=channel_id,
+                message_id=message_id,
+                user_id=user_id,
+                allow_admin=False,
+            )
+            if not success:
+                return jsonify({'error': 'Message not found or you can only delete your own messages'}), 403
+
+            for fid in attachment_ids:
+                try:
+                    fi = file_manager.get_file(fid) if file_manager else None
+                    if fi and fi.uploaded_by == user_id:
+                        if not file_manager.is_file_referenced(fid, exclude_channel_message_id=message_id):
+                            file_manager.delete_file(fid, user_id)
+                except Exception:
+                    pass
             
             # Broadcast delete signal via P2P
             if p2p_manager and p2p_manager.is_running():
