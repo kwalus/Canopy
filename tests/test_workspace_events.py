@@ -513,6 +513,158 @@ class TestWorkspaceEvents(unittest.TestCase):
         ).fetchone()
         self.assertIsNone(runtime_row)
 
+    def test_agent_events_defaults_to_low_noise_actionable_types(self) -> None:
+        self.workspace_events.emit_event(
+            event_type=EVENT_MENTION_CREATED,
+            actor_user_id='owner-user',
+            target_user_id='agent-a',
+            visibility_scope='user',
+            dedupe_key='agent-events:mention',
+            payload={'mention_id': 'MN-agent', 'source_type': 'channel_message', 'source_id': 'msg-agent'},
+        )
+        self.workspace_events.emit_event(
+            event_type=EVENT_DM_MESSAGE_DELETED,
+            actor_user_id='agent-b',
+            message_id='DM-agent-deleted',
+            visibility_scope='dm',
+            dedupe_key='agent-events:dm-delete',
+            payload={
+                'preview': 'removed',
+                'sender_id': 'agent-b',
+                'recipient_id': 'agent-a',
+                'group_id': None,
+                'group_members': [],
+            },
+        )
+        self.workspace_events.emit_event(
+            event_type=EVENT_CHANNEL_MESSAGE_CREATED,
+            actor_user_id='agent-b',
+            target_user_id='agent-a',
+            channel_id='general',
+            visibility_scope='user',
+            dedupe_key='agent-events:channel-created',
+            payload={'message_id': 'CH-agent-created', 'preview': 'hello channel'},
+        )
+
+        response = self.client.get(
+            '/api/v1/agents/me/events',
+            headers={'X-API-Key': 'agent-key'},
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(body['mode'], 'agent')
+        self.assertEqual(
+            [item['event_type'] for item in body['items']],
+            [EVENT_MENTION_CREATED, EVENT_DM_MESSAGE_DELETED],
+        )
+        self.assertNotIn(EVENT_CHANNEL_MESSAGE_CREATED, body['applied_types'])
+
+        runtime_row = self.conn.execute(
+            """
+            SELECT last_event_cursor_seen, last_event_fetch_at
+            FROM agent_runtime_state
+            WHERE user_id = ?
+            """,
+            ('agent-a',),
+        ).fetchone()
+        self.assertIsNotNone(runtime_row)
+        self.assertEqual(runtime_row['last_event_cursor_seen'], body['next_after_seq'])
+        self.assertIsNotNone(runtime_row['last_event_fetch_at'])
+
+    def test_agent_events_accepts_explicit_type_override(self) -> None:
+        self.workspace_events.emit_event(
+            event_type=EVENT_CHANNEL_MESSAGE_CREATED,
+            actor_user_id='agent-b',
+            target_user_id='agent-a',
+            channel_id='general',
+            visibility_scope='user',
+            dedupe_key='agent-events:override-channel-created',
+            payload={'message_id': 'CH-override-created', 'preview': 'override'},
+        )
+
+        response = self.client.get(
+            '/api/v1/agents/me/events?types=channel.message.created',
+            headers={'X-API-Key': 'agent-key'},
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(body['applied_types'], [EVENT_CHANNEL_MESSAGE_CREATED])
+        self.assertEqual(
+            [item['event_type'] for item in body['items']],
+            [EVENT_CHANNEL_MESSAGE_CREATED],
+        )
+
+    def test_agent_events_respects_feed_only_permissions(self) -> None:
+        self.workspace_events.emit_event(
+            event_type=EVENT_MENTION_CREATED,
+            actor_user_id='owner-user',
+            target_user_id='agent-a',
+            visibility_scope='user',
+            dedupe_key='agent-events:feed-only:mention',
+            payload={'mention_id': 'MN-feed-only', 'source_type': 'channel_message', 'source_id': 'msg-feed-only'},
+        )
+        self.workspace_events.emit_event(
+            event_type=EVENT_DM_MESSAGE_DELETED,
+            actor_user_id='agent-b',
+            message_id='DM-feed-only',
+            visibility_scope='dm',
+            dedupe_key='agent-events:feed-only:dm-delete',
+            payload={
+                'preview': 'removed',
+                'sender_id': 'agent-b',
+                'recipient_id': 'agent-a',
+                'group_id': None,
+                'group_members': [],
+            },
+        )
+
+        response = self.client.get(
+            '/api/v1/agents/me/events',
+            headers={'X-API-Key': 'agent-feed-only'},
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(
+            [item['event_type'] for item in body['items']],
+            [EVENT_MENTION_CREATED],
+        )
+
+    def test_human_key_agent_events_does_not_create_agent_presence_or_runtime(self) -> None:
+        self.workspace_events.emit_event(
+            event_type=EVENT_MENTION_CREATED,
+            actor_user_id='owner-user',
+            target_user_id='observer',
+            visibility_scope='user',
+            dedupe_key='agent-events:human:mention',
+            payload={'mention_id': 'MN-human', 'source_type': 'channel_message', 'source_id': 'msg-human'},
+        )
+
+        response = self.client.get(
+            '/api/v1/agents/me/events',
+            headers={'X-API-Key': 'observer-key'},
+        )
+        self.assertEqual(response.status_code, 200)
+
+        presence_table = self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_presence'"
+        ).fetchone()
+        if presence_table is not None:
+            presence_row = self.conn.execute(
+                "SELECT user_id, last_source FROM agent_presence WHERE user_id = ?",
+                ('observer',),
+            ).fetchone()
+            self.assertIsNone(presence_row)
+
+        runtime_table = self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_runtime_state'"
+        ).fetchone()
+        if runtime_table is not None:
+            runtime_row = self.conn.execute(
+                "SELECT user_id FROM agent_runtime_state WHERE user_id = ?",
+                ('observer',),
+            ).fetchone()
+            self.assertIsNone(runtime_row)
+
     def test_inbound_dm_finalize_uses_canonical_message_id_for_created_event(self) -> None:
         msg = self.message_manager.create_message(
             sender_id='agent-b',

@@ -49,7 +49,17 @@ from ..core.agent_heartbeat import (
     build_agent_heartbeat_snapshot,
     build_actionable_work_preview,
 )
-from ..core.events import PATCH1_EVENT_TYPES
+from ..core.events import (
+    PATCH1_EVENT_TYPES,
+    EVENT_ATTACHMENT_AVAILABLE,
+    EVENT_DM_MESSAGE_CREATED,
+    EVENT_DM_MESSAGE_DELETED,
+    EVENT_DM_MESSAGE_EDITED,
+    EVENT_INBOX_ITEM_CREATED,
+    EVENT_INBOX_ITEM_UPDATED,
+    EVENT_MENTION_ACKNOWLEDGED,
+    EVENT_MENTION_CREATED,
+)
 from ..core.agent_presence import (
     record_agent_checkin,
     get_agent_presence_records,
@@ -84,6 +94,16 @@ from .agent_instructions_data import build_agent_instructions_payload
 
 logger = logging.getLogger(__name__)
 API_BOOT_TIME = datetime.now(timezone.utc)
+AGENT_DEFAULT_EVENT_TYPES = {
+    EVENT_ATTACHMENT_AVAILABLE,
+    EVENT_DM_MESSAGE_CREATED,
+    EVENT_DM_MESSAGE_DELETED,
+    EVENT_DM_MESSAGE_EDITED,
+    EVENT_INBOX_ITEM_CREATED,
+    EVENT_INBOX_ITEM_UPDATED,
+    EVENT_MENTION_ACKNOWLEDGED,
+    EVENT_MENTION_CREATED,
+}
 
 
 def _get_app_components_any(app: Any) -> tuple[Any, ...]:
@@ -406,6 +426,10 @@ def create_api_blueprint() -> Blueprint:
             return None
         try:
             db_manager = _get_app_components_any(current_app)[0]
+            user_row = db_manager.get_user(uid) if db_manager and hasattr(db_manager, 'get_user') else None
+            account_type = str((user_row or {}).get('account_type') or '').strip().lower()
+            if account_type != 'agent':
+                return None
             return record_agent_checkin(db_manager=db_manager, user_id=uid, source=source)
         except Exception:
             return None
@@ -5848,6 +5872,74 @@ def create_api_blueprint() -> Blueprint:
             return jsonify(result)
         except Exception as e:
             logger.error(f"Agent inbox rebuild failed: {e}")
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/agents/me/events', methods=['GET'])
+    @require_auth(Permission.READ_FEED)
+    def agent_events():
+        """Agent-focused view of the local workspace event journal.
+
+        Defaults to a low-noise actionable event set so agent runtimes can
+        wake on concrete work without scraping the broader user event feed.
+        """
+        try:
+            workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
+            if not workspace_event_manager:
+                return jsonify({
+                    'items': [],
+                    'after_seq': 0,
+                    'next_after_seq': 0,
+                    'latest_seq': 0,
+                    'has_more': False,
+                    'supported_types': sorted(PATCH1_EVENT_TYPES),
+                    'applied_types': sorted(AGENT_DEFAULT_EVENT_TYPES),
+                    'mode': 'agent',
+                })
+
+            user_id = g.api_key_info.user_id
+            _touch_agent_presence(user_id, 'events')
+
+            after_seq_raw = request.args.get('after_seq', '0')
+            try:
+                after_seq_value = max(0, int(after_seq_raw or 0))
+            except Exception:
+                after_seq_value = 0
+
+            limit_raw = request.args.get('limit', '50')
+            types_raw = request.args.getlist('types')
+            if len(types_raw) == 1 and ',' in str(types_raw[0]):
+                types_raw = [part.strip() for part in str(types_raw[0]).split(',')]
+            requested_types = [
+                item for item in (str(raw).strip() for raw in types_raw)
+                if item and item in PATCH1_EVENT_TYPES
+            ]
+            applied_types = sorted(requested_types or AGENT_DEFAULT_EVENT_TYPES)
+
+            can_read_messages = bool(g.api_key_info.has_permission(Permission.READ_MESSAGES))
+            result = workspace_event_manager.list_events_for_user(
+                user_id=user_id,
+                after_seq=after_seq_value,
+                limit=limit_raw,
+                types=applied_types,
+                can_read_messages=can_read_messages,
+            )
+            _touch_agent_runtime(
+                user_id,
+                event_fetch=True,
+                event_cursor_seen=int(result.get('next_after_seq') or 0),
+            )
+            return jsonify({
+                'items': result.get('items', []),
+                'after_seq': after_seq_value,
+                'next_after_seq': int(result.get('next_after_seq') or 0),
+                'latest_seq': int(workspace_event_manager.get_latest_seq() or 0),
+                'has_more': bool(result.get('has_more', False)),
+                'supported_types': sorted(PATCH1_EVENT_TYPES),
+                'applied_types': applied_types,
+                'mode': 'agent',
+            })
+        except Exception as e:
+            logger.error(f"Agent workspace events failed: {e}")
             return jsonify({'error': 'Internal server error'}), 500
 
     @api.route('/agents/me/heartbeat', methods=['GET'])

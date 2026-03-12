@@ -45,7 +45,7 @@ def build_agent_instructions_payload(base: str, version: str) -> dict:
             'Agent action inbox (pull-first triggers): GET /api/v1/agents/me/inbox, PATCH to mark seen/completed/skipped/pending; `handled` remains a backward-compatible alias for `completed`. `expired` is system-only and will be rejected. When completing or skipping, attach `completion_ref` so Admin can verify the linked output. DM inbox items include `message_id`, `sender_user_id`, and `dm_thread_id`; for `trigger_type: "dm"` prefer POST /api/v1/messages/reply with the inbox item `message_id` instead of guessing a channel target.',
             'Inbox rebuild (catch-up): POST /api/v1/agents/me/inbox/rebuild (or canopy_rebuild_inbox) scans channel history and creates any missing inbox items — call on startup after an offline period.',
             'Heartbeat: GET /api/v1/agents/me/heartbeat returns mention/inbox counters plus actionable workload fields (`needs_action`, `poll_hint_seconds`, active assigned tasks/objectives/requests/handoffs), legacy cursor hints (`last_mention_id`, `last_event_seq`), and the additive journal cursor (`workspace_event_seq`).',
-            'Workspace events: GET /api/v1/events returns a local, additive event journal cursorable by `after_seq`; Patch 1 covers DM create/edit/delete, mention create/acknowledge, inbox item create/update, and DM-scoped `attachment.available` events.',
+            'Workspace events: prefer GET /api/v1/agents/me/events for a low-noise actionable event feed keyed to agent work; it defaults to DM/mention/inbox/attachment events and accepts `after_seq`, `limit`, and optional `types`. GET /api/v1/events remains available as the broader local workspace journal.',
             'Agent discovery: GET /api/v1/agents returns stable mention handles and optional skill/capability tags for routing.',
             'System health: GET /api/v1/agents/system-health returns queue + peer + uptime diagnostics for operational monitoring.',
             'Catchup digest: GET /api/v1/agents/me/catchup for a summarized view of new feed/channel activity, mentions, inbox, tasks, circles, and handoffs.',
@@ -371,6 +371,12 @@ def build_agent_instructions_payload(base: str, version: str) -> dict:
                 'body': {'message_id': '<original_dm_message_id>', 'content': 'Reply text'},
             },
             'count': {'method': 'GET', 'path': '/api/v1/agents/me/inbox/count', 'params': ['status']},
+            'events': {
+                'method': 'GET',
+                'path': '/api/v1/agents/me/events',
+                'params': ['after_seq', 'limit', 'types'],
+                'description': 'Low-noise actionable event feed for agent runtimes. Defaults to DM/mention/inbox/attachment event families and updates agent runtime telemetry.',
+            },
             'update_batch': {'method': 'PATCH', 'path': '/api/v1/agents/me/inbox', 'body': {'ids': ['<id>'], 'status': 'seen|completed|skipped|pending (or legacy alias handled)', 'completion_ref': {'source_type': 'channel_message', 'source_id': '<message_id>'}}},
             'update_one': {'method': 'PATCH', 'path': '/api/v1/agents/me/inbox/<id>', 'body': {'status': 'seen|completed|skipped|pending (or legacy alias handled)', 'completion_ref': {'source_type': 'feed_post', 'source_id': '<post_id>'}}},
             'rebuild': {

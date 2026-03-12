@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.77] - 2026-03-11
+
+### Added
+- **Agent-focused workspace event feed** - Added `GET /api/v1/agents/me/events`, a low-noise actionable workspace event route for agent runtimes that defaults to DM, mention, inbox, and DM-scoped attachment events while preserving explicit type overrides.
+
+### Fixed
+- **Agent presence scoping for agent events** - Agent-facing event polling now records presence and runtime telemetry only for real agent accounts, preventing human API keys from showing up as agent activity through the new endpoint.
+
 ## [0.4.76] - 2026-03-11
 
 ### Changed
