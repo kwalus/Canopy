@@ -48,6 +48,19 @@ class _FakeFuture:
         return self._value
 
 
+class _CallbackFuture:
+    def __init__(self, value):
+        self._value = value
+        self.result_calls = []
+
+    def result(self, timeout=None):
+        self.result_calls.append(timeout)
+        return self._value
+
+    def add_done_callback(self, callback):
+        callback(self)
+
+
 class _FakeDb:
     def __init__(self, user_row):
         self._user_row = user_row
@@ -198,6 +211,49 @@ class TestDmE2ETransport(unittest.TestCase):
         self.assertTrue(manager.peer_supports_capability('peer-introduced', 'dm_e2e_v1'))
         self.assertTrue(manager.peer_supports_capability('peer-discovered', 'dm_e2e_v1'))
         self.assertFalse(manager.peer_supports_capability('peer-missing', 'dm_e2e_v1'))
+
+    def test_broadcast_direct_message_does_not_block_when_future_supports_callbacks(self):
+        manager = P2PNetworkManager.__new__(P2PNetworkManager)
+        manager._running = True
+        manager._event_loop = object()
+        manager.message_router = _FakeRouter()
+        manager.db = _FakeDb({
+            'id': 'user-remote',
+            'username': 'peer-remote-user',
+            'origin_peer': 'peer-remote',
+        })
+        manager.local_identity = type('LocalIdentity', (), {'peer_id': 'peer-local'})()
+        manager.identity_manager = _FakeIdentityManager(None)
+        manager.connection_manager = None
+        manager.discovery = None
+        manager.peer_versions = {}
+        manager._introduced_peers = {}
+        manager.peer_supports_capability = lambda peer_id, capability: False
+
+        callback_future_holder = {}
+
+        def _run_coroutine(coro, _loop):
+            loop = asyncio.new_event_loop()
+            try:
+                value = loop.run_until_complete(coro)
+            finally:
+                loop.close()
+            future = _CallbackFuture(value)
+            callback_future_holder['future'] = future
+            return future
+
+        with patch('canopy.network.manager.asyncio.run_coroutine_threadsafe', side_effect=_run_coroutine):
+            ok = manager.broadcast_direct_message(
+                sender_id='user-local',
+                recipient_id='user-remote',
+                content='non blocking send',
+                message_id='DM-callback',
+                timestamp='2026-03-08T12:00:00+00:00',
+                metadata={},
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(callback_future_holder['future'].result_calls, [None])
 
 
 if __name__ == '__main__':

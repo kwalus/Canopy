@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.78] - 2026-03-12
+
+### Changed
+- **Concurrent group-DM broadcast fan-out** - Broadcast mesh sends now start peer deliveries concurrently so one slow or dead peer no longer stalls later peers during group DM attachment propagation.
+
+### Fixed
+- **Non-blocking DM attachment fan-out scheduling** - Direct-message broadcast scheduling no longer blocks the request thread waiting on slow mesh delivery completion, while completion and failure outcomes remain logged asynchronously.
+
 ## [0.4.77] - 2026-03-11
 
 ### Added

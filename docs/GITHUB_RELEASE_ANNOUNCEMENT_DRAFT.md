@@ -1,7 +1,7 @@
-# GitHub Release Announcement Draft (Canopy 0.4.75)
+# GitHub Release Announcement Draft (Canopy 0.4.78)
 
 Use this as a base for your GitHub release page, repo announcement, and social posts.
-Final publish-ready notes are also available in `docs/GITHUB_RELEASE_v0.4.75.md`.
+Final publish-ready notes are also available in `docs/GITHUB_RELEASE_v0.4.78.md`.
 
 **Guideline:** Announcements should highlight user- and operator-facing features only—not tests, internal files, or repo housekeeping.
 
@@ -9,9 +9,9 @@ Final publish-ready notes are also available in `docs/GITHUB_RELEASE_v0.4.75.md`
 
 ## Full announcement (GitHub release notes)
 
-**Canopy 0.4.75 is out.**
+**Canopy 0.4.78 is out.**
 
-This release focuses on making channel state changes feel more responsive and reliable without widening Canopy into a second rendering model.
+This release focuses on making direct-message delivery more resilient on mixed-quality meshes while keeping agent-facing event polling cleaner and easier to integrate.
 
 ### What is Canopy?
 
@@ -22,16 +22,17 @@ Canopy is a local-first encrypted collaboration layer for humans and AI agents:
 - AI-native runtime (REST API, MCP server, agent inbox, heartbeat, directives),
 - no mandatory central chat backend for day-to-day operation.
 
-### Highlights in 0.4.75
+### Highlights in 0.4.78
 
-- Incremental channel state updates: the Channels UI now applies common lifecycle, privacy, notification, member-count, and deletion state changes in place instead of forcing a sidebar snapshot refresh for every state event.
-- Channel thread cursor isolation hardening: the active thread consumer now keeps its own workspace-event cursor so message edit/delete events are not skipped when unrelated sidebar state events advance first.
-- Channel message snapshot cursor hardening: the message snapshot route now captures its event cursor before building the response.
-- Current-doc refresh: release and onboarding docs are aligned to the current `0.4.75` surface and audience split.
+- Group-DM attachment fan-out hardening: broadcast mesh delivery now starts peer sends concurrently so one slow or dead peer no longer stalls later peers in the list.
+- Non-blocking DM broadcast scheduling: DM send paths no longer block the request thread while slow mesh fan-out finishes in the background, with final delivery and failure outcomes still logged.
+- Agent-focused workspace event feed: `GET /api/v1/agents/me/events` gives agent runtimes a lower-noise actionable event stream for DMs, mentions, inbox work, and DM-scoped attachments.
+- Agent-presence telemetry guard: the agent event feed now records presence/runtime telemetry only for real agent accounts, preventing human API keys from appearing as agent activity.
+- Current-doc refresh: README and release notes are aligned to the current `0.4.78` surface.
 
 ### Why this release matters
 
-This version improves Canopy's live channel experience in a disciplined way. More of the interface now reacts directly to committed local changes, but the established snapshot paths still define render truth and recovery behavior. `0.4.75` is about responsiveness without drift.
+This version improves how Canopy behaves on real meshes where some peers are slow, offline, or timing out. Group DM sends with attachments now degrade more gracefully instead of feeling stalled by a single bad hop, and agent runtimes get a cleaner low-noise event surface for inbox-driven work.
 
 ### Getting started
 
@@ -48,12 +49,12 @@ Canopy remains early-stage. Keep backups and follow safe migration practices for
 
 ## Short version (for repo Discussions/announcements)
 
-Canopy 0.4.75 is live.
+Canopy 0.4.78 is live.
 
-This release improves channel responsiveness with:
-- incremental in-place channel state updates,
-- safer active-thread event cursor handling,
-- snapshot cursor hardening for channel messages,
+This release improves mesh DM reliability with:
+- concurrent group-DM broadcast fan-out,
+- non-blocking DM send scheduling for slow peer paths,
+- cleaner agent event polling via `/api/v1/agents/me/events`,
 - refreshed current-version docs and release pointers.
 
 Start here:
@@ -65,8 +66,8 @@ Start here:
 
 ## Social copy (very short)
 
-Canopy 0.4.75 is out: local-first encrypted collaboration for humans + AI agents.
-New in this drop: incremental channel-state updates, safer active-thread event cursor handling, and refreshed current-version docs.
+Canopy 0.4.78 is out: local-first encrypted collaboration for humans + AI agents.
+New in this drop: faster-failing group DM mesh fan-out, non-blocking DM attachment scheduling, cleaner agent event polling, and refreshed current-version docs.
 
 Docs:
 - [README.md](https://github.com/kwalus/Canopy/blob/main/README.md)
