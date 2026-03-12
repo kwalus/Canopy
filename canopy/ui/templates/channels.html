@@ -4102,6 +4102,8 @@ let channelRefreshInFlight = false;
 let pendingChannelMessages = null;
 let activeChannelLoadToken = 0;
 let channelLoadInFlight = false;
+let queuedChannelThreadRefresh = false;
+let queuedChannelThreadRefreshForceScroll = false;
 const channelMessageSignature = {};
 let channelMessageCache = {};
 let oldestLoadedMessageId = null;
@@ -5233,6 +5235,12 @@ function loadChannelMessages(channelId, options = {}) {
         .finally(() => {
             if (loadToken === activeChannelLoadToken) {
                 channelLoadInFlight = false;
+            }
+            if (!channelLoadInFlight && !channelRefreshInFlight && queuedChannelThreadRefresh && String(currentChannelId || '') === requestedChannelId) {
+                const forceScroll = queuedChannelThreadRefreshForceScroll;
+                queuedChannelThreadRefresh = false;
+                queuedChannelThreadRefreshForceScroll = false;
+                window.setTimeout(() => requestChannelThreadRefresh({ forceScroll }), 0);
             }
         });
 }
@@ -7842,11 +7850,12 @@ function startChannelSidebarEventPolling() {
     }, 30000);
 }
 
-function refreshChannelMessagesSnapshot() {
+function refreshChannelMessagesSnapshot(options = {}) {
     if (!currentChannelId || isSearchActive || document.hidden || channelLoadInFlight || channelRefreshInFlight) {
         return;
     }
     const requestedChannelId = String(currentChannelId);
+    const forceScroll = !!options.forceScroll;
     channelRefreshInFlight = true;
     apiCall(`/ajax/channel_messages/${requestedChannelId}?_poll=${Date.now()}`)
         .then(data => {
@@ -7870,7 +7879,7 @@ function refreshChannelMessagesSnapshot() {
                 } else {
                     const appended = appendNewMessages(data.messages);
                     if (!appended) {
-                        if (nearBottom) {
+                        if (nearBottom || forceScroll) {
                             displayMessages(data.messages, { forceScroll: true });
                             clearNewMessagesBanner();
                         } else {
@@ -7888,7 +7897,30 @@ function refreshChannelMessagesSnapshot() {
         .catch(() => {})
         .finally(() => {
             channelRefreshInFlight = false;
+            if (!channelLoadInFlight && !channelRefreshInFlight && queuedChannelThreadRefresh && String(currentChannelId || '') === requestedChannelId) {
+                const queuedForceScroll = queuedChannelThreadRefreshForceScroll;
+                queuedChannelThreadRefresh = false;
+                queuedChannelThreadRefreshForceScroll = false;
+                window.setTimeout(() => requestChannelThreadRefresh({ forceScroll: queuedForceScroll }), 0);
+            }
         });
+}
+
+function requestChannelThreadRefresh(options = {}) {
+    const forceScroll = !!options.forceScroll;
+    if (!currentChannelId) {
+        return;
+    }
+    if (isSearchActive) {
+        loadChannelMessages(currentChannelId, { forceScroll });
+        return;
+    }
+    if (channelLoadInFlight || channelRefreshInFlight) {
+        queuedChannelThreadRefresh = true;
+        queuedChannelThreadRefreshForceScroll = queuedChannelThreadRefreshForceScroll || forceScroll;
+        return;
+    }
+    refreshChannelMessagesSnapshot({ forceScroll });
 }
 
 function applyChannelThreadEventItems(items) {
@@ -7904,7 +7936,7 @@ function applyChannelThreadEventItems(items) {
     if (!hasRelevantEvent) {
         return;
     }
-    refreshChannelMessagesSnapshot();
+    requestChannelThreadRefresh();
 }
 
 function pollChannelThreadEvents() {
@@ -7962,12 +7994,12 @@ function startChannelThreadEventPolling() {
     }, 2500);
     channelThreadSafetyHandle = window.setInterval(() => {
         if (document.hidden) return;
-        refreshChannelMessagesSnapshot();
+        requestChannelThreadRefresh();
     }, 45000);
 }
 
 function pollChannelMessages() {
-    refreshChannelMessagesSnapshot();
+    requestChannelThreadRefresh();
 }
 
 // --- Reply context helpers ---
@@ -8271,9 +8303,7 @@ function submitCommunityNote() {
             const modal = bootstrap.Modal.getInstance(modalEl);
             if (modal) modal.hide();
         }
-        if (currentChannelId) {
-            loadChannelMessages(currentChannelId, { forceScroll: false });
-        }
+        requestChannelThreadRefresh({ forceScroll: false });
     }).catch((error) => {
         showAlert(error.error || 'Failed to publish note', 'danger');
     });
@@ -8285,9 +8315,7 @@ function rateCommunityNote(noteId, helpful) {
         body: JSON.stringify({ helpful: !!helpful })
     }).then(() => {
         showAlert('Note rating saved', 'success');
-        if (currentChannelId) {
-            loadChannelMessages(currentChannelId, { forceScroll: false });
-        }
+        requestChannelThreadRefresh({ forceScroll: false });
     }).catch((error) => {
         showAlert(error.error || 'Failed to rate note', 'danger');
     });
@@ -8299,9 +8327,7 @@ function endorseSkill(skillId) {
         body: JSON.stringify({ weight: 1.0 })
     }).then(() => {
         showAlert('Skill endorsed', 'success');
-        if (currentChannelId) {
-            loadChannelMessages(currentChannelId, { forceScroll: false });
-        }
+        requestChannelThreadRefresh({ forceScroll: false });
     }).catch((error) => {
         showAlert(error.error || 'Failed to endorse skill', 'danger');
     });
@@ -8786,7 +8812,7 @@ async function quickCreateLiveStream(mediaKind) {
             throw new Error((res && (res.error || res.message)) || 'Failed to create stream');
         }
         showAlert(`Stream "${cleanTitle}" created — click Go Live on the card to start broadcasting`, 'success');
-        await loadChannelMessages(currentChannelId, { forceScroll: true });
+        requestChannelThreadRefresh({ forceScroll: true });
         // Auto-open broadcaster panel for the new stream
         const newId = String(res.stream?.id || res.stream?.stream_id || '');
         if (newId) {
@@ -9616,13 +9642,11 @@ function sendMessage(event) {
                 .then(freshData => {
                     if (freshData && freshData.messages) {
                         if (!appendNewMessages(freshData.messages)) {
-                            // No new messages detected (race condition) —
-                            // fall back to full reload only if nothing appended
-                            loadChannelMessages(currentChannelId, { forceScroll: true });
+                            displayMessages(freshData.messages, { forceScroll: true });
                         }
                     }
                 }).catch(() => {
-                    loadChannelMessages(currentChannelId, { forceScroll: true });
+                    requestChannelThreadRefresh({ forceScroll: true });
                 });
         } else {
             console.error('Send message failed:', data.error);
@@ -10305,7 +10329,7 @@ function saveInlineChannelMessageEdit(messageId) {
         }
         cancelInlineChannelMessageEdit(messageId, true);
         showAlert('Message updated successfully', 'success');
-        loadChannelMessages(currentChannelId, { forceScroll: false });
+        requestChannelThreadRefresh({ forceScroll: false });
     })
     .catch(error => {
         showAlert(error.error || error.message || 'Failed to update message', 'danger');
@@ -10804,7 +10828,7 @@ function refreshMessages() {
                 }
             }).catch(() => {});
     } else {
-        loadChannelMessages(currentChannelId);
+        requestChannelThreadRefresh({ forceScroll: false });
     }
 }
 
@@ -11298,6 +11322,7 @@ function deleteChannelMessage(messageId) {
                 msgEl.style.opacity = '0';
                 setTimeout(() => msgEl.remove(), 300);
             }
+            requestChannelThreadRefresh({ forceScroll: false });
         } else {
             showAlert(data.error || 'Failed to delete message', 'danger');
         }

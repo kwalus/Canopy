@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.76] - 2026-03-11
+
+### Changed
+- **Unified workspace event journal Patch 8 for channel metadata refresh** - Channel thread refreshes now queue cleanly behind in-flight loads/snapshots, local message-adjacent actions use the journal-first thread refresh path, and channel-message community-note updates emit journal-visible metadata refresh events.
+
+### Fixed
+- **Channel search refresh fallback preservation** - Search-mode channel actions now preserve the established full thread reload fallback, preventing stale search results after local edit, delete, or community-note updates.
+
 ## [0.4.75] - 2026-03-11
 
 ### Changed

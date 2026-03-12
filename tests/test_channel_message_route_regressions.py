@@ -64,21 +64,36 @@ class TestChannelMessageRouteRegressions(unittest.TestCase):
                 id TEXT PRIMARY KEY,
                 channel_id TEXT,
                 user_id TEXT,
+                content TEXT,
                 attachments TEXT
+            );
+            CREATE TABLE community_notes (
+                id TEXT PRIMARY KEY,
+                target_type TEXT,
+                target_id TEXT,
+                author_id TEXT
             );
             """
         )
         self.conn.execute(
             """
-            INSERT INTO channel_messages (id, channel_id, user_id, attachments)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO channel_messages (id, channel_id, user_id, content, attachments)
+            VALUES (?, ?, ?, ?, ?)
             """,
             (
                 'M-delete',
                 'general',
                 'owner',
+                'Original channel message content',
                 json.dumps([{'id': 'F1', 'name': 'proof.txt'}]),
             ),
+        )
+        self.conn.execute(
+            """
+            INSERT INTO community_notes (id, target_type, target_id, author_id)
+            VALUES (?, ?, ?, ?)
+            """,
+            ('CN-rate', 'channel_message', 'M-delete', 'owner'),
         )
         self.conn.commit()
 
@@ -95,6 +110,10 @@ class TestChannelMessageRouteRegressions(unittest.TestCase):
         self.p2p_manager = MagicMock()
         self.p2p_manager.is_running.return_value = False
         self.workspace_events = _FakeWorkspaceEventManager()
+        self.skill_manager = MagicMock()
+        self.skill_manager.create_community_note.return_value = 'CN-created'
+        self.skill_manager.rate_community_note.return_value = True
+        self.skill_manager.get_community_notes.side_effect = self._fake_get_community_notes
 
         components = (
             self.db_manager,
@@ -127,6 +146,8 @@ class TestChannelMessageRouteRegressions(unittest.TestCase):
         app.config['TESTING'] = True
         app.secret_key = 'channel-route-secret'
         app.config['WORKSPACE_EVENT_MANAGER'] = self.workspace_events
+        app.config['CHANNEL_MANAGER'] = self.channel_manager
+        app.config['SKILL_MANAGER'] = self.skill_manager
         app.register_blueprint(create_ui_blueprint())
         self.client = app.test_client()
         with self.client.session_transaction() as sess:
@@ -136,6 +157,34 @@ class TestChannelMessageRouteRegressions(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.conn.close()
+
+    def _fake_get_community_notes(self, *args, **kwargs):
+        target_type = kwargs.get('target_type')
+        target_id = kwargs.get('target_id')
+        if target_type == 'channel_message' and target_id == 'M-delete':
+            return [
+                {
+                    'id': 'CN-created',
+                    'target_type': 'channel_message',
+                    'target_id': 'M-delete',
+                    'author_id': 'owner',
+                    'content': 'Fresh context note',
+                    'status': 'proposed',
+                    'note_type': 'context',
+                    'ratings': {'total': 0, 'helpful': 0},
+                },
+                {
+                    'id': 'CN-rate',
+                    'target_type': 'channel_message',
+                    'target_id': 'M-delete',
+                    'author_id': 'owner',
+                    'content': 'Existing note',
+                    'status': 'proposed',
+                    'note_type': 'correction',
+                    'ratings': {'total': 1, 'helpful': 1},
+                },
+            ]
+        return []
 
     def test_ajax_delete_channel_message_uses_channel_manager_path(self) -> None:
         response = self.client.post(
@@ -169,6 +218,55 @@ class TestChannelMessageRouteRegressions(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.get_json() or {}
         self.assertEqual(payload.get('workspace_event_cursor'), 5)
+
+    def test_create_community_note_on_channel_message_emits_metadata_event(self) -> None:
+        response = self.client.post(
+            '/ajax/community_notes',
+            json={
+                'target_type': 'channel_message',
+                'target_id': 'M-delete',
+                'note_type': 'context',
+                'content': 'Fresh context note for this channel message.',
+            },
+            headers={'X-CSRFToken': 'csrf-channel-delete'},
+        )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.channel_manager._emit_channel_user_event.assert_any_call(
+            channel_id='general',
+            event_type='channel.message.edited',
+            actor_user_id='owner',
+            payload={
+                'message_id': 'M-delete',
+                'preview': 'Original channel message content',
+                'reason': 'community_note_created',
+            },
+            dedupe_suffix='community_note_created:CN-created',
+        )
+
+    def test_rate_community_note_on_channel_message_emits_metadata_event(self) -> None:
+        response = self.client.post(
+            '/ajax/community_notes/CN-rate/rate',
+            json={'helpful': True},
+            headers={'X-CSRFToken': 'csrf-channel-delete'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.channel_manager._emit_channel_user_event.assert_any_call(
+            channel_id='general',
+            event_type='channel.message.edited',
+            actor_user_id='owner',
+            payload={
+                'message_id': 'M-delete',
+                'preview': 'Original channel message content',
+                'reason': 'community_note_rated',
+            },
+            dedupe_suffix='community_note_rated:CN-rate:1',
+        )
 
 
 if __name__ == '__main__':

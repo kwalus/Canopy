@@ -60,7 +60,7 @@ from ..core.agent_presence import (
     build_agent_presence_payload,
 )
 from ..core.agent_runtime import build_agent_runtime_payload
-from ..core.events import PATCH1_EVENT_TYPES
+from ..core.events import PATCH1_EVENT_TYPES, EVENT_CHANNEL_MESSAGE_EDITED
 from ..core.file_preview import build_file_preview
 from ..core.messaging import (
     build_dm_security_summary,
@@ -2073,6 +2073,49 @@ def create_ui_blueprint() -> Blueprint:
             return _serialize_community_notes(visible, viewer_user_id)
         except Exception:
             return []
+
+    def _emit_channel_message_metadata_event(
+        *,
+        channel_manager: Any,
+        db_manager: Any,
+        message_id: str,
+        actor_user_id: str,
+        reason: str,
+        dedupe_suffix: str,
+    ) -> None:
+        if not channel_manager or not db_manager or not message_id or not actor_user_id:
+            return
+        emit_fn = getattr(channel_manager, '_emit_channel_user_event', None)
+        if not callable(emit_fn):
+            return
+        try:
+            with db_manager.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT channel_id, content FROM channel_messages WHERE id = ?",
+                    (message_id,),
+                ).fetchone()
+        except Exception:
+            row = None
+        if not row:
+            return
+        channel_id = str(row['channel_id'] or '').strip()
+        if not channel_id:
+            return
+        preview = build_preview(row['content'] or '') or ''
+        try:
+            emit_fn(
+                channel_id=channel_id,
+                event_type=EVENT_CHANNEL_MESSAGE_EDITED,
+                actor_user_id=actor_user_id,
+                payload={
+                    'message_id': message_id,
+                    'preview': preview,
+                    'reason': reason,
+                },
+                dedupe_suffix=dedupe_suffix,
+            )
+        except Exception as event_err:
+            logger.debug(f"Community-note channel metadata event skipped: {event_err}")
 
     def _can_access_note_target(
         *,
@@ -4655,6 +4698,16 @@ def create_ui_blueprint() -> Blueprint:
             if not note_id:
                 return jsonify({'success': False, 'error': 'Failed to create note'}), 500
 
+            if target_type == 'channel_message':
+                _emit_channel_message_metadata_event(
+                    channel_manager=current_app.config.get('CHANNEL_MANAGER'),
+                    db_manager=db_manager,
+                    message_id=target_id,
+                    actor_user_id=user_id,
+                    reason='community_note_created',
+                    dedupe_suffix=f"community_note_created:{note_id}",
+                )
+
             notes = _load_target_notes(skill_manager, target_type, target_id, user_id, limit=25)
             created = next((n for n in notes if n.get('id') == note_id), None)
             return jsonify({
@@ -4703,6 +4756,16 @@ def create_ui_blueprint() -> Blueprint:
             ok = skill_manager.rate_community_note(note_id, user_id, helpful=helpful)
             if not ok:
                 return jsonify({'success': False, 'error': 'Failed to rate note'}), 500
+
+            if (row['target_type'] or '').strip().lower() == 'channel_message':
+                _emit_channel_message_metadata_event(
+                    channel_manager=current_app.config.get('CHANNEL_MANAGER'),
+                    db_manager=db_manager,
+                    message_id=row['target_id'],
+                    actor_user_id=user_id,
+                    reason='community_note_rated',
+                    dedupe_suffix=f"community_note_rated:{note_id}:{1 if helpful else 0}",
+                )
 
             notes = _load_target_notes(
                 skill_manager,
