@@ -10,6 +10,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
+from .agent_event_subscriptions import get_agent_event_subscription_state
 from .inbox import ACTIONABLE_STATUSES
 
 logger = logging.getLogger(__name__)
@@ -185,6 +186,7 @@ def get_agent_runtime_record(db_manager: Any, user_id: str) -> Dict[str, Any]:
 def build_agent_runtime_payload(db_manager: Any, user_id: str) -> Dict[str, Any]:
     payload = get_agent_runtime_record(db_manager, user_id)
     now_dt = datetime.now(timezone.utc)
+    subscription_state = get_agent_event_subscription_state(db_manager, user_id)
 
     oldest_pending_created_at = None
     oldest_unacked_created_at = None
@@ -229,6 +231,13 @@ def build_agent_runtime_payload(db_manager: Any, user_id: str) -> Dict[str, Any]
     )
 
     payload.update({
+        "event_subscription_source": (
+            "stored" if subscription_state.get("custom_enabled") else "default"
+        ),
+        "event_subscription_custom_enabled": bool(subscription_state.get("custom_enabled")),
+        "event_subscription_types": list(subscription_state.get("stored_types") or []),
+        "event_subscription_count": len(subscription_state.get("stored_types") or []),
+        "event_subscription_updated_at": _to_iso_utc(subscription_state.get("updated_at")),
         "oldest_pending_inbox_at": oldest_pending_dt.isoformat() if oldest_pending_dt else None,
         "oldest_pending_inbox_age_seconds": oldest_pending_age_seconds,
         "oldest_pending_inbox_age_text": _format_age_short(oldest_pending_age_seconds),

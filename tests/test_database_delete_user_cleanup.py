@@ -49,6 +49,8 @@ class TestDatabaseDeleteUserCleanup(unittest.TestCase):
             CREATE TABLE post_content_keys (post_id TEXT, user_id TEXT);
             CREATE TABLE agent_inbox (id TEXT PRIMARY KEY, agent_user_id TEXT, sender_user_id TEXT);
             CREATE TABLE agent_inbox_config (user_id TEXT PRIMARY KEY);
+            CREATE TABLE agent_event_subscription_state (user_id TEXT PRIMARY KEY, custom_enabled INTEGER, updated_at TEXT);
+            CREATE TABLE agent_event_subscriptions (user_id TEXT, event_type TEXT, updated_at TEXT);
             CREATE TABLE user_feed_preferences (user_id TEXT PRIMARY KEY);
             CREATE TABLE messages (id TEXT PRIMARY KEY, sender_id TEXT);
             CREATE TABLE feed_posts (id TEXT PRIMARY KEY, author_id TEXT);
@@ -113,6 +115,42 @@ class TestDatabaseDeleteUserCleanup(unittest.TestCase):
         self.conn.commit()
 
         self.assertFalse(self.db.delete_user('missing-user'))
+
+    def test_delete_user_cleans_agent_event_subscriptions(self) -> None:
+        self.conn.executemany(
+            "INSERT INTO users (id, username, public_key) VALUES (?, ?, ?)",
+            [
+                ('system', 'System', 'pk-system'),
+                ('owner-user', 'Owner', 'pk-owner'),
+                ('victim-user', 'Victim', 'pk-victim'),
+            ],
+        )
+        self.conn.execute(
+            "INSERT INTO system_state (key, value) VALUES ('instance_owner_id', ?)",
+            ('owner-user',),
+        )
+        self.conn.execute(
+            "INSERT INTO agent_event_subscription_state (user_id, custom_enabled, updated_at) VALUES (?, ?, ?)",
+            ('victim-user', 1, '2026-03-12 01:00:00.000000'),
+        )
+        self.conn.execute(
+            "INSERT INTO agent_event_subscriptions (user_id, event_type, updated_at) VALUES (?, ?, ?)",
+            ('victim-user', 'mention.created', '2026-03-12 01:00:00.000000'),
+        )
+        self.conn.commit()
+
+        self.assertTrue(self.db.delete_user('victim-user'))
+
+        state_row = self.conn.execute(
+            "SELECT 1 FROM agent_event_subscription_state WHERE user_id = ?",
+            ('victim-user',),
+        ).fetchone()
+        item_row = self.conn.execute(
+            "SELECT 1 FROM agent_event_subscriptions WHERE user_id = ?",
+            ('victim-user',),
+        ).fetchone()
+        self.assertIsNone(state_row)
+        self.assertIsNone(item_row)
 
 
 if __name__ == '__main__':

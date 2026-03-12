@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.79] - 2026-03-12
+
+### Added
+- **Durable agent event subscriptions** - Added stored per-agent event family preferences plus `GET/POST /api/v1/agents/me/event-subscriptions`, so long-running agents can keep a low-noise wake feed without resending `types=` on every poll.
+
+### Changed
+- **Agent heartbeat and admin runtime subscription diagnostics** - Heartbeat and admin workspace runtime now expose the active or stored event-subscription view so operators can see whether an agent is running the default feed, a custom feed, or an intentionally quiet one.
+
+### Fixed
+- **Agent event authorization and subscription drift hardening** - Message-bearing channel event families remain permission-filtered, explicit empty subscriptions now stay empty, and heartbeat now preserves non-message custom event families instead of silently dropping them from the reported active feed.
+
 ## [0.4.78] - 2026-03-12
 
 ### Changed

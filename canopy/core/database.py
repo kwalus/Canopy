@@ -339,6 +339,23 @@ class DatabaseManager:
                 CREATE INDEX IF NOT EXISTS idx_agent_runtime_inbox_fetch
                     ON agent_runtime_state(last_inbox_fetch_at);
 
+                CREATE TABLE IF NOT EXISTS agent_event_subscription_state (
+                    user_id TEXT PRIMARY KEY,
+                    custom_enabled INTEGER NOT NULL DEFAULT 0,
+                    updated_at TIMESTAMP NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_agent_event_subscription_state_enabled
+                    ON agent_event_subscription_state(custom_enabled, updated_at);
+
+                CREATE TABLE IF NOT EXISTS agent_event_subscriptions (
+                    user_id TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    updated_at TIMESTAMP NOT NULL,
+                    PRIMARY KEY (user_id, event_type)
+                );
+                CREATE INDEX IF NOT EXISTS idx_agent_event_subscriptions_user
+                    ON agent_event_subscriptions(user_id, updated_at);
+
                 -- Local workspace event journal (additive read/delivery model)
                 CREATE TABLE IF NOT EXISTS workspace_events (
                     seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -736,6 +753,37 @@ class DatabaseManager:
                         ON agent_runtime_state(last_event_fetch_at);
                     CREATE INDEX IF NOT EXISTS idx_agent_runtime_inbox_fetch
                         ON agent_runtime_state(last_inbox_fetch_at);
+                """)
+
+            aess_exists = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_event_subscription_state'"
+            ).fetchone()
+            if not aess_exists:
+                logger.info("Migration: Creating agent_event_subscription_state table")
+                conn.executescript("""
+                    CREATE TABLE IF NOT EXISTS agent_event_subscription_state (
+                        user_id TEXT PRIMARY KEY,
+                        custom_enabled INTEGER NOT NULL DEFAULT 0,
+                        updated_at TIMESTAMP NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_agent_event_subscription_state_enabled
+                        ON agent_event_subscription_state(custom_enabled, updated_at);
+                """)
+
+            aes_exists = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_event_subscriptions'"
+            ).fetchone()
+            if not aes_exists:
+                logger.info("Migration: Creating agent_event_subscriptions table")
+                conn.executescript("""
+                    CREATE TABLE IF NOT EXISTS agent_event_subscriptions (
+                        user_id TEXT NOT NULL,
+                        event_type TEXT NOT NULL,
+                        updated_at TIMESTAMP NOT NULL,
+                        PRIMARY KEY (user_id, event_type)
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_agent_event_subscriptions_user
+                        ON agent_event_subscriptions(user_id, updated_at);
                 """)
 
             cursor = conn.execute("PRAGMA table_info(agent_inbox)")
@@ -1389,6 +1437,8 @@ class DatabaseManager:
                 _exec_optional("DELETE FROM likes WHERE user_id = ?", (user_id,))
                 _exec_optional("DELETE FROM agent_presence WHERE user_id = ?", (user_id,))
                 _exec_optional("DELETE FROM agent_runtime_state WHERE user_id = ?", (user_id,))
+                _exec_optional("DELETE FROM agent_event_subscription_state WHERE user_id = ?", (user_id,))
+                _exec_optional("DELETE FROM agent_event_subscriptions WHERE user_id = ?", (user_id,))
 
                 # Channel messages (table in channels.py, same DB): likes then parent refs then messages
                 try:

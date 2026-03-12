@@ -430,6 +430,17 @@ class TestAdminUserWorkspace(unittest.TestCase):
                 last_inbox_fetch_at TEXT,
                 updated_at TEXT
             );
+            CREATE TABLE agent_event_subscription_state (
+                user_id TEXT PRIMARY KEY,
+                custom_enabled INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT
+            );
+            CREATE TABLE agent_event_subscriptions (
+                user_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                updated_at TEXT,
+                PRIMARY KEY (user_id, event_type)
+            );
             """
         )
         self.conn.executemany(
@@ -501,6 +512,23 @@ class TestAdminUserWorkspace(unittest.TestCase):
                 '2026-02-22T10:10:00+00:00',
                 '2026-02-22T10:15:00+00:00',
             ),
+        )
+        self.conn.execute(
+            """
+            INSERT INTO agent_event_subscription_state (user_id, custom_enabled, updated_at)
+            VALUES (?, ?, ?)
+            """,
+            ('agent-local', 1, '2026-02-22T10:12:00+00:00'),
+        )
+        self.conn.executemany(
+            """
+            INSERT INTO agent_event_subscriptions (user_id, event_type, updated_at)
+            VALUES (?, ?, ?)
+            """,
+            [
+                ('agent-local', 'mention.created', '2026-02-22T10:12:00+00:00'),
+                ('agent-local', 'inbox.item.created', '2026-02-22T10:12:00+00:00'),
+            ],
         )
         self.conn.commit()
 
@@ -581,6 +609,14 @@ class TestAdminUserWorkspace(unittest.TestCase):
         self.assertEqual(runtime.get('last_event_cursor_seen'), 57)
         self.assertEqual(runtime.get('last_event_fetch_at'), '2026-02-22T10:15:00+00:00')
         self.assertEqual(runtime.get('last_inbox_fetch_at'), '2026-02-22T10:10:00+00:00')
+        self.assertEqual(runtime.get('event_subscription_source'), 'stored')
+        self.assertTrue(runtime.get('event_subscription_custom_enabled'))
+        self.assertEqual(
+            runtime.get('event_subscription_types'),
+            ['inbox.item.created', 'mention.created'],
+        )
+        self.assertEqual(runtime.get('event_subscription_count'), 2)
+        self.assertEqual(runtime.get('event_subscription_updated_at'), '2026-02-22T10:12:00+00:00')
         self.assertIsNotNone(runtime.get('oldest_pending_inbox_age_seconds'))
         self.assertIsNotNone(runtime.get('oldest_unacked_mention_age_seconds'))
         self.assertRegex(runtime.get('oldest_pending_inbox_age_text') or '', r'^\d+[smhd]$')

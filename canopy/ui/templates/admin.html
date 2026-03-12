@@ -1383,6 +1383,17 @@
                         </div>
                     </div>
 
+                    <div class="border rounded p-2 mb-3">
+                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+                            <div>
+                                <div class="small text-muted">Event subscriptions</div>
+                                <div class="fw-semibold" id="workspace-runtime-subscription-source">Default feed</div>
+                            </div>
+                            <div class="small text-muted" id="workspace-runtime-subscription-updated">Using default event families</div>
+                        </div>
+                        <div class="small text-muted mt-2" id="workspace-runtime-subscription-types">No custom subscription types stored.</div>
+                    </div>
+
                     <div class="row g-2 mb-2">
                         <div class="col-md-4">
                             <label class="form-label small mb-1" for="workspace-display-name-input">Display name</label>
@@ -2869,6 +2880,9 @@
     const workspaceRuntimeOldestPendingAt = document.getElementById('workspace-runtime-oldest-pending-at');
     const workspaceRuntimeOldestMentionAge = document.getElementById('workspace-runtime-oldest-mention-age');
     const workspaceRuntimeOldestMentionAt = document.getElementById('workspace-runtime-oldest-mention-at');
+    const workspaceRuntimeSubscriptionSource = document.getElementById('workspace-runtime-subscription-source');
+    const workspaceRuntimeSubscriptionUpdated = document.getElementById('workspace-runtime-subscription-updated');
+    const workspaceRuntimeSubscriptionTypes = document.getElementById('workspace-runtime-subscription-types');
     const workspaceSaveGovernanceBtn = document.getElementById('workspace-save-governance-btn');
     const workspaceEnforceGovernanceBtn = document.getElementById('workspace-enforce-governance-btn');
 
@@ -3033,6 +3047,22 @@
             workspaceRuntimeOldestMentionAt.textContent = runtime.oldest_unacked_mention_at
                 ? `Created ${formatTime(runtime.oldest_unacked_mention_at)}`
                 : 'No unacked mentions';
+        }
+        if (workspaceRuntimeSubscriptionSource) {
+            const count = Number(runtime.event_subscription_count || 0);
+            const source = runtime.event_subscription_source === 'stored' ? 'Custom feed' : 'Default feed';
+            workspaceRuntimeSubscriptionSource.textContent = `${source} · ${count} type${count === 1 ? '' : 's'}`;
+        }
+        if (workspaceRuntimeSubscriptionUpdated) {
+            workspaceRuntimeSubscriptionUpdated.textContent = runtime.event_subscription_updated_at
+                ? `Updated ${formatTime(runtime.event_subscription_updated_at)}`
+                : 'Using default event families';
+        }
+        if (workspaceRuntimeSubscriptionTypes) {
+            const types = Array.isArray(runtime.event_subscription_types) ? runtime.event_subscription_types : [];
+            workspaceRuntimeSubscriptionTypes.textContent = types.length
+                ? types.join(' • ')
+                : 'No custom subscription types stored.';
         }
 
         if (workspaceGovernanceEnabled) workspaceGovernanceEnabled.checked = !!governancePolicy.enabled;
