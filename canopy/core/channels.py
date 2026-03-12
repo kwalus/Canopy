@@ -11,6 +11,7 @@ Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor I
 """
 
 import logging
+import math
 import secrets
 import json
 import hashlib
@@ -21,6 +22,13 @@ from dataclasses import dataclass
 from enum import Enum
 
 from .database import DatabaseManager
+from .events import (
+    EVENT_CHANNEL_MESSAGE_CREATED,
+    EVENT_CHANNEL_MESSAGE_DELETED,
+    EVENT_CHANNEL_MESSAGE_EDITED,
+    EVENT_CHANNEL_MESSAGE_READ,
+    EVENT_CHANNEL_STATE_UPDATED,
+)
 from ..security.api_keys import ApiKeyManager, Permission
 from .logging_config import log_performance, LogOperation
 from ..network.routing import (
@@ -291,6 +299,7 @@ class ChannelManager:
         logger.info("Initializing ChannelManager")
         self.db = db
         self.api_key_manager = api_key_manager
+        self.workspace_events: Any = None
         self._channel_key_lock = threading.RLock()
         self._channel_key_cache: Dict[Tuple[str, str], bytes] = {}
         self._lifecycle_scan_lock = threading.RLock()
@@ -305,6 +314,65 @@ class ChannelManager:
             self._ensure_default_channels()
         
         logger.info("ChannelManager initialized successfully")
+
+    def _channel_member_user_ids(self, channel_id: str) -> List[str]:
+        """Return all member ids for a channel for local UI event fanout."""
+        if not channel_id:
+            return []
+        try:
+            with self.db.get_connection() as conn:
+                rows = conn.execute(
+                    "SELECT user_id FROM channel_members WHERE channel_id = ? ORDER BY user_id ASC",
+                    (channel_id,),
+                ).fetchall()
+            seen: set[str] = set()
+            members: List[str] = []
+            for row in rows or []:
+                user_id = str(row["user_id"] or "").strip()
+                if not user_id or user_id in seen:
+                    continue
+                seen.add(user_id)
+                members.append(user_id)
+            return members
+        except Exception:
+            return []
+
+    def _emit_channel_user_event(
+        self,
+        *,
+        channel_id: str,
+        event_type: str,
+        actor_user_id: Optional[str] = None,
+        payload: Optional[Dict[str, Any]] = None,
+        target_user_ids: Optional[List[str]] = None,
+        exclude_user_ids: Optional[List[str]] = None,
+        dedupe_suffix: Optional[str] = None,
+    ) -> None:
+        if not self.workspace_events or not channel_id or not event_type:
+            return
+
+        exclude = {
+            str(user_id or "").strip()
+            for user_id in (exclude_user_ids or [])
+            if str(user_id or "").strip()
+        }
+        targets = target_user_ids or self._channel_member_user_ids(channel_id)
+        for target_user_id in targets:
+            clean_target = str(target_user_id or "").strip()
+            if not clean_target or clean_target in exclude:
+                continue
+            dedupe_key = f"{event_type}:{channel_id}:{clean_target}"
+            if dedupe_suffix:
+                dedupe_key = f"{dedupe_key}:{dedupe_suffix}"
+            self.workspace_events.emit_event(
+                event_type=event_type,
+                actor_user_id=actor_user_id,
+                target_user_id=clean_target,
+                channel_id=channel_id,
+                visibility_scope="user",
+                dedupe_key=dedupe_key,
+                payload=payload or {},
+            )
 
     @staticmethod
     def _parse_datetime(value: Any) -> Optional[datetime]:
@@ -2460,6 +2528,17 @@ class ChannelManager:
                     conn.commit()
             
             logger.info(f"Successfully created channel {channel_id}: {name}")
+            self._emit_channel_user_event(
+                channel_id=channel_id,
+                event_type=EVENT_CHANNEL_STATE_UPDATED,
+                actor_user_id=created_by,
+                target_user_ids=[created_by] + list(initial_members or []),
+                payload={
+                    "reason": "channel_created",
+                    "channel_name": name,
+                },
+                dedupe_suffix="channel_created",
+            )
             return channel
             
         except Exception as e:
@@ -3078,6 +3157,30 @@ class ChannelManager:
                             params
                         )
                 conn.commit()
+                current_member_count = 0
+                try:
+                    member_row = conn.execute(
+                        "SELECT COUNT(*) AS count FROM channel_members WHERE channel_id = ?",
+                        (channel_id,),
+                    ).fetchone()
+                    if member_row:
+                        current_member_count = int(
+                            member_row['count'] if hasattr(member_row, 'keys') else member_row[0]
+                        )
+                except Exception:
+                    current_member_count = 0
+                self._emit_channel_user_event(
+                    channel_id=channel_id,
+                    event_type=EVENT_CHANNEL_STATE_UPDATED,
+                    actor_user_id=user_id,
+                    payload={
+                        "reason": "privacy_updated",
+                        "privacy_mode": privacy_mode,
+                        "channel_type": 'private' if privacy_mode in self.TARGETED_PRIVACY_MODES else 'public',
+                        "member_count": current_member_count,
+                    },
+                    dedupe_suffix=f"privacy:{privacy_mode}:{current_member_count}",
+                )
                 return True
         except Exception as e:
             logger.error(f"Failed to update channel privacy: {e}", exc_info=True)
@@ -3178,13 +3281,40 @@ class ChannelManager:
                     elif remaining_seconds <= self.CHANNEL_LIFECYCLE_WARNING_DAYS * 86400:
                         status = 'cooling'
 
-                return {
+                result = {
                     'ttl_days': next_ttl,
                     'preserved': next_preserved,
                     'archived_at': self._format_db_timestamp(next_archived_at) if next_archived_at else None,
                     'archive_reason': next_archive_reason,
                     'status': status,
+                    'days_until_archive': None,
+                    'last_activity_at': self._format_db_timestamp(last_activity) if last_activity else None,
                 }
+                if not next_preserved and not next_archived_at:
+                    due_at = last_activity + timedelta(days=next_ttl)
+                    remaining_seconds = (due_at - datetime.now(timezone.utc)).total_seconds()
+                    if remaining_seconds > 0:
+                        result['days_until_archive'] = max(
+                            0,
+                            int(math.ceil(remaining_seconds / 86400.0)),
+                        )
+            self._emit_channel_user_event(
+                channel_id=channel_id,
+                event_type=EVENT_CHANNEL_STATE_UPDATED,
+                actor_user_id=user_id,
+                payload={
+                    'reason': 'lifecycle_updated',
+                    'status': result['status'],
+                    'ttl_days': result['ttl_days'],
+                    'preserved': result['preserved'],
+                    'archived_at': result['archived_at'],
+                    'archive_reason': result['archive_reason'],
+                    'days_until_archive': result['days_until_archive'],
+                    'last_activity_at': result['last_activity_at'],
+                },
+                dedupe_suffix=f"lifecycle:{result['status']}:{result['ttl_days']}:{1 if result['preserved'] else 0}:{result['archived_at'] or ''}",
+            )
+            return result
         except Exception as e:
             logger.error(f"Failed to update channel lifecycle settings: {e}", exc_info=True)
             return None
@@ -3206,6 +3336,17 @@ class ChannelManager:
                     (1 if enabled else 0, channel_id, user_id)
                 )
                 conn.commit()
+                self._emit_channel_user_event(
+                    channel_id=channel_id,
+                    event_type=EVENT_CHANNEL_STATE_UPDATED,
+                    actor_user_id=user_id,
+                    target_user_ids=[user_id],
+                    payload={
+                        "reason": "notifications_updated",
+                        "notifications_enabled": bool(enabled),
+                    },
+                    dedupe_suffix=f"notifications:{1 if enabled else 0}",
+                )
                 return True
         except Exception as e:
             logger.error(f"Failed to update channel notifications: {e}", exc_info=True)
@@ -3552,6 +3693,16 @@ class ChannelManager:
                     conn.commit()
             
             logger.info(f"Successfully sent message {message_id} to channel {channel_id}")
+            self._emit_channel_user_event(
+                channel_id=channel_id,
+                event_type=EVENT_CHANNEL_MESSAGE_CREATED,
+                actor_user_id=user_id,
+                payload={
+                    "message_id": message_id,
+                    "preview": (content or "").strip()[:160] or ("Attachment" if normalized_attachments else ""),
+                },
+                dedupe_suffix=message_id,
+            )
             return message
             
         except Exception as e:
@@ -3565,12 +3716,13 @@ class ChannelManager:
         try:
             with self.db.get_connection() as conn:
                 row = conn.execute(
-                    "SELECT user_id, attachments, message_type FROM channel_messages WHERE id = ?",
+                    "SELECT channel_id, user_id, attachments, message_type FROM channel_messages WHERE id = ?",
                     (message_id,)
                 ).fetchone()
                 if not row or (row['user_id'] != user_id and not allow_admin):
                     logger.warning(f"User {user_id} cannot update channel message {message_id}")
                     return False
+                channel_id = str(row['channel_id'] or '').strip()
 
                 final_attachments = attachments
                 if final_attachments is None:
@@ -3599,27 +3751,31 @@ class ChannelManager:
                         message_id,
                     )
                 )
-                try:
-                    channel_row = conn.execute(
-                        "SELECT channel_id FROM channel_messages WHERE id = ?",
-                        (message_id,),
-                    ).fetchone()
-                    if channel_row:
-                        channel_id = channel_row['channel_id'] if hasattr(channel_row, 'keys') else channel_row[0]
-                        conn.execute(
-                            """
-                            UPDATE channels
-                               SET last_activity_at = ?,
-                                   lifecycle_archived_at = NULL,
-                                   lifecycle_archive_reason = NULL
-                             WHERE id = ?
-                            """,
-                            (edited_db, channel_id),
-                        )
-                except Exception:
-                    pass
+                if channel_id:
+                    conn.execute(
+                        """
+                        UPDATE channels
+                           SET last_activity_at = ?,
+                               lifecycle_archived_at = NULL,
+                               lifecycle_archive_reason = NULL
+                         WHERE id = ?
+                        """,
+                        (edited_db, channel_id),
+                    )
                 conn.commit()
                 logger.info(f"Updated channel message {message_id}")
+                if channel_id:
+                    self._emit_channel_user_event(
+                        channel_id=channel_id,
+                        event_type=EVENT_CHANNEL_MESSAGE_EDITED,
+                        actor_user_id=user_id,
+                        payload={
+                            "message_id": message_id,
+                            "preview": (content or "").strip()[:160]
+                            or ("Attachment" if final_attachments else ""),
+                        },
+                        dedupe_suffix=message_id,
+                    )
                 return True
         except Exception as e:
             logger.error(f"Failed to update channel message: {e}", exc_info=True)
@@ -3683,12 +3839,39 @@ class ChannelManager:
         """Update last_read_at for a user in a channel to now, clearing its unread count."""
         try:
             with self.db.get_connection() as conn:
+                unread_exists = conn.execute(
+                    """
+                    SELECT 1
+                    FROM channel_members cm
+                    WHERE cm.channel_id = ? AND cm.user_id = ?
+                      AND EXISTS (
+                            SELECT 1
+                            FROM channel_messages unread
+                            WHERE unread.channel_id = cm.channel_id
+                              AND (unread.expires_at IS NULL OR unread.expires_at > CURRENT_TIMESTAMP)
+                              AND (cm.last_read_at IS NULL OR unread.created_at > cm.last_read_at)
+                            LIMIT 1
+                      )
+                    LIMIT 1
+                    """,
+                    (channel_id, user_id),
+                ).fetchone()
+                if not unread_exists:
+                    return
                 conn.execute(
                     """UPDATE channel_members SET last_read_at = CURRENT_TIMESTAMP
                        WHERE channel_id = ? AND user_id = ?""",
                     (channel_id, user_id)
                 )
                 conn.commit()
+            self._emit_channel_user_event(
+                channel_id=channel_id,
+                event_type=EVENT_CHANNEL_MESSAGE_READ,
+                actor_user_id=user_id,
+                target_user_ids=[user_id],
+                payload={"reason": "channel_read"},
+                dedupe_suffix=f"channel_read:{user_id}",
+            )
         except Exception as e:
             logger.warning(f"Failed to mark channel {channel_id} as read for {user_id}: {e}")
 
@@ -3784,6 +3967,31 @@ class ChannelManager:
                     (channel_id, target_user_id, role))
                 conn.commit()
                 logger.info(f"Added member {target_user_id} to channel {channel_id} by {requester_id}")
+                current_member_count = 0
+                try:
+                    member_row = conn.execute(
+                        "SELECT COUNT(*) AS count FROM channel_members WHERE channel_id = ?",
+                        (channel_id,),
+                    ).fetchone()
+                    if member_row:
+                        current_member_count = int(
+                            member_row['count'] if hasattr(member_row, 'keys') else member_row[0]
+                        )
+                except Exception:
+                    current_member_count = 0
+                self._emit_channel_user_event(
+                    channel_id=channel_id,
+                    event_type=EVENT_CHANNEL_STATE_UPDATED,
+                    actor_user_id=requester_id,
+                    target_user_ids=[target_user_id, requester_id],
+                    payload={
+                        "reason": "member_added",
+                        "member_user_id": target_user_id,
+                        "role": role,
+                        "member_count": current_member_count,
+                    },
+                    dedupe_suffix=f"member_added:{target_user_id}:{current_member_count}",
+                )
                 return True
         except Exception as e:
             logger.error(f"Failed to add member: {e}")
@@ -3801,8 +4009,34 @@ class ChannelManager:
                 cur = conn.execute(
                     "DELETE FROM channel_members WHERE channel_id = ? AND user_id = ?",
                     (channel_id, target_user_id))
+                current_member_count = 0
+                try:
+                    member_row = conn.execute(
+                        "SELECT COUNT(*) AS count FROM channel_members WHERE channel_id = ?",
+                        (channel_id,),
+                    ).fetchone()
+                    if member_row:
+                        current_member_count = int(
+                            member_row['count'] if hasattr(member_row, 'keys') else member_row[0]
+                        )
+                except Exception:
+                    current_member_count = 0
                 conn.commit()
-                return cast(int, cur.rowcount) > 0
+                removed = cast(int, cur.rowcount) > 0
+            if removed:
+                self._emit_channel_user_event(
+                    channel_id=channel_id,
+                    event_type=EVENT_CHANNEL_STATE_UPDATED,
+                    actor_user_id=requester_id,
+                    target_user_ids=[target_user_id, requester_id],
+                    payload={
+                        "reason": "member_removed",
+                        "member_user_id": target_user_id,
+                        "member_count": current_member_count,
+                    },
+                    dedupe_suffix=f"member_removed:{target_user_id}:{current_member_count}",
+                )
+            return removed
         except Exception as e:
             logger.error(f"Failed to remove member: {e}")
             return False
@@ -4010,6 +4244,15 @@ class ChannelManager:
                 conn.execute("DELETE FROM channel_messages WHERE id = ?", (message_id,))
                 conn.commit()
                 logger.info(f"Deleted channel message {message_id} from {channel_id}")
+                self._emit_channel_user_event(
+                    channel_id=channel_id,
+                    event_type=EVENT_CHANNEL_MESSAGE_DELETED,
+                    actor_user_id=user_id,
+                    payload={
+                        "message_id": message_id,
+                    },
+                    dedupe_suffix=message_id,
+                )
                 return True
         except Exception as e:
             logger.error(f"Failed to delete channel message: {e}")
@@ -4021,6 +4264,7 @@ class ChannelManager:
             logger.warning(f"Delete denied: {requester_id} not admin of {channel_id}")
             return False
         try:
+            target_user_ids = self._channel_member_user_ids(channel_id)
             with self.db.get_connection() as conn:
                 conn.execute(
                     "UPDATE channel_messages SET parent_message_id = NULL WHERE channel_id = ?",
@@ -4032,7 +4276,15 @@ class ChannelManager:
                 conn.execute("DELETE FROM channels WHERE id = ?", (channel_id,))
                 conn.commit()
                 logger.info(f"Channel {channel_id} deleted by {requester_id}")
-                return True
+            self._emit_channel_user_event(
+                channel_id=channel_id,
+                event_type=EVENT_CHANNEL_STATE_UPDATED,
+                actor_user_id=requester_id,
+                target_user_ids=target_user_ids,
+                payload={"reason": "channel_deleted"},
+                dedupe_suffix="channel_deleted",
+            )
+            return True
         except Exception as e:
                 logger.error(f"Failed to delete channel: {e}")
                 return False

@@ -25,6 +25,7 @@ if 'zeroconf' not in sys.modules:
     sys.modules['zeroconf'] = zeroconf_stub
 
 from canopy.ui.routes import create_ui_blueprint
+from canopy.core.events import WorkspaceEventManager
 
 
 class TestChannelSidebarStateDelta(unittest.TestCase):
@@ -99,6 +100,7 @@ class TestChannelSidebarStateDelta(unittest.TestCase):
             MagicMock(),
             MagicMock(),
         )
+        components[-1].get_peer_id.return_value = 'peer-local'
 
         self.get_components_patcher = patch('canopy.ui.routes.get_app_components', return_value=components)
         self.get_components_any_patcher = patch('canopy.ui.routes._get_app_components_any', return_value=components)
@@ -110,6 +112,8 @@ class TestChannelSidebarStateDelta(unittest.TestCase):
         app = Flask(__name__)
         app.config['TESTING'] = True
         app.secret_key = 'channel-sidebar-secret'
+        app.config['WORKSPACE_EVENT_MANAGER'] = MagicMock(spec=WorkspaceEventManager)
+        app.config['WORKSPACE_EVENT_MANAGER'].get_latest_seq.return_value = 42
         app.register_blueprint(create_ui_blueprint())
 
         self.client = app.test_client()
@@ -126,6 +130,7 @@ class TestChannelSidebarStateDelta(unittest.TestCase):
         self.assertTrue(payload.get('changed'))
         self.assertEqual(payload.get('count'), 2)
         self.assertTrue(payload.get('rev'))
+        self.assertEqual(payload.get('workspace_event_cursor'), 42)
         channels = payload.get('channels') or []
         self.assertEqual(channels[0].get('id'), 'general')
         self.assertEqual(channels[1].get('crypto_mode'), 'channel_e2e_v1')
@@ -148,6 +153,43 @@ class TestChannelSidebarStateDelta(unittest.TestCase):
         self.assertEqual(payload.get('count'), 2)
         self.assertEqual(payload.get('channels'), [])
         self.assertEqual(payload.get('rev'), first_payload.get('rev'))
+        self.assertEqual(payload.get('workspace_event_cursor'), 42)
+
+    def test_channels_page_seeds_cursor_without_advancing_past_sidebar_snapshot(self) -> None:
+        workspace_events = self.client.application.config['WORKSPACE_EVENT_MANAGER']
+        workspace_events.get_latest_seq.return_value = 42
+        original_get_user_channels = self.channel_manager.get_user_channels
+        call_counter = {'count': 0}
+
+        def _race_get_user_channels(user_id):
+            call_counter['count'] += 1
+            if call_counter['count'] >= 2:
+                workspace_events.get_latest_seq.return_value = 99
+            return original_get_user_channels(user_id)
+
+        with patch.object(self.channel_manager, 'get_user_channels', side_effect=_race_get_user_channels):
+            response = self.client.get('/channels')
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn('let channelSidebarEventCursor = Number(42) || 0;', body)
+        self.assertIn('let channelThreadEventCursor = Number(42) || 0;', body)
+        self.assertIn("const CHANNEL_THREAD_EVENT_TYPES = [", body)
+        self.assertIn("function pollChannelThreadEvents() {", body)
+        self.assertIn("function refreshChannelMessagesSnapshot(options = {}) {", body)
+        self.assertIn("function requestChannelThreadRefresh(options = {}) {", body)
+        self.assertIn("if (isSearchActive) {", body)
+        self.assertIn("loadChannelMessages(currentChannelId, { forceScroll });", body)
+        self.assertIn("function setSidebarChannelMemberCount(channelId, memberCount) {", body)
+        self.assertIn("function applySidebarChannelStateUpdate(channelId, payload) {", body)
+        self.assertIn("reason === 'notifications_updated'", body)
+        self.assertIn("reason === 'lifecycle_updated'", body)
+        self.assertIn("reason === 'privacy_updated'", body)
+        self.assertIn("reason === 'channel_deleted'", body)
+        self.assertIn("startChannelThreadEventPolling();", body)
+        self.assertNotIn("Number(channelSidebarEventCursor || 0),\n    );", body)
+        self.assertNotIn("Number(channelSidebarEventCursor || 0),\n            );", body)
+        self.assertNotIn("channelThreadEventCursor = Number(data.workspace_event_cursor || 0);", body)
 
 
 if __name__ == '__main__':

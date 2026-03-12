@@ -2833,9 +2833,33 @@ class P2PNetworkManager:
             self._event_loop
         )
 
+        # DM sends should not block the request thread on slow or dead peers.
+        # Completion still gets logged once the event-loop task finishes.
+        def _on_done(f: Any) -> None:
+            try:
+                result = bool(f.result())
+                if result:
+                    logger.info(f"Broadcast DM {message_id} from {sender_id} to {recipient_id}")
+                else:
+                    logger.warning(
+                        "DM broadcast %s from %s to %s completed without a live peer delivery",
+                        message_id,
+                        sender_id,
+                        recipient_id,
+                    )
+            except Exception as exc:
+                logger.error(f"Error broadcasting DM: {exc}", exc_info=True)
+
+        if hasattr(future, 'add_done_callback'):
+            future.add_done_callback(_on_done)
+            return True
+
         try:
-            result = future.result(timeout=5.0)
-            logger.info(f"Broadcast DM {message_id} from {sender_id} to {recipient_id}")
+            attachment_count = len((outbound_metadata or {}).get('attachments') or [])
+            timeout = 60.0 if attachment_count else 5.0
+            result = bool(future.result(timeout=timeout))
+            if result:
+                logger.info(f"Broadcast DM {message_id} from {sender_id} to {recipient_id}")
             return result
         except Exception as e:
             logger.error(f"Error broadcasting DM: {e}", exc_info=True)

@@ -58,6 +58,9 @@ from .mentions import (
 )
 from .events import (
     EVENT_ATTACHMENT_AVAILABLE,
+    EVENT_CHANNEL_MESSAGE_CREATED,
+    EVENT_CHANNEL_MESSAGE_DELETED,
+    EVENT_CHANNEL_MESSAGE_EDITED,
     EVENT_DM_MESSAGE_DELETED,
     WorkspaceEventManager,
 )
@@ -289,6 +292,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
         
         logger.info("Initializing channel manager...")
         channel_manager = ChannelManager(db_manager, api_key_manager)
+        channel_manager.workspace_events = workspace_event_manager
         app.config['CHANNEL_MANAGER'] = channel_manager
         logger.info("Channel manager initialized successfully")
 
@@ -1702,6 +1706,19 @@ def create_app(config: Optional[Config] = None) -> Flask:
                             message_id,
                             mention_sync_err,
                         )
+                    try:
+                        channel_manager._emit_channel_user_event(
+                            channel_id=channel_id,
+                            event_type=EVENT_CHANNEL_MESSAGE_EDITED,
+                            actor_user_id=user_id,
+                            payload={
+                                'message_id': message_id,
+                                'preview': build_preview(content_rewritten or '') or '',
+                            },
+                            dedupe_suffix=message_id,
+                        )
+                    except Exception:
+                        pass
                     logger.info(f"Updated P2P channel message {message_id} in #{channel_id}")
                     return
 
@@ -1740,6 +1757,19 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
                 logger.info(f"Stored P2P channel message {mid} in #{channel_id}"
                             f"{' with ' + str(len(processed_attachments)) + ' attachment(s)' if processed_attachments else ''}")
+                try:
+                    channel_manager._emit_channel_user_event(
+                        channel_id=channel_id,
+                        event_type=EVENT_CHANNEL_MESSAGE_CREATED,
+                        actor_user_id=user_id,
+                        payload={
+                            'message_id': mid,
+                            'preview': build_preview(content_rewritten or '') or '',
+                        },
+                        dedupe_suffix=mid,
+                    )
+                except Exception:
+                    pass
 
                 # Inline circles from [circle] blocks (allow update-only)
                 try:
@@ -6024,7 +6054,14 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     # Delete a specific channel message (explicit type).
                     # Remove FK references first: likes and parent_message_id.
                     try:
+                        channel_id = None
                         with db_manager.get_connection() as conn:
+                            row = conn.execute(
+                                "SELECT channel_id FROM channel_messages WHERE id = ?",
+                                (data_id,),
+                            ).fetchone()
+                            if row:
+                                channel_id = row['channel_id'] if hasattr(row, 'keys') else row[0]
                             conn.execute("DELETE FROM likes WHERE message_id = ?", (data_id,))
                             conn.execute(
                                 "UPDATE channel_messages SET parent_message_id = NULL WHERE parent_message_id = ?",
@@ -6035,6 +6072,18 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                 (data_id,))
                             conn.commit()
                             deleted = cur.rowcount > 0
+                        if deleted and channel_id:
+                            try:
+                                channel_manager._emit_channel_user_event(
+                                    channel_id=str(channel_id),
+                                    event_type=EVENT_CHANNEL_MESSAGE_DELETED,
+                                    payload={
+                                        'message_id': data_id,
+                                    },
+                                    dedupe_suffix=data_id,
+                                )
+                            except Exception:
+                                pass
                     except Exception as del_err:
                         logger.error(f"Failed to delete channel message {data_id}: {del_err}")
 

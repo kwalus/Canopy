@@ -19,6 +19,12 @@ logger = logging.getLogger(__name__)
 EVENT_DM_MESSAGE_CREATED = "dm.message.created"
 EVENT_DM_MESSAGE_EDITED = "dm.message.edited"
 EVENT_DM_MESSAGE_DELETED = "dm.message.deleted"
+EVENT_DM_MESSAGE_READ = "dm.message.read"
+EVENT_CHANNEL_MESSAGE_CREATED = "channel.message.created"
+EVENT_CHANNEL_MESSAGE_EDITED = "channel.message.edited"
+EVENT_CHANNEL_MESSAGE_DELETED = "channel.message.deleted"
+EVENT_CHANNEL_MESSAGE_READ = "channel.message.read"
+EVENT_CHANNEL_STATE_UPDATED = "channel.state.updated"
 EVENT_MENTION_CREATED = "mention.created"
 EVENT_MENTION_ACKNOWLEDGED = "mention.acknowledged"
 EVENT_INBOX_ITEM_CREATED = "inbox.item.created"
@@ -29,6 +35,12 @@ PATCH1_EVENT_TYPES = {
     EVENT_DM_MESSAGE_CREATED,
     EVENT_DM_MESSAGE_EDITED,
     EVENT_DM_MESSAGE_DELETED,
+    EVENT_DM_MESSAGE_READ,
+    EVENT_CHANNEL_MESSAGE_CREATED,
+    EVENT_CHANNEL_MESSAGE_EDITED,
+    EVENT_CHANNEL_MESSAGE_DELETED,
+    EVENT_CHANNEL_MESSAGE_READ,
+    EVENT_CHANNEL_STATE_UPDATED,
     EVENT_MENTION_CREATED,
     EVENT_MENTION_ACKNOWLEDGED,
     EVENT_INBOX_ITEM_CREATED,
@@ -442,6 +454,9 @@ class WorkspaceEventManager:
         visibility_scope = str(row["visibility_scope"] or "").strip().lower()
         target_user_id = str(row["target_user_id"] or "").strip()
         message_id = str(row["message_id"] or "").strip()
+
+        if visibility_scope == "user" and target_user_id:
+            return target_user_id == user_id
 
         if event_type.startswith("mention.") or event_type.startswith("inbox.item."):
             return bool(target_user_id and target_user_id == user_id)

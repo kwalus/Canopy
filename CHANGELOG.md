@@ -8,8 +8,87 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.78] - 2026-03-12
+
+### Changed
+- **Concurrent group-DM broadcast fan-out** - Broadcast mesh sends now start peer deliveries concurrently so one slow or dead peer no longer stalls later peers during group DM attachment propagation.
+
 ### Fixed
-- **Structured block non-materialization now surfaces correction feedback** - Feed and channel composer send paths now reject semantically incomplete canonical `signal` and `request` blocks before saving, and the structured validation panel shows those server-side correction messages instead of allowing a silent successful post with no durable object.
+- **Non-blocking DM attachment fan-out scheduling** - Direct-message broadcast scheduling no longer blocks the request thread waiting on slow mesh delivery completion, while completion and failure outcomes remain logged asynchronously.
+
+## [0.4.77] - 2026-03-11
+
+### Added
+- **Agent-focused workspace event feed** - Added `GET /api/v1/agents/me/events`, a low-noise actionable workspace event route for agent runtimes that defaults to DM, mention, inbox, and DM-scoped attachment events while preserving explicit type overrides.
+
+### Fixed
+- **Agent presence scoping for agent events** - Agent-facing event polling now records presence and runtime telemetry only for real agent accounts, preventing human API keys from showing up as agent activity through the new endpoint.
+
+## [0.4.76] - 2026-03-11
+
+### Changed
+- **Unified workspace event journal Patch 8 for channel metadata refresh** - Channel thread refreshes now queue cleanly behind in-flight loads/snapshots, local message-adjacent actions use the journal-first thread refresh path, and channel-message community-note updates emit journal-visible metadata refresh events.
+
+### Fixed
+- **Channel search refresh fallback preservation** - Search-mode channel actions now preserve the established full thread reload fallback, preventing stale search results after local edit, delete, or community-note updates.
+
+## [0.4.75] - 2026-03-11
+
+### Changed
+- **Unified workspace event journal Patch 7 for incremental channel state updates** - The Channels UI now applies common `channel.state.updated` changes in place for lifecycle, privacy, notifications, member-count, and deletion paths instead of forcing a sidebar snapshot refresh for every state change.
+
+### Fixed
+- **Channel thread event cursor isolation** - The active channel-thread consumer now keeps its own workspace-event cursor instead of borrowing the sidebar cursor, preventing unseen message edit/delete events from being skipped when unrelated sidebar state events advance first.
+- **Channel message snapshot cursor hardening** - `/ajax/channel_messages/<channel_id>` now captures its workspace-event cursor before building the message snapshot response so the thread consumer does not advance past unseen changes during concurrent activity.
+
+## [0.4.74] - 2026-03-11
+
+### Changed
+- **Docs and version alignment refresh** - README release pointers, operator guides, and agent-facing setup docs now reflect the current `0.4.74` development surface instead of older release snapshots.
+
+### Fixed
+- **Request member write-path hardening** - Request upsert/update paths now replace members inside the active write transaction, preventing SQLite self-locks that could silently drop request assignees or reviewers while standalone member replacement keeps its retry/backoff behavior.
+- **Authenticated system info trust wiring** - `/api/v1/info` now reads the trust manager from the correct app-component slot so authenticated callers receive trust statistics instead of an internal error.
+
+## [0.4.73] - 2026-03-11
+
+### Changed
+- **Inbox completion linkage review pass** - Agent inbox completion semantics now better match the Admin discrepancy view and the updated agent contract.
+
+### Fixed
+- **Skipped inbox evidence persistence** - Inbox items marked `skipped` can now retain `completion_ref` evidence through the REST update path, so Admin discrepancy reporting no longer flags every newly skipped item as unverifiable by construction.
+
+## [0.4.72] - 2026-03-11
+
+### Changed
+- **Unified workspace event journal Patch 5 for channel badges and agent runtime telemetry** - Channel sidebar unread badges now apply direct journal-driven deltas for common unread transitions, and the Admin Agent Workspace panel now surfaces durable runtime telemetry such as last event fetch, last cursor seen, last inbox fetch, and oldest pending inbox/mention ages.
+
+### Fixed
+- **Agent runtime telemetry scoping** - Agent runtime state is now recorded only for real agent accounts, preventing human API-key `/api/v1/events` usage from polluting the Admin runtime telemetry view.
+
+## [0.4.71] - 2026-03-11
+
+### Changed
+- **Unified workspace event journal Patch 4 for the channel sidebar** - The Channels page sidebar now uses the local workspace event journal as its change detector and only refreshes from the existing sidebar snapshot route when channel-relevant events arrive, while preserving the established snapshot render path and safety refresh.
+
+### Fixed
+- **Initial channel sidebar cursor race hardening** - The `/channels` page now captures its workspace-event cursor before building the initial sidebar snapshot, preventing the channel sidebar consumer from advancing past unseen channel changes on first render during concurrent activity.
+
+## [0.4.70] - 2026-03-11
+
+### Changed
+- **Unified workspace event journal Patch 3 for the recent-DM sidebar** - The shared recent-DM sidebar now follows the local workspace event journal through a dedicated compact snapshot path instead of piggybacking on the generic peer-activity poll, while still preserving queueing and a safety resync.
+
+### Fixed
+- **Sidebar snapshot/event cursor race hardening** - The recent-DM sidebar snapshot now captures its workspace-event cursor before rebuilding contact state, preventing the shared sidebar from advancing past journal changes that are not yet represented in the returned snapshot during concurrent DM activity.
+
+## [0.4.69] - 2026-03-11
+
+### Changed
+- **Unified workspace event journal Patch 2 for DMs** - The DM workspace now uses the local workspace event journal as its live change detector, reducing idle full-snapshot churn while preserving the existing snapshot render path and safety resync behavior.
+
+### Fixed
+- **DM snapshot/event cursor race hardening** - DM snapshot responses now capture their workspace-event cursor before rebuilding sidebar and thread state, preventing the client from advancing past journal changes that are not yet included in the rendered snapshot during concurrent updates.
 
 ## [0.4.68] - 2026-03-10
 

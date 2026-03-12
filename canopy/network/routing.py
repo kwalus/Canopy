@@ -10,6 +10,7 @@ License: Apache 2.0
 Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
+import asyncio
 import base64
 import logging
 import secrets
@@ -702,18 +703,25 @@ class MessageRouter:
         peers_to_send = [p for p in connected_peers if p not in excluded]
         
         logger.info(f"Broadcasting {message.type.value} {message.id} to {len(peers_to_send)} peers: {peers_to_send}")
-        
-        success = False
-        for peer_id in peers_to_send:
+
+        async def _send_one(peer_id: str) -> tuple[str, bool]:
             sent = await self.connection_manager.send_to_peer(
                 peer_id,
                 {'type': 'p2p_message', 'message': message.to_dict()}
             )
-            if sent:
-                logger.info(f"  -> Sent to {peer_id}: OK")
-            else:
-                logger.warning(f"  -> Sent to {peer_id}: FAILED")
-            success = success or sent
+            return peer_id, bool(sent)
+
+        success = False
+        if peers_to_send:
+            results = await asyncio.gather(
+                *(_send_one(peer_id) for peer_id in peers_to_send)
+            )
+            for peer_id, sent in results:
+                if sent:
+                    logger.info(f"  -> Sent to {peer_id}: OK")
+                else:
+                    logger.warning(f"  -> Sent to {peer_id}: FAILED")
+                success = success or sent
         
         # Also deliver to ourselves
         await self._deliver_local(message)

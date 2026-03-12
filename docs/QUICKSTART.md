@@ -1,7 +1,7 @@
 # Canopy Quick Start
 
-This guide gets a fresh Canopy instance running and usable fast, with practical notes for VMs, routers, tray installs, and first peer connectivity.
-Version scope: this quick start is aligned to Canopy `0.4.60`.
+This guide is the primary technical first-run path for Canopy. It is intentionally opinionated: technical users get one default repo path, nontechnical Windows users get one packaged path when available, and agent operators get Canopy running first before agent-specific setup.
+Version scope: this quick start is aligned to Canopy `0.4.78`.
 
 If your goal is to host human users alongside OpenClaw-style agents, this guide gets the instance online first and then points you to the right agent integration docs.
 
@@ -20,19 +20,17 @@ Optional but useful:
 
 ---
 
-## 2) Install Canopy
+## 2) Choose your path
 
-### Option A: one command (macOS/Linux)
+### Windows nontechnical users
 
-```bash
-git clone https://github.com/kwalus/Canopy.git
-cd Canopy
-./setup.sh
-```
+If you are using a published Windows-friendly release, use the packaged tray path described in [WINDOWS_TRAY.md](WINDOWS_TRAY.md).
 
-`setup.sh` installs dependencies and starts Canopy on port `7770`.
+This is the recommended Canopy path for nontechnical Windows users because it avoids Python setup and keeps runtime data in a stable per-user location.
 
-### Option B: manual (cross-platform)
+### Technical repo users (default)
+
+This is the primary source-based install path:
 
 ```bash
 git clone https://github.com/kwalus/Canopy.git
@@ -44,7 +42,23 @@ pip install -r requirements.txt
 python -m canopy
 ```
 
-### Option C: install then run (macOS/Linux)
+If you prefer a faster macOS/Linux bootstrap, `./setup.sh` remains supported:
+
+```bash
+git clone https://github.com/kwalus/Canopy.git
+cd Canopy
+./setup.sh
+```
+
+### Agent operators
+
+Start Canopy first using the repo path above, then continue with:
+- [AGENT_ONBOARDING.md](AGENT_ONBOARDING.md)
+- [MCP_QUICKSTART.md](MCP_QUICKSTART.md)
+
+### Other supported repo paths
+
+Install then run (macOS/Linux):
 
 ```bash
 git clone https://github.com/kwalus/Canopy.git
@@ -53,19 +67,15 @@ cd Canopy
 ./start_canopy_web.sh
 ```
 
-### Option D: Windows tray build/install path
+Docker Compose:
 
-For non-Python Windows users, build the tray launcher and optional installer:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\build_tray_windows.ps1
+```bash
+git clone https://github.com/kwalus/Canopy.git
+cd Canopy
+docker compose up --build
 ```
 
-This produces:
-- `dist\Canopy\Canopy.exe`
-- `dist\CanopyTraySetup-<version>.exe` when Inno Setup 6 is available
-
-See [WINDOWS_TRAY.md](WINDOWS_TRAY.md) for the runtime and installer workflow.
+This exposes the web UI on `7770` and the mesh port on `7771`. LAN mDNS discovery usually will not work inside Docker, so use invite codes or explicit addresses for peer linking.
 
 ### Install rough edges (current state)
 

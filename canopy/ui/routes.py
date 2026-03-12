@@ -59,7 +59,8 @@ from ..core.agent_presence import (
     get_agent_presence_records,
     build_agent_presence_payload,
 )
-from ..core.events import PATCH1_EVENT_TYPES
+from ..core.agent_runtime import build_agent_runtime_payload
+from ..core.events import PATCH1_EVENT_TYPES, EVENT_CHANNEL_MESSAGE_EDITED
 from ..core.file_preview import build_file_preview
 from ..core.messaging import (
     build_dm_security_summary,
@@ -375,6 +376,7 @@ def create_ui_blueprint() -> Blueprint:
             return {}
         try:
             db_manager, _, trust_manager, message_manager, channel_manager, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+            workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
             connected_peers = p2p_manager.get_connected_peers() if p2p_manager else []
             local_peer_id = p2p_manager.get_peer_id() if p2p_manager else None
             peer_snapshot = _build_sidebar_peer_snapshot(
@@ -399,6 +401,7 @@ def create_ui_blueprint() -> Blueprint:
                 'sidebar_peer_rev': peer_snapshot['peer_rev'],
                 'sidebar_recent_dm_contacts': dm_snapshot['recent_dm_contacts'],
                 'sidebar_dm_rev': dm_snapshot['dm_rev'],
+                'sidebar_dm_event_cursor': int((workspace_event_manager.get_latest_seq() if workspace_event_manager else 0) or 0),
                 'sidebar_local_peer_id': local_peer_id,
             }
             # Admin link and badge (instance owner only)
@@ -1510,6 +1513,47 @@ def create_ui_blueprint() -> Blueprint:
             'dm_rev': _stable_ui_revision(contacts),
         }
 
+    def _build_channel_sidebar_snapshot(
+        channel_manager: Any,
+        p2p_manager: Any,
+        user_id: str,
+    ) -> dict[str, Any]:
+        channels = channel_manager.get_user_channels(user_id) if channel_manager else []
+        channels = _enrich_channel_lifecycle_state(channels, channel_manager, p2p_manager)
+        payload = []
+        default_ttl = getattr(channel_manager, 'DEFAULT_CHANNEL_LIFECYCLE_DAYS', 180)
+        for ch in channels:
+            ctype = ch.channel_type
+            if hasattr(ctype, 'value'):
+                ctype = ctype.value
+            payload.append({
+                'id': ch.id,
+                'name': ch.name,
+                'description': getattr(ch, 'description', '') or '',
+                'channel_type': str(ctype or 'public'),
+                'privacy_mode': getattr(ch, 'privacy_mode', 'open') or 'open',
+                'origin_peer': getattr(ch, 'origin_peer', '') or '',
+                'user_role': getattr(ch, 'user_role', 'member') or 'member',
+                'member_count': int(getattr(ch, 'member_count', 0) or 0),
+                'unread_count': int(getattr(ch, 'unread_count', 0) or 0),
+                'notifications_enabled': bool(getattr(ch, 'notifications_enabled', True)),
+                'crypto_mode': getattr(ch, 'crypto_mode', '') or '',
+                'lifecycle_status': getattr(ch, 'lifecycle_status', 'active') or 'active',
+                'lifecycle_ttl_days': int(getattr(ch, 'lifecycle_ttl_days', default_ttl) or default_ttl),
+                'lifecycle_preserved': bool(getattr(ch, 'lifecycle_preserved', False)),
+                'archived_at': (
+                    getattr(ch, 'archived_at', None).isoformat()
+                    if getattr(ch, 'archived_at', None) else None
+                ),
+                'archive_reason': getattr(ch, 'archive_reason', None),
+                'days_until_archive': getattr(ch, 'days_until_archive', None),
+                'owner_peer_state': getattr(ch, 'owner_peer_state', None),
+            })
+        return {
+            'channels': payload,
+            'rev': _stable_ui_revision(payload),
+        }
+
     def _build_sidebar_dm_contacts(
         db_manager: Any,
         profile_manager: Any,
@@ -1800,11 +1844,27 @@ def create_ui_blueprint() -> Blueprint:
                 'config': {},
                 'items': [],
                 'audit': [],
+                'discrepancies': {
+                    'completed_without_completion_ref': 0,
+                    'skipped_without_completion_ref': 0,
+                    'items': [],
+                },
             },
             'mentions': {
                 'available': bool(mention_manager),
                 'unacked_count': 0,
                 'items': [],
+            },
+            'runtime': {
+                'last_event_fetch_at': None,
+                'last_event_cursor_seen': None,
+                'last_inbox_fetch_at': None,
+                'oldest_pending_inbox_at': None,
+                'oldest_pending_inbox_age_seconds': None,
+                'oldest_pending_inbox_age_text': None,
+                'oldest_unacked_mention_at': None,
+                'oldest_unacked_mention_age_seconds': None,
+                'oldest_unacked_mention_age_text': None,
             },
             'governance': {
                 'available': bool(channel_manager),
@@ -1820,8 +1880,8 @@ def create_ui_blueprint() -> Blueprint:
 
         if inbox_manager and user_id:
             try:
-                pending_count = inbox_manager.count_items(user_id=user_id, status='pending')
-                total_count = inbox_manager.count_items(user_id=user_id)
+                pending_count = inbox_manager.count_items(user_id=user_id)
+                total_count = inbox_manager.count_items(user_id=user_id, include_handled=True)
                 items = inbox_manager.list_items(
                     user_id=user_id,
                     status=None,
@@ -1847,7 +1907,14 @@ def create_ui_blueprint() -> Blueprint:
                             'status': item.get('status'),
                             'priority': item.get('priority'),
                             'created_at': item.get('created_at'),
+                            'seen_at': item.get('seen_at'),
                             'handled_at': item.get('handled_at'),
+                            'completed_at': item.get('completed_at'),
+                            'completion_ref': item.get('completion_ref'),
+                            'has_completion_ref': bool(item.get('completion_ref')),
+                            'last_resolution_status': item.get('last_resolution_status'),
+                            'last_resolution_at': item.get('last_resolution_at'),
+                            'last_completion_ref': item.get('last_completion_ref'),
                             'preview': ((item.get('payload') or {}).get('preview') or '')[:220],
                         }
                         for item in (items or [])
@@ -1865,6 +1932,25 @@ def create_ui_blueprint() -> Blueprint:
                         }
                         for row in (audit or [])
                     ],
+                    'discrepancies': {
+                        'completed_without_completion_ref': int(((stats or {}).get('discrepancy_counts') or {}).get('completed_without_completion_ref', 0) or 0),
+                        'skipped_without_completion_ref': int(((stats or {}).get('discrepancy_counts') or {}).get('skipped_without_completion_ref', 0) or 0),
+                        'items': [
+                            {
+                                'id': item.get('id'),
+                                'status': item.get('status'),
+                                'trigger_type': item.get('trigger_type'),
+                                'source_type': item.get('source_type'),
+                                'source_id': item.get('source_id'),
+                                'created_at': item.get('created_at'),
+                                'completed_at': item.get('completed_at'),
+                                'handled_at': item.get('handled_at'),
+                                'preview': ((item.get('payload') or {}).get('preview') or '')[:220],
+                            }
+                            for item in (items or [])
+                            if item.get('status') in {'completed', 'handled', 'skipped'} and not item.get('completion_ref')
+                        ][:10],
+                    },
                 })
             except Exception as inbox_err:
                 logger.warning(f"Admin workspace inbox snapshot failed for {user_id}: {inbox_err}")
@@ -1895,6 +1981,11 @@ def create_ui_blueprint() -> Blueprint:
                 })
             except Exception as mention_err:
                 logger.warning(f"Admin workspace mentions snapshot failed for {user_id}: {mention_err}")
+
+        try:
+            workspace['runtime'] = build_agent_runtime_payload(db_manager, user_id)
+        except Exception as runtime_err:
+            logger.warning(f"Admin workspace runtime snapshot failed for {user_id}: {runtime_err}")
 
         if channel_manager and user_id:
             try:
@@ -1982,6 +2073,49 @@ def create_ui_blueprint() -> Blueprint:
             return _serialize_community_notes(visible, viewer_user_id)
         except Exception:
             return []
+
+    def _emit_channel_message_metadata_event(
+        *,
+        channel_manager: Any,
+        db_manager: Any,
+        message_id: str,
+        actor_user_id: str,
+        reason: str,
+        dedupe_suffix: str,
+    ) -> None:
+        if not channel_manager or not db_manager or not message_id or not actor_user_id:
+            return
+        emit_fn = getattr(channel_manager, '_emit_channel_user_event', None)
+        if not callable(emit_fn):
+            return
+        try:
+            with db_manager.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT channel_id, content FROM channel_messages WHERE id = ?",
+                    (message_id,),
+                ).fetchone()
+        except Exception:
+            row = None
+        if not row:
+            return
+        channel_id = str(row['channel_id'] or '').strip()
+        if not channel_id:
+            return
+        preview = build_preview(row['content'] or '') or ''
+        try:
+            emit_fn(
+                channel_id=channel_id,
+                event_type=EVENT_CHANNEL_MESSAGE_EDITED,
+                actor_user_id=actor_user_id,
+                payload={
+                    'message_id': message_id,
+                    'preview': preview,
+                    'reason': reason,
+                },
+                dedupe_suffix=dedupe_suffix,
+            )
+        except Exception as event_err:
+            logger.debug(f"Community-note channel metadata event skipped: {event_err}")
 
     def _can_access_note_target(
         *,
@@ -2158,6 +2292,13 @@ def create_ui_blueprint() -> Blueprint:
         search_query: str = '',
     ) -> dict[str, Any]:
         db_manager, _, _, message_manager, _, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+        workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
+        try:
+            # Capture the cursor before rebuilding sidebar/thread state so the
+            # client never advances past changes that are absent from this snapshot.
+            workspace_event_cursor = int((workspace_event_manager.get_latest_seq() if workspace_event_manager else 0) or 0)
+        except Exception:
+            workspace_event_cursor = 0
 
         if conversation_group and not conversation_group.startswith('group:'):
             conversation_group = None
@@ -2690,6 +2831,7 @@ def create_ui_blueprint() -> Blueprint:
             'conversation_group': conversation_group,
             'latest_message_id': latest_message_id,
             'latest_message_created_at': latest_message_created_at,
+            'workspace_event_cursor': workspace_event_cursor,
             'sidebar_state_token': sidebar_state_token,
             'thread_state_token': thread_state_token,
         }
@@ -2732,6 +2874,7 @@ def create_ui_blueprint() -> Blueprint:
                 'conversation_group': template_data.get('conversation_group'),
                 'latest_message_id': template_data.get('latest_message_id'),
                 'latest_message_created_at': template_data.get('latest_message_created_at'),
+                'workspace_event_cursor': template_data.get('workspace_event_cursor'),
                 'sidebar_state_token': template_data.get('sidebar_state_token'),
                 'thread_state_token': template_data.get('thread_state_token'),
                 'sidebar_html': render_template('_messages_sidebar_sections.html', **template_data),
@@ -3721,10 +3864,18 @@ def create_ui_blueprint() -> Blueprint:
             _, _, _, _, channel_manager, _, _, _, _, config, p2p_manager = _get_app_components_any(current_app)
             from ..core.polls import poll_edit_window_seconds
             user_id = get_current_user()
+            workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
+            try:
+                # Capture the cursor before building sidebar state so the
+                # initial page render never advances past unseen channel changes.
+                workspace_event_cursor = int((workspace_event_manager.get_latest_seq() if workspace_event_manager else 0) or 0)
+            except Exception:
+                workspace_event_cursor = 0
             
             # Get user's channels
             channels = channel_manager.get_user_channels(user_id)
             channels = _enrich_channel_lifecycle_state(channels, channel_manager, p2p_manager)
+            channel_sidebar_snapshot = _build_channel_sidebar_snapshot(channel_manager, p2p_manager, user_id)
             logger.debug(f"Channels page: user_id={user_id}, channels_count={len(channels)}")
             for channel in channels:
                 logger.debug(f"Channel: id={channel.id}, name={channel.name}, type={channel.channel_type}")
@@ -3755,6 +3906,8 @@ def create_ui_blueprint() -> Blueprint:
                                  local_device=local_device,
                                  local_peer_id=local_peer_id,
                                  is_admin=_is_admin(),
+                                 channel_sidebar_rev=channel_sidebar_snapshot.get('rev', ''),
+                                 workspace_event_cursor=workspace_event_cursor,
                                  poll_edit_window_seconds=poll_edit_window_seconds())
                                  
         except Exception as e:
@@ -4197,7 +4350,6 @@ def create_ui_blueprint() -> Blueprint:
             db_manager, _, trust_manager, message_manager, channel_manager, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
             since_arg = request.args.get('since')
             peer_rev_client = str(request.args.get('peer_rev') or '').strip()
-            dm_rev_client = str(request.args.get('dm_rev') or '').strip()
             since = None
             if since_arg is not None and since_arg != '':
                 try:
@@ -4214,9 +4366,6 @@ def create_ui_blueprint() -> Blueprint:
                     'peer_profiles': {},
                     'peer_rev': _stable_ui_revision([]),
                     'peer_changed': not bool(peer_rev_client),
-                    'recent_dm_contacts': [],
-                    'dm_rev': _stable_ui_revision([]),
-                    'dm_changed': not bool(dm_rev_client),
                     'events': [],
                     'server_time': time.time(),
                 })
@@ -4247,25 +4396,12 @@ def create_ui_blueprint() -> Blueprint:
                 trust_manager,
                 channel_manager,
             )
-            dm_snapshot = _build_sidebar_dm_snapshot(
-                db_manager,
-                profile_manager,
-                p2p_manager,
-                get_current_user(),
-                limit=5,
-            ) if message_manager else {
-                'recent_dm_contacts': [],
-                'dm_rev': _stable_ui_revision([]),
-            }
             peer_changed = peer_snapshot['peer_rev'] != peer_rev_client
-            dm_changed = dm_snapshot['dm_rev'] != dm_rev_client
 
             payload = {
                 'success': True,
                 'peer_rev': peer_snapshot['peer_rev'],
                 'peer_changed': peer_changed,
-                'dm_rev': dm_snapshot['dm_rev'],
-                'dm_changed': dm_changed,
                 'events': events,
                 'server_time': time.time(),
             }
@@ -4285,14 +4421,54 @@ def create_ui_blueprint() -> Blueprint:
                     'peer_profiles': {},
                     'connected_peer_count': peer_snapshot['connected_peer_count'],
                 })
-            if dm_changed:
-                payload['recent_dm_contacts'] = dm_snapshot['recent_dm_contacts']
-            else:
-                payload['recent_dm_contacts'] = []
             return jsonify(payload)
         except Exception as e:
             logger.error(f"Peer activity error: {e}", exc_info=True)
             return jsonify({'success': False, 'error': 'Failed to get peer activity'}), 500
+
+    @ui.route('/ajax/sidebar_dm_snapshot', methods=['GET'])
+    @require_login
+    def ajax_sidebar_dm_snapshot():
+        """Return the compact recent-DM sidebar snapshot for event-driven refreshes."""
+        try:
+            db_manager, _, _, message_manager, _, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+            dm_rev_client = str(request.args.get('dm_rev') or '').strip()
+            workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
+            try:
+                # Capture the cursor before rebuilding the sidebar snapshot so
+                # the client does not advance past changes absent from this payload.
+                workspace_event_cursor = int((workspace_event_manager.get_latest_seq() if workspace_event_manager else 0) or 0)
+            except Exception:
+                workspace_event_cursor = 0
+
+            if not message_manager:
+                empty_rev = _stable_ui_revision([])
+                return jsonify({
+                    'success': True,
+                    'dm_rev': empty_rev,
+                    'dm_changed': empty_rev != dm_rev_client,
+                    'recent_dm_contacts': [] if empty_rev == dm_rev_client else [],
+                    'workspace_event_cursor': workspace_event_cursor,
+                })
+
+            dm_snapshot = _build_sidebar_dm_snapshot(
+                db_manager,
+                profile_manager,
+                p2p_manager,
+                get_current_user(),
+                limit=5,
+            )
+            dm_changed = dm_snapshot['dm_rev'] != dm_rev_client
+            return jsonify({
+                'success': True,
+                'dm_rev': dm_snapshot['dm_rev'],
+                'dm_changed': dm_changed,
+                'recent_dm_contacts': dm_snapshot['recent_dm_contacts'] if dm_changed else [],
+                'workspace_event_cursor': workspace_event_cursor,
+            })
+        except Exception as e:
+            logger.error(f"Sidebar DM snapshot error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Failed to load DM sidebar snapshot'}), 500
 
     @ui.route('/ajax/p2p/diagnostics', methods=['GET'])
     @require_login
@@ -4522,6 +4698,16 @@ def create_ui_blueprint() -> Blueprint:
             if not note_id:
                 return jsonify({'success': False, 'error': 'Failed to create note'}), 500
 
+            if target_type == 'channel_message':
+                _emit_channel_message_metadata_event(
+                    channel_manager=current_app.config.get('CHANNEL_MANAGER'),
+                    db_manager=db_manager,
+                    message_id=target_id,
+                    actor_user_id=user_id,
+                    reason='community_note_created',
+                    dedupe_suffix=f"community_note_created:{note_id}",
+                )
+
             notes = _load_target_notes(skill_manager, target_type, target_id, user_id, limit=25)
             created = next((n for n in notes if n.get('id') == note_id), None)
             return jsonify({
@@ -4570,6 +4756,16 @@ def create_ui_blueprint() -> Blueprint:
             ok = skill_manager.rate_community_note(note_id, user_id, helpful=helpful)
             if not ok:
                 return jsonify({'success': False, 'error': 'Failed to rate note'}), 500
+
+            if (row['target_type'] or '').strip().lower() == 'channel_message':
+                _emit_channel_message_metadata_event(
+                    channel_manager=current_app.config.get('CHANNEL_MANAGER'),
+                    db_manager=db_manager,
+                    message_id=row['target_id'],
+                    actor_user_id=user_id,
+                    reason='community_note_rated',
+                    dedupe_suffix=f"community_note_rated:{note_id}:{1 if helpful else 0}",
+                )
 
             notes = _load_target_notes(
                 skill_manager,
@@ -6408,40 +6604,31 @@ def create_ui_blueprint() -> Blueprint:
             _, _, _, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
             user_id = get_current_user()
             client_rev = str(request.args.get('rev') or '').strip()
-            channels = channel_manager.get_user_channels(user_id)
-            channels = _enrich_channel_lifecycle_state(channels, channel_manager, p2p_manager)
-            payload = []
-            for ch in channels:
-                ctype = ch.channel_type
-                if hasattr(ctype, 'value'):
-                    ctype = ctype.value
-                payload.append({
-                    'id': ch.id,
-                    'name': ch.name,
-                    'description': getattr(ch, 'description', '') or '',
-                    'channel_type': str(ctype or 'public'),
-                    'privacy_mode': getattr(ch, 'privacy_mode', 'open') or 'open',
-                    'origin_peer': getattr(ch, 'origin_peer', '') or '',
-                    'user_role': getattr(ch, 'user_role', 'member') or 'member',
-                    'member_count': int(getattr(ch, 'member_count', 0) or 0),
-                    'unread_count': int(getattr(ch, 'unread_count', 0) or 0),
-                    'notifications_enabled': bool(getattr(ch, 'notifications_enabled', True)),
-                    'crypto_mode': getattr(ch, 'crypto_mode', '') or '',
-                    'lifecycle_status': getattr(ch, 'lifecycle_status', 'active') or 'active',
-                    'lifecycle_ttl_days': int(getattr(ch, 'lifecycle_ttl_days', channel_manager.DEFAULT_CHANNEL_LIFECYCLE_DAYS) or channel_manager.DEFAULT_CHANNEL_LIFECYCLE_DAYS),
-                    'lifecycle_preserved': bool(getattr(ch, 'lifecycle_preserved', False)),
-                    'archived_at': (
-                        getattr(ch, 'archived_at', None).isoformat()
-                        if getattr(ch, 'archived_at', None) else None
-                    ),
-                    'archive_reason': getattr(ch, 'archive_reason', None),
-                    'days_until_archive': getattr(ch, 'days_until_archive', None),
-                    'owner_peer_state': getattr(ch, 'owner_peer_state', None),
-                })
-            rev = _stable_ui_revision(payload)
+            workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
+            try:
+                workspace_event_cursor = int((workspace_event_manager.get_latest_seq() if workspace_event_manager else 0) or 0)
+            except Exception:
+                workspace_event_cursor = 0
+            snapshot = _build_channel_sidebar_snapshot(channel_manager, p2p_manager, user_id)
+            payload = snapshot['channels']
+            rev = snapshot['rev']
             if client_rev and client_rev == rev:
-                return jsonify({'success': True, 'changed': False, 'channels': [], 'count': len(payload), 'rev': rev})
-            return jsonify({'success': True, 'changed': True, 'channels': payload, 'count': len(payload), 'rev': rev})
+                return jsonify({
+                    'success': True,
+                    'changed': False,
+                    'channels': [],
+                    'count': len(payload),
+                    'rev': rev,
+                    'workspace_event_cursor': workspace_event_cursor,
+                })
+            return jsonify({
+                'success': True,
+                'changed': True,
+                'channels': payload,
+                'count': len(payload),
+                'rev': rev,
+                'workspace_event_cursor': workspace_event_cursor,
+            })
         except Exception as e:
             logger.error(f"Channel sidebar state error: {e}")
             return jsonify({'success': False, 'changed': False, 'channels': [], 'count': 0})
@@ -9534,6 +9721,7 @@ def create_ui_blueprint() -> Blueprint:
         """AJAX endpoint to get messages from a channel."""
         try:
             db_manager, _, _, _, channel_manager, file_manager, _, interaction_manager, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+            workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
             user_id = get_current_user()
             access = channel_manager.get_channel_access_decision(
                 channel_id=channel_id,
@@ -9549,6 +9737,10 @@ def create_ui_blueprint() -> Blueprint:
                 return jsonify({'error': 'You are not a member of this channel'}), 403
             # Mark channel as read now that the user is viewing it
             channel_manager.mark_channel_read(channel_id, user_id)
+            try:
+                workspace_event_cursor = int((workspace_event_manager.get_latest_seq() if workspace_event_manager else 0) or 0)
+            except Exception:
+                workspace_event_cursor = 0
             from ..core.polls import parse_poll, resolve_poll_end, describe_poll_status, summarize_poll
             from ..core.tasks import parse_task_blocks, strip_task_blocks, derive_task_id
             from ..core.circles import parse_circle_blocks, strip_circle_blocks, derive_circle_id
@@ -10131,7 +10323,8 @@ def create_ui_blueprint() -> Blueprint:
             return jsonify({
                 'messages': messages_data,
                 'channel_id': channel_id,
-                'count': len(messages_data)
+                'count': len(messages_data),
+                'workspace_event_cursor': workspace_event_cursor,
             })
             
         except Exception as e:
@@ -11677,7 +11870,7 @@ def create_ui_blueprint() -> Blueprint:
     def ajax_delete_channel_message():
         """AJAX endpoint to delete a channel message (own messages only)."""
         try:
-            db_manager, _, _, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+            db_manager, _, _, _, channel_manager, file_manager, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
             user_id = get_current_user()
             
             data = request.get_json(silent=True) or {}
@@ -11689,7 +11882,7 @@ def create_ui_blueprint() -> Blueprint:
             # Verify ownership: only allow deleting own messages
             with db_manager.get_connection() as conn:
                 msg = conn.execute(
-                    "SELECT user_id FROM channel_messages WHERE id = ?",
+                    "SELECT channel_id, user_id, attachments FROM channel_messages WHERE id = ?",
                     (message_id,)
                 ).fetchone()
                 
@@ -11697,9 +11890,36 @@ def create_ui_blueprint() -> Blueprint:
                     return jsonify({'error': 'Message not found'}), 404
                 if msg['user_id'] != user_id:
                     return jsonify({'error': 'You can only delete your own messages'}), 403
-                
-                conn.execute("DELETE FROM channel_messages WHERE id = ?", (message_id,))
-                conn.commit()
+                channel_id = str(msg['channel_id'] or '').strip()
+                attachment_ids = []
+                if msg['attachments']:
+                    try:
+                        parsed = json.loads(msg['attachments'] or '[]')
+                        if isinstance(parsed, list):
+                            for att in parsed:
+                                fid = att.get('id') if isinstance(att, dict) else None
+                                if fid:
+                                    attachment_ids.append(fid)
+                    except Exception:
+                        attachment_ids = []
+
+            success = channel_manager.delete_message(
+                channel_id=channel_id,
+                message_id=message_id,
+                user_id=user_id,
+                allow_admin=False,
+            )
+            if not success:
+                return jsonify({'error': 'Message not found or you can only delete your own messages'}), 403
+
+            for fid in attachment_ids:
+                try:
+                    fi = file_manager.get_file(fid) if file_manager else None
+                    if fi and fi.uploaded_by == user_id:
+                        if not file_manager.is_file_referenced(fid, exclude_channel_message_id=message_id):
+                            file_manager.delete_file(fid, user_id)
+                except Exception:
+                    pass
             
             # Broadcast delete signal via P2P
             if p2p_manager and p2p_manager.is_running():

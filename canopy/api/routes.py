@@ -49,12 +49,23 @@ from ..core.agent_heartbeat import (
     build_agent_heartbeat_snapshot,
     build_actionable_work_preview,
 )
-from ..core.events import PATCH1_EVENT_TYPES
+from ..core.events import (
+    PATCH1_EVENT_TYPES,
+    EVENT_ATTACHMENT_AVAILABLE,
+    EVENT_DM_MESSAGE_CREATED,
+    EVENT_DM_MESSAGE_DELETED,
+    EVENT_DM_MESSAGE_EDITED,
+    EVENT_INBOX_ITEM_CREATED,
+    EVENT_INBOX_ITEM_UPDATED,
+    EVENT_MENTION_ACKNOWLEDGED,
+    EVENT_MENTION_CREATED,
+)
 from ..core.agent_presence import (
     record_agent_checkin,
     get_agent_presence_records,
     build_agent_presence_payload,
 )
+from ..core.agent_runtime import record_agent_runtime_state
 from ..core.file_preview import build_file_preview
 from ..security.api_keys import Permission
 from ..security.csrf import validate_csrf_request
@@ -64,6 +75,14 @@ from ..core.messaging import (
     build_dm_preview,
     compute_group_id,
     filter_local_dm_targets,
+)
+from ..core.inbox import AGENT_SETTABLE_STATUSES, ACTIONABLE_STATUSES
+
+# Human-readable list of agent-settable statuses shown in validation error messages
+_AGENT_STATUS_ERROR = (
+    'Invalid status. Must be one of: '
+    + ', '.join(sorted(AGENT_SETTABLE_STATUSES - {'handled'}))
+    + ' (or legacy alias handled)'
 )
 from ..security.trust import TrustEvent
 from ..security.file_access import evaluate_file_access
@@ -75,6 +94,16 @@ from .agent_instructions_data import build_agent_instructions_payload
 
 logger = logging.getLogger(__name__)
 API_BOOT_TIME = datetime.now(timezone.utc)
+AGENT_DEFAULT_EVENT_TYPES = {
+    EVENT_ATTACHMENT_AVAILABLE,
+    EVENT_DM_MESSAGE_CREATED,
+    EVENT_DM_MESSAGE_DELETED,
+    EVENT_DM_MESSAGE_EDITED,
+    EVENT_INBOX_ITEM_CREATED,
+    EVENT_INBOX_ITEM_UPDATED,
+    EVENT_MENTION_ACKNOWLEDGED,
+    EVENT_MENTION_CREATED,
+}
 
 
 def _get_app_components_any(app: Any) -> tuple[Any, ...]:
@@ -397,9 +426,40 @@ def create_api_blueprint() -> Blueprint:
             return None
         try:
             db_manager = _get_app_components_any(current_app)[0]
+            user_row = db_manager.get_user(uid) if db_manager and hasattr(db_manager, 'get_user') else None
+            account_type = str((user_row or {}).get('account_type') or '').strip().lower()
+            if account_type != 'agent':
+                return None
             return record_agent_checkin(db_manager=db_manager, user_id=uid, source=source)
         except Exception:
             return None
+
+    def _touch_agent_runtime(
+        user_id: Optional[str],
+        *,
+        event_cursor_seen: Optional[int] = None,
+        event_fetch: bool = False,
+        inbox_fetch: bool = False,
+    ) -> None:
+        uid = (user_id or '').strip()
+        if not uid:
+            return
+        try:
+            db_manager = _get_app_components_any(current_app)[0]
+            user_row = db_manager.get_user(uid) if db_manager and hasattr(db_manager, 'get_user') else None
+            account_type = str((user_row or {}).get('account_type') or '').strip().lower()
+            if account_type != 'agent':
+                return
+            now_dt = datetime.now(timezone.utc)
+            record_agent_runtime_state(
+                db_manager=db_manager,
+                user_id=uid,
+                event_cursor_seen=event_cursor_seen,
+                event_fetch_at=now_dt if event_fetch else None,
+                inbox_fetch_at=now_dt if inbox_fetch else None,
+            )
+        except Exception:
+            return
 
     def _stable_handle_candidates(user_row: dict[str, Any]) -> list[str]:
         """Return mention handles ordered from most-stable to least-stable."""
@@ -1802,7 +1862,7 @@ def create_api_blueprint() -> Blueprint:
     @api.route('/info', methods=['GET'])
     def system_info():
         """Get system information. Full stats/config only with valid API key."""
-        db_manager, api_key_manager, _, trust_manager, _, _, _, _, _, config, p2p_manager = _get_app_components_any(current_app)
+        db_manager, api_key_manager, trust_manager, _, _, _, _, _, _, config, p2p_manager = _get_app_components_any(current_app)
         try:
             from canopy import __version__ as canopy_version
         except Exception:
@@ -4845,9 +4905,10 @@ def create_api_blueprint() -> Blueprint:
                         """
                         SELECT agent_user_id, COUNT(*) AS n
                         FROM agent_inbox
-                        WHERE status = 'pending'
+                        WHERE status IN (?, ?)
                         GROUP BY agent_user_id
-                        """
+                        """,
+                        (ACTIONABLE_STATUSES[0], ACTIONABLE_STATUSES[1]),
                     ).fetchall()
                     for row in inbox_rows or []:
                         inbox_counts[str(row['agent_user_id'])] = int(row['n'] or 0)
@@ -4973,7 +5034,8 @@ def create_api_blueprint() -> Blueprint:
                 try:
                     with db_manager.get_connection() as conn:
                         row = conn.execute(
-                            "SELECT COUNT(*) AS n FROM agent_inbox WHERE status = 'pending'"
+                            "SELECT COUNT(*) AS n FROM agent_inbox WHERE status IN (?, ?)",
+                            (ACTIONABLE_STATUSES[0], ACTIONABLE_STATUSES[1]),
                         ).fetchone()
                         pending_inbox_total = int((row['n'] if row else 0) or 0)
                         row = conn.execute(
@@ -5088,6 +5150,7 @@ def create_api_blueprint() -> Blueprint:
             if not inbox_manager:
                 return jsonify({'items': [], 'count': 0})
             _touch_agent_presence(g.api_key_info.user_id, 'inbox')
+            _touch_agent_runtime(g.api_key_info.user_id, inbox_fetch=True)
             status = request.args.get('status')
             limit = request.args.get('limit', 50)
             since = request.args.get('since')
@@ -5136,10 +5199,16 @@ def create_api_blueprint() -> Blueprint:
             if not isinstance(ids, list):
                 return jsonify({'error': 'ids must be a list'}), 400
             status = (data.get('status') or 'handled').strip().lower()
+            completion_ref = data.get('completion_ref')
+            if completion_ref is not None and not isinstance(completion_ref, dict):
+                return jsonify({'error': 'completion_ref must be an object'}), 400
+            if status not in AGENT_SETTABLE_STATUSES:
+                return jsonify({'error': _AGENT_STATUS_ERROR}), 400
             updated = inbox_manager.update_items(
                 user_id=g.api_key_info.user_id,
                 ids=ids,
                 status=status,
+                completion_ref=completion_ref,
             )
             return jsonify({'updated': updated})
         except Exception as e:
@@ -5156,10 +5225,16 @@ def create_api_blueprint() -> Blueprint:
                 return jsonify({'updated': 0})
             data = request.get_json() or {}
             status = (data.get('status') or 'handled').strip().lower()
+            completion_ref = data.get('completion_ref')
+            if completion_ref is not None and not isinstance(completion_ref, dict):
+                return jsonify({'error': 'completion_ref must be an object'}), 400
+            if status not in AGENT_SETTABLE_STATUSES:
+                return jsonify({'error': _AGENT_STATUS_ERROR}), 400
             updated = inbox_manager.update_items(
                 user_id=g.api_key_info.user_id,
                 ids=[item_id],
                 status=status,
+                completion_ref=completion_ref,
             )
             return jsonify({'updated': updated})
         except Exception as e:
@@ -5309,6 +5384,7 @@ def create_api_blueprint() -> Blueprint:
             profile_manager = current_app.config.get('PROFILE_MANAGER')
             user_id = g.api_key_info.user_id
             _touch_agent_presence(user_id, 'catchup')
+            _touch_agent_runtime(user_id, inbox_fetch=True)
 
             heartbeat_snapshot = build_agent_heartbeat_snapshot(
                 db_manager=db_manager,
@@ -5415,7 +5491,6 @@ def create_api_blueprint() -> Blueprint:
                 try:
                     inbox_items = inbox_manager.list_items(
                         user_id=user_id,
-                        status='pending',
                         limit=limit,
                         since=since_iso,
                         include_handled=False,
@@ -5498,13 +5573,13 @@ def create_api_blueprint() -> Blueprint:
             if inbox_manager:
                 try:
                     stats = inbox_manager.get_stats(user_id, window_hours=window_hours)
-                    session_inbox_count = int((stats.get('status_counts') or {}).get('pending', 0))
+                    status_counts = stats.get('status_counts') or {}
+                    session_inbox_count = int(status_counts.get('pending', 0) or 0) + int(status_counts.get('seen', 0) or 0)
                 except Exception:
                     session_inbox_count = 0
                 try:
                     preview_items = inbox_manager.list_items(
                         user_id=user_id,
-                        status='pending',
                         limit=5,
                         since=since_iso,
                         include_handled=False,
@@ -5679,6 +5754,12 @@ def create_api_blueprint() -> Blueprint:
                 types=requested_types or None,
                 can_read_messages=can_read_messages,
             )
+            if key_info is not None:
+                _touch_agent_runtime(
+                    user_id,
+                    event_fetch=True,
+                    event_cursor_seen=int(result.get('next_after_seq') or 0),
+                )
             return jsonify({
                 'items': result.get('items', []),
                 'after_seq': after_seq_value,
@@ -5784,13 +5865,81 @@ def create_api_blueprint() -> Blueprint:
                 limit=limit,
             )
 
-            pending_after = inbox_manager.count_items(user_id=user_id, status='pending')
+            pending_after = inbox_manager.count_items(user_id=user_id)
             result['pending_after'] = pending_after
             result['user_id'] = user_id
             result['window_hours'] = window_hours
             return jsonify(result)
         except Exception as e:
             logger.error(f"Agent inbox rebuild failed: {e}")
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/agents/me/events', methods=['GET'])
+    @require_auth(Permission.READ_FEED)
+    def agent_events():
+        """Agent-focused view of the local workspace event journal.
+
+        Defaults to a low-noise actionable event set so agent runtimes can
+        wake on concrete work without scraping the broader user event feed.
+        """
+        try:
+            workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
+            if not workspace_event_manager:
+                return jsonify({
+                    'items': [],
+                    'after_seq': 0,
+                    'next_after_seq': 0,
+                    'latest_seq': 0,
+                    'has_more': False,
+                    'supported_types': sorted(PATCH1_EVENT_TYPES),
+                    'applied_types': sorted(AGENT_DEFAULT_EVENT_TYPES),
+                    'mode': 'agent',
+                })
+
+            user_id = g.api_key_info.user_id
+            _touch_agent_presence(user_id, 'events')
+
+            after_seq_raw = request.args.get('after_seq', '0')
+            try:
+                after_seq_value = max(0, int(after_seq_raw or 0))
+            except Exception:
+                after_seq_value = 0
+
+            limit_raw = request.args.get('limit', '50')
+            types_raw = request.args.getlist('types')
+            if len(types_raw) == 1 and ',' in str(types_raw[0]):
+                types_raw = [part.strip() for part in str(types_raw[0]).split(',')]
+            requested_types = [
+                item for item in (str(raw).strip() for raw in types_raw)
+                if item and item in PATCH1_EVENT_TYPES
+            ]
+            applied_types = sorted(requested_types or AGENT_DEFAULT_EVENT_TYPES)
+
+            can_read_messages = bool(g.api_key_info.has_permission(Permission.READ_MESSAGES))
+            result = workspace_event_manager.list_events_for_user(
+                user_id=user_id,
+                after_seq=after_seq_value,
+                limit=limit_raw,
+                types=applied_types,
+                can_read_messages=can_read_messages,
+            )
+            _touch_agent_runtime(
+                user_id,
+                event_fetch=True,
+                event_cursor_seen=int(result.get('next_after_seq') or 0),
+            )
+            return jsonify({
+                'items': result.get('items', []),
+                'after_seq': after_seq_value,
+                'next_after_seq': int(result.get('next_after_seq') or 0),
+                'latest_seq': int(workspace_event_manager.get_latest_seq() or 0),
+                'has_more': bool(result.get('has_more', False)),
+                'supported_types': sorted(PATCH1_EVENT_TYPES),
+                'applied_types': applied_types,
+                'mode': 'agent',
+            })
+        except Exception as e:
+            logger.error(f"Agent workspace events failed: {e}")
             return jsonify({'error': 'Internal server error'}), 500
 
     @api.route('/agents/me/heartbeat', methods=['GET'])
@@ -6846,7 +6995,7 @@ def create_api_blueprint() -> Blueprint:
             return jsonify({'error': 'Internal server error'}), 500
 
     @api.route('/channels/<channel_id>/messages/<message_id>', methods=['DELETE'])
-    @require_auth(Permission.READ_FEED)
+    @require_auth(Permission.WRITE_FEED)
     def delete_channel_message(channel_id, message_id):
         """Delete a channel message. Only the author can delete their own message."""
         db_manager, _, _, _, channel_manager, file_manager, _, _, _, _, p2p_manager = _get_app_components_any(current_app)

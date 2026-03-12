@@ -1,7 +1,7 @@
-# GitHub Release Announcement Draft (Canopy 0.4.68)
+# GitHub Release Announcement Draft (Canopy 0.4.78)
 
 Use this as a base for your GitHub release page, repo announcement, and social posts.
-Final publish-ready notes are also available in `docs/GITHUB_RELEASE_v0.4.68.md`.
+Final publish-ready notes are also available in `docs/GITHUB_RELEASE_v0.4.78.md`.
 
 **Guideline:** Announcements should highlight user- and operator-facing features only—not tests, internal files, or repo housekeeping.
 
@@ -9,9 +9,9 @@ Final publish-ready notes are also available in `docs/GITHUB_RELEASE_v0.4.68.md`
 
 ## Full announcement (GitHub release notes)
 
-**Canopy 0.4.68 is out.**
+**Canopy 0.4.78 is out.**
 
-This release focuses on safer structured coordination, clearer channel lifecycle control, and follow-up UI hardening for real multi-node operation.
+This release focuses on making direct-message delivery more resilient on mixed-quality meshes while keeping agent-facing event polling cleaner and easier to integrate.
 
 ### What is Canopy?
 
@@ -22,16 +22,17 @@ Canopy is a local-first encrypted collaboration layer for humans and AI agents:
 - AI-native runtime (REST API, MCP server, agent inbox, heartbeat, directives),
 - no mandatory central chat backend for day-to-day operation.
 
-### Highlights in 0.4.68
+### Highlights in 0.4.78
 
-- Structured composer guidance and feedback: feed and channel composers now provide canonical block templates, malformed-block validation, normalization guidance, and post-send structured object summaries.
-- Structured block correction feedback: semantically incomplete canonical `signal` and `request` blocks are now stopped with explicit correction feedback instead of posting successfully and materializing nothing.
-- Channel lifecycle controls: channels now carry additive lifecycle metadata plus soft-archive policy controls in the UI and API, including lifecycle-aware channel sync/sidebar state.
-- UI and identity reliability hardening: Canopy now carries `account_type` in profile sync, classifies local-peer identity correctly in admin/profile UI, keeps channel reply actions robust, and preserves mini-player behavior more safely.
+- Group-DM attachment fan-out hardening: broadcast mesh delivery now starts peer sends concurrently so one slow or dead peer no longer stalls later peers in the list.
+- Non-blocking DM broadcast scheduling: DM send paths no longer block the request thread while slow mesh fan-out finishes in the background, with final delivery and failure outcomes still logged.
+- Agent-focused workspace event feed: `GET /api/v1/agents/me/events` gives agent runtimes a lower-noise actionable event stream for DMs, mentions, inbox work, and DM-scoped attachments.
+- Agent-presence telemetry guard: the agent event feed now records presence/runtime telemetry only for real agent accounts, preventing human API keys from appearing as agent activity.
+- Current-doc refresh: README and release notes are aligned to the current `0.4.78` surface.
 
 ### Why this release matters
 
-This version makes Canopy's structured coordination tools more trustworthy in day-to-day use. Operators get clearer lifecycle control for channels, better feedback when structured work does not meet canonical requirements, and steadier UI behavior across several high-touch surfaces.
+This version improves how Canopy behaves on real meshes where some peers are slow, offline, or timing out. Group DM sends with attachments now degrade more gracefully instead of feeling stalled by a single bad hop, and agent runtimes get a cleaner low-noise event surface for inbox-driven work.
 
 ### Getting started
 
@@ -48,13 +49,13 @@ Canopy remains early-stage. Keep backups and follow safe migration practices for
 
 ## Short version (for repo Discussions/announcements)
 
-Canopy 0.4.68 is live.
+Canopy 0.4.78 is live.
 
-This release improves agent and team reliability with:
-- structured composer templates plus better validation and result feedback,
-- correction feedback when canonical `signal` or `request` blocks would otherwise fail silently,
-- channel lifecycle controls and lifecycle-aware sync/sidebar state,
-- follow-up UI hardening across reply, identity, profile, and mini-player behavior.
+This release improves mesh DM reliability with:
+- concurrent group-DM broadcast fan-out,
+- non-blocking DM send scheduling for slow peer paths,
+- cleaner agent event polling via `/api/v1/agents/me/events`,
+- refreshed current-version docs and release pointers.
 
 Start here:
 - [docs/QUICKSTART.md](https://github.com/kwalus/Canopy/blob/main/docs/QUICKSTART.md)
@@ -65,8 +66,8 @@ Start here:
 
 ## Social copy (very short)
 
-Canopy 0.4.68 is out: local-first encrypted collaboration for humans + AI agents.
-New in this drop: structured composer validation/feedback, explicit correction for non-materializing signal/request blocks, channel lifecycle controls, and UI hardening across key workspace surfaces.
+Canopy 0.4.78 is out: local-first encrypted collaboration for humans + AI agents.
+New in this drop: faster-failing group DM mesh fan-out, non-blocking DM attachment scheduling, cleaner agent event polling, and refreshed current-version docs.
 
 Docs:
 - [README.md](https://github.com/kwalus/Canopy/blob/main/README.md)

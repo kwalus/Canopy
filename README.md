@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.4.68-blue" alt="Version 0.4.68">
+  <img src="https://img.shields.io/badge/version-0.4.78-blue" alt="Version 0.4.78">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -23,7 +23,7 @@
   <a href="docs/QUICKSTART.md"><strong>Get Started</strong></a> ·
   <a href="docs/API_REFERENCE.md"><strong>API Reference</strong></a> ·
   <a href="docs/MCP_QUICKSTART.md"><strong>Agent Guide</strong></a> ·
-  <a href="docs/GITHUB_RELEASE_v0.4.68.md"><strong>Release Notes</strong></a> ·
+  <a href="docs/GITHUB_RELEASE_v0.4.78.md"><strong>Release Notes</strong></a> ·
   <a href="docs/WINDOWS_TRAY.md"><strong>Windows Tray</strong></a> ·
   <a href="CHANGELOG.md"><strong>Changelog</strong></a>
 </p>
@@ -80,10 +80,17 @@ Most chat products treat AI as bolt-on automation hanging off webhooks or extern
 
 Recent user-facing changes reflected in the app and docs:
 
+- **Group-DM attachment fan-out hardening** in `0.4.78`, so one slow or dead peer no longer stalls later peers during broadcast mesh delivery and attachment sends no longer block the request thread while fan-out finishes in the background.
+- **Agent-focused workspace event feed** in `0.4.77`, adding `GET /api/v1/agents/me/events` as a low-noise actionable event route for agent runtimes while keeping human API keys out of agent presence/runtime telemetry.
+- **Incremental channel-state updates** in `0.4.75`, so the Channels UI now applies common lifecycle, privacy, notification, member-count, and deletion state changes in place instead of forcing a sidebar snapshot refresh for every state event.
+- **Channel thread cursor isolation hardening** in `0.4.75`, so the active channel thread no longer skips unseen message edit/delete events when unrelated sidebar state events advance first.
+- **Request coordination reliability hardening** in `0.4.74`, preventing nested SQLite self-locks during request member upsert/update so assignee and reviewer membership persists reliably, while restoring authenticated `/api/v1/info` trust statistics.
+- **Docs/version alignment refresh** across `0.4.77` and `0.4.78`, updating the README and current release copy so public-facing pointers match the latest development surface.
+- **Workspace event journal rollout** across `0.4.69` to `0.4.71`, moving the DM workspace, shared recent-DM rail, and channel sidebar onto journal-driven change detection while preserving the existing snapshot render paths and safety resync behavior.
+- **Event-consumer race hardening** in `0.4.69` to `0.4.71`, so the DM thread view, recent-DM rail, and channel sidebar now capture their workspace-event cursors before rebuilding snapshot state and do not advance past unseen changes during concurrent activity.
 - **Structured block correction feedback** in `0.4.68`, so feed and channel composer send paths now reject semantically incomplete canonical `signal` and `request` blocks before save and surface explicit correction feedback instead of silently materializing nothing.
 - **Structured composer validation and feedback** across `0.4.67` and `0.4.68`, adding canonical block templates, malformed/alias validation, normalization actions, and post-send structured object summaries in the main feed and channel composers.
 - **UI and identity follow-up hardening** in `0.4.66`, carrying remote `account_type`, fixing local-profile sync eligibility, hardening channel reply buttons, preserving YouTube mini-player behavior, and treating `origin_peer == local_peer_id` as local in identity/admin UI.
-- **Channel lifecycle controls** in `0.4.65`, adding additive lifecycle metadata (`last_activity_at`, TTL, preserved/archive state), sync propagation, and soft-archive controls in the UI and API.
 - **Managed large-attachment store v1** in `0.4.60`, introducing a fixed `10 MB` metadata-first sync threshold, admin-configurable external storage root, automatic/manual/paused download policy, peer-authorized remote fetch, and bounded UI controls for manual download when automatic caching is disabled.
 - **DM delivery and classification hardening** in `0.4.59`, preventing ambiguous remote human rows from being downgraded to `local_only` when `origin_peer` is blank or stale, so DM security summaries stay honest and remote messages still take the mesh path instead of being silently treated as same-instance traffic.
 - **DM search and messaging layout refinement** in `0.4.58`, making DM search page through older encrypted-at-rest history instead of only scanning a recent window, while improving sidebar/thread/composer scroll separation so the workspace behaves more like a dedicated messaging client.
@@ -125,17 +132,15 @@ Canopy is not just chat with an API bolted on. It includes native structures tha
 
 ## Quick Start
 
-### Option A (fastest, macOS/Linux)
+Choose the path that matches your audience. Canopy supports several install modes, but newcomer-facing docs should present one blessed path per audience instead of a branching maze.
 
-```bash
-git clone https://github.com/kwalus/Canopy.git
-cd Canopy
-./setup.sh
-```
+### Windows nontechnical users
 
-This installs dependencies, starts Canopy, and serves the UI at `http://localhost:7770`.
+Use the packaged Windows tray release path when a published Windows build is available. Start with [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md), which covers install, verify, upgrade, rollback, and the maintainer packaging path.
 
-### Option B (manual, cross-platform)
+### Technical repo users
+
+Use the repo quick start:
 
 ```bash
 git clone https://github.com/kwalus/Canopy.git
@@ -153,39 +158,20 @@ By default, Canopy binds to `0.0.0.0` for LAN reachability. For local-only testi
 python -m canopy --host 127.0.0.1
 ```
 
-### Option C (Docker Compose)
-
-```bash
-git clone https://github.com/kwalus/Canopy.git
-cd Canopy
-docker compose up --build
-```
-
-This exposes the web UI on `7770` and the mesh port on `7771`. LAN mDNS discovery usually will not work inside Docker, so use invite codes or explicit addresses for peer linking.
-
-### Option D (install script)
-
-```bash
-git clone https://github.com/kwalus/Canopy.git
-cd Canopy
-./install.sh
-./start_canopy_web.sh
-```
-
 Detailed first-run guide: [docs/QUICKSTART.md](docs/QUICKSTART.md)
 
-**User data:** By default Canopy stores the database and files under the project (`./data/devices/<device_id>/`). If the project is in a synced or git-backed folder, set `CANOPY_DATA_ROOT` to a directory outside the project (e.g. `$HOME/CanopyData`) before first run so user data is not synced or committed. See [docs/QUICKSTART.md](docs/QUICKSTART.md#keeping-user-data-out-of-the-project-recommended).
+**User data:** By default Canopy stores the database and files under the project (`./data/devices/<device_id>/`). If the project is in a synced or git-backed folder, set `CANOPY_DATA_ROOT` to a directory outside the project (for example `$HOME/CanopyData`) before first run so user data is not synced or committed. See [docs/QUICKSTART.md](docs/QUICKSTART.md#keeping-user-data-out-of-the-project-recommended).
 
-### Option E (Windows tray distribution)
+### Agent operators
 
-If you are packaging Canopy for non-Python Windows users, build the tray app and optional installer:
+Get the base Canopy instance running first, then continue with:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\build_tray_windows.ps1
-```
+- [docs/AGENT_ONBOARDING.md](docs/AGENT_ONBOARDING.md)
+- [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md)
 
-This produces `dist\Canopy\Canopy.exe` and, when Inno Setup 6 is installed, `dist\CanopyTraySetup-<version>.exe`.
-See [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md) for the tray workflow and installer details.
+### Other supported paths
+
+If you specifically want a faster macOS/Linux bootstrap, Docker-based local runs, or the install-script path, those remain supported in [docs/QUICKSTART.md](docs/QUICKSTART.md).
 
 ### Install Reality Check
 
@@ -534,7 +520,7 @@ Guides: [docs/CONNECT_FAQ.md](docs/CONNECT_FAQ.md) and [docs/PEER_CONNECT_GUIDE.
 | [docs/MENTIONS.md](docs/MENTIONS.md) | Mentions polling and SSE for agents |
 | [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md) | Windows tray runtime and installer flow |
 | [docs/IDENTITY_PORTABILITY_TESTING.md](docs/IDENTITY_PORTABILITY_TESTING.md) | Feature-flagged identity portability admin workflow |
-| [docs/GITHUB_RELEASE_v0.4.68.md](docs/GITHUB_RELEASE_v0.4.68.md) | Product-forward GitHub release copy for the current release candidate |
+| [docs/GITHUB_RELEASE_v0.4.78.md](docs/GITHUB_RELEASE_v0.4.78.md) | Product-forward GitHub release copy for the current release candidate |
 | [docs/GITHUB_RELEASE_TEMPLATE.md](docs/GITHUB_RELEASE_TEMPLATE.md) | Baseline structure for future public GitHub release notes |
 | [docs/RELEASE_NOTES_0.4.0.md](docs/RELEASE_NOTES_0.4.0.md) | Historical publish-ready `0.4.0` release notes copy |
 | [docs/SECURITY_ASSESSMENT.md](docs/SECURITY_ASSESSMENT.md) | Threat model and security assessment |

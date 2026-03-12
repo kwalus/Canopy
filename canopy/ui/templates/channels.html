@@ -1757,7 +1757,7 @@
             </div>
             
             <!-- Channel List -->
-            <div class="channel-list p-2">
+            <div class="channel-list p-2" id="channel-list">
                 {% for channel in channels %}
                 {% set lifecycle_status = channel.lifecycle_status or 'active' %}
                 <div class="channel-item p-2 rounded mb-1 {% if loop.first %}active{% endif %} {% if lifecycle_status == 'archived' %}lifecycle-archived{% elif lifecycle_status == 'cooling' %}lifecycle-cooling{% elif lifecycle_status == 'preserved' %}lifecycle-preserved{% endif %}" 
@@ -4101,14 +4101,36 @@ let initialFocusMessageId = null;
 let channelRefreshInFlight = false;
 let pendingChannelMessages = null;
 let activeChannelLoadToken = 0;
+let channelLoadInFlight = false;
+let queuedChannelThreadRefresh = false;
+let queuedChannelThreadRefreshForceScroll = false;
 const channelMessageSignature = {};
 let channelMessageCache = {};
 let oldestLoadedMessageId = null;
 let loadingOlderMessages = false;
 let noMoreOlderMessages = false;
-let channelSidebarStateRev = '';
+let channelSidebarStateRev = {{ (channel_sidebar_rev or '')|tojson }};
+let channelSidebarEventCursor = Number({{ workspace_event_cursor|default(0)|int }}) || 0;
+let channelThreadEventCursor = Number({{ workspace_event_cursor|default(0)|int }}) || 0;
+let channelSidebarEventPollInFlight = false;
+let channelSidebarSnapshotInFlight = false;
+let queuedChannelSidebarSnapshot = false;
+let channelSidebarEventPollHandle = null;
+let channelSidebarSafetyHandle = null;
+let channelThreadEventPollInFlight = false;
+let channelThreadEventPollHandle = null;
+let channelThreadSafetyHandle = null;
 const OLDER_MESSAGES_LIMIT = 50;
-const AUTO_REFRESH_MS = 6000;
+const CHANNEL_SIDEBAR_EVENT_TYPES = [
+    'channel.message.created',
+    'channel.message.read',
+    'channel.state.updated',
+];
+const CHANNEL_THREAD_EVENT_TYPES = [
+    'channel.message.created',
+    'channel.message.edited',
+    'channel.message.deleted',
+];
 const channelMentionCache = {};
 const channelMentionCacheFetchedAt = {};
 const CHANNEL_MENTION_CACHE_TTL_MS = 30000;
@@ -4940,7 +4962,6 @@ function updateChannelLifecycle(payload) {
         if (lifecycle) {
             updateSelectedChannelLifecycle(lifecycle);
         }
-        refreshSidebarChannelState();
         return data;
     });
 }
@@ -5183,12 +5204,17 @@ function loadChannelMessages(channelId, options = {}) {
     messagesContainer.innerHTML = '<div class="text-center"><div class="spinner-border" role="status"></div></div>';
     clearNewMessagesBanner();
     pendingChannelMessages = null;
-    
-    apiCall(`/ajax/channel_messages/${channelId}`)
+    channelLoadInFlight = true;
+
+    return apiCall(`/ajax/channel_messages/${channelId}`)
         .then(data => {
             if (loadToken !== activeChannelLoadToken || String(currentChannelId) !== requestedChannelId) {
                 return;
             }
+            channelThreadEventCursor = Math.max(
+                Number(channelThreadEventCursor || 0),
+                Number(data && data.workspace_event_cursor || 0),
+            );
             if (data.warning) {
                 console.warn('Channel messages warning:', data.warning);
             }
@@ -5205,6 +5231,17 @@ function loadChannelMessages(channelId, options = {}) {
             }
             console.error('Error loading messages:', error);
             messagesContainer.innerHTML = '<div class="text-center text-danger p-4">Error loading messages</div>';
+        })
+        .finally(() => {
+            if (loadToken === activeChannelLoadToken) {
+                channelLoadInFlight = false;
+            }
+            if (!channelLoadInFlight && !channelRefreshInFlight && queuedChannelThreadRefresh && String(currentChannelId || '') === requestedChannelId) {
+                const forceScroll = queuedChannelThreadRefreshForceScroll;
+                queuedChannelThreadRefresh = false;
+                queuedChannelThreadRefreshForceScroll = false;
+                window.setTimeout(() => requestChannelThreadRefresh({ forceScroll }), 0);
+            }
         });
 }
 
@@ -7529,29 +7566,296 @@ function applySidebarChannelState(channels) {
 }
 
 function refreshSidebarChannelState() {
+    if (channelSidebarSnapshotInFlight) {
+        queuedChannelSidebarSnapshot = true;
+        return Promise.resolve({ queued: true });
+    }
+    channelSidebarSnapshotInFlight = true;
     const params = new URLSearchParams({ _t: String(Date.now()) });
     if (channelSidebarStateRev) {
         params.set('rev', channelSidebarStateRev);
     }
-    apiCall(`/ajax/channel_sidebar_state?${params.toString()}`)
+    return apiCall(`/ajax/channel_sidebar_state?${params.toString()}`)
         .then(data => {
             if (!data || data.success === false) return;
             if (data.rev) {
                 channelSidebarStateRev = String(data.rev || '');
+            }
+            if (Number(data.workspace_event_cursor || 0) > Number(channelSidebarEventCursor || 0)) {
+                channelSidebarEventCursor = Number(data.workspace_event_cursor || 0);
             }
             if (data.changed === false) {
                 return;
             }
             applySidebarChannelState(data.channels || []);
         })
-        .catch(() => {});
+        .catch(() => null)
+        .finally(() => {
+            channelSidebarSnapshotInFlight = false;
+            if (queuedChannelSidebarSnapshot) {
+                queuedChannelSidebarSnapshot = false;
+                window.setTimeout(() => {
+                    refreshSidebarChannelState();
+                }, 0);
+            }
+        });
 }
 
-function pollChannelMessages() {
-    if (!currentChannelId || isSearchActive || document.hidden || channelRefreshInFlight) {
+function setSidebarChannelUnreadCount(channelId, unreadCount) {
+    const channelList = document.getElementById('channel-list');
+    if (!channelList || !channelId) {
+        return false;
+    }
+    const item = channelList.querySelector(`.channel-item[data-channel-id="${CSS.escape(String(channelId))}"]`);
+    if (!item) {
+        return false;
+    }
+    const normalizedCount = Math.max(0, parseInt(unreadCount || 0, 10) || 0);
+    item.setAttribute('data-unread-count', String(normalizedCount));
+    const badgeHost = item.querySelector('.channel-row-actions') || item;
+    let badge = item.querySelector('.channel-unread-badge');
+    if (normalizedCount > 0 && String(currentChannelId) !== String(channelId)) {
+        if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'badge bg-danger channel-unread-badge';
+            badgeHost.appendChild(badge);
+        }
+        badge.textContent = String(normalizedCount);
+    } else if (badge) {
+        badge.remove();
+    }
+    return true;
+}
+
+function setSidebarChannelMemberCount(channelId, memberCount) {
+    const channelList = document.getElementById('channel-list');
+    if (!channelList || !channelId) {
+        return false;
+    }
+    const item = channelList.querySelector(`.channel-item[data-channel-id="${CSS.escape(String(channelId))}"]`);
+    if (!item) {
+        return false;
+    }
+    const normalizedCount = Math.max(0, parseInt(memberCount || 0, 10) || 0);
+    item.setAttribute('data-member-count', String(normalizedCount));
+    if (String(currentChannelId) === String(channelId)) {
+        currentChannelMemberCount = normalizedCount;
+        updateChannelMembersCount(normalizedCount);
+        updateMemberGate();
+        updateChannelActionVisibility();
+    }
+    return true;
+}
+
+function applySidebarChannelStateUpdate(channelId, payload) {
+    const cleanChannelId = String(channelId || '').trim();
+    if (!cleanChannelId) {
+        return false;
+    }
+    const channelList = document.getElementById('channel-list');
+    if (!channelList) {
+        return false;
+    }
+    const item = channelList.querySelector(`.channel-item[data-channel-id="${CSS.escape(cleanChannelId)}"]`);
+    const reason = String(payload && payload.reason || '').trim().toLowerCase();
+
+    if (reason === 'channel_deleted') {
+        if (item) {
+            item.remove();
+        }
+        if (String(currentChannelId) === cleanChannelId) {
+            window.setTimeout(() => window.location.reload(), 120);
+        }
+        sortChannelListByPins();
+        return true;
+    }
+
+    if (!item) {
+        return false;
+    }
+
+    if (reason === 'notifications_updated') {
+        const enabled = !(payload && payload.notifications_enabled === false);
+        item.setAttribute('data-notifications-enabled', enabled ? 'true' : 'false');
+        const mutedIcon = item.querySelector('.channel-muted-icon');
+        if (mutedIcon) {
+            mutedIcon.classList.toggle('d-none', enabled);
+        }
+        if (String(currentChannelId) === cleanChannelId) {
+            applyChannelNotificationsFromSelection(cleanChannelId);
+        }
+        return true;
+    }
+
+    if (reason === 'lifecycle_updated') {
+        applyChannelLifecycleToItem(item, {
+            status: payload && payload.status,
+            ttlDays: payload && payload.ttl_days,
+            preserved: payload && payload.preserved,
+            archivedAt: payload && payload.archived_at,
+            archiveReason: payload && payload.archive_reason,
+            daysUntilArchive: payload && payload.days_until_archive,
+            ownerPeerState: item.getAttribute('data-owner-peer-state') || '',
+            lastActivityAt: payload && payload.last_activity_at,
+        });
+        if (String(currentChannelId) === cleanChannelId) {
+            applyChannelLifecycleFromSelection(cleanChannelId);
+        }
+        sortChannelListByPins();
+        return true;
+    }
+
+    if (reason === 'privacy_updated') {
+        const privacy = String(payload && payload.privacy_mode || item.getAttribute('data-privacy-mode') || 'open').toLowerCase();
+        const channelType = String(payload && payload.channel_type || item.getAttribute('data-channel-type') || 'public').toLowerCase();
+        item.setAttribute('data-privacy-mode', privacy);
+        item.setAttribute('data-channel-type', channelType);
+        const iconEl = item.querySelector('i.bi');
+        if (iconEl) {
+            const icon = channelType === 'private' ? 'lock' : channelType === 'dm' ? 'person' : (privacy === 'guarded' ? 'shield-check' : 'hash');
+            iconEl.className = `bi bi-${icon} me-2`;
+        }
+        if (Object.prototype.hasOwnProperty.call(payload || {}, 'member_count')) {
+            setSidebarChannelMemberCount(cleanChannelId, payload.member_count);
+        }
+        if (String(currentChannelId) === cleanChannelId) {
+            currentChannelPrivacy = privacy;
+            currentChannelType = channelType;
+            applyChannelPrivacyFromSelection(cleanChannelId);
+            updateMemberGate();
+            updateChannelActionVisibility();
+        }
+        return true;
+    }
+
+    if (reason === 'member_added' || reason === 'member_removed') {
+        if (Object.prototype.hasOwnProperty.call(payload || {}, 'member_count')) {
+            return setSidebarChannelMemberCount(cleanChannelId, payload.member_count);
+        }
+        return false;
+    }
+
+    return false;
+}
+
+function incrementSidebarChannelUnreadCount(channelId, delta) {
+    const channelList = document.getElementById('channel-list');
+    if (!channelList || !channelId) {
+        return false;
+    }
+    const item = channelList.querySelector(`.channel-item[data-channel-id="${CSS.escape(String(channelId))}"]`);
+    if (!item) {
+        return false;
+    }
+    if (String(currentChannelId) === String(channelId)) {
+        return setSidebarChannelUnreadCount(channelId, 0);
+    }
+    const currentUnread = Math.max(0, parseInt(item.getAttribute('data-unread-count') || '0', 10) || 0);
+    return setSidebarChannelUnreadCount(channelId, currentUnread + Math.max(0, parseInt(delta || 0, 10) || 0));
+}
+
+function applyChannelSidebarEventItems(items) {
+    if (!Array.isArray(items) || !items.length) {
+        return;
+    }
+    let needsSnapshotRefresh = false;
+    items.forEach((item) => {
+        const eventType = String(item && item.event_type || '').trim().toLowerCase();
+        const channelId = String(item && item.channel_id || '').trim();
+        if (!eventType || !channelId) {
+            needsSnapshotRefresh = true;
+            return;
+        }
+        if (eventType === 'channel.message.created') {
+            if (!incrementSidebarChannelUnreadCount(channelId, 1)) {
+                needsSnapshotRefresh = true;
+            }
+            return;
+        }
+        if (eventType === 'channel.message.read') {
+            if (!setSidebarChannelUnreadCount(channelId, 0)) {
+                needsSnapshotRefresh = true;
+            }
+            return;
+        }
+        if (eventType === 'channel.state.updated') {
+            if (!applySidebarChannelStateUpdate(channelId, item && item.payload || {})) {
+                needsSnapshotRefresh = true;
+            }
+            return;
+        }
+        needsSnapshotRefresh = true;
+    });
+    if (needsSnapshotRefresh) {
+        refreshSidebarChannelState();
+    }
+}
+
+function pollChannelSidebarEvents() {
+    if (channelSidebarEventPollInFlight) {
+        return;
+    }
+    const channelList = document.getElementById('channel-list');
+    if (!channelList) {
+        return;
+    }
+    channelSidebarEventPollInFlight = true;
+    const query = new URLSearchParams();
+    query.set('after_seq', String(Number(channelSidebarEventCursor || 0)));
+    query.set('limit', '100');
+    CHANNEL_SIDEBAR_EVENT_TYPES.forEach((eventType) => query.append('types', eventType));
+
+    fetch(`/api/v1/events?${query.toString()}`, {
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    })
+        .then((res) => {
+            if (!res.ok) {
+                throw new Error(`Channel sidebar event poll failed (${res.status})`);
+            }
+            return res.json();
+        })
+        .then((data) => {
+            if (!data || typeof data !== 'object') return;
+            const nextSeq = Number(data.next_after_seq || 0);
+            if (nextSeq > Number(channelSidebarEventCursor || 0)) {
+                channelSidebarEventCursor = nextSeq;
+            }
+            const items = Array.isArray(data.items) ? data.items : [];
+            if (!items.length) {
+                return;
+            }
+            applyChannelSidebarEventItems(items);
+        })
+        .catch(() => {})
+        .finally(() => {
+            channelSidebarEventPollInFlight = false;
+        });
+}
+
+function startChannelSidebarEventPolling() {
+    if (channelSidebarEventPollHandle) {
+        window.clearInterval(channelSidebarEventPollHandle);
+        channelSidebarEventPollHandle = null;
+    }
+    if (channelSidebarSafetyHandle) {
+        window.clearInterval(channelSidebarSafetyHandle);
+        channelSidebarSafetyHandle = null;
+    }
+    pollChannelSidebarEvents();
+    channelSidebarEventPollHandle = window.setInterval(pollChannelSidebarEvents, 2500);
+    channelSidebarSafetyHandle = window.setInterval(() => {
+        refreshSidebarChannelState();
+    }, 30000);
+}
+
+function refreshChannelMessagesSnapshot(options = {}) {
+    if (!currentChannelId || isSearchActive || document.hidden || channelLoadInFlight || channelRefreshInFlight) {
         return;
     }
     const requestedChannelId = String(currentChannelId);
+    const forceScroll = !!options.forceScroll;
     channelRefreshInFlight = true;
     apiCall(`/ajax/channel_messages/${requestedChannelId}?_poll=${Date.now()}`)
         .then(data => {
@@ -7575,7 +7879,7 @@ function pollChannelMessages() {
                 } else {
                     const appended = appendNewMessages(data.messages);
                     if (!appended) {
-                        if (nearBottom) {
+                        if (nearBottom || forceScroll) {
                             displayMessages(data.messages, { forceScroll: true });
                             clearNewMessagesBanner();
                         } else {
@@ -7593,7 +7897,109 @@ function pollChannelMessages() {
         .catch(() => {})
         .finally(() => {
             channelRefreshInFlight = false;
+            if (!channelLoadInFlight && !channelRefreshInFlight && queuedChannelThreadRefresh && String(currentChannelId || '') === requestedChannelId) {
+                const queuedForceScroll = queuedChannelThreadRefreshForceScroll;
+                queuedChannelThreadRefresh = false;
+                queuedChannelThreadRefreshForceScroll = false;
+                window.setTimeout(() => requestChannelThreadRefresh({ forceScroll: queuedForceScroll }), 0);
+            }
         });
+}
+
+function requestChannelThreadRefresh(options = {}) {
+    const forceScroll = !!options.forceScroll;
+    if (!currentChannelId) {
+        return;
+    }
+    if (isSearchActive) {
+        loadChannelMessages(currentChannelId, { forceScroll });
+        return;
+    }
+    if (channelLoadInFlight || channelRefreshInFlight) {
+        queuedChannelThreadRefresh = true;
+        queuedChannelThreadRefreshForceScroll = queuedChannelThreadRefreshForceScroll || forceScroll;
+        return;
+    }
+    refreshChannelMessagesSnapshot({ forceScroll });
+}
+
+function applyChannelThreadEventItems(items) {
+    if (!Array.isArray(items) || !items.length || !currentChannelId) {
+        return;
+    }
+    const activeChannelId = String(currentChannelId);
+    const hasRelevantEvent = items.some((item) => {
+        const eventType = String(item && item.event_type || '').trim().toLowerCase();
+        const channelId = String(item && item.channel_id || '').trim();
+        return channelId === activeChannelId && CHANNEL_THREAD_EVENT_TYPES.includes(eventType);
+    });
+    if (!hasRelevantEvent) {
+        return;
+    }
+    requestChannelThreadRefresh();
+}
+
+function pollChannelThreadEvents() {
+    if (!currentChannelId || isSearchActive || channelThreadEventPollInFlight) {
+        return;
+    }
+    channelThreadEventPollInFlight = true;
+    const query = new URLSearchParams();
+    query.set('after_seq', String(Number(channelThreadEventCursor || 0)));
+    query.set('limit', '100');
+    CHANNEL_THREAD_EVENT_TYPES.forEach((eventType) => query.append('types', eventType));
+
+    fetch(`/api/v1/events?${query.toString()}`, {
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    })
+        .then((res) => {
+            if (!res.ok) {
+                throw new Error(`Channel thread event poll failed (${res.status})`);
+            }
+            return res.json();
+        })
+        .then((data) => {
+            if (!data || typeof data !== 'object') return;
+            const nextSeq = Number(data.next_after_seq || 0);
+            if (nextSeq > Number(channelThreadEventCursor || 0)) {
+                channelThreadEventCursor = nextSeq;
+            }
+            const items = Array.isArray(data.items) ? data.items : [];
+            if (!items.length) {
+                return;
+            }
+            applyChannelThreadEventItems(items);
+        })
+        .catch(() => {})
+        .finally(() => {
+            channelThreadEventPollInFlight = false;
+        });
+}
+
+function startChannelThreadEventPolling() {
+    if (channelThreadEventPollHandle) {
+        window.clearInterval(channelThreadEventPollHandle);
+        channelThreadEventPollHandle = null;
+    }
+    if (channelThreadSafetyHandle) {
+        window.clearInterval(channelThreadSafetyHandle);
+        channelThreadSafetyHandle = null;
+    }
+    pollChannelThreadEvents();
+    channelThreadEventPollHandle = window.setInterval(() => {
+        if (document.hidden) return;
+        pollChannelThreadEvents();
+    }, 2500);
+    channelThreadSafetyHandle = window.setInterval(() => {
+        if (document.hidden) return;
+        requestChannelThreadRefresh();
+    }, 45000);
+}
+
+function pollChannelMessages() {
+    requestChannelThreadRefresh();
 }
 
 // --- Reply context helpers ---
@@ -7897,9 +8303,7 @@ function submitCommunityNote() {
             const modal = bootstrap.Modal.getInstance(modalEl);
             if (modal) modal.hide();
         }
-        if (currentChannelId) {
-            loadChannelMessages(currentChannelId, { forceScroll: false });
-        }
+        requestChannelThreadRefresh({ forceScroll: false });
     }).catch((error) => {
         showAlert(error.error || 'Failed to publish note', 'danger');
     });
@@ -7911,9 +8315,7 @@ function rateCommunityNote(noteId, helpful) {
         body: JSON.stringify({ helpful: !!helpful })
     }).then(() => {
         showAlert('Note rating saved', 'success');
-        if (currentChannelId) {
-            loadChannelMessages(currentChannelId, { forceScroll: false });
-        }
+        requestChannelThreadRefresh({ forceScroll: false });
     }).catch((error) => {
         showAlert(error.error || 'Failed to rate note', 'danger');
     });
@@ -7925,9 +8327,7 @@ function endorseSkill(skillId) {
         body: JSON.stringify({ weight: 1.0 })
     }).then(() => {
         showAlert('Skill endorsed', 'success');
-        if (currentChannelId) {
-            loadChannelMessages(currentChannelId, { forceScroll: false });
-        }
+        requestChannelThreadRefresh({ forceScroll: false });
     }).catch((error) => {
         showAlert(error.error || 'Failed to endorse skill', 'danger');
     });
@@ -8412,7 +8812,7 @@ async function quickCreateLiveStream(mediaKind) {
             throw new Error((res && (res.error || res.message)) || 'Failed to create stream');
         }
         showAlert(`Stream "${cleanTitle}" created — click Go Live on the card to start broadcasting`, 'success');
-        await loadChannelMessages(currentChannelId, { forceScroll: true });
+        requestChannelThreadRefresh({ forceScroll: true });
         // Auto-open broadcaster panel for the new stream
         const newId = String(res.stream?.id || res.stream?.stream_id || '');
         if (newId) {
@@ -9242,13 +9642,11 @@ function sendMessage(event) {
                 .then(freshData => {
                     if (freshData && freshData.messages) {
                         if (!appendNewMessages(freshData.messages)) {
-                            // No new messages detected (race condition) —
-                            // fall back to full reload only if nothing appended
-                            loadChannelMessages(currentChannelId, { forceScroll: true });
+                            displayMessages(freshData.messages, { forceScroll: true });
                         }
                     }
                 }).catch(() => {
-                    loadChannelMessages(currentChannelId, { forceScroll: true });
+                    requestChannelThreadRefresh({ forceScroll: true });
                 });
         } else {
             console.error('Send message failed:', data.error);
@@ -9931,7 +10329,7 @@ function saveInlineChannelMessageEdit(messageId) {
         }
         cancelInlineChannelMessageEdit(messageId, true);
         showAlert('Message updated successfully', 'success');
-        loadChannelMessages(currentChannelId, { forceScroll: false });
+        requestChannelThreadRefresh({ forceScroll: false });
     })
     .catch(error => {
         showAlert(error.error || error.message || 'Failed to update message', 'danger');
@@ -10412,7 +10810,6 @@ function deleteChannelById(channelId, modal) {
         applyAllChannelQuickActionStates();
         applyAllChannelPinStates();
         sortChannelListByPins();
-        setTimeout(() => refreshSidebarChannelState(), 120);
     })
     .catch(error => {
         showAlert(error.error || 'Failed to delete channel', 'danger');
@@ -10431,7 +10828,7 @@ function refreshMessages() {
                 }
             }).catch(() => {});
     } else {
-        loadChannelMessages(currentChannelId);
+        requestChannelThreadRefresh({ forceScroll: false });
     }
 }
 
@@ -10925,6 +11322,7 @@ function deleteChannelMessage(messageId) {
                 msgEl.style.opacity = '0';
                 setTimeout(() => msgEl.remove(), 300);
             }
+            requestChannelThreadRefresh({ forceScroll: false });
         } else {
             showAlert(data.error || 'Failed to delete message', 'danger');
         }
@@ -11054,8 +11452,8 @@ document.addEventListener('DOMContentLoaded', function() {
 	        handleChannelExpiryChange();
             setupEmojiPicker();
 	        setInterval(updateChannelExpiryBadges, 60000);
-	        setInterval(pollChannelMessages, AUTO_REFRESH_MS);
-            setInterval(refreshSidebarChannelState, AUTO_REFRESH_MS);
+            startChannelSidebarEventPolling();
+            startChannelThreadEventPolling();
             document.addEventListener('visibilitychange', () => {
                 if (!document.hidden) {
                     setTimeout(() => pollChannelMessages(), 100);
