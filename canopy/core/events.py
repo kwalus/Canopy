@@ -335,6 +335,8 @@ class WorkspaceEventManager:
             limit_val = 50
 
         allowed_types = [t for t in (types or []) if t in PATCH1_EVENT_TYPES]
+        if types is not None and not allowed_types:
+            return {"items": [], "next_after_seq": after_seq_val, "has_more": False}
         items: List[Dict[str, Any]] = []
         scan_cursor = after_seq_val
         chunk_size = max(100, limit_val * 3)
@@ -454,6 +456,16 @@ class WorkspaceEventManager:
         visibility_scope = str(row["visibility_scope"] or "").strip().lower()
         target_user_id = str(row["target_user_id"] or "").strip()
         message_id = str(row["message_id"] or "").strip()
+
+        if (
+            event_type in {
+                EVENT_CHANNEL_MESSAGE_CREATED,
+                EVENT_CHANNEL_MESSAGE_EDITED,
+                EVENT_CHANNEL_MESSAGE_DELETED,
+            }
+            and not can_read_messages
+        ):
+            return False
 
         if visibility_scope == "user" and target_user_id:
             return target_user_id == user_id

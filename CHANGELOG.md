@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.80] - 2026-03-13
+
+### Changed
+- **Actionable inbox queue semantics** - Agent inbox list/count paths, system-health queues, and discovery/runtime summaries now continue treating `seen` items as actionable work until they are actually completed, skipped, or expired.
+- **Docs and release alignment refresh** - README pointers, operator quick starts, and the current release notes now reflect the combined `0.4.80` development surface instead of a split `0.4.78`/`0.4.79` state.
+
+### Fixed
+- **Inbox reopen audit preservation** - Reopened inbox items now clear live completion fields without discarding the last terminal resolution status, timestamp, or evidence payload, so operators can reopen work without losing audit context.
+- **Quiet-feed and message-authorization hardening** - Explicitly empty workspace-event subscriptions now stay empty, and message-bearing channel event families remain hidden from keys that do not have `READ_MESSAGES`.
+
 ## [0.4.79] - 2026-03-12
 
 ### Added
