@@ -3,8 +3,8 @@
 # Compatible with macOS and Linux
 
 CANOPY_DIR="$(cd "$(dirname "$0")" && pwd)"
-INSTANCE_NAME="$(basename "$CANOPY_DIR" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9._-' '_')"
-PID_FILE="/tmp/${INSTANCE_NAME}_canopy_web.pid"
+RUNTIME_DIR="$CANOPY_DIR/.canopy_runtime"
+PID_FILE="$RUNTIME_DIR/canopy_web.pid"
 
 if [ -f "$PID_FILE" ]; then
     PID=$(cat "$PID_FILE")
