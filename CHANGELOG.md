@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.81] - 2026-03-13
+
+### Added
+- **Inline uploaded-image anchors** - Rich content now supports `![caption](file:FILE_ID)` so uploaded Canopy images can appear directly inside post and message body copy while still using the local file service and lightbox viewer.
+
+### Changed
+- **Responsive attachment gallery hints** - Channel, feed, and DM image attachments now honor validated `layout_hint` values (`grid`, `hero`, `strip`, `stack`) with a shared mobile-first gallery renderer across surfaces.
+
 ## [0.4.80] - 2026-03-13
 
 ### Changed

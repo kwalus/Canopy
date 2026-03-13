@@ -43,6 +43,28 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("return `${trimmed}\\n\\n${buildToolBlock(toolType, '')}`;", main_js)
         self.assertIn("return buildToolBlock(toolType, trimmed);", main_js)
 
+    def test_rich_content_supports_inline_file_image_anchors(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+        self.assertIn(r'!\[([^\]]*)\]\(file:([A-Za-z0-9_-]+)\)', main_js)
+        self.assertIn("channel-inline-image-block", main_js)
+        self.assertIn(".channel-inline-image-block", base_template)
+        self.assertIn(".channel-inline-image-full", base_template)
+
+    def test_attachment_layout_hints_are_rendered_across_surfaces(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        messages_macros = (ROOT / 'canopy' / 'ui' / 'templates' / '_messages_macros.html').read_text(encoding='utf-8')
+        base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+        self.assertIn("function resolveAttachmentLayoutHint(images)", channels_template)
+        self.assertIn('data-layout="${normalizedLayout}"', channels_template)
+        self.assertIn("{% from \"_messages_macros.html\" import render_image_gallery %}", feed_template)
+        self.assertIn("render_image_gallery(images, 'feed-' ~ post.id, image_layout.value)", feed_template)
+        self.assertIn("{% macro render_dm_attachments(attachments, message_id) -%}", messages_macros)
+        self.assertIn("render_image_gallery(images, 'dm-' ~ message_id, ns.layout_hint)", messages_macros)
+        self.assertIn('.media-grid[data-layout="hero"]', base_template)
+        self.assertIn('.media-grid[data-layout="strip"]', base_template)
+
     def test_feed_and_channel_composers_render_structured_validation_and_results(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')

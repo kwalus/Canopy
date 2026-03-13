@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_messages_macros.html" import render_image_gallery %}
 
 {% block title %}Feed - Canopy{% endblock %}
 
@@ -556,9 +557,16 @@
                                     {% set images = [] %}
                                     {% set audio_files = [] %}
                                     {% set others = [] %}
+                                    {% set image_layout = namespace(value='') %}
                                     {% for attachment in post.metadata.attachments %}
                                         {% if attachment.type.startswith('image/') and attachment.url %}
                                             {% if images.append(attachment) %}{% endif %}
+                                            {% if not image_layout.value %}
+                                                {% set candidate = (attachment.layout_hint or '')|lower %}
+                                                {% if candidate in ['grid', 'hero', 'strip', 'stack'] %}
+                                                    {% set image_layout.value = candidate %}
+                                                {% endif %}
+                                            {% endif %}
                                         {% elif attachment.type.startswith('audio/') %}
                                             {% if audio_files.append(attachment) %}{% endif %}
                                         {% else %}
@@ -567,22 +575,7 @@
                                     {% endfor %}
                                     <div class="post-attachments mt-2">
                                         {% if images %}
-                                            {% set img_count = [images|length, 5]|min %}
-                                            {% set show_count = [images|length, 4]|min %}
-                                            {% set img_urls = images | map(attribute='url') | list %}
-                                            <div class="media-grid" data-count="{{ img_count }}">
-                                                {% for img in images[:show_count] %}
-                                                    <div class="mg-cell" onclick="openLightbox({{ loop.index0 }}, '{{ img_urls | tojson | urlencode }}')">
-                                                        <img src="{{ img.url }}/thumb" alt="{{ img.name }}" loading="lazy">
-                                                        <a class="mg-download" href="{{ img.url }}" download="{{ img.name }}" title="Download full resolution" onclick="event.stopPropagation();">
-                                                            <i class="bi bi-download"></i>
-                                                        </a>
-                                                        {% if loop.last and images|length > show_count %}
-                                                            <div class="mg-more-overlay">+{{ images|length - show_count }}</div>
-                                                        {% endif %}
-                                                    </div>
-                                                {% endfor %}
-                                            </div>
+                                            {{ render_image_gallery(images, 'feed-' ~ post.id, image_layout.value) }}
                                         {% endif %}
                                         {% for attachment in audio_files %}
                                             {% set remote_large = attachment.large_attachment or attachment.storage_mode == 'remote_large' %}

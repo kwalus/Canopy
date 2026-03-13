@@ -2198,6 +2198,17 @@
                 var altEsc = (alt || '').replace(/"/g, '&quot;');
                 return '<span class="channel-inline-image-wrap"><img src="' + src + '" alt="' + altEsc + '" class="channel-inline-image" style="max-width:100%;max-height:400px;height:auto;vertical-align:middle;border-radius:8px;" onerror="this.onerror=null;this.style.display=\'none\';var s=this.nextElementSibling;if(s)s.classList.remove(\'d-none\');"><span class="d-none small text-muted">Image unavailable</span></span>';
             });
+            html = html.replace(/!\[([^\]]*)\]\(file:([A-Za-z0-9_-]+)\)/g, function(match, alt, fileId) {
+                var src = '/files/' + fileId;
+                var altEsc = (alt || '').replace(/"/g, '&quot;');
+                var encodedUrls = encodeURIComponent(JSON.stringify([src]));
+                return '<span class="channel-inline-image-wrap channel-inline-image-block">' +
+                    '<img src="' + src + '" alt="' + altEsc + '" class="channel-inline-image channel-inline-image-full" ' +
+                    'onclick="openLightbox(0, \'' + encodedUrls + '\')" ' +
+                    'onerror="this.onerror=null;this.style.display=\'none\';var s=this.nextElementSibling;if(s)s.classList.remove(\'d-none\');">' +
+                    '<span class="d-none small text-muted">Image unavailable</span>' +
+                    '</span>';
+            });
             html = html.replace(/!\[([^\]]*)\]\((\/custom_emojis\/[^)]+)\)/g, function(match, alt, src) {
                 var altEsc = (alt || '').replace(/"/g, '&quot;');
                 return '<img src="' + src + '" alt="' + altEsc + '" class="inline-emoji" style="width:1.2em;height:1.2em;vertical-align:-0.2em;border-radius:6px;">';
