@@ -11,6 +11,15 @@ import hashlib
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
+from .agent_event_subscriptions import (
+    AGENT_DEFAULT_EVENT_TYPES,
+    AGENT_MESSAGE_EVENT_TYPES,
+    AGENT_SUPPORTED_EVENT_TYPES,
+    get_agent_event_subscription_state,
+    resolve_agent_event_subscription,
+)
+from .inbox import ACTIONABLE_STATUSES
+
 
 def _safe_int(value: Any) -> int:
     try:
@@ -98,6 +107,7 @@ def build_agent_heartbeat_snapshot(
     mention_manager: Any = None,
     inbox_manager: Any = None,
     workspace_event_manager: Any = None,
+    can_read_messages: bool = True,
 ) -> Dict[str, Any]:
     """
     Build a heartbeat payload for a user/agent.
@@ -138,6 +148,10 @@ def build_agent_heartbeat_snapshot(
             "needs_catchup": False,
             "needs_action": False,
             "poll_hint_seconds": 30,
+            "event_subscription_source": "default",
+            "event_subscription_count": len(AGENT_DEFAULT_EVENT_TYPES),
+            "event_subscription_types": sorted(AGENT_DEFAULT_EVENT_TYPES),
+            "event_subscription_unavailable_types": [],
         }
 
     unacked_mentions = 0
@@ -162,6 +176,7 @@ def build_agent_heartbeat_snapshot(
     workspace_event_seq = None
     username = None
     display_name = None
+    event_subscription_state = get_agent_event_subscription_state(db_manager, user_id)
 
     if db_manager:
         try:
@@ -218,9 +233,9 @@ def build_agent_heartbeat_snapshot(
                         """
                         SELECT COUNT(*) AS count, MAX(created_at) AS latest
                         FROM agent_inbox
-                        WHERE agent_user_id = ? AND status = 'pending'
+                        WHERE agent_user_id = ? AND status IN (?, ?)
                         """,
-                        (user_id,),
+                        (user_id, ACTIONABLE_STATUSES[0], ACTIONABLE_STATUSES[1]),
                     ).fetchone()
                     if row:
                         pending_inbox = _safe_int(row["count"])
@@ -230,11 +245,11 @@ def build_agent_heartbeat_snapshot(
                         """
                         SELECT id, created_at
                         FROM agent_inbox
-                        WHERE agent_user_id = ? AND status = 'pending'
+                        WHERE agent_user_id = ? AND status IN (?, ?)
                         ORDER BY created_at DESC
                         LIMIT 1
                         """,
-                        (user_id,),
+                        (user_id, ACTIONABLE_STATUSES[0], ACTIONABLE_STATUSES[1]),
                     ).fetchone()
                     if latest_row:
                         last_inbox_id = latest_row["id"]
@@ -347,11 +362,10 @@ def build_agent_heartbeat_snapshot(
 
     if pending_inbox == 0 and inbox_manager:
         try:
-            count_data = inbox_manager.count_items(user_id=user_id, status="pending")
+            count_data = inbox_manager.count_items(user_id=user_id)
             pending_inbox = count_data if isinstance(count_data, int) else _safe_int((count_data or {}).get("count", 0))
             preview = inbox_manager.list_items(
                 user_id=user_id,
-                status="pending",
                 limit=1,
                 include_handled=False,
             )
@@ -367,6 +381,15 @@ def build_agent_heartbeat_snapshot(
             workspace_event_seq = workspace_event_manager.get_latest_seq()
         except Exception:
             workspace_event_seq = None
+
+    subscription = resolve_agent_event_subscription(
+        requested_types=[],
+        stored_types=event_subscription_state.get("stored_types"),
+        default_types=AGENT_DEFAULT_EVENT_TYPES,
+        message_required_types=AGENT_MESSAGE_EVENT_TYPES,
+        supported_types=AGENT_SUPPORTED_EVENT_TYPES,
+        can_read_messages=can_read_messages,
+    )
 
     active_tasks = assigned_open_tasks + assigned_in_progress_tasks + assigned_blocked_tasks
     pending_work_total = active_tasks + active_objectives + active_requests + owned_handoffs
@@ -413,6 +436,10 @@ def build_agent_heartbeat_snapshot(
         # New field: true when any actionable work exists even without new mentions.
         "needs_action": needs_action,
         "poll_hint_seconds": poll_hint_seconds,
+        "event_subscription_source": subscription.get("subscription_source"),
+        "event_subscription_count": len(subscription.get("effective_types") or []),
+        "event_subscription_types": list(subscription.get("effective_types") or []),
+        "event_subscription_unavailable_types": list(subscription.get("unavailable_types") or []),
     }
 
 

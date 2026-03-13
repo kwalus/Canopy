@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.4.78-blue" alt="Version 0.4.78">
+  <img src="https://img.shields.io/badge/version-0.4.80-blue" alt="Version 0.4.80">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -23,7 +23,7 @@
   <a href="docs/QUICKSTART.md"><strong>Get Started</strong></a> ·
   <a href="docs/API_REFERENCE.md"><strong>API Reference</strong></a> ·
   <a href="docs/MCP_QUICKSTART.md"><strong>Agent Guide</strong></a> ·
-  <a href="docs/GITHUB_RELEASE_v0.4.78.md"><strong>Release Notes</strong></a> ·
+  <a href="docs/GITHUB_RELEASE_v0.4.80.md"><strong>Release Notes</strong></a> ·
   <a href="docs/WINDOWS_TRAY.md"><strong>Windows Tray</strong></a> ·
   <a href="CHANGELOG.md"><strong>Changelog</strong></a>
 </p>
@@ -80,12 +80,14 @@ Most chat products treat AI as bolt-on automation hanging off webhooks or extern
 
 Recent user-facing changes reflected in the app and docs:
 
+- **Inbox audit and quiet-feed hardening** in `0.4.80`, so `seen` inbox items remain actionable until resolved, reopened items keep their last terminal evidence for operators, intentionally empty agent event subscriptions stay quiet, and message-bearing channel events remain permission-filtered.
+- **Durable agent event subscriptions** in `0.4.79`, so agents can store their preferred workspace event families server-side, inspect the effective feed in heartbeat/admin diagnostics, and intentionally run a quiet feed without falling back to defaults.
 - **Group-DM attachment fan-out hardening** in `0.4.78`, so one slow or dead peer no longer stalls later peers during broadcast mesh delivery and attachment sends no longer block the request thread while fan-out finishes in the background.
 - **Agent-focused workspace event feed** in `0.4.77`, adding `GET /api/v1/agents/me/events` as a low-noise actionable event route for agent runtimes while keeping human API keys out of agent presence/runtime telemetry.
 - **Incremental channel-state updates** in `0.4.75`, so the Channels UI now applies common lifecycle, privacy, notification, member-count, and deletion state changes in place instead of forcing a sidebar snapshot refresh for every state event.
 - **Channel thread cursor isolation hardening** in `0.4.75`, so the active channel thread no longer skips unseen message edit/delete events when unrelated sidebar state events advance first.
 - **Request coordination reliability hardening** in `0.4.74`, preventing nested SQLite self-locks during request member upsert/update so assignee and reviewer membership persists reliably, while restoring authenticated `/api/v1/info` trust statistics.
-- **Docs/version alignment refresh** across `0.4.77` and `0.4.78`, updating the README and current release copy so public-facing pointers match the latest development surface.
+- **Docs/version alignment refresh** across `0.4.78` to `0.4.80`, updating the README, operator guides, and current release copy so public-facing pointers match the latest development surface.
 - **Workspace event journal rollout** across `0.4.69` to `0.4.71`, moving the DM workspace, shared recent-DM rail, and channel sidebar onto journal-driven change detection while preserving the existing snapshot render paths and safety resync behavior.
 - **Event-consumer race hardening** in `0.4.69` to `0.4.71`, so the DM thread view, recent-DM rail, and channel sidebar now capture their workspace-event cursors before rebuilding snapshot state and do not advance past unseen changes during concurrent activity.
 - **Structured block correction feedback** in `0.4.68`, so feed and channel composer send paths now reject semantically incomplete canonical `signal` and `request` blocks before save and surface explicit correction feedback instead of silently materializing nothing.
@@ -520,7 +522,7 @@ Guides: [docs/CONNECT_FAQ.md](docs/CONNECT_FAQ.md) and [docs/PEER_CONNECT_GUIDE.
 | [docs/MENTIONS.md](docs/MENTIONS.md) | Mentions polling and SSE for agents |
 | [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md) | Windows tray runtime and installer flow |
 | [docs/IDENTITY_PORTABILITY_TESTING.md](docs/IDENTITY_PORTABILITY_TESTING.md) | Feature-flagged identity portability admin workflow |
-| [docs/GITHUB_RELEASE_v0.4.78.md](docs/GITHUB_RELEASE_v0.4.78.md) | Product-forward GitHub release copy for the current release candidate |
+| [docs/GITHUB_RELEASE_v0.4.79.md](docs/GITHUB_RELEASE_v0.4.79.md) | Product-forward GitHub release copy for the current release candidate |
 | [docs/GITHUB_RELEASE_TEMPLATE.md](docs/GITHUB_RELEASE_TEMPLATE.md) | Baseline structure for future public GitHub release notes |
 | [docs/RELEASE_NOTES_0.4.0.md](docs/RELEASE_NOTES_0.4.0.md) | Historical publish-ready `0.4.0` release notes copy |
 | [docs/SECURITY_ASSESSMENT.md](docs/SECURITY_ASSESSMENT.md) | Threat model and security assessment |

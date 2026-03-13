@@ -1352,6 +1352,48 @@
                         </div>
                     </div>
 
+                    <div class="row g-2 mb-3">
+                        <div class="col-sm-6 col-xl-3">
+                            <div class="border rounded p-2 h-100">
+                                <div class="small text-muted">Last event cursor</div>
+                                <div class="fw-semibold" id="workspace-runtime-event-cursor">-</div>
+                                <div class="small text-muted" id="workspace-runtime-event-fetch-at">No event fetch</div>
+                            </div>
+                        </div>
+                        <div class="col-sm-6 col-xl-3">
+                            <div class="border rounded p-2 h-100">
+                                <div class="small text-muted">Last inbox fetch</div>
+                                <div class="fw-semibold" id="workspace-runtime-inbox-fetch-at">Never</div>
+                                <div class="small text-muted">Agent queue fetch</div>
+                            </div>
+                        </div>
+                        <div class="col-sm-6 col-xl-3">
+                            <div class="border rounded p-2 h-100">
+                                <div class="small text-muted">Oldest pending inbox</div>
+                                <div class="fw-semibold" id="workspace-runtime-oldest-pending-age">None</div>
+                                <div class="small text-muted" id="workspace-runtime-oldest-pending-at">No pending items</div>
+                            </div>
+                        </div>
+                        <div class="col-sm-6 col-xl-3">
+                            <div class="border rounded p-2 h-100">
+                                <div class="small text-muted">Oldest unacked mention</div>
+                                <div class="fw-semibold" id="workspace-runtime-oldest-mention-age">None</div>
+                                <div class="small text-muted" id="workspace-runtime-oldest-mention-at">No unacked mentions</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="border rounded p-2 mb-3">
+                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+                            <div>
+                                <div class="small text-muted">Event subscriptions</div>
+                                <div class="fw-semibold" id="workspace-runtime-subscription-source">Default feed</div>
+                            </div>
+                            <div class="small text-muted" id="workspace-runtime-subscription-updated">Using default event families</div>
+                        </div>
+                        <div class="small text-muted mt-2" id="workspace-runtime-subscription-types">No custom subscription types stored.</div>
+                    </div>
+
                     <div class="row g-2 mb-2">
                         <div class="col-md-4">
                             <label class="form-label small mb-1" for="workspace-display-name-input">Display name</label>
@@ -1429,15 +1471,20 @@
 
                     <div class="row g-3">
                         <div class="col-md-6">
-                            <div class="d-flex justify-content-between align-items-center mb-1">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
                                 <h6 class="mb-0">Inbox</h6>
                                 <div class="small text-muted">
                                     pending <strong id="workspace-inbox-pending-count">0</strong> · total <strong id="workspace-inbox-total-count">0</strong>
                                 </div>
                             </div>
                             <div class="small text-muted mb-2" id="workspace-inbox-rejections"></div>
+                            <div class="small text-muted mb-2" id="workspace-inbox-discrepancies">No completion gaps detected.</div>
                             <div class="workspace-list" id="workspace-inbox-items">
                                 <p class="small text-muted mb-0">No inbox data yet.</p>
+                            </div>
+                            <div class="small text-muted mt-2 mb-1">Completion gaps</div>
+                            <div class="workspace-list" id="workspace-inbox-discrepancy-items">
+                                <p class="small text-muted mb-0">No discrepancy data yet.</p>
                             </div>
                             <div class="small text-muted mt-2 mb-1">Recent audit</div>
                             <div class="workspace-list" id="workspace-inbox-audit">
@@ -2814,7 +2861,9 @@
     const workspaceInboxPendingCount = document.getElementById('workspace-inbox-pending-count');
     const workspaceInboxTotalCount = document.getElementById('workspace-inbox-total-count');
     const workspaceInboxRejections = document.getElementById('workspace-inbox-rejections');
+    const workspaceInboxDiscrepancies = document.getElementById('workspace-inbox-discrepancies');
     const workspaceInboxItems = document.getElementById('workspace-inbox-items');
+    const workspaceInboxDiscrepancyItems = document.getElementById('workspace-inbox-discrepancy-items');
     const workspaceInboxAudit = document.getElementById('workspace-inbox-audit');
     const workspaceMentionUnackedCount = document.getElementById('workspace-mention-unacked-count');
     const workspaceMentionItems = document.getElementById('workspace-mention-items');
@@ -2824,6 +2873,16 @@
     const workspaceGovernanceAllowlist = document.getElementById('workspace-governance-allowlist');
     const workspaceGovernanceAllowedChannels = document.getElementById('workspace-governance-allowed-channels');
     const workspaceGovernanceSummary = document.getElementById('workspace-governance-summary');
+    const workspaceRuntimeEventCursor = document.getElementById('workspace-runtime-event-cursor');
+    const workspaceRuntimeEventFetchAt = document.getElementById('workspace-runtime-event-fetch-at');
+    const workspaceRuntimeInboxFetchAt = document.getElementById('workspace-runtime-inbox-fetch-at');
+    const workspaceRuntimeOldestPendingAge = document.getElementById('workspace-runtime-oldest-pending-age');
+    const workspaceRuntimeOldestPendingAt = document.getElementById('workspace-runtime-oldest-pending-at');
+    const workspaceRuntimeOldestMentionAge = document.getElementById('workspace-runtime-oldest-mention-age');
+    const workspaceRuntimeOldestMentionAt = document.getElementById('workspace-runtime-oldest-mention-at');
+    const workspaceRuntimeSubscriptionSource = document.getElementById('workspace-runtime-subscription-source');
+    const workspaceRuntimeSubscriptionUpdated = document.getElementById('workspace-runtime-subscription-updated');
+    const workspaceRuntimeSubscriptionTypes = document.getElementById('workspace-runtime-subscription-types');
     const workspaceSaveGovernanceBtn = document.getElementById('workspace-save-governance-btn');
     const workspaceEnforceGovernanceBtn = document.getElementById('workspace-enforce-governance-btn');
 
@@ -2894,6 +2953,7 @@
         const user = workspace.user || {};
         const inbox = workspace.inbox || {};
         const mentions = workspace.mentions || {};
+        const runtime = workspace.runtime || {};
         const governance = workspace.governance || {};
         const governancePolicy = governance.policy || {};
         const governanceChannels = Array.isArray(governance.channels) ? governance.channels : [];
@@ -2937,13 +2997,72 @@
         if (workspaceMentionUnackedCount) workspaceMentionUnackedCount.textContent = String(mentions.unacked_count || 0);
 
         const rejectionCounts = ((inbox.stats || {}).rejection_counts) || {};
+        const discrepancyState = inbox.discrepancies || {};
+        const completedWithoutEvidence = Number(discrepancyState.completed_without_completion_ref || 0);
+        const skippedWithoutEvidence = Number(discrepancyState.skipped_without_completion_ref || 0);
         const rejectionText = Object.keys(rejectionCounts).length
             ? Object.entries(rejectionCounts).map(([k, v]) => `${k}: ${v}`).join(' • ')
             : 'No recent rejection reasons.';
         if (workspaceInboxRejections) workspaceInboxRejections.textContent = rejectionText;
+        if (workspaceInboxDiscrepancies) {
+            const parts = [];
+            if (completedWithoutEvidence) parts.push(`completed without evidence: ${completedWithoutEvidence}`);
+            if (skippedWithoutEvidence) parts.push(`skipped without evidence: ${skippedWithoutEvidence}`);
+            workspaceInboxDiscrepancies.textContent = parts.length
+                ? parts.join(' • ')
+                : 'No completion gaps detected.';
+        }
 
         if (workspaceInboxConfig) {
             workspaceInboxConfig.textContent = JSON.stringify(inbox.config || {}, null, 2);
+        }
+
+        if (workspaceRuntimeEventCursor) {
+            workspaceRuntimeEventCursor.textContent = runtime.last_event_cursor_seen == null
+                ? '-'
+                : String(runtime.last_event_cursor_seen);
+        }
+        if (workspaceRuntimeEventFetchAt) {
+            workspaceRuntimeEventFetchAt.textContent = runtime.last_event_fetch_at
+                ? `Fetched ${formatTime(runtime.last_event_fetch_at)}`
+                : 'No event fetch';
+        }
+        if (workspaceRuntimeInboxFetchAt) {
+            workspaceRuntimeInboxFetchAt.textContent = runtime.last_inbox_fetch_at
+                ? `${formatTime(runtime.last_inbox_fetch_at)}`
+                : 'Never';
+        }
+        if (workspaceRuntimeOldestPendingAge) {
+            workspaceRuntimeOldestPendingAge.textContent = runtime.oldest_pending_inbox_age_text || 'None';
+        }
+        if (workspaceRuntimeOldestPendingAt) {
+            workspaceRuntimeOldestPendingAt.textContent = runtime.oldest_pending_inbox_at
+                ? `Created ${formatTime(runtime.oldest_pending_inbox_at)}`
+                : 'No pending items';
+        }
+        if (workspaceRuntimeOldestMentionAge) {
+            workspaceRuntimeOldestMentionAge.textContent = runtime.oldest_unacked_mention_age_text || 'None';
+        }
+        if (workspaceRuntimeOldestMentionAt) {
+            workspaceRuntimeOldestMentionAt.textContent = runtime.oldest_unacked_mention_at
+                ? `Created ${formatTime(runtime.oldest_unacked_mention_at)}`
+                : 'No unacked mentions';
+        }
+        if (workspaceRuntimeSubscriptionSource) {
+            const count = Number(runtime.event_subscription_count || 0);
+            const source = runtime.event_subscription_source === 'stored' ? 'Custom feed' : 'Default feed';
+            workspaceRuntimeSubscriptionSource.textContent = `${source} · ${count} type${count === 1 ? '' : 's'}`;
+        }
+        if (workspaceRuntimeSubscriptionUpdated) {
+            workspaceRuntimeSubscriptionUpdated.textContent = runtime.event_subscription_updated_at
+                ? `Updated ${formatTime(runtime.event_subscription_updated_at)}`
+                : 'Using default event families';
+        }
+        if (workspaceRuntimeSubscriptionTypes) {
+            const types = Array.isArray(runtime.event_subscription_types) ? runtime.event_subscription_types : [];
+            workspaceRuntimeSubscriptionTypes.textContent = types.length
+                ? types.join(' • ')
+                : 'No custom subscription types stored.';
         }
 
         if (workspaceGovernanceEnabled) workspaceGovernanceEnabled.checked = !!governancePolicy.enabled;
@@ -2992,10 +3111,39 @@
             'No inbox items found.',
             (item) => {
                 const preview = item.preview || '(no preview)';
+                const detailBits = [];
+                if (item.seen_at) detailBits.push(`seen ${formatTime(item.seen_at)}`);
+                if (item.completed_at) detailBits.push(`completed ${formatTime(item.completed_at)}`);
+                if (item.handled_at && !item.completed_at) detailBits.push(`handled ${formatTime(item.handled_at)}`);
+                if (item.last_resolution_status && item.last_resolution_at && !item.completed_at) {
+                    detailBits.push(`last ${item.last_resolution_status} ${formatTime(item.last_resolution_at)}`);
+                }
+                detailBits.push(item.has_completion_ref ? 'evidence linked' : 'no evidence link');
+                if (!item.has_completion_ref && item.last_completion_ref) {
+                    detailBits.push('prior evidence retained');
+                }
                 return (
                     `<div class="workspace-list-item">` +
                         `<div class="workspace-list-title">${escapeHtml(item.trigger_type || item.source_type || 'item')} · ${escapeHtml(item.status || 'pending')}</div>` +
                         `<div class="workspace-list-meta">${escapeHtml(item.source_type || '')}:${escapeHtml(item.source_id || '')} · ${formatTime(item.created_at)}</div>` +
+                        `<div class="workspace-list-meta">${escapeHtml(detailBits.join(' • '))}</div>` +
+                        `<div class="small text-muted">${escapeHtml(preview)}</div>` +
+                    `</div>`
+                );
+            }
+        );
+
+        renderWorkspaceList(
+            workspaceInboxDiscrepancyItems,
+            discrepancyState.items || [],
+            'No completion gaps found.',
+            (item) => {
+                const preview = item.preview || '(no preview)';
+                const trailingTime = item.completed_at || item.handled_at || item.created_at;
+                return (
+                    `<div class="workspace-list-item">` +
+                        `<div class="workspace-list-title">${escapeHtml(item.status || 'completed')} · missing completion_ref</div>` +
+                        `<div class="workspace-list-meta">${escapeHtml(item.source_type || '')}:${escapeHtml(item.source_id || '')} · ${formatTime(trailingTime)}</div>` +
                         `<div class="small text-muted">${escapeHtml(preview)}</div>` +
                     `</div>`
                 );

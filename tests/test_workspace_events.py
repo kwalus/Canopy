@@ -345,6 +345,11 @@ class TestWorkspaceEvents(unittest.TestCase):
         self.assertEqual(no_dm_permission['items'], [])
 
     def test_heartbeat_adds_workspace_event_seq_without_repurposing_last_event_seq(self) -> None:
+        self.client.post(
+            '/api/v1/agents/me/event-subscriptions',
+            headers={'X-API-Key': 'agent-key'},
+            json={'types': ['mention.created', 'channel.message.created']},
+        )
         self.conn.execute(
             """
             INSERT INTO mention_events (id, user_id, created_at, acknowledged_at)
@@ -384,6 +389,52 @@ class TestWorkspaceEvents(unittest.TestCase):
             max(snapshot['last_mention_seq'], snapshot['last_inbox_seq']),
         )
         self.assertNotEqual(snapshot['last_event_seq'], snapshot['workspace_event_seq'])
+        self.assertEqual(snapshot['event_subscription_source'], 'stored')
+        self.assertEqual(
+            snapshot['event_subscription_types'],
+            [EVENT_CHANNEL_MESSAGE_CREATED, EVENT_MENTION_CREATED],
+        )
+        self.assertEqual(snapshot['event_subscription_count'], 2)
+        self.assertEqual(snapshot['event_subscription_unavailable_types'], [])
+
+    def test_heartbeat_reports_unavailable_message_types_for_feed_only_key(self) -> None:
+        self.client.post(
+            '/api/v1/agents/me/event-subscriptions',
+            headers={'X-API-Key': 'agent-key'},
+            json={'types': ['mention.created', 'channel.message.created']},
+        )
+
+        response = self.client.get(
+            '/api/v1/agents/me/heartbeat',
+            headers={'X-API-Key': 'agent-feed-only'},
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json() or {}
+        self.assertEqual(body['event_subscription_source'], 'stored')
+        self.assertEqual(body['event_subscription_types'], [EVENT_MENTION_CREATED])
+        self.assertEqual(body['event_subscription_count'], 1)
+        self.assertEqual(body['event_subscription_unavailable_types'], [EVENT_CHANNEL_MESSAGE_CREATED])
+
+    def test_heartbeat_keeps_non_message_custom_subscription_types(self) -> None:
+        self.client.post(
+            '/api/v1/agents/me/event-subscriptions',
+            headers={'X-API-Key': 'agent-key'},
+            json={'types': ['mention.created', 'channel.state.updated']},
+        )
+
+        response = self.client.get(
+            '/api/v1/agents/me/heartbeat',
+            headers={'X-API-Key': 'agent-key'},
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json() or {}
+        self.assertEqual(body['event_subscription_source'], 'stored')
+        self.assertEqual(
+            body['event_subscription_types'],
+            [EVENT_CHANNEL_STATE_UPDATED, EVENT_MENTION_CREATED],
+        )
+        self.assertEqual(body['event_subscription_count'], 2)
+        self.assertEqual(body['event_subscription_unavailable_types'], [])
 
     def test_events_endpoint_and_owner_only_diagnostics(self) -> None:
         self.workspace_events.emit_event(
@@ -594,6 +645,28 @@ class TestWorkspaceEvents(unittest.TestCase):
             [EVENT_CHANNEL_MESSAGE_CREATED],
         )
 
+    def test_agent_events_feed_only_filters_explicit_channel_message_override(self) -> None:
+        self.workspace_events.emit_event(
+            event_type=EVENT_CHANNEL_MESSAGE_CREATED,
+            actor_user_id='agent-b',
+            target_user_id='agent-a',
+            channel_id='general',
+            visibility_scope='user',
+            dedupe_key='agent-events:feed-only:channel-created',
+            payload={'message_id': 'CH-feed-only-created', 'preview': 'should-hide'},
+        )
+
+        response = self.client.get(
+            '/api/v1/agents/me/events?types=channel.message.created',
+            headers={'X-API-Key': 'agent-feed-only'},
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(body['items'], [])
+        self.assertEqual(body['applied_types'], [])
+        self.assertEqual(body['selected_types'], [EVENT_CHANNEL_MESSAGE_CREATED])
+        self.assertEqual(body['unavailable_types'], [EVENT_CHANNEL_MESSAGE_CREATED])
+
     def test_agent_events_respects_feed_only_permissions(self) -> None:
         self.workspace_events.emit_event(
             event_type=EVENT_MENTION_CREATED,
@@ -629,6 +702,118 @@ class TestWorkspaceEvents(unittest.TestCase):
             [EVENT_MENTION_CREATED],
         )
 
+    def test_agent_event_subscriptions_round_trip_and_feed_uses_stored_types(self) -> None:
+        subscribe = self.client.post(
+            '/api/v1/agents/me/event-subscriptions',
+            headers={'X-API-Key': 'agent-key'},
+            json={'types': ['mention.created', 'channel.message.created']},
+        )
+        self.assertEqual(subscribe.status_code, 200)
+        sub_body = subscribe.get_json()
+        self.assertEqual(sub_body['subscription_source'], 'stored')
+        self.assertEqual(
+            sub_body['stored_types'],
+            [EVENT_CHANNEL_MESSAGE_CREATED, EVENT_MENTION_CREATED],
+        )
+        self.assertEqual(
+            sub_body['effective_types'],
+            [EVENT_CHANNEL_MESSAGE_CREATED, EVENT_MENTION_CREATED],
+        )
+
+        self.workspace_events.emit_event(
+            event_type=EVENT_MENTION_CREATED,
+            actor_user_id='owner-user',
+            target_user_id='agent-a',
+            visibility_scope='user',
+            dedupe_key='agent-events:stored:mention',
+            payload={'mention_id': 'MN-stored', 'source_type': 'channel_message', 'source_id': 'msg-stored'},
+        )
+        self.workspace_events.emit_event(
+            event_type=EVENT_CHANNEL_MESSAGE_CREATED,
+            actor_user_id='agent-b',
+            target_user_id='agent-a',
+            channel_id='general',
+            visibility_scope='user',
+            dedupe_key='agent-events:stored:channel-created',
+            payload={'message_id': 'CH-stored-created', 'preview': 'stored channel'},
+        )
+        self.workspace_events.emit_event(
+            event_type=EVENT_DM_MESSAGE_DELETED,
+            actor_user_id='agent-b',
+            message_id='DM-stored-hidden',
+            visibility_scope='dm',
+            dedupe_key='agent-events:stored:dm-delete',
+            payload={
+                'preview': 'removed',
+                'sender_id': 'agent-b',
+                'recipient_id': 'agent-a',
+                'group_id': None,
+                'group_members': [],
+            },
+        )
+
+        response = self.client.get(
+            '/api/v1/agents/me/events',
+            headers={'X-API-Key': 'agent-key'},
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(body['subscription_source'], 'stored')
+        self.assertEqual(
+            [item['event_type'] for item in body['items']],
+            [EVENT_MENTION_CREATED, EVENT_CHANNEL_MESSAGE_CREATED],
+        )
+
+    def test_agent_event_subscriptions_reset_restores_defaults(self) -> None:
+        subscribe = self.client.post(
+            '/api/v1/agents/me/event-subscriptions',
+            headers={'X-API-Key': 'agent-key'},
+            json={'types': ['mention.created']},
+        )
+        self.assertEqual(subscribe.status_code, 200)
+
+        reset = self.client.post(
+            '/api/v1/agents/me/event-subscriptions',
+            headers={'X-API-Key': 'agent-key'},
+            json={'reset': True},
+        )
+        self.assertEqual(reset.status_code, 200)
+        body = reset.get_json()
+        self.assertEqual(body['subscription_source'], 'default')
+        self.assertIsNone(body['stored_types'])
+        self.assertEqual(body['effective_types'], sorted(body['default_types']))
+
+    def test_agent_event_subscriptions_allow_empty_custom_feed(self) -> None:
+        subscribe = self.client.post(
+            '/api/v1/agents/me/event-subscriptions',
+            headers={'X-API-Key': 'agent-key'},
+            json={'types': []},
+        )
+        self.assertEqual(subscribe.status_code, 200)
+        body = subscribe.get_json()
+        self.assertEqual(body['subscription_source'], 'stored')
+        self.assertEqual(body['stored_types'], [])
+        self.assertEqual(body['selected_types'], [])
+        self.assertEqual(body['effective_types'], [])
+
+        self.workspace_events.emit_event(
+            event_type=EVENT_MENTION_CREATED,
+            actor_user_id='owner-user',
+            target_user_id='agent-a',
+            visibility_scope='user',
+            dedupe_key='agent-events:empty-custom:mention',
+            payload={'mention_id': 'MN-empty-custom', 'source_type': 'channel_message', 'source_id': 'msg-empty-custom'},
+        )
+        response = self.client.get(
+            '/api/v1/agents/me/events',
+            headers={'X-API-Key': 'agent-key'},
+        )
+        self.assertEqual(response.status_code, 200)
+        event_body = response.get_json()
+        self.assertEqual(event_body['subscription_source'], 'stored')
+        self.assertEqual(event_body['applied_types'], [])
+        self.assertEqual(event_body['items'], [])
+
     def test_human_key_agent_events_does_not_create_agent_presence_or_runtime(self) -> None:
         self.workspace_events.emit_event(
             event_type=EVENT_MENTION_CREATED,
@@ -658,12 +843,85 @@ class TestWorkspaceEvents(unittest.TestCase):
         runtime_table = self.conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_runtime_state'"
         ).fetchone()
+        runtime_row = None
         if runtime_table is not None:
             runtime_row = self.conn.execute(
                 "SELECT user_id FROM agent_runtime_state WHERE user_id = ?",
                 ('observer',),
             ).fetchone()
-            self.assertIsNone(runtime_row)
+        self.assertIsNone(runtime_row)
+
+    def test_feed_only_event_subscriptions_report_unavailable_types(self) -> None:
+        subscribe = self.client.post(
+            '/api/v1/agents/me/event-subscriptions',
+            headers={'X-API-Key': 'agent-key'},
+            json={'types': ['mention.created', 'channel.message.created']},
+        )
+        self.assertEqual(subscribe.status_code, 200)
+
+        response = self.client.get(
+            '/api/v1/agents/me/event-subscriptions',
+            headers={'X-API-Key': 'agent-feed-only'},
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(body['subscription_source'], 'stored')
+        self.assertEqual(body['selected_types'], [EVENT_CHANNEL_MESSAGE_CREATED, EVENT_MENTION_CREATED])
+        self.assertEqual(body['effective_types'], [EVENT_MENTION_CREATED])
+        self.assertEqual(body['unavailable_types'], [EVENT_CHANNEL_MESSAGE_CREATED])
+
+    def test_agent_events_fallback_without_workspace_manager_reports_subscription_and_touches_runtime(self) -> None:
+        self.client.application.config['WORKSPACE_EVENT_MANAGER'] = None
+        self.client.post(
+            '/api/v1/agents/me/event-subscriptions',
+            headers={'X-API-Key': 'agent-key'},
+            json={'types': ['mention.created', 'channel.message.created']},
+        )
+
+        response = self.client.get(
+            '/api/v1/agents/me/events?after_seq=7',
+            headers={'X-API-Key': 'agent-feed-only'},
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(body['after_seq'], 7)
+        self.assertEqual(body['next_after_seq'], 7)
+        self.assertEqual(body['subscription_source'], 'stored')
+        self.assertEqual(body['selected_types'], [EVENT_CHANNEL_MESSAGE_CREATED, EVENT_MENTION_CREATED])
+        self.assertEqual(body['applied_types'], [EVENT_MENTION_CREATED])
+        self.assertEqual(body['unavailable_types'], [EVENT_CHANNEL_MESSAGE_CREATED])
+
+        runtime_row = self.conn.execute(
+            """
+            SELECT last_event_cursor_seen, last_event_fetch_at
+            FROM agent_runtime_state
+            WHERE user_id = ?
+            """,
+            ('agent-a',),
+        ).fetchone()
+        self.assertIsNotNone(runtime_row)
+        self.assertEqual(runtime_row['last_event_cursor_seen'], 7)
+        self.assertIsNotNone(runtime_row['last_event_fetch_at'])
+
+    def test_general_events_feed_only_hides_channel_message_content(self) -> None:
+        self.workspace_events.emit_event(
+            event_type=EVENT_CHANNEL_MESSAGE_CREATED,
+            actor_user_id='agent-b',
+            target_user_id='agent-a',
+            channel_id='general',
+            visibility_scope='user',
+            dedupe_key='events:feed-only:channel-created',
+            payload={'message_id': 'CH-general-feed-only', 'preview': 'channel preview'},
+        )
+
+        response = self.client.get(
+            '/api/v1/events?types=channel.message.created',
+            headers={'X-API-Key': 'agent-feed-only'},
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(body['items'], [])
+        self.assertEqual(body['applied_types'], [EVENT_CHANNEL_MESSAGE_CREATED])
 
     def test_inbound_dm_finalize_uses_canonical_message_id_for_created_event(self) -> None:
         msg = self.message_manager.create_message(

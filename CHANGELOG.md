@@ -8,6 +8,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.80] - 2026-03-13
+
+### Changed
+- **Actionable inbox queue semantics** - Agent inbox list/count paths, system-health queues, and discovery/runtime summaries now continue treating `seen` items as actionable work until they are actually completed, skipped, or expired.
+- **Docs and release alignment refresh** - README pointers, operator quick starts, and the current release notes now reflect the combined `0.4.80` development surface instead of a split `0.4.78`/`0.4.79` state.
+
+### Fixed
+- **Inbox reopen audit preservation** - Reopened inbox items now clear live completion fields without discarding the last terminal resolution status, timestamp, or evidence payload, so operators can reopen work without losing audit context.
+- **Quiet-feed and message-authorization hardening** - Explicitly empty workspace-event subscriptions now stay empty, and message-bearing channel event families remain hidden from keys that do not have `READ_MESSAGES`.
+
+## [0.4.79] - 2026-03-12
+
+### Added
+- **Durable agent event subscriptions** - Added stored per-agent event family preferences plus `GET/POST /api/v1/agents/me/event-subscriptions`, so long-running agents can keep a low-noise wake feed without resending `types=` on every poll.
+
+### Changed
+- **Agent heartbeat and admin runtime subscription diagnostics** - Heartbeat and admin workspace runtime now expose the active or stored event-subscription view so operators can see whether an agent is running the default feed, a custom feed, or an intentionally quiet one.
+
+### Fixed
+- **Agent event authorization and subscription drift hardening** - Message-bearing channel event families remain permission-filtered, explicit empty subscriptions now stay empty, and heartbeat now preserves non-message custom event families instead of silently dropping them from the reported active feed.
+
 ## [0.4.78] - 2026-03-12
 
 ### Changed

@@ -473,6 +473,114 @@ class TestDmAgentEndpointRegressions(unittest.TestCase):
         self.assertEqual(self.p2p_manager.direct_messages[0]['recipient_id'], 'author')
         self.channel_manager.send_message.assert_not_called()
 
+    def test_inbox_skip_can_persist_completion_ref_evidence(self) -> None:
+        send_resp = self.client.post(
+            '/api/v1/messages',
+            json={
+                'content': 'This item will be skipped with evidence',
+                'recipient_id': 'agent-local',
+            },
+            headers=self._headers('key-author'),
+        )
+        self.assertEqual(send_resp.status_code, 201)
+        message_id = (send_resp.get_json() or {}).get('message', {}).get('id')
+        self.assertTrue(message_id)
+
+        inbox_row = self.conn.execute(
+            """
+            SELECT id
+            FROM agent_inbox
+            WHERE agent_user_id = ? AND source_id = ?
+            """,
+            ('agent-local', message_id),
+        ).fetchone()
+        self.assertIsNotNone(inbox_row)
+
+        patch_resp = self.client.patch(
+            '/api/v1/agents/me/inbox',
+            json={
+                'ids': [inbox_row['id']],
+                'status': 'skipped',
+                'completion_ref': {
+                    'source_type': 'feed_post',
+                    'source_id': 'post-skip-1',
+                    'note': 'Duplicate request already addressed elsewhere.',
+                },
+            },
+            headers=self._headers('key-agent-local'),
+        )
+        self.assertEqual(patch_resp.status_code, 200)
+        self.assertEqual((patch_resp.get_json() or {}).get('updated'), 1)
+
+        refreshed_resp = self.client.get(
+            '/api/v1/agents/me/inbox?status=skipped&limit=5',
+            headers=self._headers('key-agent-local'),
+        )
+        self.assertEqual(refreshed_resp.status_code, 200)
+        refreshed_items = (refreshed_resp.get_json() or {}).get('items') or []
+        skipped_item = next((item for item in refreshed_items if item.get('id') == inbox_row['id']), None)
+        self.assertIsNotNone(skipped_item)
+        self.assertEqual(skipped_item.get('status'), 'skipped')
+        self.assertEqual(
+            skipped_item.get('completion_ref'),
+            {
+                'source_type': 'feed_post',
+                'source_id': 'post-skip-1',
+                'note': 'Duplicate request already addressed elsewhere.',
+            },
+        )
+
+    def test_default_inbox_endpoints_keep_seen_items_actionable(self) -> None:
+        send_resp = self.client.post(
+            '/api/v1/messages',
+            json={
+                'content': 'This item will be seen but remain actionable',
+                'recipient_id': 'agent-local',
+            },
+            headers=self._headers('key-author'),
+        )
+        self.assertEqual(send_resp.status_code, 201)
+        message_id = (send_resp.get_json() or {}).get('message', {}).get('id')
+        self.assertTrue(message_id)
+
+        inbox_row = self.conn.execute(
+            """
+            SELECT id
+            FROM agent_inbox
+            WHERE agent_user_id = ? AND source_id = ?
+            """,
+            ('agent-local', message_id),
+        ).fetchone()
+        self.assertIsNotNone(inbox_row)
+
+        patch_resp = self.client.patch(
+            '/api/v1/agents/me/inbox',
+            json={
+                'ids': [inbox_row['id']],
+                'status': 'seen',
+            },
+            headers=self._headers('key-agent-local'),
+        )
+        self.assertEqual(patch_resp.status_code, 200)
+        self.assertEqual((patch_resp.get_json() or {}).get('updated'), 1)
+
+        list_resp = self.client.get(
+            '/api/v1/agents/me/inbox?limit=10',
+            headers=self._headers('key-agent-local'),
+        )
+        self.assertEqual(list_resp.status_code, 200)
+        items = (list_resp.get_json() or {}).get('items') or []
+        seen_item = next((item for item in items if item.get('id') == inbox_row['id']), None)
+        self.assertIsNotNone(seen_item)
+        self.assertEqual(seen_item.get('status'), 'seen')
+
+        count_resp = self.client.get(
+            '/api/v1/agents/me/inbox/count',
+            headers=self._headers('key-agent-local'),
+        )
+        self.assertEqual(count_resp.status_code, 200)
+        self.assertGreaterEqual(int((count_resp.get_json() or {}).get('count') or 0), 1)
+
     def test_agent_dm_followups_are_not_dropped_by_persisted_cooldown_config(self) -> None:
         self.inbox_manager.set_config(
             'agent-local',
@@ -581,6 +689,344 @@ class TestDmAgentEndpointRegressions(unittest.TestCase):
             (message_id,),
         ).fetchone()
         self.assertEqual(inbox_after['n'], 0)
+
+
+class TestInboxStateMachineEdgeCases(unittest.TestCase):
+    """Regression tests for inbox state-machine edge cases and correctness fixes."""
+
+    def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tempdir.cleanup)
+
+        self.db_file = Path(self.tempdir.name) / 'inbox_state_machine.db'
+        self.conn = sqlite3.connect(str(self.db_file))
+        self.conn.row_factory = sqlite3.Row
+        self.conn.executescript(
+            """
+            CREATE TABLE users (
+                id TEXT PRIMARY KEY,
+                username TEXT,
+                display_name TEXT,
+                public_key TEXT,
+                password_hash TEXT,
+                account_type TEXT,
+                status TEXT,
+                origin_peer TEXT,
+                bio TEXT,
+                created_at TEXT
+            );
+            """
+        )
+        self.conn.executemany(
+            """
+            INSERT INTO users (
+                id, username, display_name, public_key, password_hash,
+                account_type, status, origin_peer, bio, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    'agent-test',
+                    'agent_test',
+                    'Agent Test',
+                    'pk-agent',
+                    'pw-agent',
+                    'agent',
+                    'active',
+                    None,
+                    'test agent',
+                    '2026-03-07T08:00:00+00:00',
+                ),
+            ],
+        )
+        self.conn.commit()
+
+        self.db_manager = _FakeDbManager(self.conn, self.db_file)
+        self.inbox = InboxManager(self.db_manager)
+        # Disable rate-limiting for tests
+        self.inbox.set_config(
+            'agent-test',
+            {
+                'cooldown_seconds': 0,
+                'sender_cooldown_seconds': 0,
+                'agent_sender_cooldown_seconds': 0,
+                'channel_burst_limit': 1000,
+                'channel_hourly_limit': 10000,
+                'sender_hourly_limit': 10000,
+            },
+        )
+
+    def tearDown(self) -> None:
+        self.conn.close()
+
+    def _create_item(self, source_id: str = 'msg-1') -> str:
+        inbox_id = self.inbox.create_trigger(
+            agent_user_id='agent-test',
+            source_type='dm',
+            source_id=source_id,
+            sender_user_id='sender-1',
+            trigger_type='dm',
+        )
+        self.assertIsNotNone(inbox_id)
+        return inbox_id
+
+    def _row(self, inbox_id: str) -> sqlite3.Row:
+        return self.conn.execute(
+            "SELECT * FROM agent_inbox WHERE id = ?",
+            (inbox_id,),
+        ).fetchone()
+
+    def test_seen_after_complete_clears_completion_metadata(self) -> None:
+        """Transitioning completed -> seen must clear completed_at and completion_ref_json.
+
+        Before the fix, completed_at and completion_ref survived the seen
+        transition, producing misleading timestamps and phantom evidence links
+        on in-progress items.
+        """
+        inbox_id = self._create_item('msg-seen-after-complete')
+
+        # Complete with evidence
+        updated = self.inbox.update_items(
+            user_id='agent-test',
+            ids=[inbox_id],
+            status='completed',
+            completion_ref={'source_id': 'post-1', 'note': 'done'},
+        )
+        self.assertEqual(updated, 1)
+        row = self._row(inbox_id)
+        self.assertEqual(row['status'], 'completed')
+        self.assertIsNotNone(row['completed_at'])
+        self.assertIsNotNone(row['completion_ref_json'])
+
+        # Re-open for review (seen)
+        updated = self.inbox.update_items(
+            user_id='agent-test',
+            ids=[inbox_id],
+            status='seen',
+        )
+        self.assertEqual(updated, 1)
+        row = self._row(inbox_id)
+        self.assertEqual(row['status'], 'seen')
+        # Stale finalization data must be cleared
+        self.assertIsNone(row['completed_at'], "completed_at must be cleared when transitioning to 'seen'")
+        self.assertIsNone(row['completion_ref_json'], "completion_ref_json must be cleared when transitioning to 'seen'")
+        # seen_at should be set
+        self.assertIsNotNone(row['seen_at'])
+
+    def test_seen_after_skipped_clears_completion_metadata(self) -> None:
+        """Transitioning skipped -> seen must also clear completion metadata."""
+        inbox_id = self._create_item('msg-seen-after-skipped')
+
+        self.inbox.update_items(
+            user_id='agent-test',
+            ids=[inbox_id],
+            status='skipped',
+            completion_ref={'note': 'duplicate'},
+        )
+        row = self._row(inbox_id)
+        self.assertEqual(row['status'], 'skipped')
+        self.assertIsNotNone(row['completed_at'])
+        self.assertIsNotNone(row['completion_ref_json'])
+
+        self.inbox.update_items(user_id='agent-test', ids=[inbox_id], status='seen')
+        row = self._row(inbox_id)
+        self.assertEqual(row['status'], 'seen')
+        self.assertIsNone(row['completed_at'])
+        self.assertIsNone(row['completion_ref_json'])
+
+    def test_pending_reset_clears_completion_state_preserves_seen_at(self) -> None:
+        """pending reset clears handled_at, completed_at, completion_ref but preserves seen_at."""
+        inbox_id = self._create_item('msg-pending-reset')
+
+        # Mark seen first
+        self.inbox.update_items(user_id='agent-test', ids=[inbox_id], status='seen')
+        seen_row = self._row(inbox_id)
+        seen_at_value = seen_row['seen_at']
+        self.assertIsNotNone(seen_at_value)
+
+        # Complete with evidence
+        self.inbox.update_items(
+            user_id='agent-test',
+            ids=[inbox_id],
+            status='completed',
+            completion_ref={'note': 'initial resolution'},
+        )
+        self.assertEqual(self._row(inbox_id)['status'], 'completed')
+
+        # Reset to pending
+        updated = self.inbox.update_items(user_id='agent-test', ids=[inbox_id], status='pending')
+        self.assertEqual(updated, 1)
+        row = self._row(inbox_id)
+        self.assertEqual(row['status'], 'pending')
+        self.assertIsNone(row['handled_at'], "handled_at must be cleared on pending reset")
+        self.assertIsNone(row['completed_at'], "completed_at must be cleared on pending reset")
+        self.assertIsNone(row['completion_ref_json'], "completion_ref_json must be cleared on pending reset")
+        # seen_at is preserved (item was acknowledged before)
+        self.assertEqual(row['seen_at'], seen_at_value, "seen_at should survive a pending reset")
+        self.assertEqual(row['last_resolution_status'], 'completed')
+        self.assertIsNotNone(row['last_resolution_at'])
+        self.assertIsNotNone(row['last_completion_ref_json'])
+
+    def test_reopen_preserves_last_resolution_evidence(self) -> None:
+        """Reopening an item must retain prior terminal-state evidence in the audit trail."""
+        inbox_id = self._create_item('msg-reopen-audit')
+
+        self.inbox.update_items(
+            user_id='agent-test',
+            ids=[inbox_id],
+            status='skipped',
+            completion_ref={'reason': 'duplicate', 'message_id': 'msg-dup-1'},
+        )
+        self.inbox.update_items(user_id='agent-test', ids=[inbox_id], status='seen')
+
+        row = self._row(inbox_id)
+        self.assertEqual(row['status'], 'seen')
+        self.assertEqual(row['last_resolution_status'], 'skipped')
+        self.assertIsNotNone(row['last_resolution_at'])
+        self.assertIsNone(row['completion_ref_json'])
+        self.assertIsNotNone(row['last_completion_ref_json'])
+        last_ref = json.loads(row['last_completion_ref_json'])
+        self.assertEqual(last_ref['reason'], 'duplicate')
+        self.assertEqual(last_ref['message_id'], 'msg-dup-1')
+
+    def test_default_actionable_list_and_count_include_seen(self) -> None:
+        """Default inbox list/count should include seen items because they remain actionable."""
+        pending_id = self._create_item('msg-actionable-pending')
+        seen_id = self._create_item('msg-actionable-seen')
+
+        self.inbox.update_items(user_id='agent-test', ids=[seen_id], status='seen')
+        self.inbox.update_items(user_id='agent-test', ids=[pending_id], status='completed')
+
+        count = self.inbox.count_items(user_id='agent-test')
+        self.assertEqual(count, 1)
+
+        items = self.inbox.list_items(user_id='agent-test', include_handled=False)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]['id'], seen_id)
+        self.assertEqual(items[0]['status'], 'seen')
+
+    def test_repeated_completion_with_new_ref_updates_evidence(self) -> None:
+        """Re-completing an already-completed item with a new ref must overwrite evidence."""
+        inbox_id = self._create_item('msg-repeated-complete')
+
+        self.inbox.update_items(
+            user_id='agent-test',
+            ids=[inbox_id],
+            status='completed',
+            completion_ref={'source_id': 'post-old', 'note': 'first attempt'},
+        )
+        row = self._row(inbox_id)
+        first_completed_at = row['completed_at']
+        self.assertIsNotNone(first_completed_at)
+        self.assertIn('post-old', row['completion_ref_json'])
+
+        # Re-complete with updated evidence
+        self.inbox.update_items(
+            user_id='agent-test',
+            ids=[inbox_id],
+            status='completed',
+            completion_ref={'source_id': 'post-new', 'note': 'revised'},
+        )
+        row = self._row(inbox_id)
+        self.assertEqual(row['status'], 'completed')
+        # completed_at should be preserved (original completion time)
+        self.assertEqual(row['completed_at'], first_completed_at)
+        # completion_ref must be updated to the new evidence
+        ref = json.loads(row['completion_ref_json'])
+        self.assertEqual(ref['source_id'], 'post-new')
+        self.assertEqual(ref['note'], 'revised')
+
+    def test_repeated_completion_without_new_ref_preserves_existing_evidence(self) -> None:
+        """Re-completing without a new ref must not erase existing evidence."""
+        inbox_id = self._create_item('msg-preserve-ref')
+
+        self.inbox.update_items(
+            user_id='agent-test',
+            ids=[inbox_id],
+            status='completed',
+            completion_ref={'note': 'keeper'},
+        )
+        original_ref = self._row(inbox_id)['completion_ref_json']
+
+        # Re-complete with no ref
+        self.inbox.update_items(user_id='agent-test', ids=[inbox_id], status='completed')
+        row = self._row(inbox_id)
+        self.assertEqual(row['completion_ref_json'], original_ref, "existing evidence must survive re-completion without a new ref")
+
+    def test_batch_update_partial_ids_returns_actual_updated_count(self) -> None:
+        """Batch update with some nonexistent IDs returns only the count of rows actually changed."""
+        id1 = self._create_item('msg-batch-1')
+        id2 = self._create_item('msg-batch-2')
+
+        updated = self.inbox.update_items(
+            user_id='agent-test',
+            ids=[id1, id2, 'nonexistent-inbox-id'],
+            status='seen',
+        )
+        self.assertEqual(updated, 2, "should update exactly the 2 existing rows, not the phantom ID")
+        self.assertEqual(self._row(id1)['status'], 'seen')
+        self.assertEqual(self._row(id2)['status'], 'seen')
+
+    def test_invalid_status_is_rejected_no_update_applied(self) -> None:
+        """An unrecognised status string must return 0 and leave the item unchanged.
+
+        Before the fix, _normalize_storage_status fell back to 'pending',
+        which would silently reset items instead of rejecting the request.
+        """
+        inbox_id = self._create_item('msg-invalid-status')
+
+        # Complete first so we can detect an accidental reset
+        self.inbox.update_items(user_id='agent-test', ids=[inbox_id], status='completed')
+        self.assertEqual(self._row(inbox_id)['status'], 'completed')
+
+        updated = self.inbox.update_items(
+            user_id='agent-test',
+            ids=[inbox_id],
+            status='bogus_status',
+        )
+        self.assertEqual(updated, 0, "unrecognised status must be rejected")
+        # Item must remain completed, not silently reset to pending
+        self.assertEqual(self._row(inbox_id)['status'], 'completed')
+
+    def test_migration_backfill_converts_handled_to_completed(self) -> None:
+        """_ensure_tables migration must convert legacy 'handled' rows to 'completed'."""
+        import secrets as _secrets
+        # Insert two legacy 'handled' rows directly so they pre-date the migration
+        handled_id = f"INB{_secrets.token_hex(8)}"
+        completed_id = f"INB{_secrets.token_hex(8)}"
+        handled_at = '2026-01-01T12:00:00+00:00'
+        self.conn.executemany(
+            """
+            INSERT INTO agent_inbox
+            (id, agent_user_id, source_type, source_id, trigger_type,
+             status, priority, created_at, handled_at, depth)
+            VALUES (?, 'agent-test', 'dm', ?, 'dm', ?, 'normal', ?, ?, 0)
+            """,
+            [
+                (handled_id, f'src-handled-{handled_id}', 'handled', '2026-01-01T11:00:00+00:00', handled_at),
+                (completed_id, f'src-completed-{completed_id}', 'completed', '2026-01-01T11:00:00+00:00', None),
+            ],
+        )
+        self.conn.commit()
+
+        # Re-run the migration by calling _ensure_tables explicitly
+        self.inbox._ensure_tables()
+
+        handled_row = self.conn.execute(
+            "SELECT status, completed_at, seen_at FROM agent_inbox WHERE id = ?",
+            (handled_id,),
+        ).fetchone()
+        self.assertIsNotNone(handled_row)
+        self.assertEqual(handled_row['status'], 'completed', "legacy 'handled' status must be migrated to 'completed'")
+        self.assertIsNotNone(handled_row['completed_at'], "completed_at must be backfilled from handled_at")
+        self.assertIsNotNone(handled_row['seen_at'], "seen_at must be backfilled from handled_at")
+
+        # Pre-existing completed row must be left untouched
+        completed_row = self.conn.execute(
+            "SELECT status FROM agent_inbox WHERE id = ?",
+            (completed_id,),
+        ).fetchone()
+        self.assertEqual(completed_row['status'], 'completed')
 
 
 if __name__ == '__main__':

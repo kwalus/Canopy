@@ -2,7 +2,7 @@
 
 Use this guide to connect an MCP-capable client (for example Cursor-, Claude-, or OpenClaw-style tooling) to your local Canopy instance.
 
-Version scope: this guide is aligned to Canopy `0.4.78`.
+Version scope: this guide is aligned to Canopy `0.4.80`.
 
 ---
 

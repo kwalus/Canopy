@@ -26,6 +26,7 @@ from .events import (
     EVENT_DM_MESSAGE_CREATED,
     EVENT_DM_MESSAGE_DELETED,
     EVENT_DM_MESSAGE_EDITED,
+    EVENT_DM_MESSAGE_READ,
 )
 
 logger = logging.getLogger(__name__)
@@ -696,6 +697,7 @@ class MessageManager:
                     UPDATE messages 
                     SET read_at = CURRENT_TIMESTAMP
                     WHERE id = ? AND (
+                        read_at IS NULL AND (
                         recipient_id = ?
                         OR recipient_id IS NULL
                         OR EXISTS (
@@ -706,6 +708,7 @@ class MessageManager:
                             ) gm
                             WHERE CAST(gm.value AS TEXT) = ?
                         )
+                        )
                     )
                 """, (message_id, user_id, user_id))
                 
@@ -714,6 +717,14 @@ class MessageManager:
                 
                 if success:
                     logger.info(f"Marked message {message_id} as read by {user_id}")
+                    message = self.get_message(message_id)
+                    if message:
+                        self._emit_dm_event(
+                            event_type=EVENT_DM_MESSAGE_READ,
+                            message=message,
+                            dedupe_key=f"{EVENT_DM_MESSAGE_READ}:{message_id}:{user_id}",
+                            created_at=message.read_at or datetime.now(timezone.utc),
+                        )
                 
                 return success
                 
@@ -1074,7 +1085,22 @@ class MessageManager:
                         for member_id in (metadata.get('group_members') or [])
                         if str(member_id).strip()
                     ]
-                    if row_group_members and user_id not in row_group_members:
+                    # Determine whether this row is a group-targeted message so we
+                    # can apply the correct membership guard.  We check the recipient
+                    # prefix and the group_id metadata field before the aliases set is
+                    # built, because the SQL WHERE clause uses an overly broad
+                    # `recipient_id LIKE 'group:%'` predicate that would otherwise
+                    # allow a non-member to read group messages that have no
+                    # group_members list (e.g. legacy or malformed rows).
+                    _rcp_early = str(row['recipient_id'] or '').strip()
+                    _gid_early = str(metadata.get('group_id') or '').strip()
+                    _is_group_msg = _rcp_early.startswith('group:') or bool(_gid_early)
+                    if _is_group_msg and (not row_group_members or user_id not in row_group_members):
+                        # Group message: only the original sender may see it when the
+                        # membership list is absent or does not include this user.
+                        if row['sender_id'] != user_id:
+                            continue
+                    elif row_group_members and user_id not in row_group_members:
                         continue
 
                     row_aliases: set[str] = set()

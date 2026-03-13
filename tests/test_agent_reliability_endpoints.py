@@ -199,12 +199,12 @@ class TestAgentReliabilityEndpoints(unittest.TestCase):
                     '2026-02-23T10:01:00+00:00'
                 ),
                 (
-                    'forge-agent', 'agent_operator.74ugCK', 'Agent Operator', 'pk-f', 'pw-f',
+                    'forge-agent', 'Forge_McClaw.74ugCK', 'Forge McClaw', 'pk-f', 'pw-f',
                     'agent', 'active', None, 'Build and systems',
                     '2026-02-23T10:02:00+00:00'
                 ),
                 (
-                    'human-owner', 'project_owner', 'Project Owner', 'pk-h', 'pw-h',
+                    'human-owner', 'maddog', 'Maddog', 'pk-h', 'pw-h',
                     'human', 'active', None, 'Owner account',
                     '2026-02-23T10:03:00+00:00'
                 ),
@@ -470,6 +470,13 @@ class TestAgentReliabilityEndpoints(unittest.TestCase):
             """,
             ('INB-forge-1', 'forge-agent', 'channel_message', 'msg-forge-1', 'pending', '2026-02-23 11:01:00.000000'),
         )
+        self.conn.execute(
+            """
+            INSERT INTO agent_inbox (id, agent_user_id, source_type, source_id, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            ('INB-forge-2', 'forge-agent', 'channel_message', 'msg-forge-2', 'seen', '2026-02-23 11:02:00.000000'),
+        )
         self.conn.commit()
 
         response = self.client.get(
@@ -483,10 +490,10 @@ class TestAgentReliabilityEndpoints(unittest.TestCase):
 
         forge = next((a for a in agents if a.get('user_id') == 'forge-agent'), None)
         self.assertIsNotNone(forge)
-        self.assertEqual(forge.get('stable_handle'), 'agent_operator')
-        self.assertIn('agent_operator.74ugCK', forge.get('mention_handles') or [])
+        self.assertEqual(forge.get('stable_handle'), 'Forge_McClaw')
+        self.assertIn('Forge_McClaw.74ugCK', forge.get('mention_handles') or [])
         self.assertEqual(forge.get('unacked_mentions'), 1)
-        self.assertEqual(forge.get('pending_inbox'), 1)
+        self.assertEqual(forge.get('pending_inbox'), 2)
         self.assertIn(forge.get('presence_state'), {'online', 'recent', 'idle', 'offline', 'no_checkin', 'remote_unknown'})
         self.assertIn('last_check_in_at', forge)
 
@@ -587,6 +594,13 @@ class TestAgentReliabilityEndpoints(unittest.TestCase):
             """,
             ('INB-health-1', 'agent-a', 'channel_message', 'msg-health-1', 'pending', '2026-02-23 11:05:00.000000'),
         )
+        self.conn.execute(
+            """
+            INSERT INTO agent_inbox (id, agent_user_id, source_type, source_id, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            ('INB-health-2', 'agent-a', 'channel_message', 'msg-health-2', 'seen', '2026-02-23 11:06:00.000000'),
+        )
         self.conn.commit()
 
         response = self.client.get(
@@ -600,7 +614,7 @@ class TestAgentReliabilityEndpoints(unittest.TestCase):
         self.assertIn('queues', payload)
         self.assertIn('peers', payload)
         self.assertEqual((payload.get('queues') or {}).get('unacked_mentions'), 1)
-        self.assertEqual((payload.get('queues') or {}).get('pending_inbox'), 1)
+        self.assertEqual((payload.get('queues') or {}).get('pending_inbox'), 2)
         self.assertEqual((payload.get('queues') or {}).get('pending_p2p_messages'), 7)
         self.assertEqual((payload.get('peers') or {}).get('connected_count'), 1)
 
