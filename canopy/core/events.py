@@ -455,6 +455,7 @@ class WorkspaceEventManager:
         event_type = str(row["event_type"] or "").strip().lower()
         visibility_scope = str(row["visibility_scope"] or "").strip().lower()
         target_user_id = str(row["target_user_id"] or "").strip()
+        channel_id = str(row["channel_id"] or "").strip()
         message_id = str(row["message_id"] or "").strip()
 
         if (
@@ -469,6 +470,20 @@ class WorkspaceEventManager:
 
         if visibility_scope == "user" and target_user_id:
             return target_user_id == user_id
+
+        if (
+            event_type in {
+                EVENT_CHANNEL_MESSAGE_CREATED,
+                EVENT_CHANNEL_MESSAGE_EDITED,
+                EVENT_CHANNEL_MESSAGE_DELETED,
+                EVENT_CHANNEL_MESSAGE_READ,
+                EVENT_CHANNEL_STATE_UPDATED,
+            }
+            and visibility_scope == "channel"
+        ):
+            if not can_read_messages or not channel_id:
+                return False
+            return self._can_user_view_channel(user_id, channel_id)
 
         if event_type.startswith("mention.") or event_type.startswith("inbox.item."):
             return bool(target_user_id and target_user_id == user_id)
@@ -492,6 +507,22 @@ class WorkspaceEventManager:
             return False
 
         return False
+
+    def _can_user_view_channel(self, user_id: str, channel_id: str) -> bool:
+        try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    """
+                    SELECT 1
+                    FROM channel_members
+                    WHERE channel_id = ? AND user_id = ?
+                    LIMIT 1
+                    """,
+                    (channel_id, user_id),
+                ).fetchone()
+            return bool(row)
+        except Exception:
+            return False
 
     def _user_visible_via_payload(self, row: Any, *, user_id: str) -> bool:
         try:

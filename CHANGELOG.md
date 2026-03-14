@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.82] - 2026-03-13
+
+### Fixed
+- **Active channel live-update recovery** - Channel thread polling now falls back to direct snapshot refresh more aggressively when workspace-event polling misses or fails, reducing cases where an already-open channel stops showing newly arrived messages on a peer.
+- **Channel-scoped workspace event visibility** - Workspace event visibility checks now explicitly allow channel-scoped events for actual channel members with message-read permission instead of relying on only per-user fanout semantics.
+
 ## [0.4.81] - 2026-03-13
 
 ### Added

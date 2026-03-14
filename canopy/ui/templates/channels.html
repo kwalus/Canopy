@@ -7972,7 +7972,10 @@ function pollChannelThreadEvents() {
             }
             applyChannelThreadEventItems(items);
         })
-        .catch(() => {})
+        .catch(() => {
+            // Fall back to a direct snapshot refresh if the event poll fails.
+            requestChannelThreadRefresh();
+        })
         .finally(() => {
             channelThreadEventPollInFlight = false;
         });
@@ -7995,7 +7998,7 @@ function startChannelThreadEventPolling() {
     channelThreadSafetyHandle = window.setInterval(() => {
         if (document.hidden) return;
         requestChannelThreadRefresh();
-    }, 45000);
+    }, 10000);
 }
 
 function pollChannelMessages() {

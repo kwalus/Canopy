@@ -65,6 +65,12 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('.media-grid[data-layout="hero"]', base_template)
         self.assertIn('.media-grid[data-layout="strip"]', base_template)
 
+    def test_channel_thread_polling_has_snapshot_fallback(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        self.assertIn("// Fall back to a direct snapshot refresh if the event poll fails.", channels_template)
+        self.assertIn("requestChannelThreadRefresh();", channels_template)
+        self.assertIn("}, 10000);", channels_template)
+
     def test_feed_and_channel_composers_render_structured_validation_and_results(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
