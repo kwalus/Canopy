@@ -30,7 +30,11 @@ if 'zeroconf' not in sys.modules:
 
 from canopy.api.routes import create_api_blueprint
 from canopy.core.agent_heartbeat import build_agent_heartbeat_snapshot
-from canopy.core.app import _apply_inbound_dm_delete, _finalize_inbound_dm_message
+from canopy.core.app import (
+    _apply_inbound_dm_delete,
+    _finalize_inbound_dm_message,
+    _rewrite_incoming_attachment_links,
+)
 from canopy.core.events import (
     EVENT_ATTACHMENT_AVAILABLE,
     EVENT_CHANNEL_MESSAGE_CREATED,
@@ -46,6 +50,18 @@ from canopy.core.events import (
 )
 from canopy.core.messaging import MessageManager, MessageType
 from canopy.security.api_keys import ApiKeyInfo, Permission
+
+
+class TestIncomingAttachmentLinkRewrite(unittest.TestCase):
+    def test_rewrites_file_scheme_and_files_urls(self) -> None:
+        rewritten = _rewrite_incoming_attachment_links(
+            "![hero](file:Fremote123) and /files/Fremote123",
+            {"Fremote123": "Flocal456"},
+        )
+        self.assertEqual(
+            rewritten,
+            "![hero](file:Flocal456) and /files/Flocal456",
+        )
 
 
 class _FakeDbManager:

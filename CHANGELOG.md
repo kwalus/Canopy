@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.83] - 2026-02-27
+
+### Fixed
+- **Active channel thread refresh parity** - The Channels UI now refreshes the currently open thread when the sidebar receives a new-message event for that same channel, preventing cases where the unread bell increments but the visible thread stays stale until a manual reload.
+- **Plain-text structured composer tolerance** - Structured block validation now ignores unknown bracketed section headers when they are not recognized Canopy tool aliases, so pasted `.ini` and similar config text can still be posted as plain text.
+- **Inbound inline attachment ID remapping** - Incoming peer-synced channel messages now rewrite both `/files/FILE_ID` and `file:FILE_ID` references to locally materialized attachment IDs so inline uploaded images keep rendering after cross-peer attachment normalization.
+
 ## [0.4.82] - 2026-03-13
 
 ### Fixed

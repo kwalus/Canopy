@@ -7770,6 +7770,9 @@ function applyChannelSidebarEventItems(items) {
             if (!incrementSidebarChannelUnreadCount(channelId, 1)) {
                 needsSnapshotRefresh = true;
             }
+            if (currentChannelId && channelId === currentChannelId) {
+                requestChannelThreadRefresh();
+            }
             return;
         }
         if (eventType === 'channel.message.read') {

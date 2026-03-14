@@ -279,14 +279,16 @@
                     const rawTag = String(tagMatch[2] || '').trim();
                     const tag = rawTag.toLowerCase();
                     if (!SUPPORTED_TAGS.has(tag)) {
+                        const suggestedTag = TAG_SUGGESTIONS[tag] || null;
+                        if (!suggestedTag) {
+                            return;
+                        }
                         issues.push({
                             kind: 'unknown_tag',
                             line: index + 1,
                             tag,
-                            suggestedTag: TAG_SUGGESTIONS[tag] || null,
-                            message: TAG_SUGGESTIONS[tag]
-                                ? `Line ${index + 1}: [${rawTag}] is not a canonical block. Use [${TAG_SUGGESTIONS[tag]}] instead.`
-                                : `Line ${index + 1}: [${rawTag}] is not a supported Canopy tool block.`,
+                            suggestedTag,
+                            message: `Line ${index + 1}: [${rawTag}] is not a canonical block. Use [${suggestedTag}] instead.`,
                         });
                         return;
                     }

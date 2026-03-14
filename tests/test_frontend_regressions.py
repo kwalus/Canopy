@@ -71,6 +71,17 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("requestChannelThreadRefresh();", channels_template)
         self.assertIn("}, 10000);", channels_template)
 
+    def test_active_channel_refreshes_when_sidebar_receives_new_message_event(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        self.assertIn("if (currentChannelId && channelId === currentChannelId) {", channels_template)
+        self.assertIn("requestChannelThreadRefresh();", channels_template)
+
+    def test_structured_validation_ignores_plain_unknown_section_headers(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        self.assertIn("const suggestedTag = TAG_SUGGESTIONS[tag] || null;", main_js)
+        self.assertIn("if (!suggestedTag) {", main_js)
+        self.assertIn("return;", main_js)
+
     def test_feed_and_channel_composers_render_structured_validation_and_results(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')

@@ -221,6 +221,22 @@ def _apply_inbound_dm_delete(
     return True
 
 
+def _rewrite_incoming_attachment_links(
+    content: Optional[str],
+    file_id_map: dict[str, str],
+) -> Optional[str]:
+    """Rewrite sender-side attachment references to local file IDs."""
+    if not content or not file_id_map:
+        return content
+    rewritten = str(content)
+    for orig_id, local_id in file_id_map.items():
+        if not orig_id or not local_id or orig_id == local_id:
+            continue
+        rewritten = rewritten.replace(f'/files/{orig_id}', f'/files/{local_id}')
+        rewritten = rewritten.replace(f'file:{orig_id}', f'file:{local_id}')
+    return rewritten
+
+
 def create_app(config: Optional[Config] = None) -> Flask:
     """Create and configure the Flask application."""
     
@@ -1505,14 +1521,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
                     if processed_attachments:
                         message_type = 'file'
-                    # Rewrite /files/SENDER_ID in content to /files/LOCAL_ID so inline images load
+                    # Rewrite sender-side attachment references so inline embeds load locally.
                     if content_rewritten and file_id_map and crypto_state_db in {'plaintext', 'decrypted'}:
-                        for orig_id, local_id in file_id_map.items():
-                            if orig_id and local_id and orig_id != local_id:
-                                content_rewritten = content_rewritten.replace(
-                                    f'/files/{orig_id}',
-                                    f'/files/{local_id}',
-                                )
+                        content_rewritten = _rewrite_incoming_attachment_links(
+                            content_rewritten,
+                            file_id_map,
+                        )
 
                 # Store the message — reuse the original message_id to avoid dupes
                 import secrets as _sec2
