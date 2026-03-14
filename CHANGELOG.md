@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
-## [0.4.83] - 2026-02-27
+## [0.4.83] - 2026-03-14
 
 ### Fixed
 - **Active channel thread refresh parity** - The Channels UI now refreshes the currently open thread when the sidebar receives a new-message event for that same channel, preventing cases where the unread bell increments but the visible thread stays stale until a manual reload.
