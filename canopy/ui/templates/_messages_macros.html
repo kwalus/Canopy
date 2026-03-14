@@ -26,6 +26,45 @@
     </div>
 {%- endmacro %}
 
+{% macro render_image_gallery(images, gallery_id, layout_hint='') -%}
+    {% set gallery_layout = (layout_hint or '')|lower %}
+    {% set hinted_layout = gallery_layout if gallery_layout in ['grid', 'hero', 'strip', 'stack'] else '' %}
+    {% set show_all = hinted_layout in ['grid', 'strip', 'stack'] %}
+    {% set show_count = images|length if show_all else [images|length, 4]|min %}
+    {% set img_count = [images|length, 5]|min %}
+    {% set image_urls = images | map(attribute='url') | list %}
+    <div class="media-grid"
+         data-count="{{ img_count }}"
+         {% if hinted_layout %}data-layout="{{ hinted_layout }}"{% endif %}
+         {% if gallery_id %}data-gallery-id="{{ gallery_id }}"{% endif %}>
+        {% for img in images[:show_count] %}
+            {% set has_url = img.url and img.url|trim %}
+            {% if has_url %}
+                <div class="mg-cell" onclick="openLightbox({{ loop.index0 }}, '{{ image_urls | tojson | urlencode }}')">
+                    <img src="{{ img.url }}/thumb" alt="{{ img.name or 'image' }}" loading="lazy">
+                    <a class="mg-download"
+                       href="{{ img.url }}"
+                       download="{{ img.name or 'image' }}"
+                       title="Download full resolution"
+                       onclick="event.stopPropagation();">
+                        <i class="bi bi-download"></i>
+                    </a>
+                    {% if not show_all and loop.last and images|length > show_count %}
+                        <div class="mg-more-overlay">+{{ images|length - show_count }}</div>
+                    {% endif %}
+                </div>
+            {% else %}
+                <div class="mg-cell mg-cell-unavailable d-flex align-items-center justify-content-center p-2">
+                    <span class="small text-muted text-center">
+                        {{ img.name or 'Image' }}<br>
+                        <span class="opacity-75">Not on this device yet — will appear when synced</span>
+                    </span>
+                </div>
+            {% endif %}
+        {% endfor %}
+    </div>
+{%- endmacro %}
+
 {% macro render_dm_attachment(attachment, message_id, idx) -%}
     {% set attachment_file_id = attachment.id or attachment.file_id or ((attachment.url.split('/files/')[1].split('/')[0]) if attachment.url and '/files/' in attachment.url else None) %}
     {% set remote_large = attachment.large_attachment or attachment.storage_mode == 'remote_large' %}
@@ -134,4 +173,35 @@
             {% endif %}
         </div>
     {% endif %}
+{%- endmacro %}
+
+{% macro render_dm_attachments(attachments, message_id) -%}
+    {% set images = [] %}
+    {% set non_images = [] %}
+    {% set ns = namespace(layout_hint='') %}
+    {% for attachment in attachments or [] %}
+        {% if attachment.type and attachment.type.startswith('image/') %}
+            {% if images.append(attachment) %}{% endif %}
+            {% if not ns.layout_hint %}
+                {% set candidate = (attachment.layout_hint or '')|lower %}
+                {% if candidate in ['grid', 'hero', 'strip', 'stack'] %}
+                    {% set ns.layout_hint = candidate %}
+                {% endif %}
+            {% endif %}
+        {% else %}
+            {% if non_images.append(attachment) %}{% endif %}
+        {% endif %}
+    {% endfor %}
+
+    {% if images and ns.layout_hint and images|length > 1 %}
+        {{ render_image_gallery(images, 'dm-' ~ message_id, ns.layout_hint) }}
+    {% else %}
+        {% for attachment in images %}
+            {{ render_dm_attachment(attachment, message_id, loop.index0) }}
+        {% endfor %}
+    {% endif %}
+
+    {% for attachment in non_images %}
+        {{ render_dm_attachment(attachment, message_id, loop.index0 + images|length) }}
+    {% endfor %}
 {%- endmacro %}

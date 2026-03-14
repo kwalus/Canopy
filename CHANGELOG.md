@@ -8,6 +8,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.83] - 2026-03-14
+
+### Fixed
+- **Active channel thread refresh parity** - The Channels UI now refreshes the currently open thread when the sidebar receives a new-message event for that same channel, preventing cases where the unread bell increments but the visible thread stays stale until a manual reload.
+- **Plain-text structured composer tolerance** - Structured block validation now ignores unknown bracketed section headers when they are not recognized Canopy tool aliases, so pasted `.ini` and similar config text can still be posted as plain text.
+- **Inbound inline attachment ID remapping** - Incoming peer-synced channel messages now rewrite both `/files/FILE_ID` and `file:FILE_ID` references to locally materialized attachment IDs so inline uploaded images keep rendering after cross-peer attachment normalization.
+
+## [0.4.82] - 2026-03-13
+
+### Fixed
+- **Active channel live-update recovery** - Channel thread polling now falls back to direct snapshot refresh more aggressively when workspace-event polling misses or fails, reducing cases where an already-open channel stops showing newly arrived messages on a peer.
+- **Channel-scoped workspace event visibility** - Workspace event visibility checks now explicitly allow channel-scoped events for actual channel members with message-read permission instead of relying on only per-user fanout semantics.
+
+## [0.4.81] - 2026-03-13
+
+### Added
+- **Inline uploaded-image anchors** - Rich content now supports `![caption](file:FILE_ID)` so uploaded Canopy images can appear directly inside post and message body copy while still using the local file service and lightbox viewer.
+
+### Changed
+- **Responsive attachment gallery hints** - Channel, feed, and DM image attachments now honor validated `layout_hint` values (`grid`, `hero`, `strip`, `stack`) with a shared mobile-first gallery renderer across surfaces.
+
 ## [0.4.80] - 2026-03-13
 
 ### Changed

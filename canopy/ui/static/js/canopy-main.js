@@ -62,6 +62,7 @@
             `;
             
             const container = document.querySelector('.flash-messages');
+            if (!container) return;
             container.appendChild(alertDiv);
             
             // Auto-dismiss after 5 seconds
@@ -278,14 +279,16 @@
                     const rawTag = String(tagMatch[2] || '').trim();
                     const tag = rawTag.toLowerCase();
                     if (!SUPPORTED_TAGS.has(tag)) {
+                        const suggestedTag = TAG_SUGGESTIONS[tag] || null;
+                        if (!suggestedTag) {
+                            return;
+                        }
                         issues.push({
                             kind: 'unknown_tag',
                             line: index + 1,
                             tag,
-                            suggestedTag: TAG_SUGGESTIONS[tag] || null,
-                            message: TAG_SUGGESTIONS[tag]
-                                ? `Line ${index + 1}: [${rawTag}] is not a canonical block. Use [${TAG_SUGGESTIONS[tag]}] instead.`
-                                : `Line ${index + 1}: [${rawTag}] is not a supported Canopy tool block.`,
+                            suggestedTag,
+                            message: `Line ${index + 1}: [${rawTag}] is not a canonical block. Use [${suggestedTag}] instead.`,
                         });
                         return;
                     }
@@ -339,6 +342,7 @@
         const canopyInitialPeerRev = window.CANOPY_VARS ? (window.CANOPY_VARS.peerRev || '') : '';
         const canopyInitialRecentDmContacts = window.CANOPY_VARS ? (window.CANOPY_VARS.recentDmContacts || []) : [];
         const canopyInitialDmRev = window.CANOPY_VARS ? (window.CANOPY_VARS.dmRev || '') : '';
+        const canopyInitialDmEventCursor = window.CANOPY_VARS ? Number(window.CANOPY_VARS.dmEventCursor || 0) : 0;
         const canopyLocalPeerId = window.CANOPY_VARS ? String(window.CANOPY_VARS.localPeerId || '').trim() : '';
         const SIDEBAR_VISIBLE_PEER_LIMIT = 12;
         window.canopyPeerProfiles = canopyPeerProfiles || {};
@@ -705,7 +709,19 @@
         const canopySidebarDmState = {
             contacts: Array.isArray(canopyInitialRecentDmContacts) ? canopyInitialRecentDmContacts.slice(0) : [],
             currentRev: canopyInitialDmRev || '',
+            currentEventCursor: Number.isFinite(canopyInitialDmEventCursor) ? canopyInitialDmEventCursor : 0,
+            pollInFlight: false,
+            snapshotInFlight: false,
+            queuedSnapshot: false,
+            pollHandle: null,
+            safetyHandle: null,
         };
+        const SIDEBAR_DM_EVENT_TYPES = [
+            'dm.message.created',
+            'dm.message.edited',
+            'dm.message.deleted',
+            'dm.message.read',
+        ];
 
         function canopyRenderSidebarDmContacts(contacts) {
             const listEl = document.getElementById('sidebar-dm-list');
@@ -802,6 +818,9 @@
                 canopyRenderSidebarDmContacts(canopySidebarDmState.contacts);
                 return;
             }
+            if (Number(payload.workspace_event_cursor || 0) > Number(canopySidebarDmState.currentEventCursor || 0)) {
+                canopySidebarDmState.currentEventCursor = Number(payload.workspace_event_cursor || 0);
+            }
             if (payload && payload.dm_rev) {
                 canopySidebarDmState.currentRev = String(payload.dm_rev || '');
             }
@@ -816,8 +835,117 @@
             canopyRenderSidebarDmContacts(canopySidebarDmState.contacts);
         };
 
+        function requestCanopySidebarDmRefresh(options) {
+            const opts = options || {};
+            if (canopySidebarDmState.snapshotInFlight) {
+                canopySidebarDmState.queuedSnapshot = true;
+                return Promise.resolve({ queued: true });
+            }
+
+            canopySidebarDmState.snapshotInFlight = true;
+            const query = new URLSearchParams();
+            if (!opts.force && canopySidebarDmState.currentRev) {
+                query.set('dm_rev', String(canopySidebarDmState.currentRev || ''));
+            }
+
+            return fetch(`/ajax/sidebar_dm_snapshot${query.toString() ? `?${query.toString()}` : ''}`, {
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+                .then((res) => {
+                    if (!res.ok) {
+                        throw new Error(`Sidebar DM snapshot failed (${res.status})`);
+                    }
+                    return res.json();
+                })
+                .then((data) => {
+                    if (!data || data.success === false) return data || null;
+                    if (window.syncCanopySidebarDmContacts) {
+                        window.syncCanopySidebarDmContacts(data);
+                    }
+                    return data;
+                })
+                .catch(() => null)
+                .finally(() => {
+                    canopySidebarDmState.snapshotInFlight = false;
+                    if (canopySidebarDmState.queuedSnapshot) {
+                        canopySidebarDmState.queuedSnapshot = false;
+                        window.setTimeout(() => {
+                            requestCanopySidebarDmRefresh({ force: false }).catch(() => {});
+                        }, 0);
+                    }
+                });
+        }
+
+        function pollCanopySidebarDmEvents() {
+            if (canopySidebarDmState.pollInFlight) {
+                return;
+            }
+            const listEl = document.getElementById('sidebar-dm-list');
+            if (!listEl) {
+                return;
+            }
+
+            canopySidebarDmState.pollInFlight = true;
+            const query = new URLSearchParams();
+            query.set('after_seq', String(Number(canopySidebarDmState.currentEventCursor || 0)));
+            query.set('limit', '100');
+            SIDEBAR_DM_EVENT_TYPES.forEach((eventType) => query.append('types', eventType));
+
+            fetch(`/api/v1/events?${query.toString()}`, {
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+                .then((res) => {
+                    if (!res.ok) {
+                        throw new Error(`Sidebar DM event poll failed (${res.status})`);
+                    }
+                    return res.json();
+                })
+                .then((data) => {
+                    if (!data || typeof data !== 'object') return;
+                    const nextSeq = Number(data.next_after_seq || 0);
+                    if (nextSeq > Number(canopySidebarDmState.currentEventCursor || 0)) {
+                        canopySidebarDmState.currentEventCursor = nextSeq;
+                    }
+                    const items = Array.isArray(data.items) ? data.items : [];
+                    if (!items.length) {
+                        return;
+                    }
+                    requestCanopySidebarDmRefresh({ force: false }).catch(() => {});
+                })
+                .catch(() => {})
+                .finally(() => {
+                    canopySidebarDmState.pollInFlight = false;
+                });
+        }
+
+        function startCanopySidebarDmPolling() {
+            const listEl = document.getElementById('sidebar-dm-list');
+            if (!listEl) return;
+            if (canopySidebarDmState.pollHandle) {
+                window.clearInterval(canopySidebarDmState.pollHandle);
+                canopySidebarDmState.pollHandle = null;
+            }
+            if (canopySidebarDmState.safetyHandle) {
+                window.clearInterval(canopySidebarDmState.safetyHandle);
+                canopySidebarDmState.safetyHandle = null;
+            }
+
+            pollCanopySidebarDmEvents();
+            canopySidebarDmState.pollHandle = window.setInterval(pollCanopySidebarDmEvents, 2500);
+            canopySidebarDmState.safetyHandle = window.setInterval(() => {
+                requestCanopySidebarDmRefresh({ force: false }).catch(() => {});
+            }, 30000);
+        }
+
+        window.requestCanopySidebarDmRefresh = requestCanopySidebarDmRefresh;
+
         document.addEventListener('DOMContentLoaded', function() {
             canopyRenderSidebarDmContacts(canopySidebarDmState.contacts);
+            startCanopySidebarDmPolling();
         });
 
         window.renderAvatarStack = function(container, options) {
@@ -2071,6 +2199,17 @@
             html = html.replace(/!\[([^\]]*)\]\((\/files\/[A-Za-z0-9_-]+)\)/g, function(match, alt, src) {
                 var altEsc = (alt || '').replace(/"/g, '&quot;');
                 return '<span class="channel-inline-image-wrap"><img src="' + src + '" alt="' + altEsc + '" class="channel-inline-image" style="max-width:100%;max-height:400px;height:auto;vertical-align:middle;border-radius:8px;" onerror="this.onerror=null;this.style.display=\'none\';var s=this.nextElementSibling;if(s)s.classList.remove(\'d-none\');"><span class="d-none small text-muted">Image unavailable</span></span>';
+            });
+            html = html.replace(/!\[([^\]]*)\]\(file:([A-Za-z0-9_-]+)\)/g, function(match, alt, fileId) {
+                var src = '/files/' + fileId;
+                var altEsc = (alt || '').replace(/"/g, '&quot;');
+                var encodedUrls = encodeURIComponent(JSON.stringify([src]));
+                return '<span class="channel-inline-image-wrap channel-inline-image-block">' +
+                    '<img src="' + src + '" alt="' + altEsc + '" class="channel-inline-image channel-inline-image-full" ' +
+                    'onclick="openLightbox(0, \'' + encodedUrls + '\')" ' +
+                    'onerror="this.onerror=null;this.style.display=\'none\';var s=this.nextElementSibling;if(s)s.classList.remove(\'d-none\');">' +
+                    '<span class="d-none small text-muted">Image unavailable</span>' +
+                    '</span>';
             });
             html = html.replace(/!\[([^\]]*)\]\((\/custom_emojis\/[^)]+)\)/g, function(match, alt, src) {
                 var altEsc = (alt || '').replace(/"/g, '&quot;');
@@ -3896,9 +4035,6 @@
                 if (canopySidebarPeerState.currentRev) {
                     params.set('peer_rev', canopySidebarPeerState.currentRev);
                 }
-                if (canopySidebarDmState.currentRev) {
-                    params.set('dm_rev', canopySidebarDmState.currentRev);
-                }
                 const query = params.toString();
                 fetch(`/ajax/peer_activity${query ? `?${query}` : ''}`)
                     .then(r => r.json())
@@ -3906,9 +4042,6 @@
                         if (!data || data.success === false) return;
                         if (window.syncCanopySidebarPeers && (data.peer_changed !== false || data.peer_rev)) {
                             window.syncCanopySidebarPeers(data);
-                        }
-                        if (window.syncCanopySidebarDmContacts && (data.dm_changed !== false || data.dm_rev)) {
-                            window.syncCanopySidebarDmContacts(data);
                         }
                         const incoming = data.events || [];
                         if (!initialized) {

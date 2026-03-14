@@ -1,4 +1,4 @@
-{% from "_messages_macros.html" import avatar_badge, render_dm_attachment with context %}
+{% from "_messages_macros.html" import avatar_badge, render_dm_attachments with context %}
 
 {% if search_query %}
     <div class="dm-search-results">
@@ -72,9 +72,7 @@
                             {% endif %}
                             {% if message.attachments %}
                                 <div class="dm-attachment-list">
-                                    {% for attachment in message.attachments %}
-                                        {{ render_dm_attachment(attachment, message.id, loop.index0) }}
-                                    {% endfor %}
+                                    {{ render_dm_attachments(message.attachments, message.id) }}
                                 </div>
                             {% endif %}
                         </div>

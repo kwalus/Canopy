@@ -668,6 +668,10 @@
         margin-top: 0.65rem;
     }
 
+    .dm-attachment-list .media-grid {
+        max-width: 100%;
+    }
+
     .dm-attachment-image img {
         display: block;
         width: 100%;
@@ -1511,11 +1515,17 @@
     let composerUsesActiveThread = !!ACTIVE_THREAD;
     const dmInlineEditStates = {};
     let dmSnapshotSerial = 0;
+    let dmEventCursor = {{ workspace_event_cursor|tojson }};
     let dmLastSidebarToken = {{ sidebar_state_token|tojson }};
     let dmLastThreadToken = {{ thread_state_token|tojson }};
     let pendingDmSnapshot = null;
     let dmPollTimer = null;
+    let dmResyncTimer = null;
+    let dmEventPollInFlight = false;
+    let dmSnapshotInFlight = false;
+    let dmQueuedSnapshotOptions = null;
     let dmComposerDragDepth = 0;
+    const DM_WORKSPACE_EVENT_TYPES = ['dm.message.created', 'dm.message.edited', 'dm.message.deleted', 'attachment.available'];
 
     function matchesInitialRecipients() {
         const current = selectedRecipients.map(rec => rec.user_id).filter(Boolean).sort();
@@ -1585,6 +1595,18 @@
         hidePendingDmSnapshotNotice();
     }
 
+    function queueDmSnapshot(options) {
+        const opts = options || {};
+        const existing = dmQueuedSnapshotOptions || {};
+        dmQueuedSnapshotOptions = {
+            targetUrl: opts.targetUrl || existing.targetUrl || null,
+            pushHistory: !!(existing.pushHistory || opts.pushHistory),
+            forceBottom: !!(existing.forceBottom || opts.forceBottom),
+            allowDeferred: !(existing.allowDeferred === false || opts.allowDeferred === false),
+            hardFallback: !!(existing.hardFallback || opts.hardFallback),
+        };
+    }
+
     function applyDmSnapshot(data, options) {
         const opts = options || {};
         if (!data || !data.success) return;
@@ -1607,6 +1629,7 @@
 
         ACTIVE_THREAD = data.active_thread || null;
         INITIAL_RECIPIENTS = Array.isArray(data.composer_recipients) ? data.composer_recipients : [];
+        dmEventCursor = Math.max(Number(dmEventCursor || 0), Number(data.workspace_event_cursor || 0));
         dmLastSidebarToken = data.sidebar_state_token || '';
         dmLastThreadToken = data.thread_state_token || '';
 
@@ -1626,6 +1649,9 @@
         if (typeof formatTimestamps === 'function') {
             formatTimestamps();
         }
+        if (typeof window.requestCanopySidebarDmRefresh === 'function') {
+            window.requestCanopySidebarDmRefresh({ force: false }).catch(() => {});
+        }
         startDmPolling();
     }
 
@@ -1635,11 +1661,16 @@
             if (opts.hardFallback) window.location.reload();
             return Promise.resolve(null);
         }
+        if (dmSnapshotInFlight) {
+            queueDmSnapshot(opts);
+            return Promise.resolve({ queued: true });
+        }
 
         const targetUrl = getDmQueryUrl(opts.targetUrl);
         const url = new URL(targetUrl, window.location.origin);
         url.searchParams.delete('partial');
         const serial = ++dmSnapshotSerial;
+        dmSnapshotInFlight = true;
 
         return fetch(`/ajax/messages/thread_snapshot${url.search || ''}`, {
             headers: {
@@ -1689,6 +1720,16 @@
                     window.location.reload();
                 }
                 return Promise.reject(error);
+            })
+            .finally(() => {
+                dmSnapshotInFlight = false;
+                if (dmQueuedSnapshotOptions) {
+                    const queued = dmQueuedSnapshotOptions;
+                    dmQueuedSnapshotOptions = null;
+                    window.setTimeout(() => {
+                        loadDmSnapshot(queued).catch(() => {});
+                    }, 0);
+                }
             });
     }
 
@@ -1697,21 +1738,72 @@
             window.clearInterval(dmPollTimer);
             dmPollTimer = null;
         }
+        if (dmResyncTimer) {
+            window.clearInterval(dmResyncTimer);
+            dmResyncTimer = null;
+        }
+    }
+
+    function pollDmEvents() {
+        if (dmEventPollInFlight || window.location.search.includes('search=')) {
+            return;
+        }
+        dmEventPollInFlight = true;
+        const query = new URLSearchParams();
+        query.set('after_seq', String(Number(dmEventCursor || 0)));
+        query.set('limit', '100');
+        DM_WORKSPACE_EVENT_TYPES.forEach((eventType) => query.append('types', eventType));
+        fetch(`/api/v1/events?${query.toString()}`, {
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        })
+            .then((res) => {
+                if (!res.ok) {
+                    throw new Error(`DM events poll failed (${res.status})`);
+                }
+                return res.json();
+            })
+            .then((data) => {
+                if (!data || typeof data !== 'object') return;
+                const nextSeq = Number(data.next_after_seq || 0);
+                if (nextSeq > Number(dmEventCursor || 0)) {
+                    dmEventCursor = nextSeq;
+                }
+                const items = Array.isArray(data.items) ? data.items : [];
+                if (!items.length) {
+                    return;
+                }
+                loadDmSnapshot({
+                    allowDeferred: true,
+                    forceBottom: false,
+                    hardFallback: false,
+                }).catch(() => {});
+            })
+            .catch(() => {})
+            .finally(() => {
+                dmEventPollInFlight = false;
+            });
     }
 
     function startDmPolling() {
         stopDmPolling();
-        if (!ACTIVE_THREAD || window.location.search.includes('search=')) {
+        if (window.location.search.includes('search=')) {
             return;
         }
+        pollDmEvents();
         dmPollTimer = window.setInterval(() => {
+            if (document.hidden) return;
+            pollDmEvents();
+        }, 2500);
+        dmResyncTimer = window.setInterval(() => {
             if (document.hidden) return;
             loadDmSnapshot({
                 allowDeferred: true,
                 forceBottom: false,
                 hardFallback: false,
             }).catch(() => {});
-        }, 4000);
+        }, 45000);
     }
 
     function refreshMessages() {
@@ -2822,6 +2914,7 @@
         startDmPolling();
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) {
+                pollDmEvents();
                 loadDmSnapshot({
                     allowDeferred: true,
                     forceBottom: false,

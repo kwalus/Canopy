@@ -19,7 +19,7 @@ When a packaged Windows release is available, it will usually include:
 
 ## Compatibility Notes
 
-The tray app is reviewed against Canopy `0.4.80`.
+The tray app is reviewed against Canopy `0.4.83`.
 
 - Peer status uses `/api/v1/p2p/peers` with fallback to `/api/v1/p2p/known_peers`.
 - Message notifications use `/api/v1/channels` and `/api/v1/channels/<channel_id>/messages`.

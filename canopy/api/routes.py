@@ -174,6 +174,7 @@ _GENERIC_UPLOAD_FILENAMES = {
     'attachment',
     'unnamed_file',
 }
+_VALID_ATTACHMENT_LAYOUT_HINTS = {'grid', 'hero', 'strip', 'stack'}
 
 
 def _is_generic_upload_metadata(filename: Any, content_type: Any) -> bool:
@@ -246,6 +247,12 @@ def _normalize_channel_attachments(raw_attachments: Any, file_manager: Any) -> l
                 att['size'] = int(att.get('size'))
             except (TypeError, ValueError):
                 pass
+
+        layout_hint = str(att.get('layout_hint') or '').strip().lower()
+        if layout_hint in _VALID_ATTACHMENT_LAYOUT_HINTS:
+            att['layout_hint'] = layout_hint
+        else:
+            att.pop('layout_hint', None)
 
         normalized.append(att)
 

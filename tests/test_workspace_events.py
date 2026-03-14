@@ -30,7 +30,11 @@ if 'zeroconf' not in sys.modules:
 
 from canopy.api.routes import create_api_blueprint
 from canopy.core.agent_heartbeat import build_agent_heartbeat_snapshot
-from canopy.core.app import _apply_inbound_dm_delete, _finalize_inbound_dm_message
+from canopy.core.app import (
+    _apply_inbound_dm_delete,
+    _finalize_inbound_dm_message,
+    _rewrite_incoming_attachment_links,
+)
 from canopy.core.events import (
     EVENT_ATTACHMENT_AVAILABLE,
     EVENT_CHANNEL_MESSAGE_CREATED,
@@ -46,6 +50,18 @@ from canopy.core.events import (
 )
 from canopy.core.messaging import MessageManager, MessageType
 from canopy.security.api_keys import ApiKeyInfo, Permission
+
+
+class TestIncomingAttachmentLinkRewrite(unittest.TestCase):
+    def test_rewrites_file_scheme_and_files_urls(self) -> None:
+        rewritten = _rewrite_incoming_attachment_links(
+            "![hero](file:Fremote123) and /files/Fremote123",
+            {"Fremote123": "Flocal456"},
+        )
+        self.assertEqual(
+            rewritten,
+            "![hero](file:Flocal456) and /files/Flocal456",
+        )
 
 
 class _FakeDbManager:
@@ -303,6 +319,56 @@ class TestWorkspaceEvents(unittest.TestCase):
                 (EVENT_CHANNEL_MESSAGE_EDITED, 'M-edit'),
                 (EVENT_CHANNEL_MESSAGE_DELETED, 'M-delete'),
             ],
+        )
+
+    def test_channel_scope_events_are_visible_to_channel_members(self) -> None:
+        self.conn.execute(
+            """
+            CREATE TABLE channel_members (
+                channel_id TEXT NOT NULL,
+                user_id TEXT NOT NULL
+            )
+            """
+        )
+        self.conn.executemany(
+            "INSERT INTO channel_members (channel_id, user_id) VALUES (?, ?)",
+            [
+                ('general', 'agent-a'),
+                ('general', 'owner-user'),
+            ],
+        )
+        self.conn.commit()
+
+        self.workspace_events.emit_event(
+            event_type=EVENT_CHANNEL_MESSAGE_CREATED,
+            actor_user_id='owner-user',
+            channel_id='general',
+            message_id='M-channel-created',
+            visibility_scope='channel',
+            dedupe_key='channel:scope:created:1',
+            payload={'preview': 'fresh channel message'},
+        )
+
+        visible = self.workspace_events.list_events_for_user(
+            user_id='agent-a',
+            after_seq=0,
+            limit=20,
+            can_read_messages=True,
+        )
+        hidden = self.workspace_events.list_events_for_user(
+            user_id='observer',
+            after_seq=0,
+            limit=20,
+            can_read_messages=True,
+        )
+
+        self.assertEqual(
+            [item['message_id'] for item in visible['items'] if item['event_type'] == EVENT_CHANNEL_MESSAGE_CREATED],
+            ['M-channel-created'],
+        )
+        self.assertEqual(
+            [item['message_id'] for item in hidden['items'] if item['event_type'] == EVENT_CHANNEL_MESSAGE_CREATED],
+            [],
         )
 
     def test_deleted_dm_event_visibility_falls_back_to_payload(self) -> None:

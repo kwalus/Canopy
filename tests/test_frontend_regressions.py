@@ -43,6 +43,45 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("return `${trimmed}\\n\\n${buildToolBlock(toolType, '')}`;", main_js)
         self.assertIn("return buildToolBlock(toolType, trimmed);", main_js)
 
+    def test_rich_content_supports_inline_file_image_anchors(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+        self.assertIn(r'!\[([^\]]*)\]\(file:([A-Za-z0-9_-]+)\)', main_js)
+        self.assertIn("channel-inline-image-block", main_js)
+        self.assertIn(".channel-inline-image-block", base_template)
+        self.assertIn(".channel-inline-image-full", base_template)
+
+    def test_attachment_layout_hints_are_rendered_across_surfaces(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        messages_macros = (ROOT / 'canopy' / 'ui' / 'templates' / '_messages_macros.html').read_text(encoding='utf-8')
+        base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+        self.assertIn("function resolveAttachmentLayoutHint(images)", channels_template)
+        self.assertIn('data-layout="${normalizedLayout}"', channels_template)
+        self.assertIn("{% from \"_messages_macros.html\" import render_image_gallery %}", feed_template)
+        self.assertIn("render_image_gallery(images, 'feed-' ~ post.id, image_layout.value)", feed_template)
+        self.assertIn("{% macro render_dm_attachments(attachments, message_id) -%}", messages_macros)
+        self.assertIn("render_image_gallery(images, 'dm-' ~ message_id, ns.layout_hint)", messages_macros)
+        self.assertIn('.media-grid[data-layout="hero"]', base_template)
+        self.assertIn('.media-grid[data-layout="strip"]', base_template)
+
+    def test_channel_thread_polling_has_snapshot_fallback(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        self.assertIn("// Fall back to a direct snapshot refresh if the event poll fails.", channels_template)
+        self.assertIn("requestChannelThreadRefresh();", channels_template)
+        self.assertIn("}, 10000);", channels_template)
+
+    def test_active_channel_refreshes_when_sidebar_receives_new_message_event(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        self.assertIn("if (currentChannelId && channelId === currentChannelId) {", channels_template)
+        self.assertIn("requestChannelThreadRefresh();", channels_template)
+
+    def test_structured_validation_ignores_plain_unknown_section_headers(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        self.assertIn("const suggestedTag = TAG_SUGGESTIONS[tag] || null;", main_js)
+        self.assertIn("if (!suggestedTag) {", main_js)
+        self.assertIn("return;", main_js)
+
     def test_feed_and_channel_composers_render_structured_validation_and_results(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
@@ -59,7 +98,27 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("const structuredValidation = updateFeedStructuredValidation();", feed_template)
         self.assertIn("error && error.structured_validation", feed_template)
         self.assertIn("error && error.structured_validation", channels_template)
+    def test_show_alert_null_checks_flash_messages_container(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        # showAlert must guard against a missing .flash-messages container
+        self.assertIn("if (!container) return;", main_js)
+        # The null-check must appear before the appendChild call
+        null_check_pos = main_js.index("if (!container) return;")
+        append_pos = main_js.index("container.appendChild(alertDiv);")
+        self.assertLess(null_check_pos, append_pos)
+
+    def test_channel_list_element_has_id_for_sidebar_badge_polling(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        # The channel list container must carry id="channel-list" so that
+        # setSidebarChannelUnreadCount, incrementSidebarChannelUnreadCount, and
+        # pollChannelSidebarEvents (all using getElementById) can find it.
+        self.assertIn('id="channel-list"', channels_template)
+
+    def test_dashboard_flash_messages_null_check(self) -> None:
+        dashboard_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'dashboard.html').read_text(encoding='utf-8')
+        # Must guard against missing .flash-messages before injecting new API key alert
+        self.assertIn("if (flashContainer) flashContainer.innerHTML += keyAlert;", dashboard_template)
+        self.assertNotIn("document.querySelector('.flash-messages').innerHTML += keyAlert;", dashboard_template)
 
 
-if __name__ == '__main__':
-    unittest.main()
+

@@ -76,6 +76,22 @@ class TestApiAttachmentNormalizationHelpers(unittest.TestCase):
         self.assertEqual(att.get('name'), 'legacy.pdf')
         self.assertEqual(att.get('type'), 'application/pdf')
 
+    def test_attachment_normalization_keeps_valid_layout_hint(self) -> None:
+        file_manager = _FakeFileManager()
+        normalized = _normalize_channel_attachments(
+            [{'id': 'F1', 'layout_hint': ' HERO '}],
+            file_manager,
+        )
+        self.assertEqual(normalized[0].get('layout_hint'), 'hero')
+
+    def test_attachment_normalization_strips_invalid_layout_hint(self) -> None:
+        file_manager = _FakeFileManager()
+        normalized = _normalize_channel_attachments(
+            [{'id': 'F1', 'layout_hint': 'masonry'}],
+            file_manager,
+        )
+        self.assertNotIn('layout_hint', normalized[0])
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -7770,6 +7770,9 @@ function applyChannelSidebarEventItems(items) {
             if (!incrementSidebarChannelUnreadCount(channelId, 1)) {
                 needsSnapshotRefresh = true;
             }
+            if (currentChannelId && channelId === currentChannelId) {
+                requestChannelThreadRefresh();
+            }
             return;
         }
         if (eventType === 'channel.message.read') {
@@ -7972,7 +7975,10 @@ function pollChannelThreadEvents() {
             }
             applyChannelThreadEventItems(items);
         })
-        .catch(() => {})
+        .catch(() => {
+            // Fall back to a direct snapshot refresh if the event poll fails.
+            requestChannelThreadRefresh();
+        })
         .finally(() => {
             channelThreadEventPollInFlight = false;
         });
@@ -7995,7 +8001,7 @@ function startChannelThreadEventPolling() {
     channelThreadSafetyHandle = window.setInterval(() => {
         if (document.hidden) return;
         requestChannelThreadRefresh();
-    }, 45000);
+    }, 10000);
 }
 
 function pollChannelMessages() {
@@ -8082,10 +8088,26 @@ function isMarkdownFile(filename, contentType) {
 // Unique ID counter for preview containers
 let _previewIdCounter = 0;
 
+function normalizeAttachmentLayoutHint(value) {
+    const hint = String(value || '').trim().toLowerCase();
+    return ['grid', 'hero', 'strip', 'stack'].includes(hint) ? hint : '';
+}
+
+function resolveAttachmentLayoutHint(images) {
+    if (!Array.isArray(images)) return '';
+    for (const image of images) {
+        const hint = normalizeAttachmentLayoutHint(image && image.layout_hint);
+        if (hint) return hint;
+    }
+    return '';
+}
+
 // Build a Facebook-style media grid for image attachments
-function buildMediaGrid(images) {
+function buildMediaGrid(images, layoutHint = '') {
     if (!images || images.length === 0) return '';
-    const show = Math.min(images.length, 4); // show up to 4 in the grid
+    const normalizedLayout = normalizeAttachmentLayoutHint(layoutHint);
+    const showAll = ['grid', 'strip', 'stack'].includes(normalizedLayout);
+    const show = showAll ? images.length : Math.min(images.length, 4); // show up to 4 in the grid
     const count = Math.min(images.length, 5); // data-count caps at 5 for CSS
     const extraCount = images.length - show;
 
@@ -8097,7 +8119,7 @@ function buildMediaGrid(images) {
     for (let i = 0; i < show; i++) {
         const img = images[i];
         const hasUrl = img.url && String(img.url).trim();
-        const isLast = (i === show - 1) && extraCount > 0;
+        const isLast = (i === show - 1) && extraCount > 0 && !showAll;
         if (hasUrl) {
             const thumbUrl = img.url + '/thumb';
             cells += `<div class="mg-cell" onclick="openLightbox(${i}, '${urlsAttr}')">
@@ -8115,7 +8137,8 @@ function buildMediaGrid(images) {
         }
     }
 
-    return `<div class="media-grid" data-count="${count}">${cells}</div>`;
+    const layoutAttr = normalizedLayout ? ` data-layout="${normalizedLayout}"` : '';
+    return `<div class="media-grid" data-count="${count}"${layoutAttr}>${cells}</div>`;
 }
 
 function renderHandoffCards(message, userInfo) {
@@ -8426,9 +8449,11 @@ function displayAttachments(attachments) {
         `;
     });
 
+    const imageLayout = resolveAttachmentLayoutHint(images);
+
     // Render image grid
     if (images.length > 0) {
-        html += buildMediaGrid(images);
+        html += buildMediaGrid(images, imageLayout);
     }
 
     const escapeAttr = (value) => String(value || '').replace(/"/g, '&quot;');

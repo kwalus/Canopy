@@ -3798,6 +3798,89 @@
             .media-grid[data-count="5"] .mg-cell { height: 140px; }
         }
 
+        /* Explicit attachment layout hints override the default count-based grid. */
+        .media-grid[data-layout] {
+            max-width: min(100%, 680px);
+        }
+        .media-grid[data-layout="stack"] {
+            grid-template-columns: 1fr !important;
+            grid-template-rows: none !important;
+        }
+        .media-grid[data-layout="stack"] .mg-cell {
+            height: auto !important;
+            max-height: none !important;
+        }
+        .media-grid[data-layout="stack"] .mg-cell img {
+            height: auto;
+            max-height: 520px;
+            object-fit: cover;
+        }
+        .media-grid[data-layout="strip"] {
+            display: grid;
+            grid-template-columns: none !important;
+            grid-auto-flow: column;
+            grid-auto-columns: minmax(220px, 85%);
+            overflow-x: auto;
+            overscroll-behavior-x: contain;
+            padding-bottom: 2px;
+        }
+        .media-grid[data-layout="strip"] .mg-cell {
+            height: 220px !important;
+        }
+        .media-grid[data-layout="grid"] {
+            grid-template-columns: 1fr !important;
+            grid-template-rows: none !important;
+        }
+        .media-grid[data-layout="grid"] .mg-cell {
+            height: 220px;
+        }
+        .media-grid[data-layout="hero"] {
+            grid-template-columns: 1fr !important;
+            grid-template-rows: none !important;
+        }
+        .media-grid[data-layout="hero"] .mg-cell {
+            height: 220px !important;
+        }
+        .media-grid .mg-cell.mg-cell-unavailable {
+            min-height: 96px;
+            background: var(--canopy-bg-tertiary);
+            border-radius: 8px;
+        }
+        @media (min-width: 480px) {
+            .media-grid[data-layout="grid"] {
+                grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)) !important;
+            }
+            .media-grid[data-layout="hero"] {
+                grid-template-columns: 2fr 1fr !important;
+                grid-template-rows: repeat(2, minmax(156px, 1fr)) !important;
+            }
+            .media-grid[data-layout="hero"] .mg-cell:first-child {
+                grid-row: 1 / span 2;
+                height: 100% !important;
+                min-height: 316px;
+            }
+            .media-grid[data-layout="hero"] .mg-cell:not(:first-child) {
+                height: 156px !important;
+            }
+        }
+
+        .channel-inline-image-block {
+            display: block;
+            margin: 0.75rem 0;
+        }
+        .channel-inline-image-full {
+            max-width: 100%;
+            max-height: 520px;
+            height: auto;
+            border-radius: 10px;
+            cursor: zoom-in;
+        }
+        @media (min-width: 768px) {
+            .channel-inline-image-full {
+                max-width: min(100%, 680px);
+            }
+        }
+
         /* ============================================
            Embed Grid — 2-col for multiple embeds
            ============================================ */
@@ -5366,6 +5449,7 @@
             peerRev: {{ sidebar_peer_rev|tojson if sidebar_peer_rev is defined else '""' }},
             recentDmContacts: {{ sidebar_recent_dm_contacts|tojson if sidebar_recent_dm_contacts is defined else '[]' }},
             dmRev: {{ sidebar_dm_rev|tojson if sidebar_dm_rev is defined else '""' }},
+            dmEventCursor: {{ sidebar_dm_event_cursor|tojson if sidebar_dm_event_cursor is defined else '0' }},
             userId: {{ (user_id or 'local_user')|tojson }},
             profileTheme: {{ (profile.theme_preference if profile else 'dark')|tojson }},
             localUserId: {{ session.get('user_id')|tojson }},
