@@ -3964,7 +3964,6 @@ def create_ui_blueprint() -> Blueprint:
             return render_template('channels.html',
                                  channels=channels,
                                  user_id=user_id,
-                                 config=config,
                                  peer_device_profiles=peer_device_profiles,
                                  local_device=local_device,
                                  local_peer_id=local_peer_id,
