@@ -1183,11 +1183,12 @@
             const frameClass = options.frameClass ? ' ' + escapeEmbedAttr(options.frameClass) : '';
             const heightStyle = options.height ? ' style="height:' + String(options.height).replace(/[^0-9.]/g, '') + 'px"' : '';
             const sandbox = options.sandbox ? ' sandbox="' + escapeEmbedAttr(options.sandbox) + '"' : '';
+            const referrerPolicy = escapeEmbedAttr(options.referrerPolicy || 'strict-origin-when-cross-origin');
             const caption = buildEmbedCaption(options.caption || '');
             return (
                 '<div class="embed-preview iframe-embed ' + escapeEmbedAttr(providerClass) + extraClass + '">' +
                 '<iframe src="' + safeSrc + '" title="' + safeTitle + '" frameborder="0" loading="lazy" allowfullscreen ' +
-                'referrerpolicy="strict-origin-when-cross-origin" allow="' + allow + '"' + sandbox + heightStyle +
+                'referrerpolicy="' + referrerPolicy + '" allow="' + allow + '"' + sandbox + heightStyle +
                 ' class="' + frameClass.trim() + '"></iframe>' +
                 caption +
                 '</div>'
@@ -1267,6 +1268,135 @@
             const lastTagOpen = source.lastIndexOf('<', index);
             const lastTagClose = source.lastIndexOf('>', index);
             return lastTagOpen > lastTagClose;
+        }
+
+        function getCanopyEmbedThemeName() {
+            return canopyEmbedTheme() === 'light' ? 'light' : 'dark';
+        }
+
+        function safeUrlParse(rawUrl) {
+            try {
+                return new URL(String(rawUrl || ''), window.location.origin);
+            } catch (_) {
+                return null;
+            }
+        }
+
+        function getGoogleMapsEmbedApiKey() {
+            if (!window.CANOPY_VARS) return '';
+            return String(window.CANOPY_VARS.googleMapsEmbedApiKey || '').trim();
+        }
+
+        function extractGoogleMapsQuery(urlObj) {
+            if (!urlObj) return '';
+            const query = urlObj.searchParams.get('q') || urlObj.searchParams.get('query') || '';
+            if (query) return query.trim();
+            const parts = urlObj.pathname.split('/').filter(Boolean);
+            const placeIdx = parts.indexOf('place');
+            if (placeIdx >= 0 && parts[placeIdx + 1]) {
+                return decodeURIComponent(parts[placeIdx + 1]).trim();
+            }
+            const atMatch = urlObj.pathname.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
+            if (atMatch) {
+                return atMatch[1] + ',' + atMatch[2];
+            }
+            return '';
+        }
+
+        function buildGoogleMapsEmbedUrl(rawUrl) {
+            const apiKey = getGoogleMapsEmbedApiKey();
+            if (!apiKey) return '';
+            const urlObj = safeUrlParse(rawUrl);
+            const query = extractGoogleMapsQuery(urlObj);
+            if (!query) return '';
+            return 'https://www.google.com/maps/embed/v1/search?key=' + encodeURIComponent(apiKey) + '&q=' + encodeURIComponent(query);
+        }
+
+        function clampNumber(value, min, max) {
+            const num = Number(value);
+            if (!Number.isFinite(num)) return min;
+            return Math.min(max, Math.max(min, num));
+        }
+
+        function buildOsmBoundingBox(lat, lon, zoom) {
+            const safeLat = clampNumber(lat, -85, 85);
+            const safeLon = clampNumber(lon, -180, 180);
+            const safeZoom = clampNumber(zoom, 2, 18);
+            const lonDelta = 360 / Math.pow(2, safeZoom + 2);
+            const latDelta = 180 / Math.pow(2, safeZoom + 2);
+            const left = Math.max(-180, safeLon - lonDelta);
+            const right = Math.min(180, safeLon + lonDelta);
+            const bottom = Math.max(-85, safeLat - latDelta);
+            const top = Math.min(85, safeLat + latDelta);
+            return [left, bottom, right, top].join(',');
+        }
+
+        function buildOpenStreetMapEmbedUrl(rawUrl) {
+            const urlObj = safeUrlParse(rawUrl);
+            if (!urlObj) return '';
+            let lat = '';
+            let lon = '';
+            let zoom = '';
+
+            const hashMatch = String(urlObj.hash || '').match(/#map=(\d+)\/(-?\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)/);
+            if (hashMatch) {
+                zoom = hashMatch[1];
+                lat = hashMatch[2];
+                lon = hashMatch[3];
+            }
+            if (!lat || !lon) {
+                lat = urlObj.searchParams.get('mlat') || '';
+                lon = urlObj.searchParams.get('mlon') || '';
+            }
+            if (!zoom) {
+                zoom = urlObj.searchParams.get('zoom') || '12';
+            }
+            if (!lat || !lon) return '';
+            const bbox = buildOsmBoundingBox(lat, lon, zoom);
+            return 'https://www.openstreetmap.org/export/embed.html?bbox=' +
+                encodeURIComponent(bbox) +
+                '&layer=mapnik&marker=' +
+                encodeURIComponent(String(lat) + ',' + String(lon));
+        }
+
+        function parseTradingViewSymbol(rawUrl) {
+            const urlObj = safeUrlParse(rawUrl);
+            if (!urlObj) return '';
+            const path = String(urlObj.pathname || '');
+            const symbolMatch = path.match(/\/symbols\/([A-Za-z0-9._-]+)(?:\/)?/i);
+            if (symbolMatch && symbolMatch[1]) {
+                const rawSymbol = symbolMatch[1].replace(/\/+$/, '');
+                if (rawSymbol.includes('-')) {
+                    const idx = rawSymbol.indexOf('-');
+                    const exchange = rawSymbol.slice(0, idx).toUpperCase();
+                    const symbol = rawSymbol.slice(idx + 1).toUpperCase();
+                    if (exchange && symbol) return exchange + ':' + symbol;
+                }
+                return rawSymbol.toUpperCase();
+            }
+            const tvSymbol = urlObj.searchParams.get('symbol') || urlObj.searchParams.get('ticker') || '';
+            return tvSymbol.trim().toUpperCase();
+        }
+
+        function buildTradingViewEmbedUrl(rawUrl) {
+            const symbol = parseTradingViewSymbol(rawUrl);
+            if (!symbol) return '';
+            const params = new URLSearchParams({
+                symbol: symbol,
+                interval: 'D',
+                symboledit: '1',
+                saveimage: '0',
+                toolbarbg: getCanopyEmbedThemeName() === 'light' ? 'f8fafc' : '0f172a',
+                theme: getCanopyEmbedThemeName(),
+                style: '1',
+                withdateranges: '1',
+                hideideas: '1',
+                locale: 'en',
+            });
+            params.set('utm_source', window.location.hostname || 'canopy');
+            params.set('utm_medium', 'embed');
+            params.set('utm_campaign', 'canopy');
+            return 'https://s.tradingview.com/widgetembed/?' + params.toString();
         }
 
         const RICH_EMBED_PROVIDERS = [
@@ -1386,9 +1516,27 @@
             },
             {
                 key: 'google_maps',
-                pattern: /https?:\/\/(?:www\.)?(?:google\.[^\/]+\/maps|maps\.google\.[^\/]+|maps\.app\.goo\.gl)\/[^\s<"]+/g,
+                pattern: /https?:\/\/(?:www\.)?(?:google\.[^\/]+\/maps(?:[/?#][^\s<"]*)?|maps\.google\.[^\/]+\/?[^\s<"]*|maps\.app\.goo\.gl\/?[^\s<"]*)/g,
                 render(match) {
                     const parts = trimEmbedUrlTrailingPunctuation(match);
+                    const embedUrl = buildGoogleMapsEmbedUrl(parts.url);
+                    if (embedUrl) {
+                        return {
+                            html: buildIframeEmbedPreview(
+                                'map-embed google-maps-embed',
+                                embedUrl,
+                                'Google Maps',
+                                {
+                                    caption: 'Google Maps',
+                                    height: 320,
+                                    allow: 'geolocation',
+                                    referrerPolicy: 'no-referrer-when-downgrade',
+                                    extraClass: 'fixed-height-embed map-service-embed',
+                                }
+                            ),
+                            trailing: parts.trailing,
+                        };
+                    }
                     return {
                         html: buildProviderCardEmbed(
                             'map-card-embed',
@@ -1396,7 +1544,12 @@
                             'Map link',
                             'Open this location in Google Maps.',
                             'bi-geo-alt-fill',
-                            { providerLabel: 'Google Maps', note: 'Preview card for safe in-channel sharing.' }
+                            {
+                                providerLabel: 'Google Maps',
+                                note: getGoogleMapsEmbedApiKey()
+                                    ? 'Open this location in Google Maps.'
+                                    : 'Inline Google Maps requires CANOPY_GOOGLE_MAPS_EMBED_API_KEY; showing a safe card instead.',
+                            }
                         ),
                         trailing: parts.trailing,
                     };
@@ -1407,6 +1560,22 @@
                 pattern: /https?:\/\/(?:www\.)?openstreetmap\.org\/[^\s<"]+/g,
                 render(match) {
                     const parts = trimEmbedUrlTrailingPunctuation(match);
+                    const embedUrl = buildOpenStreetMapEmbedUrl(parts.url);
+                    if (embedUrl) {
+                        return {
+                            html: buildIframeEmbedPreview(
+                                'map-embed openstreetmap-embed',
+                                embedUrl,
+                                'OpenStreetMap',
+                                {
+                                    caption: 'OpenStreetMap',
+                                    height: 320,
+                                    extraClass: 'fixed-height-embed map-service-embed',
+                                }
+                            ),
+                            trailing: parts.trailing,
+                        };
+                    }
                     return {
                         html: buildProviderCardEmbed(
                             'map-card-embed',
@@ -1425,6 +1594,22 @@
                 pattern: /https?:\/\/(?:www\.)?tradingview\.com\/[^\s<"]+/g,
                 render(match) {
                     const parts = trimEmbedUrlTrailingPunctuation(match);
+                    const embedUrl = buildTradingViewEmbedUrl(parts.url);
+                    if (embedUrl) {
+                        return {
+                            html: buildIframeEmbedPreview(
+                                'tradingview-embed',
+                                embedUrl,
+                                'TradingView chart',
+                                {
+                                    caption: 'TradingView',
+                                    height: 360,
+                                    extraClass: 'fixed-height-embed chart-service-embed',
+                                }
+                            ),
+                            trailing: parts.trailing,
+                        };
+                    }
                     return {
                         html: buildProviderCardEmbed(
                             'tradingview-card-embed',

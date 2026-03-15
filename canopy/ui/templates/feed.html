@@ -3547,6 +3547,14 @@
     aspect-ratio: 16 / 9;
 }
 
+.embed-preview.map-service-embed iframe {
+    min-height: 320px;
+}
+
+.embed-preview.chart-service-embed iframe {
+    min-height: 360px;
+}
+
 .embed-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -3577,6 +3585,8 @@
     .embed-grid { grid-template-columns: 1fr !important; }
     .provider-embed-card { padding: 12px 14px !important; }
     .provider-embed-head { gap: 10px !important; }
+    .embed-preview.map-service-embed iframe,
+    .embed-preview.chart-service-embed iframe { min-height: 280px; }
     audio, video { max-width: 100%; }
 }
 @media (max-width: 576px) {
