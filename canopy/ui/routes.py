@@ -10700,6 +10700,45 @@ def create_ui_blueprint() -> Blueprint:
             logger.error(f"List streams UI failed: {e}", exc_info=True)
             return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
+    @ui.route('/ajax/streams/health', methods=['GET'])
+    @require_login
+    def ajax_stream_health():
+        """Return stream runtime readiness and UI capability hints for the signed-in user."""
+        try:
+            stream_manager = current_app.config.get('STREAM_MANAGER')
+            if not stream_manager:
+                return jsonify({
+                    'success': False,
+                    'error': 'Streaming unavailable',
+                    'health': {
+                        'stream_manager_ready': False,
+                        'ffmpeg_found': False,
+                        'ffprobe_found': False,
+                    },
+                    'capabilities': {
+                        'supported_stream_kinds': ['media', 'telemetry'],
+                        'supported_media_kinds': ['audio', 'video', 'data'],
+                        'domain_options': ['media', 'sensor', 'humanoid', 'robotics', 'automation'],
+                    },
+                }), 503
+            return jsonify({
+                'success': True,
+                'health': stream_manager.get_runtime_health(),
+                'capabilities': {
+                    'supported_stream_kinds': ['media', 'telemetry'],
+                    'supported_media_kinds': ['audio', 'video', 'data'],
+                    'domain_options': ['media', 'sensor', 'humanoid', 'robotics', 'automation'],
+                    'recommended_profiles': [
+                        {'id': 'audio_ops', 'label': 'Audio briefing', 'stream_kind': 'media', 'media_kind': 'audio'},
+                        {'id': 'video_ops', 'label': 'Video watch', 'stream_kind': 'media', 'media_kind': 'video'},
+                        {'id': 'telemetry_sensor', 'label': 'Sensor feed', 'stream_kind': 'telemetry', 'media_kind': 'data'},
+                    ],
+                },
+            })
+        except Exception as e:
+            logger.error(f"Stream health UI failed: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
     @ui.route('/ajax/streams', methods=['POST'])
     @require_login
     def ajax_create_stream():
@@ -10722,6 +10761,25 @@ def create_ui_blueprint() -> Blueprint:
             relay_allowed = str(data.get('relay_allowed') or '').strip().lower() in {'1', 'true', 'yes', 'on'}
             auto_post = True if data.get('auto_post') is None else str(data.get('auto_post')).strip().lower() in {'1', 'true', 'yes', 'on'}
             start_now = str(data.get('start_now') or '').strip().lower() in {'1', 'true', 'yes', 'on'}
+            raw_metadata = data.get('metadata')
+            metadata = dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
+            local_peer_id = None
+            try:
+                candidate_peer_id = p2p_manager.get_peer_id() if p2p_manager and hasattr(p2p_manager, 'get_peer_id') else None
+                candidate_peer_id = str(candidate_peer_id or '').strip()
+                local_peer_id = candidate_peer_id or None
+            except Exception:
+                local_peer_id = None
+            domain = str(metadata.get('stream_domain') or data.get('stream_domain') or '').strip().lower()
+            if domain:
+                metadata['stream_domain'] = domain
+            operator_profile = str(metadata.get('operator_profile') or data.get('operator_profile') or '').strip().lower()
+            if operator_profile:
+                metadata['operator_profile'] = operator_profile
+            viewer_layout = str(metadata.get('viewer_layout') or data.get('viewer_layout') or '').strip().lower()
+            if viewer_layout:
+                metadata['viewer_layout'] = viewer_layout
+            metadata['created_via'] = 'ui'
 
             stream_row, error = stream_manager.create_stream(
                 channel_id=channel_id,
@@ -10732,8 +10790,8 @@ def create_ui_blueprint() -> Blueprint:
                 media_kind=media_kind,
                 protocol=protocol,
                 relay_allowed=relay_allowed,
-                origin_peer=(p2p_manager.get_peer_id() if p2p_manager else None),
-                metadata={'created_via': 'ui'},
+                origin_peer=local_peer_id,
+                metadata=metadata,
             )
             if error:
                 if error in {'channel_not_found', 'not_channel_member'}:
@@ -10770,6 +10828,7 @@ def create_ui_blueprint() -> Blueprint:
                     'channel_id': str(stream_row.get('channel_id') or channel_id),
                     'created_by': str(stream_row.get('created_by') or user_id),
                     'relay_allowed': bool(stream_row.get('relay_allowed')),
+                    'metadata': dict(stream_row.get('metadata') or {}),
                     'host_addrs': _host_addrs,
                 }
                 post_content = str(data.get('post_content') or '').strip()
@@ -10786,7 +10845,7 @@ def create_ui_blueprint() -> Blueprint:
                     content=post_content,
                     message_type=ChannelMessageType.FILE,
                     attachments=[attachment],
-                    origin_peer=(p2p_manager.get_peer_id() if p2p_manager else None),
+                    origin_peer=local_peer_id,
                 )
                 if message:
                     posted_message_id = message.id
@@ -11008,10 +11067,27 @@ def create_ui_blueprint() -> Blueprint:
             stream_row = stream_manager.get_stream_for_user(stream_id, user_id) or {}
             stream_kind = str(stream_row.get('stream_kind') or 'media').lower()
             protocol = str(stream_row.get('protocol') or 'hls').lower()
+            health = stream_manager.get_runtime_health()
 
             ingest_tok = quote_plus(str(ingest_payload.get('token') or ''))
             view_tok = quote_plus(str(view_payload.get('token') or ''))
             base = f"/api/v1/streams/{stream_id}"
+            warnings: list[dict[str, str]] = []
+            if stream_kind == 'media' and not bool(health.get('ffmpeg_found')):
+                warnings.append({
+                    'code': 'ffmpeg_missing',
+                    'message': 'ffmpeg was not found on the Canopy host; the generated media ingest command will not run until ffmpeg is installed.',
+                })
+            if int(ingest_payload.get('ttl_seconds') or 0) < 1800:
+                warnings.append({
+                    'code': 'short_ingest_ttl',
+                    'message': 'The ingest token expires quickly; refresh it before using this for a longer live stream.',
+                })
+            if int(view_payload.get('ttl_seconds') or 0) < 900:
+                warnings.append({
+                    'code': 'short_view_ttl',
+                    'message': 'Viewer tokens are short-lived; use token refresh for longer monitoring sessions.',
+                })
 
             if stream_kind == 'telemetry' or protocol == 'events-json':
                 ingest_bundle = {'events_url': f"{base}/ingest/events?token={ingest_tok}"}
@@ -11043,6 +11119,23 @@ def create_ui_blueprint() -> Blueprint:
                     'commands': {'posix': posix_cmd, 'powershell': ps_cmd},
                     'ingest_expires_at': ingest_payload.get('expires_at'),
                     'view_expires_at': view_payload.get('expires_at'),
+                    'ttl_seconds': {
+                        'ingest': ingest_payload.get('ttl_seconds'),
+                        'view': view_payload.get('ttl_seconds'),
+                    },
+                    'token_refresh': {
+                        'view_url': f"{base}/tokens/refresh",
+                        'ingest_url': f"{base}/tokens/refresh",
+                    },
+                    'preflight': {
+                        'stream_manager_ready': bool(health.get('stream_manager_ready')),
+                        'ffmpeg_found': bool(health.get('ffmpeg_found')),
+                        'ffprobe_found': bool(health.get('ffprobe_found')),
+                        'latency_mode_supported': health.get('latency_mode_supported'),
+                        'storage_root': health.get('storage_root'),
+                        'remote_proxy_mode': health.get('remote_proxy_mode'),
+                        'warnings': warnings,
+                    },
                 },
             })
         except Exception as e:

@@ -233,6 +233,19 @@ class TestApiStreamEndpoints(unittest.TestCase):
         )
         self.assertEqual(denied.status_code, 404)
 
+    def test_stream_health_reports_runtime_readiness(self) -> None:
+        response = self.client.get(
+            '/api/v1/streams/health',
+            headers=self._headers('key-member'),
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        health = payload.get('health') or {}
+        self.assertTrue(health.get('stream_manager_ready'))
+        self.assertIn('storage_root', health)
+        self.assertEqual(health.get('latency_mode_supported'), 'hls')
+
     def test_tokenized_ingest_and_playback_flow(self) -> None:
         create_resp = self.client.post(
             '/api/v1/streams',
@@ -307,6 +320,80 @@ class TestApiStreamEndpoints(unittest.TestCase):
             f'/api/v1/streams/{stream_id}/segments/seg01.ts?token=bogus',
         )
         self.assertEqual(bad_segment_token_resp.status_code, 404)
+
+    def test_refresh_view_token_revokes_old_token(self) -> None:
+        create_resp = self.client.post(
+            '/api/v1/streams',
+            json={
+                'channel_id': 'C1',
+                'title': 'Refreshable stream',
+                'media_kind': 'audio',
+                'auto_post': False,
+            },
+            headers=self._headers('key-member'),
+        )
+        self.assertEqual(create_resp.status_code, 201)
+        stream_id = (create_resp.get_json() or {}).get('stream', {}).get('id')
+        self.assertTrue(stream_id)
+
+        join_resp = self.client.post(
+            f'/api/v1/streams/{stream_id}/join',
+            json={'ttl_seconds': 600},
+            headers=self._headers('key-member'),
+        )
+        self.assertEqual(join_resp.status_code, 200)
+        old_token = (join_resp.get_json() or {}).get('token')
+        self.assertTrue(old_token)
+
+        refresh_resp = self.client.post(
+            f'/api/v1/streams/{stream_id}/tokens/refresh',
+            json={'scope': 'view', 'token': old_token, 'ttl_seconds': 900},
+            headers=self._headers('key-member'),
+        )
+        self.assertEqual(refresh_resp.status_code, 200)
+        refreshed = refresh_resp.get_json() or {}
+        self.assertTrue(refreshed.get('success'))
+        self.assertNotEqual(refreshed.get('token'), old_token)
+        self.assertIn('/manifest.m3u8?token=', refreshed.get('playback_url') or '')
+
+        old_manifest = self.client.get(
+            f'/api/v1/streams/{stream_id}/manifest.m3u8?token={old_token}',
+        )
+        self.assertEqual(old_manifest.status_code, 404)
+
+    def test_empty_manifest_ingest_returns_actionable_hint(self) -> None:
+        create_resp = self.client.post(
+            '/api/v1/streams',
+            json={
+                'channel_id': 'C1',
+                'title': 'Hint stream',
+                'media_kind': 'video',
+                'auto_post': False,
+            },
+            headers=self._headers('key-member'),
+        )
+        self.assertEqual(create_resp.status_code, 201)
+        stream_id = (create_resp.get_json() or {}).get('stream', {}).get('id')
+        self.assertTrue(stream_id)
+
+        ingest_token_resp = self.client.post(
+            f'/api/v1/streams/{stream_id}/tokens',
+            json={'scope': 'ingest', 'ttl_seconds': 600},
+            headers=self._headers('key-member'),
+        )
+        self.assertEqual(ingest_token_resp.status_code, 200)
+        ingest_token = (ingest_token_resp.get_json() or {}).get('token')
+        self.assertTrue(ingest_token)
+
+        put_manifest = self.client.put(
+            f'/api/v1/streams/{stream_id}/ingest/manifest?token={ingest_token}',
+            data=b'',
+            headers={'Content-Type': 'application/vnd.apple.mpegurl'},
+        )
+        self.assertEqual(put_manifest.status_code, 400)
+        payload = put_manifest.get_json() or {}
+        self.assertEqual(payload.get('error'), 'empty_ingest_payload')
+        self.assertEqual(payload.get('hint'), 'possible_empty_upload_or_proxy_buffering_issue')
 
     def test_telemetry_stream_event_ingest_and_read(self) -> None:
         create_resp = self.client.post(

@@ -31,6 +31,7 @@ from .profile import ProfileManager
 from .feed import FeedManager
 from .tasks import TaskManager
 from .search import SearchManager
+from .streams import StreamManager
 from ..security.api_keys import ApiKeyManager
 from ..security.trust import TrustManager
 from .messaging import (
@@ -311,6 +312,19 @@ def create_app(config: Optional[Config] = None) -> Flask:
         channel_manager.workspace_events = workspace_event_manager
         app.config['CHANNEL_MANAGER'] = channel_manager
         logger.info("Channel manager initialized successfully")
+
+        logger.info("Initializing stream manager...")
+        streams_data_root = str(Path(config.storage.data_dir) if config.storage.data_dir else Path('./data'))
+        stream_manager = StreamManager(
+            db=db_manager,
+            channel_manager=channel_manager,
+            data_root=streams_data_root,
+        )
+        app.config['STREAM_MANAGER'] = stream_manager
+        logger.info(
+            "Stream manager initialized successfully (storage_root=%s)",
+            stream_manager.storage_root,
+        )
 
         logger.info("Initializing feed manager...")
         feed_manager = FeedManager(db_manager, api_key_manager)

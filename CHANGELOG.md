@@ -8,6 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.84] - 2026-03-15
+
+### Added
+- **Streaming runtime readiness and token refresh surfaces** - Added real `STREAM_MANAGER` bootstrap wiring, stream runtime health endpoints for API/UI callers, and a first-class stream token refresh path so longer live sessions can renew access without ad-hoc reissue flows.
+
+### Changed
+- **Streaming operator UX and metadata structure** - Stream creation now uses a structured modal/profile flow, stream cards open into a reusable workspace shell, and stream attachments carry richer UI metadata such as `stream_domain`, `operator_profile`, and `viewer_layout`.
+- **Truthful media stream defaults** - Newly created media streams now default `metadata.latency_mode` to `hls`, matching the currently implemented transport instead of overstating LL-HLS support.
+
+### Fixed
+- **Actionable ingest diagnostics** - Empty manifest or segment uploads now return `empty_ingest_payload` with a proxy/upload hint instead of a generic size error.
+- **Remote stream proxy hot-path churn** - Remote stream proxy origin resolution now uses a short-lived cache with shorter probe/fetch timeouts to avoid repeated synchronous rescans on hot requests.
+
 ## [0.4.83] - 2026-03-14
 
 ### Fixed
