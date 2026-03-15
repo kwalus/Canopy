@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.88] - 2026-03-15
+
+### Added
+- **Shared rich embed provider expansion** - Expanded the common rich embed renderer across post and message surfaces to support Vimeo, Loom, Spotify, SoundCloud, direct audio/video URLs, and safe provider cards for map and TradingView links while keeping the embed surface bounded away from arbitrary raw iframe HTML.
+
+### Fixed
+- **Inline math dollar-sign hardening** - KaTeX inline dollar parsing now requires the content between `$...$` delimiters to actually look mathematical, reducing accidental formatting damage in finance-style posts that contain multiple currency values.
+- **Embed detection inside generated markup** - Provider URL expansion now skips matches that are already inside generated HTML tags or attributes, preventing supported-provider URLs inside ordinary markdown links from being rewritten into broken embed markup.
+
 ## [0.4.87] - 2026-03-15
 
 ### Fixed
