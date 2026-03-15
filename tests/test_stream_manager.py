@@ -124,6 +124,21 @@ class TestStreamManager(unittest.TestCase):
         self.assertIsNone(token_payload)
         self.assertEqual(token_error, 'invalid_ttl')
 
+    def test_stream_health_and_default_latency_metadata(self) -> None:
+        stream_row, error = self.manager.create_stream(
+            channel_id='Cmain',
+            created_by='u-member',
+            title='Health test',
+        )
+        self.assertIsNone(error)
+        self.assertEqual((stream_row or {}).get('metadata', {}).get('latency_mode'), 'hls')
+
+        health = self.manager.get_runtime_health()
+        self.assertTrue(health.get('stream_manager_ready'))
+        self.assertEqual(health.get('latency_mode_supported'), 'hls')
+        self.assertIn('storage_root', health)
+        self.assertGreaterEqual(int(health.get('streams_total') or 0), 1)
+
     def test_view_and_ingest_scope_authorization(self) -> None:
         stream_row, error = self.manager.create_stream(
             channel_id='Cmain',
@@ -172,6 +187,62 @@ class TestStreamManager(unittest.TestCase):
         )
         self.assertIsNone(denied_ingest)
         self.assertEqual(denied_ingest_err, 'not_authorized')
+
+    def test_refresh_token_revokes_old_token(self) -> None:
+        stream_row, error = self.manager.create_stream(
+            channel_id='Cmain',
+            created_by='u-member',
+            title='Refresh test',
+        )
+        self.assertIsNone(error)
+        stream_id = stream_row['id']
+
+        view_payload, view_error = self.manager.issue_token(
+            stream_id=stream_id,
+            user_id='u-member',
+            scope='view',
+            ttl_seconds=300,
+        )
+        self.assertIsNone(view_error)
+        self.assertIsNotNone(view_payload)
+
+        refreshed, refresh_error = self.manager.refresh_token(
+            stream_id=stream_id,
+            current_token=view_payload['token'],
+            scope='view',
+            user_id='u-member',
+            ttl_seconds=600,
+            metadata={'issued_via': 'test'},
+        )
+        self.assertIsNone(refresh_error)
+        self.assertIsNotNone(refreshed)
+        self.assertNotEqual(refreshed['token'], view_payload['token'])
+        _, old_error = self.manager.validate_token(
+            stream_id=stream_id,
+            token=view_payload['token'],
+            scope='view',
+        )
+        self.assertEqual(old_error, 'revoked_token')
+
+    def test_status_changes_sync_stream_attachment_status_hook(self) -> None:
+        stream_row, error = self.manager.create_stream(
+            channel_id='Cmain',
+            created_by='u-member',
+            title='Lifecycle sync test',
+        )
+        self.assertIsNone(error)
+        stream_id = (stream_row or {}).get('id')
+        self.assertTrue(stream_id)
+
+        started, start_error = self.manager.start_stream(stream_id, 'u-member')
+        self.assertIsNone(start_error)
+        self.assertEqual((started or {}).get('status'), 'live')
+        self.manager.channel_manager.update_stream_attachment_status.assert_called_with(stream_id, 'live')
+
+        stopped, stop_error = self.manager.stop_stream(stream_id, 'u-member')
+        self.assertIsNone(stop_error)
+        self.assertEqual((stopped or {}).get('status'), 'stopped')
+        self.manager.channel_manager.update_stream_attachment_status.assert_called_with(stream_id, 'stopped')
 
     def test_manifest_rewrite_and_segment_guards(self) -> None:
         stream_row, error = self.manager.create_stream(

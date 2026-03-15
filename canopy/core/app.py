@@ -31,6 +31,7 @@ from .profile import ProfileManager
 from .feed import FeedManager
 from .tasks import TaskManager
 from .search import SearchManager
+from .streams import StreamManager
 from ..security.api_keys import ApiKeyManager
 from ..security.trust import TrustManager
 from .messaging import (
@@ -257,6 +258,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
     app.config['SECRET_KEY'] = config.secret_key
     app.config['DEBUG'] = config.debug
     app.config['TESTING'] = config.testing
+    app.config['GOOGLE_MAPS_EMBED_API_KEY'] = os.getenv('CANOPY_GOOGLE_MAPS_EMBED_API_KEY', '').strip()
     
     # Store config in app for access in routes
     app.config['CANOPY_CONFIG'] = config
@@ -311,6 +313,19 @@ def create_app(config: Optional[Config] = None) -> Flask:
         channel_manager.workspace_events = workspace_event_manager
         app.config['CHANNEL_MANAGER'] = channel_manager
         logger.info("Channel manager initialized successfully")
+
+        logger.info("Initializing stream manager...")
+        streams_data_root = str(Path(config.storage.data_dir) if config.storage.data_dir else Path('./data'))
+        stream_manager = StreamManager(
+            db=db_manager,
+            channel_manager=channel_manager,
+            data_root=streams_data_root,
+        )
+        app.config['STREAM_MANAGER'] = stream_manager
+        logger.info(
+            "Stream manager initialized successfully (storage_root=%s)",
+            stream_manager.storage_root,
+        )
 
         logger.info("Initializing feed manager...")
         feed_manager = FeedManager(db_manager, api_key_manager)
@@ -6522,6 +6537,27 @@ _register_limiter = _RateLimiter(rate=0.1, capacity=3)   # Very strict: 1 per 10
 _login_limiter = _RateLimiter(rate=0.2, capacity=5)      # Login: ~1 per 5s, burst 5 (per IP)
 _ui_ajax_limiter = _RateLimiter(rate=10, capacity=30)    # UI AJAX: 10 req/s burst 30 (per IP/session)
 _p2p_limiter = _RateLimiter(rate=20, capacity=60)        # Stricter P2P: 20 req/s burst 60
+_stream_playback_limiter = _RateLimiter(rate=60, capacity=240)  # Playback/telemetry reads need a much higher ceiling than generic API calls
+
+
+def _is_stream_playback_path(path: str) -> bool:
+    """Return True when the request path is a tokenized stream playback/proxy read."""
+    normalized = str(path or "").strip()
+    if not normalized:
+        return False
+    stream_prefixes = (
+        '/api/v1/streams/',
+        '/api/streams/',
+        '/api/v1/stream-proxy/',
+        '/api/stream-proxy/',
+    )
+    if not normalized.startswith(stream_prefixes):
+        return False
+    return (
+        normalized.endswith('/manifest.m3u8')
+        or '/segments/' in normalized
+        or normalized.endswith('/events')
+    )
 
 
 def _install_rate_limiting(app: Flask) -> None:
@@ -6547,6 +6583,8 @@ def _install_rate_limiting(app: Flask) -> None:
         elif '/files/upload' in path:
             key = _req.headers.get('X-API-Key', key)
             limiter = _upload_limiter
+        elif _is_stream_playback_path(path):
+            limiter = _stream_playback_limiter
         elif path.startswith('/api/'):
             key = _req.headers.get('X-API-Key', key)
             limiter = _api_limiter
@@ -6571,6 +6609,7 @@ def _install_rate_limiting(app: Flask) -> None:
             _login_limiter.prune()
             _ui_ajax_limiter.prune()
             _p2p_limiter.prune()
+            _stream_playback_limiter.prune()
         return response
 
 

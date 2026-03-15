@@ -225,6 +225,10 @@ class TestProfileSyncMetadata(unittest.TestCase):
         app = create_app()
         db_manager = app.config['DB_MANAGER']
         p2p_manager = app.config['P2P_MANAGER']
+        stream_manager = app.config.get('STREAM_MANAGER')
+
+        self.assertIsNotNone(stream_manager)
+        self.assertEqual(stream_manager.__class__.__name__, 'StreamManager')
 
         with app.app_context():
             with db_manager.get_connection() as conn:

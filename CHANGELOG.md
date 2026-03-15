@@ -8,6 +8,52 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.89] - 2026-03-15
+
+### Added
+- **Inline map and chart embeds** - OpenStreetMap links that include coordinates now render as true inline map iframes, and TradingView symbol links now render as inline chart widgets instead of remaining provider cards.
+
+### Fixed
+- **Google Maps query-link detection** - Google Maps provider matching now catches query-form URLs such as `https://www.google.com/maps?q=Toronto`, so shared map links no longer silently miss the embed pipeline.
+- **Google Maps restricted-key embeds** - Inline Google Maps embeds now send the referrer policy expected by browser-restricted Maps Embed API keys, so configured `CANOPY_GOOGLE_MAPS_EMBED_API_KEY` deployments can actually render the official iframe instead of failing authorization at load time.
+
+## [0.4.88] - 2026-03-15
+
+### Added
+- **Shared rich embed provider expansion** - Expanded the common rich embed renderer across post and message surfaces to support Vimeo, Loom, Spotify, SoundCloud, direct audio/video URLs, and safe provider cards for map and TradingView links while keeping the embed surface bounded away from arbitrary raw iframe HTML.
+
+### Fixed
+- **Inline math dollar-sign hardening** - KaTeX inline dollar parsing now requires the content between `$...$` delimiters to actually look mathematical, reducing accidental formatting damage in finance-style posts that contain multiple currency values.
+- **Embed detection inside generated markup** - Provider URL expansion now skips matches that are already inside generated HTML tags or attributes, preventing supported-provider URLs inside ordinary markdown links from being rewritten into broken embed markup.
+
+## [0.4.87] - 2026-03-15
+
+### Fixed
+- **Cross-peer stream card truth and camera teardown** - Channel message snapshots now reconcile stream-card statuses against current local or remote stream state so remote viewers stop seeing stale `Preparing` badges after a stream is live, stream lifecycle changes sync the stored stream attachment metadata for local invalidation, and the browser broadcaster now tears down temporary device-enumeration and preview capture streams so stopping or closing the panel actually releases the camera.
+
+## [0.4.86] - 2026-03-15
+
+### Fixed
+- **Truthful stream lifecycle controls** - `start_now` stream cards are now posted after the stream actually transitions live, browser broadcaster start/stop actions update the real stream lifecycle endpoints, and owner-facing stream cards/workspaces expose a proper stop action with status chips that reconcile against the current stream row instead of stale attachment metadata.
+
+## [0.4.85] - 2026-03-15
+
+### Fixed
+- **Streaming playback rate-limit carve-out** - HLS manifests, stream segments, telemetry event playback, and local stream-proxy reads now use a dedicated high-ceiling playback limiter instead of the generic `/api/` throttle, preventing valid live stream sessions from immediately failing with `429` responses under normal player polling.
+
+## [0.4.84] - 2026-03-15
+
+### Added
+- **Streaming runtime readiness and token refresh surfaces** - Added real `STREAM_MANAGER` bootstrap wiring, stream runtime health endpoints for API/UI callers, and a first-class stream token refresh path so longer live sessions can renew access without ad-hoc reissue flows.
+
+### Changed
+- **Streaming operator UX and metadata structure** - Stream creation now uses a structured modal/profile flow, stream cards open into a reusable workspace shell, and stream attachments carry richer UI metadata such as `stream_domain`, `operator_profile`, and `viewer_layout`.
+- **Truthful media stream defaults** - Newly created media streams now default `metadata.latency_mode` to `hls`, matching the currently implemented transport instead of overstating LL-HLS support.
+
+### Fixed
+- **Actionable ingest diagnostics** - Empty manifest or segment uploads now return `empty_ingest_payload` with a proxy/upload hint instead of a generic size error.
+- **Remote stream proxy hot-path churn** - Remote stream proxy origin resolution now uses a short-lived cache with shorter probe/fetch timeouts to avoid repeated synchronous rescans on hot requests.
+
 ## [0.4.83] - 2026-03-14
 
 ### Fixed

@@ -107,6 +107,10 @@ class TestUiStreamSetupEndpoint(unittest.TestCase):
         self.conn.commit()
 
         self.db_manager = _FakeDbManager(self.conn)
+        self.channel_manager = MagicMock()
+        self.channel_manager.send_message.return_value = types.SimpleNamespace(id='Mstream-ui-1', created_at=None)
+        self.p2p_manager = MagicMock()
+        self.p2p_manager.get_peer_id.return_value = 'peer-local'
         self.stream_manager = StreamManager(
             db=self.db_manager,
             channel_manager=MagicMock(),
@@ -128,13 +132,13 @@ class TestUiStreamSetupEndpoint(unittest.TestCase):
             MagicMock(),        # api_key_manager
             MagicMock(),        # trust_manager
             MagicMock(),        # message_manager
-            MagicMock(),        # channel_manager
+            self.channel_manager,  # channel_manager
             MagicMock(),        # file_manager
             MagicMock(),        # feed_manager
             MagicMock(),        # interaction_manager
             MagicMock(),        # profile_manager
             MagicMock(),        # config
-            MagicMock(),        # p2p_manager
+            self.p2p_manager,   # p2p_manager
         )
         self.get_components_patcher = patch(
             'canopy.ui.routes.get_app_components',
@@ -175,11 +179,101 @@ class TestUiStreamSetupEndpoint(unittest.TestCase):
         ingest = setup.get('ingest') or {}
         playback = setup.get('playback') or {}
         commands = setup.get('commands') or {}
+        preflight = setup.get('preflight') or {}
+        refresh = setup.get('token_refresh') or {}
+        ttl_seconds = setup.get('ttl_seconds') or {}
         self.assertIn('/ingest/manifest?token=', ingest.get('manifest_url') or '')
         self.assertIn('/ingest/segments/seg%06d.ts?token=', ingest.get('segment_url_template') or '')
         self.assertIn('/manifest.m3u8?token=', playback.get('url') or '')
         self.assertIn('ffmpeg', commands.get('posix') or '')
         self.assertIn('ffmpeg', commands.get('powershell') or '')
+        self.assertTrue(preflight.get('stream_manager_ready'))
+        self.assertIn('ffmpeg_found', preflight)
+        self.assertEqual(preflight.get('latency_mode_supported'), 'hls')
+        self.assertEqual(refresh.get('view_url'), f"/api/v1/streams/{stream_id}/tokens/refresh")
+        self.assertEqual(refresh.get('ingest_url'), f"/api/v1/streams/{stream_id}/tokens/refresh")
+        self.assertEqual(ttl_seconds.get('ingest'), 3600)
+        self.assertEqual(ttl_seconds.get('view'), 900)
+
+    def test_stream_health_endpoint_returns_capabilities(self) -> None:
+        self._set_session('u-owner')
+        response = self.client.get('/ajax/streams/health')
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        health = payload.get('health') or {}
+        capabilities = payload.get('capabilities') or {}
+        self.assertTrue(health.get('stream_manager_ready'))
+        self.assertIn('ffmpeg_found', health)
+        self.assertIn('media', capabilities.get('supported_stream_kinds') or [])
+        self.assertIn('telemetry_sensor', [item.get('id') for item in (capabilities.get('recommended_profiles') or [])])
+
+    def test_create_stream_accepts_ui_metadata_for_future_domains(self) -> None:
+        self._set_session('u-owner')
+        response = self.client.post(
+            '/ajax/streams',
+            json={
+                'channel_id': 'C1',
+                'title': 'Humidity bus',
+                'description': 'Warehouse sensor feed',
+                'stream_kind': 'telemetry',
+                'media_kind': 'data',
+                'protocol': 'events-json',
+                'auto_post': False,
+                'stream_domain': 'sensor',
+                'operator_profile': 'monitor',
+                'viewer_layout': 'dense',
+            },
+            headers={'X-CSRFToken': 'csrf-test-token'},
+        )
+        self.assertEqual(response.status_code, 201)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        stream = payload.get('stream') or {}
+        metadata = stream.get('metadata') or {}
+        self.assertEqual(stream.get('stream_kind'), 'telemetry')
+        self.assertEqual(metadata.get('stream_domain'), 'sensor')
+        self.assertEqual(metadata.get('operator_profile'), 'monitor')
+        self.assertEqual(metadata.get('viewer_layout'), 'dense')
+        self.assertEqual(metadata.get('created_via'), 'ui')
+
+    def test_create_stream_with_start_now_posts_live_attachment_status(self) -> None:
+        self._set_session('u-owner')
+        response = self.client.post(
+            '/ajax/streams',
+            json={
+                'channel_id': 'C1',
+                'title': 'Live room',
+                'media_kind': 'video',
+                'auto_post': True,
+                'start_now': True,
+            },
+            headers={'X-CSRFToken': 'csrf-test-token'},
+        )
+        self.assertEqual(response.status_code, 201)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        stream = payload.get('stream') or {}
+        self.assertEqual(stream.get('status'), 'live')
+        sent_attachments = self.channel_manager.send_message.call_args.kwargs.get('attachments') or []
+        self.assertTrue(sent_attachments)
+        self.assertEqual(sent_attachments[0].get('status'), 'live')
+
+    def test_owner_can_stop_stream_via_ui_endpoint(self) -> None:
+        self._set_session('u-owner')
+        stream_id = str((self.stream_row or {}).get('id') or '')
+        started, start_err = self.stream_manager.start_stream(stream_id, 'u-owner')
+        self.assertIsNone(start_err)
+        self.assertEqual((started or {}).get('status'), 'live')
+        response = self.client.post(
+            f'/ajax/streams/{stream_id}/stop',
+            headers={'X-CSRFToken': 'csrf-test-token'},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        stream = payload.get('stream') or {}
+        self.assertEqual(stream.get('status'), 'stopped')
 
     def test_non_manager_gets_not_found_style_response(self) -> None:
         self._set_session('u-viewer')

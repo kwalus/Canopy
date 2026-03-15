@@ -262,6 +262,10 @@ def _normalize_channel_attachments(raw_attachments: Any, file_manager: Any) -> l
 def create_api_blueprint() -> Blueprint:
     """Create and configure the API blueprint."""
     api = Blueprint('api', __name__)
+    _stream_remote_base_cache: dict[str, tuple[float, str]] = {}
+    _stream_remote_base_cache_ttl_seconds = 30.0
+    _stream_remote_probe_timeout_seconds = 2.0
+    _stream_remote_fetch_timeout_seconds = 4.0
     
     # Authentication decorator
     def require_auth(required_permission: Optional[Permission] = None,
@@ -404,6 +408,39 @@ def create_api_blueprint() -> Blueprint:
 
     def _get_db_manager() -> Any:
         return current_app.config.get('DB_MANAGER')
+
+    def _get_cached_stream_remote_base(stream_id: str) -> Optional[str]:
+        sid = str(stream_id or "").strip()
+        if not sid:
+            return None
+        cached = _stream_remote_base_cache.get(sid)
+        if not cached:
+            return None
+        cached_at, base = cached
+        if (time.time() - cached_at) > _stream_remote_base_cache_ttl_seconds:
+            _stream_remote_base_cache.pop(sid, None)
+            return None
+        return base
+
+    def _set_cached_stream_remote_base(stream_id: str, base: Optional[str]) -> None:
+        sid = str(stream_id or "").strip()
+        normalized = str(base or "").strip().rstrip('/')
+        if not sid:
+            return
+        if not normalized:
+            _stream_remote_base_cache.pop(sid, None)
+            return
+        _stream_remote_base_cache[sid] = (time.time(), normalized)
+
+    def _stream_ingest_error_response(error: str) -> tuple[Any, int]:
+        if error in {'not_found', 'manifest_not_found'}:
+            return jsonify({'error': 'Not found'}), 404
+        if error == 'empty_ingest_payload':
+            return jsonify({
+                'error': error,
+                'hint': 'possible_empty_upload_or_proxy_buffering_issue',
+            }), 400
+        return jsonify({'error': error}), 400
 
     def _build_stream_attachment(stream_row: dict[str, Any]) -> dict[str, Any]:
         media_kind = str(stream_row.get('media_kind') or 'audio')
@@ -7895,6 +7932,11 @@ def create_api_blueprint() -> Blueprint:
                     return jsonify({'error': error}), 400
                 return jsonify({'error': error}), 403
 
+            if start_now and stream_row:
+                started, start_err = stream_manager.start_stream(stream_row['id'], g.api_key_info.user_id)
+                if not start_err and started:
+                    stream_row = started
+
             posted_message_id = None
             if auto_post and stream_row:
                 from ..core.channels import MessageType as ChannelMessageType
@@ -7948,11 +7990,6 @@ def create_api_blueprint() -> Blueprint:
                     except Exception as bcast_err:
                         logger.warning(f"Stream post broadcast failed (non-fatal): {bcast_err}")
 
-            if start_now and stream_row:
-                started, start_err = stream_manager.start_stream(stream_row['id'], g.api_key_info.user_id)
-                if not start_err and started:
-                    stream_row = started
-
             payload = {
                 'success': True,
                 'stream': stream_row,
@@ -7977,6 +8014,26 @@ def create_api_blueprint() -> Blueprint:
             return jsonify({'stream': stream_row})
         except Exception as e:
             logger.error(f"Get stream failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/streams/health', methods=['GET'])
+    @require_auth(Permission.READ_FEED)
+    def get_stream_health_api():
+        stream_manager = _get_stream_manager()
+        if not stream_manager:
+            return jsonify({
+                'success': False,
+                'health': {
+                    'stream_manager_ready': False,
+                    'ffmpeg_found': False,
+                    'ffprobe_found': False,
+                    'latency_mode_supported': 'unavailable',
+                },
+            }), 503
+        try:
+            return jsonify({'success': True, 'health': stream_manager.get_runtime_health()})
+        except Exception as e:
+            logger.error(f"Stream health failed: {e}", exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
     @api.route('/streams/<stream_id>/start', methods=['POST'])
@@ -8051,6 +8108,54 @@ def create_api_blueprint() -> Blueprint:
             logger.error(f"Issue stream token failed: {e}", exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
+    @api.route('/streams/<stream_id>/tokens/refresh', methods=['POST'])
+    @require_auth(Permission.READ_FEED)
+    def refresh_stream_token_api(stream_id):
+        stream_manager = _get_stream_manager()
+        if not stream_manager:
+            return jsonify({'error': 'Streaming unavailable'}), 503
+        try:
+            data = request.get_json(silent=True) or {}
+            scope = str(data.get('scope') or 'view').strip().lower()
+            current_token = str(data.get('token') or '').strip()
+            ttl_seconds = data.get('ttl_seconds')
+            if scope == 'ingest' and Permission.WRITE_FEED not in set(getattr(g.api_key_info, 'permissions', set()) or set()):
+                return jsonify({'error': 'Invalid or insufficient permissions'}), 403
+            token_payload, error = stream_manager.refresh_token(
+                stream_id=stream_id,
+                current_token=current_token,
+                scope=scope,
+                user_id=g.api_key_info.user_id,
+                ttl_seconds=ttl_seconds,
+                metadata={'issued_via': 'refresh_api'},
+            )
+            if error in {'not_found', 'not_authorized', 'invalid_token', 'expired_token', 'revoked_token'}:
+                return jsonify({'error': 'Not found'}), 404
+            if error:
+                return jsonify({'error': error}), 400
+            if not token_payload:
+                return jsonify({'error': 'token_refresh_failed'}), 500
+
+            stream_row = stream_manager.get_stream(stream_id) or {}
+            stream_kind = str(stream_row.get('stream_kind') or 'media').lower()
+            protocol = str(stream_row.get('protocol') or 'hls').lower()
+            token_q = quote_plus(str(token_payload.get('token') or ''))
+            if scope == 'view':
+                if stream_kind == 'telemetry' or protocol == 'events-json':
+                    token_payload['playback_url'] = f"/api/v1/streams/{stream_id}/events?token={token_q}"
+                else:
+                    token_payload['playback_url'] = f"/api/v1/streams/{stream_id}/manifest.m3u8?token={token_q}"
+            else:
+                if stream_kind == 'telemetry' or protocol == 'events-json':
+                    token_payload['ingest_url'] = f"/api/v1/streams/{stream_id}/ingest/events?token={token_q}"
+                else:
+                    token_payload['manifest_url'] = f"/api/v1/streams/{stream_id}/ingest/manifest?token={token_q}"
+                    token_payload['segment_url_template'] = f"/api/v1/streams/{stream_id}/ingest/segments/seg%06d.ts?token={token_q}"
+            return jsonify({'success': True, **token_payload})
+        except Exception as e:
+            logger.error(f"Refresh stream token failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @api.route('/streams/<stream_id>/join', methods=['POST'])
     @require_auth(Permission.READ_FEED)
     def join_stream_api(stream_id):
@@ -8112,9 +8217,7 @@ def create_api_blueprint() -> Blueprint:
             payload = request.get_data(cache=False, as_text=False)
             err = stream_manager.store_manifest(stream_id=stream_id, manifest_bytes=payload or b'')
             if err:
-                if err in {'not_found', 'manifest_not_found'}:
-                    return jsonify({'error': 'Not found'}), 404
-                return jsonify({'error': err}), 400
+                return _stream_ingest_error_response(err)
             # Transition to live on first successful ingest update.
             try:
                 stream_manager.start_stream(stream_id, str(token_data.get('user_id') or ''))
@@ -8146,9 +8249,7 @@ def create_api_blueprint() -> Blueprint:
                 segment_bytes=payload or b'',
             )
             if err:
-                if err == 'not_found':
-                    return jsonify({'error': 'Not found'}), 404
-                return jsonify({'error': err}), 400
+                return _stream_ingest_error_response(err)
             return jsonify({'success': True})
         except Exception as e:
             logger.error(f"Ingest segment failed: {e}", exc_info=True)
@@ -8203,6 +8304,9 @@ def create_api_blueprint() -> Blueprint:
         from urllib.request import urlopen as _urlopen
         from urllib.error import URLError as _URLError
         import json as _json
+        cached = _get_cached_stream_remote_base(self_stream_id)
+        if cached:
+            return cached
         db_manager = _get_db_manager()
         if not db_manager:
             return None
@@ -8229,12 +8333,16 @@ def create_api_blueprint() -> Blueprint:
         for base in candidates:
             try:
                 test_url = f"{base}/api/v1/streams/{self_stream_id}/manifest.m3u8"
-                with _urlopen(test_url, timeout=4) as resp:
+                with _urlopen(test_url, timeout=_stream_remote_probe_timeout_seconds) as resp:
                     resp.read(1)
+                _set_cached_stream_remote_base(self_stream_id, base)
                 return base
             except Exception:
                 continue
-        return candidates[0] if candidates else None
+        if candidates:
+            _set_cached_stream_remote_base(self_stream_id, candidates[0])
+            return candidates[0]
+        return None
 
     @api.route('/stream-proxy/<stream_id>/manifest.m3u8', methods=['GET'])
     def stream_proxy_manifest_api(stream_id):
@@ -8247,9 +8355,11 @@ def create_api_blueprint() -> Blueprint:
                 return jsonify({'error': 'Remote peer not found'}), 404
             remote_url = f"{remote_base}/api/v1/streams/{stream_id}/manifest.m3u8"
             try:
-                with _urlopen(remote_url, timeout=8) as resp:
+                with _urlopen(remote_url, timeout=_stream_remote_fetch_timeout_seconds) as resp:
                     raw = resp.read().decode('utf-8')
+                _set_cached_stream_remote_base(stream_id, remote_base)
             except _URLError as e:
+                _set_cached_stream_remote_base(stream_id, None)
                 logger.warning(f"stream-proxy: failed to fetch {remote_url}: {e}")
                 return jsonify({'error': 'Remote stream unreachable'}), 502
             # Rewrite segment URLs to go through the local proxy too
@@ -8296,10 +8406,12 @@ def create_api_blueprint() -> Blueprint:
                 return jsonify({'error': 'Not found'}), 404
             remote_url = f"{remote_base}/api/v1/streams/{stream_id}/segments/{segment_name}"
             try:
-                with _urlopen(remote_url, timeout=8) as resp:
+                with _urlopen(remote_url, timeout=_stream_remote_fetch_timeout_seconds) as resp:
                     data = resp.read()
                     content_type = resp.headers.get('Content-Type', 'application/octet-stream')
+                _set_cached_stream_remote_base(stream_id, remote_base)
             except _URLError as e:
+                _set_cached_stream_remote_base(stream_id, None)
                 logger.warning(f"stream-proxy segment: failed to fetch {remote_url}: {e}")
                 return jsonify({'error': 'Not found'}), 404
             return Response(

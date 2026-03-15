@@ -76,6 +76,24 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("if (currentChannelId && channelId === currentChannelId) {", channels_template)
         self.assertIn("requestChannelThreadRefresh();", channels_template)
 
+    def test_stream_owner_controls_drive_real_lifecycle_endpoints(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        self.assertIn("function _setStreamLifecycle(streamId, action, slotId)", channels_template)
+        self.assertIn("`/ajax/streams/${encodeURIComponent(streamId)}/${action}`", channels_template)
+        self.assertIn("function stopStreamOwner(streamId, slotId)", channels_template)
+        self.assertIn("data-stream-status-chip=\"1\"", channels_template)
+        self.assertIn("data-stream-status-value=\"1\"", channels_template)
+        self.assertIn("const _previewBroadcasters = {};", channels_template)
+        self.assertIn("function _stopPreviewStream(streamId)", channels_template)
+        self.assertIn("_stopPreviewStream(streamId);", channels_template)
+        self.assertIn("const permissionStream = await navigator.mediaDevices.getUserMedia", channels_template)
+        self.assertIn("permissionStream.getTracks().forEach((t) => t.stop())", channels_template)
+
+    def test_channels_route_does_not_shadow_template_config(self) -> None:
+        ui_routes = (ROOT / 'canopy' / 'ui' / 'routes.py').read_text(encoding='utf-8')
+        self.assertIn("return render_template('channels.html',", ui_routes)
+        self.assertNotIn("config=config,", ui_routes)
+
     def test_structured_validation_ignores_plain_unknown_section_headers(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
         self.assertIn("const suggestedTag = TAG_SUGGESTIONS[tag] || null;", main_js)

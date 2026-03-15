@@ -32,6 +32,7 @@ if 'zeroconf' not in sys.modules:
     sys.modules['zeroconf'] = zeroconf_stub
 
 from canopy.api.routes import create_api_blueprint
+from canopy.core.app import _api_limiter, _install_rate_limiting, _stream_playback_limiter
 from canopy.core.streams import StreamManager
 from canopy.security.api_keys import ApiKeyInfo, Permission
 
@@ -222,6 +223,7 @@ class TestApiStreamEndpoints(unittest.TestCase):
         self.assertTrue(sent_attachments)
         self.assertEqual(sent_attachments[0].get('kind'), 'stream')
         self.assertEqual(sent_attachments[0].get('stream_id'), stream.get('id'))
+        self.assertEqual(sent_attachments[0].get('status'), 'live')
 
         denied = self.client.post(
             '/api/v1/streams',
@@ -232,6 +234,43 @@ class TestApiStreamEndpoints(unittest.TestCase):
             headers=self._headers('key-outsider'),
         )
         self.assertEqual(denied.status_code, 404)
+
+    def test_owner_can_stop_stream_via_api_endpoint(self) -> None:
+        created = self.client.post(
+            '/api/v1/streams',
+            json={
+                'channel_id': 'C1',
+                'title': 'Ops stop test',
+                'media_kind': 'audio',
+                'auto_post': False,
+                'start_now': True,
+            },
+            headers=self._headers('key-member'),
+        )
+        self.assertEqual(created.status_code, 201)
+        stream_id = (created.get_json() or {}).get('stream', {}).get('id')
+        self.assertTrue(stream_id)
+        stopped = self.client.post(
+            f'/api/v1/streams/{stream_id}/stop',
+            headers=self._headers('key-member'),
+        )
+        self.assertEqual(stopped.status_code, 200)
+        payload = stopped.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertEqual((payload.get('stream') or {}).get('status'), 'stopped')
+
+    def test_stream_health_reports_runtime_readiness(self) -> None:
+        response = self.client.get(
+            '/api/v1/streams/health',
+            headers=self._headers('key-member'),
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        health = payload.get('health') or {}
+        self.assertTrue(health.get('stream_manager_ready'))
+        self.assertIn('storage_root', health)
+        self.assertEqual(health.get('latency_mode_supported'), 'hls')
 
     def test_tokenized_ingest_and_playback_flow(self) -> None:
         create_resp = self.client.post(
@@ -307,6 +346,140 @@ class TestApiStreamEndpoints(unittest.TestCase):
             f'/api/v1/streams/{stream_id}/segments/seg01.ts?token=bogus',
         )
         self.assertEqual(bad_segment_token_resp.status_code, 404)
+
+    def test_refresh_view_token_revokes_old_token(self) -> None:
+        create_resp = self.client.post(
+            '/api/v1/streams',
+            json={
+                'channel_id': 'C1',
+                'title': 'Refreshable stream',
+                'media_kind': 'audio',
+                'auto_post': False,
+            },
+            headers=self._headers('key-member'),
+        )
+        self.assertEqual(create_resp.status_code, 201)
+        stream_id = (create_resp.get_json() or {}).get('stream', {}).get('id')
+        self.assertTrue(stream_id)
+
+        join_resp = self.client.post(
+            f'/api/v1/streams/{stream_id}/join',
+            json={'ttl_seconds': 600},
+            headers=self._headers('key-member'),
+        )
+        self.assertEqual(join_resp.status_code, 200)
+        old_token = (join_resp.get_json() or {}).get('token')
+        self.assertTrue(old_token)
+
+        refresh_resp = self.client.post(
+            f'/api/v1/streams/{stream_id}/tokens/refresh',
+            json={'scope': 'view', 'token': old_token, 'ttl_seconds': 900},
+            headers=self._headers('key-member'),
+        )
+        self.assertEqual(refresh_resp.status_code, 200)
+        refreshed = refresh_resp.get_json() or {}
+        self.assertTrue(refreshed.get('success'))
+        self.assertNotEqual(refreshed.get('token'), old_token)
+        self.assertIn('/manifest.m3u8?token=', refreshed.get('playback_url') or '')
+
+        old_manifest = self.client.get(
+            f'/api/v1/streams/{stream_id}/manifest.m3u8?token={old_token}',
+        )
+        self.assertEqual(old_manifest.status_code, 404)
+
+    def test_empty_manifest_ingest_returns_actionable_hint(self) -> None:
+        create_resp = self.client.post(
+            '/api/v1/streams',
+            json={
+                'channel_id': 'C1',
+                'title': 'Hint stream',
+                'media_kind': 'video',
+                'auto_post': False,
+            },
+            headers=self._headers('key-member'),
+        )
+        self.assertEqual(create_resp.status_code, 201)
+        stream_id = (create_resp.get_json() or {}).get('stream', {}).get('id')
+        self.assertTrue(stream_id)
+
+        ingest_token_resp = self.client.post(
+            f'/api/v1/streams/{stream_id}/tokens',
+            json={'scope': 'ingest', 'ttl_seconds': 600},
+            headers=self._headers('key-member'),
+        )
+        self.assertEqual(ingest_token_resp.status_code, 200)
+        ingest_token = (ingest_token_resp.get_json() or {}).get('token')
+        self.assertTrue(ingest_token)
+
+        put_manifest = self.client.put(
+            f'/api/v1/streams/{stream_id}/ingest/manifest?token={ingest_token}',
+            data=b'',
+            headers={'Content-Type': 'application/vnd.apple.mpegurl'},
+        )
+        self.assertEqual(put_manifest.status_code, 400)
+        payload = put_manifest.get_json() or {}
+        self.assertEqual(payload.get('error'), 'empty_ingest_payload')
+        self.assertEqual(payload.get('hint'), 'possible_empty_upload_or_proxy_buffering_issue')
+
+    def test_manifest_playback_uses_stream_read_rate_limit_not_generic_api_limit(self) -> None:
+        _api_limiter._buckets.clear()
+        _stream_playback_limiter._buckets.clear()
+        _install_rate_limiting(self.client.application)
+
+        create_resp = self.client.post(
+            '/api/v1/streams',
+            json={
+                'channel_id': 'C1',
+                'title': 'Playback limiter stream',
+                'media_kind': 'video',
+                'auto_post': False,
+            },
+            headers=self._headers('key-member'),
+        )
+        self.assertEqual(create_resp.status_code, 201)
+        stream_id = (create_resp.get_json() or {}).get('stream', {}).get('id')
+        self.assertTrue(stream_id)
+
+        ingest_token_resp = self.client.post(
+            f'/api/v1/streams/{stream_id}/tokens',
+            json={'scope': 'ingest', 'ttl_seconds': 600},
+            headers=self._headers('key-member'),
+        )
+        self.assertEqual(ingest_token_resp.status_code, 200)
+        ingest_token = (ingest_token_resp.get_json() or {}).get('token')
+        self.assertTrue(ingest_token)
+
+        put_manifest = self.client.put(
+            f'/api/v1/streams/{stream_id}/ingest/manifest?token={ingest_token}',
+            data=b'#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:2.0,\nseg000001.ts\n',
+            headers={'Content-Type': 'application/vnd.apple.mpegurl'},
+        )
+        self.assertEqual(put_manifest.status_code, 200)
+
+        put_segment = self.client.put(
+            f'/api/v1/streams/{stream_id}/ingest/segments/seg000001.ts?token={ingest_token}',
+            data=b'\x01\x02\x03',
+            headers={'Content-Type': 'video/mp2t'},
+        )
+        self.assertEqual(put_segment.status_code, 200)
+
+        join_resp = self.client.post(
+            f'/api/v1/streams/{stream_id}/join',
+            json={'ttl_seconds': 600},
+            headers=self._headers('key-member'),
+        )
+        self.assertEqual(join_resp.status_code, 200)
+        playback_token = (join_resp.get_json() or {}).get('token')
+        self.assertTrue(playback_token)
+
+        statuses = []
+        for _ in range(25):
+            manifest_resp = self.client.get(
+                f'/api/v1/streams/{stream_id}/manifest.m3u8?token={playback_token}',
+            )
+            statuses.append(manifest_resp.status_code)
+        self.assertNotIn(429, statuses)
+        self.assertTrue(all(code == 200 for code in statuses))
 
     def test_telemetry_stream_event_ingest_and_read(self) -> None:
         create_resp = self.client.post(

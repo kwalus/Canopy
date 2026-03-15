@@ -1142,31 +1142,639 @@
 	            }
 	        }
 
-            function containsMathDelimiters(text) {
+        function escapeEmbedHtml(value) {
+            return String(value || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }
+
+        function escapeEmbedAttr(value) {
+            return escapeEmbedHtml(value)
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function trimEmbedUrlTrailingPunctuation(rawUrl) {
+            let url = String(rawUrl || '');
+            let trailing = '';
+            while (url.length > 10 && /[).,;:!?\]}>]$/.test(url)) {
+                if (url.endsWith(')')) {
+                    const opens = (url.match(/\(/g) || []).length;
+                    const closes = (url.match(/\)/g) || []).length;
+                    if (opens >= closes) break;
+                }
+                trailing = url.slice(-1) + trailing;
+                url = url.slice(0, -1);
+            }
+            return { url, trailing };
+        }
+
+        function buildEmbedCaption(text) {
+            if (!text) return '';
+            return '<div class="embed-provider-caption">' + escapeEmbedHtml(text) + '</div>';
+        }
+
+        function buildIframeEmbedPreview(providerClass, src, title, options = {}) {
+            const safeSrc = escapeEmbedAttr(src);
+            const safeTitle = escapeEmbedAttr(title || 'Embedded content');
+            const allow = escapeEmbedAttr(options.allow || 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture');
+            const extraClass = options.extraClass ? ' ' + escapeEmbedAttr(options.extraClass) : '';
+            const frameClass = options.frameClass ? ' ' + escapeEmbedAttr(options.frameClass) : '';
+            const heightStyle = options.height ? ' style="height:' + String(options.height).replace(/[^0-9.]/g, '') + 'px"' : '';
+            const sandbox = options.sandbox ? ' sandbox="' + escapeEmbedAttr(options.sandbox) + '"' : '';
+            const referrerPolicy = escapeEmbedAttr(options.referrerPolicy || 'strict-origin-when-cross-origin');
+            const caption = buildEmbedCaption(options.caption || '');
+            return (
+                '<div class="embed-preview iframe-embed ' + escapeEmbedAttr(providerClass) + extraClass + '">' +
+                '<iframe src="' + safeSrc + '" title="' + safeTitle + '" frameborder="0" loading="lazy" allowfullscreen ' +
+                'referrerpolicy="' + referrerPolicy + '" allow="' + allow + '"' + sandbox + heightStyle +
+                ' class="' + frameClass.trim() + '"></iframe>' +
+                caption +
+                '</div>'
+            );
+        }
+
+        function buildNativeMediaEmbed(providerClass, url, title, tagName, mimeType, options = {}) {
+            const safeUrl = escapeEmbedAttr(url);
+            const safeTitle = escapeEmbedAttr(title || 'Embedded media');
+            const safeType = mimeType ? ' type="' + escapeEmbedAttr(mimeType) + '"' : '';
+            const caption = buildEmbedCaption(options.caption || '');
+            return (
+                '<div class="embed-preview native-media-embed ' + escapeEmbedAttr(providerClass) + '">' +
+                '<' + tagName + ' controls preload="metadata" playsinline title="' + safeTitle + '">' +
+                '<source src="' + safeUrl + '"' + safeType + '>' +
+                'Your browser does not support this media.' +
+                '</' + tagName + '>' +
+                caption +
+                '</div>'
+            );
+        }
+
+        function buildProviderCardEmbed(providerClass, url, title, subtitle, iconClass, options = {}) {
+            const safeUrl = escapeEmbedAttr(url);
+            const safeTitle = escapeEmbedHtml(title || 'External content');
+            const safeSubtitle = escapeEmbedHtml(subtitle || '');
+            const safeIcon = escapeEmbedAttr(iconClass || 'bi-box-arrow-up-right');
+            const providerLabel = options.providerLabel ? '<span class="embed-provider-pill">' + escapeEmbedHtml(options.providerLabel) + '</span>' : '';
+            const note = options.note ? '<div class="embed-provider-note">' + escapeEmbedHtml(options.note) + '</div>' : '';
+            return (
+                '<div class="embed-preview provider-card-embed ' + escapeEmbedAttr(providerClass) + '">' +
+                '<a class="provider-embed-card" href="' + safeUrl + '" target="_blank" rel="noopener noreferrer">' +
+                '<div class="provider-embed-head">' +
+                '<span class="provider-embed-icon"><i class="bi ' + safeIcon + '"></i></span>' +
+                '<div class="provider-embed-copy">' +
+                providerLabel +
+                '<div class="provider-embed-title">' + safeTitle + '</div>' +
+                '<div class="provider-embed-subtitle">' + safeSubtitle + '</div>' +
+                note +
+                '</div>' +
+                '<span class="provider-embed-open"><i class="bi bi-box-arrow-up-right"></i></span>' +
+                '</div>' +
+                '</a>' +
+                '</div>'
+            );
+        }
+
+        function classifyAudioMime(ext) {
+            const normalized = String(ext || '').toLowerCase();
+            if (normalized === 'mp3') return 'audio/mpeg';
+            if (normalized === 'wav') return 'audio/wav';
+            if (normalized === 'ogg') return 'audio/ogg';
+            if (normalized === 'm4a') return 'audio/mp4';
+            if (normalized === 'aac') return 'audio/aac';
+            if (normalized === 'flac') return 'audio/flac';
+            return '';
+        }
+
+        function classifyVideoMime(ext) {
+            const normalized = String(ext || '').toLowerCase();
+            if (normalized === 'mp4' || normalized === 'm4v') return 'video/mp4';
+            if (normalized === 'webm') return 'video/webm';
+            if (normalized === 'ogv') return 'video/ogg';
+            if (normalized === 'mov') return 'video/quicktime';
+            return '';
+        }
+
+        function spotifyEmbedHeight(kind) {
+            if (kind === 'track' || kind === 'episode') return 152;
+            return 352;
+        }
+
+        function isEmbedMatchInsideHtmlTag(html, matchIndex) {
+            const source = String(html || '');
+            const index = Number(matchIndex);
+            if (!Number.isFinite(index) || index < 0) return false;
+            const lastTagOpen = source.lastIndexOf('<', index);
+            const lastTagClose = source.lastIndexOf('>', index);
+            return lastTagOpen > lastTagClose;
+        }
+
+        function getCanopyEmbedThemeName() {
+            return canopyEmbedTheme() === 'light' ? 'light' : 'dark';
+        }
+
+        function safeUrlParse(rawUrl) {
+            try {
+                return new URL(String(rawUrl || ''), window.location.origin);
+            } catch (_) {
+                return null;
+            }
+        }
+
+        function getGoogleMapsEmbedApiKey() {
+            if (!window.CANOPY_VARS) return '';
+            return String(window.CANOPY_VARS.googleMapsEmbedApiKey || '').trim();
+        }
+
+        function extractGoogleMapsQuery(urlObj) {
+            if (!urlObj) return '';
+            const query = urlObj.searchParams.get('q') || urlObj.searchParams.get('query') || '';
+            if (query) return query.trim();
+            const parts = urlObj.pathname.split('/').filter(Boolean);
+            const placeIdx = parts.indexOf('place');
+            if (placeIdx >= 0 && parts[placeIdx + 1]) {
+                return decodeURIComponent(parts[placeIdx + 1]).trim();
+            }
+            const atMatch = urlObj.pathname.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
+            if (atMatch) {
+                return atMatch[1] + ',' + atMatch[2];
+            }
+            return '';
+        }
+
+        function buildGoogleMapsEmbedUrl(rawUrl) {
+            const apiKey = getGoogleMapsEmbedApiKey();
+            if (!apiKey) return '';
+            const urlObj = safeUrlParse(rawUrl);
+            const query = extractGoogleMapsQuery(urlObj);
+            if (!query) return '';
+            return 'https://www.google.com/maps/embed/v1/search?key=' + encodeURIComponent(apiKey) + '&q=' + encodeURIComponent(query);
+        }
+
+        function clampNumber(value, min, max) {
+            const num = Number(value);
+            if (!Number.isFinite(num)) return min;
+            return Math.min(max, Math.max(min, num));
+        }
+
+        function buildOsmBoundingBox(lat, lon, zoom) {
+            const safeLat = clampNumber(lat, -85, 85);
+            const safeLon = clampNumber(lon, -180, 180);
+            const safeZoom = clampNumber(zoom, 2, 18);
+            const lonDelta = 360 / Math.pow(2, safeZoom + 2);
+            const latDelta = 180 / Math.pow(2, safeZoom + 2);
+            const left = Math.max(-180, safeLon - lonDelta);
+            const right = Math.min(180, safeLon + lonDelta);
+            const bottom = Math.max(-85, safeLat - latDelta);
+            const top = Math.min(85, safeLat + latDelta);
+            return [left, bottom, right, top].join(',');
+        }
+
+        function buildOpenStreetMapEmbedUrl(rawUrl) {
+            const urlObj = safeUrlParse(rawUrl);
+            if (!urlObj) return '';
+            let lat = '';
+            let lon = '';
+            let zoom = '';
+
+            const hashMatch = String(urlObj.hash || '').match(/#map=(\d+)\/(-?\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)/);
+            if (hashMatch) {
+                zoom = hashMatch[1];
+                lat = hashMatch[2];
+                lon = hashMatch[3];
+            }
+            if (!lat || !lon) {
+                lat = urlObj.searchParams.get('mlat') || '';
+                lon = urlObj.searchParams.get('mlon') || '';
+            }
+            if (!zoom) {
+                zoom = urlObj.searchParams.get('zoom') || '12';
+            }
+            if (!lat || !lon) return '';
+            const bbox = buildOsmBoundingBox(lat, lon, zoom);
+            return 'https://www.openstreetmap.org/export/embed.html?bbox=' +
+                encodeURIComponent(bbox) +
+                '&layer=mapnik&marker=' +
+                encodeURIComponent(String(lat) + ',' + String(lon));
+        }
+
+        function parseTradingViewSymbol(rawUrl) {
+            const urlObj = safeUrlParse(rawUrl);
+            if (!urlObj) return '';
+            const path = String(urlObj.pathname || '');
+            const symbolMatch = path.match(/\/symbols\/([A-Za-z0-9._-]+)(?:\/)?/i);
+            if (symbolMatch && symbolMatch[1]) {
+                const rawSymbol = symbolMatch[1].replace(/\/+$/, '');
+                if (rawSymbol.includes('-')) {
+                    const idx = rawSymbol.indexOf('-');
+                    const exchange = rawSymbol.slice(0, idx).toUpperCase();
+                    const symbol = rawSymbol.slice(idx + 1).toUpperCase();
+                    if (exchange && symbol) return exchange + ':' + symbol;
+                }
+                return rawSymbol.toUpperCase();
+            }
+            const tvSymbol = urlObj.searchParams.get('symbol') || urlObj.searchParams.get('ticker') || '';
+            return tvSymbol.trim().toUpperCase();
+        }
+
+        function buildTradingViewEmbedUrl(rawUrl) {
+            const symbol = parseTradingViewSymbol(rawUrl);
+            if (!symbol) return '';
+            const params = new URLSearchParams({
+                symbol: symbol,
+                interval: 'D',
+                symboledit: '1',
+                saveimage: '0',
+                toolbarbg: getCanopyEmbedThemeName() === 'light' ? 'f8fafc' : '0f172a',
+                theme: getCanopyEmbedThemeName(),
+                style: '1',
+                withdateranges: '1',
+                hideideas: '1',
+                locale: 'en',
+            });
+            params.set('utm_source', window.location.hostname || 'canopy');
+            params.set('utm_medium', 'embed');
+            params.set('utm_campaign', 'canopy');
+            return 'https://s.tradingview.com/widgetembed/?' + params.toString();
+        }
+
+        const RICH_EMBED_PROVIDERS = [
+            {
+                key: 'youtube',
+                pattern: /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/|youtube\.com\/live\/)([\w-]{11})(?:[&?]\S*)?/g,
+                render(match, videoId) {
+                    return buildIframeEmbedPreview(
+                        'youtube-embed',
+                        'https://www.youtube-nocookie.com/embed/' + videoId + '?enablejsapi=1&playsinline=1&rel=0&origin=' + encodeURIComponent(window.location.origin),
+                        'YouTube video ' + videoId,
+                        { caption: 'YouTube' }
+                    );
+                },
+            },
+            {
+                key: 'vimeo',
+                pattern: /https?:\/\/(?:www\.)?vimeo\.com\/(?:video\/)?(\d+)(?:[/?#]\S*)?/g,
+                render(match, videoId) {
+                    const parts = trimEmbedUrlTrailingPunctuation(match);
+                    return {
+                        html: buildIframeEmbedPreview(
+                            'vimeo-embed',
+                            'https://player.vimeo.com/video/' + encodeURIComponent(videoId),
+                            'Vimeo video ' + videoId,
+                            { caption: 'Vimeo' }
+                        ),
+                        trailing: parts.trailing,
+                    };
+                },
+            },
+            {
+                key: 'loom',
+                pattern: /https?:\/\/(?:www\.)?loom\.com\/(?:share|embed)\/([A-Za-z0-9]+)(?:\?\S*)?/g,
+                render(match, shareId) {
+                    const parts = trimEmbedUrlTrailingPunctuation(match);
+                    return {
+                        html: buildIframeEmbedPreview(
+                            'loom-embed',
+                            'https://www.loom.com/embed/' + encodeURIComponent(shareId),
+                            'Loom recording ' + shareId,
+                            { caption: 'Loom' }
+                        ),
+                        trailing: parts.trailing,
+                    };
+                },
+            },
+            {
+                key: 'spotify',
+                pattern: /https?:\/\/open\.spotify\.com\/(track|album|playlist|episode|show|artist)\/([A-Za-z0-9]+)(?:\?\S*)?/g,
+                render(match, kind, entityId) {
+                    const parts = trimEmbedUrlTrailingPunctuation(match);
+                    return {
+                        html: buildIframeEmbedPreview(
+                            'spotify-embed',
+                            'https://open.spotify.com/embed/' + encodeURIComponent(kind) + '/' + encodeURIComponent(entityId) + '?utm_source=generator',
+                            'Spotify ' + kind,
+                            {
+                                caption: 'Spotify',
+                                height: spotifyEmbedHeight(kind),
+                                allow: 'autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture',
+                                extraClass: 'fixed-height-embed',
+                            }
+                        ),
+                        trailing: parts.trailing,
+                    };
+                },
+            },
+            {
+                key: 'soundcloud',
+                pattern: /https?:\/\/(?:www\.)?soundcloud\.com\/[^\s<"]+/g,
+                render(match) {
+                    const parts = trimEmbedUrlTrailingPunctuation(match);
+                    return {
+                        html: buildIframeEmbedPreview(
+                            'soundcloud-embed',
+                            'https://w.soundcloud.com/player/?url=' + encodeURIComponent(parts.url) + '&color=%2359de89&auto_play=false&hide_related=false&show_comments=true&show_user=true&show_reposts=false&show_teaser=true&visual=false',
+                            'SoundCloud audio',
+                            {
+                                caption: 'SoundCloud',
+                                height: 166,
+                                allow: 'autoplay',
+                                extraClass: 'fixed-height-embed',
+                            }
+                        ),
+                        trailing: parts.trailing,
+                    };
+                },
+            },
+            {
+                key: 'x',
+                pattern: /https?:\/\/(?:www\.)?(?:x\.com|twitter\.com)\/(?:([\w]+)\/status\/|i\/web\/status\/|i\/status\/)(\d+)(?:\?\S*)?/g,
+                render(match, username, statusId) {
+                    const url = username
+                        ? ('https://x.com/' + username + '/status/' + statusId)
+                        : ('https://x.com/i/web/status/' + statusId);
+                    const label = username ? ('@' + username) : 'X post';
+                    return (
+                        '<div class="embed-preview x-embed" data-x-status-id="' + escapeEmbedAttr(statusId) + '" ' +
+                        'data-x-username="' + escapeEmbedAttr(username || '') + '" data-x-theme="' + canopyEmbedTheme() + '">' +
+                        '<div class="x-embed-card">' +
+                        '<a href="' + escapeEmbedAttr(url) + '" target="_blank" rel="noopener noreferrer" class="text-reset text-decoration-none">' +
+                        '<div class="d-flex align-items-center gap-2">' +
+                        '<i class="bi bi-twitter-x x-icon"></i>' +
+                        '<div class="flex-grow-1">' +
+                        '<strong>' + escapeEmbedHtml(label) + '</strong>' +
+                        '<div class="text-muted small">View post on X</div>' +
+                        '</div>' +
+                        '<i class="bi bi-box-arrow-up-right x-link-arrow"></i>' +
+                        '</div>' +
+                        '</a>' +
+                        '</div>' +
+                        '<div class="x-embed-render"></div>' +
+                        '</div>'
+                    );
+                },
+            },
+            {
+                key: 'google_maps',
+                pattern: /https?:\/\/(?:www\.)?(?:google\.[^\/]+\/maps(?:[/?#][^\s<"]*)?|maps\.google\.[^\/]+\/?[^\s<"]*|maps\.app\.goo\.gl\/?[^\s<"]*)/g,
+                render(match) {
+                    const parts = trimEmbedUrlTrailingPunctuation(match);
+                    const embedUrl = buildGoogleMapsEmbedUrl(parts.url);
+                    if (embedUrl) {
+                        return {
+                            html: buildIframeEmbedPreview(
+                                'map-embed google-maps-embed',
+                                embedUrl,
+                                'Google Maps',
+                                {
+                                    caption: 'Google Maps',
+                                    height: 320,
+                                    allow: 'geolocation',
+                                    referrerPolicy: 'no-referrer-when-downgrade',
+                                    extraClass: 'fixed-height-embed map-service-embed',
+                                }
+                            ),
+                            trailing: parts.trailing,
+                        };
+                    }
+                    return {
+                        html: buildProviderCardEmbed(
+                            'map-card-embed',
+                            parts.url,
+                            'Map link',
+                            'Open this location in Google Maps.',
+                            'bi-geo-alt-fill',
+                            {
+                                providerLabel: 'Google Maps',
+                                note: getGoogleMapsEmbedApiKey()
+                                    ? 'Open this location in Google Maps.'
+                                    : 'Inline Google Maps requires CANOPY_GOOGLE_MAPS_EMBED_API_KEY; showing a safe card instead.',
+                            }
+                        ),
+                        trailing: parts.trailing,
+                    };
+                },
+            },
+            {
+                key: 'openstreetmap',
+                pattern: /https?:\/\/(?:www\.)?openstreetmap\.org\/[^\s<"]+/g,
+                render(match) {
+                    const parts = trimEmbedUrlTrailingPunctuation(match);
+                    const embedUrl = buildOpenStreetMapEmbedUrl(parts.url);
+                    if (embedUrl) {
+                        return {
+                            html: buildIframeEmbedPreview(
+                                'map-embed openstreetmap-embed',
+                                embedUrl,
+                                'OpenStreetMap',
+                                {
+                                    caption: 'OpenStreetMap',
+                                    height: 320,
+                                    extraClass: 'fixed-height-embed map-service-embed',
+                                }
+                            ),
+                            trailing: parts.trailing,
+                        };
+                    }
+                    return {
+                        html: buildProviderCardEmbed(
+                            'map-card-embed',
+                            parts.url,
+                            'Map link',
+                            'Open this location in OpenStreetMap.',
+                            'bi-map',
+                            { providerLabel: 'OpenStreetMap', note: 'Preview card for shared map context.' }
+                        ),
+                        trailing: parts.trailing,
+                    };
+                },
+            },
+            {
+                key: 'tradingview',
+                pattern: /https?:\/\/(?:www\.)?tradingview\.com\/[^\s<"]+/g,
+                render(match) {
+                    const parts = trimEmbedUrlTrailingPunctuation(match);
+                    const embedUrl = buildTradingViewEmbedUrl(parts.url);
+                    if (embedUrl) {
+                        return {
+                            html: buildIframeEmbedPreview(
+                                'tradingview-embed',
+                                embedUrl,
+                                'TradingView chart',
+                                {
+                                    caption: 'TradingView',
+                                    height: 360,
+                                    extraClass: 'fixed-height-embed chart-service-embed',
+                                }
+                            ),
+                            trailing: parts.trailing,
+                        };
+                    }
+                    return {
+                        html: buildProviderCardEmbed(
+                            'tradingview-card-embed',
+                            parts.url,
+                            'TradingView chart',
+                            'Open the live chart or symbol page in TradingView.',
+                            'bi-graph-up-arrow',
+                            { providerLabel: 'TradingView', note: 'Official TradingView widgets exist; this safe card keeps the channel lightweight.' }
+                        ),
+                        trailing: parts.trailing,
+                    };
+                },
+            },
+            {
+                key: 'direct_video',
+                pattern: /https?:\/\/[^\s<"]+\.(mp4|webm|ogv|mov|m4v)(?:\?\S*)?/gi,
+                render(match, ext) {
+                    const parts = trimEmbedUrlTrailingPunctuation(match);
+                    return {
+                        html: buildNativeMediaEmbed(
+                            'native-video-embed',
+                            parts.url,
+                            'Embedded video',
+                            'video',
+                            classifyVideoMime(ext),
+                            { caption: 'Direct video' }
+                        ),
+                        trailing: parts.trailing,
+                    };
+                },
+            },
+            {
+                key: 'direct_audio',
+                pattern: /https?:\/\/[^\s<"]+\.(mp3|wav|ogg|m4a|aac|flac)(?:\?\S*)?/gi,
+                render(match, ext) {
+                    const parts = trimEmbedUrlTrailingPunctuation(match);
+                    return {
+                        html: buildNativeMediaEmbed(
+                            'native-audio-embed',
+                            parts.url,
+                            'Embedded audio',
+                            'audio',
+                            classifyAudioMime(ext),
+                            { caption: 'Direct audio' }
+                        ),
+                        trailing: parts.trailing,
+                    };
+                },
+            },
+        ];
+
+        function collectProviderEmbeds(html) {
+            const embeds = [];
+            const placeholderPrefix = '\x00EMB_';
+
+            RICH_EMBED_PROVIDERS.forEach(provider => {
+                html = html.replace(provider.pattern, function() {
+                    const match = arguments[0];
+                    const matchIndex = arguments[arguments.length - 2];
+                    if (isEmbedMatchInsideHtmlTag(html, matchIndex)) {
+                        return match;
+                    }
+                    const rendered = provider.render.apply(null, arguments);
+                    if (!rendered) return arguments[0];
+                    const htmlValue = typeof rendered === 'string' ? rendered : rendered.html;
+                    if (!htmlValue) return arguments[0];
+                    const idx = embeds.length;
+                    embeds.push(htmlValue);
+                    const trailing = typeof rendered === 'string' ? '' : (rendered.trailing || '');
+                    return placeholderPrefix + idx + '\x00' + trailing;
+                });
+            });
+
+            return { html, embeds, placeholderPrefix };
+        }
+
+            function isEscapedMathDelimiter(value, index) {
+                let slashCount = 0;
+                for (let j = index - 1; j >= 0 && value[j] === '\\'; j--) {
+                    slashCount += 1;
+                }
+                return (slashCount % 2) === 1;
+            }
+
+            function hasExplicitMathDelimiters(text) {
                 if (!text) return false;
                 const value = String(text);
-                if (value.indexOf('$') !== -1) {
-                    let inlineCount = 0;
-                    let blockCount = 0;
-                    for (let i = 0; i < value.length; i++) {
-                        if (value[i] !== '$') continue;
-                        let slashCount = 0;
-                        for (let j = i - 1; j >= 0 && value[j] === '\\'; j--) {
-                            slashCount += 1;
-                        }
-                        if ((slashCount % 2) === 1) continue;
-                        if (value[i + 1] === '$') {
-                            blockCount += 1;
-                            i += 1;
-                        } else {
-                            inlineCount += 1;
-                        }
-                    }
-                    if (blockCount >= 2 || inlineCount >= 2) return true;
-                }
                 if (value.indexOf('\\(') !== -1 && value.indexOf('\\)') !== -1) return true;
                 if (value.indexOf('\\[') !== -1 && value.indexOf('\\]') !== -1) return true;
+                for (let i = 0; i < value.length - 1; i++) {
+                    if (value[i] === '$' && value[i + 1] === '$' && !isEscapedMathDelimiter(value, i)) {
+                        for (let j = i + 2; j < value.length - 1; j++) {
+                            if (value[j] === '$' && value[j + 1] === '$' && !isEscapedMathDelimiter(value, j)) {
+                                return true;
+                            }
+                        }
+                    }
+                }
                 return false;
+            }
+
+            function isLikelyMathInlineContent(content) {
+                const trimmed = String(content || '').trim();
+                if (!trimmed || trimmed.length > 120 || /[\r\n]/.test(trimmed)) return false;
+
+                if (/^\$?[\d,]+(?:\.\d+)?(?:\s*(?:k|m|mm|bn|b|t|%))?(?:\s*(?:usd|cad|eur|gbp))?$/i.test(trimmed)) {
+                    return false;
+                }
+                if (/^[A-Z]{1,8}\s+\$?[\d,]+(?:\.\d+)?(?:\s*%)?$/i.test(trimmed)) {
+                    return false;
+                }
+                if (/^[\d,.\s]+(?:to|vs|at)\s+[\d,.\s]+$/i.test(trimmed)) {
+                    return false;
+                }
+
+                const hasLatexCommand = /\\[A-Za-z]+/.test(trimmed);
+                const hasBinaryOperator = /(?:\d|[A-Za-z)}\]])\s*[-+*=<>/^_]\s*(?:\d|[A-Za-z({[])/.test(trimmed);
+                const hasStructuredMath = /[_^{}]/.test(trimmed);
+                const hasMathKeywords = /\b(?:sin|cos|tan|log|ln|max|min|sum|prod|int|lim)\b/.test(trimmed);
+
+                return hasLatexCommand || hasBinaryOperator || hasStructuredMath || hasMathKeywords;
+            }
+
+            function hasLikelyInlineMath(text) {
+                if (!text || String(text).indexOf('$') === -1) return false;
+                const value = String(text);
+                for (let i = 0; i < value.length; i++) {
+                    if (value[i] !== '$' || isEscapedMathDelimiter(value, i)) continue;
+                    if (value[i + 1] === '$') {
+                        i += 1;
+                        continue;
+                    }
+                    for (let j = i + 1; j < value.length; j++) {
+                        if (value[j] !== '$' || isEscapedMathDelimiter(value, j)) continue;
+                        if (value[j - 1] === '$' || value[j + 1] === '$') continue;
+                        if (isLikelyMathInlineContent(value.slice(i + 1, j))) {
+                            return true;
+                        }
+                        i = j;
+                        break;
+                    }
+                }
+                return false;
+            }
+
+            function buildMathDelimitersForText(text) {
+                const value = String(text || '');
+                const delimiters = [];
+                if (value.indexOf('$$') !== -1) {
+                    delimiters.push({ left: '$$', right: '$$', display: true });
+                }
+                if (value.indexOf('\\[') !== -1 && value.indexOf('\\]') !== -1) {
+                    delimiters.push({ left: '\\[', right: '\\]', display: true });
+                }
+                if (value.indexOf('\\(') !== -1 && value.indexOf('\\)') !== -1) {
+                    delimiters.push({ left: '\\(', right: '\\)', display: false });
+                }
+                if (hasLikelyInlineMath(value)) {
+                    delimiters.push({ left: '$', right: '$', display: false });
+                }
+                return delimiters;
+            }
+
+            function containsMathDelimiters(text) {
+                return hasExplicitMathDelimiters(text) || hasLikelyInlineMath(text);
             }
 
             function renderMathInElementSafe(root) {
@@ -1176,15 +1784,11 @@
                 const scope = (root instanceof Element || root instanceof Document) ? root : null;
                 if (!scope) return false;
                 const sourceText = scope.textContent || '';
-                if (!containsMathDelimiters(sourceText)) return false;
+                const delimiters = buildMathDelimitersForText(sourceText);
+                if (!delimiters.length) return false;
                 try {
                     window.renderMathInElement(scope, {
-                        delimiters: [
-                            { left: '$$', right: '$$', display: true },
-                            { left: '\\[', right: '\\]', display: true },
-                            { left: '\\(', right: '\\)', display: false },
-                            { left: '$', right: '$', display: false }
-                        ],
+                        delimiters: delimiters,
                         throwOnError: false,
                         strict: 'ignore',
                         trust: false,
@@ -2225,47 +2829,10 @@
             });
             html = html.replace(/\n/g, '<br>');
 
-            // Collect embeds separately so we can grid them if >1
-            const embeds = [];
-            const EMBED_PLACEHOLDER = '\x00EMB_';
-
-            // --- YouTube embeds ---
-            const ytRegex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/|youtube\.com\/live\/)([\w-]{11})(?:[&?]\S*)?/g;
-            html = html.replace(ytRegex, function(match, videoId) {
-                const idx = embeds.length;
-                embeds.push('<div class="embed-preview youtube-embed" data-video-id="' + videoId + '">' +
-                    '<iframe src="https://www.youtube-nocookie.com/embed/' + videoId + '?enablejsapi=1&playsinline=1&rel=0&origin=' + encodeURIComponent(window.location.origin) + '" ' +
-                    'data-video-id="' + videoId + '" title="YouTube video ' + videoId + '" ' +
-                    'frameborder="0" allowfullscreen ' +
-                    'allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" ' +
-                    'loading="lazy"></iframe></div>');
-                return EMBED_PLACEHOLDER + idx + '\x00';
-	            });
-
-	            // --- X / Twitter embeds ---
-	            const xRegex = /https?:\/\/(?:www\.)?(?:x\.com|twitter\.com)\/(?:([\w]+)\/status\/|i\/web\/status\/|i\/status\/)(\d+)(?:\?\S*)?/g;
-	            html = html.replace(xRegex, function(match, username, statusId) {
-	                const url = username
-	                    ? ('https://x.com/' + username + '/status/' + statusId)
-	                    : ('https://x.com/i/web/status/' + statusId);
-	                const label = username ? ('@' + username) : 'X post';
-                    const idx = embeds.length;
-	                embeds.push('<div class="embed-preview x-embed" data-x-status-id="' + statusId + '" ' +
-	                    'data-x-username="' + (username || '') + '" data-x-theme="' + canopyEmbedTheme() + '">' +
-	                    '<div class="x-embed-card" onclick="window.open(\'' + url + '\',\'_blank\')">' +
-	                    '<div class="d-flex align-items-center gap-2">' +
-	                    '<i class="bi bi-twitter-x x-icon"></i>' +
-	                    '<div class="flex-grow-1">' +
-	                    '<strong>' + label + '</strong>' +
-	                    '<div class="text-muted small">View post on X</div>' +
-	                    '</div>' +
-	                    '<i class="bi bi-box-arrow-up-right x-link-arrow"></i>' +
-	                    '</div>' +
-	                    '</div>' +
-	                    '<div class="x-embed-render"></div>' +
-	                    '</div>');
-                    return EMBED_PLACEHOLDER + idx + '\x00';
-	            });
+            const embedState = collectProviderEmbeds(html);
+            html = embedState.html;
+            const embeds = embedState.embeds;
+            const EMBED_PLACEHOLDER = embedState.placeholderPrefix;
 
 	            // --- Generic URL linkification ---
             // Strip trailing punctuation that's likely not part of the URL (e.g. trailing ) , . ; : ! ?)

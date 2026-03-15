@@ -3535,11 +3535,24 @@
     width: 100%;
 }
 
-.embed-preview.youtube-embed iframe {
+.embed-preview.iframe-embed iframe,
+.embed-preview.native-video-embed video,
+.embed-preview.native-audio-embed audio {
     max-width: 100%;
     width: 100%;
+}
+
+.embed-preview.iframe-embed iframe {
     height: auto;
     aspect-ratio: 16 / 9;
+}
+
+.embed-preview.map-service-embed iframe {
+    min-height: 320px;
+}
+
+.embed-preview.chart-service-embed iframe {
+    min-height: 360px;
 }
 
 .embed-grid {
@@ -3547,6 +3560,7 @@
     grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
     gap: 1rem;
     max-width: 100%;
+    align-items: start;
 }
 
 /* Character counter */
@@ -3569,6 +3583,10 @@
     .post-card .card-body p { overflow-wrap: break-word; word-break: break-word; }
     .comments-section .input-group .form-control { min-height: 44px; font-size: 16px; }
     .embed-grid { grid-template-columns: 1fr !important; }
+    .provider-embed-card { padding: 12px 14px !important; }
+    .provider-embed-head { gap: 10px !important; }
+    .embed-preview.map-service-embed iframe,
+    .embed-preview.chart-service-embed iframe { min-height: 280px; }
     audio, video { max-width: 100%; }
 }
 @media (max-width: 576px) {
@@ -6424,7 +6442,7 @@
     });
 
     // --- Rich link embed rendering for feed posts ---
-    // Process server-rendered post content to embed YouTube/X previews
+    // Process server-rendered post content to embed shared Canopy provider previews.
     document.addEventListener('DOMContentLoaded', function() {
         if (typeof processRichEmbeds === 'function') {
             processRichEmbeds('.post-content p');

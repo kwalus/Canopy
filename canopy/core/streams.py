@@ -12,6 +12,7 @@ import json
 import logging
 import re
 import secrets
+import shutil
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -105,6 +106,7 @@ class StreamManager:
     DEFAULT_TOKEN_TTL_SECONDS = 15 * 60
     MIN_TOKEN_TTL_SECONDS = 30
     MAX_TOKEN_TTL_SECONDS = 24 * 60 * 60
+    DEFAULT_LATENCY_MODE = "hls"
     MAX_EVENT_PAYLOAD_CHARS = 512 * 1024
     DEFAULT_EVENT_RETENTION_MAX = 5000
     MAX_EVENT_RETENTION_MAX = 100000
@@ -195,6 +197,35 @@ class StreamManager:
                 """
             )
             conn.commit()
+
+    def get_runtime_health(self) -> dict[str, Any]:
+        ffmpeg_path = shutil.which("ffmpeg")
+        ffprobe_path = shutil.which("ffprobe")
+        with self.db.get_connection() as conn:
+            counts = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS total_streams,
+                    SUM(CASE WHEN status = 'live' THEN 1 ELSE 0 END) AS live_streams
+                FROM streams
+                """
+            ).fetchone()
+        total_streams = int(counts["total_streams"] or 0) if counts else 0
+        live_streams = int(counts["live_streams"] or 0) if counts else 0
+        return {
+            "stream_manager_ready": True,
+            "storage_root": str(self.storage_root),
+            "ffmpeg_found": bool(ffmpeg_path),
+            "ffmpeg_path": ffmpeg_path,
+            "ffprobe_found": bool(ffprobe_path),
+            "ffprobe_path": ffprobe_path,
+            "default_token_ttl_seconds": self.DEFAULT_TOKEN_TTL_SECONDS,
+            "max_token_ttl_seconds": self.MAX_TOKEN_TTL_SECONDS,
+            "latency_mode_supported": self.DEFAULT_LATENCY_MODE,
+            "streams_total": total_streams,
+            "streams_live": live_streams,
+            "remote_proxy_mode": "sync_probe_cached",
+        }
 
     def _extract_stream_kind(self, row: Any, metadata: Optional[dict[str, Any]] = None) -> str:
         meta = metadata or {}
@@ -355,7 +386,7 @@ class StreamManager:
             safe_meta["stream_kind"] = kind
             if kind == "media":
                 safe_meta.setdefault("ingest", "hls_push")
-                safe_meta.setdefault("latency_mode", "ll-hls")
+                safe_meta.setdefault("latency_mode", self.DEFAULT_LATENCY_MODE)
             else:
                 safe_meta.setdefault("ingest", "event_push")
                 safe_meta.setdefault("retention_max_events", self.DEFAULT_EVENT_RETENTION_MAX)
@@ -494,7 +525,13 @@ class StreamManager:
             out = conn.execute("SELECT * FROM streams WHERE id = ?", (sid,)).fetchone()
             if not out:
                 return None, "update_failed"
-            return self._row_to_stream(out).to_dict(), None
+            stream_payload = self._row_to_stream(out).to_dict()
+        try:
+            if hasattr(self.channel_manager, "update_stream_attachment_status"):
+                self.channel_manager.update_stream_attachment_status(sid, next_status)
+        except Exception as sync_err:
+            logger.warning(f"Failed to sync stream attachment status for {sid}: {sync_err}")
+        return stream_payload, None
 
     def start_stream(self, stream_id: str, user_id: str) -> tuple[Optional[dict[str, Any]], Optional[str]]:
         return self._set_status(stream_id, user_id, "live")
@@ -573,6 +610,25 @@ class StreamManager:
             "ttl_seconds": ttl,
         }, None
 
+    def revoke_token(self, token_id: str) -> Optional[str]:
+        tid = str(token_id or "").strip()
+        if not tid:
+            return "missing_token_id"
+        now = _db_ts(_utcnow())
+        with self.db.get_connection() as conn:
+            row = conn.execute(
+                "SELECT id FROM stream_access_tokens WHERE id = ?",
+                (tid,),
+            ).fetchone()
+            if not row:
+                return "not_found"
+            conn.execute(
+                "UPDATE stream_access_tokens SET revoked_at = ? WHERE id = ?",
+                (now, tid),
+            )
+            conn.commit()
+        return None
+
     def validate_token(
         self,
         *,
@@ -634,6 +690,44 @@ class StreamManager:
                 "metadata": meta,
             }, None
 
+    def refresh_token(
+        self,
+        *,
+        stream_id: str,
+        current_token: str,
+        scope: str,
+        user_id: str,
+        ttl_seconds: Optional[int] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> tuple[Optional[dict[str, Any]], Optional[str]]:
+        sid = str(stream_id or "").strip()
+        uid = str(user_id or "").strip()
+        if not sid or not uid:
+            return None, "missing_identity"
+        token_data, token_err = self.validate_token(
+            stream_id=sid,
+            token=current_token,
+            scope=scope,
+        )
+        if token_err or not token_data:
+            return None, token_err or "invalid_token"
+        token_owner = str(token_data.get("user_id") or "").strip()
+        if token_owner != uid:
+            return None, "not_authorized"
+        revoke_err = self.revoke_token(str(token_data.get("id") or ""))
+        if revoke_err and revoke_err != "not_found":
+            return None, revoke_err
+        merged_metadata = dict(metadata or {})
+        merged_metadata["refresh_of"] = str(token_data.get("id") or "")
+        merged_metadata["refreshed_at"] = _utcnow().isoformat()
+        return self.issue_token(
+            stream_id=sid,
+            user_id=uid,
+            scope=scope,
+            ttl_seconds=ttl_seconds,
+            metadata=merged_metadata,
+        )
+
     def _load_stream_row(self, stream_id: str) -> Optional[Any]:
         sid = str(stream_id or "").strip()
         if not sid:
@@ -652,7 +746,9 @@ class StreamManager:
             return "missing_stream_id"
         if not isinstance(manifest_bytes, (bytes, bytearray)):
             return "invalid_manifest"
-        if len(manifest_bytes) <= 0 or len(manifest_bytes) > self.MAX_MANIFEST_BYTES:
+        if len(manifest_bytes) <= 0:
+            return "empty_ingest_payload"
+        if len(manifest_bytes) > self.MAX_MANIFEST_BYTES:
             return "manifest_size_invalid"
         try:
             manifest_text = manifest_bytes.decode("utf-8")
@@ -694,7 +790,9 @@ class StreamManager:
             return "invalid_segment_name"
         if not isinstance(segment_bytes, (bytes, bytearray)):
             return "invalid_segment"
-        if len(segment_bytes) <= 0 or len(segment_bytes) > self.MAX_SEGMENT_BYTES:
+        if len(segment_bytes) <= 0:
+            return "empty_ingest_payload"
+        if len(segment_bytes) > self.MAX_SEGMENT_BYTES:
             return "segment_size_invalid"
         if not self._load_stream_row(sid):
             return "not_found"
