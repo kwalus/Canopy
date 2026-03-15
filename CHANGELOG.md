@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.89] - 2026-03-15
+
+### Added
+- **Inline map and chart embeds** - OpenStreetMap links that include coordinates now render as true inline map iframes, and TradingView symbol links now render as inline chart widgets instead of remaining provider cards.
+
+### Fixed
+- **Google Maps query-link detection** - Google Maps provider matching now catches query-form URLs such as `https://www.google.com/maps?q=Toronto`, so shared map links no longer silently miss the embed pipeline.
+- **Google Maps restricted-key embeds** - Inline Google Maps embeds now send the referrer policy expected by browser-restricted Maps Embed API keys, so configured `CANOPY_GOOGLE_MAPS_EMBED_API_KEY` deployments can actually render the official iframe instead of failing authorization at load time.
+
 ## [0.4.88] - 2026-03-15
 
 ### Added

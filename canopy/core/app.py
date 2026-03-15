@@ -258,6 +258,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
     app.config['SECRET_KEY'] = config.secret_key
     app.config['DEBUG'] = config.debug
     app.config['TESTING'] = config.testing
+    app.config['GOOGLE_MAPS_EMBED_API_KEY'] = os.getenv('CANOPY_GOOGLE_MAPS_EMBED_API_KEY', '').strip()
     
     # Store config in app for access in routes
     app.config['CANOPY_CONFIG'] = config

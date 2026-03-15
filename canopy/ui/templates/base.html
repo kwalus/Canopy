@@ -2479,6 +2479,14 @@
 	            aspect-ratio: auto;
 	            min-height: 152px;
 	        }
+	        .map-service-embed iframe {
+	            min-height: 320px;
+	            background: linear-gradient(180deg, rgba(52, 211, 153, 0.08), rgba(15, 23, 42, 0.24));
+	        }
+	        .chart-service-embed iframe {
+	            min-height: 360px;
+	            background: linear-gradient(180deg, rgba(79, 140, 255, 0.08), rgba(15, 23, 42, 0.24));
+	        }
 	        .native-media-embed {
 	            padding: 12px;
 	        }
@@ -2601,8 +2609,12 @@
 	        .spotify-embed { --embed-accent: #1db954; }
 	        .soundcloud-embed { --embed-accent: #ff7700; }
 	        .x-embed { --embed-accent: #9ca3af; }
-	        .map-card-embed { --embed-accent: #34d399; }
-	        .tradingview-card-embed { --embed-accent: #4f8cff; }
+	        .map-card-embed,
+	        .map-embed,
+	        .google-maps-embed,
+	        .openstreetmap-embed { --embed-accent: #34d399; }
+	        .tradingview-card-embed,
+	        .tradingview-embed { --embed-accent: #4f8cff; }
 	        .native-video-embed { --embed-accent: #ef4444; }
 	        .native-audio-embed { --embed-accent: #f59e0b; }
         /* Channel message code blocks with copy button */
@@ -5576,6 +5588,7 @@
             profileTheme: {{ (profile.theme_preference if profile else 'dark')|tojson }},
             localUserId: {{ session.get('user_id')|tojson }},
             localPeerId: {{ sidebar_local_peer_id|tojson if sidebar_local_peer_id is defined else 'null' }},
+            googleMapsEmbedApiKey: {{ config.get('GOOGLE_MAPS_EMBED_API_KEY', '')|tojson }},
             urls: {
                 feed: {{ url_for('ui.feed')|tojson }},
                 channels: {{ url_for('ui.channels')|tojson }},
