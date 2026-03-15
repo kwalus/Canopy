@@ -7932,6 +7932,11 @@ def create_api_blueprint() -> Blueprint:
                     return jsonify({'error': error}), 400
                 return jsonify({'error': error}), 403
 
+            if start_now and stream_row:
+                started, start_err = stream_manager.start_stream(stream_row['id'], g.api_key_info.user_id)
+                if not start_err and started:
+                    stream_row = started
+
             posted_message_id = None
             if auto_post and stream_row:
                 from ..core.channels import MessageType as ChannelMessageType
@@ -7984,11 +7989,6 @@ def create_api_blueprint() -> Blueprint:
                             )
                     except Exception as bcast_err:
                         logger.warning(f"Stream post broadcast failed (non-fatal): {bcast_err}")
-
-            if start_now and stream_row:
-                started, start_err = stream_manager.start_stream(stream_row['id'], g.api_key_info.user_id)
-                if not start_err and started:
-                    stream_row = started
 
             payload = {
                 'success': True,

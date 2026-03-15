@@ -223,6 +223,7 @@ class TestApiStreamEndpoints(unittest.TestCase):
         self.assertTrue(sent_attachments)
         self.assertEqual(sent_attachments[0].get('kind'), 'stream')
         self.assertEqual(sent_attachments[0].get('stream_id'), stream.get('id'))
+        self.assertEqual(sent_attachments[0].get('status'), 'live')
 
         denied = self.client.post(
             '/api/v1/streams',
@@ -233,6 +234,30 @@ class TestApiStreamEndpoints(unittest.TestCase):
             headers=self._headers('key-outsider'),
         )
         self.assertEqual(denied.status_code, 404)
+
+    def test_owner_can_stop_stream_via_api_endpoint(self) -> None:
+        created = self.client.post(
+            '/api/v1/streams',
+            json={
+                'channel_id': 'C1',
+                'title': 'Ops stop test',
+                'media_kind': 'audio',
+                'auto_post': False,
+                'start_now': True,
+            },
+            headers=self._headers('key-member'),
+        )
+        self.assertEqual(created.status_code, 201)
+        stream_id = (created.get_json() or {}).get('stream', {}).get('id')
+        self.assertTrue(stream_id)
+        stopped = self.client.post(
+            f'/api/v1/streams/{stream_id}/stop',
+            headers=self._headers('key-member'),
+        )
+        self.assertEqual(stopped.status_code, 200)
+        payload = stopped.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertEqual((payload.get('stream') or {}).get('status'), 'stopped')
 
     def test_stream_health_reports_runtime_readiness(self) -> None:
         response = self.client.get(

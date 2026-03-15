@@ -197,6 +197,64 @@ def _resolve_p2p_stream(stream_id: str, db_manager: Any, p2p_manager: Any) -> Op
         return None
 
 
+def _probe_remote_stream_manifest_live(stream_id: str, remote_base: Optional[str]) -> bool:
+    """Best-effort check whether a remote stream is actively serving a manifest."""
+    base = str(remote_base or '').strip().rstrip('/')
+    sid = str(stream_id or '').strip()
+    if not base or not sid:
+        return False
+    try:
+        from urllib.request import urlopen as _urlopen
+        remote_url = f"{base}/api/v1/streams/{sid}/manifest.m3u8"
+        with _urlopen(remote_url, timeout=2.5) as resp:
+            resp.read(1)
+        return True
+    except Exception:
+        return False
+
+
+def _refresh_stream_attachment_statuses(
+    attachments: list[dict[str, Any]],
+    *,
+    user_id: str,
+    stream_manager: Any,
+    db_manager: Any,
+    p2p_manager: Any,
+    status_cache: dict[str, str],
+) -> None:
+    """Reconcile stream card attachments against current local or remote stream state."""
+    for attachment in attachments:
+        if not isinstance(attachment, dict):
+            continue
+        if str(attachment.get('kind') or '').strip().lower() != 'stream' and not attachment.get('stream_id'):
+            continue
+        stream_id = str(attachment.get('stream_id') or '').strip()
+        if not stream_id:
+            continue
+        if stream_id in status_cache:
+            attachment['status'] = status_cache[stream_id]
+            continue
+        fallback_status = str(attachment.get('status') or 'created').strip().lower()
+        resolved_status = fallback_status if fallback_status in {'live', 'stopped'} else 'created'
+        try:
+            if stream_manager:
+                local_stream = stream_manager.get_stream_for_user(stream_id, user_id)
+                if local_stream:
+                    local_status = str(local_stream.get('status') or '').strip().lower()
+                    if local_status in {'created', 'live', 'stopped'}:
+                        resolved_status = local_status
+                        status_cache[stream_id] = resolved_status
+                        attachment['status'] = resolved_status
+                        continue
+        except Exception:
+            pass
+        remote = _resolve_p2p_stream(stream_id, db_manager, p2p_manager) if db_manager else None
+        if remote and _probe_remote_stream_manifest_live(stream_id, remote.get('remote_base')):
+            resolved_status = 'live'
+        status_cache[stream_id] = resolved_status
+        attachment['status'] = resolved_status
+
+
 def create_ui_blueprint() -> Blueprint:
     """Create and configure the UI blueprint."""
     ui = Blueprint('ui', __name__, template_folder='templates', static_folder='static')
@@ -9844,6 +9902,8 @@ def create_ui_blueprint() -> Blueprint:
             # Batch-check which messages the current user has liked
             msg_ids = [m.id for m in messages]
             user_liked_ids = set()
+            stream_manager = current_app.config.get('STREAM_MANAGER')
+            stream_status_cache: dict[str, str] = {}
             if interaction_manager:
                 user_liked_ids = interaction_manager.get_user_liked_ids(msg_ids, user_id)
             
@@ -9861,6 +9921,14 @@ def create_ui_blueprint() -> Blueprint:
                                 att['url'] = f"/files/{att['id']}"
                             else:
                                 att['not_on_device'] = True  # so UI can show "Not on this device yet"
+                    _refresh_stream_attachment_statuses(
+                        msg_dict.get('attachments') or [],
+                        user_id=user_id,
+                        stream_manager=stream_manager,
+                        db_manager=db_manager,
+                        p2p_manager=p2p_manager,
+                        status_cache=stream_status_cache,
+                    )
                     # Add like info
                     if interaction_manager:
                         try:
@@ -10798,6 +10866,11 @@ def create_ui_blueprint() -> Blueprint:
                     return jsonify({'success': False, 'error': 'Channel not found'}), 404
                 return jsonify({'success': False, 'error': error}), 400
 
+            if start_now and stream_row:
+                started, start_err = stream_manager.start_stream(stream_row['id'], user_id)
+                if not start_err and started:
+                    stream_row = started
+
             posted_message_id = None
             if auto_post and stream_row:
                 from ..core.channels import MessageType as ChannelMessageType
@@ -10879,11 +10952,6 @@ def create_ui_blueprint() -> Blueprint:
                             )
                     except Exception as bcast_err:
                         logger.warning(f"Failed to broadcast stream post card: {bcast_err}")
-
-            if start_now and stream_row:
-                started, start_err = stream_manager.start_stream(stream_row['id'], user_id)
-                if not start_err and started:
-                    stream_row = started
 
             payload = {'success': True, 'stream': stream_row}
             if posted_message_id:

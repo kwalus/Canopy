@@ -8636,7 +8636,7 @@ function displayAttachments(attachments) {
         const streamKind = String(att.stream_kind || (String(att.protocol || '').toLowerCase() === 'events-json' ? 'telemetry' : 'media')).toLowerCase();
         const mediaKindRaw = String(att.media_kind || 'audio').toLowerCase();
         const mediaKind = mediaKindRaw === 'video' ? 'video' : (mediaKindRaw === 'data' ? 'data' : 'audio');
-        const status = String(att.status || 'created').toLowerCase();
+        const status = _normalizeStreamStatus(att.status || 'created');
         const metadata = att && typeof att.metadata === 'object' && att.metadata ? att.metadata : {};
         const domain = String(metadata.stream_domain || (streamKind === 'telemetry' ? 'sensor' : 'media')).toLowerCase();
         const safeTitle = (att.title || att.name || 'Live stream').replace(/</g, '&lt;').replace(/"/g, '&quot;');
@@ -8654,7 +8654,7 @@ function displayAttachments(attachments) {
             metadata,
             relay_allowed: !!att.relay_allowed,
         };
-        const statusLabel = status === 'live' ? 'LIVE' : (status === 'stopped' ? 'Stopped' : 'Preparing');
+        const statusLabel = _streamStatusLabel(status);
         const icon = streamKind === 'telemetry' ? 'cpu' : (mediaKind === 'video' ? 'camera-video' : 'broadcast');
         const actionLabel = streamKind === 'telemetry' ? 'Open workspace' : (mediaKind === 'video' ? 'Watch live' : 'Listen live');
         const isOwner = att.created_by && att.created_by === currentUserId;
@@ -8662,6 +8662,11 @@ function displayAttachments(attachments) {
         const goLiveBtn = isOwner && streamId && streamKind !== 'telemetry'
             ? `<button class="btn btn-sm btn-outline-warning" onclick="openBroadcasterPanel('${streamId.replace(/'/g, "\\'")}', '${mediaKind}', '${slotId}')">
                     <i class="bi bi-broadcast"></i> Go Live
+               </button>`
+            : '';
+        const stopBtn = isOwner && streamId
+            ? `<button class="btn btn-sm btn-outline-danger" onclick="stopStreamOwner('${streamId.replace(/'/g, "\\'")}', '${slotId}')">
+                    <i class="bi bi-stop-fill"></i> Stop
                </button>`
             : '';
         const streamBtn = streamId
@@ -8686,13 +8691,14 @@ function displayAttachments(attachments) {
                             </div>
                         </div>
                     </div>
-                    <span class="stream-meta-chip" data-state="${status}">${statusLabel}</span>
+                    <span class="stream-meta-chip" data-stream-status-chip="1" data-state="${status}">${statusLabel}</span>
                 </div>
                 <div class="d-flex align-items-center justify-content-between mt-3 gap-2 flex-wrap">
                     <span class="small text-muted">ID: ${streamId || 'n/a'}</span>
                     <div class="stream-card-actions">
                         ${streamBtn}
                         ${goLiveBtn}
+                        ${stopBtn}
                         ${streamId ? `<button class="btn btn-sm btn-outline-secondary" onclick="navigator.clipboard.writeText('${streamId.replace(/'/g, "\\'")}')"><i class="bi bi-clipboard"></i></button>` : ''}
                     </div>
                 </div>
@@ -9207,6 +9213,19 @@ function _formatStreamTimestamp(value) {
     }
 }
 
+function _normalizeStreamStatus(value) {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (normalized === 'live' || normalized === 'stopped') return normalized;
+    return 'created';
+}
+
+function _streamStatusLabel(status) {
+    const normalized = _normalizeStreamStatus(status);
+    if (normalized === 'live') return 'LIVE';
+    if (normalized === 'stopped') return 'Stopped';
+    return 'Preparing';
+}
+
 function _buildStreamWorkspaceShell(streamId, slot, streamRow, context, sessionPayload, setupPayload, mediaKind, streamKind) {
     const ids = {
         viewer: `${slot.id}-viewer`,
@@ -9220,7 +9239,9 @@ function _buildStreamWorkspaceShell(streamId, slot, streamRow, context, sessionP
     const description = _escapeHtml((streamRow && streamRow.description) || context.description || '');
     const domain = String(metadata.stream_domain || (streamKind === 'telemetry' ? 'sensor' : 'media')).toLowerCase();
     const scenario = _streamScenarioLabel(domain, streamKind, mediaKind);
-    const status = _escapeHtml(String((streamRow && streamRow.status) || context.status || 'created'));
+    const statusRaw = _normalizeStreamStatus((streamRow && streamRow.status) || context.status || 'created');
+    const status = _escapeHtml(statusRaw);
+    const statusLabel = _escapeHtml(_streamStatusLabel(statusRaw));
     const protocol = _escapeHtml(String((streamRow && streamRow.protocol) || context.protocol || (streamKind === 'telemetry' ? 'events-json' : 'hls')));
     const createdBy = String((streamRow && streamRow.created_by) || context.created_by || '');
     const isOwner = !!createdBy && createdBy === currentUserId;
@@ -9239,7 +9260,7 @@ function _buildStreamWorkspaceShell(streamId, slot, streamRow, context, sessionP
                 </div>
                 <div class="stream-kv">
                     <div class="stream-kv-label">Status</div>
-                    <div class="stream-kv-value">${status}</div>
+                    <div class="stream-kv-value" data-stream-status-value="1">${statusLabel}</div>
                 </div>
                 <div class="stream-kv">
                     <div class="stream-kv-label">Transport</div>
@@ -9302,6 +9323,9 @@ function _buildStreamWorkspaceShell(streamId, slot, streamRow, context, sessionP
     const goLiveAction = isOwner && streamKind !== 'telemetry'
         ? `<button class="btn btn-sm btn-outline-warning" onclick="openBroadcasterPanel('${streamId.replace(/'/g, "\\'")}', '${mediaKind}', '${slot.id}')"><i class="bi bi-broadcast"></i> Go Live</button>`
         : '';
+    const stopAction = isOwner
+        ? `<button class="btn btn-sm btn-outline-danger" onclick="stopStreamOwner('${streamId.replace(/'/g, "\\'")}', '${slot.id}')"><i class="bi bi-stop-fill"></i> Stop stream</button>`
+        : '';
 
     slot.style.display = 'block';
     slot.innerHTML = `
@@ -9315,12 +9339,13 @@ function _buildStreamWorkspaceShell(streamId, slot, streamRow, context, sessionP
                             <div class="stream-meta-row mt-2">
                                 <span class="stream-meta-chip" data-state="${streamKind === 'telemetry' ? 'telemetry' : 'media'}">${streamKind === 'telemetry' ? 'Telemetry' : (mediaKind === 'video' ? 'Video' : 'Audio')}</span>
                                 <span class="stream-meta-chip">${_escapeHtml(scenario)}</span>
-                                <span class="stream-meta-chip" data-state="${status.toLowerCase()}">${status}</span>
+                                <span class="stream-meta-chip" data-stream-status-chip="1" data-state="${statusRaw}">${statusLabel}</span>
                             </div>
                         </div>
                         <div class="stream-inline-actions">
                             <button class="btn btn-sm btn-outline-success" onclick="openStreamAttachmentPlayer('${streamId.replace(/'/g, "\\'")}', '${mediaKind}', '${slot.id}', '${streamKind}')"><i class="bi bi-arrow-repeat"></i> Refresh</button>
                             ${goLiveAction}
+                            ${stopAction}
                             <button class="btn btn-sm btn-outline-secondary" onclick="navigator.clipboard.writeText('${streamId.replace(/'/g, "\\'")}')"><i class="bi bi-clipboard"></i> Copy ID</button>
                             ${playbackUrl ? `<a class="btn btn-sm btn-outline-secondary" href="${playbackUrl}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i> Raw URL</a>` : ''}
                         </div>
@@ -9339,6 +9364,48 @@ function _buildStreamWorkspaceShell(streamId, slot, streamRow, context, sessionP
         ownerSlot: document.getElementById(ids.owner),
         isOwner,
     };
+}
+
+function _syncStreamCardStatus(slot, streamRow, context) {
+    if (!slot || !streamRow) return;
+    const card = slot.closest('.stream-card');
+    if (!card) return;
+    const normalizedStatus = _normalizeStreamStatus((streamRow && streamRow.status) || '');
+    if (!normalizedStatus) return;
+    if (context && typeof context === 'object') {
+        context.status = normalizedStatus;
+    }
+    const statusLabel = _streamStatusLabel(normalizedStatus);
+    const cardChip = card.querySelector('[data-stream-status-chip="1"]');
+    if (cardChip) {
+        cardChip.setAttribute('data-state', normalizedStatus);
+        cardChip.textContent = statusLabel;
+    }
+    const workspaceChip = slot.querySelector('.stream-workspace-shell [data-stream-status-chip="1"]');
+    if (workspaceChip) {
+        workspaceChip.setAttribute('data-state', normalizedStatus);
+        workspaceChip.textContent = statusLabel;
+    }
+    const workspaceValue = slot.querySelector('[data-stream-status-value="1"]');
+    if (workspaceValue) {
+        workspaceValue.textContent = statusLabel;
+    }
+}
+
+async function _setStreamLifecycle(streamId, action, slotId) {
+    const res = await apiCall(`/ajax/streams/${encodeURIComponent(streamId)}/${action}`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+    });
+    if (!res || !res.success || !res.stream) {
+        throw new Error((res && (res.error || res.message)) || `Unable to ${action} stream`);
+    }
+    const slot = slotId ? document.getElementById(slotId) : null;
+    const context = slotId ? ((window._streamAttachmentContexts && window._streamAttachmentContexts[slotId]) || null) : null;
+    if (slot) {
+        _syncStreamCardStatus(slot, res.stream, context);
+    }
+    return res.stream;
 }
 
 // Lazily loads hls.js from CDN on first call; subsequent calls reuse the promise.
@@ -9372,6 +9439,7 @@ async function openStreamAttachmentPlayer(streamId, mediaKind, slotId, streamKin
             const detailRes = await apiCall(`/ajax/streams/${encodeURIComponent(streamId)}`, { method: 'GET' });
             if (detailRes && detailRes.success && detailRes.stream) {
                 streamRow = detailRes.stream;
+                _syncStreamCardStatus(slot, streamRow, context);
             }
         } catch (_) {}
 
@@ -9385,6 +9453,7 @@ async function openStreamAttachmentPlayer(streamId, mediaKind, slotId, streamKin
             throw new Error((res && (res.error || res.message)) || 'Unable to join stream');
         }
         streamRow = res.stream || streamRow || context;
+        _syncStreamCardStatus(slot, streamRow, context);
         let setupPayload = null;
         if (String((streamRow && streamRow.created_by) || context.created_by || '') === currentUserId) {
             try {
@@ -9498,6 +9567,18 @@ async function quickCreateLiveStream(mediaKind) {
 }
 
 const _activeBroadcasters = {};
+const _previewBroadcasters = {};
+
+function _stopPreviewStream(streamId) {
+    const previewState = _previewBroadcasters[streamId];
+    if (!previewState) return;
+    try { previewState.stream.getTracks().forEach((t) => t.stop()); } catch (_) {}
+    const previewEl = document.getElementById(`bc-preview-${streamId}`);
+    if (previewEl && previewEl.srcObject === previewState.stream) {
+        previewEl.srcObject = null;
+    }
+    delete _previewBroadcasters[streamId];
+}
 
 async function openBroadcasterPanel(streamId, mediaKind, slotId) {
     const slot = document.getElementById(slotId);
@@ -9508,20 +9589,21 @@ async function openBroadcasterPanel(streamId, mediaKind, slotId) {
     // If already open, toggle it closed
     if (target.dataset.bcOpen === '1') {
         target.dataset.bcOpen = '0';
+        _stopPreviewStream(streamId);
         if (!workspaceOwnerSlot) {
             slot.style.display = 'none';
             slot.innerHTML = '';
         } else {
             target.innerHTML = '';
         }
-        _stopLiveBroadcast(streamId);
         return;
     }
 
     // Enumerate devices
     let videoDevices = [], audioDevices = [];
     try {
-        await navigator.mediaDevices.getUserMedia({ video: mediaKind === 'video', audio: true });
+        const permissionStream = await navigator.mediaDevices.getUserMedia({ video: mediaKind === 'video', audio: true });
+        try { permissionStream.getTracks().forEach((t) => t.stop()); } catch (_) {}
         const devices = await navigator.mediaDevices.enumerateDevices();
         videoDevices = devices.filter(d => d.kind === 'videoinput');
         audioDevices = devices.filter(d => d.kind === 'audioinput');
@@ -9549,8 +9631,11 @@ async function openBroadcasterPanel(streamId, mediaKind, slotId) {
             </div>
             ${mediaKind === 'video' ? `<video id="bc-preview-${streamId}" autoplay muted playsinline class="w-100 mb-2" style="max-height:160px;border-radius:6px;background:#000;"></video>` : ''}
             <div class="d-flex gap-2 align-items-center">
-                <button id="bc-btn-${streamId}" class="btn btn-sm btn-success" onclick="_toggleBroadcast('${streamId}', '${mediaKind}')">
+                <button id="bc-btn-${streamId}" class="btn btn-sm btn-success" onclick="_toggleBroadcast('${streamId}', '${mediaKind}', '${slotId}')">
                     <i class="bi bi-broadcast"></i> Start Broadcasting
+                </button>
+                <button class="btn btn-sm btn-outline-danger" onclick="stopStreamOwner('${streamId}', '${slotId}')">
+                    <i class="bi bi-stop-fill"></i> Stop stream
                 </button>
                 <span id="bc-status-${streamId}" class="small text-muted"></span>
             </div>
@@ -9568,20 +9653,26 @@ async function openBroadcasterPanel(streamId, mediaKind, slotId) {
             });
             const preview = document.getElementById(`bc-preview-${streamId}`);
             if (preview) preview.srcObject = stream;
+            _previewBroadcasters[streamId] = { stream };
             document.getElementById(`bc-cam-${streamId}`)?.addEventListener('change', async (e) => {
-                stream.getTracks().forEach(t => t.stop());
+                _stopPreviewStream(streamId);
                 const ns = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: e.target.value } }, audio: false });
                 if (preview) preview.srcObject = ns;
+                _previewBroadcasters[streamId] = { stream: ns };
             });
         } catch (_) {}
     }
 }
 
-async function _toggleBroadcast(streamId, mediaKind) {
-    if (_activeBroadcasters[streamId]) { _stopLiveBroadcast(streamId); } else { await _startLiveBroadcast(streamId, mediaKind); }
+async function _toggleBroadcast(streamId, mediaKind, slotId) {
+    if (_activeBroadcasters[streamId]) {
+        await _stopLiveBroadcast(streamId, slotId);
+    } else {
+        await _startLiveBroadcast(streamId, mediaKind, slotId);
+    }
 }
 
-async function _startLiveBroadcast(streamId, mode) {
+async function _startLiveBroadcast(streamId, mode, slotId = null) {
     const btn = document.getElementById(`bc-btn-${streamId}`);
     const statusEl = document.getElementById(`bc-status-${streamId}`);
     if (btn) { btn.disabled = true; btn.textContent = 'Starting…'; }
@@ -9621,6 +9712,21 @@ async function _startLiveBroadcast(streamId, mode) {
     const rec = new MediaRecorder(mediaStream, { mimeType, videoBitsPerSecond: 1_500_000 });
     let segIdx = 0, initSent = false, segNames = [], seqStart = 0;
 
+    _stopPreviewStream(streamId);
+    const previewEl = document.getElementById(`bc-preview-${streamId}`);
+    if (previewEl && mode === 'video') {
+        previewEl.srcObject = mediaStream;
+    }
+
+    try {
+        await _setStreamLifecycle(streamId, 'start', slotId);
+    } catch (e) {
+        try { mediaStream.getTracks().forEach(t => t.stop()); } catch (_) {}
+        if (statusEl) statusEl.textContent = 'Start failed: ' + e.message;
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-broadcast"></i> Start Broadcasting'; }
+        return;
+    }
+
     _activeBroadcasters[streamId] = { rec, mediaStream, tok };
 
     rec.ondataavailable = async (e) => {
@@ -9644,14 +9750,40 @@ async function _startLiveBroadcast(streamId, mode) {
     if (statusEl) statusEl.textContent = '● Live';
 }
 
-function _stopLiveBroadcast(streamId) {
+async function _stopLiveBroadcast(streamId, slotId = null) {
     const bc = _activeBroadcasters[streamId]; if (!bc) return;
     try { bc.rec.stop(); } catch (_) {}
     try { bc.mediaStream.getTracks().forEach(t => t.stop()); } catch (_) {}
     delete _activeBroadcasters[streamId];
+    _stopPreviewStream(streamId);
     const btn = document.getElementById(`bc-btn-${streamId}`);
     if (btn) { btn.innerHTML = '<i class="bi bi-broadcast"></i> Start Broadcasting'; btn.classList.replace('btn-danger','btn-success'); }
-    const s = document.getElementById(`bc-status-${streamId}`); if (s) s.textContent = 'Stopped';
+    const s = document.getElementById(`bc-status-${streamId}`); if (s) s.textContent = 'Stopping…';
+    const previewEl = document.getElementById(`bc-preview-${streamId}`);
+    if (previewEl) previewEl.srcObject = null;
+    try {
+        await _setStreamLifecycle(streamId, 'stop', slotId);
+        if (s) s.textContent = 'Stopped';
+    } catch (e) {
+        if (s) s.textContent = 'Stop failed: ' + e.message;
+        showAlert(`Stop stream failed: ${e.message}`, 'danger');
+    }
+}
+
+async function stopStreamOwner(streamId, slotId) {
+    if (_activeBroadcasters[streamId]) {
+        await _stopLiveBroadcast(streamId, slotId);
+        return;
+    }
+    _stopPreviewStream(streamId);
+    const previewEl = document.getElementById(`bc-preview-${streamId}`);
+    if (previewEl) previewEl.srcObject = null;
+    try {
+        await _setStreamLifecycle(streamId, 'stop', slotId);
+        showAlert('Stream stopped', 'success');
+    } catch (e) {
+        showAlert(`Stop stream failed: ${e.message}`, 'danger');
+    }
 }
 
 async function _pushBcSeg(sid, tok, name, buf) {

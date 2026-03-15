@@ -217,13 +217,32 @@ class TestStreamManager(unittest.TestCase):
         self.assertIsNone(refresh_error)
         self.assertIsNotNone(refreshed)
         self.assertNotEqual(refreshed['token'], view_payload['token'])
-
         _, old_error = self.manager.validate_token(
             stream_id=stream_id,
             token=view_payload['token'],
             scope='view',
         )
         self.assertEqual(old_error, 'revoked_token')
+
+    def test_status_changes_sync_stream_attachment_status_hook(self) -> None:
+        stream_row, error = self.manager.create_stream(
+            channel_id='Cmain',
+            created_by='u-member',
+            title='Lifecycle sync test',
+        )
+        self.assertIsNone(error)
+        stream_id = (stream_row or {}).get('id')
+        self.assertTrue(stream_id)
+
+        started, start_error = self.manager.start_stream(stream_id, 'u-member')
+        self.assertIsNone(start_error)
+        self.assertEqual((started or {}).get('status'), 'live')
+        self.manager.channel_manager.update_stream_attachment_status.assert_called_with(stream_id, 'live')
+
+        stopped, stop_error = self.manager.stop_stream(stream_id, 'u-member')
+        self.assertIsNone(stop_error)
+        self.assertEqual((stopped or {}).get('status'), 'stopped')
+        self.manager.channel_manager.update_stream_attachment_status.assert_called_with(stream_id, 'stopped')
 
     def test_manifest_rewrite_and_segment_guards(self) -> None:
         stream_row, error = self.manager.create_stream(

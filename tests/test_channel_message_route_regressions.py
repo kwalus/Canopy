@@ -7,6 +7,7 @@ import sys
 import tempfile
 import types
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -218,6 +219,63 @@ class TestChannelMessageRouteRegressions(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.get_json() or {}
         self.assertEqual(payload.get('workspace_event_cursor'), 5)
+
+    def test_channel_messages_snapshot_refreshes_remote_stream_attachment_status(self) -> None:
+        message = MagicMock()
+        message.id = 'M-stream'
+        message.channel_id = 'general'
+        message.user_id = 'owner'
+        message.content = 'Remote stream card'
+        message.created_at = datetime.now(timezone.utc)
+        message.expires_at = None
+        message.to_dict.return_value = {
+            'id': 'M-stream',
+            'channel_id': 'general',
+            'user_id': 'owner',
+            'content': 'Remote stream card',
+            'type': 'file',
+            'created_at': message.created_at.isoformat(),
+            'attachments': [
+                {
+                    'kind': 'stream',
+                    'type': 'application/vnd.canopy.stream+json',
+                    'stream_id': 'ST-remote',
+                    'status': 'created',
+                    'title': 'Remote watch',
+                }
+            ],
+            'security': {},
+            'reactions': {},
+        }
+        self.channel_manager.get_channel_messages.return_value = [message]
+        self.client.application.config['STREAM_MANAGER'] = MagicMock()
+        self.client.application.config['STREAM_MANAGER'].get_stream_for_user.return_value = None
+        route_components = (
+            self.db_manager,
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            self.channel_manager,
+            self.file_manager,
+            MagicMock(),
+            None,
+            None,
+            MagicMock(),
+            self.p2p_manager,
+        )
+
+        with patch('canopy.ui.routes._get_app_components_any', return_value=route_components), \
+             patch('canopy.ui.routes._resolve_p2p_stream', return_value={'remote_base': 'http://peer.test'}), \
+             patch('canopy.ui.routes._probe_remote_stream_manifest_live', return_value=True):
+            response = self.client.get('/ajax/channel_messages/general')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        messages = payload.get('messages') or []
+        self.assertEqual(len(messages), 1)
+        attachments = messages[0].get('attachments') or []
+        self.assertEqual(len(attachments), 1)
+        self.assertEqual(attachments[0].get('status'), 'live')
 
     def test_create_community_note_on_channel_message_emits_metadata_event(self) -> None:
         response = self.client.post(

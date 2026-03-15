@@ -525,7 +525,13 @@ class StreamManager:
             out = conn.execute("SELECT * FROM streams WHERE id = ?", (sid,)).fetchone()
             if not out:
                 return None, "update_failed"
-            return self._row_to_stream(out).to_dict(), None
+            stream_payload = self._row_to_stream(out).to_dict()
+        try:
+            if hasattr(self.channel_manager, "update_stream_attachment_status"):
+                self.channel_manager.update_stream_attachment_status(sid, next_status)
+        except Exception as sync_err:
+            logger.warning(f"Failed to sync stream attachment status for {sid}: {sync_err}")
+        return stream_payload, None
 
     def start_stream(self, stream_id: str, user_id: str) -> tuple[Optional[dict[str, Any]], Optional[str]]:
         return self._set_status(stream_id, user_id, "live")

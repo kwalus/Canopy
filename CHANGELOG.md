@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.87] - 2026-03-15
+
+### Fixed
+- **Cross-peer stream card truth and camera teardown** - Channel message snapshots now reconcile stream-card statuses against current local or remote stream state so remote viewers stop seeing stale `Preparing` badges after a stream is live, stream lifecycle changes sync the stored stream attachment metadata for local invalidation, and the browser broadcaster now tears down temporary device-enumeration and preview capture streams so stopping or closing the panel actually releases the camera.
+
+## [0.4.86] - 2026-03-15
+
+### Fixed
+- **Truthful stream lifecycle controls** - `start_now` stream cards are now posted after the stream actually transitions live, browser broadcaster start/stop actions update the real stream lifecycle endpoints, and owner-facing stream cards/workspaces expose a proper stop action with status chips that reconcile against the current stream row instead of stale attachment metadata.
+
 ## [0.4.85] - 2026-03-15
 
 ### Fixed

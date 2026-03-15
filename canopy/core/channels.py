@@ -3781,6 +3781,73 @@ class ChannelManager:
             logger.error(f"Failed to update channel message: {e}", exc_info=True)
             return False
 
+    def update_stream_attachment_status(self, stream_id: str, status: str) -> int:
+        """Update posted stream-card attachment statuses for a stream lifecycle change."""
+        sid = str(stream_id or '').strip()
+        next_status = str(status or '').strip().lower()
+        if not sid or next_status not in {'created', 'live', 'stopped'}:
+            return 0
+        changed_rows: List[Dict[str, str]] = []
+        try:
+            with self.db.get_connection() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT id, channel_id, user_id, content, attachments
+                    FROM channel_messages
+                    WHERE attachments IS NOT NULL AND attachments != '[]'
+                    """
+                ).fetchall()
+                for row in rows:
+                    try:
+                        attachments = json.loads(row['attachments'] or '[]')
+                    except Exception:
+                        continue
+                    if not isinstance(attachments, list):
+                        continue
+                    touched = False
+                    updated_attachments: List[Dict[str, Any]] = []
+                    for attachment in attachments:
+                        att = Message.normalize_attachment(attachment)
+                        if not att:
+                            continue
+                        if str(att.get('stream_id') or '').strip() == sid:
+                            if str(att.get('status') or '').strip().lower() != next_status:
+                                att['status'] = next_status
+                                touched = True
+                        updated_attachments.append(att)
+                    if not touched:
+                        continue
+                    conn.execute(
+                        "UPDATE channel_messages SET attachments = ? WHERE id = ?",
+                        (json.dumps(updated_attachments), row['id']),
+                    )
+                    changed_rows.append({
+                        'message_id': str(row['id'] or ''),
+                        'channel_id': str(row['channel_id'] or ''),
+                        'user_id': str(row['user_id'] or ''),
+                        'preview': (str(row['content'] or '').strip()[:160] or 'Attachment'),
+                    })
+                if changed_rows:
+                    conn.commit()
+            for row in changed_rows:
+                if row['channel_id']:
+                    self._emit_channel_user_event(
+                        channel_id=row['channel_id'],
+                        event_type=EVENT_CHANNEL_MESSAGE_EDITED,
+                        actor_user_id=row['user_id'],
+                        payload={
+                            'message_id': row['message_id'],
+                            'preview': row['preview'],
+                            'reason': 'stream_status_updated',
+                            'stream_status': next_status,
+                        },
+                        dedupe_suffix=f"stream_status_updated:{row['message_id']}:{next_status}",
+                    )
+            return len(changed_rows)
+        except Exception as e:
+            logger.error(f"Failed to update stream attachment status for {sid}: {e}", exc_info=True)
+            return 0
+
     def update_message_expiry(self, message_id: str, user_id: str,
                               expires_at: Optional[Any] = None,
                               ttl_seconds: Optional[int] = None,
