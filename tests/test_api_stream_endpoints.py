@@ -32,6 +32,7 @@ if 'zeroconf' not in sys.modules:
     sys.modules['zeroconf'] = zeroconf_stub
 
 from canopy.api.routes import create_api_blueprint
+from canopy.core.app import _api_limiter, _install_rate_limiting, _stream_playback_limiter
 from canopy.core.streams import StreamManager
 from canopy.security.api_keys import ApiKeyInfo, Permission
 
@@ -394,6 +395,66 @@ class TestApiStreamEndpoints(unittest.TestCase):
         payload = put_manifest.get_json() or {}
         self.assertEqual(payload.get('error'), 'empty_ingest_payload')
         self.assertEqual(payload.get('hint'), 'possible_empty_upload_or_proxy_buffering_issue')
+
+    def test_manifest_playback_uses_stream_read_rate_limit_not_generic_api_limit(self) -> None:
+        _api_limiter._buckets.clear()
+        _stream_playback_limiter._buckets.clear()
+        _install_rate_limiting(self.client.application)
+
+        create_resp = self.client.post(
+            '/api/v1/streams',
+            json={
+                'channel_id': 'C1',
+                'title': 'Playback limiter stream',
+                'media_kind': 'video',
+                'auto_post': False,
+            },
+            headers=self._headers('key-member'),
+        )
+        self.assertEqual(create_resp.status_code, 201)
+        stream_id = (create_resp.get_json() or {}).get('stream', {}).get('id')
+        self.assertTrue(stream_id)
+
+        ingest_token_resp = self.client.post(
+            f'/api/v1/streams/{stream_id}/tokens',
+            json={'scope': 'ingest', 'ttl_seconds': 600},
+            headers=self._headers('key-member'),
+        )
+        self.assertEqual(ingest_token_resp.status_code, 200)
+        ingest_token = (ingest_token_resp.get_json() or {}).get('token')
+        self.assertTrue(ingest_token)
+
+        put_manifest = self.client.put(
+            f'/api/v1/streams/{stream_id}/ingest/manifest?token={ingest_token}',
+            data=b'#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:2.0,\nseg000001.ts\n',
+            headers={'Content-Type': 'application/vnd.apple.mpegurl'},
+        )
+        self.assertEqual(put_manifest.status_code, 200)
+
+        put_segment = self.client.put(
+            f'/api/v1/streams/{stream_id}/ingest/segments/seg000001.ts?token={ingest_token}',
+            data=b'\x01\x02\x03',
+            headers={'Content-Type': 'video/mp2t'},
+        )
+        self.assertEqual(put_segment.status_code, 200)
+
+        join_resp = self.client.post(
+            f'/api/v1/streams/{stream_id}/join',
+            json={'ttl_seconds': 600},
+            headers=self._headers('key-member'),
+        )
+        self.assertEqual(join_resp.status_code, 200)
+        playback_token = (join_resp.get_json() or {}).get('token')
+        self.assertTrue(playback_token)
+
+        statuses = []
+        for _ in range(25):
+            manifest_resp = self.client.get(
+                f'/api/v1/streams/{stream_id}/manifest.m3u8?token={playback_token}',
+            )
+            statuses.append(manifest_resp.status_code)
+        self.assertNotIn(429, statuses)
+        self.assertTrue(all(code == 200 for code in statuses))
 
     def test_telemetry_stream_event_ingest_and_read(self) -> None:
         create_resp = self.client.post(

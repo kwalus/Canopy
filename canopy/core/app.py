@@ -6536,6 +6536,27 @@ _register_limiter = _RateLimiter(rate=0.1, capacity=3)   # Very strict: 1 per 10
 _login_limiter = _RateLimiter(rate=0.2, capacity=5)      # Login: ~1 per 5s, burst 5 (per IP)
 _ui_ajax_limiter = _RateLimiter(rate=10, capacity=30)    # UI AJAX: 10 req/s burst 30 (per IP/session)
 _p2p_limiter = _RateLimiter(rate=20, capacity=60)        # Stricter P2P: 20 req/s burst 60
+_stream_playback_limiter = _RateLimiter(rate=60, capacity=240)  # Playback/telemetry reads need a much higher ceiling than generic API calls
+
+
+def _is_stream_playback_path(path: str) -> bool:
+    """Return True when the request path is a tokenized stream playback/proxy read."""
+    normalized = str(path or "").strip()
+    if not normalized:
+        return False
+    stream_prefixes = (
+        '/api/v1/streams/',
+        '/api/streams/',
+        '/api/v1/stream-proxy/',
+        '/api/stream-proxy/',
+    )
+    if not normalized.startswith(stream_prefixes):
+        return False
+    return (
+        normalized.endswith('/manifest.m3u8')
+        or '/segments/' in normalized
+        or normalized.endswith('/events')
+    )
 
 
 def _install_rate_limiting(app: Flask) -> None:
@@ -6561,6 +6582,8 @@ def _install_rate_limiting(app: Flask) -> None:
         elif '/files/upload' in path:
             key = _req.headers.get('X-API-Key', key)
             limiter = _upload_limiter
+        elif _is_stream_playback_path(path):
+            limiter = _stream_playback_limiter
         elif path.startswith('/api/'):
             key = _req.headers.get('X-API-Key', key)
             limiter = _api_limiter
@@ -6585,6 +6608,7 @@ def _install_rate_limiting(app: Flask) -> None:
             _login_limiter.prune()
             _ui_ajax_limiter.prune()
             _p2p_limiter.prune()
+            _stream_playback_limiter.prune()
         return response
 
 

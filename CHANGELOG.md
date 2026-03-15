@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.85] - 2026-03-15
+
+### Fixed
+- **Streaming playback rate-limit carve-out** - HLS manifests, stream segments, telemetry event playback, and local stream-proxy reads now use a dedicated high-ceiling playback limiter instead of the generic `/api/` throttle, preventing valid live stream sessions from immediately failing with `429` responses under normal player polling.
+
 ## [0.4.84] - 2026-03-15
 
 ### Added
