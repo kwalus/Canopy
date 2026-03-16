@@ -3577,6 +3577,84 @@ class ChannelManager:
             logger.error(f"Failed to load curated posters for {channel_id}: {e}", exc_info=True)
             return []
 
+    def get_channel_posting_snapshot(self, channel_id: str) -> Dict[str, Any]:
+        """Return the channel posting-policy snapshot for sync/broadcast use."""
+        if not channel_id:
+            return {
+                'post_policy': self.POST_POLICY_OPEN,
+                'allow_member_replies': True,
+                'allowed_poster_user_ids': [],
+            }
+        try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    """
+                    SELECT COALESCE(post_policy, ?) AS post_policy,
+                           COALESCE(allow_member_replies, 1) AS allow_member_replies
+                    FROM channels
+                    WHERE id = ?
+                    """,
+                    (self.POST_POLICY_OPEN, channel_id),
+                ).fetchone()
+                allowed_rows = conn.execute(
+                    """
+                    SELECT user_id
+                    FROM channel_post_permissions
+                    WHERE channel_id = ?
+                    ORDER BY granted_at ASC, user_id ASC
+                    """,
+                    (channel_id,),
+                ).fetchall()
+            return {
+                'post_policy': self._normalize_post_policy(
+                    row['post_policy'] if row else self.POST_POLICY_OPEN,
+                    default=self.POST_POLICY_OPEN,
+                ),
+                'allow_member_replies': bool(
+                    row['allow_member_replies'] if row else True
+                ),
+                'allowed_poster_user_ids': [
+                    str(allowed_row['user_id'])
+                    for allowed_row in allowed_rows
+                    if allowed_row and allowed_row['user_id']
+                ],
+            }
+        except Exception as e:
+            logger.error(
+                "Failed to load channel posting snapshot for %s: %s",
+                channel_id,
+                e,
+                exc_info=True,
+            )
+            return {
+                'post_policy': self.POST_POLICY_OPEN,
+                'allow_member_replies': True,
+                'allowed_poster_user_ids': [],
+            }
+
+    def can_accept_incoming_message(
+        self,
+        channel_id: str,
+        user_id: str,
+        *,
+        parent_message_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Return the inbound curated-policy decision for a synced channel message."""
+        clean_channel_id = str(channel_id or '').strip()
+        if clean_channel_id == 'general':
+            return {
+                'allowed': True,
+                'reason': 'general_channel_exempt',
+                'post_scope': 'reply' if parent_message_id else 'top_level',
+                'post_policy': self.POST_POLICY_OPEN,
+                'allow_member_replies': True,
+            }
+        return self.can_user_post_message(
+            clean_channel_id,
+            user_id,
+            parent_message_id=parent_message_id,
+        )
+
     def can_user_post_message(
         self,
         channel_id: str,
@@ -3867,16 +3945,6 @@ class ChannelManager:
                     (channel_id,),
                 )
                 for allowed_user_id in allowed_ids:
-                    member_row = conn.execute(
-                        """
-                        SELECT 1
-                        FROM channel_members
-                        WHERE channel_id = ? AND user_id = ?
-                        """,
-                        (channel_id, allowed_user_id),
-                    ).fetchone()
-                    if not member_row:
-                        continue
                     user_row = conn.execute(
                         "SELECT 1 FROM users WHERE id = ?",
                         (allowed_user_id,),

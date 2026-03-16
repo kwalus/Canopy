@@ -47,6 +47,7 @@ class _FakeDbManager:
                 ('owner-user', 'owner', 'pk-owner', 'hash-owner', None),
                 ('member-user', 'member', 'pk-member', 'hash-member', None),
                 ('reader-user', 'reader', 'pk-reader', 'hash-reader', None),
+                ('remote-user', 'remote', 'pk-remote', None, 'peer-remote'),
             ],
         )
         self.conn.commit()
@@ -172,6 +173,89 @@ class TestChannelPostPolicy(unittest.TestCase):
         self.assertTrue(reader_state['can_reply'])
         self.assertFalse(reader_state['can_post_top_level'])
         self.assertEqual(self.channel_manager.get_channel_allowed_poster_ids(channel.id), ['member-user'])
+
+    def test_sync_allowlist_persists_known_remote_users_before_membership_exists(self) -> None:
+        channel = self.channel_manager.create_channel(
+            name='sync-allowlist-remote',
+            channel_type=ChannelType.PUBLIC,
+            created_by='owner-user',
+            description='remote poster sync',
+            privacy_mode='open',
+            origin_peer='peer-local',
+        )
+        self.assertIsNotNone(channel)
+
+        synced = self.channel_manager.sync_channel_post_permissions(
+            channel.id,
+            post_policy='curated',
+            allow_member_replies=True,
+            allowed_poster_user_ids=['remote-user'],
+        )
+        self.assertTrue(synced)
+        self.assertEqual(
+            self.channel_manager.get_channel_allowed_poster_ids(channel.id),
+            ['remote-user'],
+        )
+
+        self.assertTrue(
+            self.channel_manager.add_member(channel.id, 'remote-user', 'owner-user', 'member')
+        )
+        remote_state = self.channel_manager.can_user_post_message(channel.id, 'remote-user')
+        self.assertTrue(remote_state['allowed'])
+
+    def test_incoming_curated_decision_blocks_top_level_but_keeps_reply_open(self) -> None:
+        channel = self.channel_manager.create_channel(
+            name='incoming-curated',
+            channel_type=ChannelType.PUBLIC,
+            created_by='owner-user',
+            description='incoming enforcement',
+            privacy_mode='open',
+            post_policy='curated',
+            allow_member_replies=True,
+        )
+        self.assertIsNotNone(channel)
+        self.assertTrue(self.channel_manager.add_member(channel.id, 'member-user', 'owner-user', 'member'))
+
+        top_level = self.channel_manager.can_accept_incoming_message(channel.id, 'member-user')
+        reply = self.channel_manager.can_accept_incoming_message(
+            channel.id,
+            'member-user',
+            parent_message_id='M1',
+        )
+        general = self.channel_manager.can_accept_incoming_message('general', 'member-user')
+
+        self.assertFalse(top_level['allowed'])
+        self.assertEqual(top_level['reason'], 'top_level_post_restricted')
+        self.assertTrue(reply['allowed'])
+        self.assertEqual(reply['reason'], 'ok')
+        self.assertTrue(general['allowed'])
+        self.assertEqual(general['reason'], 'general_channel_exempt')
+
+    def test_channel_posting_snapshot_returns_curated_metadata(self) -> None:
+        channel = self.channel_manager.create_channel(
+            name='snapshot-curated',
+            channel_type=ChannelType.PUBLIC,
+            created_by='owner-user',
+            description='snapshot metadata',
+            privacy_mode='open',
+            post_policy='curated',
+            allow_member_replies=False,
+        )
+        self.assertIsNotNone(channel)
+        self.assertTrue(self.channel_manager.add_member(channel.id, 'member-user', 'owner-user', 'member'))
+        self.channel_manager.grant_channel_post_permission(
+            channel.id,
+            'member-user',
+            'owner-user',
+            allow_admin=False,
+            local_peer_id=None,
+        )
+
+        snapshot = self.channel_manager.get_channel_posting_snapshot(channel.id)
+
+        self.assertEqual(snapshot['post_policy'], 'curated')
+        self.assertFalse(snapshot['allow_member_replies'])
+        self.assertEqual(snapshot['allowed_poster_user_ids'], ['member-user'])
 
 
 if __name__ == '__main__':

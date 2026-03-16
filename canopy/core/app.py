@@ -1332,6 +1332,9 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                      update_only: bool = False,
                                      origin_peer: Optional[str] = None,
                                      parent_message_id: Optional[str] = None,
+                                     post_policy: Optional[str] = None,
+                                     allow_member_replies: Optional[bool] = None,
+                                     allowed_poster_user_ids: Optional[list[Any]] = None,
                                      edited_at: Optional[str] = None,
                                      encrypted_content: Optional[str] = None,
                                      crypto_state: Optional[str] = None,
@@ -1357,6 +1360,17 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
                 # --- Persistent dedup check ---
                 if message_id and channel_manager.is_message_processed(message_id) and not update_only:
+                    if (
+                        post_policy is not None
+                        or allow_member_replies is not None
+                        or allowed_poster_user_ids is not None
+                    ):
+                        channel_manager.sync_channel_post_permissions(
+                            channel_id,
+                            post_policy=post_policy,
+                            allow_member_replies=allow_member_replies,
+                            allowed_poster_user_ids=cast(Optional[list[str]], allowed_poster_user_ids),
+                        )
                     logger.debug(f"Skipping duplicate P2P message {message_id}")
                     # Even for already-stored messages, re-derive inbox items for
                     # local agent users that were mentioned but whose inbox item
@@ -1494,6 +1508,38 @@ def create_app(config: Optional[Config] = None) -> Flask:
                             )
 
                     conn.commit()
+
+                incoming_policy_snapshot = (
+                    post_policy is not None
+                    or allow_member_replies is not None
+                    or allowed_poster_user_ids is not None
+                )
+                if incoming_policy_snapshot:
+                    channel_manager.sync_channel_post_permissions(
+                        channel_id,
+                        post_policy=post_policy,
+                        allow_member_replies=allow_member_replies,
+                        allowed_poster_user_ids=cast(Optional[list[str]], allowed_poster_user_ids),
+                    )
+
+                if not (update_only and existing_msg):
+                    inbound_post_decision = channel_manager.can_accept_incoming_message(
+                        channel_id,
+                        user_id,
+                        parent_message_id=parent_message_id,
+                    )
+                    if not inbound_post_decision.get('allowed'):
+                        if message_id:
+                            channel_manager.mark_message_processed(message_id)
+                        logger.warning(
+                            "Rejected inbound P2P channel message %s for channel=%s user=%s reason=%s scope=%s",
+                            message_id or '<no-id>',
+                            channel_id,
+                            user_id,
+                            inbound_post_decision.get('reason') or 'post_restricted',
+                            inbound_post_decision.get('post_scope') or ('reply' if parent_message_id else 'top_level'),
+                        )
+                        return
 
                 # --- Process file attachments from P2P ---
                 import base64 as _b64

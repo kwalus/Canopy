@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.92] - 2026-03-16
+
+### Added
+- **Inbound P2P curated enforcement** - Receiving peers now check curated posting policy before inserting synced channel messages. Unauthorized top-level posts in curated channels are rejected on receive; replies remain open when configured. Rejected message IDs are marked as processed to prevent re-loop via catch-up/replay.
+- **Opportunistic curated metadata convergence** - Normal channel message broadcasts now piggyback `post_policy`, `allow_member_replies`, and `allowed_poster_user_ids` in their metadata, so receiving peers converge on curated state even when they miss a dedicated channel announce.
+- **Duplicate message policy healing** - Even already-processed duplicate messages now apply their curated metadata snapshot, so replayed traffic can heal stale posting policy on receiving peers.
+- **Relaxed allowlist sync** - `sync_channel_post_permissions` no longer requires pre-existing channel membership to persist allowlist entries; it only requires the referenced user to exist in `users`, matching the actual FK schema.
+
+### Fixed
+- **Channel adoption INSERT column count** - The `merge_or_adopt_channel` adoption path now includes `post_policy` and `allow_member_replies` in its INSERT, fixing a column/value count mismatch that caused adoption failures.
+
 ## [0.4.91] - 2026-03-16
 
 ### Added
