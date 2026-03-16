@@ -244,6 +244,7 @@ class DatabaseManager:
                 CREATE TABLE IF NOT EXISTS user_feed_preferences (
                     user_id TEXT PRIMARY KEY,
                     algorithm_json TEXT NOT NULL DEFAULT '{}',
+                    last_viewed_at TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (user_id) REFERENCES users (id)
                 );
@@ -263,7 +264,10 @@ class DatabaseManager:
                     status TEXT DEFAULT 'pending',
                     priority TEXT DEFAULT 'normal',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    seen_at TIMESTAMP,
                     handled_at TIMESTAMP,
+                    completed_at TIMESTAMP,
+                    completion_ref_json TEXT,
                     expires_at TIMESTAMP,
                     triggered_by_inbox_id TEXT,
                     depth INTEGER DEFAULT 0,
@@ -323,6 +327,35 @@ class DatabaseManager:
                 );
                     CREATE INDEX IF NOT EXISTS idx_agent_presence_checkin
                     ON agent_presence(last_checkin_at);
+
+                CREATE TABLE IF NOT EXISTS agent_runtime_state (
+                    user_id TEXT PRIMARY KEY,
+                    last_event_fetch_at TIMESTAMP,
+                    last_event_cursor_seen INTEGER,
+                    last_inbox_fetch_at TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_agent_runtime_event_fetch
+                    ON agent_runtime_state(last_event_fetch_at);
+                CREATE INDEX IF NOT EXISTS idx_agent_runtime_inbox_fetch
+                    ON agent_runtime_state(last_inbox_fetch_at);
+
+                CREATE TABLE IF NOT EXISTS agent_event_subscription_state (
+                    user_id TEXT PRIMARY KEY,
+                    custom_enabled INTEGER NOT NULL DEFAULT 0,
+                    updated_at TIMESTAMP NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_agent_event_subscription_state_enabled
+                    ON agent_event_subscription_state(custom_enabled, updated_at);
+
+                CREATE TABLE IF NOT EXISTS agent_event_subscriptions (
+                    user_id TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    updated_at TIMESTAMP NOT NULL,
+                    PRIMARY KEY (user_id, event_type)
+                );
+                CREATE INDEX IF NOT EXISTS idx_agent_event_subscriptions_user
+                    ON agent_event_subscriptions(user_id, updated_at);
 
                 -- Local workspace event journal (additive read/delivery model)
                 CREATE TABLE IF NOT EXISTS workspace_events (
@@ -631,6 +664,13 @@ class DatabaseManager:
             if 'status' in feed_columns:
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_feed_posts_status ON feed_posts(status)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_post_permissions_user ON post_permissions(user_id)")
+
+            cursor = conn.execute("PRAGMA table_info(user_feed_preferences)")
+            user_feed_pref_columns = [row[1] for row in cursor.fetchall()]
+            if 'last_viewed_at' not in user_feed_pref_columns:
+                logger.info("Migration: Adding last_viewed_at column to user_feed_preferences")
+                conn.execute("ALTER TABLE user_feed_preferences ADD COLUMN last_viewed_at TIMESTAMP")
+
             # channel_messages is created by ChannelManager — only add index if table exists
             cm_exists = conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='channel_messages'"
@@ -703,6 +743,79 @@ class DatabaseManager:
                     CREATE INDEX IF NOT EXISTS idx_agent_presence_checkin
                         ON agent_presence(last_checkin_at);
                 """)
+
+            ars_exists = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_runtime_state'"
+            ).fetchone()
+            if not ars_exists:
+                logger.info("Migration: Creating agent_runtime_state table")
+                conn.executescript("""
+                    CREATE TABLE IF NOT EXISTS agent_runtime_state (
+                        user_id TEXT PRIMARY KEY,
+                        last_event_fetch_at TIMESTAMP,
+                        last_event_cursor_seen INTEGER,
+                        last_inbox_fetch_at TIMESTAMP,
+                        updated_at TIMESTAMP NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_agent_runtime_event_fetch
+                        ON agent_runtime_state(last_event_fetch_at);
+                    CREATE INDEX IF NOT EXISTS idx_agent_runtime_inbox_fetch
+                        ON agent_runtime_state(last_inbox_fetch_at);
+                """)
+
+            aess_exists = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_event_subscription_state'"
+            ).fetchone()
+            if not aess_exists:
+                logger.info("Migration: Creating agent_event_subscription_state table")
+                conn.executescript("""
+                    CREATE TABLE IF NOT EXISTS agent_event_subscription_state (
+                        user_id TEXT PRIMARY KEY,
+                        custom_enabled INTEGER NOT NULL DEFAULT 0,
+                        updated_at TIMESTAMP NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_agent_event_subscription_state_enabled
+                        ON agent_event_subscription_state(custom_enabled, updated_at);
+                """)
+
+            aes_exists = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_event_subscriptions'"
+            ).fetchone()
+            if not aes_exists:
+                logger.info("Migration: Creating agent_event_subscriptions table")
+                conn.executescript("""
+                    CREATE TABLE IF NOT EXISTS agent_event_subscriptions (
+                        user_id TEXT NOT NULL,
+                        event_type TEXT NOT NULL,
+                        updated_at TIMESTAMP NOT NULL,
+                        PRIMARY KEY (user_id, event_type)
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_agent_event_subscriptions_user
+                        ON agent_event_subscriptions(user_id, updated_at);
+                """)
+
+            cursor = conn.execute("PRAGMA table_info(agent_inbox)")
+            inbox_columns = {row[1] for row in cursor.fetchall()}
+            if "seen_at" not in inbox_columns:
+                logger.info("Migration: Adding seen_at column to agent_inbox")
+                conn.execute("ALTER TABLE agent_inbox ADD COLUMN seen_at TIMESTAMP")
+            if "completed_at" not in inbox_columns:
+                logger.info("Migration: Adding completed_at column to agent_inbox")
+                conn.execute("ALTER TABLE agent_inbox ADD COLUMN completed_at TIMESTAMP")
+            if "completion_ref_json" not in inbox_columns:
+                logger.info("Migration: Adding completion_ref_json column to agent_inbox")
+                conn.execute("ALTER TABLE agent_inbox ADD COLUMN completion_ref_json TEXT")
+
+            logger.info("Migration: Normalizing legacy handled inbox rows")
+            conn.execute(
+                """
+                UPDATE agent_inbox
+                SET status = 'completed',
+                    seen_at = COALESCE(seen_at, handled_at, created_at),
+                    completed_at = COALESCE(completed_at, handled_at)
+                WHERE status = 'handled'
+                """
+            )
 
             # Migration: content_contexts table for best-effort extracted text context
             conn.executescript("""
@@ -1331,6 +1444,9 @@ class DatabaseManager:
                 _exec_optional("DELETE FROM channel_member_sync_deliveries WHERE target_user_id = ?", (user_id,))
                 _exec_optional("DELETE FROM likes WHERE user_id = ?", (user_id,))
                 _exec_optional("DELETE FROM agent_presence WHERE user_id = ?", (user_id,))
+                _exec_optional("DELETE FROM agent_runtime_state WHERE user_id = ?", (user_id,))
+                _exec_optional("DELETE FROM agent_event_subscription_state WHERE user_id = ?", (user_id,))
+                _exec_optional("DELETE FROM agent_event_subscriptions WHERE user_id = ?", (user_id,))
 
                 # Channel messages (table in channels.py, same DB): likes then parent refs then messages
                 try:

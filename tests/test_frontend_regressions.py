@@ -76,6 +76,21 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("if (currentChannelId && channelId === currentChannelId) {", channels_template)
         self.assertIn("requestChannelThreadRefresh();", channels_template)
 
+    def test_notification_bell_collapses_semantic_duplicates_and_routes_exact_messages(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        self.assertIn("const unreadSemanticKeys = new Set();", main_js)
+        self.assertIn("function activitySemanticKey(evt) {", main_js)
+        self.assertIn("function mergeActivityEvent(existingEvt, incomingEvt) {", main_js)
+        self.assertIn("window.location.href = `/channels/locate?message_id=${encodeURIComponent(ref.message_id)}`;", main_js)
+        self.assertIn("if (ref.message_id) url.hash = `message-${ref.message_id}`;", main_js)
+
+    def test_channel_focus_uses_context_window_and_container_scroll(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        self.assertIn("function clearInitialChannelFocusFromUrl()", channels_template)
+        self.assertIn("function scrollMessageIntoContainer(msgEl, options = {})", channels_template)
+        self.assertIn("query.set('focus_message', focusMessageId);", channels_template)
+        self.assertIn("selectChannel(focusChannelId, channelName, { focusMessageId: initialFocusMessageId || '', forceScroll: false });", channels_template)
+
     def test_stream_owner_controls_drive_real_lifecycle_endpoints(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         self.assertIn("function _setStreamLifecycle(streamId, action, slotId)", channels_template)
@@ -132,11 +147,22 @@ class TestFrontendRegressions(unittest.TestCase):
         # pollChannelSidebarEvents (all using getElementById) can find it.
         self.assertIn('id="channel-list"', channels_template)
 
+    def test_sidebar_navigation_renders_unread_badges_and_attention_refresh(self) -> None:
+        base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        self.assertIn('id="sidebar-nav-messages-badge"', base_template)
+        self.assertIn('id="sidebar-nav-channels-badge"', base_template)
+        self.assertIn('id="sidebar-nav-feed-badge"', base_template)
+        self.assertIn('attentionSummary:', base_template)
+        self.assertIn('sidebarAttentionSummary:', base_template)
+        self.assertIn('function setSidebarNavUnreadBadge(kind, count)', main_js)
+        self.assertIn('function requestCanopySidebarAttentionRefresh(options)', main_js)
+        self.assertIn('function startCanopySidebarAttentionPolling()', main_js)
+        self.assertIn("requestCanopySidebarAttentionRefresh({ force: false }).catch(() => {});", main_js)
+
     def test_dashboard_flash_messages_null_check(self) -> None:
         dashboard_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'dashboard.html').read_text(encoding='utf-8')
         # Must guard against missing .flash-messages before injecting new API key alert
         self.assertIn("if (flashContainer) flashContainer.innerHTML += keyAlert;", dashboard_template)
         self.assertNotIn("document.querySelector('.flash-messages').innerHTML += keyAlert;", dashboard_template)
-
-
 

@@ -295,6 +295,52 @@
             text-align: center;
         }
 
+        .sidebar .nav-link.nav-link-unread {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+        }
+
+        .sidebar .nav-link.nav-link-unread i {
+            margin-right: 0;
+            flex-shrink: 0;
+        }
+
+        .sidebar-nav-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 0;
+        }
+
+        .sidebar-nav-text {
+            min-width: 0;
+        }
+
+        .sidebar-nav-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 1.5rem;
+            height: 1.5rem;
+            padding: 0 0.45rem;
+            border-radius: 999px;
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: #fff;
+            font-size: 0.72rem;
+            font-weight: 700;
+            line-height: 1;
+            letter-spacing: 0.01em;
+            box-shadow: 0 8px 18px rgba(239, 68, 68, 0.28);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            flex-shrink: 0;
+        }
+
+        .sidebar-nav-badge[hidden] {
+            display: none !important;
+        }
+
         .sidebar-peers {
             margin: 8px 12px 8px;
             padding: 10px;
@@ -1157,15 +1203,29 @@
             position: relative;
         }
         
-        .sidebar.collapsed .nav-link span {
+        .sidebar.collapsed .nav-link .sidebar-nav-text {
             opacity: 0;
             visibility: hidden;
             transition: all 0.2s ease;
         }
         
         .sidebar.collapsed .nav-link i {
-            margin-right: 0;
             font-size: 1.2rem;
+        }
+
+        .sidebar.collapsed .nav-link.nav-link-unread {
+            justify-content: center;
+        }
+
+        .sidebar.collapsed .sidebar-nav-badge {
+            position: absolute;
+            top: 7px;
+            right: 7px;
+            min-width: 1.3rem;
+            height: 1.3rem;
+            padding: 0 0.3rem;
+            font-size: 0.68rem;
+            box-shadow: 0 6px 16px rgba(239, 68, 68, 0.25);
         }
         
         .sidebar.collapsed .sidebar-divider,
@@ -5281,17 +5341,41 @@
             <div class="sidebar-container expanded" id="sidebar-container">
                 <div class="sidebar" id="main-sidebar">
                     <nav class="nav flex-column py-3">
-                        <a class="nav-link {% if request.endpoint == 'ui.messages' %}active{% endif %}" 
+                        <a class="nav-link nav-link-unread {% if request.endpoint == 'ui.messages' %}active{% endif %}" 
                            href="{{ url_for('ui.messages') }}" data-title="Messages">
-                            <i class="bi bi-chat-left-text"></i> <span>Messages</span>
+                            <span class="sidebar-nav-label">
+                                <i class="bi bi-chat-left-text"></i>
+                                <span class="sidebar-nav-text">Messages</span>
+                            </span>
+                            <span class="sidebar-nav-badge"
+                                  id="sidebar-nav-messages-badge"
+                                  {% if not (sidebar_attention_summary is defined and sidebar_attention_summary.messages > 0) %}hidden{% endif %}>
+                                {{ sidebar_attention_summary.messages if sidebar_attention_summary is defined else 0 }}
+                            </span>
                         </a>
-                        <a class="nav-link {% if request.endpoint == 'ui.channels' %}active{% endif %}"
+                        <a class="nav-link nav-link-unread {% if request.endpoint == 'ui.channels' %}active{% endif %}"
                            href="{{ url_for('ui.channels') }}" data-title="Channels">
-                            <i class="bi bi-hash"></i> <span>Channels</span>
+                            <span class="sidebar-nav-label">
+                                <i class="bi bi-hash"></i>
+                                <span class="sidebar-nav-text">Channels</span>
+                            </span>
+                            <span class="sidebar-nav-badge"
+                                  id="sidebar-nav-channels-badge"
+                                  {% if not (sidebar_attention_summary is defined and sidebar_attention_summary.channels > 0) %}hidden{% endif %}>
+                                {{ sidebar_attention_summary.channels if sidebar_attention_summary is defined else 0 }}
+                            </span>
                         </a>
-                        <a class="nav-link {% if request.endpoint == 'ui.feed' %}active{% endif %}"
+                        <a class="nav-link nav-link-unread {% if request.endpoint == 'ui.feed' %}active{% endif %}"
                            href="{{ url_for('ui.feed') }}" data-title="Social Feed">
-                            <i class="bi bi-newspaper"></i> <span>Social Feed</span>
+                            <span class="sidebar-nav-label">
+                                <i class="bi bi-newspaper"></i>
+                                <span class="sidebar-nav-text">Social Feed</span>
+                            </span>
+                            <span class="sidebar-nav-badge"
+                                  id="sidebar-nav-feed-badge"
+                                  {% if not (sidebar_attention_summary is defined and sidebar_attention_summary.feed > 0) %}hidden{% endif %}>
+                                {{ sidebar_attention_summary.feed if sidebar_attention_summary is defined else 0 }}
+                            </span>
                         </a>
                         <a class="nav-link {% if request.endpoint == 'ui.tasks_page' %}active{% endif %}"
                            href="{{ url_for('ui.tasks_page') }}" data-title="Tasks">
@@ -5584,6 +5668,8 @@
             recentDmContacts: {{ sidebar_recent_dm_contacts|tojson if sidebar_recent_dm_contacts is defined else '[]' }},
             dmRev: {{ sidebar_dm_rev|tojson if sidebar_dm_rev is defined else '""' }},
             dmEventCursor: {{ sidebar_dm_event_cursor|tojson if sidebar_dm_event_cursor is defined else '0' }},
+            attentionSummary: {{ sidebar_attention_summary|tojson if sidebar_attention_summary is defined else {'messages': 0, 'channels': 0, 'feed': 0, 'total': 0}|tojson }},
+            attentionRev: {{ sidebar_attention_rev|tojson if sidebar_attention_rev is defined else '""' }},
             userId: {{ (user_id or 'local_user')|tojson }},
             profileTheme: {{ (profile.theme_preference if profile else 'dark')|tojson }},
             localUserId: {{ session.get('user_id')|tojson }},
@@ -5592,7 +5678,8 @@
             urls: {
                 feed: {{ url_for('ui.feed')|tojson }},
                 channels: {{ url_for('ui.channels')|tojson }},
-                messages: {{ url_for('ui.messages')|tojson }}
+                messages: {{ url_for('ui.messages')|tojson }},
+                sidebarAttentionSummary: {{ url_for('ui.ajax_sidebar_attention_summary')|tojson }}
             }
         };
     </script>

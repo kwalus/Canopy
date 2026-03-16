@@ -343,6 +343,8 @@
         const canopyInitialRecentDmContacts = window.CANOPY_VARS ? (window.CANOPY_VARS.recentDmContacts || []) : [];
         const canopyInitialDmRev = window.CANOPY_VARS ? (window.CANOPY_VARS.dmRev || '') : '';
         const canopyInitialDmEventCursor = window.CANOPY_VARS ? Number(window.CANOPY_VARS.dmEventCursor || 0) : 0;
+        const canopyInitialAttentionSummary = window.CANOPY_VARS ? (window.CANOPY_VARS.attentionSummary || { messages: 0, channels: 0, feed: 0, total: 0 }) : { messages: 0, channels: 0, feed: 0, total: 0 };
+        const canopyInitialAttentionRev = window.CANOPY_VARS ? (window.CANOPY_VARS.attentionRev || '') : '';
         const canopyLocalPeerId = window.CANOPY_VARS ? String(window.CANOPY_VARS.localPeerId || '').trim() : '';
         const SIDEBAR_VISIBLE_PEER_LIMIT = 12;
         window.canopyPeerProfiles = canopyPeerProfiles || {};
@@ -833,6 +835,9 @@
                 canopySidebarDmState.contacts = [];
             }
             canopyRenderSidebarDmContacts(canopySidebarDmState.contacts);
+            if (window.requestCanopySidebarAttentionRefresh) {
+                window.requestCanopySidebarAttentionRefresh({ force: true }).catch(() => {});
+            }
         };
 
         function requestCanopySidebarDmRefresh(options) {
@@ -946,6 +951,129 @@
         document.addEventListener('DOMContentLoaded', function() {
             canopyRenderSidebarDmContacts(canopySidebarDmState.contacts);
             startCanopySidebarDmPolling();
+        });
+
+        function formatSidebarUnreadCount(count) {
+            const normalized = Math.max(0, Number(count) || 0);
+            return normalized > 99 ? '99+' : String(normalized);
+        }
+
+        function setSidebarNavUnreadBadge(kind, count) {
+            const badge = document.getElementById(`sidebar-nav-${kind}-badge`);
+            if (!badge) return;
+            const normalized = Math.max(0, Number(count) || 0);
+            if (normalized <= 0) {
+                badge.hidden = true;
+                badge.textContent = '0';
+                badge.removeAttribute('aria-label');
+                return;
+            }
+            badge.hidden = false;
+            badge.textContent = formatSidebarUnreadCount(normalized);
+            badge.setAttribute('aria-label', `${normalized} unread ${kind}`);
+        }
+
+        function renderSidebarAttentionSummary(summary) {
+            const safeSummary = summary && typeof summary === 'object' ? summary : {};
+            setSidebarNavUnreadBadge('messages', safeSummary.messages || 0);
+            setSidebarNavUnreadBadge('channels', safeSummary.channels || 0);
+            setSidebarNavUnreadBadge('feed', safeSummary.feed || 0);
+        }
+
+        const canopySidebarAttentionState = {
+            currentRev: canopyInitialAttentionRev || '',
+            summary: {
+                messages: Math.max(0, Number(canopyInitialAttentionSummary.messages || 0)),
+                channels: Math.max(0, Number(canopyInitialAttentionSummary.channels || 0)),
+                feed: Math.max(0, Number(canopyInitialAttentionSummary.feed || 0)),
+                total: Math.max(0, Number(canopyInitialAttentionSummary.total || 0)),
+            },
+            inFlight: false,
+            queued: false,
+            pollHandle: null,
+        };
+
+        function requestCanopySidebarAttentionRefresh(options) {
+            const opts = options || {};
+            if (canopySidebarAttentionState.inFlight) {
+                canopySidebarAttentionState.queued = true;
+                return Promise.resolve({ queued: true });
+            }
+
+            canopySidebarAttentionState.inFlight = true;
+            const routes = (window.CANOPY_VARS && window.CANOPY_VARS.urls) || {};
+            const endpoint = routes.sidebarAttentionSummary || '/ajax/sidebar_attention_summary';
+            const query = new URLSearchParams();
+            if (!opts.force && canopySidebarAttentionState.currentRev) {
+                query.set('rev', String(canopySidebarAttentionState.currentRev || ''));
+            }
+
+            return fetch(`${endpoint}${query.toString() ? `?${query.toString()}` : ''}`, {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            })
+                .then((res) => {
+                    if (!res.ok) {
+                        throw new Error(`Sidebar attention summary failed (${res.status})`);
+                    }
+                    return res.json();
+                })
+                .then((data) => {
+                    if (!data || data.success === false) return data || null;
+                    if (data.rev) {
+                        canopySidebarAttentionState.currentRev = String(data.rev || '');
+                    }
+                    if (data.changed === false) {
+                        return data;
+                    }
+                    const summary = data.summary && typeof data.summary === 'object' ? data.summary : {};
+                    canopySidebarAttentionState.summary = {
+                        messages: Math.max(0, Number(summary.messages || 0)),
+                        channels: Math.max(0, Number(summary.channels || 0)),
+                        feed: Math.max(0, Number(summary.feed || 0)),
+                        total: Math.max(0, Number(summary.total || 0)),
+                    };
+                    renderSidebarAttentionSummary(canopySidebarAttentionState.summary);
+                    return data;
+                })
+                .catch(() => null)
+                .finally(() => {
+                    canopySidebarAttentionState.inFlight = false;
+                    if (canopySidebarAttentionState.queued) {
+                        canopySidebarAttentionState.queued = false;
+                        window.setTimeout(() => {
+                            requestCanopySidebarAttentionRefresh({ force: false }).catch(() => {});
+                        }, 0);
+                    }
+                });
+        }
+
+        function startCanopySidebarAttentionPolling() {
+            const hasAnyBadge = document.getElementById('sidebar-nav-messages-badge')
+                || document.getElementById('sidebar-nav-channels-badge')
+                || document.getElementById('sidebar-nav-feed-badge');
+            if (!hasAnyBadge) return;
+            renderSidebarAttentionSummary(canopySidebarAttentionState.summary);
+            if (canopySidebarAttentionState.pollHandle) {
+                window.clearInterval(canopySidebarAttentionState.pollHandle);
+            }
+            requestCanopySidebarAttentionRefresh({ force: false }).catch(() => {});
+            canopySidebarAttentionState.pollHandle = window.setInterval(() => {
+                requestCanopySidebarAttentionRefresh({ force: false }).catch(() => {});
+            }, 12000);
+            document.addEventListener('visibilitychange', function() {
+                if (document.visibilityState === 'visible') {
+                    requestCanopySidebarAttentionRefresh({ force: false }).catch(() => {});
+                }
+            });
+            window.addEventListener('focus', function() {
+                requestCanopySidebarAttentionRefresh({ force: false }).catch(() => {});
+            });
+        }
+
+        window.requestCanopySidebarAttentionRefresh = requestCanopySidebarAttentionRefresh;
+
+        document.addEventListener('DOMContentLoaded', function() {
+            startCanopySidebarAttentionPolling();
         });
 
         window.renderAvatarStack = function(container, options) {
@@ -4241,7 +4369,7 @@
 	            let notificationCount = 0;
 	            let events = [];
 	            const seenEventIds = new Set();
-            const mentionRefs = new Set();
+            const unreadSemanticKeys = new Set();
 	            let initialized = false;
 	            const localUserId = (window.CANOPY_VARS && window.CANOPY_VARS.localUserId) || null;
 	            const routes = {
@@ -4369,6 +4497,47 @@
                 return null;
             }
 
+            function activitySemanticKey(evt) {
+                if (!evt) return null;
+                const ref = evt.ref || {};
+                const kind = String(evt.kind || '').trim();
+                if (ref.message_id) {
+                    if (kind === 'direct_message') return `dm:${ref.message_id}`;
+                    return `msg:${ref.message_id}`;
+                }
+                if (ref.post_id) return `post:${ref.post_id}`;
+                if (kind === 'channel_added' && ref.channel_id && ref.user_id) {
+                    return `channel_added:${ref.channel_id}:${ref.user_id}`;
+                }
+                if (kind === 'interaction' && ref.item_type && ref.item_id) {
+                    return `interaction:${ref.item_type}:${ref.item_id}:${ref.action || ''}:${ref.user_id || ''}`;
+                }
+                return evt.id || `${evt.peer_id || ''}:${kind}:${evt.timestamp || ''}`;
+            }
+
+            function activityPriority(evt) {
+                const kind = String(evt && evt.kind || '').trim();
+                if (kind === 'mention') return 50;
+                if (kind === 'direct_message') return 45;
+                if (kind === 'channel_added') return 40;
+                if (kind === 'interaction') return 30;
+                if (kind === 'channel_message') return 20;
+                if (kind === 'feed_post') return 10;
+                return 0;
+            }
+
+            function mergeActivityEvent(existingEvt, incomingEvt) {
+                if (!existingEvt) return incomingEvt;
+                if (!incomingEvt) return existingEvt;
+                const existingPriority = activityPriority(existingEvt);
+                const incomingPriority = activityPriority(incomingEvt);
+                if (incomingPriority > existingPriority) return incomingEvt;
+                if (incomingPriority < existingPriority) return existingEvt;
+                const existingTs = Number(existingEvt.timestamp || 0);
+                const incomingTs = Number(incomingEvt.timestamp || 0);
+                return incomingTs >= existingTs ? incomingEvt : existingEvt;
+            }
+
 	            function navigateToActivity(evt) {
 	                if (!evt) return;
 	                const kind = evt.kind || '';
@@ -4376,10 +4545,13 @@
 
 	                try {
 	                    if (kind === 'mention') {
+	                        if (ref.message_id) {
+                                window.location.href = `/channels/locate?message_id=${encodeURIComponent(ref.message_id)}`;
+                                return;
+                            }
 	                        if (ref.channel_id) {
 	                            const url = new URL(routes.channels, window.location.origin);
 	                            url.searchParams.set('focus_channel', ref.channel_id);
-	                            if (ref.message_id) url.searchParams.set('focus_message', ref.message_id);
 	                            window.location.href = url.toString();
 	                            return;
 	                        }
@@ -4396,17 +4568,23 @@
 	                        window.location.href = url.toString();
 	                        return;
 	                    }
-	                    if (kind === 'channel_message' && ref.channel_id) {
-	                        const url = new URL(routes.channels, window.location.origin);
-	                        url.searchParams.set('focus_channel', ref.channel_id);
-	                        if (ref.message_id) url.searchParams.set('focus_message', ref.message_id);
-	                        window.location.href = url.toString();
-	                        return;
+	                    if (kind === 'channel_message') {
+                            if (ref.message_id) {
+                                window.location.href = `/channels/locate?message_id=${encodeURIComponent(ref.message_id)}`;
+                                return;
+                            }
+	                        if (ref.channel_id) {
+	                            const url = new URL(routes.channels, window.location.origin);
+	                            url.searchParams.set('focus_channel', ref.channel_id);
+	                            window.location.href = url.toString();
+	                            return;
+	                        }
 	                    }
 	                    if (kind === 'direct_message') {
 	                        const otherUserId = otherUserIdFromDirectMessage(ref);
 	                        const url = new URL(routes.messages, window.location.origin);
 	                        if (otherUserId) url.searchParams.set('with', otherUserId);
+                            if (ref.message_id) url.hash = `message-${ref.message_id}`;
 	                        window.location.href = url.toString();
 	                        return;
 	                    }
@@ -4580,18 +4758,24 @@
 	            }
 
             function recordEvent(evt) {
-                const refKey = eventRefKey(evt);
-                if (evt.kind === 'mention' && refKey) {
-                    mentionRefs.add(refKey);
-                    events = events.filter(e => eventRefKey(e) !== refKey || e.kind === 'mention');
-                } else if (refKey && mentionRefs.has(refKey)) {
-                    return;
-                }
+                const semanticKey = activitySemanticKey(evt);
+                if (!semanticKey) return;
                 const uid = getUserRefId(evt);
                 if (uid) scheduleUserInfoFetch([uid]);
-                notificationCount += 1;
-                events.unshift(evt);
+
+                const existingIndex = events.findIndex((existingEvt) => activitySemanticKey(existingEvt) === semanticKey);
+                if (existingIndex >= 0) {
+                    const merged = mergeActivityEvent(events[existingIndex], evt);
+                    events.splice(existingIndex, 1);
+                    events.unshift(merged);
+                } else {
+                    events.unshift(evt);
+                }
                 events = events.slice(0, 12);
+                if (!unreadSemanticKeys.has(semanticKey)) {
+                    unreadSemanticKeys.add(semanticKey);
+                    notificationCount += 1;
+                }
                 setBadge(notificationCount);
                 renderMenu();
                 markPeerActive(evt.peer_id);
@@ -4646,13 +4830,14 @@
             bellBtn.addEventListener('click', () => {
                 // Opening the bell acknowledges current count, but keeps the history in the menu.
                 notificationCount = 0;
+                unreadSemanticKeys.clear();
                 setBadge(0);
             });
 
             if (clearBtn) {
                 clearBtn.addEventListener('click', () => {
                     events = [];
-                    mentionRefs.clear();
+                    unreadSemanticKeys.clear();
                     notificationCount = 0;
                     setBadge(0);
                     renderMenu();
