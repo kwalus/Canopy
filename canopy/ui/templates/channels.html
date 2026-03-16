@@ -4762,7 +4762,7 @@ function sortChannelListByPins() {
 }
 
 // Channel management
-function selectChannel(channelId, channelName) {
+function selectChannel(channelId, channelName, options = {}) {
     if (typeof window.canopyPersistActiveMedia === 'function') {
         try {
             window.canopyPersistActiveMedia();
@@ -4827,7 +4827,11 @@ function selectChannel(channelId, channelName) {
     applyChannelNotificationsFromSelection(channelId);
     
     // Load messages for this channel
-    loadChannelMessages(channelId, { forceScroll: true });
+    const focusMessageId = options && options.focusMessageId ? String(options.focusMessageId) : '';
+    const forceScroll = Object.prototype.hasOwnProperty.call(options || {}, 'forceScroll')
+        ? !!options.forceScroll
+        : !focusMessageId;
+    loadChannelMessages(channelId, { forceScroll, focusMessageId });
 }
 
 function updateCurrentChannelIdUI(channelId) {
@@ -5439,7 +5443,15 @@ function loadChannelMessages(channelId, options = {}) {
     pendingChannelMessages = null;
     channelLoadInFlight = true;
 
-    return apiCall(`/ajax/channel_messages/${channelId}`)
+    const focusMessageId = (options && options.focusMessageId)
+        ? String(options.focusMessageId)
+        : (initialFocusMessageId ? String(initialFocusMessageId) : '');
+    const query = new URLSearchParams();
+    if (focusMessageId) {
+        query.set('focus_message', focusMessageId);
+    }
+
+    return apiCall(`/ajax/channel_messages/${channelId}${query.toString() ? `?${query.toString()}` : ''}`)
         .then(data => {
             if (loadToken !== activeChannelLoadToken || String(currentChannelId) !== requestedChannelId) {
                 return;
@@ -5478,12 +5490,55 @@ function loadChannelMessages(channelId, options = {}) {
         });
 }
 
-function focusMessageById(messageId) {
+function clearInitialChannelFocusFromUrl() {
+    try {
+        const url = new URL(window.location.href);
+        let changed = false;
+        if (url.searchParams.has('focus_message')) {
+            url.searchParams.delete('focus_message');
+            changed = true;
+        }
+        if (url.searchParams.has('focus_channel')) {
+            url.searchParams.delete('focus_channel');
+            changed = true;
+        }
+        if (url.searchParams.has('channel')) {
+            url.searchParams.delete('channel');
+            changed = true;
+        }
+        if (changed) {
+            window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
+        }
+    } catch (_) {}
+}
+
+function scrollMessageIntoContainer(msgEl, options = {}) {
+    const container = document.getElementById('messages-container');
+    if (!msgEl || !container) return false;
+
+    const containerRect = container.getBoundingClientRect();
+    const msgRect = msgEl.getBoundingClientRect();
+    const currentTop = container.scrollTop;
+    const align = options.align || 'center';
+    let offset = container.clientHeight * 0.3;
+    if (align === 'nearest') {
+        offset = Math.min(24, container.clientHeight * 0.08);
+    } else if (align === 'start') {
+        offset = 20;
+    }
+    const targetTop = Math.max(0, currentTop + (msgRect.top - containerRect.top) - offset);
+    container.scrollTo({ top: targetTop, behavior: options.behavior || 'smooth' });
+    return true;
+}
+
+function focusMessageById(messageId, options = {}) {
     if (!messageId) return false;
     const msgEl = document.querySelector(`.message-item[data-message-id="${messageId}"]`);
     if (!msgEl) return false;
     msgEl.classList.add('focus-flash');
-    msgEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    scrollMessageIntoContainer(msgEl, { align: 'center', behavior: options.behavior || 'smooth' });
+    setTimeout(() => scrollMessageIntoContainer(msgEl, { align: 'center', behavior: 'smooth' }), 220);
+    setTimeout(() => scrollMessageIntoContainer(msgEl, { align: 'center', behavior: 'smooth' }), 850);
     setTimeout(() => msgEl.classList.remove('focus-flash'), 3200);
     return true;
 }
@@ -5635,6 +5690,9 @@ function displayMessages(messages, options = {}) {
             applyUserAvatarStacks(userInfo, messagesContainer);
             if (initialFocusMessageId) {
 		            const focused = focusMessageById(initialFocusMessageId);
+                    if (focused) {
+                        clearInitialChannelFocusFromUrl();
+                    }
 		            initialFocusMessageId = null;
 		            if (!focused && container) {
 		                container.scrollTop = container.scrollHeight;
@@ -12321,7 +12379,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (pendingEl) {
                     const nameEl = pendingEl.querySelector('.channel-name');
                     const channelName = nameEl ? nameEl.textContent : 'Unknown';
-                    selectChannel(pendingChannelId, channelName);
+                    selectChannel(pendingChannelId, channelName, { focusMessageId: initialFocusMessageId || '' });
                     didSelectFocus = true;
                 }
                 localStorage.removeItem('pendingChannelId');
@@ -12331,7 +12389,7 @@ document.addEventListener('DOMContentLoaded', function() {
 	                if (focusEl) {
 	                    const nameEl = focusEl.querySelector('.channel-name');
 	                    const channelName = nameEl ? nameEl.textContent : 'Unknown';
-	                    selectChannel(focusChannelId, channelName);
+	                    selectChannel(focusChannelId, channelName, { focusMessageId: initialFocusMessageId || '', forceScroll: false });
 	                    return true;
 	                }
 	                return false;

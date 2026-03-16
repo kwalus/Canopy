@@ -244,6 +244,7 @@ class DatabaseManager:
                 CREATE TABLE IF NOT EXISTS user_feed_preferences (
                     user_id TEXT PRIMARY KEY,
                     algorithm_json TEXT NOT NULL DEFAULT '{}',
+                    last_viewed_at TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (user_id) REFERENCES users (id)
                 );
@@ -663,6 +664,13 @@ class DatabaseManager:
             if 'status' in feed_columns:
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_feed_posts_status ON feed_posts(status)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_post_permissions_user ON post_permissions(user_id)")
+
+            cursor = conn.execute("PRAGMA table_info(user_feed_preferences)")
+            user_feed_pref_columns = [row[1] for row in cursor.fetchall()]
+            if 'last_viewed_at' not in user_feed_pref_columns:
+                logger.info("Migration: Adding last_viewed_at column to user_feed_preferences")
+                conn.execute("ALTER TABLE user_feed_preferences ADD COLUMN last_viewed_at TIMESTAMP")
+
             # channel_messages is created by ChannelManager — only add index if table exists
             cm_exists = conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='channel_messages'"

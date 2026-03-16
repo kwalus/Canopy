@@ -1001,6 +1001,79 @@ class FeedManager:
             logger.error(f"Failed to save feed algorithm for {user_id}: {e}")
             return False
 
+    def get_feed_last_viewed_at(self, user_id: str) -> Optional[datetime]:
+        """Return the last time the user acknowledged the feed view."""
+        try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT last_viewed_at FROM user_feed_preferences WHERE user_id = ?",
+                    (user_id,),
+                ).fetchone()
+                if not row:
+                    return None
+                return self._parse_datetime(row['last_viewed_at'])
+        except Exception as e:
+            logger.warning(f"Failed to load feed last_viewed_at for {user_id}: {e}")
+            return None
+
+    def mark_feed_viewed(self, user_id: str, viewed_at: Optional[datetime] = None) -> bool:
+        """Record that the user has intentionally viewed the feed."""
+        if not user_id:
+            return False
+        viewed_dt = viewed_at or datetime.now(timezone.utc)
+        viewed_db = self._format_db_timestamp(viewed_dt)
+        try:
+            with self.db.get_connection() as conn:
+                conn.execute("""
+                    INSERT INTO user_feed_preferences (user_id, algorithm_json, last_viewed_at, updated_at)
+                    VALUES (?, '{}', ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(user_id) DO UPDATE SET
+                        last_viewed_at = excluded.last_viewed_at,
+                        updated_at = CURRENT_TIMESTAMP
+                """, (user_id, viewed_db))
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to mark feed viewed for {user_id}: {e}")
+            return False
+
+    def count_unread_posts(self, user_id: str, *, exclude_own_posts: bool = True) -> int:
+        """Count feed posts with new activity since the user's last acknowledged feed view."""
+        if not user_id:
+            return 0
+
+        last_viewed_at = self.get_feed_last_viewed_at(user_id)
+        params: List[Any] = [user_id, user_id]
+        own_clause = ""
+        if exclude_own_posts:
+            own_clause = " AND p.author_id != ?"
+            params.append(user_id)
+        since_clause = ""
+        if last_viewed_at:
+            since_clause = " AND COALESCE(p.last_activity_at, p.created_at) > ?"
+            params.append(self._format_db_timestamp(last_viewed_at))
+
+        try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(f"""
+                    SELECT COUNT(DISTINCT p.id) AS unread_count
+                    FROM feed_posts p
+                    LEFT JOIN post_permissions pp ON p.id = pp.post_id
+                    WHERE (
+                        p.visibility = 'public' OR
+                        p.visibility = 'network' OR
+                        (p.visibility = 'custom' AND pp.user_id = ?) OR
+                        p.author_id = ?
+                    )
+                      AND (p.expires_at IS NULL OR p.expires_at > CURRENT_TIMESTAMP)
+                      {own_clause}
+                      {since_clause}
+                """, params).fetchone()
+                return max(0, int((row['unread_count'] if row else 0) or 0))
+        except Exception as e:
+            logger.error(f"Failed to count unread feed posts for {user_id}: {e}")
+            return 0
+
     def get_available_tags(self, limit: int = 50) -> List[Dict[str, Any]]:
         """Get popular tags across all posts for the tag picker UI."""
         try:
