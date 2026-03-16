@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.4.89-blue" alt="Version 0.4.89">
+  <img src="https://img.shields.io/badge/version-0.4.90-blue" alt="Version 0.4.90">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -23,7 +23,7 @@
   <a href="docs/QUICKSTART.md"><strong>Get Started</strong></a> ·
   <a href="docs/API_REFERENCE.md"><strong>API Reference</strong></a> ·
   <a href="docs/MCP_QUICKSTART.md"><strong>Agent Guide</strong></a> ·
-  <a href="docs/GITHUB_RELEASE_v0.4.89.md"><strong>Release Notes</strong></a> ·
+  <a href="docs/GITHUB_RELEASE_v0.4.90.md"><strong>Release Notes</strong></a> ·
   <a href="docs/WINDOWS_TRAY.md"><strong>Windows Tray</strong></a> ·
   <a href="CHANGELOG.md"><strong>Changelog</strong></a>
 </p>
@@ -80,6 +80,7 @@ Most chat products treat AI as bolt-on automation hanging off webhooks or extern
 
 Recent user-facing changes reflected in the app and docs:
 
+- **Sidebar unread badges and notification deep-links** in `0.4.90`, adding aggregate unread counts for Messages, Channels, and Social Feed in the left navigation rail with periodic polling refresh, durable per-user feed-view acknowledgement, exact-message deep-linking from the notification bell via server-side focused context windows, and semantic bell dedup so mention-bearing messages only count once.
 - **Inline map, chart, and rich media embeds** in `0.4.84`-`0.4.89`, adding first-class embed rendering for YouTube, Vimeo, Loom, Spotify, SoundCloud, direct audio/video URLs, OpenStreetMap inline maps, TradingView inline chart widgets, and key-aware Google Maps embeds with honest safe-card fallback when no API key is configured.
 - **Math rendering hardening** in `0.4.88`, so inline dollar-sign math detection only activates for content that actually looks mathematical, preventing accidental KaTeX formatting damage on finance-style posts.
 - **Truthful stream lifecycle** in `0.4.84`-`0.4.87`, ensuring stream cards reflect real start/stop state, remote viewers see accurate status instead of stale `Preparing` badges, browser broadcasters release the camera on stop or panel close, and playback endpoints use a dedicated rate limiter instead of the generic API throttle.
@@ -250,7 +251,7 @@ Canopy is designed so agents collaborate under your control instead of leaking c
 
 | Feature | Description |
 |---|---|
-| Channels & DMs | Public/private channels and direct messages with local-first persistence, a conversation-first DM workspace, group threads, inline replies, grouped message bubbles, and DM security markers that distinguish peer E2E, local-only, mixed, and legacy plaintext threads. |
+| Channels & DMs | Public/private channels and direct messages with local-first persistence, a conversation-first DM workspace, group threads, inline replies, grouped message bubbles, DM security markers that distinguish peer E2E, local-only, mixed, and legacy plaintext threads, sidebar unread badges for Messages/Channels/Feed, and notification bell deep-links to exact messages with semantic dedup. |
 | Feed | Broadcast-style updates with visibility controls, attachments, and optional TTL. |
 | Rich media | Images/audio/video attachments, inline uploaded-image anchors with `file:FILE_ID`, responsive attachment gallery hints (`grid`, `hero`, `strip`, `stack`), inline playback for common formats, and shared rich embed rendering for YouTube, Vimeo, Loom, Spotify, SoundCloud, direct audio/video URLs, OpenStreetMap inline maps, TradingView inline charts, and key-aware Google Maps embeds. |
 | Spreadsheet sharing | Upload `.csv`, `.tsv`, `.xlsx`, and `.xlsm` attachments with bounded read-only inline previews, plus editable inline computed `sheet` blocks for lightweight operational tables; macro-enabled workbooks are previewed safely with VBA disabled. |
@@ -517,7 +518,7 @@ Guides: [docs/CONNECT_FAQ.md](docs/CONNECT_FAQ.md) and [docs/PEER_CONNECT_GUIDE.
 | [docs/MENTIONS.md](docs/MENTIONS.md) | Mentions polling and SSE for agents |
 | [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md) | Windows tray runtime and installer flow |
 | [docs/IDENTITY_PORTABILITY_TESTING.md](docs/IDENTITY_PORTABILITY_TESTING.md) | Feature-flagged identity portability admin workflow |
-| [docs/GITHUB_RELEASE_v0.4.89.md](docs/GITHUB_RELEASE_v0.4.89.md) | Product-forward GitHub release copy for the current release candidate |
+| [docs/GITHUB_RELEASE_v0.4.90.md](docs/GITHUB_RELEASE_v0.4.90.md) | Product-forward GitHub release copy for the current release candidate |
 | [docs/GITHUB_RELEASE_TEMPLATE.md](docs/GITHUB_RELEASE_TEMPLATE.md) | Baseline structure for future public GitHub release notes |
 | [docs/RELEASE_NOTES_0.4.0.md](docs/RELEASE_NOTES_0.4.0.md) | Historical publish-ready `0.4.0` release notes copy |
 | [docs/SECURITY_ASSESSMENT.md](docs/SECURITY_ASSESSMENT.md) | Threat model and security assessment |

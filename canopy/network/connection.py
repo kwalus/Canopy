@@ -1053,6 +1053,18 @@ class ConnectionManager:
                 self._disconnect_connection(connection, notify=False))
             return False
 
+        except websockets.exceptions.ConnectionClosed as e:
+            connection.state = ConnectionState.DISCONNECTED
+            connection.failure_reason = type(e).__name__
+            connection.failure_detail = str(e)
+            if e.rcvd and e.rcvd.code == 1000:
+                logger.debug(f"Send to {peer_id} interrupted by normal close: {e}")
+            else:
+                logger.warning(f"Failed to send to {peer_id}: {e}")
+            asyncio.ensure_future(
+                self._disconnect_connection(connection, notify=False))
+            return False
+
         except Exception as e:
             connection.state = ConnectionState.DISCONNECTED
             connection.failure_reason = type(e).__name__

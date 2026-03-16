@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.90] - 2026-03-16
+
+### Added
+- **Sidebar unread badges** - Left-rail navigation items for Messages, Channels, and Social Feed now show aggregate unread counts as compact pill badges that update via periodic polling and on window focus. Zero-state badges are hidden; counts cap visually at `99+`.
+- **Durable feed-view acknowledgement** - Opening the Social Feed records a per-user acknowledgement timestamp so the feed unread badge reflects genuinely new activity since the last visit. Own-authored posts are excluded from the unread count.
+- **Notification deep-link to exact messages** - Bell notification clicks for channel messages now navigate to the exact target message via a server-side focused context window, even when the message is older than the recent page. DM bell clicks include a `#message-<id>` anchor for exact-message scrolling.
+- **Container-aware focus scrolling** - Channel message focus now uses measured offsets within `#messages-container` instead of `scrollIntoView()`, and retries shortly after render to absorb layout shifts from async hydration.
+
+### Fixed
+- **Bell duplicate counting for mention-bearing messages** - The notification bell now deduplicates by semantic activity key so a `channel_message` event and a `mention` event for the same source message increment the unread badge only once, with the higher-priority event winning the display slot.
+- **Normal WebSocket close logged as error** - Send failures caused by a normal `1000 (OK)` close are now logged at debug level instead of error, reducing misleading noise in the terminal after mesh reconnect cycles.
+
 ## [0.4.89] - 2026-03-15
 
 ### Added

@@ -433,10 +433,11 @@ def create_ui_blueprint() -> Blueprint:
         if not _is_authenticated():
             return {}
         try:
-            db_manager, _, trust_manager, message_manager, channel_manager, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+            db_manager, _, trust_manager, message_manager, channel_manager, _, feed_manager, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
             workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
             connected_peers = p2p_manager.get_connected_peers() if p2p_manager else []
             local_peer_id = p2p_manager.get_peer_id() if p2p_manager else None
+            current_user_id = session.get('user_id')
             peer_snapshot = _build_sidebar_peer_snapshot(
                 list(connected_peers or []),
                 trust_manager,
@@ -462,6 +463,15 @@ def create_ui_blueprint() -> Blueprint:
                 'sidebar_dm_event_cursor': int((workspace_event_manager.get_latest_seq() if workspace_event_manager else 0) or 0),
                 'sidebar_local_peer_id': local_peer_id,
             }
+            attention_snapshot = _build_sidebar_attention_summary(
+                db_manager,
+                channel_manager,
+                feed_manager,
+                p2p_manager,
+                current_user_id,
+            )
+            out['sidebar_attention_summary'] = attention_snapshot['summary']
+            out['sidebar_attention_rev'] = attention_snapshot['rev']
             # Admin link and badge (instance owner only)
             owner_id = db_manager.get_instance_owner_user_id()
             if owner_id and session.get('user_id') == owner_id:
@@ -1571,6 +1581,39 @@ def create_ui_blueprint() -> Blueprint:
             'dm_rev': _stable_ui_revision(contacts),
         }
 
+    def _count_sidebar_message_unread(
+        db_manager: Any,
+        user_id: str,
+    ) -> int:
+        """Count unread direct and group messages for the global sidebar summary."""
+        if not db_manager or not user_id:
+            return 0
+        try:
+            with db_manager.get_connection() as conn:
+                row = conn.execute(
+                    """
+                    SELECT COUNT(DISTINCT m.id) AS unread_count
+                    FROM messages m
+                    WHERE m.read_at IS NULL
+                      AND COALESCE(m.sender_id, '') != ?
+                      AND (
+                          m.recipient_id = ?
+                          OR EXISTS (
+                              SELECT 1
+                              FROM json_each(
+                                  CASE WHEN json_valid(m.metadata) THEN m.metadata ELSE '{}' END,
+                                  '$.group_members'
+                              ) gm
+                              WHERE CAST(gm.value AS TEXT) = ?
+                          )
+                      )
+                    """,
+                    (user_id, user_id, user_id),
+                ).fetchone()
+                return max(0, int((row['unread_count'] if row else 0) or 0))
+        except Exception:
+            return 0
+
     def _build_channel_sidebar_snapshot(
         channel_manager: Any,
         p2p_manager: Any,
@@ -1610,6 +1653,44 @@ def create_ui_blueprint() -> Blueprint:
         return {
             'channels': payload,
             'rev': _stable_ui_revision(payload),
+        }
+
+    def _build_sidebar_attention_summary(
+        db_manager: Any,
+        channel_manager: Any,
+        feed_manager: Any,
+        p2p_manager: Any,
+        user_id: str,
+    ) -> dict[str, Any]:
+        """Build aggregate unread counts for sidebar navigation badges."""
+        messages_unread = _count_sidebar_message_unread(db_manager, user_id)
+
+        channels_unread = 0
+        try:
+            channel_snapshot = _build_channel_sidebar_snapshot(channel_manager, p2p_manager, user_id)
+            channels_unread = sum(
+                max(0, int((entry.get('unread_count') or 0)))
+                for entry in (channel_snapshot.get('channels') or [])
+            )
+        except Exception:
+            channels_unread = 0
+
+        feed_unread = 0
+        try:
+            if feed_manager and hasattr(feed_manager, 'count_unread_posts'):
+                feed_unread = max(0, int(feed_manager.count_unread_posts(user_id) or 0))
+        except Exception:
+            feed_unread = 0
+
+        summary = {
+            'messages': messages_unread,
+            'channels': channels_unread,
+            'feed': feed_unread,
+            'total': messages_unread + channels_unread + feed_unread,
+        }
+        return {
+            'summary': summary,
+            'rev': _stable_ui_revision(summary),
         }
 
     def _build_sidebar_dm_contacts(
@@ -3122,6 +3203,11 @@ def create_ui_blueprint() -> Blueprint:
         try:
             db_manager, _, _, _, _, file_manager, feed_manager, interaction_manager, profile_manager, config, p2p_manager = _get_app_components_any(current_app)
             user_id = get_current_user()
+            if feed_manager and hasattr(feed_manager, 'mark_feed_viewed'):
+                try:
+                    feed_manager.mark_feed_viewed(user_id)
+                except Exception:
+                    pass
             
             # Get query parameters
             algorithm = request.args.get('algorithm', 'chronological')
@@ -4531,6 +4617,37 @@ def create_ui_blueprint() -> Blueprint:
         except Exception as e:
             logger.error(f"Sidebar DM snapshot error: {e}", exc_info=True)
             return jsonify({'success': False, 'error': 'Failed to load DM sidebar snapshot'}), 500
+
+    @ui.route('/ajax/sidebar_attention_summary', methods=['GET'])
+    @require_login
+    def ajax_sidebar_attention_summary():
+        """Return aggregate unread counts for sidebar navigation badges."""
+        try:
+            db_manager, _, _, _, channel_manager, _, feed_manager, _, _, _, p2p_manager = _get_app_components_any(current_app)
+            client_rev = str(request.args.get('rev') or '').strip()
+            snapshot = _build_sidebar_attention_summary(
+                db_manager,
+                channel_manager,
+                feed_manager,
+                p2p_manager,
+                get_current_user(),
+            )
+            changed = snapshot['rev'] != client_rev
+            return jsonify({
+                'success': True,
+                'changed': changed,
+                'rev': snapshot['rev'],
+                'summary': snapshot['summary'] if changed else {},
+            })
+        except Exception as e:
+            logger.error(f"Sidebar attention summary error: {e}", exc_info=True)
+            return jsonify({
+                'success': False,
+                'changed': False,
+                'rev': '',
+                'summary': {'messages': 0, 'channels': 0, 'feed': 0, 'total': 0},
+                'error': 'Failed to load sidebar attention summary',
+            }), 500
 
     @ui.route('/ajax/p2p/diagnostics', methods=['GET'])
     @require_login
@@ -9852,6 +9969,7 @@ def create_ui_blueprint() -> Blueprint:
 
             limit = int(request.args.get('limit', 50))
             before_message_id = request.args.get('before')
+            focus_message_id = str(request.args.get('focus_message') or '').strip()
             
             logger.debug(f"Get channel messages request: user_id={user_id}, channel_id={channel_id}, limit={limit}")
 
@@ -9895,6 +10013,34 @@ def create_ui_blueprint() -> Blueprint:
             messages = channel_manager.get_channel_messages(
                 channel_id, user_id, limit, before_message_id
             )
+            focus_context_mode = 'recent'
+            focus_message_found = not focus_message_id
+            if focus_message_id:
+                focus_message_found = any(
+                    str(getattr(message, 'id', '') or '') == focus_message_id
+                    for message in messages
+                )
+                if (
+                    not focus_message_found
+                    and hasattr(channel_manager, 'get_channel_message_context')
+                ):
+                    try:
+                        focused_messages = channel_manager.get_channel_message_context(
+                            channel_id=channel_id,
+                            message_id=focus_message_id,
+                            user_id=user_id,
+                        )
+                    except Exception:
+                        focused_messages = []
+                    if focused_messages:
+                        messages = focused_messages
+                        focus_context_mode = 'context'
+                        focus_message_found = any(
+                            str(getattr(message, 'id', '') or '') == focus_message_id
+                            for message in messages
+                        )
+                    else:
+                        focus_context_mode = 'missing'
             
             logger.debug(f"Retrieved {len(messages)} messages for channel {channel_id}")
             
@@ -10392,12 +10538,18 @@ def create_ui_blueprint() -> Blueprint:
                     logger.warning(f"Skipping message {getattr(message, 'id', '?')} in response: {msg_err}")
                     continue
             
-            return jsonify({
+            payload = {
                 'messages': messages_data,
                 'channel_id': channel_id,
                 'count': len(messages_data),
                 'workspace_event_cursor': workspace_event_cursor,
-            })
+                'focus_message_id': focus_message_id or None,
+                'focus_message_found': focus_message_found,
+                'focus_context_mode': focus_context_mode if focus_message_id else None,
+            }
+            if focus_message_id and not focus_message_found:
+                payload['warning'] = 'Target message is no longer available in this channel.'
+            return jsonify(payload)
             
         except Exception as e:
             logger.error(f"Get channel messages error: {e}", exc_info=True)

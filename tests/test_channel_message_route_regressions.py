@@ -105,6 +105,9 @@ class TestChannelMessageRouteRegressions(unittest.TestCase):
         self.channel_manager.get_channel_access_decision.return_value = {'allowed': True}
         self.channel_manager.purge_expired_channel_messages.return_value = []
         self.channel_manager.get_channel_messages.return_value = []
+        self.interaction_manager = MagicMock()
+        self.interaction_manager.get_user_liked_ids.return_value = set()
+        self.interaction_manager.get_post_interactions.return_value = {'total_likes': 0}
         self.file_manager = MagicMock()
         self.file_manager.get_file.return_value = types.SimpleNamespace(uploaded_by='owner')
         self.file_manager.is_file_referenced.return_value = False
@@ -124,7 +127,7 @@ class TestChannelMessageRouteRegressions(unittest.TestCase):
             self.channel_manager,
             self.file_manager,
             MagicMock(),
-            MagicMock(),
+            self.interaction_manager,
             MagicMock(),
             MagicMock(),
             self.p2p_manager,
@@ -324,6 +327,42 @@ class TestChannelMessageRouteRegressions(unittest.TestCase):
                 'reason': 'community_note_rated',
             },
             dedupe_suffix='community_note_rated:CN-rate:1',
+        )
+
+    def test_channel_messages_focus_message_uses_context_window_when_recent_page_misses_target(self) -> None:
+        target = MagicMock()
+        target.id = 'M-target'
+        target.channel_id = 'general'
+        target.user_id = 'owner'
+        target.content = 'Older target message'
+        target.created_at = datetime.now(timezone.utc)
+        target.expires_at = None
+        target.to_dict.return_value = {
+            'id': 'M-target',
+            'channel_id': 'general',
+            'user_id': 'owner',
+            'content': 'Older target message',
+            'created_at': target.created_at.isoformat(),
+            'attachments': [],
+            'security': {},
+            'reactions': {},
+        }
+        self.channel_manager.get_channel_messages.return_value = []
+        self.channel_manager.get_channel_message_context.return_value = [target]
+
+        response = self.client.get('/ajax/channel_messages/general?focus_message=M-target')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertEqual(payload.get('focus_message_id'), 'M-target')
+        self.assertTrue(payload.get('focus_message_found'))
+        self.assertEqual(payload.get('focus_context_mode'), 'context')
+        self.assertEqual(payload.get('count'), 1)
+        self.assertEqual((payload.get('messages') or [])[0].get('id'), 'M-target')
+        self.channel_manager.get_channel_message_context.assert_called_once_with(
+            channel_id='general',
+            message_id='M-target',
+            user_id='owner',
         )
 
 

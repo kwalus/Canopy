@@ -4424,11 +4424,112 @@ class ChannelManager:
 
         return purged
 
-    def get_channel_messages(self, channel_id: str, user_id: str, 
+    def _row_to_channel_message(self, row: Any, row_type: str = "message") -> Optional[Message]:
+        """Best-effort row parser used across channel message query paths."""
+        try:
+            try:
+                msg_type = MessageType(row['message_type'])
+            except (ValueError, KeyError):
+                msg_type = MessageType.TEXT
+
+            created_at_raw = row['created_at'] or ''
+            try:
+                created_at = datetime.fromisoformat(created_at_raw.replace('Z', '+00:00'))
+            except (ValueError, AttributeError):
+                try:
+                    created_at = datetime.strptime(created_at_raw, '%Y-%m-%d %H:%M:%S')
+                except Exception:
+                    created_at = datetime.now()
+
+            edited_at = None
+            if row['edited_at']:
+                try:
+                    edited_at = datetime.fromisoformat(row['edited_at'].replace('Z', '+00:00'))
+                except (ValueError, AttributeError):
+                    pass
+
+            expires_at = self._parse_datetime(row['expires_at']) if 'expires_at' in row.keys() else None
+            content_text = row['content'] or ''
+            try:
+                crypto_state = (row['crypto_state'] or '').strip().lower()
+            except Exception:
+                crypto_state = ''
+            if not content_text and crypto_state == 'pending_decrypt':
+                content_text = '[Encrypted message pending key]'
+            elif not content_text and crypto_state == 'decrypt_failed':
+                content_text = '[Encrypted message could not be decrypted]'
+
+            return Message(
+                id=row['id'],
+                channel_id=row['channel_id'],
+                user_id=row['user_id'],
+                content=content_text,
+                message_type=msg_type,
+                created_at=created_at,
+                thread_id=row['thread_id'],
+                parent_message_id=row['parent_message_id'],
+                reactions=json.loads(row['reactions']) if row['reactions'] else None,
+                attachments=json.loads(row['attachments']) if row['attachments'] else None,
+                security=json.loads(row['security']) if row['security'] else None,
+                edited_at=edited_at,
+                expires_at=expires_at,
+                origin_peer=row['origin_peer'] if 'origin_peer' in row.keys() else None,
+                crypto_state=row['crypto_state'] if 'crypto_state' in row.keys() else None,
+            )
+        except Exception as row_err:
+            row_id = '?'
+            try:
+                row_id = row['id'] if 'id' in row.keys() else '?'
+            except Exception:
+                row_id = '?'
+            logger.warning(f"Skipping corrupt {row_type} row {row_id}: {row_err}")
+            return None
+
+    def _hydrate_missing_parent_messages(
+        self,
+        conn: Any,
+        channel_id: str,
+        messages: List[Message],
+    ) -> List[Message]:
+        """Append missing parent/ancestor messages so replies render with context."""
+        msg_ids = {m.id for m in messages}
+        missing_parent_ids = {
+            m.parent_message_id
+            for m in messages
+            if m.parent_message_id and m.parent_message_id not in msg_ids
+        }
+        while missing_parent_ids:
+            placeholders = ",".join("?" * len(missing_parent_ids))
+            parent_rows = conn.execute(
+                f"""
+                SELECT m.*, u.username as author_username
+                FROM channel_messages m
+                LEFT JOIN users u ON m.user_id = u.id
+                WHERE m.channel_id = ? AND m.id IN ({placeholders})
+                  AND (m.expires_at IS NULL OR m.expires_at > CURRENT_TIMESTAMP)
+                """,
+                [channel_id] + list(missing_parent_ids),
+            ).fetchall()
+            if not parent_rows:
+                break
+
+            next_missing_parent_ids = set()
+            for row in parent_rows:
+                message = self._row_to_channel_message(row, "parent")
+                if not message or message.id in msg_ids:
+                    continue
+                messages.append(message)
+                msg_ids.add(message.id)
+                if message.parent_message_id and message.parent_message_id not in msg_ids:
+                    next_missing_parent_ids.add(message.parent_message_id)
+            missing_parent_ids = next_missing_parent_ids
+        return messages
+
+    def get_channel_messages(self, channel_id: str, user_id: str,
                            limit: int = 50, before_message_id: Optional[str] = None) -> List[Message]:
         """Get messages from a channel."""
         logger.debug(f"Getting messages for channel {channel_id}, user {user_id}, limit {limit}")
-        
+
         try:
             access = self.get_channel_access_decision(
                 channel_id=channel_id,
@@ -4443,9 +4544,6 @@ class ChannelManager:
                 return []
 
             with self.db.get_connection() as conn:
-                # Build query — sort root messages by activity time
-                # (resurfaced parents appear at the bottom/newest position).
-                # Replies sort with their parent via COALESCE on the parent row.
                 sort_expr = """
                     CASE
                         WHEN m.parent_message_id IS NOT NULL THEN
@@ -4477,11 +4575,8 @@ class ChannelManager:
                       AND (m.expires_at IS NULL OR m.expires_at > CURRENT_TIMESTAMP)
                 """
                 params: List[Any] = [channel_id]
-                
+
                 if before_message_id:
-                    # Pagination must use the same sort tuple as ORDER BY to
-                    # avoid gaps/duplicates when old threads are resurfaced by
-                    # new replies.
                     query += f"""
                         AND (
                             {sort_expr} < (
@@ -4508,124 +4603,116 @@ class ChannelManager:
                         before_message_id,
                         before_message_id,
                     ])
-                
+
                 query += " ORDER BY sort_time DESC, m.created_at DESC LIMIT ?"
                 params.append(limit)
-                
-                cursor = conn.execute(query, params)
-                rows = cursor.fetchall()
-                
-                def _row_to_message(row: Any, row_type: str = "message") -> Optional[Message]:
-                    """Best-effort row parser used for primary query rows and recursively fetched parents."""
-                    try:
-                        try:
-                            msg_type = MessageType(row['message_type'])
-                        except (ValueError, KeyError):
-                            msg_type = MessageType.TEXT
 
-                        created_at_raw = row['created_at'] or ''
-                        try:
-                            created_at = datetime.fromisoformat(created_at_raw.replace('Z', '+00:00'))
-                        except (ValueError, AttributeError):
-                            try:
-                                created_at = datetime.strptime(created_at_raw, '%Y-%m-%d %H:%M:%S')
-                            except Exception:
-                                created_at = datetime.now()
-
-                        edited_at = None
-                        if row['edited_at']:
-                            try:
-                                edited_at = datetime.fromisoformat(row['edited_at'].replace('Z', '+00:00'))
-                            except (ValueError, AttributeError):
-                                pass
-
-                        expires_at = self._parse_datetime(row['expires_at']) if 'expires_at' in row.keys() else None
-                        content_text = row['content'] or ''
-                        try:
-                            crypto_state = (row['crypto_state'] or '').strip().lower()
-                        except Exception:
-                            crypto_state = ''
-                        if not content_text and crypto_state == 'pending_decrypt':
-                            content_text = '[Encrypted message pending key]'
-                        elif not content_text and crypto_state == 'decrypt_failed':
-                            content_text = '[Encrypted message could not be decrypted]'
-
-                        return Message(
-                            id=row['id'],
-                            channel_id=row['channel_id'],
-                            user_id=row['user_id'],
-                            content=content_text,
-                            message_type=msg_type,
-                            created_at=created_at,
-                            thread_id=row['thread_id'],
-                            parent_message_id=row['parent_message_id'],
-                            reactions=json.loads(row['reactions']) if row['reactions'] else None,
-                            attachments=json.loads(row['attachments']) if row['attachments'] else None,
-                            security=json.loads(row['security']) if row['security'] else None,
-                            edited_at=edited_at,
-                            expires_at=expires_at,
-                            origin_peer=row['origin_peer'] if 'origin_peer' in row.keys() else None,
-                            crypto_state=row['crypto_state'] if 'crypto_state' in row.keys() else None,
-                        )
-                    except Exception as row_err:
-                        row_id = '?'
-                        try:
-                            row_id = row['id'] if 'id' in row.keys() else '?'
-                        except Exception:
-                            row_id = '?'
-                        logger.warning(f"Skipping corrupt {row_type} row {row_id}: {row_err}")
-                        return None
-
-                # Convert to Message objects (skip corrupt rows gracefully)
+                rows = conn.execute(query, params).fetchall()
                 messages: List[Message] = []
                 for row in rows:
-                    message = _row_to_message(row, "message")
+                    message = self._row_to_channel_message(row, "message")
                     if message:
                         messages.append(message)
-                
-                # Reverse to get chronological order
+
                 messages.reverse()
-
-                # Include any missing parent/ancestor messages so replies render under the correct post.
-                # This walks parent chains recursively; one-level hydration can orphan deep reply chains.
-                msg_ids = {m.id for m in messages}
-                missing_parent_ids = {
-                    m.parent_message_id
-                    for m in messages
-                    if m.parent_message_id and m.parent_message_id not in msg_ids
-                }
-                while missing_parent_ids:
-                    placeholders = ",".join("?" * len(missing_parent_ids))
-                    parent_rows = conn.execute(
-                        f"""
-                        SELECT m.*, u.username as author_username
-                        FROM channel_messages m
-                        LEFT JOIN users u ON m.user_id = u.id
-                        WHERE m.channel_id = ? AND m.id IN ({placeholders})
-                          AND (m.expires_at IS NULL OR m.expires_at > CURRENT_TIMESTAMP)
-                        """,
-                        [channel_id] + list(missing_parent_ids),
-                    ).fetchall()
-                    if not parent_rows:
-                        break
-
-                    next_missing_parent_ids = set()
-                    for row in parent_rows:
-                        message = _row_to_message(row, "parent")
-                        if not message or message.id in msg_ids:
-                            continue
-                        messages.append(message)
-                        msg_ids.add(message.id)
-                        if message.parent_message_id and message.parent_message_id not in msg_ids:
-                            next_missing_parent_ids.add(message.parent_message_id)
-                    # Keep original page ordering stable for pagination cursors and only append ancestors.
-                    missing_parent_ids = next_missing_parent_ids
+                messages = self._hydrate_missing_parent_messages(conn, channel_id, messages)
 
                 logger.debug(f"Retrieved {len(messages)} messages from channel {channel_id}")
                 return messages
-                
+
         except Exception as e:
             logger.error(f"Failed to get channel messages: {e}", exc_info=True)
+            return []
+
+    def get_channel_message_context(
+        self,
+        channel_id: str,
+        message_id: str,
+        user_id: str,
+        radius: int = 12,
+    ) -> List[Message]:
+        """Return a focused message window around a specific message id."""
+        if not channel_id or not message_id or not user_id:
+            return []
+        try:
+            access = self.get_channel_access_decision(
+                channel_id=channel_id,
+                user_id=user_id,
+                require_membership=True,
+            )
+            if not access.get('allowed'):
+                return []
+
+            radius = max(1, min(int(radius or 12), 50))
+            with self.db.get_connection() as conn:
+                target_row = conn.execute(
+                    """
+                    SELECT m.*, u.username as author_username
+                    FROM channel_messages m
+                    LEFT JOIN users u ON m.user_id = u.id
+                    WHERE m.channel_id = ? AND m.id = ?
+                      AND (m.expires_at IS NULL OR m.expires_at > CURRENT_TIMESTAMP)
+                    LIMIT 1
+                    """,
+                    (channel_id, message_id),
+                ).fetchone()
+                if not target_row:
+                    return []
+
+                pivot_created_at = target_row['created_at']
+                before_rows = conn.execute(
+                    """
+                    SELECT m.*, u.username as author_username
+                    FROM channel_messages m
+                    LEFT JOIN users u ON m.user_id = u.id
+                    WHERE m.channel_id = ?
+                      AND (m.expires_at IS NULL OR m.expires_at > CURRENT_TIMESTAMP)
+                      AND m.created_at < ?
+                    ORDER BY m.created_at DESC
+                    LIMIT ?
+                    """,
+                    (channel_id, pivot_created_at, radius),
+                ).fetchall()
+                after_rows = conn.execute(
+                    """
+                    SELECT m.*, u.username as author_username
+                    FROM channel_messages m
+                    LEFT JOIN users u ON m.user_id = u.id
+                    WHERE m.channel_id = ?
+                      AND (m.expires_at IS NULL OR m.expires_at > CURRENT_TIMESTAMP)
+                      AND m.created_at > ?
+                    ORDER BY m.created_at ASC
+                    LIMIT ?
+                    """,
+                    (channel_id, pivot_created_at, radius),
+                ).fetchall()
+
+                rows: List[Any] = list(reversed(before_rows)) + [target_row] + list(after_rows)
+                messages: List[Message] = []
+                seen_ids: set[str] = set()
+                for row in rows:
+                    message = self._row_to_channel_message(row, "context")
+                    if not message or message.id in seen_ids:
+                        continue
+                    seen_ids.add(message.id)
+                    messages.append(message)
+
+                messages = self._hydrate_missing_parent_messages(conn, channel_id, messages)
+                messages.sort(
+                    key=lambda m: (
+                        (m.created_at.isoformat() if hasattr(m.created_at, 'isoformat') else str(m.created_at)),
+                        m.id,
+                    )
+                )
+                return messages
+        except Exception as e:
+            logger.error(
+                "Failed to get channel message context channel=%s message=%s: %s",
+                channel_id,
+                message_id,
+                e,
+                exc_info=True,
+            )
             return []
 
     def get_channel_message(
@@ -4653,42 +4740,7 @@ class ChannelManager:
                 ).fetchone()
                 if not row:
                     return None
-                try:
-                    msg_type = MessageType(row['message_type'])
-                except (ValueError, KeyError):
-                    msg_type = MessageType.TEXT
-                created_at_raw = row['created_at'] or ''
-                try:
-                    created_at = datetime.fromisoformat(created_at_raw.replace('Z', '+00:00'))
-                except (ValueError, AttributeError):
-                    try:
-                        created_at = datetime.strptime(created_at_raw, '%Y-%m-%d %H:%M:%S')
-                    except Exception:
-                        created_at = datetime.now()
-                edited_at = None
-                if row.get('edited_at'):
-                    try:
-                        edited_at = datetime.fromisoformat(str(row['edited_at']).replace('Z', '+00:00'))
-                    except (ValueError, AttributeError):
-                        pass
-                expires_at = self._parse_datetime(row['expires_at']) if row.get('expires_at') else None
-                return Message(
-                    id=row['id'],
-                    channel_id=row['channel_id'],
-                    user_id=row['user_id'],
-                    content=row['content'] or '',
-                    message_type=msg_type,
-                    created_at=created_at,
-                    thread_id=row.get('thread_id'),
-                    parent_message_id=row.get('parent_message_id'),
-                    reactions=json.loads(row['reactions']) if row.get('reactions') else None,
-                    attachments=json.loads(row['attachments']) if row.get('attachments') else None,
-                    security=json.loads(row['security']) if row.get('security') else None,
-                    edited_at=edited_at,
-                    expires_at=expires_at,
-                    origin_peer=row.get('origin_peer'),
-                    crypto_state=row.get('crypto_state'),
-                )
+                return self._row_to_channel_message(row, "single")
         except Exception as e:
             logger.error(f"Failed to get channel message {message_id}: {e}", exc_info=True)
             return None
