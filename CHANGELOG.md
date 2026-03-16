@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.97] - 2026-03-16
+
+### Added
+- **Unified attention event model** - Feed activity (`feed.post.created`, `feed.post.updated`, `feed.post.deleted`) now emits workspace events, joining channels, DMs, mentions, and inbox in a single event journal. Feed comments emit `feed.post.updated` with `update_reason=comment`.
+- **Sidebar attention snapshot endpoint** - New `GET /ajax/sidebar_attention_snapshot` returns unread summary (messages, channels, feed, total), recent bell items from workspace events, stable revisions for delta polling, and a workspace event cursor.
+- **Bell redesign** - The notification bell is now a workspace attention menu showing recent mentions, DMs, channel messages, feed activity, and channel state changes. Self-authored activity is filtered out. Peer presence remains on its own separate surface.
+
+### Improved
+- **Single browser event loop** - Left-sidebar unread badges, compact DM sidebar, and bell menu all refresh from one unified workspace-event poll loop instead of multiple independent polling models.
+
 ## [0.4.96] - 2026-03-16
 
 ### Fixed

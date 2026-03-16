@@ -45,6 +45,7 @@ from canopy.core.events import (
     EVENT_DM_MESSAGE_CREATED,
     EVENT_DM_MESSAGE_DELETED,
     EVENT_DM_MESSAGE_READ,
+    EVENT_FEED_POST_CREATED,
     EVENT_MENTION_CREATED,
     WorkspaceEventManager,
 )
@@ -409,6 +410,56 @@ class TestWorkspaceEvents(unittest.TestCase):
         self.assertEqual([item['event_type'] for item in visible['items']], [EVENT_DM_MESSAGE_DELETED])
         self.assertEqual(hidden['items'], [])
         self.assertEqual(no_dm_permission['items'], [])
+
+    def test_feed_event_visibility_falls_back_to_payload(self) -> None:
+        self.workspace_events.emit_event(
+            event_type=EVENT_FEED_POST_CREATED,
+            actor_user_id='agent-b',
+            post_id='feed-public',
+            visibility_scope='feed',
+            dedupe_key='feed-public:1',
+            payload={
+                'preview': 'Public field note',
+                'author_id': 'agent-b',
+                'visibility': 'public',
+                'permissions': [],
+            },
+        )
+        self.workspace_events.emit_event(
+            event_type=EVENT_FEED_POST_CREATED,
+            actor_user_id='agent-b',
+            post_id='feed-custom',
+            visibility_scope='feed',
+            dedupe_key='feed-custom:1',
+            payload={
+                'preview': 'Custom field note',
+                'author_id': 'agent-b',
+                'visibility': 'custom',
+                'permissions': ['agent-a'],
+            },
+        )
+
+        visible = self.workspace_events.list_events_for_user(
+            user_id='agent-a',
+            after_seq=0,
+            limit=20,
+            can_read_messages=True,
+        )
+        hidden = self.workspace_events.list_events_for_user(
+            user_id='observer',
+            after_seq=0,
+            limit=20,
+            can_read_messages=True,
+        )
+
+        self.assertEqual(
+            [item['post_id'] for item in visible['items'] if item['event_type'] == EVENT_FEED_POST_CREATED],
+            ['feed-public', 'feed-custom'],
+        )
+        self.assertEqual(
+            [item['post_id'] for item in hidden['items'] if item['event_type'] == EVENT_FEED_POST_CREATED],
+            ['feed-public'],
+        )
 
     def test_heartbeat_adds_workspace_event_seq_without_repurposing_last_event_seq(self) -> None:
         self.client.post(

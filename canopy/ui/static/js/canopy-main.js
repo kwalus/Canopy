@@ -345,6 +345,9 @@
         const canopyInitialDmEventCursor = window.CANOPY_VARS ? Number(window.CANOPY_VARS.dmEventCursor || 0) : 0;
         const canopyInitialAttentionSummary = window.CANOPY_VARS ? (window.CANOPY_VARS.attentionSummary || { messages: 0, channels: 0, feed: 0, total: 0 }) : { messages: 0, channels: 0, feed: 0, total: 0 };
         const canopyInitialAttentionRev = window.CANOPY_VARS ? (window.CANOPY_VARS.attentionRev || '') : '';
+        const canopyInitialAttentionItems = window.CANOPY_VARS ? (window.CANOPY_VARS.attentionItems || []) : [];
+        const canopyInitialAttentionActivityRev = window.CANOPY_VARS ? (window.CANOPY_VARS.attentionActivityRev || '') : '';
+        const canopyInitialAttentionEventCursor = window.CANOPY_VARS ? Number(window.CANOPY_VARS.attentionEventCursor || 0) : 0;
         const canopyLocalPeerId = window.CANOPY_VARS ? String(window.CANOPY_VARS.localPeerId || '').trim() : '';
         const SIDEBAR_VISIBLE_PEER_LIMIT = 12;
         window.canopyPeerProfiles = canopyPeerProfiles || {};
@@ -712,18 +715,9 @@
             contacts: Array.isArray(canopyInitialRecentDmContacts) ? canopyInitialRecentDmContacts.slice(0) : [],
             currentRev: canopyInitialDmRev || '',
             currentEventCursor: Number.isFinite(canopyInitialDmEventCursor) ? canopyInitialDmEventCursor : 0,
-            pollInFlight: false,
             snapshotInFlight: false,
             queuedSnapshot: false,
-            pollHandle: null,
-            safetyHandle: null,
         };
-        const SIDEBAR_DM_EVENT_TYPES = [
-            'dm.message.created',
-            'dm.message.edited',
-            'dm.message.deleted',
-            'dm.message.read',
-        ];
 
         function canopyRenderSidebarDmContacts(contacts) {
             const listEl = document.getElementById('sidebar-dm-list');
@@ -835,9 +829,6 @@
                 canopySidebarDmState.contacts = [];
             }
             canopyRenderSidebarDmContacts(canopySidebarDmState.contacts);
-            if (window.requestCanopySidebarAttentionRefresh) {
-                window.requestCanopySidebarAttentionRefresh({ force: true }).catch(() => {});
-            }
         };
 
         function requestCanopySidebarDmRefresh(options) {
@@ -883,75 +874,7 @@
                 });
         }
 
-        function pollCanopySidebarDmEvents() {
-            if (canopySidebarDmState.pollInFlight) {
-                return;
-            }
-            const listEl = document.getElementById('sidebar-dm-list');
-            if (!listEl) {
-                return;
-            }
-
-            canopySidebarDmState.pollInFlight = true;
-            const query = new URLSearchParams();
-            query.set('after_seq', String(Number(canopySidebarDmState.currentEventCursor || 0)));
-            query.set('limit', '100');
-            SIDEBAR_DM_EVENT_TYPES.forEach((eventType) => query.append('types', eventType));
-
-            fetch(`/api/v1/events?${query.toString()}`, {
-                headers: {
-                    'X-Requested-With': 'XMLHttpRequest'
-                }
-            })
-                .then((res) => {
-                    if (!res.ok) {
-                        throw new Error(`Sidebar DM event poll failed (${res.status})`);
-                    }
-                    return res.json();
-                })
-                .then((data) => {
-                    if (!data || typeof data !== 'object') return;
-                    const nextSeq = Number(data.next_after_seq || 0);
-                    if (nextSeq > Number(canopySidebarDmState.currentEventCursor || 0)) {
-                        canopySidebarDmState.currentEventCursor = nextSeq;
-                    }
-                    const items = Array.isArray(data.items) ? data.items : [];
-                    if (!items.length) {
-                        return;
-                    }
-                    requestCanopySidebarDmRefresh({ force: false }).catch(() => {});
-                })
-                .catch(() => {})
-                .finally(() => {
-                    canopySidebarDmState.pollInFlight = false;
-                });
-        }
-
-        function startCanopySidebarDmPolling() {
-            const listEl = document.getElementById('sidebar-dm-list');
-            if (!listEl) return;
-            if (canopySidebarDmState.pollHandle) {
-                window.clearInterval(canopySidebarDmState.pollHandle);
-                canopySidebarDmState.pollHandle = null;
-            }
-            if (canopySidebarDmState.safetyHandle) {
-                window.clearInterval(canopySidebarDmState.safetyHandle);
-                canopySidebarDmState.safetyHandle = null;
-            }
-
-            pollCanopySidebarDmEvents();
-            canopySidebarDmState.pollHandle = window.setInterval(pollCanopySidebarDmEvents, 2500);
-            canopySidebarDmState.safetyHandle = window.setInterval(() => {
-                requestCanopySidebarDmRefresh({ force: false }).catch(() => {});
-            }, 30000);
-        }
-
         window.requestCanopySidebarDmRefresh = requestCanopySidebarDmRefresh;
-
-        document.addEventListener('DOMContentLoaded', function() {
-            canopyRenderSidebarDmContacts(canopySidebarDmState.contacts);
-            startCanopySidebarDmPolling();
-        });
 
         function formatSidebarUnreadCount(count) {
             const normalized = Math.max(0, Number(count) || 0);
@@ -981,20 +904,46 @@
         }
 
         const canopySidebarAttentionState = {
-            currentRev: canopyInitialAttentionRev || '',
+            currentSummaryRev: canopyInitialAttentionRev || '',
+            currentActivityRev: canopyInitialAttentionActivityRev || '',
             summary: {
                 messages: Math.max(0, Number(canopyInitialAttentionSummary.messages || 0)),
                 channels: Math.max(0, Number(canopyInitialAttentionSummary.channels || 0)),
                 feed: Math.max(0, Number(canopyInitialAttentionSummary.feed || 0)),
                 total: Math.max(0, Number(canopyInitialAttentionSummary.total || 0)),
             },
+            items: Array.isArray(canopyInitialAttentionItems) ? canopyInitialAttentionItems.slice(0) : [],
+            currentEventCursor: Math.max(
+                Number.isFinite(canopyInitialAttentionEventCursor) ? canopyInitialAttentionEventCursor : 0,
+                Number.isFinite(canopyInitialDmEventCursor) ? canopyInitialDmEventCursor : 0
+            ),
             inFlight: false,
             queued: false,
+            pollInFlight: false,
             pollHandle: null,
+            safetyHandle: null,
         };
 
+        const SIDEBAR_ATTENTION_EVENT_TYPES = [
+            'dm.message.created',
+            'dm.message.edited',
+            'dm.message.deleted',
+            'dm.message.read',
+            'channel.message.created',
+            'channel.message.edited',
+            'channel.message.deleted',
+            'channel.message.read',
+            'channel.state.updated',
+            'mention.created',
+            'mention.acknowledged',
+            'inbox.item.created',
+            'inbox.item.updated',
+            'feed.post.created',
+            'feed.post.updated',
+            'feed.post.deleted',
+        ];
+
         function requestCanopySidebarAttentionRefresh(options) {
-            const opts = options || {};
             if (canopySidebarAttentionState.inFlight) {
                 canopySidebarAttentionState.queued = true;
                 return Promise.resolve({ queued: true });
@@ -1002,28 +951,21 @@
 
             canopySidebarAttentionState.inFlight = true;
             const routes = (window.CANOPY_VARS && window.CANOPY_VARS.urls) || {};
-            const endpoint = routes.sidebarAttentionSummary || '/ajax/sidebar_attention_summary';
-            const query = new URLSearchParams();
-            if (!opts.force && canopySidebarAttentionState.currentRev) {
-                query.set('rev', String(canopySidebarAttentionState.currentRev || ''));
-            }
+            const endpoint = routes.sidebarAttentionSnapshot || '/ajax/sidebar_attention_snapshot';
 
-            return fetch(`${endpoint}${query.toString() ? `?${query.toString()}` : ''}`, {
+            return fetch(endpoint, {
                 headers: { 'X-Requested-With': 'XMLHttpRequest' }
             })
                 .then((res) => {
-                    if (!res.ok) {
-                        throw new Error(`Sidebar attention summary failed (${res.status})`);
-                    }
+                    if (!res.ok) throw new Error(`Sidebar attention snapshot failed (${res.status})`);
                     return res.json();
                 })
                 .then((data) => {
                     if (!data || data.success === false) return data || null;
-                    if (data.rev) {
-                        canopySidebarAttentionState.currentRev = String(data.rev || '');
-                    }
-                    if (data.changed === false) {
-                        return data;
+                    if (data.summary_rev) canopySidebarAttentionState.currentSummaryRev = String(data.summary_rev || '');
+                    if (data.activity_rev) canopySidebarAttentionState.currentActivityRev = String(data.activity_rev || '');
+                    if (Number(data.workspace_event_cursor || 0) > Number(canopySidebarAttentionState.currentEventCursor || 0)) {
+                        canopySidebarAttentionState.currentEventCursor = Number(data.workspace_event_cursor || 0);
                     }
                     const summary = data.summary && typeof data.summary === 'object' ? data.summary : {};
                     canopySidebarAttentionState.summary = {
@@ -1032,7 +974,11 @@
                         feed: Math.max(0, Number(summary.feed || 0)),
                         total: Math.max(0, Number(summary.total || 0)),
                     };
+                    canopySidebarAttentionState.items = Array.isArray(data.items) ? data.items.slice(0) : [];
                     renderSidebarAttentionSummary(canopySidebarAttentionState.summary);
+                    if (window.renderCanopyAttentionBell) {
+                        window.renderCanopyAttentionBell(canopySidebarAttentionState.items);
+                    }
                     return data;
                 })
                 .catch(() => null)
@@ -1047,33 +993,75 @@
                 });
         }
 
-        function startCanopySidebarAttentionPolling() {
-            const hasAnyBadge = document.getElementById('sidebar-nav-messages-badge')
-                || document.getElementById('sidebar-nav-channels-badge')
-                || document.getElementById('sidebar-nav-feed-badge');
-            if (!hasAnyBadge) return;
+        function pollCanopyWorkspaceAttentionEvents() {
+            if (canopySidebarAttentionState.pollInFlight) return;
+            canopySidebarAttentionState.pollInFlight = true;
+            const query = new URLSearchParams();
+            query.set('after_seq', String(Number(canopySidebarAttentionState.currentEventCursor || 0)));
+            query.set('limit', '100');
+            SIDEBAR_ATTENTION_EVENT_TYPES.forEach((eventType) => query.append('types', eventType));
+
+            fetch(`/api/v1/events?${query.toString()}`, {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            })
+                .then((res) => {
+                    if (!res.ok) throw new Error(`Workspace attention poll failed (${res.status})`);
+                    return res.json();
+                })
+                .then((data) => {
+                    if (!data || typeof data !== 'object') return;
+                    const nextSeq = Number(data.next_after_seq || 0);
+                    if (nextSeq > Number(canopySidebarAttentionState.currentEventCursor || 0)) {
+                        canopySidebarAttentionState.currentEventCursor = nextSeq;
+                    }
+                    if (nextSeq > Number(canopySidebarDmState.currentEventCursor || 0)) {
+                        canopySidebarDmState.currentEventCursor = nextSeq;
+                    }
+                    const items = Array.isArray(data.items) ? data.items : [];
+                    if (!items.length) return;
+                    requestCanopySidebarDmRefresh({ force: false }).catch(() => {});
+                    requestCanopySidebarAttentionRefresh({ force: false }).catch(() => {});
+                })
+                .catch(() => {})
+                .finally(() => {
+                    canopySidebarAttentionState.pollInFlight = false;
+                });
+        }
+
+        function startCanopyWorkspaceAttentionPolling() {
             renderSidebarAttentionSummary(canopySidebarAttentionState.summary);
-            if (canopySidebarAttentionState.pollHandle) {
-                window.clearInterval(canopySidebarAttentionState.pollHandle);
+            canopyRenderSidebarDmContacts(canopySidebarDmState.contacts);
+            if (window.renderCanopyAttentionBell) {
+                window.renderCanopyAttentionBell(canopySidebarAttentionState.items);
             }
+            if (canopySidebarAttentionState.pollHandle) window.clearInterval(canopySidebarAttentionState.pollHandle);
+            if (canopySidebarAttentionState.safetyHandle) window.clearInterval(canopySidebarAttentionState.safetyHandle);
             requestCanopySidebarAttentionRefresh({ force: false }).catch(() => {});
-            canopySidebarAttentionState.pollHandle = window.setInterval(() => {
+            requestCanopySidebarDmRefresh({ force: false }).catch(() => {});
+            pollCanopyWorkspaceAttentionEvents();
+            canopySidebarAttentionState.pollHandle = window.setInterval(pollCanopyWorkspaceAttentionEvents, 2500);
+            canopySidebarAttentionState.safetyHandle = window.setInterval(() => {
                 requestCanopySidebarAttentionRefresh({ force: false }).catch(() => {});
-            }, 12000);
+                requestCanopySidebarDmRefresh({ force: false }).catch(() => {});
+            }, 30000);
             document.addEventListener('visibilitychange', function() {
                 if (document.visibilityState === 'visible') {
+                    pollCanopyWorkspaceAttentionEvents();
                     requestCanopySidebarAttentionRefresh({ force: false }).catch(() => {});
+                    requestCanopySidebarDmRefresh({ force: false }).catch(() => {});
                 }
             });
             window.addEventListener('focus', function() {
+                pollCanopyWorkspaceAttentionEvents();
                 requestCanopySidebarAttentionRefresh({ force: false }).catch(() => {});
+                requestCanopySidebarDmRefresh({ force: false }).catch(() => {});
             });
         }
 
         window.requestCanopySidebarAttentionRefresh = requestCanopySidebarAttentionRefresh;
 
         document.addEventListener('DOMContentLoaded', function() {
-            startCanopySidebarAttentionPolling();
+            startCanopyWorkspaceAttentionPolling();
         });
 
         window.renderAvatarStack = function(container, options) {
@@ -4386,99 +4374,16 @@
             });
         }, 30000);
 
-        // --- Peer Activity Notifications (Phase 1) ---
-        function initPeerActivityNotifications() {
-	            const bellBtn = document.getElementById('notificationBell');
-	            const badgeEl = document.getElementById('notificationBadge');
-	            const listEl = document.getElementById('notificationList');
-	            const emptyWrap = document.getElementById('notificationEmptyWrap');
-	            const clearBtn = document.getElementById('notificationClear');
-
-            if (!bellBtn || !badgeEl || !listEl) {
-                return;
-            }
-
-	            let notificationCount = 0;
-	            let events = [];
-	            const seenEventIds = new Set();
-            const unreadSemanticKeys = new Set();
-	            let initialized = false;
-	            const localUserId = (window.CANOPY_VARS && window.CANOPY_VARS.localUserId) || null;
-	            const routes = {
-	                feed: (window.CANOPY_VARS && window.CANOPY_VARS.urls && window.CANOPY_VARS.urls.feed) || '/feed',
-	                channels: (window.CANOPY_VARS && window.CANOPY_VARS.urls && window.CANOPY_VARS.urls.channels) || '/channels',
-	                messages: (window.CANOPY_VARS && window.CANOPY_VARS.urls && window.CANOPY_VARS.urls.messages) || '/messages',
-	            };
-
-            function peerDisplayName(peerId) {
-                if (window.canopyPeerDisplayName) {
-                    return window.canopyPeerDisplayName(peerId);
-                }
-                const nameEl = document.querySelector(`.sidebar-peer[data-peer-id="${peerId}"] .sidebar-peer-name`);
-                if (nameEl && nameEl.textContent) {
-                    return nameEl.textContent.trim();
-                }
-                return (peerId || '').slice(0, 12);
-            }
-
-            function peerAvatarSrc(peerId) {
-                if (window.canopyPeerAvatarSrc) {
-                    return window.canopyPeerAvatarSrc(peerId);
-                }
-                const imgEl = document.querySelector(`.sidebar-peer[data-peer-id="${peerId}"] .sidebar-peer-avatar img`);
-                const src = imgEl ? imgEl.getAttribute('src') : null;
-                return src || null;
-            }
-
-            const userDisplayCache = {};
-            let pendingUserIds = new Set();
-            let userFetchTimer = null;
-
-            function scheduleUserInfoFetch(userIds) {
-                if (!userIds || !userIds.length) return;
-                userIds.forEach(uid => {
-                    if (!uid || userDisplayCache[uid]) return;
-                    pendingUserIds.add(uid);
-                });
-                if (!pendingUserIds.size) return;
-                if (userFetchTimer) return;
-                userFetchTimer = setTimeout(() => {
-                    const ids = Array.from(pendingUserIds);
-                    pendingUserIds = new Set();
-                    userFetchTimer = null;
-                    fetch(`/ajax/get_user_display_info?user_ids=${ids.join(',')}`)
-                        .then(r => r.json())
-                        .then(data => {
-                            if (data && data.success && data.users) {
-                                Object.keys(data.users).forEach(uid => {
-                                    userDisplayCache[uid] = data.users[uid];
-                                });
-                                renderMenu();
-                            }
-                        })
-                        .catch(() => {});
-                }, 150);
-            }
-
-            function getUserRefId(evt) {
-                if (!evt) return null;
-                const ref = evt.ref || {};
-                return ref.user_id || ref.author_id || ref.sender_id || null;
-            }
-
-            function formatKind(kind) {
-                if (!kind) return '';
-                if (kind === 'feed_post') return 'feed post';
-                if (kind === 'channel_message') return 'channel message';
-                if (kind === 'direct_message') return 'direct message';
-                if (kind === 'interaction') return 'interaction';
-                if (kind === 'mention') return 'mention';
-                return String(kind).replace(/_/g, ' ');
-            }
+        // --- Attention center + peer rail ---
+        function initCanopyAttentionCenter() {
+            const bellBtn = document.getElementById('notificationBell');
+            const badgeEl = document.getElementById('notificationBadge');
+            const listEl = document.getElementById('notificationList');
+            const emptyWrap = document.getElementById('notificationEmptyWrap');
+            const clearBtn = document.getElementById('notificationClear');
 
             function cleanPreview(text) {
                 const s = String(text || '').replace(/\s+/g, ' ').trim();
-                // Light markdown cleanup for readability in a 1-2 line preview.
                 return s
                     .replace(/\*\*(.*?)\*\*/g, '$1')
                     .replace(/__(.*?)__/g, '$1')
@@ -4487,257 +4392,44 @@
             }
 
             function setBadge(count) {
-                if (count > 0) {
+                if (!badgeEl) return;
+                const normalized = Math.max(0, Number(count) || 0);
+                if (normalized > 0) {
                     badgeEl.style.display = 'inline-flex';
-                    badgeEl.textContent = count > 99 ? '99+' : String(count);
+                    badgeEl.textContent = normalized > 99 ? '99+' : String(normalized);
                 } else {
                     badgeEl.style.display = 'none';
+                    badgeEl.textContent = '0';
                 }
             }
 
-            function markPeerActive(peerId) {
-                const peerEl = document.querySelector(`.sidebar-peer[data-peer-id="${peerId}"]`);
-                if (!peerEl) return;
-                peerEl.classList.add('activity');
-	                setTimeout(() => peerEl.classList.remove('activity'), 4500);
-	            }
-
-            function otherUserIdFromDirectMessage(ref) {
-	                if (!ref) return null;
-	                const sender = ref.sender_id;
-	                const recipient = ref.recipient_id;
-	                if (localUserId && sender && recipient) {
-	                    return sender === localUserId ? recipient : sender;
-	                }
-	                return sender || recipient || null;
-	            }
-
-            function directMessageInvolvesLocalUser(evt) {
-                if (!evt || evt.kind !== 'direct_message') return true;
-                const ref = evt.ref || {};
-                const sender = ref.sender_id || '';
-                const recipient = ref.recipient_id || '';
-                if (!localUserId) return true;
-                return sender === localUserId || recipient === localUserId;
-            }
-
-            function eventRefKey(evt) {
-                if (!evt) return null;
-                const ref = evt.ref || {};
-                if (ref.message_id) return `msg:${ref.message_id}`;
-                if (ref.post_id) return `post:${ref.post_id}`;
-                return null;
-            }
-
-            function activitySemanticKey(evt) {
-                if (!evt) return null;
-                const ref = evt.ref || {};
-                const kind = String(evt.kind || '').trim();
-                if (ref.message_id) {
-                    if (kind === 'direct_message') return `dm:${ref.message_id}`;
-                    return `msg:${ref.message_id}`;
+            window.renderCanopyAttentionBell = function(items) {
+                const normalized = Array.isArray(items) ? items.filter(Boolean).slice(0, 12) : [];
+                if (!listEl) {
+                    setBadge(normalized.length);
+                    return;
                 }
-                if (ref.post_id) return `post:${ref.post_id}`;
-                if (kind === 'channel_added' && ref.channel_id && ref.user_id) {
-                    return `channel_added:${ref.channel_id}:${ref.user_id}`;
-                }
-                if (kind === 'interaction' && ref.item_type && ref.item_id) {
-                    return `interaction:${ref.item_type}:${ref.item_id}:${ref.action || ''}:${ref.user_id || ''}`;
-                }
-                return evt.id || `${evt.peer_id || ''}:${kind}:${evt.timestamp || ''}`;
-            }
-
-            function activityPriority(evt) {
-                const kind = String(evt && evt.kind || '').trim();
-                if (kind === 'mention') return 50;
-                if (kind === 'direct_message') return 45;
-                if (kind === 'channel_added') return 40;
-                if (kind === 'interaction') return 30;
-                if (kind === 'channel_message') return 20;
-                if (kind === 'feed_post') return 10;
-                return 0;
-            }
-
-            function mergeActivityEvent(existingEvt, incomingEvt) {
-                if (!existingEvt) return incomingEvt;
-                if (!incomingEvt) return existingEvt;
-                const existingPriority = activityPriority(existingEvt);
-                const incomingPriority = activityPriority(incomingEvt);
-                if (incomingPriority > existingPriority) return incomingEvt;
-                if (incomingPriority < existingPriority) return existingEvt;
-                const existingTs = Number(existingEvt.timestamp || 0);
-                const incomingTs = Number(incomingEvt.timestamp || 0);
-                return incomingTs >= existingTs ? incomingEvt : existingEvt;
-            }
-
-	            function navigateToActivity(evt) {
-	                if (!evt) return;
-	                const kind = evt.kind || '';
-	                const ref = evt.ref || {};
-
-	                try {
-	                    if (kind === 'mention') {
-	                        if (ref.message_id) {
-                                window.location.href = `/channels/locate?message_id=${encodeURIComponent(ref.message_id)}`;
-                                return;
-                            }
-	                        if (ref.channel_id) {
-	                            const url = new URL(routes.channels, window.location.origin);
-	                            url.searchParams.set('focus_channel', ref.channel_id);
-	                            window.location.href = url.toString();
-	                            return;
-	                        }
-	                        if (ref.post_id) {
-	                            const url = new URL(routes.feed, window.location.origin);
-	                            url.searchParams.set('focus_post', ref.post_id);
-	                            window.location.href = url.toString();
-	                            return;
-	                        }
-	                    }
-	                    if (kind === 'feed_post' && ref.post_id) {
-	                        const url = new URL(routes.feed, window.location.origin);
-	                        url.searchParams.set('focus_post', ref.post_id);
-	                        window.location.href = url.toString();
-	                        return;
-	                    }
-	                    if (kind === 'channel_message') {
-                            if (ref.message_id) {
-                                window.location.href = `/channels/locate?message_id=${encodeURIComponent(ref.message_id)}`;
-                                return;
-                            }
-	                        if (ref.channel_id) {
-	                            const url = new URL(routes.channels, window.location.origin);
-	                            url.searchParams.set('focus_channel', ref.channel_id);
-	                            window.location.href = url.toString();
-	                            return;
-	                        }
-	                    }
-	                    if (kind === 'direct_message') {
-	                        const otherUserId = otherUserIdFromDirectMessage(ref);
-	                        const url = new URL(routes.messages, window.location.origin);
-	                        if (otherUserId) url.searchParams.set('with', otherUserId);
-                            if (ref.message_id) url.hash = `message-${ref.message_id}`;
-	                        window.location.href = url.toString();
-	                        return;
-	                    }
-	                    if (kind === 'channel_added' && ref.channel_id) {
-	                        const url = new URL(routes.channels, window.location.origin);
-	                        url.searchParams.set('focus_channel', ref.channel_id);
-	                        window.location.href = url.toString();
-	                        return;
-	                    }
-	                    if (kind === 'interaction') {
-	                        // Best-effort: route to the affected post when possible.
-	                        if (ref.item_type === 'post' && ref.item_id) {
-	                            const url = new URL(routes.feed, window.location.origin);
-	                            url.searchParams.set('focus_post', ref.item_id);
-	                            window.location.href = url.toString();
-	                            return;
-	                        }
-	                        if (ref.item_type === 'poll') {
-	                            const pollId = ref.poll_id || ref.item_id;
-	                            const pollKind = ref.poll_kind || 'feed';
-	                            if (pollKind === 'channel' && ref.channel_id) {
-	                                const url = new URL(routes.channels, window.location.origin);
-	                                url.searchParams.set('focus_channel', ref.channel_id);
-	                                if (pollId) url.searchParams.set('focus_message', pollId);
-	                                window.location.href = url.toString();
-	                                return;
-	                            }
-	                            if (pollId) {
-	                                const url = new URL(routes.feed, window.location.origin);
-	                                url.searchParams.set('focus_post', pollId);
-	                                window.location.href = url.toString();
-	                                return;
-	                            }
-	                        }
-	                    }
-	                } catch (_) {
-	                    // Fallback: no-op; keep menu open.
-	                }
-	            }
-
-	            function renderMenu() {
-	                listEl.innerHTML = '';
-
-                if (!events.length) {
+                listEl.innerHTML = '';
+                setBadge(normalized.length);
+                if (!normalized.length) {
                     if (emptyWrap) emptyWrap.style.display = 'block';
                     return;
                 }
-
                 if (emptyWrap) emptyWrap.style.display = 'none';
 
-                events.forEach(evt => {
+                normalized.forEach((item) => {
                     const btn = document.createElement('button');
                     btn.type = 'button';
                     btn.className = 'dropdown-item notification-item';
 
-                    const peerName = peerDisplayName(evt.peer_id);
-                    const userId = getUserRefId(evt);
-                    const userInfo = userId ? userDisplayCache[userId] : null;
-                    const userLabel = userInfo ? (userInfo.display_name || userInfo.username || userId) : null;
-                    const userHandle = userInfo ? (userInfo.username || userId) : (userId || null);
-                    const timeStr = new Date(evt.timestamp * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-                    const shortId = `${(evt.peer_id || '').slice(0, 12)}...`;
-                    const kind = formatKind(evt.kind || '');
-                    const preview = cleanPreview(evt.preview || '');
-
                     const row = document.createElement('div');
                     row.className = 'activity-row';
 
-                    let avatar;
-                    if (userId) {
-                        avatar = document.createElement('div');
-                        avatar.className = 'activity-avatar-stack avatar-stack';
-
-                        if (window.renderAvatarStack) {
-                            window.renderAvatarStack(avatar, {
-                                userId: userId,
-                                userLabel: userLabel || userId,
-                                userAvatarUrl: userInfo ? userInfo.avatar_url : null,
-                                peerId: evt.peer_id
-                            });
-                        } else {
-                            const userAvatar = document.createElement('div');
-                            userAvatar.className = 'avatar-user';
-                            if (userInfo && userInfo.avatar_url) {
-                                const img = document.createElement('img');
-                                img.src = userInfo.avatar_url;
-                                img.alt = userLabel || userId;
-                                userAvatar.appendChild(img);
-                            } else {
-                                const letter = (userLabel || userId || '?').slice(0, 1).toUpperCase();
-                                userAvatar.textContent = letter;
-                            }
-                            const peerAvatar = document.createElement('div');
-                            peerAvatar.className = 'avatar-peer';
-                            const peerSrc = peerAvatarSrc(evt.peer_id);
-                            if (peerSrc) {
-                                const img = document.createElement('img');
-                                img.src = peerSrc;
-                                img.alt = peerName;
-                                peerAvatar.appendChild(img);
-                            } else {
-                                const letter = (peerName || '?').slice(0, 1).toUpperCase();
-                                peerAvatar.textContent = letter;
-                            }
-                            avatar.appendChild(userAvatar);
-                            avatar.appendChild(peerAvatar);
-                        }
-                    } else {
-                        avatar = document.createElement('div');
-                        avatar.className = 'activity-avatar';
-                        const avatarSrc = peerAvatarSrc(evt.peer_id);
-                        if (avatarSrc) {
-                            const img = document.createElement('img');
-                            img.src = avatarSrc;
-                            img.alt = peerName;
-                            avatar.appendChild(img);
-                        } else {
-                            const letter = (peerName || '?').slice(0, 1).toUpperCase();
-                            avatar.textContent = letter;
-                        }
-                    }
+                    const iconWrap = document.createElement('div');
+                    iconWrap.className = 'activity-avatar';
+                    const icon = document.createElement('i');
+                    icon.className = String(item.icon || 'bi-bell');
+                    iconWrap.appendChild(icon);
 
                     const body = document.createElement('div');
                     body.className = 'activity-body';
@@ -4745,141 +4437,87 @@
                     const top = document.createElement('div');
                     top.className = 'activity-top';
 
-                    const nameEl = document.createElement('span');
-                    nameEl.className = 'activity-name';
-                    if (userLabel) {
-                        nameEl.textContent = userLabel;
-                        if (userHandle) {
-                            const handleEl = document.createElement('span');
-                            handleEl.className = 'activity-handle';
-                            handleEl.textContent = '@' + userHandle;
-                            nameEl.appendChild(handleEl);
-                        }
-                    } else {
-                        nameEl.textContent = peerName;
-                    }
+                    const titleEl = document.createElement('span');
+                    titleEl.className = 'activity-name';
+                    titleEl.textContent = String(item.title || 'Activity');
 
                     const timeEl = document.createElement('span');
                     timeEl.className = 'activity-time';
-                    timeEl.textContent = timeStr;
+                    if (item.created_at) {
+                        timeEl.textContent = formatTimestamp(item.created_at);
+                        timeEl.setAttribute('data-timestamp', item.created_at);
+                    }
 
-                    top.appendChild(nameEl);
+                    top.appendChild(titleEl);
                     top.appendChild(timeEl);
 
                     const sub = document.createElement('div');
                     sub.className = 'activity-sub';
-                    if (userLabel) {
-                        sub.textContent = `via ${peerName} \u2022 ${kind} \u2022 ${preview || shortId}`;
+                    const meta = String(item.meta || '').trim();
+                    const preview = cleanPreview(item.preview || '');
+                    if (meta && preview) {
+                        sub.textContent = `${meta} • ${preview}`;
                     } else {
-                        sub.textContent = `${kind} \u2022 ${preview || shortId}`;
+                        sub.textContent = meta || preview || 'Open';
                     }
 
                     body.appendChild(top);
                     body.appendChild(sub);
 
-                    row.appendChild(avatar);
+                    row.appendChild(iconWrap);
                     row.appendChild(body);
                     btn.appendChild(row);
-
-	                    btn.addEventListener('click', () => {
-	                        markPeerActive(evt.peer_id);
-	                        navigateToActivity(evt);
-	                    });
-	                    listEl.appendChild(btn);
+                    btn.addEventListener('click', () => {
+                        const href = String(item.href || '').trim();
+                        if (href) window.location.href = href;
+                    });
+                    listEl.appendChild(btn);
                 });
-	            }
+            };
 
-            function recordEvent(evt) {
-                const semanticKey = activitySemanticKey(evt);
-                if (!semanticKey) return;
-                const uid = getUserRefId(evt);
-                if (uid) scheduleUserInfoFetch([uid]);
-
-                const existingIndex = events.findIndex((existingEvt) => activitySemanticKey(existingEvt) === semanticKey);
-                if (existingIndex >= 0) {
-                    const merged = mergeActivityEvent(events[existingIndex], evt);
-                    events.splice(existingIndex, 1);
-                    events.unshift(merged);
-                } else {
-                    events.unshift(evt);
-                }
-                events = events.slice(0, 12);
-                if (!unreadSemanticKeys.has(semanticKey)) {
-                    unreadSemanticKeys.add(semanticKey);
-                    notificationCount += 1;
-                }
-                setBadge(notificationCount);
-                renderMenu();
-                markPeerActive(evt.peer_id);
+            if (clearBtn) {
+                clearBtn.addEventListener('click', () => {
+                    canopySidebarAttentionState.items = [];
+                    if (window.renderCanopyAttentionBell) {
+                        window.renderCanopyAttentionBell([]);
+                    }
+                });
             }
+
+            if (bellBtn) {
+                bellBtn.addEventListener('click', () => {
+                    if (window.renderCanopyAttentionBell) {
+                        window.renderCanopyAttentionBell(canopySidebarAttentionState.items);
+                    }
+                });
+            }
+
+            if (window.renderCanopyAttentionBell) {
+                window.renderCanopyAttentionBell(canopySidebarAttentionState.items);
+            }
+        }
+
+        function startCanopySidebarPeerPolling() {
+            const endpoint = ((window.CANOPY_VARS && window.CANOPY_VARS.urls) || {}).peerActivity || '/ajax/peer_activity';
 
             function poll() {
                 const params = new URLSearchParams();
                 if (canopySidebarPeerState.currentRev) {
                     params.set('peer_rev', canopySidebarPeerState.currentRev);
                 }
-                const query = params.toString();
-                fetch(`/ajax/peer_activity${query ? `?${query}` : ''}`)
+                fetch(`${endpoint}${params.toString() ? `?${params.toString()}` : ''}`)
                     .then(r => r.json())
                     .then(data => {
                         if (!data || data.success === false) return;
                         if (window.syncCanopySidebarPeers && (data.peer_changed !== false || data.peer_rev)) {
                             window.syncCanopySidebarPeers(data);
                         }
-                        const incoming = data.events || [];
-                        if (!initialized) {
-                            incoming.forEach(evt => {
-                                const eventId = evt.id || `${evt.peer_id}:${evt.kind}:${evt.timestamp}`;
-                                seenEventIds.add(eventId);
-                            });
-                            initialized = true;
-                            return;
-                        }
-
-                        incoming.forEach(evt => {
-                            const eventId = evt.id || `${evt.peer_id}:${evt.kind}:${evt.timestamp}`;
-                            if (seenEventIds.has(eventId)) return;
-                            seenEventIds.add(eventId);
-
-                            // Connection events belong on the Connect page timeline,
-                            // not in the global notification bell.
-                            if (evt.kind === 'connection') return;
-
-                            // Skip notifications about our own activity
-                            const ref = evt.ref || {};
-                            const originUser = ref.user_id || ref.sender_id || ref.author_id || '';
-                            if (localUserId && originUser === localUserId) return;
-                            if (!directMessageInvolvesLocalUser(evt)) return;
-
-                            recordEvent(evt);
-                        });
-                        const newUserIds = incoming.map(evt => getUserRefId(evt)).filter(Boolean);
-                        scheduleUserInfoFetch(newUserIds);
                     })
                     .catch(() => {});
             }
 
-            bellBtn.addEventListener('click', () => {
-                // Opening the bell acknowledges current count, but keeps the history in the menu.
-                notificationCount = 0;
-                unreadSemanticKeys.clear();
-                setBadge(0);
-            });
-
-            if (clearBtn) {
-                clearBtn.addEventListener('click', () => {
-                    events = [];
-                    unreadSemanticKeys.clear();
-                    notificationCount = 0;
-                    setBadge(0);
-                    renderMenu();
-                });
-            }
-
-            setBadge(0);
-            renderMenu();
             poll();
-            setInterval(poll, 2500);
+            window.setInterval(poll, 2500);
         }
 
         // --- Sidebar media mini player (audio/video/youtube off-screen helper) ---
@@ -6544,7 +6182,8 @@
             initContentContextModal();
             initSidebarToggle();
             initMobileOptimizations();
-            initPeerActivityNotifications();
+            initCanopyAttentionCenter();
+            startCanopySidebarPeerPolling();
         });
         
         // Mobile-specific optimizations

@@ -63,6 +63,9 @@ from .events import (
     EVENT_CHANNEL_MESSAGE_DELETED,
     EVENT_CHANNEL_MESSAGE_EDITED,
     EVENT_DM_MESSAGE_DELETED,
+    EVENT_FEED_POST_CREATED,
+    EVENT_FEED_POST_DELETED,
+    EVENT_FEED_POST_UPDATED,
     WorkspaceEventManager,
 )
 from .large_attachments import (
@@ -300,6 +303,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
         logger.info("Initializing interaction manager...")
         interaction_manager = InteractionManager(db_manager)
+        interaction_manager.workspace_events = workspace_event_manager
         app.config['INTERACTION_MANAGER'] = interaction_manager
         logger.info("Interaction manager initialized successfully")
 
@@ -329,6 +333,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
         logger.info("Initializing feed manager...")
         feed_manager = FeedManager(db_manager, api_key_manager)
+        feed_manager.workspace_events = workspace_event_manager
         app.config['FEED_MANAGER'] = feed_manager
         logger.info("Feed manager initialized successfully")
 
@@ -5136,6 +5141,21 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                     pid,
                                     mention_sync_err,
                                 )
+                            try:
+                                updated_post = feed_manager.get_post(pid)
+                                if updated_post:
+                                    feed_manager._emit_post_event(
+                                        event_type=EVENT_FEED_POST_UPDATED,
+                                        post=updated_post,
+                                        created_at=datetime.now(timezone.utc),
+                                        update_reason='sync',
+                                    )
+                            except Exception as workspace_event_err:
+                                logger.warning(
+                                    "Failed to emit P2P feed update event for %s: %s",
+                                    pid,
+                                    workspace_event_err,
+                                )
                         return
                     conn.execute("""
                         INSERT OR IGNORE INTO feed_posts
@@ -5146,6 +5166,21 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     conn.commit()
 
                 logger.info(f"Stored P2P feed post {pid} by {author_id} from peer {from_peer}")
+                try:
+                    created_post = feed_manager.get_post(pid)
+                    if created_post:
+                        feed_manager._emit_post_event(
+                            event_type=EVENT_FEED_POST_CREATED,
+                            post=created_post,
+                            created_at=created_dt,
+                            update_reason='sync',
+                        )
+                except Exception as workspace_event_err:
+                    logger.warning(
+                        "Failed to emit P2P feed create event for %s: %s",
+                        pid,
+                        workspace_event_err,
+                    )
 
                 if is_new_post:
                     mentions = extract_mentions(content or '')
@@ -6208,12 +6243,27 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 elif data_type in ('feed_post', 'post'):
                     # Delete a feed post
                     try:
+                        deleted_post = feed_manager.get_post(data_id) if feed_manager else None
                         with db_manager.get_connection() as conn:
                             cur = conn.execute(
                                 "DELETE FROM feed_posts WHERE id = ?",
                                 (data_id,))
                             conn.commit()
                             deleted = cur.rowcount > 0
+                        if deleted and feed_manager and deleted_post:
+                            try:
+                                feed_manager._emit_post_event(
+                                    event_type=EVENT_FEED_POST_DELETED,
+                                    post=deleted_post,
+                                    created_at=datetime.now(timezone.utc),
+                                    update_reason='sync-delete',
+                                )
+                            except Exception as workspace_event_err:
+                                logger.warning(
+                                    "Failed to emit P2P feed delete event for %s: %s",
+                                    data_id,
+                                    workspace_event_err,
+                                )
                     except Exception as del_err:
                         logger.error(f"Failed to delete feed post {data_id}: {del_err}")
 

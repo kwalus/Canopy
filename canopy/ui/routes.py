@@ -60,7 +60,23 @@ from ..core.agent_presence import (
     build_agent_presence_payload,
 )
 from ..core.agent_runtime import build_agent_runtime_payload
-from ..core.events import PATCH1_EVENT_TYPES, EVENT_CHANNEL_MESSAGE_EDITED
+from ..core.events import (
+    PATCH1_EVENT_TYPES,
+    EVENT_CHANNEL_MESSAGE_CREATED,
+    EVENT_CHANNEL_MESSAGE_DELETED,
+    EVENT_CHANNEL_MESSAGE_EDITED,
+    EVENT_CHANNEL_MESSAGE_READ,
+    EVENT_CHANNEL_STATE_UPDATED,
+    EVENT_DM_MESSAGE_CREATED,
+    EVENT_DM_MESSAGE_DELETED,
+    EVENT_DM_MESSAGE_READ,
+    EVENT_FEED_POST_CREATED,
+    EVENT_FEED_POST_DELETED,
+    EVENT_FEED_POST_UPDATED,
+    EVENT_INBOX_ITEM_CREATED,
+    EVENT_INBOX_ITEM_UPDATED,
+    EVENT_MENTION_CREATED,
+)
 from ..core.file_preview import build_file_preview
 from ..core.messaging import (
     build_dm_security_summary,
@@ -463,15 +479,19 @@ def create_ui_blueprint() -> Blueprint:
                 'sidebar_dm_event_cursor': int((workspace_event_manager.get_latest_seq() if workspace_event_manager else 0) or 0),
                 'sidebar_local_peer_id': local_peer_id,
             }
-            attention_snapshot = _build_sidebar_attention_summary(
+            attention_snapshot = _build_sidebar_attention_snapshot(
                 db_manager,
                 channel_manager,
                 feed_manager,
                 p2p_manager,
+                workspace_event_manager,
                 current_user_id,
             )
             out['sidebar_attention_summary'] = attention_snapshot['summary']
-            out['sidebar_attention_rev'] = attention_snapshot['rev']
+            out['sidebar_attention_rev'] = attention_snapshot['summary_rev']
+            out['sidebar_attention_items'] = attention_snapshot['items']
+            out['sidebar_attention_activity_rev'] = attention_snapshot['activity_rev']
+            out['sidebar_attention_event_cursor'] = attention_snapshot['workspace_event_cursor']
             # Admin link and badge (instance owner only)
             owner_id = db_manager.get_instance_owner_user_id()
             if owner_id and session.get('user_id') == owner_id:
@@ -1696,6 +1716,295 @@ def create_ui_blueprint() -> Blueprint:
         return {
             'summary': summary,
             'rev': _stable_ui_revision(summary),
+        }
+
+    _ATTENTION_ACTIVITY_EVENT_TYPES = [
+        EVENT_MENTION_CREATED,
+        EVENT_INBOX_ITEM_CREATED,
+        EVENT_INBOX_ITEM_UPDATED,
+        EVENT_DM_MESSAGE_CREATED,
+        EVENT_CHANNEL_MESSAGE_CREATED,
+        EVENT_CHANNEL_STATE_UPDATED,
+        EVENT_FEED_POST_CREATED,
+        EVENT_FEED_POST_UPDATED,
+        EVENT_FEED_POST_DELETED,
+    ]
+
+    def _sidebar_user_label(db_manager: Any, user_id: Optional[str]) -> str:
+        clean_user_id = str(user_id or '').strip()
+        if not clean_user_id or not db_manager:
+            return ''
+        try:
+            row = db_manager.get_user(clean_user_id)
+        except Exception:
+            row = None
+        if not row:
+            return clean_user_id
+        return (
+            str(row.get('display_name') or '').strip()
+            or str(row.get('username') or '').strip()
+            or clean_user_id
+        )
+
+    def _sidebar_channel_name(channel_manager: Any, channel_id: Optional[str]) -> str:
+        clean_channel_id = str(channel_id or '').strip()
+        if not clean_channel_id or not channel_manager:
+            return ''
+        try:
+            channel = channel_manager.get_channel(clean_channel_id)
+        except Exception:
+            channel = None
+        if not channel:
+            return ''
+        return str(getattr(channel, 'name', '') or '').strip()
+
+    def _attention_activity_priority(event_type: str, payload: dict[str, Any]) -> int:
+        reason = str((payload or {}).get('update_reason') or '').strip().lower()
+        if event_type == EVENT_MENTION_CREATED:
+            return 100
+        if event_type == EVENT_INBOX_ITEM_CREATED:
+            return 95
+        if event_type == EVENT_INBOX_ITEM_UPDATED:
+            return 90
+        if event_type == EVENT_DM_MESSAGE_CREATED:
+            return 85
+        if event_type == EVENT_CHANNEL_MESSAGE_CREATED:
+            return 80
+        if event_type == EVENT_FEED_POST_UPDATED and reason == 'comment':
+            return 75
+        if event_type == EVENT_FEED_POST_CREATED:
+            return 70
+        if event_type == EVENT_FEED_POST_UPDATED:
+            return 65
+        if event_type == EVENT_FEED_POST_DELETED:
+            return 55
+        if event_type == EVENT_CHANNEL_STATE_UPDATED:
+            return 50
+        return 0
+
+    def _attention_activity_semantic_key(item: dict[str, Any]) -> str:
+        event_type = str(item.get('event_type') or '').strip()
+        payload = item.get('payload') if isinstance(item.get('payload'), dict) else {}
+        source_type = str(payload.get('source_type') or '').strip()
+        source_id = str(payload.get('source_id') or '').strip()
+        if source_type and source_id and event_type in {
+            EVENT_MENTION_CREATED,
+            EVENT_INBOX_ITEM_CREATED,
+            EVENT_INBOX_ITEM_UPDATED,
+        }:
+            return f"source:{source_type}:{source_id}"
+        message_id = str(item.get('message_id') or '').strip()
+        if message_id:
+            if event_type == EVENT_DM_MESSAGE_CREATED:
+                return f"dm:{message_id}"
+            return f"message:{message_id}"
+        post_id = str(item.get('post_id') or '').strip()
+        if post_id:
+            reason = str(payload.get('update_reason') or '').strip().lower()
+            if event_type == EVENT_FEED_POST_UPDATED and reason:
+                return f"feed:{post_id}:{reason}"
+            return f"feed:{post_id}"
+        channel_id = str(item.get('channel_id') or '').strip()
+        if channel_id:
+            action = str(payload.get('action') or '').strip().lower()
+            return f"channel:{channel_id}:{action or event_type}"
+        return str(item.get('event_id') or '')
+
+    def _build_sidebar_attention_item(
+        db_manager: Any,
+        channel_manager: Any,
+        user_id: str,
+        item: dict[str, Any],
+    ) -> Optional[dict[str, Any]]:
+        event_type = str(item.get('event_type') or '').strip()
+        payload = item.get('payload') if isinstance(item.get('payload'), dict) else {}
+        actor_user_id = str(item.get('actor_user_id') or '').strip()
+        if actor_user_id and actor_user_id == str(user_id or '').strip():
+            return None
+
+        created_at = item.get('created_at')
+        message_id = str(item.get('message_id') or '').strip()
+        post_id = str(item.get('post_id') or '').strip()
+        channel_id = str(item.get('channel_id') or '').strip()
+        actor_label = _sidebar_user_label(db_manager, actor_user_id) if actor_user_id else ''
+        channel_name = _sidebar_channel_name(channel_manager, channel_id)
+        preview = str(payload.get('preview') or '').strip()
+        href = None
+        kind = 'activity'
+        title = actor_label or 'Activity'
+        meta = ''
+        icon = 'bi-bell'
+
+        if event_type == EVENT_MENTION_CREATED:
+            source_type = str(payload.get('source_type') or '').strip()
+            source_id = str(payload.get('source_id') or '').strip()
+            kind = 'mention'
+            icon = 'bi-at'
+            title = actor_label or 'Mention'
+            meta = 'Mention'
+            if source_type == 'channel_message' and source_id:
+                href = f"/channels/locate?message_id={quote_plus(source_id)}"
+            elif source_type == 'feed_post' and source_id:
+                href = f"{url_for('ui.feed')}?focus_post={quote_plus(source_id)}"
+            elif source_type == 'direct_message' and source_id:
+                href = f"{url_for('ui.messages')}#message-{quote_plus(source_id)}"
+        elif event_type in {EVENT_INBOX_ITEM_CREATED, EVENT_INBOX_ITEM_UPDATED}:
+            source_type = str(payload.get('source_type') or '').strip()
+            source_id = str(payload.get('source_id') or '').strip()
+            status = str(payload.get('status') or '').strip()
+            kind = 'inbox'
+            icon = 'bi-inbox'
+            title = actor_label or 'Needs action'
+            meta = 'Inbox'
+            if status:
+                meta = f"Inbox • {status.replace('_', ' ')}"
+            if source_type == 'channel_message' and source_id:
+                href = f"/channels/locate?message_id={quote_plus(source_id)}"
+            elif source_type == 'feed_post' and source_id:
+                href = f"{url_for('ui.feed')}?focus_post={quote_plus(source_id)}"
+            elif source_type == 'direct_message' and source_id:
+                href = f"{url_for('ui.messages')}#message-{quote_plus(source_id)}"
+        elif event_type == EVENT_DM_MESSAGE_CREATED:
+            sender_id = str(payload.get('sender_id') or actor_user_id or '').strip()
+            recipient_id = str(payload.get('recipient_id') or '').strip()
+            other_user_id = sender_id if sender_id and sender_id != user_id else recipient_id
+            kind = 'dm'
+            icon = 'bi-chat-dots'
+            title = _sidebar_user_label(db_manager, other_user_id) or actor_label or 'Direct message'
+            meta = 'Direct message'
+            href = url_for('ui.messages')
+            if other_user_id:
+                href = f"{href}?with={quote_plus(other_user_id)}"
+            if message_id:
+                href = f"{href}#message-{quote_plus(message_id)}"
+        elif event_type == EVENT_CHANNEL_MESSAGE_CREATED:
+            kind = 'channel'
+            icon = 'bi-hash'
+            title = actor_label or (f"#{channel_name}" if channel_name else 'Channel message')
+            meta = f"#{channel_name}" if channel_name else 'Channel'
+            if message_id:
+                href = f"/channels/locate?message_id={quote_plus(message_id)}"
+            elif channel_id:
+                href = f"{url_for('ui.channels')}?focus_channel={quote_plus(channel_id)}"
+        elif event_type in {EVENT_FEED_POST_CREATED, EVENT_FEED_POST_UPDATED, EVENT_FEED_POST_DELETED}:
+            kind = 'feed'
+            icon = 'bi-rss'
+            title = actor_label or 'Feed activity'
+            reason = str(payload.get('update_reason') or '').strip().lower()
+            if event_type == EVENT_FEED_POST_CREATED:
+                meta = 'Feed post'
+            elif reason == 'comment':
+                meta = 'Feed comment'
+            elif event_type == EVENT_FEED_POST_DELETED:
+                meta = 'Feed removal'
+            else:
+                meta = 'Feed update'
+            if post_id:
+                href = f"{url_for('ui.feed')}?focus_post={quote_plus(post_id)}"
+        elif event_type == EVENT_CHANNEL_STATE_UPDATED:
+            action = str(payload.get('action') or '').strip()
+            if action not in {'membership', 'posting_policy', 'privacy_mode', 'channel_added'}:
+                return None
+            kind = 'channel-state'
+            icon = 'bi-sliders'
+            title = f"#{channel_name}" if channel_name else 'Channel update'
+            meta = 'Channel settings'
+            if action == 'channel_added':
+                meta = 'Added to channel'
+            elif action == 'posting_policy':
+                meta = 'Posting policy'
+            elif action == 'privacy_mode':
+                meta = 'Privacy mode'
+            if channel_id:
+                href = f"{url_for('ui.channels')}?focus_channel={quote_plus(channel_id)}"
+        else:
+            return None
+
+        if not href:
+            href = url_for('ui.channels')
+
+        return {
+            'id': str(item.get('event_id') or ''),
+            'semantic_key': _attention_activity_semantic_key(item),
+            'event_type': event_type,
+            'kind': kind,
+            'title': title,
+            'meta': meta,
+            'preview': preview,
+            'href': href,
+            'created_at': created_at,
+            'priority': _attention_activity_priority(event_type, payload),
+            'icon': icon,
+        }
+
+    def _build_sidebar_attention_snapshot(
+        db_manager: Any,
+        channel_manager: Any,
+        feed_manager: Any,
+        p2p_manager: Any,
+        workspace_event_manager: Any,
+        user_id: str,
+        *,
+        item_limit: int = 12,
+    ) -> dict[str, Any]:
+        summary_snapshot = _build_sidebar_attention_summary(
+            db_manager,
+            channel_manager,
+            feed_manager,
+            p2p_manager,
+            user_id,
+        )
+        activity_items: list[dict[str, Any]] = []
+        if workspace_event_manager and user_id:
+            latest_seq = int((workspace_event_manager.get_latest_seq() or 0) or 0)
+            after_seq = max(0, latest_seq - 250)
+            try:
+                result = workspace_event_manager.list_events_for_user(
+                    user_id=user_id,
+                    after_seq=after_seq,
+                    limit=120,
+                    types=_ATTENTION_ACTIVITY_EVENT_TYPES,
+                    can_read_messages=True,
+                )
+            except Exception:
+                result = {'items': []}
+            merged: dict[str, dict[str, Any]] = {}
+            for raw_item in reversed(result.get('items', []) or []):
+                built = _build_sidebar_attention_item(
+                    db_manager,
+                    channel_manager,
+                    user_id,
+                    raw_item,
+                )
+                if not built:
+                    continue
+                semantic_key = built['semantic_key']
+                existing = merged.get(semantic_key)
+                if not existing:
+                    merged[semantic_key] = built
+                    continue
+                existing_priority = int(existing.get('priority') or 0)
+                new_priority = int(built.get('priority') or 0)
+                existing_created = str(existing.get('created_at') or '')
+                new_created = str(built.get('created_at') or '')
+                if new_priority > existing_priority or (
+                    new_priority == existing_priority and new_created >= existing_created
+                ):
+                    merged[semantic_key] = built
+            activity_items = sorted(
+                merged.values(),
+                key=lambda entry: (
+                    int(entry.get('priority') or 0),
+                    str(entry.get('created_at') or ''),
+                ),
+                reverse=True,
+            )[: max(1, int(item_limit or 12))]
+        return {
+            'summary': summary_snapshot['summary'],
+            'summary_rev': summary_snapshot['rev'],
+            'items': activity_items,
+            'activity_rev': _stable_ui_revision(activity_items),
+            'workspace_event_cursor': int((workspace_event_manager.get_latest_seq() if workspace_event_manager else 0) or 0),
         }
 
     def _build_sidebar_dm_contacts(
@@ -4629,6 +4938,7 @@ def create_ui_blueprint() -> Blueprint:
         """Return aggregate unread counts for sidebar navigation badges."""
         try:
             db_manager, _, _, _, channel_manager, _, feed_manager, _, _, _, p2p_manager = _get_app_components_any(current_app)
+            workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
             client_rev = str(request.args.get('rev') or '').strip()
             snapshot = _build_sidebar_attention_summary(
                 db_manager,
@@ -4643,6 +4953,7 @@ def create_ui_blueprint() -> Blueprint:
                 'changed': changed,
                 'rev': snapshot['rev'],
                 'summary': snapshot['summary'] if changed else {},
+                'workspace_event_cursor': int((workspace_event_manager.get_latest_seq() if workspace_event_manager else 0) or 0),
             })
         except Exception as e:
             logger.error(f"Sidebar attention summary error: {e}", exc_info=True)
@@ -4651,7 +4962,43 @@ def create_ui_blueprint() -> Blueprint:
                 'changed': False,
                 'rev': '',
                 'summary': {'messages': 0, 'channels': 0, 'feed': 0, 'total': 0},
+                'workspace_event_cursor': 0,
                 'error': 'Failed to load sidebar attention summary',
+            }), 500
+
+    @ui.route('/ajax/sidebar_attention_snapshot', methods=['GET'])
+    @require_login
+    def ajax_sidebar_attention_snapshot():
+        """Return unified unread summary plus recent attention items for the bell."""
+        try:
+            db_manager, _, _, _, channel_manager, _, feed_manager, _, _, _, p2p_manager = _get_app_components_any(current_app)
+            workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
+            snapshot = _build_sidebar_attention_snapshot(
+                db_manager,
+                channel_manager,
+                feed_manager,
+                p2p_manager,
+                workspace_event_manager,
+                get_current_user(),
+            )
+            return jsonify({
+                'success': True,
+                'summary': snapshot['summary'],
+                'summary_rev': snapshot['summary_rev'],
+                'items': snapshot['items'],
+                'activity_rev': snapshot['activity_rev'],
+                'workspace_event_cursor': snapshot['workspace_event_cursor'],
+            })
+        except Exception as e:
+            logger.error(f"Sidebar attention snapshot error: {e}", exc_info=True)
+            return jsonify({
+                'success': False,
+                'summary': {'messages': 0, 'channels': 0, 'feed': 0, 'total': 0},
+                'summary_rev': '',
+                'items': [],
+                'activity_rev': '',
+                'workspace_event_cursor': 0,
+                'error': 'Failed to load sidebar attention snapshot',
             }), 500
 
     @ui.route('/ajax/p2p/diagnostics', methods=['GET'])

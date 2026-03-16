@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from enum import Enum
 
 from .database import DatabaseManager
+from .events import EVENT_FEED_POST_UPDATED
 from .logging_config import log_performance, LogOperation
 
 logger = logging.getLogger('canopy.interactions')
@@ -73,10 +74,71 @@ class InteractionManager:
             db: Database manager instance
         """
         self.db = db
+        self.workspace_events: Any = None
         logger.info("Initializing InteractionManager")
         
         self._ensure_tables()
         logger.info("InteractionManager initialized successfully")
+
+    @staticmethod
+    def _build_event_preview(content: str, fallback: str = 'Feed activity') -> str:
+        preview = ' '.join(str(content or '').split()).strip()
+        if not preview:
+            return fallback
+        if len(preview) > 160:
+            return preview[:157].rstrip() + '...'
+        return preview
+
+    def _emit_feed_post_update_event(
+        self,
+        *,
+        post_id: str,
+        preview: str,
+        update_reason: str,
+        actor_user_id: Optional[str] = None,
+    ) -> None:
+        manager = self.workspace_events
+        if not manager or not post_id:
+            return
+        try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    """
+                    SELECT author_id, content_type, visibility
+                    FROM feed_posts
+                    WHERE id = ?
+                    LIMIT 1
+                    """,
+                    (post_id,),
+                ).fetchone()
+                if not row:
+                    return
+                permissions = []
+                if str(row['visibility'] or '').strip().lower() == 'custom':
+                    perm_rows = conn.execute(
+                        "SELECT user_id FROM post_permissions WHERE post_id = ?",
+                        (post_id,),
+                    ).fetchall()
+                    permissions = [str(perm['user_id']) for perm in (perm_rows or []) if perm and perm['user_id']]
+            now_dt = datetime.now(timezone.utc)
+            manager.emit_event(
+                event_type=EVENT_FEED_POST_UPDATED,
+                actor_user_id=actor_user_id or (str(row['author_id'] or '').strip() or None),
+                post_id=post_id,
+                visibility_scope='feed',
+                dedupe_key=f"{EVENT_FEED_POST_UPDATED}:{post_id}:{update_reason}:{now_dt.isoformat()}",
+                created_at=now_dt,
+                payload={
+                    'author_id': str(row['author_id'] or '').strip() or None,
+                    'post_type': str(row['content_type'] or 'text'),
+                    'preview': self._build_event_preview(preview, 'Feed activity'),
+                    'visibility': str(row['visibility'] or 'network').strip().lower(),
+                    'permissions': permissions,
+                    'update_reason': update_reason,
+                },
+            )
+        except Exception as e:
+            logger.warning(f"Failed to emit feed post update event for {post_id}: {e}")
     
     def _ensure_tables(self) -> None:
         """Ensure interaction-related database tables exist."""
@@ -681,6 +743,12 @@ class InteractionManager:
                 )
                 
                 logger.info(f"Added comment {comment_id} to post {post_id} by user {user_id}")
+                self._emit_feed_post_update_event(
+                    post_id=post_id,
+                    preview=content,
+                    update_reason='comment',
+                    actor_user_id=user_id,
+                )
                 return comment
                 
         except Exception as e:

@@ -5280,9 +5280,9 @@
                                 <span class="notification-badge" id="notificationBadge" style="display:none;">0</span>
                             </button>
 	                            <ul class="dropdown-menu dropdown-menu-end notification-menu" aria-labelledby="notificationBell">
-                                <li class="dropdown-header">Network Activity</li>
+                                <li class="dropdown-header">Activity</li>
                                 <li id="notificationEmptyWrap">
-                                    <div class="dropdown-item-text text-muted" id="notificationEmpty">No new activity</div>
+                                    <div class="dropdown-item-text text-muted" id="notificationEmpty">No new attention items</div>
                                 </li>
                                 <li>
                                     <div id="notificationList"></div>
@@ -5672,6 +5672,9 @@
             dmEventCursor: {{ sidebar_dm_event_cursor|tojson if sidebar_dm_event_cursor is defined else '0' }},
             attentionSummary: {{ sidebar_attention_summary|tojson if sidebar_attention_summary is defined else {'messages': 0, 'channels': 0, 'feed': 0, 'total': 0}|tojson }},
             attentionRev: {{ sidebar_attention_rev|tojson if sidebar_attention_rev is defined else '""' }},
+            attentionActivityRev: {{ sidebar_attention_activity_rev|tojson if sidebar_attention_activity_rev is defined else '""' }},
+            attentionItems: {{ sidebar_attention_items|tojson if sidebar_attention_items is defined else '[]' }},
+            attentionEventCursor: {{ sidebar_attention_event_cursor|tojson if sidebar_attention_event_cursor is defined else '0' }},
             userId: {{ (user_id or 'local_user')|tojson }},
             profileTheme: {{ (profile.theme_preference if profile else 'dark')|tojson }},
             localUserId: {{ session.get('user_id')|tojson }},
@@ -5681,7 +5684,9 @@
                 feed: {{ url_for('ui.feed')|tojson }},
                 channels: {{ url_for('ui.channels')|tojson }},
                 messages: {{ url_for('ui.messages')|tojson }},
-                sidebarAttentionSummary: {{ url_for('ui.ajax_sidebar_attention_summary')|tojson }}
+                sidebarAttentionSummary: {{ url_for('ui.ajax_sidebar_attention_summary')|tojson }},
+                sidebarAttentionSnapshot: {{ url_for('ui.ajax_sidebar_attention_snapshot')|tojson }},
+                peerActivity: {{ url_for('ui.ajax_peer_activity')|tojson }}
             }
         };
     </script>

@@ -76,13 +76,13 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("if (currentChannelId && channelId === currentChannelId) {", channels_template)
         self.assertIn("requestChannelThreadRefresh();", channels_template)
 
-    def test_notification_bell_collapses_semantic_duplicates_and_routes_exact_messages(self) -> None:
+    def test_notification_bell_uses_attention_snapshot_and_peer_polling_stays_separate(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
-        self.assertIn("const unreadSemanticKeys = new Set();", main_js)
-        self.assertIn("function activitySemanticKey(evt) {", main_js)
-        self.assertIn("function mergeActivityEvent(existingEvt, incomingEvt) {", main_js)
-        self.assertIn("window.location.href = `/channels/locate?message_id=${encodeURIComponent(ref.message_id)}`;", main_js)
-        self.assertIn("if (ref.message_id) url.hash = `message-${ref.message_id}`;", main_js)
+        self.assertIn("function initCanopyAttentionCenter()", main_js)
+        self.assertIn("window.renderCanopyAttentionBell = function(items) {", main_js)
+        self.assertIn("const endpoint = ((window.CANOPY_VARS && window.CANOPY_VARS.urls) || {}).peerActivity || '/ajax/peer_activity';", main_js)
+        self.assertIn("const endpoint = routes.sidebarAttentionSnapshot || '/ajax/sidebar_attention_snapshot';", main_js)
+        self.assertIn("startCanopySidebarPeerPolling();", main_js)
 
     def test_channel_focus_uses_context_window_and_container_scroll(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
@@ -154,11 +154,15 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('id="sidebar-nav-channels-badge"', base_template)
         self.assertIn('id="sidebar-nav-feed-badge"', base_template)
         self.assertIn('attentionSummary:', base_template)
+        self.assertIn('attentionItems:', base_template)
+        self.assertIn('attentionEventCursor:', base_template)
         self.assertIn('sidebarAttentionSummary:', base_template)
+        self.assertIn('sidebarAttentionSnapshot:', base_template)
         self.assertIn('function setSidebarNavUnreadBadge(kind, count)', main_js)
         self.assertIn('function requestCanopySidebarAttentionRefresh(options)', main_js)
-        self.assertIn('function startCanopySidebarAttentionPolling()', main_js)
-        self.assertIn("requestCanopySidebarAttentionRefresh({ force: false }).catch(() => {});", main_js)
+        self.assertIn('function startCanopyWorkspaceAttentionPolling()', main_js)
+        self.assertIn('function pollCanopyWorkspaceAttentionEvents()', main_js)
+        self.assertIn("requestCanopySidebarDmRefresh({ force: false }).catch(() => {});", main_js)
 
     def test_curated_channel_creation_and_member_policy_controls_exist(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')

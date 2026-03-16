@@ -25,6 +25,9 @@ EVENT_CHANNEL_MESSAGE_EDITED = "channel.message.edited"
 EVENT_CHANNEL_MESSAGE_DELETED = "channel.message.deleted"
 EVENT_CHANNEL_MESSAGE_READ = "channel.message.read"
 EVENT_CHANNEL_STATE_UPDATED = "channel.state.updated"
+EVENT_FEED_POST_CREATED = "feed.post.created"
+EVENT_FEED_POST_UPDATED = "feed.post.updated"
+EVENT_FEED_POST_DELETED = "feed.post.deleted"
 EVENT_MENTION_CREATED = "mention.created"
 EVENT_MENTION_ACKNOWLEDGED = "mention.acknowledged"
 EVENT_INBOX_ITEM_CREATED = "inbox.item.created"
@@ -41,6 +44,9 @@ PATCH1_EVENT_TYPES = {
     EVENT_CHANNEL_MESSAGE_DELETED,
     EVENT_CHANNEL_MESSAGE_READ,
     EVENT_CHANNEL_STATE_UPDATED,
+    EVENT_FEED_POST_CREATED,
+    EVENT_FEED_POST_UPDATED,
+    EVENT_FEED_POST_DELETED,
     EVENT_MENTION_CREATED,
     EVENT_MENTION_ACKNOWLEDGED,
     EVENT_INBOX_ITEM_CREATED,
@@ -456,6 +462,7 @@ class WorkspaceEventManager:
         visibility_scope = str(row["visibility_scope"] or "").strip().lower()
         target_user_id = str(row["target_user_id"] or "").strip()
         channel_id = str(row["channel_id"] or "").strip()
+        post_id = str(row["post_id"] or "").strip()
         message_id = str(row["message_id"] or "").strip()
 
         if (
@@ -487,6 +494,11 @@ class WorkspaceEventManager:
 
         if event_type.startswith("mention.") or event_type.startswith("inbox.item."):
             return bool(target_user_id and target_user_id == user_id)
+
+        if event_type.startswith("feed.post."):
+            if post_id and self._can_user_view_feed_post(user_id, post_id):
+                return True
+            return self._feed_visible_via_payload(row, user_id=user_id)
 
         if visibility_scope == "dm" or event_type.startswith("dm.message."):
             if not can_read_messages or not message_id:
@@ -521,6 +533,70 @@ class WorkspaceEventManager:
                     (channel_id, user_id),
                 ).fetchone()
             return bool(row)
+        except Exception:
+            return False
+
+    def _feed_visible_via_payload(self, row: Any, *, user_id: str) -> bool:
+        try:
+            payload_raw = row["payload_json"]
+        except Exception:
+            payload_raw = None
+        if not payload_raw:
+            return False
+        try:
+            payload = json.loads(payload_raw)
+        except Exception:
+            return False
+        if not isinstance(payload, dict):
+            return False
+
+        author_id = str(payload.get("author_id") or "").strip()
+        visibility = str(payload.get("visibility") or "").strip().lower()
+        if author_id and author_id == user_id:
+            return True
+        if visibility in {"public", "network", "trusted"}:
+            return True
+        if visibility == "private":
+            return False
+        if visibility == "custom":
+            permissions = payload.get("permissions") or []
+            if isinstance(permissions, list):
+                normalized = {str(member or "").strip() for member in permissions}
+                return user_id in normalized
+        return False
+
+    def _can_user_view_feed_post(self, user_id: str, post_id: str) -> bool:
+        try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    """
+                    SELECT author_id, visibility
+                    FROM feed_posts
+                    WHERE id = ?
+                    LIMIT 1
+                    """,
+                    (post_id,),
+                ).fetchone()
+                if not row:
+                    return False
+                author_id = str(row["author_id"] or "").strip()
+                visibility = str(row["visibility"] or "").strip().lower()
+                if author_id and author_id == user_id:
+                    return True
+                if visibility in {"public", "network", "trusted"}:
+                    return True
+                if visibility == "custom":
+                    perm = conn.execute(
+                        """
+                        SELECT 1
+                        FROM post_permissions
+                        WHERE post_id = ? AND user_id = ?
+                        LIMIT 1
+                        """,
+                        (post_id, user_id),
+                    ).fetchone()
+                    return bool(perm)
+                return False
         except Exception:
             return False
 
