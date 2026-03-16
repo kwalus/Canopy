@@ -172,6 +172,16 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("function revokeChannelPoster(userId)", channels_template)
         self.assertIn('Allow top-level posts', channels_template)
 
+    def test_channel_header_responsive_layout_and_landscape_compaction_exist(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        self.assertIn('@media (min-width: 768px) and (max-width: 1199.98px)', channels_template)
+        self.assertIn('@media (max-width: 1024px) and (orientation: landscape) and (max-height: 520px)', channels_template)
+        self.assertIn(".channel-post-policy-btn .privacy-label", channels_template)
+        self.assertIn("label.textContent = curated ? 'Curated' : 'Open';", channels_template)
+        self.assertIn("open: { text: 'Open', icon: 'bi-wifi', cls: 'btn-outline-secondary' },", channels_template)
+        self.assertIn("#channel-posting-badge.open {", channels_template)
+        self.assertIn("display: flex !important;", channels_template)
+
     def test_dashboard_flash_messages_null_check(self) -> None:
         dashboard_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'dashboard.html').read_text(encoding='utf-8')
         # Must guard against missing .flash-messages before injecting new API key alert

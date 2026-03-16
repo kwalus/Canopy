@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.95] - 2026-03-16
+
+### Improved
+- **Channel header responsive compaction** - Header controls now wrap cleanly at intermediate widths (768px–1199px) instead of overlapping. Low-height landscape mode (<=520px) gets a dense single-row header with hidden low-value labels and compact composer controls.
+- **Shortened policy/privacy labels** - Posting labels shortened to `Curated`/`Open` (from `Posting: Curated`/`Posting: Open`); privacy labels shortened similarly. Reduces header pressure at all widths.
+- **Open posting badge** - Open channels now show an explicit subdued badge alongside the curated accent badge, reducing layout ambiguity.
+
 ## [0.4.94] - 2026-03-16
 
 ### Fixed

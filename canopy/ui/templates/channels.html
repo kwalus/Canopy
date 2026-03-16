@@ -1045,11 +1045,18 @@
         font-size: 0.62rem;
         line-height: 1;
         padding: 0.2rem 0.42rem;
+        align-items: center;
     }
     #channel-posting-badge.curated {
         color: #facc15;
         background: rgba(250, 204, 21, 0.14);
         border: 1px solid rgba(250, 204, 21, 0.26);
+    }
+    #channel-posting-badge.open {
+        color: #cbd5e1;
+        background: rgba(100, 116, 139, 0.12);
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        display: none;
     }
     .channel-post-policy-menu {
         width: min(320px, 92vw);
@@ -1263,6 +1270,14 @@
         .channel-header-title h4 {
             max-width: clamp(100px, 20vw, 210px);
         }
+        .channel-post-policy-btn .privacy-label {
+            display: none;
+        }
+        .channel-post-policy-btn {
+            min-width: 0;
+            padding-left: 0.42rem;
+            padding-right: 0.42rem;
+        }
         .channel-privacy-btn .privacy-label {
             display: none;
         }
@@ -1283,6 +1298,46 @@
             flex-basis: 136px;
             min-width: 96px;
             max-width: 165px;
+        }
+    }
+
+    @media (min-width: 768px) and (max-width: 1199.98px) {
+        .channel-header {
+            padding: 0.55rem 0.7rem !important;
+        }
+        .channel-header-row {
+            align-items: flex-start;
+            flex-wrap: wrap;
+            row-gap: 0.35rem;
+        }
+        .channel-header-left {
+            flex: 1 1 100%;
+            max-width: 100%;
+        }
+        .channel-header-right {
+            width: 100%;
+            flex: 1 1 100%;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            row-gap: 0.3rem;
+            padding-top: 0.1rem;
+        }
+        .channel-header-actions {
+            flex: 1 1 auto;
+            flex-wrap: wrap;
+            min-width: 0;
+        }
+        .channel-header-search {
+            order: 3;
+            flex: 1 1 100%;
+            min-width: 0;
+            max-width: none;
+        }
+        .channel-header-controls {
+            margin-left: auto;
+        }
+        #channel-posting-badge.open {
+            display: inline-flex;
         }
     }
 
@@ -1651,6 +1706,9 @@
             min-width: 74px;
             max-width: none;
         }
+        .channel-post-policy-btn .privacy-label {
+            display: none;
+        }
         #channel-search-bar {
             width: 100% !important;
         }
@@ -1733,6 +1791,132 @@
         }
         #message-form .input-group-append .btn-group #channel-stream-quick-toggle {
             width: 100%;
+        }
+    }
+
+    @media (max-width: 1024px) and (orientation: landscape) and (max-height: 520px) {
+        .channel-header {
+            padding: 0.28rem 0.42rem !important;
+        }
+        .channel-header-row {
+            flex-wrap: nowrap;
+            align-items: center;
+            gap: 0.16rem;
+        }
+        .channel-header-left {
+            flex: 1 1 auto;
+            min-width: 0;
+            gap: 0.2rem;
+        }
+        .channel-header-title h4 {
+            font-size: 0.82rem;
+            max-width: min(36vw, 154px);
+        }
+        .channel-inline-desc,
+        .copy-channel-id-label,
+        .channel-members-label,
+        .channel-members-count,
+        #channel-lifecycle-toggle .channel-lifecycle-label {
+            display: none !important;
+        }
+        .channel-post-policy-btn .privacy-label,
+        .channel-privacy-btn .privacy-label {
+            display: none !important;
+        }
+        .channel-header-right {
+            flex: 1 1 auto;
+            min-width: 0;
+            width: auto;
+            flex-wrap: nowrap;
+            justify-content: flex-end;
+            overflow-x: auto;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+            gap: 0.12rem;
+        }
+        .channel-header-right::-webkit-scrollbar {
+            display: none;
+        }
+        .channel-header-actions,
+        .channel-header-controls {
+            gap: 0.12rem;
+            flex-wrap: nowrap;
+        }
+        .channel-header-search {
+            display: none;
+        }
+        .channel-header .btn.btn-sm {
+            padding: 0.16rem 0.3rem;
+        }
+        #channel-posting-badge {
+            font-size: 0.58rem;
+            padding: 0.16rem 0.34rem;
+        }
+        #channel-posting-badge.open {
+            display: inline-flex;
+        }
+        #messages-container {
+            padding: 0.45rem !important;
+        }
+        .channel-composer-wrap {
+            padding: 0.24rem 0.36rem !important;
+            padding-bottom: max(0.28rem, calc(env(safe-area-inset-bottom) + 0.14rem)) !important;
+        }
+        #channel-member-gate,
+        #channel-posting-gate,
+        #reply-context,
+        #channel-task-toggle,
+        #channel-structured-nudge,
+        #channel-structured-validation,
+        #channel-structured-result {
+            margin-bottom: 0.18rem !important;
+            padding-top: 0.3rem;
+            padding-bottom: 0.3rem;
+        }
+        .channel-lifespan-row {
+            margin-bottom: 0.18rem !important;
+            gap: 0.22rem;
+        }
+        .channel-lifespan-label {
+            display: none;
+        }
+        .channel-expiry-select {
+            min-width: 5.2rem;
+            max-width: 6rem;
+            font-size: 0.72rem;
+            padding-top: 0.08rem;
+            padding-bottom: 0.08rem;
+        }
+        #message-form .input-group {
+            align-items: stretch;
+            gap: 0.2rem;
+        }
+        #message-input {
+            min-height: 30px !important;
+            max-height: 18vh;
+            font-size: 0.82rem;
+            padding-top: 0.24rem;
+            padding-bottom: 0.24rem;
+        }
+        #message-form .input-group-append {
+            display: flex !important;
+            width: auto;
+            margin-top: 0;
+            gap: 0.14rem;
+            flex: 0 0 auto;
+            grid-template-columns: none;
+        }
+        #message-form .input-group .btn,
+        #message-form .input-group-append .btn-group .btn {
+            min-height: 28px;
+            padding: 0.18rem 0.16rem;
+            font-size: 0.82rem;
+        }
+        #message-form .input-group-append .btn-group {
+            width: auto;
+        }
+        #message-form .input-group-append .btn-group #channel-stream-quick-toggle {
+            width: auto;
         }
     }
 
@@ -2301,7 +2485,7 @@
                                 <button class="btn btn-outline-secondary btn-sm dropdown-toggle channel-post-policy-btn"
                                         id="channel-post-policy-toggle" data-bs-toggle="dropdown" aria-expanded="false">
                                     <i class="bi bi-megaphone" id="channel-post-policy-icon"></i>
-                                    <span class="privacy-label" id="channel-post-policy-label">Posting: Open</span>
+                                    <span class="privacy-label" id="channel-post-policy-label">Open</span>
                                 </button>
                                 <div class="dropdown-menu channel-post-policy-menu" aria-labelledby="channel-post-policy-toggle">
                                     <div class="channel-post-policy-summary">
@@ -2326,7 +2510,7 @@
                                 <button class="btn btn-outline-secondary btn-sm dropdown-toggle channel-privacy-btn"
                                         id="channel-privacy-toggle" data-bs-toggle="dropdown" aria-expanded="false">
                                     <i class="bi bi-shield-check" id="channel-privacy-icon"></i>
-                                    <span class="privacy-label" id="channel-privacy-label">Privacy: Open</span>
+                                    <span class="privacy-label" id="channel-privacy-label">Open</span>
                                 </button>
                                 <ul class="dropdown-menu" aria-labelledby="channel-privacy-toggle">
                                     <li><a class="dropdown-item" href="#" onclick="setChannelPrivacy('open')">
@@ -5103,10 +5287,10 @@ function setChannelPrivacyUI(mode, canEdit, reason) {
 
     const normalized = (mode || 'open').toLowerCase();
     const configs = {
-        open: { text: 'Privacy: Open', icon: 'bi-wifi', cls: 'btn-outline-secondary' },
-        guarded: { text: 'Privacy: Guarded', icon: 'bi-shield-check', cls: 'btn-outline-warning' },
-        private: { text: 'Privacy: Private', icon: 'bi-lock-fill', cls: 'btn-outline-success' },
-        confidential: { text: 'Privacy: Confidential', icon: 'bi-shield-lock', cls: 'btn-outline-info' },
+        open: { text: 'Open', icon: 'bi-wifi', cls: 'btn-outline-secondary' },
+        guarded: { text: 'Guarded', icon: 'bi-shield-check', cls: 'btn-outline-warning' },
+        private: { text: 'Private', icon: 'bi-lock-fill', cls: 'btn-outline-success' },
+        confidential: { text: 'Confidential', icon: 'bi-shield-lock', cls: 'btn-outline-info' },
     };
     const cfg = configs[normalized] || configs.open;
     label.textContent = cfg.text;
@@ -5193,19 +5377,14 @@ function applyChannelPostPolicyFromSelection(channelId) {
     }
 
     const curated = currentChannelPostPolicy === 'curated';
-    label.textContent = curated ? 'Posting: Curated' : 'Posting: Open';
+    label.textContent = curated ? 'Curated' : 'Open';
     icon.className = `bi ${curated ? 'bi-person-check' : 'bi-megaphone'}`;
     btn.classList.remove('btn-outline-secondary', 'btn-outline-warning');
     btn.classList.add(curated ? 'btn-outline-warning' : 'btn-outline-secondary');
 
-    badge.classList.toggle('d-none', !curated);
-    badge.classList.remove('curated');
-    if (curated) {
-        badge.classList.add('curated');
-        badge.textContent = 'Curated posting';
-    } else {
-        badge.textContent = '';
-    }
+    badge.classList.remove('d-none', 'curated', 'open');
+    badge.classList.add(curated ? 'curated' : 'open');
+    badge.textContent = curated ? 'Curated' : 'Open';
 
     summaryTitle.textContent = curated ? 'Curated posting' : 'Open posting';
     summaryMeta.textContent = curated
