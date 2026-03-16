@@ -160,9 +160,20 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('function startCanopySidebarAttentionPolling()', main_js)
         self.assertIn("requestCanopySidebarAttentionRefresh({ force: false }).catch(() => {});", main_js)
 
+    def test_curated_channel_creation_and_member_policy_controls_exist(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        self.assertIn('name="create-channel-post-policy"', channels_template)
+        self.assertIn('id="create-post-policy-curated"', channels_template)
+        self.assertIn('Use curated posting when the channel should stay high-signal', channels_template)
+        self.assertIn("const postPolicy = document.querySelector('input[name=\"create-channel-post-policy\"]:checked')?.value || 'open';", channels_template)
+        self.assertIn('post_policy: postPolicy,', channels_template)
+        self.assertIn("function renderChannelPostingPolicySummary(policy)", channels_template)
+        self.assertIn("function grantChannelPoster(userId)", channels_template)
+        self.assertIn("function revokeChannelPoster(userId)", channels_template)
+        self.assertIn('Allow top-level posts', channels_template)
+
     def test_dashboard_flash_messages_null_check(self) -> None:
         dashboard_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'dashboard.html').read_text(encoding='utf-8')
         # Must guard against missing .flash-messages before injecting new API key alert
         self.assertIn("if (flashContainer) flashContainer.innerHTML += keyAlert;", dashboard_template)
         self.assertNotIn("document.querySelector('.flash-messages').innerHTML += keyAlert;", dashboard_template)
-

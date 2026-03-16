@@ -174,6 +174,9 @@ class _FakeChannelManager:
     def get_channel_access_decision(self, **kwargs):
         return {'allowed': True}
 
+    def can_user_post_message(self, channel_id, user_id, **kwargs):
+        return {'allowed': True, 'reason': 'ok', 'post_scope': 'top_level'}
+
     def send_message(self, channel_id, user_id, content, message_type=None, **kwargs):
         message = _FakeMessage(
             id='MSG-1',

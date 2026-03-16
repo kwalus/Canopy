@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.91] - 2026-03-16
+
+### Added
+- **Curated channel posting policy** - Channels now support a server-enforced `post_policy` field (`open` or `curated`). In curated channels, only admins and explicitly approved posters can start new top-level posts, while replies remain open to all members by default. Policy is enforced in the channel manager send path, session UI routes, and REST API routes.
+- **Curated poster allowlist management** - New API endpoints (`/api/v1/channels/<id>/post-policy`, `/api/v1/channels/<id>/posters`) and session AJAX routes (`/ajax/update_channel_post_policy`, `/ajax/channel_posters/<id>`) allow admins to toggle posting policy, grant, and revoke top-level posting permission for individual members.
+- **Curated channel creation** - The create-channel form and API now accept `post_policy` and `allow_member_replies` at creation time, so channels can start curated without a two-step reconfigure.
+- **Curated metadata P2P sync** - Channel announce payloads now include `post_policy`, `allow_member_replies`, and `allowed_poster_user_ids`, ensuring curated channels stay consistent across peers during sync-create, merge/adopt, and member-add broadcasts.
+- **Curated channel UI controls** - Channel header shows a posting-policy dropdown (open/curated) with summary, a curated badge, and a composer gate for non-approved members. The members modal displays per-member badges (admin, approved poster, replies only) and grant/revoke buttons.
+
 ## [0.4.90] - 2026-03-16
 
 ### Added

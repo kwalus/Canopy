@@ -39,6 +39,11 @@ class TestChannelSidebarStateDelta(unittest.TestCase):
                 description='General discussion',
                 channel_type='public',
                 privacy_mode='open',
+                post_policy='open',
+                allow_member_replies=True,
+                can_post_top_level=True,
+                can_reply=True,
+                allowed_poster_count=0,
                 origin_peer='',
                 user_role='owner',
                 member_count=4,
@@ -60,6 +65,11 @@ class TestChannelSidebarStateDelta(unittest.TestCase):
                 description='Operations',
                 channel_type='private',
                 privacy_mode='guarded',
+                post_policy='curated',
+                allow_member_replies=True,
+                can_post_top_level=False,
+                can_reply=True,
+                allowed_poster_count=2,
                 origin_peer='peer-1',
                 user_role='member',
                 member_count=3,
@@ -138,6 +148,11 @@ class TestChannelSidebarStateDelta(unittest.TestCase):
         self.assertTrue(channels[0].get('lifecycle_preserved'))
         self.assertEqual(channels[1].get('lifecycle_status'), 'cooling')
         self.assertEqual(channels[1].get('days_until_archive'), 7)
+        self.assertEqual(channels[0].get('post_policy'), 'open')
+        self.assertEqual(channels[1].get('post_policy'), 'curated')
+        self.assertFalse(channels[1].get('can_post_top_level'))
+        self.assertTrue(channels[1].get('can_reply'))
+        self.assertEqual(channels[1].get('allowed_poster_count'), 2)
 
     def test_channel_sidebar_state_returns_empty_channels_when_revision_matches(self) -> None:
         first = self.client.get('/ajax/channel_sidebar_state')

@@ -2439,6 +2439,8 @@ def create_app(config: Optional[Config] = None) -> Flask:
         # --- Channel announce callback ---
         def _on_channel_announce(channel_id, name, channel_type,
                                   description, created_by_peer, created_by_user_id, privacy_mode,
+                                  post_policy=None, allow_member_replies=None,
+                                  allowed_poster_user_ids=None,
                                   last_activity_at=None,
                                   lifecycle_ttl_days=None, lifecycle_preserved=None,
                                   lifecycle_archived_at=None, lifecycle_archive_reason=None,
@@ -2517,6 +2519,9 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         local_user_id=creator_hint,
                         origin_peer=from_peer,
                         privacy_mode=targeted_mode,
+                        post_policy=post_policy,
+                        allow_member_replies=True if allow_member_replies is None else bool(allow_member_replies),
+                        allowed_poster_user_ids=allowed_poster_user_ids,
                         last_activity_at=last_activity_at,
                         initial_members=local_members,
                         lifecycle_ttl_days=lifecycle_ttl_days,
@@ -2542,6 +2547,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                 f"Targeted channel announce {channel_id}: added {len(local_members)} "
                                 f"local member(s) to existing channel"
                             )
+                        channel_manager.sync_channel_post_permissions(
+                            channel_id,
+                            post_policy=post_policy,
+                            allow_member_replies=True if allow_member_replies is None else bool(allow_member_replies),
+                            allowed_poster_user_ids=allowed_poster_user_ids,
+                        )
                     return
 
                 # Public channel — existing merge/adopt logic
@@ -2566,6 +2577,9 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     local_user_id=creator_hint or local_user,
                     from_peer=from_peer,
                     privacy_mode=mode,
+                    post_policy=post_policy,
+                    allow_member_replies=True if allow_member_replies is None else bool(allow_member_replies),
+                    allowed_poster_user_ids=allowed_poster_user_ids,
                     last_activity_at=last_activity_at,
                     lifecycle_ttl_days=lifecycle_ttl_days,
                     lifecycle_preserved=bool(lifecycle_preserved),

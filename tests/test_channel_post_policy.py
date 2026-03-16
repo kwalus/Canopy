@@ -1,0 +1,178 @@
+"""Core regression tests for curated channel posting policy."""
+
+import os
+import sqlite3
+import sys
+import types
+import unittest
+from unittest.mock import MagicMock
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+if 'zeroconf' not in sys.modules:
+    zeroconf_stub = types.ModuleType('zeroconf')
+
+    class _Dummy:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    zeroconf_stub.ServiceBrowser = _Dummy
+    zeroconf_stub.ServiceInfo = _Dummy
+    zeroconf_stub.Zeroconf = _Dummy
+    zeroconf_stub.ServiceStateChange = _Dummy
+    sys.modules['zeroconf'] = zeroconf_stub
+
+from canopy.core.channels import ChannelManager, ChannelType
+
+
+class _FakeDbManager:
+    def __init__(self) -> None:
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        self.conn.execute(
+            """
+            CREATE TABLE users (
+                id TEXT PRIMARY KEY,
+                username TEXT,
+                public_key TEXT,
+                password_hash TEXT,
+                origin_peer TEXT
+            )
+            """
+        )
+        self.conn.executemany(
+            "INSERT INTO users (id, username, public_key, password_hash, origin_peer) "
+            "VALUES (?, ?, ?, ?, ?)",
+            [
+                ('owner-user', 'owner', 'pk-owner', 'hash-owner', None),
+                ('member-user', 'member', 'pk-member', 'hash-member', None),
+                ('reader-user', 'reader', 'pk-reader', 'hash-reader', None),
+            ],
+        )
+        self.conn.commit()
+
+    def get_connection(self):
+        return self.conn
+
+    def get_instance_owner_user_id(self):
+        return 'owner-user'
+
+    def get_user(self, user_id: str):
+        row = self.conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        return dict(row) if row else None
+
+
+class TestChannelPostPolicy(unittest.TestCase):
+    def setUp(self) -> None:
+        self.db = _FakeDbManager()
+        self.channel_manager = ChannelManager(self.db, MagicMock())
+
+    def tearDown(self) -> None:
+        self.db.conn.close()
+
+    def test_curated_channel_blocks_top_level_posts_but_keeps_replies_open(self) -> None:
+        channel = self.channel_manager.create_channel(
+            name='ops-curated',
+            channel_type=ChannelType.PUBLIC,
+            created_by='owner-user',
+            description='curated channel',
+            privacy_mode='open',
+            post_policy='curated',
+            allow_member_replies=True,
+        )
+        self.assertIsNotNone(channel)
+        self.assertTrue(self.channel_manager.add_member(channel.id, 'member-user', 'owner-user', 'member'))
+
+        top_level = self.channel_manager.can_user_post_message(channel.id, 'member-user')
+        reply = self.channel_manager.can_user_post_message(channel.id, 'member-user', parent_message_id='M1')
+        owner = self.channel_manager.can_user_post_message(channel.id, 'owner-user')
+
+        self.assertFalse(top_level['allowed'])
+        self.assertEqual(top_level['reason'], 'top_level_post_restricted')
+        self.assertEqual(top_level['post_policy'], 'curated')
+        self.assertTrue(reply['allowed'])
+        self.assertEqual(reply['reason'], 'ok')
+        self.assertTrue(owner['allowed'])
+
+    def test_grant_and_revoke_channel_poster_updates_effective_access(self) -> None:
+        channel = self.channel_manager.create_channel(
+            name='ops-grants',
+            channel_type=ChannelType.PUBLIC,
+            created_by='owner-user',
+            description='grant test',
+            privacy_mode='open',
+            post_policy='curated',
+            allow_member_replies=True,
+        )
+        self.assertIsNotNone(channel)
+        self.assertTrue(self.channel_manager.add_member(channel.id, 'member-user', 'owner-user', 'member'))
+
+        initial = self.channel_manager.can_user_post_message(channel.id, 'member-user')
+        self.assertFalse(initial['allowed'])
+
+        granted = self.channel_manager.grant_channel_post_permission(
+            channel.id,
+            'member-user',
+            'owner-user',
+            allow_admin=False,
+            local_peer_id=None,
+        )
+        self.assertIsNotNone(granted)
+        self.assertEqual(granted['allowed_poster_count'], 1)
+
+        after_grant = self.channel_manager.can_user_post_message(channel.id, 'member-user')
+        self.assertTrue(after_grant['allowed'])
+
+        revoked = self.channel_manager.revoke_channel_post_permission(
+            channel.id,
+            'member-user',
+            'owner-user',
+            allow_admin=False,
+            local_peer_id=None,
+        )
+        self.assertIsNotNone(revoked)
+        self.assertEqual(revoked['allowed_poster_count'], 0)
+
+        after_revoke = self.channel_manager.can_user_post_message(channel.id, 'member-user')
+        self.assertFalse(after_revoke['allowed'])
+        self.assertEqual(after_revoke['reason'], 'top_level_post_restricted')
+
+    def test_origin_sync_updates_curated_policy_and_allowlist(self) -> None:
+        channel = self.channel_manager.create_channel(
+            name='sync-policy',
+            channel_type=ChannelType.PUBLIC,
+            created_by='owner-user',
+            description='sync target',
+            privacy_mode='open',
+            origin_peer='peer-local',
+        )
+        self.assertIsNotNone(channel)
+        self.assertTrue(self.channel_manager.add_member(channel.id, 'member-user', 'owner-user', 'member'))
+        self.assertTrue(self.channel_manager.add_member(channel.id, 'reader-user', 'owner-user', 'member'))
+
+        merged = self.channel_manager.merge_or_adopt_channel(
+            remote_id=channel.id,
+            remote_name='sync-policy',
+            remote_type='public',
+            remote_desc='sync target',
+            local_user_id='owner-user',
+            from_peer='peer-local',
+            privacy_mode='open',
+            post_policy='curated',
+            allow_member_replies=True,
+            allowed_poster_user_ids=['member-user'],
+        )
+        self.assertEqual(merged, channel.id)
+
+        poster_state = self.channel_manager.get_channel_posting_state(channel.id, 'member-user')
+        reader_state = self.channel_manager.get_channel_posting_state(channel.id, 'reader-user')
+
+        self.assertEqual(poster_state['post_policy'], 'curated')
+        self.assertTrue(poster_state['can_post_top_level'])
+        self.assertTrue(reader_state['can_reply'])
+        self.assertFalse(reader_state['can_post_top_level'])
+        self.assertEqual(self.channel_manager.get_channel_allowed_poster_ids(channel.id), ['member-user'])
+
+
+if __name__ == '__main__':
+    unittest.main()
