@@ -18,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ### Fixed
 - **Bell duplicate counting for mention-bearing messages** - The notification bell now deduplicates by semantic activity key so a `channel_message` event and a `mention` event for the same source message increment the unread badge only once, with the higher-priority event winning the display slot.
+- **Normal WebSocket close logged as error** - Send failures caused by a normal `1000 (OK)` close are now logged at debug level instead of error, reducing misleading noise in the terminal after mesh reconnect cycles.
 
 ## [0.4.89] - 2026-03-15
 
