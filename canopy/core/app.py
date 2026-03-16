@@ -1365,11 +1365,13 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         or allow_member_replies is not None
                         or allowed_poster_user_ids is not None
                     ):
-                        channel_manager.sync_channel_post_permissions(
+                        channel_manager.apply_remote_channel_posting_snapshot(
                             channel_id,
+                            from_peer,
                             post_policy=post_policy,
                             allow_member_replies=allow_member_replies,
                             allowed_poster_user_ids=cast(Optional[list[str]], allowed_poster_user_ids),
+                            log_context='channel_message_duplicate',
                         )
                     logger.debug(f"Skipping duplicate P2P message {message_id}")
                     # Even for already-stored messages, re-derive inbox items for
@@ -1515,11 +1517,13 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     or allowed_poster_user_ids is not None
                 )
                 if incoming_policy_snapshot:
-                    channel_manager.sync_channel_post_permissions(
+                    channel_manager.apply_remote_channel_posting_snapshot(
                         channel_id,
+                        from_peer,
                         post_policy=post_policy,
                         allow_member_replies=allow_member_replies,
                         allowed_poster_user_ids=cast(Optional[list[str]], allowed_poster_user_ids),
+                        log_context='channel_message',
                     )
 
                 if not (update_only and existing_msg):
@@ -2506,8 +2510,18 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 is_targeted = mode in {'private', 'confidential'} or channel_type_norm == 'private'
 
                 # SECURITY: Log channel announce for audit trail
-                logger.info(f"Channel announce from {from_peer}: '{name}' ({channel_id}) "
-                           f"type={channel_type}, privacy={privacy_mode}")
+                logger.info(
+                    "Channel announce from %s: '%s' (%s) type=%s, privacy=%s, post_policy=%s, "
+                    "allow_member_replies=%s, allowed_poster_count=%d",
+                    from_peer,
+                    name,
+                    channel_id,
+                    channel_type,
+                    privacy_mode,
+                    str(post_policy or 'open').strip().lower() or 'open',
+                    True if allow_member_replies is None else bool(allow_member_replies),
+                    len([uid for uid in (allowed_poster_user_ids or []) if str(uid or '').strip()]),
+                )
 
                 # SECURITY: Strip initial_members from non-targeted channel announces
                 if initial_members and not is_targeted:
@@ -2593,11 +2607,13 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                 f"Targeted channel announce {channel_id}: added {len(local_members)} "
                                 f"local member(s) to existing channel"
                             )
-                        channel_manager.sync_channel_post_permissions(
+                        channel_manager.apply_remote_channel_posting_snapshot(
                             channel_id,
+                            from_peer,
                             post_policy=post_policy,
                             allow_member_replies=True if allow_member_replies is None else bool(allow_member_replies),
                             allowed_poster_user_ids=allowed_poster_user_ids,
+                            log_context='channel_announce_targeted_existing',
                         )
                     return
 

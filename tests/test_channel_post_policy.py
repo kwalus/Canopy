@@ -174,6 +174,89 @@ class TestChannelPostPolicy(unittest.TestCase):
         self.assertFalse(reader_state['can_post_top_level'])
         self.assertEqual(self.channel_manager.get_channel_allowed_poster_ids(channel.id), ['member-user'])
 
+    def test_non_origin_announce_cannot_overwrite_local_origin_curated_policy(self) -> None:
+        channel = self.channel_manager.create_channel(
+            name='local-curated',
+            channel_type=ChannelType.PUBLIC,
+            created_by='owner-user',
+            description='local origin channel',
+            privacy_mode='open',
+            post_policy='curated',
+            allow_member_replies=True,
+        )
+        self.assertIsNotNone(channel)
+        self.assertTrue(self.channel_manager.add_member(channel.id, 'member-user', 'owner-user', 'member'))
+        granted = self.channel_manager.grant_channel_post_permission(
+            channel.id,
+            'member-user',
+            'owner-user',
+            allow_admin=False,
+            local_peer_id=None,
+        )
+        self.assertIsNotNone(granted)
+
+        merged = self.channel_manager.merge_or_adopt_channel(
+            remote_id=channel.id,
+            remote_name='local-curated',
+            remote_type='public',
+            remote_desc='local origin channel',
+            local_user_id='owner-user',
+            from_peer='peer-remote',
+            privacy_mode='open',
+            post_policy='open',
+            allow_member_replies=True,
+            allowed_poster_user_ids=[],
+        )
+        self.assertIsNone(merged)
+
+        state = self.channel_manager.get_channel_posting_state(channel.id, 'member-user')
+        self.assertEqual(state['post_policy'], 'curated')
+        self.assertTrue(state['can_post_top_level'])
+        self.assertEqual(self.channel_manager.get_channel_allowed_poster_ids(channel.id), ['member-user'])
+
+    def test_remote_posting_snapshot_requires_origin_authority(self) -> None:
+        channel = self.channel_manager.create_channel_from_sync(
+            channel_id='sync-authority',
+            name='sync-authority',
+            channel_type='public',
+            description='synced authority channel',
+            local_user_id='owner-user',
+            origin_peer='peer-origin',
+            privacy_mode='open',
+            post_policy='curated',
+            allow_member_replies=True,
+            allowed_poster_user_ids=['member-user'],
+        )
+        self.assertIsNotNone(channel)
+        self.assertTrue(self.channel_manager.add_member(channel.id, 'member-user', 'owner-user', 'member'))
+
+        rejected = self.channel_manager.apply_remote_channel_posting_snapshot(
+            channel.id,
+            'peer-other',
+            post_policy='open',
+            allow_member_replies=True,
+            allowed_poster_user_ids=[],
+            log_context='test_non_origin',
+        )
+        self.assertFalse(rejected)
+        state_after_reject = self.channel_manager.get_channel_posting_state(channel.id, 'member-user')
+        self.assertEqual(state_after_reject['post_policy'], 'curated')
+        self.assertTrue(state_after_reject['can_post_top_level'])
+
+        accepted = self.channel_manager.apply_remote_channel_posting_snapshot(
+            channel.id,
+            'peer-origin',
+            post_policy='open',
+            allow_member_replies=True,
+            allowed_poster_user_ids=[],
+            log_context='test_origin',
+        )
+        self.assertTrue(accepted)
+        state_after_accept = self.channel_manager.get_channel_posting_state(channel.id, 'member-user')
+        self.assertEqual(state_after_accept['post_policy'], 'open')
+        self.assertTrue(state_after_accept['can_post_top_level'])
+        self.assertEqual(self.channel_manager.get_channel_allowed_poster_ids(channel.id), [])
+
     def test_sync_allowlist_persists_known_remote_users_before_membership_exists(self) -> None:
         channel = self.channel_manager.create_channel(
             name='sync-allowlist-remote',

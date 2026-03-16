@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.93] - 2026-03-16
+
+### Fixed
+- **Curated channel policy authority enforcement** - Remote posting-policy snapshots (from channel announces and piggybacked message metadata) are now authority-gated: only the origin peer can update a channel's `post_policy`, `allow_member_replies`, and allowlist. Stale snapshots from non-origin peers are rejected with audit logging. This fixes a split-brain where a non-origin peer rebroadcasting `open + empty allowlist` could clobber curated state on all receiving peers, including the origin.
+- **Centralized low-level sync** - Posting-policy sync logic extracted into `_sync_channel_post_permissions_conn()` and `_normalize_allowed_poster_ids()`, keeping authority checks in `apply_remote_channel_posting_snapshot()` while trusted local paths continue using the direct `sync_channel_post_permissions()`.
+
 ## [0.4.92] - 2026-03-16
 
 ### Added

@@ -3048,11 +3048,13 @@ class ChannelManager:
                                 )
                             )
                             conn.commit()
-                            self.sync_channel_post_permissions(
+                            self.apply_remote_channel_posting_snapshot(
                                 remote_id,
+                                from_peer,
                                 post_policy=post_policy,
                                 allow_member_replies=allow_member_replies,
                                 allowed_poster_user_ids=allowed_poster_user_ids,
+                                log_context='channel_announce_update',
                             )
                             logger.info(f"Updated channel {remote_id}: "
                                         f"name='{old_name}'->'{new_name}', "
@@ -3071,11 +3073,13 @@ class ChannelManager:
                             conn.commit()
                     except Exception:
                         pass
-                    self.sync_channel_post_permissions(
+                    self.apply_remote_channel_posting_snapshot(
                         remote_id,
+                        from_peer,
                         post_policy=post_policy,
                         allow_member_replies=allow_member_replies,
                         allowed_poster_user_ids=allowed_poster_user_ids,
+                        log_context='channel_announce_existing',
                     )
                     return None  # Already synced, no updates needed
 
@@ -3632,6 +3636,224 @@ class ChannelManager:
                 'allowed_poster_user_ids': [],
             }
 
+    @staticmethod
+    def _normalize_allowed_poster_ids(allowed_poster_user_ids: Optional[List[str]]) -> List[str]:
+        """Normalize and deduplicate curated-poster user ids."""
+        allowed_ids: List[str] = []
+        seen_ids: set[str] = set()
+        for raw_user_id in allowed_poster_user_ids or []:
+            clean_user_id = str(raw_user_id or '').strip()
+            if not clean_user_id or clean_user_id in seen_ids:
+                continue
+            seen_ids.add(clean_user_id)
+            allowed_ids.append(clean_user_id)
+        return allowed_ids
+
+    def _sync_channel_post_permissions_conn(
+        self,
+        conn: Any,
+        channel_id: str,
+        *,
+        post_policy: Optional[str] = None,
+        allow_member_replies: Optional[bool] = None,
+        allowed_poster_user_ids: Optional[List[str]] = None,
+    ) -> bool:
+        """Low-level posting-policy sync inside an existing DB transaction."""
+        normalized_policy = self._normalize_post_policy(post_policy, default=self.POST_POLICY_OPEN)
+        allowed_ids = self._normalize_allowed_poster_ids(allowed_poster_user_ids)
+        conn.execute(
+            """
+            UPDATE channels
+               SET post_policy = ?,
+                   allow_member_replies = ?
+             WHERE id = ?
+            """,
+            (
+                normalized_policy,
+                1 if (True if allow_member_replies is None else bool(allow_member_replies)) else 0,
+                channel_id,
+            ),
+        )
+        conn.execute(
+            "DELETE FROM channel_post_permissions WHERE channel_id = ?",
+            (channel_id,),
+        )
+        for allowed_user_id in allowed_ids:
+            user_row = conn.execute(
+                "SELECT 1 FROM users WHERE id = ?",
+                (allowed_user_id,),
+            ).fetchone()
+            if not user_row:
+                continue
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO channel_post_permissions
+                (channel_id, user_id, granted_by)
+                VALUES (?, ?, NULL)
+                """,
+                (channel_id, allowed_user_id),
+            )
+        return True
+
+    def apply_remote_channel_posting_snapshot(
+        self,
+        channel_id: str,
+        from_peer: Optional[str],
+        *,
+        post_policy: Optional[str] = None,
+        allow_member_replies: Optional[bool] = None,
+        allowed_poster_user_ids: Optional[List[str]] = None,
+        log_context: str = 'remote_channel_sync',
+    ) -> bool:
+        """Apply synced posting metadata only when the sender is authoritative."""
+        clean_channel_id = str(channel_id or '').strip()
+        clean_from_peer = str(from_peer or '').strip()
+        if not clean_channel_id:
+            return False
+        if clean_channel_id == 'general':
+            logger.debug(
+                "Ignoring remote posting snapshot for general via %s from %s",
+                log_context,
+                clean_from_peer or 'unknown',
+            )
+            return False
+        try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    """
+                    SELECT origin_peer,
+                           created_by,
+                           COALESCE(post_policy, ?) AS post_policy,
+                           COALESCE(allow_member_replies, 1) AS allow_member_replies
+                    FROM channels
+                    WHERE id = ?
+                    """,
+                    (self.POST_POLICY_OPEN, clean_channel_id),
+                ).fetchone()
+                if not row:
+                    logger.warning(
+                        "Ignoring remote posting snapshot for unknown channel %s via %s from %s",
+                        clean_channel_id,
+                        log_context,
+                        clean_from_peer or 'unknown',
+                    )
+                    return False
+
+                origin_peer = str(row['origin_peer'] or '').strip()
+                created_by = str(row['created_by'] or '').strip()
+                current_policy = self._normalize_post_policy(
+                    row['post_policy'],
+                    default=self.POST_POLICY_OPEN,
+                )
+                current_allow_member_replies = bool(row['allow_member_replies'])
+
+                can_apply = False
+                authority_reason = 'origin_mismatch'
+                if origin_peer:
+                    can_apply = bool(clean_from_peer and clean_from_peer == origin_peer)
+                    if can_apply:
+                        authority_reason = 'origin_match'
+                elif created_by == 'p2p-sync':
+                    can_apply = True
+                    authority_reason = 'legacy_synced_channel'
+                else:
+                    authority_reason = 'local_origin_channel'
+
+                incoming_allowed_ids = self._normalize_allowed_poster_ids(allowed_poster_user_ids)
+                if not can_apply:
+                    logger.warning(
+                        "Ignoring remote posting snapshot for channel=%s via %s from=%s "
+                        "(reason=%s, origin_peer=%s, current_policy=%s, current_allow_member_replies=%s, "
+                        "incoming_policy=%s, incoming_allow_member_replies=%s, incoming_allowed_count=%d)",
+                        clean_channel_id,
+                        log_context,
+                        clean_from_peer or 'unknown',
+                        authority_reason,
+                        origin_peer or 'local',
+                        current_policy,
+                        current_allow_member_replies,
+                        self._normalize_post_policy(post_policy, default=self.POST_POLICY_OPEN),
+                        True if allow_member_replies is None else bool(allow_member_replies),
+                        len(incoming_allowed_ids),
+                    )
+                    return False
+
+                self._sync_channel_post_permissions_conn(
+                    conn,
+                    clean_channel_id,
+                    post_policy=post_policy,
+                    allow_member_replies=allow_member_replies,
+                    allowed_poster_user_ids=incoming_allowed_ids,
+                )
+                conn.commit()
+                logger.info(
+                    "Applied remote posting snapshot for channel=%s via %s from=%s "
+                    "(policy=%s, allow_member_replies=%s, allowed_count=%d, authority=%s)",
+                    clean_channel_id,
+                    log_context,
+                    clean_from_peer or 'unknown',
+                    self._normalize_post_policy(post_policy, default=self.POST_POLICY_OPEN),
+                    True if allow_member_replies is None else bool(allow_member_replies),
+                    len(incoming_allowed_ids),
+                    authority_reason,
+                )
+                return True
+        except Exception as e:
+            logger.error(
+                "Failed to apply remote posting snapshot for %s via %s: %s",
+                clean_channel_id,
+                log_context,
+                e,
+                exc_info=True,
+            )
+            return False
+        try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    """
+                    SELECT COALESCE(post_policy, ?) AS post_policy,
+                           COALESCE(allow_member_replies, 1) AS allow_member_replies
+                    FROM channels
+                    WHERE id = ?
+                    """,
+                    (self.POST_POLICY_OPEN, channel_id),
+                ).fetchone()
+                allowed_rows = conn.execute(
+                    """
+                    SELECT user_id
+                    FROM channel_post_permissions
+                    WHERE channel_id = ?
+                    ORDER BY granted_at ASC, user_id ASC
+                    """,
+                    (channel_id,),
+                ).fetchall()
+            return {
+                'post_policy': self._normalize_post_policy(
+                    row['post_policy'] if row else self.POST_POLICY_OPEN,
+                    default=self.POST_POLICY_OPEN,
+                ),
+                'allow_member_replies': bool(
+                    row['allow_member_replies'] if row else True
+                ),
+                'allowed_poster_user_ids': [
+                    str(allowed_row['user_id'])
+                    for allowed_row in allowed_rows
+                    if allowed_row and allowed_row['user_id']
+                ],
+            }
+        except Exception as e:
+            logger.error(
+                "Failed to load channel posting snapshot for %s: %s",
+                channel_id,
+                e,
+                exc_info=True,
+            )
+            return {
+                'post_policy': self.POST_POLICY_OPEN,
+                'allow_member_replies': True,
+                'allowed_poster_user_ids': [],
+            }
+
     def can_accept_incoming_message(
         self,
         channel_id: str,
@@ -3726,6 +3948,9 @@ class ChannelManager:
                 )
                 if not state:
                     return None
+                previous_policy = str(state.get('post_policy') or self.POST_POLICY_OPEN)
+                previous_allow_member_replies = bool(state.get('allow_member_replies', True))
+                previous_allowed_poster_count = int(state.get('allowed_poster_count') or 0)
                 origin_peer = state.get('origin_peer') or ''
                 is_origin_local = not origin_peer or (local_peer_id and origin_peer == local_peer_id)
                 if not is_origin_local or not state.get('is_admin_like'):
@@ -3752,6 +3977,19 @@ class ChannelManager:
                     user_id,
                     allow_admin=allow_admin,
                 ) or state
+
+            logger.info(
+                "Updated channel post policy channel=%s requester=%s origin_peer=%s "
+                "(policy=%s->%s, allow_member_replies=%s->%s, allowed_poster_count=%s)",
+                channel_id,
+                user_id,
+                origin_peer or 'local',
+                previous_policy,
+                updated_state.get('post_policy'),
+                previous_allow_member_replies,
+                updated_state.get('allow_member_replies'),
+                previous_allowed_poster_count,
+            )
 
             self._emit_channel_user_event(
                 channel_id=channel_id,
@@ -3790,6 +4028,7 @@ class ChannelManager:
                 )
                 if not state:
                     return None
+                previous_allowed_poster_count = int(state.get('allowed_poster_count') or 0)
                 origin_peer = state.get('origin_peer') or ''
                 is_origin_local = not origin_peer or (local_peer_id and origin_peer == local_peer_id)
                 if not is_origin_local or not state.get('is_admin_like'):
@@ -3824,6 +4063,18 @@ class ChannelManager:
                     requester_id,
                     allow_admin=allow_admin,
                 ) or state
+
+            logger.info(
+                "Granted channel poster access channel=%s requester=%s target=%s origin_peer=%s "
+                "(policy=%s, allowed_poster_count=%s->%s)",
+                channel_id,
+                requester_id,
+                target_user_id,
+                origin_peer or 'local',
+                updated_state.get('post_policy'),
+                previous_allowed_poster_count,
+                updated_state.get('allowed_poster_count'),
+            )
 
             self._emit_channel_user_event(
                 channel_id=channel_id,
@@ -3864,6 +4115,7 @@ class ChannelManager:
                 )
                 if not state:
                     return None
+                previous_allowed_poster_count = int(state.get('allowed_poster_count') or 0)
                 origin_peer = state.get('origin_peer') or ''
                 is_origin_local = not origin_peer or (local_peer_id and origin_peer == local_peer_id)
                 if not is_origin_local or not state.get('is_admin_like'):
@@ -3884,6 +4136,18 @@ class ChannelManager:
                     requester_id,
                     allow_admin=allow_admin,
                 ) or state
+
+            logger.info(
+                "Revoked channel poster access channel=%s requester=%s target=%s origin_peer=%s "
+                "(policy=%s, allowed_poster_count=%s->%s)",
+                channel_id,
+                requester_id,
+                target_user_id,
+                origin_peer or 'local',
+                updated_state.get('post_policy'),
+                previous_allowed_poster_count,
+                updated_state.get('allowed_poster_count'),
+            )
 
             self._emit_channel_user_event(
                 channel_id=channel_id,
@@ -3916,49 +4180,14 @@ class ChannelManager:
         if not channel_id:
             return False
         try:
-            normalized_policy = self._normalize_post_policy(post_policy, default=self.POST_POLICY_OPEN)
-            allowed_ids: List[str] = []
-            seen_ids: set[str] = set()
-            for raw_user_id in allowed_poster_user_ids or []:
-                clean_user_id = str(raw_user_id or '').strip()
-                if not clean_user_id or clean_user_id in seen_ids:
-                    continue
-                seen_ids.add(clean_user_id)
-                allowed_ids.append(clean_user_id)
-
             with self.db.get_connection() as conn:
-                conn.execute(
-                    """
-                    UPDATE channels
-                       SET post_policy = ?,
-                           allow_member_replies = ?
-                     WHERE id = ?
-                    """,
-                    (
-                        normalized_policy,
-                        1 if (True if allow_member_replies is None else bool(allow_member_replies)) else 0,
-                        channel_id,
-                    ),
+                self._sync_channel_post_permissions_conn(
+                    conn,
+                    channel_id,
+                    post_policy=post_policy,
+                    allow_member_replies=allow_member_replies,
+                    allowed_poster_user_ids=allowed_poster_user_ids,
                 )
-                conn.execute(
-                    "DELETE FROM channel_post_permissions WHERE channel_id = ?",
-                    (channel_id,),
-                )
-                for allowed_user_id in allowed_ids:
-                    user_row = conn.execute(
-                        "SELECT 1 FROM users WHERE id = ?",
-                        (allowed_user_id,),
-                    ).fetchone()
-                    if not user_row:
-                        continue
-                    conn.execute(
-                        """
-                        INSERT OR IGNORE INTO channel_post_permissions
-                        (channel_id, user_id, granted_by)
-                        VALUES (?, ?, NULL)
-                        """,
-                        (channel_id, allowed_user_id),
-                    )
                 conn.commit()
             return True
         except Exception as e:
