@@ -2620,6 +2620,8 @@ class ChannelManager:
                 rows = conn.execute("""
                     SELECT id, name, channel_type, description,
                            created_at, origin_peer, privacy_mode,
+                           COALESCE(post_policy, ?) AS post_policy,
+                           COALESCE(allow_member_replies, 1) AS allow_member_replies,
                            COALESCE(last_activity_at, created_at) AS last_activity_at,
                            COALESCE(lifecycle_ttl_days, ?) AS lifecycle_ttl_days,
                            COALESCE(lifecycle_preserved, 0) AS lifecycle_preserved,
@@ -2628,7 +2630,26 @@ class ChannelManager:
                     FROM channels
                     WHERE (channel_type = 'public' OR channel_type = 'general')
                       AND COALESCE(privacy_mode, 'open') NOT IN ('private', 'confidential')
-                """, (self.DEFAULT_CHANNEL_LIFECYCLE_DAYS,)).fetchall()
+                """, (self.POST_POLICY_OPEN, self.DEFAULT_CHANNEL_LIFECYCLE_DAYS)).fetchall()
+                channel_ids = [str(r[0]) for r in rows if r and r[0]]
+                allowed_by_channel: Dict[str, List[str]] = {}
+                if channel_ids:
+                    placeholders = ",".join("?" for _ in channel_ids)
+                    allowed_rows = conn.execute(
+                        f"""
+                        SELECT channel_id, user_id
+                        FROM channel_post_permissions
+                        WHERE channel_id IN ({placeholders})
+                        ORDER BY channel_id ASC, granted_at ASC, user_id ASC
+                        """,
+                        channel_ids,
+                    ).fetchall()
+                    for allowed_row in allowed_rows:
+                        channel_key = str(allowed_row[0] or "").strip()
+                        user_key = str(allowed_row[1] or "").strip()
+                        if not channel_key or not user_key:
+                            continue
+                        allowed_by_channel.setdefault(channel_key, []).append(user_key)
                 return [
                     {
                         'id': r[0],
@@ -2637,11 +2658,14 @@ class ChannelManager:
                         'desc': r[3] or '',
                         'origin_peer': r[5] or '',
                         'privacy_mode': r[6] or 'open',
-                        'last_activity_at': r[7],
-                        'lifecycle_ttl_days': r[8],
-                        'lifecycle_preserved': bool(r[9]),
-                        'lifecycle_archived_at': r[10],
-                        'lifecycle_archive_reason': r[11],
+                        'post_policy': self._normalize_post_policy(r[7], default=self.POST_POLICY_OPEN),
+                        'allow_member_replies': bool(r[8]),
+                        'allowed_poster_user_ids': list(allowed_by_channel.get(str(r[0]), [])),
+                        'last_activity_at': r[9],
+                        'lifecycle_ttl_days': r[10],
+                        'lifecycle_preserved': bool(r[11]),
+                        'lifecycle_archived_at': r[12],
+                        'lifecycle_archive_reason': r[13],
                     }
                     for r in rows
                 ]

@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.94] - 2026-03-16
+
+### Fixed
+- **Public channel sync preserves curated metadata** - `get_all_public_channels()` now includes `post_policy`, `allow_member_replies`, and `allowed_poster_user_ids` in the sync payload. Previously, public channel sync serialized curated channels with default `open` policy, causing the next sync pass to clobber curated state back to open on all peers. This was the root cause of the live `#curation-lab` revert observed on v0.4.93.
+
 ## [0.4.93] - 2026-03-16
 
 ### Fixed

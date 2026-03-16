@@ -340,6 +340,35 @@ class TestChannelPostPolicy(unittest.TestCase):
         self.assertFalse(snapshot['allow_member_replies'])
         self.assertEqual(snapshot['allowed_poster_user_ids'], ['member-user'])
 
+    def test_get_all_public_channels_preserves_curated_sync_metadata(self) -> None:
+        channel = self.channel_manager.create_channel(
+            name='public-curated-sync',
+            channel_type=ChannelType.PUBLIC,
+            created_by='owner-user',
+            description='public curated channel for sync',
+            privacy_mode='open',
+            post_policy='curated',
+            allow_member_replies=False,
+        )
+        self.assertIsNotNone(channel)
+        self.assertTrue(self.channel_manager.add_member(channel.id, 'member-user', 'owner-user', 'member'))
+        granted = self.channel_manager.grant_channel_post_permission(
+            channel.id,
+            'member-user',
+            'owner-user',
+            allow_admin=False,
+            local_peer_id=None,
+        )
+        self.assertIsNotNone(granted)
+
+        public_channels = self.channel_manager.get_all_public_channels()
+        public_entry = next((row for row in public_channels if row['id'] == channel.id), None)
+
+        self.assertIsNotNone(public_entry)
+        self.assertEqual(public_entry['post_policy'], 'curated')
+        self.assertFalse(public_entry['allow_member_replies'])
+        self.assertEqual(public_entry['allowed_poster_user_ids'], ['member-user'])
+
 
 if __name__ == '__main__':
     unittest.main()
