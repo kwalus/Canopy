@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.96] - 2026-03-16
+
+### Fixed
+- **YouTube click-to-play facade** - YouTube embeds now show a thumbnail with a play button overlay instead of loading the iframe immediately. The iframe is only injected when the user clicks, eliminating bulk embed requests that trigger YouTube's "sign in to prove you're not a bot" rate-limiting. Thumbnails load from `img.youtube.com` which is not rate-limited. The mini player integration is preserved via the MutationObserver that detects the iframe insertion on click.
+
 ## [0.4.95] - 2026-03-16
 
 ### Improved

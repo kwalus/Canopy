@@ -2664,6 +2664,8 @@
 	            font-size: 0.85rem;
 	        }
 	        .youtube-embed { --embed-accent: #ff4e45; }
+	        .yt-facade:hover > div { background: rgba(0,0,0,0.1) !important; }
+	        .yt-facade:hover svg { transform: scale(1.1); transition: transform 0.15s; }
 	        .vimeo-embed { --embed-accent: #1ab7ea; }
 	        .loom-embed { --embed-accent: #7c3aed; }
 	        .spotify-embed { --embed-accent: #1db954; }
@@ -5341,7 +5343,7 @@
             <div class="sidebar-container expanded" id="sidebar-container">
                 <div class="sidebar" id="main-sidebar">
                     <nav class="nav flex-column py-3">
-                        <a class="nav-link nav-link-unread {% if request.endpoint == 'ui.messages' %}active{% endif %}" 
+                        <a class="nav-link nav-link-unread {% if request.endpoint == 'ui.messages' %}active{% endif %}"
                            href="{{ url_for('ui.messages') }}" data-title="Messages">
                             <span class="sidebar-nav-label">
                                 <i class="bi bi-chat-left-text"></i>

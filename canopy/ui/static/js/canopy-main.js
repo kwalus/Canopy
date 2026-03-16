@@ -1527,17 +1527,49 @@
             return 'https://s.tradingview.com/widgetembed/?' + params.toString();
         }
 
+        function buildYouTubeFacade(videoId) {
+            const safeId = escapeEmbedAttr(videoId);
+            const thumbUrl = 'https://img.youtube.com/vi/' + safeId + '/hqdefault.jpg';
+            const iframeSrc = 'https://www.youtube-nocookie.com/embed/' + safeId + '?enablejsapi=1&autoplay=1&playsinline=1&rel=0&origin=' + encodeURIComponent(window.location.origin);
+            const caption = buildEmbedCaption('YouTube');
+            return (
+                '<div class="embed-preview iframe-embed youtube-embed" data-video-id="' + safeId + '">' +
+                '<div class="yt-facade" data-iframe-src="' + escapeEmbedAttr(iframeSrc) + '" style="position:relative;cursor:pointer;aspect-ratio:16/9;background:#000 url(\'' + escapeEmbedAttr(thumbUrl) + '\') center/cover no-repeat;border-radius:10px;overflow:hidden;" title="Click to play">' +
+                '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.25);transition:background 0.15s;">' +
+                '<svg width="68" height="48" viewBox="0 0 68 48" style="filter:drop-shadow(0 2px 8px rgba(0,0,0,0.4));"><path d="M66.52 7.74c-.78-2.93-2.49-5.41-5.42-6.19C55.79.13 34 0 34 0S12.21.13 6.9 1.55C3.97 2.33 2.27 4.81 1.48 7.74.06 13.05 0 24 0 24s.06 10.95 1.48 16.26c.78 2.93 2.49 5.41 5.42 6.19C12.21 47.87 34 48 34 48s21.79-.13 27.1-1.55c2.93-.78 4.64-3.26 5.42-6.19C67.94 34.95 68 24 68 24s-.06-10.95-1.48-16.26z" fill="#FF0000"/><path d="M45 24L27 14v20" fill="#fff"/></svg>' +
+                '</div></div>' +
+                caption +
+                '</div>'
+            );
+        }
+
+        document.addEventListener('click', function(e) {
+            var facade = e.target.closest('.yt-facade');
+            if (!facade) return;
+            var src = facade.getAttribute('data-iframe-src');
+            if (!src) return;
+            var container = facade.parentElement;
+            var iframe = document.createElement('iframe');
+            iframe.src = src;
+            iframe.title = 'YouTube video';
+            iframe.frameBorder = '0';
+            iframe.allowFullscreen = true;
+            iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
+            iframe.referrerPolicy = 'strict-origin-when-cross-origin';
+            iframe.style.width = '100%';
+            iframe.style.aspectRatio = '16/9';
+            iframe.style.borderRadius = '10px';
+            iframe.style.background = '#000';
+            iframe.style.display = 'block';
+            facade.replaceWith(iframe);
+        });
+
         const RICH_EMBED_PROVIDERS = [
             {
                 key: 'youtube',
                 pattern: /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/|youtube\.com\/live\/)([\w-]{11})(?:[&?]\S*)?/g,
                 render(match, videoId) {
-                    return buildIframeEmbedPreview(
-                        'youtube-embed',
-                        'https://www.youtube-nocookie.com/embed/' + videoId + '?enablejsapi=1&playsinline=1&rel=0&origin=' + encodeURIComponent(window.location.origin),
-                        'YouTube video ' + videoId,
-                        { caption: 'YouTube' }
-                    );
+                    return buildYouTubeFacade(videoId);
                 },
             },
             {
