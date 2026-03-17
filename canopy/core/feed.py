@@ -20,6 +20,11 @@ from dataclasses import dataclass, field, asdict
 from enum import Enum
 
 from .database import DatabaseManager
+from .events import (
+    EVENT_FEED_POST_CREATED,
+    EVENT_FEED_POST_DELETED,
+    EVENT_FEED_POST_UPDATED,
+)
 from ..security.api_keys import ApiKeyManager, Permission
 from ..security.encryption import RecipientEncryptor, RECIPIENT_ENCRYPTED_PREFIX
 from .logging_config import log_performance, LogOperation
@@ -259,12 +264,54 @@ class FeedManager:
         self.db = db_manager
         self.api_key_manager = api_key_manager
         self.data_encryptor = data_encryptor
+        self.workspace_events: Any = None
         self.max_content_length = 4096  # 4KB for text posts
         self.supported_media_types = [
             'image/jpeg', 'image/png', 'image/gif',
             'video/mp4', 'video/webm',
             'audio/mp3', 'audio/wav', 'audio/ogg'
         ]
+
+    @staticmethod
+    def _build_event_preview(content: str, fallback: str = 'Feed activity') -> str:
+        preview = ' '.join(str(content or '').split()).strip()
+        if not preview:
+            return fallback
+        if len(preview) > 160:
+            return preview[:157].rstrip() + '...'
+        return preview
+
+    def _emit_post_event(
+        self,
+        *,
+        event_type: str,
+        post: Optional['Post'],
+        created_at: Optional[datetime] = None,
+        preview: Optional[str] = None,
+        update_reason: Optional[str] = None,
+    ) -> None:
+        manager = self.workspace_events
+        if not manager or not post:
+            return
+        visibility_value = post.visibility.value if hasattr(post.visibility, 'value') else str(post.visibility or 'network')
+        created_dt = created_at or datetime.now(timezone.utc)
+        manager.emit_event(
+            event_type=event_type,
+            actor_user_id=post.author_id,
+            post_id=post.id,
+            visibility_scope='feed',
+            dedupe_key=f"{event_type}:{post.id}:{created_dt.isoformat()}",
+            created_at=created_dt,
+            payload={
+                'author_id': post.author_id,
+                'post_type': post.post_type.value if hasattr(post.post_type, 'value') else str(post.post_type or 'text'),
+                'preview': preview or self._build_event_preview(post.content or ''),
+                'visibility': visibility_value,
+                'permissions': list(post.permissions or []),
+                'source_type': post.source_type or 'human',
+                'update_reason': update_reason or '',
+            },
+        )
 
     @staticmethod
     def _parse_datetime(value: Any) -> Optional[datetime]:
@@ -436,6 +483,11 @@ class FeedManager:
                     logger.debug("Database transaction committed successfully")
             
             logger.info(f"Successfully created post {post_id} by {author_id}")
+            self._emit_post_event(
+                event_type=EVENT_FEED_POST_CREATED,
+                post=post,
+                created_at=created_at,
+            )
             return post
             
         except Exception as e:
@@ -719,6 +771,14 @@ class FeedManager:
                 
                 if success:
                     logger.info(f"Updated post {post_id}")
+                    updated_post = self.get_post(post_id)
+                    if updated_post:
+                        self._emit_post_event(
+                            event_type=EVENT_FEED_POST_UPDATED,
+                            post=updated_post,
+                            created_at=datetime.now(timezone.utc),
+                            update_reason='edit',
+                        )
                 
                 return success
                 
@@ -774,6 +834,7 @@ class FeedManager:
     def delete_post(self, post_id: str, user_id: str, allow_admin: bool = False) -> bool:
         """Delete a post (only author can delete unless admin)."""
         try:
+            deleted_post = self.get_post(post_id)
             with self.db.get_connection() as conn:
                 # Check if user is the author
                 cursor = conn.execute("""
@@ -794,6 +855,12 @@ class FeedManager:
                 
                 if success:
                     logger.info(f"Deleted post {post_id}")
+                    self._emit_post_event(
+                        event_type=EVENT_FEED_POST_DELETED,
+                        post=deleted_post,
+                        created_at=datetime.now(timezone.utc),
+                        update_reason='delete',
+                    )
                 
                 return success
                 

@@ -26,6 +26,11 @@ if 'zeroconf' not in sys.modules:
     sys.modules['zeroconf'] = zeroconf_stub
 
 from canopy.ui.routes import create_ui_blueprint
+from canopy.core.events import (
+    EVENT_FEED_POST_CREATED,
+    EVENT_MENTION_CREATED,
+    WorkspaceEventManager,
+)
 
 
 class _FakeDbManager:
@@ -34,6 +39,13 @@ class _FakeDbManager:
 
     def get_connection(self) -> sqlite3.Connection:
         return self._conn
+
+    def get_user(self, user_id: str):
+        row = self._conn.execute(
+            "SELECT * FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+        return dict(row) if row else None
 
     def get_instance_owner_user_id(self):
         return None
@@ -86,13 +98,49 @@ class TestSidebarAttentionSummary(unittest.TestCase):
                 edited_at TEXT,
                 metadata TEXT
             );
+            CREATE TABLE workspace_events (
+                seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id TEXT NOT NULL UNIQUE,
+                event_type TEXT NOT NULL,
+                actor_user_id TEXT,
+                target_user_id TEXT,
+                channel_id TEXT,
+                post_id TEXT,
+                message_id TEXT,
+                visibility_scope TEXT NOT NULL,
+                dedupe_key TEXT,
+                payload_json TEXT,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE feed_posts (
+                id TEXT PRIMARY KEY,
+                author_id TEXT,
+                content TEXT,
+                content_type TEXT,
+                visibility TEXT,
+                metadata TEXT,
+                created_at TEXT,
+                expires_at TEXT,
+                likes INTEGER DEFAULT 0,
+                comments INTEGER DEFAULT 0,
+                shares INTEGER DEFAULT 0,
+                source_type TEXT,
+                source_agent_id TEXT,
+                source_url TEXT,
+                tags TEXT,
+                last_activity_at TEXT
+            );
+            CREATE TABLE post_permissions (
+                post_id TEXT NOT NULL,
+                user_id TEXT NOT NULL
+            );
             """
         )
         self.conn.executemany(
             "INSERT INTO users (id, username, display_name, avatar_file_id, account_type, origin_peer, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
             [
                 ('owner', 'owner', 'Owner', None, 'human', None, '2026-03-16T09:00:00+00:00'),
-                ('peer-a', 'peer_a', 'Peer A', None, 'agent', None, '2026-03-16T09:01:00+00:00'),
+                ('peer-a', 'peer_a', 'Peer A', 'avatar-peer-a', 'agent', None, '2026-03-16T09:01:00+00:00'),
                 ('peer-b', 'peer_b', 'Peer B', None, 'human', None, '2026-03-16T09:02:00+00:00'),
             ],
         )
@@ -170,9 +218,16 @@ class TestSidebarAttentionSummary(unittest.TestCase):
                 owner_peer_state=None,
             ),
         ]
+        self.channel_manager.get_channel.side_effect = lambda channel_id: SimpleNamespace(
+            id=channel_id,
+            name='ops' if channel_id == 'chan-2' else 'general',
+        )
+        self.workspace_events = WorkspaceEventManager(self.db_manager)
 
         self.interaction_manager = MagicMock()
         self.interaction_manager.get_user_liked_ids.return_value = set()
+        self.profile_manager = MagicMock()
+        self.profile_manager.get_profile.return_value = None
 
         components = (
             self.db_manager,
@@ -183,7 +238,7 @@ class TestSidebarAttentionSummary(unittest.TestCase):
             MagicMock(),
             self.feed_manager,
             self.interaction_manager,
-            MagicMock(),
+            self.profile_manager,
             MagicMock(),
             None,
         )
@@ -199,6 +254,7 @@ class TestSidebarAttentionSummary(unittest.TestCase):
         app = Flask(__name__)
         app.config['TESTING'] = True
         app.secret_key = 'test-secret'
+        app.config['WORKSPACE_EVENT_MANAGER'] = self.workspace_events
         app.register_blueprint(create_ui_blueprint())
         self.client = app.test_client()
         with self.client.session_transaction() as sess:
@@ -230,6 +286,52 @@ class TestSidebarAttentionSummary(unittest.TestCase):
         self.assertTrue(repeat_payload.get('success'))
         self.assertFalse(repeat_payload.get('changed'))
         self.assertEqual(repeat_payload.get('summary'), {})
+        self.assertIsInstance(repeat_payload.get('workspace_event_cursor'), int)
+
+    def test_sidebar_attention_snapshot_returns_recent_activity_items(self) -> None:
+        self.workspace_events.emit_event(
+            event_type=EVENT_MENTION_CREATED,
+            actor_user_id='peer-a',
+            target_user_id='owner',
+            channel_id='chan-2',
+            message_id='msg-mention',
+            visibility_scope='user',
+            dedupe_key='mention:test',
+            payload={
+                'source_type': 'channel_message',
+                'source_id': 'msg-mention',
+                'preview': 'Please check the curation note.',
+            },
+        )
+        self.workspace_events.emit_event(
+            event_type=EVENT_FEED_POST_CREATED,
+            actor_user_id='peer-b',
+            post_id='feed-1',
+            visibility_scope='feed',
+            dedupe_key='feed:test',
+            payload={
+                'preview': 'New field report available',
+                'visibility': 'public',
+                'author_id': 'peer-b',
+                'permissions': [],
+            },
+        )
+
+        response = self.client.get('/ajax/sidebar_attention_snapshot')
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertEqual(payload.get('summary', {}).get('total'), 11)
+        self.assertIsInstance(payload.get('workspace_event_cursor'), int)
+        items = payload.get('items') or []
+        self.assertGreaterEqual(len(items), 2)
+        self.assertEqual(items[0].get('kind'), 'mention')
+        self.assertIn('/channels/locate?message_id=msg-mention', items[0].get('href', ''))
+        self.assertEqual(items[0].get('avatar_url'), '/files/avatar-peer-a')
+        self.assertGreater(items[0].get('seq') or 0, 0)
+        self.assertEqual(items[1].get('kind'), 'feed')
+        self.assertIn('/feed?focus_post=feed-1', items[1].get('href', ''))
+        self.assertGreater(items[1].get('seq') or 0, 0)
 
     def test_feed_route_marks_feed_viewed_on_page_open(self) -> None:
         response = self.client.get('/feed')

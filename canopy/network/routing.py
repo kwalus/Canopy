@@ -914,6 +914,9 @@ class MessageRouter:
                     update_only=bool(meta.get('update_only')),
                     origin_peer=meta.get('origin_peer'),
                     parent_message_id=meta.get('parent_message_id'),
+                    post_policy=meta.get('post_policy'),
+                    allow_member_replies=meta.get('allow_member_replies'),
+                    allowed_poster_user_ids=meta.get('allowed_poster_user_ids'),
                     edited_at=meta.get('edited_at'),
                     encrypted_content=meta.get('encrypted_content'),
                     crypto_state=meta.get('crypto_state'),
@@ -934,6 +937,9 @@ class MessageRouter:
                     created_by_peer=meta.get('created_by_peer', message.from_peer),
                     created_by_user_id=meta.get('created_by_user_id'),
                     privacy_mode=meta.get('privacy_mode'),
+                    post_policy=meta.get('post_policy'),
+                    allow_member_replies=meta.get('allow_member_replies'),
+                    allowed_poster_user_ids=meta.get('allowed_poster_user_ids'),
                     last_activity_at=meta.get('last_activity_at'),
                     lifecycle_ttl_days=meta.get('lifecycle_ttl_days'),
                     lifecycle_preserved=meta.get('lifecycle_preserved'),
@@ -1415,6 +1421,9 @@ class MessageRouter:
                                      created_by_peer: str,
                                      created_by_user_id: Optional[str] = None,
                                      privacy_mode: Optional[str] = None,
+                                     post_policy: Optional[str] = None,
+                                     allow_member_replies: Optional[bool] = None,
+                                     allowed_poster_user_ids: Optional[list[Any]] = None,
                                      last_activity_at: Optional[str] = None,
                                      lifecycle_ttl_days: Optional[int] = None,
                                      lifecycle_preserved: Optional[bool] = None,
@@ -1437,9 +1446,13 @@ class MessageRouter:
             'description': description,
             'created_by_peer': created_by_peer,
             'privacy_mode': privacy_mode,
+            'post_policy': post_policy,
+            'allow_member_replies': allow_member_replies,
         }
         if created_by_user_id:
             metadata['created_by_user_id'] = str(created_by_user_id)
+        if allowed_poster_user_ids:
+            metadata['allowed_poster_user_ids'] = [str(user_id) for user_id in allowed_poster_user_ids if str(user_id or '').strip()]
         if initial_members:
             metadata['initial_members'] = initial_members
         if last_activity_at:

@@ -1068,6 +1068,77 @@
 	            overflow: hidden;
 	        }
 
+        .notification-menu .notification-filter-wrap {
+            padding: 8px 12px 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .notification-menu .notification-filter-label {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            font-size: 0.72rem;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: var(--canopy-text-muted);
+            margin-bottom: 8px;
+        }
+
+        .notification-menu .notification-filter-reset {
+            appearance: none;
+            border: 0;
+            background: transparent;
+            color: var(--canopy-accent, #22c55e);
+            font-size: 0.72rem;
+            font-weight: 600;
+            padding: 0;
+            cursor: pointer;
+        }
+
+        .notification-menu .notification-filter-reset:hover {
+            color: #86efac;
+        }
+
+        .notification-menu .notification-filter-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .notification-menu .notification-filter-chip {
+            appearance: none;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.04);
+            color: var(--canopy-text-muted);
+            border-radius: 999px;
+            padding: 5px 10px;
+            font-size: 0.76rem;
+            line-height: 1;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+        }
+
+        .notification-menu .notification-filter-chip:hover {
+            transform: translateY(-1px);
+            border-color: rgba(34, 197, 94, 0.28);
+            color: var(--canopy-text-primary);
+        }
+
+        .notification-menu .notification-filter-chip.is-active {
+            background: rgba(34, 197, 94, 0.14);
+            border-color: rgba(34, 197, 94, 0.4);
+            color: #d9fbe6;
+        }
+
+        .notification-menu .notification-filter-chip i {
+            font-size: 0.78rem;
+        }
+
         .mention-tag {
             display: inline-block;
             padding: 0 0.3rem;
@@ -2664,6 +2735,8 @@
 	            font-size: 0.85rem;
 	        }
 	        .youtube-embed { --embed-accent: #ff4e45; }
+	        .yt-facade:hover > div { background: rgba(0,0,0,0.1) !important; }
+	        .yt-facade:hover svg { transform: scale(1.1); transition: transform 0.15s; }
 	        .vimeo-embed { --embed-accent: #1ab7ea; }
 	        .loom-embed { --embed-accent: #7c3aed; }
 	        .spotify-embed { --embed-accent: #1db954; }
@@ -5237,6 +5310,168 @@
                 font-size: 0.72rem;
             }
         }
+
+        .workspace-onboarding-card {
+            position: relative;
+            display: grid;
+            gap: 0.95rem;
+            padding: 1rem 1.05rem;
+            border-radius: 22px;
+            border: 1px solid rgba(92, 231, 161, 0.18);
+            background:
+                radial-gradient(circle at top right, rgba(92, 231, 161, 0.16), transparent 38%),
+                linear-gradient(180deg, rgba(18, 32, 49, 0.96), rgba(10, 20, 35, 0.96));
+            box-shadow: 0 20px 42px rgba(3, 10, 22, 0.24);
+            overflow: hidden;
+        }
+
+        .workspace-onboarding-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 0.9rem;
+        }
+
+        .workspace-onboarding-copy {
+            min-width: 0;
+        }
+
+        .workspace-onboarding-eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            margin-bottom: 0.34rem;
+            font-size: 0.76rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: rgba(207, 250, 226, 0.9);
+        }
+
+        .workspace-onboarding-copy h2 {
+            margin: 0;
+            font-size: 1.18rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            color: var(--canopy-text-primary);
+        }
+
+        .workspace-onboarding-copy p {
+            margin: 0.35rem 0 0;
+            max-width: 60rem;
+            color: var(--canopy-text-secondary);
+            font-size: 0.94rem;
+        }
+
+        .workspace-onboarding-dismiss {
+            flex: 0 0 auto;
+            opacity: 0.78;
+        }
+
+        .workspace-onboarding-dismiss:hover {
+            opacity: 1;
+        }
+
+        .workspace-onboarding-stats {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 0.7rem;
+        }
+
+        .workspace-onboarding-stat {
+            display: flex;
+            flex-direction: column;
+            gap: 0.08rem;
+            padding: 0.72rem 0.8rem;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            min-width: 0;
+        }
+
+        .workspace-onboarding-stat strong {
+            font-size: 1rem;
+            font-weight: 800;
+            color: var(--canopy-text-primary);
+        }
+
+        .workspace-onboarding-stat span {
+            font-size: 0.78rem;
+            color: var(--canopy-text-secondary);
+        }
+
+        .workspace-onboarding-steps {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.55rem 0.75rem;
+        }
+
+        .workspace-onboarding-step {
+            display: flex;
+            align-items: center;
+            gap: 0.55rem;
+            min-width: 0;
+            padding: 0.55rem 0.65rem;
+            border-radius: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.03);
+            color: var(--canopy-text-secondary);
+            font-size: 0.87rem;
+            font-weight: 600;
+        }
+
+        .workspace-onboarding-step.done {
+            color: #dffbf0;
+            border-color: rgba(92, 231, 161, 0.22);
+            background: rgba(41, 182, 111, 0.13);
+        }
+
+        .workspace-onboarding-step.pending {
+            color: var(--canopy-text-secondary);
+        }
+
+        .workspace-onboarding-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.55rem;
+        }
+
+        .workspace-onboarding-actions .btn {
+            border-radius: 999px;
+            min-height: 2.2rem;
+            font-weight: 700;
+        }
+
+        @media (max-width: 992px) {
+            .workspace-onboarding-stats,
+            .workspace-onboarding-steps {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 640px) {
+            .workspace-onboarding-card {
+                padding: 0.9rem;
+                border-radius: 18px;
+            }
+
+            .workspace-onboarding-head {
+                align-items: flex-start;
+            }
+
+            .workspace-onboarding-stats,
+            .workspace-onboarding-steps {
+                grid-template-columns: minmax(0, 1fr);
+            }
+
+            .workspace-onboarding-copy h2 {
+                font-size: 1.05rem;
+            }
+
+            .workspace-onboarding-copy p {
+                font-size: 0.88rem;
+            }
+        }
     </style>
     
     {% block extra_css %}{% endblock %}
@@ -5278,9 +5513,16 @@
                                 <span class="notification-badge" id="notificationBadge" style="display:none;">0</span>
                             </button>
 	                            <ul class="dropdown-menu dropdown-menu-end notification-menu" aria-labelledby="notificationBell">
-                                <li class="dropdown-header">Network Activity</li>
+                                <li class="dropdown-header">Activity</li>
+                                <li class="notification-filter-wrap">
+                                    <div class="notification-filter-label">
+                                        <span>Show in bell</span>
+                                        <button type="button" class="notification-filter-reset" id="notificationFilterReset">All</button>
+                                    </div>
+                                    <div class="notification-filter-bar" id="notificationFilterBar" aria-label="Notification type filters"></div>
+                                </li>
                                 <li id="notificationEmptyWrap">
-                                    <div class="dropdown-item-text text-muted" id="notificationEmpty">No new activity</div>
+                                    <div class="dropdown-item-text text-muted" id="notificationEmpty">No new attention items</div>
                                 </li>
                                 <li>
                                     <div id="notificationList"></div>
@@ -5341,7 +5583,7 @@
             <div class="sidebar-container expanded" id="sidebar-container">
                 <div class="sidebar" id="main-sidebar">
                     <nav class="nav flex-column py-3">
-                        <a class="nav-link nav-link-unread {% if request.endpoint == 'ui.messages' %}active{% endif %}" 
+                        <a class="nav-link nav-link-unread {% if request.endpoint == 'ui.messages' %}active{% endif %}"
                            href="{{ url_for('ui.messages') }}" data-title="Messages">
                             <span class="sidebar-nav-label">
                                 <i class="bi bi-chat-left-text"></i>
@@ -5670,6 +5912,9 @@
             dmEventCursor: {{ sidebar_dm_event_cursor|tojson if sidebar_dm_event_cursor is defined else '0' }},
             attentionSummary: {{ sidebar_attention_summary|tojson if sidebar_attention_summary is defined else {'messages': 0, 'channels': 0, 'feed': 0, 'total': 0}|tojson }},
             attentionRev: {{ sidebar_attention_rev|tojson if sidebar_attention_rev is defined else '""' }},
+            attentionActivityRev: {{ sidebar_attention_activity_rev|tojson if sidebar_attention_activity_rev is defined else '""' }},
+            attentionItems: {{ sidebar_attention_items|tojson if sidebar_attention_items is defined else '[]' }},
+            attentionEventCursor: {{ sidebar_attention_event_cursor|tojson if sidebar_attention_event_cursor is defined else '0' }},
             userId: {{ (user_id or 'local_user')|tojson }},
             profileTheme: {{ (profile.theme_preference if profile else 'dark')|tojson }},
             localUserId: {{ session.get('user_id')|tojson }},
@@ -5679,7 +5924,9 @@
                 feed: {{ url_for('ui.feed')|tojson }},
                 channels: {{ url_for('ui.channels')|tojson }},
                 messages: {{ url_for('ui.messages')|tojson }},
-                sidebarAttentionSummary: {{ url_for('ui.ajax_sidebar_attention_summary')|tojson }}
+                sidebarAttentionSummary: {{ url_for('ui.ajax_sidebar_attention_summary')|tojson }},
+                sidebarAttentionSnapshot: {{ url_for('ui.ajax_sidebar_attention_snapshot')|tojson }},
+                peerActivity: {{ url_for('ui.ajax_peer_activity')|tojson }}
             }
         };
     </script>

@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.4.90-blue" alt="Version 0.4.90">
+  <img src="https://img.shields.io/badge/version-0.4.100-blue" alt="Version 0.4.100">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -23,9 +23,8 @@
   <a href="docs/QUICKSTART.md"><strong>Get Started</strong></a> ·
   <a href="docs/API_REFERENCE.md"><strong>API Reference</strong></a> ·
   <a href="docs/MCP_QUICKSTART.md"><strong>Agent Guide</strong></a> ·
-  <a href="docs/GITHUB_RELEASE_v0.4.90.md"><strong>Release Notes</strong></a> ·
-  <a href="docs/WINDOWS_TRAY.md"><strong>Windows Tray</strong></a> ·
-  <a href="CHANGELOG.md"><strong>Changelog</strong></a>
+  <a href="CHANGELOG.md"><strong>Release Notes</strong></a> ·
+  <a href="docs/WINDOWS_TRAY.md"><strong>Windows Tray</strong></a>
 </p>
 
 
@@ -80,33 +79,13 @@ Most chat products treat AI as bolt-on automation hanging off webhooks or extern
 
 Recent user-facing changes reflected in the app and docs:
 
-- **Sidebar unread badges and notification deep-links** in `0.4.90`, adding aggregate unread counts for Messages, Channels, and Social Feed in the left navigation rail with periodic polling refresh, durable per-user feed-view acknowledgement, exact-message deep-linking from the notification bell via server-side focused context windows, and semantic bell dedup so mention-bearing messages only count once.
-- **Inline map, chart, and rich media embeds** in `0.4.84`-`0.4.89`, adding first-class embed rendering for YouTube, Vimeo, Loom, Spotify, SoundCloud, direct audio/video URLs, OpenStreetMap inline maps, TradingView inline chart widgets, and key-aware Google Maps embeds with honest safe-card fallback when no API key is configured.
-- **Math rendering hardening** in `0.4.88`, so inline dollar-sign math detection only activates for content that actually looks mathematical, preventing accidental KaTeX formatting damage on finance-style posts.
-- **Truthful stream lifecycle** in `0.4.84`-`0.4.87`, ensuring stream cards reflect real start/stop state, remote viewers see accurate status instead of stale `Preparing` badges, browser broadcasters release the camera on stop or panel close, and playback endpoints use a dedicated rate limiter instead of the generic API throttle.
-- **Cross-peer channel update and inline-image repair** in `0.4.83`, so active channel threads refresh when a new message lands in the channel you already have open, plain-text `.ini`-style config snippets can be posted without structured-composer false positives, and peer-synced inline `file:` images remap cleanly to local attachment IDs.
-- **Channel live-update recovery hardening** in `0.4.82`, so channel-thread polling falls back more aggressively to direct snapshots and channel-scoped workspace events are explicitly visible to actual channel members with message-read permission.
-- **Rich media composition pass** in `0.4.81`, adding inline uploaded-image anchors with `![caption](file:FILE_ID)` plus validated attachment `layout_hint` gallery rendering (`grid`, `hero`, `strip`, `stack`) across channels, feed, and DMs.
-- **Inbox audit and quiet-feed hardening** in `0.4.80`, so `seen` inbox items remain actionable until resolved, reopened items keep their last terminal evidence for operators, intentionally empty agent event subscriptions stay quiet, and message-bearing channel events remain permission-filtered.
-- **Durable agent event subscriptions** in `0.4.79`, so agents can store their preferred workspace event families server-side, inspect the effective feed in heartbeat/admin diagnostics, and intentionally run a quiet feed without falling back to defaults.
-- **Group-DM attachment fan-out hardening** in `0.4.78`, so one slow or dead peer no longer stalls later peers during broadcast mesh delivery and attachment sends no longer block the request thread while fan-out finishes in the background.
-- **Agent-focused workspace event feed** in `0.4.77`, adding `GET /api/v1/agents/me/events` as a low-noise actionable event route for agent runtimes while keeping human API keys out of agent presence/runtime telemetry.
-- **Incremental channel-state updates** in `0.4.75`, so the Channels UI now applies common lifecycle, privacy, notification, member-count, and deletion state changes in place instead of forcing a sidebar snapshot refresh for every state event.
-- **Channel thread cursor isolation hardening** in `0.4.75`, so the active channel thread no longer skips unseen message edit/delete events when unrelated sidebar state events advance first.
-- **Docs/version alignment refresh** across `0.4.78` to `0.4.89`, updating the README, operator guides, and current release copy so public-facing pointers match the latest development surface.
-- **Workspace event journal rollout** across `0.4.69` to `0.4.71`, moving the DM workspace, shared recent-DM rail, and channel sidebar onto journal-driven change detection while preserving the existing snapshot render paths and safety resync behavior.
-- **Event-consumer race hardening** in `0.4.69` to `0.4.71`, so the DM thread view, recent-DM rail, and channel sidebar now capture their workspace-event cursors before rebuilding snapshot state and do not advance past unseen changes during concurrent activity.
-- **Structured block correction feedback** in `0.4.68`, so feed and channel composer send paths now reject semantically incomplete canonical `signal` and `request` blocks before save and surface explicit correction feedback instead of silently materializing nothing.
-- **Structured composer validation and feedback** across `0.4.67` and `0.4.68`, adding canonical block templates, malformed/alias validation, normalization actions, and post-send structured object summaries in the main feed and channel composers.
-- **UI and identity follow-up hardening** in `0.4.66`, carrying remote `account_type`, fixing local-profile sync eligibility, hardening channel reply buttons, preserving YouTube mini-player behavior, and treating `origin_peer == local_peer_id` as local in identity/admin UI.
-- **Managed large-attachment store v1** in `0.4.60`, introducing a fixed `10 MB` metadata-first sync threshold, admin-configurable external storage root, automatic/manual/paused download policy, peer-authorized remote fetch, and bounded UI controls for manual download when automatic caching is disabled.
-- **DM E2E hardening, workspace redesign, and security markers** across `0.4.48` to `0.4.59`, with relay-compatible E2E, conversation-first DM workspace, group threads, grouped bubbles, security indicators, attachment parity with channels, and DM search through encrypted-at-rest history.
-- **Mesh connectivity durability and relay hardening** across `0.4.44` to `0.4.57`, with dead-connection retirement, discovery-backed reconnect, endpoint truth preservation, and indefinite capped-backoff retries.
-- **Windows tray packaging path** refreshed for `0.4.45`, with a documented PyInstaller bundle and optional Inno Setup installer for non-Python Windows users.
-- **Identity portability phase 1** in `0.4.36` for feature-flagged bootstrap grant workflows and principal sync.
-- **Relay, reconnect, private-channel recovery, and E2E hardening** across the `0.4.3x` line.
-- **Live stream cards and telemetry feeds** for mesh-native audio/video and data delivery.
-- **Agent collaboration improvements** such as mention claim locks, deterministic heartbeat cursors, discovery, thread reply subscriptions, and richer identity cards.
+- **First-run guidance and smart landing** in `0.4.100`, giving new users a compact first-day guide on Channels, Feed, and Messages showing workspace stats and practical next steps. Mobile users land on `#general` instead of an empty feed until they have sent messages, posted, and seen a peer.
+- **Event-driven attention center** in `0.4.97`-`0.4.99`, unifying the bell, left-rail unread badges, and compact DM sidebar around one workspace-event model. The bell now behaves like an attention inbox with actor avatars, stable dismiss semantics, and per-user type filters for Mentions, Inbox, DMs, Channels, and Feed.
+- **Curated channels with durable enforcement** in `0.4.91`-`0.4.94`, adding top-level posting policy (`open` or `curated`), approved-poster allowlists, reply-open moderation defaults, authority-gated mesh sync, and inbound receive-side enforcement so old or stale peers cannot silently reopen curated channels.
+- **Responsive channel workspace polish** in `0.4.95`-`0.4.96`, including channel-header compaction for narrow and landscape layouts plus YouTube click-to-play facades that avoid immediate iframe flood and third-party throttling.
+- **Inline map, chart, and rich media embeds** in `0.4.84`-`0.4.89`, adding first-class rendering for YouTube, Vimeo, Loom, Spotify, SoundCloud, direct audio/video URLs, OpenStreetMap inline maps, TradingView inline charts, and key-aware Google Maps embeds with safe-card fallback.
+- **Streaming runtime hardening** in `0.4.84`-`0.4.89`, including truthful stream lifecycle state, dedicated playback rate limiting, browser broadcaster teardown, health/preflight surfaces, and token refresh for longer live sessions.
+- **Agent event-feed maturity** in `0.4.77`-`0.4.80`, adding `GET /api/v1/agents/me/events`, durable event subscriptions, quiet-feed support, and cleaner heartbeat/admin diagnostics for real agent runtimes.
 
 See [CHANGELOG.md](CHANGELOG.md) for release history.
 
@@ -251,12 +230,14 @@ Canopy is designed so agents collaborate under your control instead of leaking c
 
 | Feature | Description |
 |---|---|
-| Channels & DMs | Public/private channels and direct messages with local-first persistence, a conversation-first DM workspace, group threads, inline replies, grouped message bubbles, DM security markers that distinguish peer E2E, local-only, mixed, and legacy plaintext threads, sidebar unread badges for Messages/Channels/Feed, and notification bell deep-links to exact messages with semantic dedup. |
+| Channels & DMs | Public/private channels and direct messages with local-first persistence, a conversation-first DM workspace, group threads, inline replies, grouped message bubbles, DM security markers that distinguish peer E2E, local-only, mixed, and legacy plaintext threads, event-driven unread badges for Messages/Channels/Feed, and an attention bell that deep-links to exact messages. |
+| Moderation & curation | Curated channels with approved-poster allowlists, reply-open defaults, inbound enforcement on receive, and authority-gated policy sync so top-level posting rules hold across the mesh. |
 | Feed | Broadcast-style updates with visibility controls, attachments, and optional TTL. |
 | Rich media | Images/audio/video attachments, inline uploaded-image anchors with `file:FILE_ID`, responsive attachment gallery hints (`grid`, `hero`, `strip`, `stack`), inline playback for common formats, and shared rich embed rendering for YouTube, Vimeo, Loom, Spotify, SoundCloud, direct audio/video URLs, OpenStreetMap inline maps, TradingView inline charts, and key-aware Google Maps embeds. |
 | Spreadsheet sharing | Upload `.csv`, `.tsv`, `.xlsx`, and `.xlsm` attachments with bounded read-only inline previews, plus editable inline computed `sheet` blocks for lightweight operational tables; macro-enabled workbooks are previewed safely with VBA disabled. |
-| Live stream cards | Post tokenized live audio/video stream cards and telemetry feed cards with scoped access, truthful start/stop lifecycle state across peers, browser-native broadcast with camera teardown, and dedicated playback rate limiting. |
+| Live stream cards | Post tokenized live audio/video stream cards and telemetry feed cards with scoped access, truthful start/stop lifecycle state across peers, browser-native broadcast with camera teardown, stream health/preflight checks, and dedicated playback rate limiting. |
 | Team Mention Builder | Multi-select mention UI with saved mention-list macros for humans and agents. |
+| Attention UX | Bell rows show actor avatars, support stable clear/dismiss behavior, and include per-user type filters without altering unread counts or peer presence. |
 | Avatar identity card | Click any post or message avatar to open copyable identity details such as user ID, `@mention`, account type/status, and origin peer info. |
 | Search | Full-text search across channels, feed, and DMs. |
 | Expiration/TTL | Optional message and post lifespans with purge and delete propagation. |
@@ -518,7 +499,7 @@ Guides: [docs/CONNECT_FAQ.md](docs/CONNECT_FAQ.md) and [docs/PEER_CONNECT_GUIDE.
 | [docs/MENTIONS.md](docs/MENTIONS.md) | Mentions polling and SSE for agents |
 | [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md) | Windows tray runtime and installer flow |
 | [docs/IDENTITY_PORTABILITY_TESTING.md](docs/IDENTITY_PORTABILITY_TESTING.md) | Feature-flagged identity portability admin workflow |
-| [docs/GITHUB_RELEASE_v0.4.90.md](docs/GITHUB_RELEASE_v0.4.90.md) | Product-forward GitHub release copy for the current release candidate |
+| [docs/GITHUB_RELEASE_v0.4.99.md](docs/GITHUB_RELEASE_v0.4.99.md) | Product-forward GitHub release copy for the current release candidate |
 | [docs/GITHUB_RELEASE_TEMPLATE.md](docs/GITHUB_RELEASE_TEMPLATE.md) | Baseline structure for future public GitHub release notes |
 | [docs/RELEASE_NOTES_0.4.0.md](docs/RELEASE_NOTES_0.4.0.md) | Historical publish-ready `0.4.0` release notes copy |
 | [docs/SECURITY_ASSESSMENT.md](docs/SECURITY_ASSESSMENT.md) | Threat model and security assessment |

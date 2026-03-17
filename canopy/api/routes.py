@@ -8617,6 +8617,31 @@ def create_api_blueprint() -> Blueprint:
                     }), 403
                 return _channel_not_found_response()
 
+            post_decision = channel_manager.can_user_post_message(
+                channel_id=channel_id,
+                user_id=g.api_key_info.user_id,
+                parent_message_id=parent_message_id,
+                allow_admin=False,
+            )
+            if not post_decision.get('allowed'):
+                reason = str(post_decision.get('reason') or '')
+                if reason == 'top_level_post_restricted':
+                    return jsonify({
+                        'error': 'This channel is curated. Only approved posters can start top-level posts.',
+                        'reason': reason,
+                        'post_policy': post_decision.get('post_policy'),
+                        'can_reply': post_decision.get('can_reply'),
+                    }), 403
+                if reason == 'reply_restricted':
+                    return jsonify({
+                        'error': 'Replies are currently restricted in this channel.',
+                        'reason': reason,
+                    }), 403
+                return jsonify({
+                    'error': 'You cannot post in this channel.',
+                    'reason': reason or 'posting_denied',
+                }), 403
+
             security_clean = None
             if security is not None:
                 security_clean, sec_error = channel_manager.validate_security_metadata(security, strict=True)
@@ -9434,6 +9459,8 @@ def create_api_blueprint() -> Blueprint:
         if not p2p_manager or not p2p_manager.is_running():
             return
         try:
+            default_post_policy = getattr(channel_manager, 'POST_POLICY_OPEN', 'open')
+            default_lifecycle_days = getattr(channel_manager, 'DEFAULT_CHANNEL_LIFECYCLE_DAYS', 180)
             with db_manager.get_connection() as conn:
                 row = conn.execute(
                     "SELECT privacy_mode, name, channel_type, description, crypto_mode, created_by FROM channels WHERE id = ?",
@@ -9529,13 +9556,11 @@ def create_api_blueprint() -> Blueprint:
                     break
 
             if action == 'add':
-                p2p_manager.broadcast_channel_announce(
+                _api_broadcast_channel_announce(
+                    db_manager=db_manager,
+                    channel_manager=channel_manager,
+                    p2p_manager=p2p_manager,
                     channel_id=channel_id,
-                    name=row['name'] or '',
-                    channel_type=row['channel_type'] or 'private',
-                    description=row['description'] or '',
-                    privacy_mode=mode,
-                    created_by_user_id=row['created_by'] if row and 'created_by' in row.keys() else None,
                 )
                 crypto_mode = _api_normalize_crypto_mode(row['crypto_mode'])
                 if _api_e2e_private_enabled() and _api_channel_targets_e2e(mode, crypto_mode) and target_peer and target_peer != local_peer:
@@ -9556,6 +9581,119 @@ def create_api_blueprint() -> Blueprint:
                             )
         except Exception as e:
             logger.warning(f"API member sync trigger failed (non-fatal): {e}")
+
+    def _api_to_bool(value: Any, default: bool = False) -> bool:
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return default
+        return str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
+
+    def _api_build_channel_announce_payload(
+        db_manager: Any,
+        channel_manager: Any,
+        p2p_manager: Any,
+        channel_id: str,
+    ) -> Optional[dict[str, Any]]:
+        if not (db_manager and channel_manager and p2p_manager):
+            return None
+        try:
+            default_post_policy = getattr(channel_manager, 'POST_POLICY_OPEN', 'open')
+            default_lifecycle_days = getattr(channel_manager, 'DEFAULT_CHANNEL_LIFECYCLE_DAYS', 180)
+            with db_manager.get_connection() as conn:
+                row = conn.execute(
+                    """
+                    SELECT name, channel_type, description, created_by,
+                           COALESCE(privacy_mode, 'open') AS privacy_mode,
+                           COALESCE(post_policy, ?) AS post_policy,
+                           COALESCE(allow_member_replies, 1) AS allow_member_replies,
+                           COALESCE(last_activity_at, created_at) AS last_activity_at,
+                           COALESCE(lifecycle_ttl_days, ?) AS lifecycle_ttl_days,
+                           COALESCE(lifecycle_preserved, 0) AS lifecycle_preserved,
+                           lifecycle_archived_at, lifecycle_archive_reason
+                    FROM channels
+                    WHERE id = ?
+                    """,
+                    (
+                        default_post_policy,
+                        default_lifecycle_days,
+                        channel_id,
+                    ),
+                ).fetchone()
+            if not row:
+                return None
+
+            def _row_value(key: str, default: Any = None) -> Any:
+                try:
+                    if hasattr(row, 'keys') and key in row.keys():
+                        return row[key]
+                except Exception:
+                    pass
+                try:
+                    return row[key]
+                except Exception:
+                    return default
+
+            privacy_mode = str(_row_value('privacy_mode', 'open') or 'open').strip().lower()
+            member_peer_ids: Optional[list[str]] = None
+            members_by_peer: Optional[dict[str, list[str]]] = None
+            if privacy_mode in {'private', 'confidential'}:
+                local_peer = p2p_manager.get_peer_id() if p2p_manager else None
+                member_peer_ids = channel_manager.get_member_peer_ids(channel_id, local_peer)
+                members_by_peer = {}
+                try:
+                    members = channel_manager.get_channel_members_list(channel_id)
+                    for member in members:
+                        uid = member.get('user_id')
+                        if not uid:
+                            continue
+                        user_row = db_manager.get_user(uid)
+                        peer_key = (user_row.get('origin_peer') if user_row else '') or local_peer
+                        if peer_key and peer_key in member_peer_ids:
+                            members_by_peer.setdefault(peer_key, []).append(uid)
+                except Exception:
+                    members_by_peer = None
+
+            return {
+                'channel_id': channel_id,
+                'name': _row_value('name', '') or '',
+                'channel_type': _row_value('channel_type', 'public') or 'public',
+                'description': _row_value('description', '') or '',
+                'privacy_mode': privacy_mode,
+                'post_policy': str(_row_value('post_policy', default_post_policy) or default_post_policy).strip().lower(),
+                'allow_member_replies': bool(_row_value('allow_member_replies', 1)),
+                'allowed_poster_user_ids': channel_manager.get_channel_allowed_poster_ids(channel_id),
+                'last_activity_at': _row_value('last_activity_at'),
+                'lifecycle_ttl_days': _row_value('lifecycle_ttl_days', default_lifecycle_days),
+                'lifecycle_preserved': bool(_row_value('lifecycle_preserved', 0)),
+                'lifecycle_archived_at': _row_value('lifecycle_archived_at'),
+                'lifecycle_archive_reason': _row_value('lifecycle_archive_reason'),
+                'created_by_user_id': _row_value('created_by'),
+                'member_peer_ids': member_peer_ids,
+                'initial_members_by_peer': members_by_peer,
+            }
+        except Exception as e:
+            logger.warning(f"Failed to build channel announce payload for {channel_id}: {e}")
+            return None
+
+    def _api_broadcast_channel_announce(
+        db_manager: Any,
+        channel_manager: Any,
+        p2p_manager: Any,
+        channel_id: str,
+    ) -> bool:
+        if not (p2p_manager and p2p_manager.is_running()):
+            return False
+        payload = _api_build_channel_announce_payload(
+            db_manager=db_manager,
+            channel_manager=channel_manager,
+            p2p_manager=p2p_manager,
+            channel_id=channel_id,
+        )
+        if not payload:
+            return False
+        p2p_manager.broadcast_channel_announce(**payload)
+        return True
 
     @api.route('/channels', methods=['GET'])
     @require_auth(Permission.READ_FEED)
@@ -9589,10 +9727,14 @@ def create_api_blueprint() -> Blueprint:
             name = data.get('name', '').strip().lstrip('#').strip()
             description = data.get('description', '').strip()
             privacy_mode = (data.get('privacy_mode') or 'open').strip().lower()
+            post_policy = str(data.get('post_policy') or 'open').strip().lower()
+            allow_member_replies = _api_to_bool(data.get('allow_member_replies'), default=True)
             channel_type_str = data.get('type', 'public')
             requested_crypto_mode = _api_normalize_crypto_mode(data.get('crypto_mode'))
             if privacy_mode not in {'open', 'guarded', 'private', 'confidential'}:
                 return jsonify({'error': 'Invalid privacy mode'}), 400
+            if post_policy not in {'open', 'curated'}:
+                return jsonify({'error': 'Invalid post policy'}), 400
             
             if not name:
                 return jsonify({'error': 'Channel name required'}), 400
@@ -9623,6 +9765,8 @@ def create_api_blueprint() -> Blueprint:
             channel = channel_manager.create_channel(
                 name, channel_type, g.api_key_info.user_id, description,
                 privacy_mode=privacy_mode,
+                post_policy=post_policy,
+                allow_member_replies=allow_member_replies,
                 origin_peer=p2p_manager.get_peer_id() if p2p_manager else None,
             )
             
@@ -9630,45 +9774,11 @@ def create_api_blueprint() -> Blueprint:
                 # Broadcast CHANNEL_ANNOUNCE to connected peers
                 if p2p_manager and p2p_manager.is_running():
                     try:
-                        _api_priv = (channel.privacy_mode or '').lower() in {'private', 'confidential'}
-                        _api_lp = p2p_manager.get_peer_id() if p2p_manager else None
-                        _api_mpids = None
-                        _api_mbp: Optional[dict[str, list[str]]] = None
-                        if _api_priv:
-                            _api_mpids = channel_manager.get_member_peer_ids(
-                                channel.id, _api_lp)
-                            _api_mbp = {}
-                            if _api_mpids:
-                                _api_mems = channel_manager.get_channel_members_list(channel.id)
-                                for _am in _api_mems:
-                                    _auid = _am.get('user_id')
-                                    if _auid:
-                                        try:
-                                            _au = db_manager.get_user(_auid)
-                                            _aop = (_au.get('origin_peer') or '') if _au else ''
-                                        except Exception:
-                                            _aop = ''
-                                        _apk = _aop if _aop else _api_lp
-                                        if _apk and _apk in _api_mpids:
-                                            _api_mbp.setdefault(_apk, []).append(_auid)
-                        p2p_manager.broadcast_channel_announce(
+                        _api_broadcast_channel_announce(
+                            db_manager=db_manager,
+                            channel_manager=channel_manager,
+                            p2p_manager=p2p_manager,
                             channel_id=channel.id,
-                            name=channel.name,
-                            channel_type=channel.channel_type.value,
-                            description=channel.description or '',
-                            privacy_mode=channel.privacy_mode,
-                            last_activity_at=(
-                                channel.last_activity_at.isoformat() if getattr(channel, 'last_activity_at', None) else None
-                            ),
-                            lifecycle_ttl_days=channel.lifecycle_ttl_days,
-                            lifecycle_preserved=channel.lifecycle_preserved,
-                            lifecycle_archived_at=(
-                                channel.archived_at.isoformat() if getattr(channel, 'archived_at', None) else None
-                            ),
-                            lifecycle_archive_reason=channel.archive_reason,
-                            created_by_user_id=channel.created_by,
-                            member_peer_ids=_api_mpids,
-                            initial_members_by_peer=_api_mbp,
                         )
                     except Exception as ann_err:
                         logger.warning(f"P2P channel announce failed (non-fatal): {ann_err}")
@@ -9744,53 +9854,12 @@ def create_api_blueprint() -> Blueprint:
 
             if p2p_manager and p2p_manager.is_running():
                 try:
-                    with db_manager.get_connection() as conn:
-                        row = conn.execute(
-                            """
-                            SELECT name, channel_type, description, created_by,
-                                   COALESCE(last_activity_at, created_at) AS last_activity_at,
-                                   COALESCE(lifecycle_ttl_days, ?) AS lifecycle_ttl_days,
-                                   COALESCE(lifecycle_preserved, 0) AS lifecycle_preserved,
-                                   lifecycle_archived_at, lifecycle_archive_reason
-                            FROM channels
-                            WHERE id = ?
-                            """,
-                            (channel_manager.DEFAULT_CHANNEL_LIFECYCLE_DAYS, channel_id),
-                        ).fetchone()
-                    if row:
-                        member_peer_ids: Optional[list[str]] = None
-                        members_by_peer: Optional[dict[str, list[str]]] = None
-                        if privacy_mode in {'private', 'confidential'}:
-                            local_peer = p2p_manager.get_peer_id() if p2p_manager else None
-                            member_peer_ids = channel_manager.get_member_peer_ids(channel_id, local_peer)
-                            members_by_peer = {}
-                            try:
-                                members = channel_manager.get_channel_members_list(channel_id)
-                                for member in members:
-                                    uid = member.get('user_id')
-                                    if not uid:
-                                        continue
-                                    user_row = db_manager.get_user(uid)
-                                    peer_key = (user_row.get('origin_peer') if user_row else '') or local_peer
-                                    if peer_key and peer_key in member_peer_ids:
-                                        members_by_peer.setdefault(peer_key, []).append(uid)
-                            except Exception:
-                                members_by_peer = None
-                        p2p_manager.broadcast_channel_announce(
-                            channel_id=channel_id,
-                            name=row['name'],
-                            channel_type=row['channel_type'],
-                            description=row['description'] or '',
-                            privacy_mode=privacy_mode,
-                            last_activity_at=row['last_activity_at'],
-                            lifecycle_ttl_days=row['lifecycle_ttl_days'],
-                            lifecycle_preserved=bool(row['lifecycle_preserved']),
-                            lifecycle_archived_at=row['lifecycle_archived_at'],
-                            lifecycle_archive_reason=row['lifecycle_archive_reason'],
-                            created_by_user_id=row['created_by'] if row and 'created_by' in row.keys() else None,
-                            member_peer_ids=member_peer_ids,
-                            initial_members_by_peer=members_by_peer,
-                        )
+                    _api_broadcast_channel_announce(
+                        db_manager=db_manager,
+                        channel_manager=channel_manager,
+                        p2p_manager=p2p_manager,
+                        channel_id=channel_id,
+                    )
                 except Exception as ann_err:
                     logger.warning(f"Channel privacy announce failed: {ann_err}")
 
@@ -9834,51 +9903,12 @@ def create_api_blueprint() -> Blueprint:
 
             if p2p_manager and p2p_manager.is_running():
                 try:
-                    with db_manager.get_connection() as conn:
-                        row = conn.execute(
-                            """
-                            SELECT name, channel_type, description, created_by, privacy_mode,
-                                   COALESCE(last_activity_at, created_at) AS last_activity_at
-                            FROM channels
-                            WHERE id = ?
-                            """,
-                            (channel_id,),
-                        ).fetchone()
-                    if row:
-                        privacy_mode = str((row['privacy_mode'] if hasattr(row, 'keys') and 'privacy_mode' in row.keys() else 'open') or 'open').strip().lower()
-                        member_peer_ids: Optional[list[str]] = None
-                        members_by_peer: Optional[dict[str, list[str]]] = None
-                        if privacy_mode in {'private', 'confidential'}:
-                            local_peer = p2p_manager.get_peer_id() if p2p_manager else None
-                            member_peer_ids = channel_manager.get_member_peer_ids(channel_id, local_peer)
-                            members_by_peer = {}
-                            try:
-                                members = channel_manager.get_channel_members_list(channel_id)
-                                for member in members:
-                                    uid = member.get('user_id')
-                                    if not uid:
-                                        continue
-                                    user_row = db_manager.get_user(uid)
-                                    peer_key = (user_row.get('origin_peer') if user_row else '') or local_peer
-                                    if peer_key and peer_key in member_peer_ids:
-                                        members_by_peer.setdefault(peer_key, []).append(uid)
-                            except Exception:
-                                members_by_peer = None
-                        p2p_manager.broadcast_channel_announce(
-                            channel_id=channel_id,
-                            name=row['name'],
-                            channel_type=row['channel_type'],
-                            description=row['description'] or '',
-                            privacy_mode=privacy_mode,
-                            last_activity_at=row['last_activity_at'],
-                            lifecycle_ttl_days=result.get('ttl_days'),
-                            lifecycle_preserved=result.get('preserved'),
-                            lifecycle_archived_at=result.get('archived_at'),
-                            lifecycle_archive_reason=result.get('archive_reason'),
-                            created_by_user_id=row['created_by'] if row and 'created_by' in row.keys() else None,
-                            member_peer_ids=member_peer_ids,
-                            initial_members_by_peer=members_by_peer,
-                        )
+                    _api_broadcast_channel_announce(
+                        db_manager=db_manager,
+                        channel_manager=channel_manager,
+                        p2p_manager=p2p_manager,
+                        channel_id=channel_id,
+                    )
                 except Exception as ann_err:
                     logger.warning(f"Channel lifecycle announce failed: {ann_err}")
 
@@ -9892,7 +9922,7 @@ def create_api_blueprint() -> Blueprint:
     @require_auth(Permission.READ_FEED)
     def get_channel_members_api(channel_id):
         """List members of a channel. Caller must be a member of the channel."""
-        _, _, _, _, channel_manager, _, _, _, _, _, _ = get_app_components(current_app)
+        db_manager, _, _, _, channel_manager, _, _, _, _, _, _ = get_app_components(current_app)
         if not channel_manager:
             return jsonify({'error': 'Channels not available'}), 503
         try:
@@ -9909,9 +9939,153 @@ def create_api_blueprint() -> Blueprint:
                     }), 403
                 return _channel_not_found_response()
             members = channel_manager.get_channel_members_list(channel_id)
-            return jsonify({'members': members, 'count': len(members)})
+            owner_id = db_manager.get_instance_owner_user_id() if db_manager else None
+            policy = channel_manager.get_channel_posting_state(
+                channel_id,
+                g.api_key_info.user_id,
+                allow_admin=bool(owner_id and owner_id == g.api_key_info.user_id),
+            )
+            return jsonify({
+                'members': members,
+                'count': len(members),
+                'policy': {
+                    'post_policy': (policy or {}).get('post_policy', 'open'),
+                    'allow_member_replies': bool((policy or {}).get('allow_member_replies', True)),
+                    'can_manage': bool((policy or {}).get('is_admin_like', False)),
+                    'can_post_top_level': bool((policy or {}).get('can_post_top_level', True)),
+                    'can_reply': bool((policy or {}).get('can_reply', True)),
+                    'allowed_poster_count': int((policy or {}).get('allowed_poster_count', 0) or 0),
+                },
+            })
         except Exception as e:
             logger.error(f"Get channel members failed: {e}")
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/channels/<channel_id>/post-policy', methods=['PATCH', 'PUT'])
+    @require_auth(Permission.WRITE_FEED)
+    def update_channel_post_policy_api(channel_id):
+        """Update top-level posting policy for a local-origin channel."""
+        db_manager, _, _, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+        try:
+            data = request.get_json() or {}
+            post_policy = str(data.get('post_policy') or '').strip().lower()
+            allow_member_replies = _api_to_bool(data.get('allow_member_replies'), default=True)
+            if post_policy not in {'open', 'curated'}:
+                return jsonify({'error': 'Invalid post policy'}), 400
+
+            local_peer_id = p2p_manager.get_peer_id() if p2p_manager else None
+            owner_id = db_manager.get_instance_owner_user_id()
+            allow_admin = owner_id is not None and owner_id == g.api_key_info.user_id
+            result = channel_manager.update_channel_post_policy(
+                channel_id=channel_id,
+                user_id=g.api_key_info.user_id,
+                post_policy=post_policy,
+                allow_member_replies=allow_member_replies,
+                allow_admin=allow_admin,
+                local_peer_id=local_peer_id,
+            )
+            if not result:
+                return jsonify({'error': 'Not authorized to update posting policy'}), 403
+
+            if p2p_manager and p2p_manager.is_running():
+                try:
+                    _api_broadcast_channel_announce(
+                        db_manager=db_manager,
+                        channel_manager=channel_manager,
+                        p2p_manager=p2p_manager,
+                        channel_id=channel_id,
+                    )
+                except Exception as ann_err:
+                    logger.warning(f"Channel post policy announce failed: {ann_err}")
+
+            return jsonify({
+                'success': True,
+                'policy': {
+                    'post_policy': result.get('post_policy'),
+                    'allow_member_replies': result.get('allow_member_replies'),
+                    'can_manage': bool(result.get('is_admin_like')),
+                    'can_post_top_level': bool(result.get('can_post_top_level')),
+                    'can_reply': bool(result.get('can_reply')),
+                    'allowed_poster_count': int(result.get('allowed_poster_count') or 0),
+                },
+            })
+        except Exception as e:
+            logger.error(f"Update channel post policy failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/channels/<channel_id>/posters', methods=['POST'])
+    @require_auth(Permission.WRITE_FEED)
+    def grant_channel_poster_api(channel_id):
+        """Grant explicit top-level posting access to a member."""
+        db_manager, _, _, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+        try:
+            data = request.get_json() or {}
+            target_user_id = str(data.get('user_id') or '').strip()
+            if not target_user_id:
+                return jsonify({'error': 'user_id required'}), 400
+
+            local_peer_id = p2p_manager.get_peer_id() if p2p_manager else None
+            owner_id = db_manager.get_instance_owner_user_id()
+            allow_admin = owner_id is not None and owner_id == g.api_key_info.user_id
+            result = channel_manager.grant_channel_post_permission(
+                channel_id=channel_id,
+                target_user_id=target_user_id,
+                requester_id=g.api_key_info.user_id,
+                allow_admin=allow_admin,
+                local_peer_id=local_peer_id,
+            )
+            if not result:
+                return jsonify({'error': 'Not authorized or member not found'}), 403
+
+            if p2p_manager and p2p_manager.is_running():
+                try:
+                    _api_broadcast_channel_announce(
+                        db_manager=db_manager,
+                        channel_manager=channel_manager,
+                        p2p_manager=p2p_manager,
+                        channel_id=channel_id,
+                    )
+                except Exception as ann_err:
+                    logger.warning(f"Channel poster grant announce failed: {ann_err}")
+
+            return jsonify({'success': True, 'policy': result})
+        except Exception as e:
+            logger.error(f"Grant channel poster failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/channels/<channel_id>/posters/<user_id>', methods=['DELETE'])
+    @require_auth(Permission.WRITE_FEED)
+    def revoke_channel_poster_api(channel_id, user_id):
+        """Revoke explicit top-level posting access from a member."""
+        db_manager, _, _, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+        try:
+            local_peer_id = p2p_manager.get_peer_id() if p2p_manager else None
+            owner_id = db_manager.get_instance_owner_user_id()
+            allow_admin = owner_id is not None and owner_id == g.api_key_info.user_id
+            result = channel_manager.revoke_channel_post_permission(
+                channel_id=channel_id,
+                target_user_id=user_id,
+                requester_id=g.api_key_info.user_id,
+                allow_admin=allow_admin,
+                local_peer_id=local_peer_id,
+            )
+            if not result:
+                return jsonify({'error': 'Not authorized or member not found'}), 403
+
+            if p2p_manager and p2p_manager.is_running():
+                try:
+                    _api_broadcast_channel_announce(
+                        db_manager=db_manager,
+                        channel_manager=channel_manager,
+                        p2p_manager=p2p_manager,
+                        channel_id=channel_id,
+                    )
+                except Exception as ann_err:
+                    logger.warning(f"Channel poster revoke announce failed: {ann_err}")
+
+            return jsonify({'success': True, 'policy': result})
+        except Exception as e:
+            logger.error(f"Revoke channel poster failed: {e}", exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
     @api.route('/channels/<channel_id>/members', methods=['POST'])

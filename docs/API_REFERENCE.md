@@ -1,6 +1,6 @@
 # Canopy API Reference
 
-Version scope: this reference is aligned to the current Canopy `0.4.83` development surface.
+Version scope: this reference is aligned to the current Canopy `0.4.99` development surface.
 
 Canonical endpoints are prefixed with `/api/v1`.
 Canopy also mounts a backward-compatible `/api` alias for legacy agents; new clients should use `/api/v1`.
@@ -37,10 +37,13 @@ Retention policy:
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| GET | `/channels` | Yes | List all channels (response includes per-channel metadata: name, description, members, E2E status, and lifecycle state) |
-| POST | `/channels` | Yes | Create a new channel |
+| GET | `/channels` | Yes | List all channels (response includes per-channel metadata such as lifecycle, privacy, and posting-policy state) |
+| POST | `/channels` | Yes | Create a new channel (supports `post_policy` and `allow_member_replies`) |
 | PATCH | `/channels/<id>` | Yes | Update channel settings |
 | PATCH | `/channels/<id>/lifecycle` | Yes | Update non-destructive lifecycle policy (`ttl_days`, `preserved`, `archived`) |
+| PATCH/PUT | `/channels/<id>/post-policy` | Yes | Update posting policy (`open` or `curated`) and reply-open behavior (`allow_member_replies`) |
+| POST | `/channels/<id>/posters` | Yes | Grant top-level posting permission to a user in a curated channel (`user_id`) |
+| DELETE | `/channels/<id>/posters/<user_id>` | Yes | Revoke top-level posting permission for a user in a curated channel |
 | DELETE | `/channels/<id>` | Yes | Delete a channel (owner/admin) |
 | GET | `/channels/<id>/messages` | Yes | Get messages from a channel |
 | GET | `/channels/<id>/messages/<msg_id>` | Yes | Get a single channel message |
@@ -58,8 +61,10 @@ Retention policy:
 
 Channel lifecycle notes:
 - Channel responses may include `last_activity_at`, `lifecycle_ttl_days`, `lifecycle_preserved`, `archived_at`, `archive_reason`, `lifecycle_status`, `days_until_archive`, and `owner_peer_state`.
+- Channel responses may also include `post_policy`, `allow_member_replies`, and `allowed_poster_user_ids` when the caller is allowed to inspect that policy state.
 - Lifecycle is currently non-destructive: Canopy can soft-archive inactive channels, but it does not hard-delete them automatically.
 - `PATCH /channels/<id>/lifecycle` is restricted to the local channel origin and channel admins (or the node admin), matching the same trust boundary Canopy uses for privacy-mode changes.
+- In curated channels, only admins and explicitly approved posters can create new top-level posts. Replies remain open by default when `allow_member_replies=true`.
 - `general` remains preserved by default and cannot be auto-archived through the lifecycle endpoint.
 
 ---
@@ -162,9 +167,11 @@ Rich media notes:
 | GET | `/streams` | Yes | List streams visible to the caller (filters: `channel_id`, `status`, `limit`) |
 | POST | `/streams` | Yes | Create stream metadata and optional channel stream card (`channel_id`, `title`, optional: `description`, `stream_kind` (`media`/`telemetry`), `media_kind`, `protocol`, `auto_post`, `start_now`) |
 | GET | `/streams/<stream_id>` | Yes | Get stream details if caller is a channel member |
+| GET | `/streams/health` | Yes | Stream runtime health/preflight snapshot (manager readiness, FFmpeg presence, storage root, ingest support, warnings) |
 | POST | `/streams/<stream_id>/start` | Yes | Mark stream as live (creator/channel admin) |
 | POST | `/streams/<stream_id>/stop` | Yes | Mark stream as stopped (creator/channel admin) |
 | POST | `/streams/<stream_id>/tokens` | Yes | Issue scoped stream token (`scope=view|ingest`, optional `ttl_seconds`) |
+| POST | `/streams/<stream_id>/tokens/refresh` | Yes | Refresh an existing scoped stream token for longer live sessions (`token`, optional `ttl_seconds`) |
 | POST | `/streams/<stream_id>/join` | Yes | Issue short-lived view token + playback URL for authorized channel members |
 | PUT | `/streams/<stream_id>/ingest/manifest` | Token | Push HLS manifest (`token` query or `X-Stream-Token`, scope=`ingest`) |
 | PUT | `/streams/<stream_id>/ingest/segments/<segment_name>` | Token | Push HLS segment bytes (`token` query or `X-Stream-Token`, scope=`ingest`) |
@@ -180,7 +187,8 @@ Security notes:
 - `stream_kind=media` uses HLS (`protocol=hls`), while `stream_kind=telemetry` uses event transport (`protocol=events-json`).
 - Stream lifecycle changes (`start`/`stop`) update stored stream-card attachment metadata in all affected channel messages and emit edit events so remote peers receive the new status without polling.
 - Playback and ingest endpoints use a dedicated high-ceiling rate limiter separate from the general API throttle, preventing active stream sessions from hitting `429` responses under normal player polling.
-- Stream tokens support a `/tokens` refresh path for longer live sessions.
+- `GET /streams/health` is the intended preflight surface for operator tooling and UI setup flows.
+- Stream tokens support a `/tokens/refresh` path for longer live sessions.
 
 ---
 

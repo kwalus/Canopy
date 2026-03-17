@@ -60,7 +60,23 @@ from ..core.agent_presence import (
     build_agent_presence_payload,
 )
 from ..core.agent_runtime import build_agent_runtime_payload
-from ..core.events import PATCH1_EVENT_TYPES, EVENT_CHANNEL_MESSAGE_EDITED
+from ..core.events import (
+    PATCH1_EVENT_TYPES,
+    EVENT_CHANNEL_MESSAGE_CREATED,
+    EVENT_CHANNEL_MESSAGE_DELETED,
+    EVENT_CHANNEL_MESSAGE_EDITED,
+    EVENT_CHANNEL_MESSAGE_READ,
+    EVENT_CHANNEL_STATE_UPDATED,
+    EVENT_DM_MESSAGE_CREATED,
+    EVENT_DM_MESSAGE_DELETED,
+    EVENT_DM_MESSAGE_READ,
+    EVENT_FEED_POST_CREATED,
+    EVENT_FEED_POST_DELETED,
+    EVENT_FEED_POST_UPDATED,
+    EVENT_INBOX_ITEM_CREATED,
+    EVENT_INBOX_ITEM_UPDATED,
+    EVENT_MENTION_CREATED,
+)
 from ..core.file_preview import build_file_preview
 from ..core.messaging import (
     build_dm_security_summary,
@@ -463,15 +479,20 @@ def create_ui_blueprint() -> Blueprint:
                 'sidebar_dm_event_cursor': int((workspace_event_manager.get_latest_seq() if workspace_event_manager else 0) or 0),
                 'sidebar_local_peer_id': local_peer_id,
             }
-            attention_snapshot = _build_sidebar_attention_summary(
+            attention_snapshot = _build_sidebar_attention_snapshot(
                 db_manager,
+                profile_manager,
                 channel_manager,
                 feed_manager,
                 p2p_manager,
+                workspace_event_manager,
                 current_user_id,
             )
             out['sidebar_attention_summary'] = attention_snapshot['summary']
-            out['sidebar_attention_rev'] = attention_snapshot['rev']
+            out['sidebar_attention_rev'] = attention_snapshot['summary_rev']
+            out['sidebar_attention_items'] = attention_snapshot['items']
+            out['sidebar_attention_activity_rev'] = attention_snapshot['activity_rev']
+            out['sidebar_attention_event_cursor'] = attention_snapshot['workspace_event_cursor']
             # Admin link and badge (instance owner only)
             owner_id = db_manager.get_instance_owner_user_id()
             if owner_id and session.get('user_id') == owner_id:
@@ -1633,6 +1654,11 @@ def create_ui_blueprint() -> Blueprint:
                 'description': getattr(ch, 'description', '') or '',
                 'channel_type': str(ctype or 'public'),
                 'privacy_mode': getattr(ch, 'privacy_mode', 'open') or 'open',
+                'post_policy': getattr(ch, 'post_policy', 'open') or 'open',
+                'allow_member_replies': bool(getattr(ch, 'allow_member_replies', True)),
+                'can_post_top_level': bool(getattr(ch, 'can_post_top_level', True)),
+                'can_reply': bool(getattr(ch, 'can_reply', True)),
+                'allowed_poster_count': int(getattr(ch, 'allowed_poster_count', 0) or 0),
                 'origin_peer': getattr(ch, 'origin_peer', '') or '',
                 'user_role': getattr(ch, 'user_role', 'member') or 'member',
                 'member_count': int(getattr(ch, 'member_count', 0) or 0),
@@ -1691,6 +1717,354 @@ def create_ui_blueprint() -> Blueprint:
         return {
             'summary': summary,
             'rev': _stable_ui_revision(summary),
+        }
+
+    _ATTENTION_ACTIVITY_EVENT_TYPES = [
+        EVENT_MENTION_CREATED,
+        EVENT_INBOX_ITEM_CREATED,
+        EVENT_INBOX_ITEM_UPDATED,
+        EVENT_DM_MESSAGE_CREATED,
+        EVENT_CHANNEL_MESSAGE_CREATED,
+        EVENT_CHANNEL_STATE_UPDATED,
+        EVENT_FEED_POST_CREATED,
+        EVENT_FEED_POST_UPDATED,
+        EVENT_FEED_POST_DELETED,
+    ]
+
+    def _sidebar_user_display(
+        db_manager: Any,
+        profile_manager: Any,
+        user_id: Optional[str],
+    ) -> dict[str, Any]:
+        clean_user_id = str(user_id or '').strip()
+        if not clean_user_id:
+            return {'user_id': '', 'display_name': '', 'username': '', 'avatar_url': None}
+        display = {
+            'user_id': clean_user_id,
+            'display_name': clean_user_id,
+            'username': clean_user_id,
+            'avatar_url': None,
+        }
+        try:
+            if profile_manager:
+                profile = profile_manager.get_profile(clean_user_id)
+                if profile:
+                    display['display_name'] = (
+                        str(getattr(profile, 'display_name', None) or '').strip()
+                        or str(getattr(profile, 'username', None) or '').strip()
+                        or clean_user_id
+                    )
+                    display['username'] = (
+                        str(getattr(profile, 'username', None) or '').strip()
+                        or clean_user_id
+                    )
+                    avatar_url = getattr(profile, 'avatar_url', None)
+                    if avatar_url:
+                        display['avatar_url'] = str(avatar_url)
+            if db_manager:
+                row = db_manager.get_user(clean_user_id)
+                if row:
+                    display['display_name'] = (
+                        display.get('display_name')
+                        or str(row.get('display_name') or '').strip()
+                        or str(row.get('username') or '').strip()
+                        or clean_user_id
+                    )
+                    display['username'] = (
+                        display.get('username')
+                        or str(row.get('username') or '').strip()
+                        or clean_user_id
+                    )
+                    if not display.get('avatar_url') and row.get('avatar_file_id'):
+                        display['avatar_url'] = f"/files/{row.get('avatar_file_id')}"
+        except Exception:
+            pass
+        return display
+
+    def _sidebar_user_label(db_manager: Any, user_id: Optional[str]) -> str:
+        clean_user_id = str(user_id or '').strip()
+        if not clean_user_id or not db_manager:
+            return ''
+        try:
+            row = db_manager.get_user(clean_user_id)
+        except Exception:
+            row = None
+        if not row:
+            return clean_user_id
+        return (
+            str(row.get('display_name') or '').strip()
+            or str(row.get('username') or '').strip()
+            or clean_user_id
+        )
+
+    def _sidebar_channel_name(channel_manager: Any, channel_id: Optional[str]) -> str:
+        clean_channel_id = str(channel_id or '').strip()
+        if not clean_channel_id or not channel_manager:
+            return ''
+        try:
+            channel = channel_manager.get_channel(clean_channel_id)
+        except Exception:
+            channel = None
+        if not channel:
+            return ''
+        return str(getattr(channel, 'name', '') or '').strip()
+
+    def _attention_activity_priority(event_type: str, payload: dict[str, Any]) -> int:
+        reason = str((payload or {}).get('update_reason') or '').strip().lower()
+        if event_type == EVENT_MENTION_CREATED:
+            return 100
+        if event_type == EVENT_INBOX_ITEM_CREATED:
+            return 95
+        if event_type == EVENT_INBOX_ITEM_UPDATED:
+            return 90
+        if event_type == EVENT_DM_MESSAGE_CREATED:
+            return 85
+        if event_type == EVENT_CHANNEL_MESSAGE_CREATED:
+            return 80
+        if event_type == EVENT_FEED_POST_UPDATED and reason == 'comment':
+            return 75
+        if event_type == EVENT_FEED_POST_CREATED:
+            return 70
+        if event_type == EVENT_FEED_POST_UPDATED:
+            return 65
+        if event_type == EVENT_FEED_POST_DELETED:
+            return 55
+        if event_type == EVENT_CHANNEL_STATE_UPDATED:
+            return 50
+        return 0
+
+    def _attention_activity_semantic_key(item: dict[str, Any]) -> str:
+        event_type = str(item.get('event_type') or '').strip()
+        payload = item.get('payload') if isinstance(item.get('payload'), dict) else {}
+        source_type = str(payload.get('source_type') or '').strip()
+        source_id = str(payload.get('source_id') or '').strip()
+        if source_type and source_id and event_type in {
+            EVENT_MENTION_CREATED,
+            EVENT_INBOX_ITEM_CREATED,
+            EVENT_INBOX_ITEM_UPDATED,
+        }:
+            return f"source:{source_type}:{source_id}"
+        message_id = str(item.get('message_id') or '').strip()
+        if message_id:
+            if event_type == EVENT_DM_MESSAGE_CREATED:
+                return f"dm:{message_id}"
+            return f"message:{message_id}"
+        post_id = str(item.get('post_id') or '').strip()
+        if post_id:
+            reason = str(payload.get('update_reason') or '').strip().lower()
+            if event_type == EVENT_FEED_POST_UPDATED and reason:
+                return f"feed:{post_id}:{reason}"
+            return f"feed:{post_id}"
+        channel_id = str(item.get('channel_id') or '').strip()
+        if channel_id:
+            action = str(payload.get('action') or '').strip().lower()
+            return f"channel:{channel_id}:{action or event_type}"
+        return str(item.get('event_id') or '')
+
+    def _build_sidebar_attention_item(
+        db_manager: Any,
+        profile_manager: Any,
+        channel_manager: Any,
+        user_id: str,
+        item: dict[str, Any],
+    ) -> Optional[dict[str, Any]]:
+        event_type = str(item.get('event_type') or '').strip()
+        payload = item.get('payload') if isinstance(item.get('payload'), dict) else {}
+        actor_user_id = str(item.get('actor_user_id') or '').strip()
+        if actor_user_id and actor_user_id == str(user_id or '').strip():
+            return None
+
+        created_at = item.get('created_at')
+        message_id = str(item.get('message_id') or '').strip()
+        post_id = str(item.get('post_id') or '').strip()
+        channel_id = str(item.get('channel_id') or '').strip()
+        actor_display = _sidebar_user_display(db_manager, profile_manager, actor_user_id) if actor_user_id else {}
+        actor_label = str((actor_display or {}).get('display_name') or '').strip()
+        actor_avatar_url = (actor_display or {}).get('avatar_url')
+        channel_name = _sidebar_channel_name(channel_manager, channel_id)
+        preview = str(payload.get('preview') or '').strip()
+        href = None
+        kind = 'activity'
+        title = actor_label or 'Activity'
+        meta = ''
+        icon = 'bi-bell'
+
+        if event_type == EVENT_MENTION_CREATED:
+            source_type = str(payload.get('source_type') or '').strip()
+            source_id = str(payload.get('source_id') or '').strip()
+            kind = 'mention'
+            icon = 'bi-at'
+            title = actor_label or 'Mention'
+            meta = 'Mention'
+            if source_type == 'channel_message' and source_id:
+                href = f"/channels/locate?message_id={quote_plus(source_id)}"
+            elif source_type == 'feed_post' and source_id:
+                href = f"{url_for('ui.feed')}?focus_post={quote_plus(source_id)}"
+            elif source_type == 'direct_message' and source_id:
+                href = f"{url_for('ui.messages')}#message-{quote_plus(source_id)}"
+        elif event_type in {EVENT_INBOX_ITEM_CREATED, EVENT_INBOX_ITEM_UPDATED}:
+            source_type = str(payload.get('source_type') or '').strip()
+            source_id = str(payload.get('source_id') or '').strip()
+            status = str(payload.get('status') or '').strip()
+            kind = 'inbox'
+            icon = 'bi-inbox'
+            title = actor_label or 'Needs action'
+            meta = 'Inbox'
+            if status:
+                meta = f"Inbox • {status.replace('_', ' ')}"
+            if source_type == 'channel_message' and source_id:
+                href = f"/channels/locate?message_id={quote_plus(source_id)}"
+            elif source_type == 'feed_post' and source_id:
+                href = f"{url_for('ui.feed')}?focus_post={quote_plus(source_id)}"
+            elif source_type == 'direct_message' and source_id:
+                href = f"{url_for('ui.messages')}#message-{quote_plus(source_id)}"
+        elif event_type == EVENT_DM_MESSAGE_CREATED:
+            sender_id = str(payload.get('sender_id') or actor_user_id or '').strip()
+            recipient_id = str(payload.get('recipient_id') or '').strip()
+            other_user_id = sender_id if sender_id and sender_id != user_id else recipient_id
+            other_display = _sidebar_user_display(db_manager, profile_manager, other_user_id)
+            kind = 'dm'
+            icon = 'bi-chat-dots'
+            title = str(other_display.get('display_name') or '').strip() or actor_label or 'Direct message'
+            actor_avatar_url = other_display.get('avatar_url') or actor_avatar_url
+            meta = 'Direct message'
+            href = url_for('ui.messages')
+            if other_user_id:
+                href = f"{href}?with={quote_plus(other_user_id)}"
+            if message_id:
+                href = f"{href}#message-{quote_plus(message_id)}"
+        elif event_type == EVENT_CHANNEL_MESSAGE_CREATED:
+            kind = 'channel'
+            icon = 'bi-hash'
+            title = actor_label or (f"#{channel_name}" if channel_name else 'Channel message')
+            meta = f"#{channel_name}" if channel_name else 'Channel'
+            if message_id:
+                href = f"/channels/locate?message_id={quote_plus(message_id)}"
+            elif channel_id:
+                href = f"{url_for('ui.channels')}?focus_channel={quote_plus(channel_id)}"
+        elif event_type in {EVENT_FEED_POST_CREATED, EVENT_FEED_POST_UPDATED, EVENT_FEED_POST_DELETED}:
+            kind = 'feed'
+            icon = 'bi-rss'
+            title = actor_label or 'Feed activity'
+            reason = str(payload.get('update_reason') or '').strip().lower()
+            if event_type == EVENT_FEED_POST_CREATED:
+                meta = 'Feed post'
+            elif reason == 'comment':
+                meta = 'Feed comment'
+            elif event_type == EVENT_FEED_POST_DELETED:
+                meta = 'Feed removal'
+            else:
+                meta = 'Feed update'
+            if post_id:
+                href = f"{url_for('ui.feed')}?focus_post={quote_plus(post_id)}"
+        elif event_type == EVENT_CHANNEL_STATE_UPDATED:
+            action = str(payload.get('action') or '').strip()
+            if action not in {'membership', 'posting_policy', 'privacy_mode', 'channel_added'}:
+                return None
+            kind = 'channel-state'
+            icon = 'bi-sliders'
+            title = f"#{channel_name}" if channel_name else 'Channel update'
+            meta = 'Channel settings'
+            if action == 'channel_added':
+                meta = 'Added to channel'
+            elif action == 'posting_policy':
+                meta = 'Posting policy'
+            elif action == 'privacy_mode':
+                meta = 'Privacy mode'
+            if channel_id:
+                href = f"{url_for('ui.channels')}?focus_channel={quote_plus(channel_id)}"
+        else:
+            return None
+
+        if not href:
+            href = url_for('ui.channels')
+
+        return {
+            'id': str(item.get('event_id') or ''),
+            'seq': int(item.get('seq') or 0),
+            'semantic_key': _attention_activity_semantic_key(item),
+            'event_type': event_type,
+            'kind': kind,
+            'title': title,
+            'meta': meta,
+            'preview': preview,
+            'href': href,
+            'created_at': created_at,
+            'priority': _attention_activity_priority(event_type, payload),
+            'icon': icon,
+            'avatar_url': actor_avatar_url,
+        }
+
+    def _build_sidebar_attention_snapshot(
+        db_manager: Any,
+        profile_manager: Any,
+        channel_manager: Any,
+        feed_manager: Any,
+        p2p_manager: Any,
+        workspace_event_manager: Any,
+        user_id: str,
+        *,
+        item_limit: int = 12,
+    ) -> dict[str, Any]:
+        summary_snapshot = _build_sidebar_attention_summary(
+            db_manager,
+            channel_manager,
+            feed_manager,
+            p2p_manager,
+            user_id,
+        )
+        activity_items: list[dict[str, Any]] = []
+        if workspace_event_manager and user_id:
+            latest_seq = int((workspace_event_manager.get_latest_seq() or 0) or 0)
+            after_seq = max(0, latest_seq - 250)
+            try:
+                result = workspace_event_manager.list_events_for_user(
+                    user_id=user_id,
+                    after_seq=after_seq,
+                    limit=120,
+                    types=_ATTENTION_ACTIVITY_EVENT_TYPES,
+                    can_read_messages=True,
+                )
+            except Exception:
+                result = {'items': []}
+            merged: dict[str, dict[str, Any]] = {}
+            for raw_item in reversed(result.get('items', []) or []):
+                built = _build_sidebar_attention_item(
+                    db_manager,
+                    profile_manager,
+                    channel_manager,
+                    user_id,
+                    raw_item,
+                )
+                if not built:
+                    continue
+                semantic_key = built['semantic_key']
+                existing = merged.get(semantic_key)
+                if not existing:
+                    merged[semantic_key] = built
+                    continue
+                existing_priority = int(existing.get('priority') or 0)
+                new_priority = int(built.get('priority') or 0)
+                existing_created = str(existing.get('created_at') or '')
+                new_created = str(built.get('created_at') or '')
+                if new_priority > existing_priority or (
+                    new_priority == existing_priority and new_created >= existing_created
+                ):
+                    merged[semantic_key] = built
+            activity_items = sorted(
+                merged.values(),
+                key=lambda entry: (
+                    int(entry.get('priority') or 0),
+                    str(entry.get('created_at') or ''),
+                ),
+                reverse=True,
+            )[: max(1, int(item_limit or 12))]
+        return {
+            'summary': summary_snapshot['summary'],
+            'summary_rev': summary_snapshot['rev'],
+            'items': activity_items,
+            'activity_rev': _stable_ui_revision(activity_items),
+            'workspace_event_cursor': int((workspace_event_manager.get_latest_seq() if workspace_event_manager else 0) or 0),
         }
 
     def _build_sidebar_dm_contacts(
@@ -2412,6 +2786,168 @@ def create_ui_blueprint() -> Blueprint:
         }
 
     # Landing page — redirect to user's preferred page (or smart default)
+    def _build_workspace_onboarding(
+        user_id: str,
+        *,
+        page: str,
+        search_active: bool = False,
+        channels_count: Optional[int] = None,
+        direct_conversations: Optional[int] = None,
+        group_conversations: Optional[int] = None,
+    ) -> dict[str, Any]:
+        """Build a compact first-day guidance payload for human users."""
+        db_manager, _, _, _, _, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+
+        stats = {
+            'messages_sent': 0,
+            'feed_posts': 0,
+            'channels_joined': int(channels_count or 0),
+            'direct_conversations': int(direct_conversations or 0),
+            'group_conversations': int(group_conversations or 0),
+            'api_keys': 0,
+            'connected_peers': 0,
+        }
+        user_row = None
+
+        def _table_exists(conn: Any, table_name: str) -> bool:
+            row = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                (table_name,),
+            ).fetchone()
+            return bool(row)
+
+        try:
+            if db_manager and hasattr(db_manager, 'get_user'):
+                user_row = db_manager.get_user(user_id)
+        except Exception:
+            user_row = None
+
+        try:
+            if db_manager and hasattr(db_manager, 'get_connection'):
+                with db_manager.get_connection() as conn:
+                    if channels_count is None and _table_exists(conn, 'channel_members'):
+                        row = conn.execute(
+                            "SELECT COUNT(DISTINCT channel_id) AS count FROM channel_members WHERE user_id = ?",
+                            (user_id,),
+                        ).fetchone()
+                        stats['channels_joined'] = int((row['count'] if row else 0) or 0)
+
+                    if _table_exists(conn, 'channel_messages'):
+                        row = conn.execute(
+                            "SELECT COUNT(*) AS count FROM channel_messages WHERE user_id = ?",
+                            (user_id,),
+                        ).fetchone()
+                        stats['messages_sent'] += int((row['count'] if row else 0) or 0)
+
+                    if _table_exists(conn, 'messages'):
+                        row = conn.execute(
+                            "SELECT COUNT(*) AS count FROM messages WHERE sender_id = ?",
+                            (user_id,),
+                        ).fetchone()
+                        stats['messages_sent'] += int((row['count'] if row else 0) or 0)
+
+                    if _table_exists(conn, 'feed_posts'):
+                        row = conn.execute(
+                            "SELECT COUNT(*) AS count FROM feed_posts WHERE author_id = ?",
+                            (user_id,),
+                        ).fetchone()
+                        stats['feed_posts'] = int((row['count'] if row else 0) or 0)
+
+                    if _table_exists(conn, 'api_keys'):
+                        row = conn.execute(
+                            "SELECT COUNT(*) AS count FROM api_keys WHERE user_id = ? AND COALESCE(revoked, 0) = 0",
+                            (user_id,),
+                        ).fetchone()
+                        stats['api_keys'] = int((row['count'] if row else 0) or 0)
+        except Exception as stats_err:
+            logger.debug(f"Workspace onboarding stats unavailable for {user_id}: {stats_err}")
+
+        try:
+            if p2p_manager and hasattr(p2p_manager, 'get_connected_peers'):
+                connected_peers = p2p_manager.get_connected_peers() or []
+                stats['connected_peers'] = len({
+                    str(peer or '').strip()
+                    for peer in connected_peers
+                    if str(peer or '').strip()
+                })
+        except Exception:
+            stats['connected_peers'] = 0
+
+        username = str((user_row or {}).get('username') or '').strip().lower()
+        display_name = str((user_row or {}).get('display_name') or '').strip().lower()
+        has_avatar = bool((user_row or {}).get('avatar_file_id'))
+        profile_ready = bool(has_avatar or (display_name and display_name != username))
+
+        steps = [
+            {
+                'label': 'Send a message in a shared space',
+                'done': bool(stats['messages_sent'] > 0),
+            },
+            {
+                'label': 'Create your first feed post',
+                'done': bool(stats['feed_posts'] > 0),
+            },
+            {
+                'label': 'See another peer come online',
+                'done': bool(stats['connected_peers'] > 0),
+            },
+            {
+                'label': 'Generate an API key for automation',
+                'done': bool(stats['api_keys'] > 0),
+            },
+        ]
+
+        core_completed = sum(1 for step in steps[:3] if step.get('done'))
+        show = (
+            not search_active
+            and core_completed < 3
+            and stats['messages_sent'] < 8
+            and stats['feed_posts'] < 3
+        )
+
+        actions: list[dict[str, Any]]
+        if page == 'feed':
+            actions = [
+                {'label': 'Create first post', 'kind': 'button', 'onclick': 'openComposer()'},
+                {'label': 'Open channels', 'kind': 'link', 'href': url_for('ui.channels', channel='general')},
+                {'label': 'Open direct messages', 'kind': 'link', 'href': url_for('ui.messages')},
+            ]
+        elif page == 'messages':
+            actions = [
+                {'label': 'New conversation', 'kind': 'button', 'onclick': 'startNewConversation()'},
+                {'label': 'Open channels', 'kind': 'link', 'href': url_for('ui.channels', channel='general')},
+                {'label': 'Open feed', 'kind': 'link', 'href': url_for('ui.feed')},
+            ]
+        else:
+            actions = [
+                {'label': 'Open #general', 'kind': 'link', 'href': url_for('ui.channels', channel='general')},
+                {'label': 'Create first post', 'kind': 'link', 'href': url_for('ui.feed')},
+                {'label': 'Open direct messages', 'kind': 'link', 'href': url_for('ui.messages')},
+            ]
+
+        advanced_action = None
+        if stats['api_keys'] <= 0:
+            advanced_action = {
+                'label': 'Generate API key',
+                'kind': 'link',
+                'href': url_for('ui.api_keys'),
+            }
+
+        return {
+            'show': show,
+            'dismiss_key': f"canopy:getting-started:v1:{user_id}:{page}",
+            'title': 'Start here',
+            'subtitle': (
+                "Canopy feels much better once you've sent one message, created one post, "
+                "and seen a peer or agent come online."
+            ),
+            'profile_ready': profile_ready,
+            'stats': stats,
+            'steps': steps,
+            'actions': actions,
+            'advanced_action': advanced_action,
+        }
+
     @ui.route('/')
     @require_login
     def dashboard():
@@ -2420,6 +2956,11 @@ def create_ui_blueprint() -> Blueprint:
         landing = request.cookies.get('canopy_landing')
         if landing in ('feed', 'channels', 'messages'):
             return redirect(url_for(f'ui.{landing}'))
+
+        user_id = get_current_user()
+        onboarding = _build_workspace_onboarding(user_id, page='channels')
+        if onboarding.get('show'):
+            return redirect(url_for('ui.channels', channel='general'))
 
         # Smart default: mobile → feed, desktop → channels
         ua = (request.headers.get('User-Agent') or '').lower()
@@ -2991,6 +3532,13 @@ def create_ui_blueprint() -> Blueprint:
                 conversation_with=(request.args.get('with') or '').strip() or None,
                 conversation_group=(request.args.get('group') or '').strip() or None,
                 search_query=request.args.get('search', '').strip(),
+            )
+            template_data['workspace_onboarding'] = _build_workspace_onboarding(
+                user_id,
+                page='messages',
+                search_active=bool(template_data.get('search_query')),
+                direct_conversations=len(template_data.get('direct_conversations') or []),
+                group_conversations=len(template_data.get('group_conversations') or []),
             )
             return render_template('messages.html', **template_data)
         except Exception as e:
@@ -3920,6 +4468,11 @@ def create_ui_blueprint() -> Blueprint:
                 'algorithm': algorithm,
                 'is_admin': _is_admin(),
                 'poll_edit_window_seconds': poll_edit_window_seconds(),
+                'workspace_onboarding': _build_workspace_onboarding(
+                    user_id,
+                    page='feed',
+                    search_active=bool(search_query),
+                ),
             }
             if search_query:
                 template_data['search_query'] = search_query
@@ -4056,7 +4609,12 @@ def create_ui_blueprint() -> Blueprint:
                                  is_admin=_is_admin(),
                                  channel_sidebar_rev=channel_sidebar_snapshot.get('rev', ''),
                                  workspace_event_cursor=workspace_event_cursor,
-                                 poll_edit_window_seconds=poll_edit_window_seconds())
+                                 poll_edit_window_seconds=poll_edit_window_seconds(),
+                                 workspace_onboarding=_build_workspace_onboarding(
+                                     user_id,
+                                     page='channels',
+                                     channels_count=len(channels),
+                                 ))
                                  
         except Exception as e:
             logger.error(f"Channels error: {e}")
@@ -4624,6 +5182,7 @@ def create_ui_blueprint() -> Blueprint:
         """Return aggregate unread counts for sidebar navigation badges."""
         try:
             db_manager, _, _, _, channel_manager, _, feed_manager, _, _, _, p2p_manager = _get_app_components_any(current_app)
+            workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
             client_rev = str(request.args.get('rev') or '').strip()
             snapshot = _build_sidebar_attention_summary(
                 db_manager,
@@ -4638,6 +5197,7 @@ def create_ui_blueprint() -> Blueprint:
                 'changed': changed,
                 'rev': snapshot['rev'],
                 'summary': snapshot['summary'] if changed else {},
+                'workspace_event_cursor': int((workspace_event_manager.get_latest_seq() if workspace_event_manager else 0) or 0),
             })
         except Exception as e:
             logger.error(f"Sidebar attention summary error: {e}", exc_info=True)
@@ -4646,7 +5206,44 @@ def create_ui_blueprint() -> Blueprint:
                 'changed': False,
                 'rev': '',
                 'summary': {'messages': 0, 'channels': 0, 'feed': 0, 'total': 0},
+                'workspace_event_cursor': 0,
                 'error': 'Failed to load sidebar attention summary',
+            }), 500
+
+    @ui.route('/ajax/sidebar_attention_snapshot', methods=['GET'])
+    @require_login
+    def ajax_sidebar_attention_snapshot():
+        """Return unified unread summary plus recent attention items for the bell."""
+        try:
+            db_manager, _, _, _, channel_manager, _, feed_manager, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+            workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
+            snapshot = _build_sidebar_attention_snapshot(
+                db_manager,
+                profile_manager,
+                channel_manager,
+                feed_manager,
+                p2p_manager,
+                workspace_event_manager,
+                get_current_user(),
+            )
+            return jsonify({
+                'success': True,
+                'summary': snapshot['summary'],
+                'summary_rev': snapshot['summary_rev'],
+                'items': snapshot['items'],
+                'activity_rev': snapshot['activity_rev'],
+                'workspace_event_cursor': snapshot['workspace_event_cursor'],
+            })
+        except Exception as e:
+            logger.error(f"Sidebar attention snapshot error: {e}", exc_info=True)
+            return jsonify({
+                'success': False,
+                'summary': {'messages': 0, 'channels': 0, 'feed': 0, 'total': 0},
+                'summary_rev': '',
+                'items': [],
+                'activity_rev': '',
+                'workspace_event_cursor': 0,
+                'error': 'Failed to load sidebar attention snapshot',
             }), 500
 
     @ui.route('/ajax/p2p/diagnostics', methods=['GET'])
@@ -11408,6 +12005,31 @@ def create_ui_blueprint() -> Blueprint:
                     }), 403
                 return jsonify({'error': 'You are not a member of this channel'}), 403
 
+            post_decision = channel_manager.can_user_post_message(
+                channel_id=channel_id,
+                user_id=user_id,
+                parent_message_id=parent_message_id,
+                allow_admin=False,
+            )
+            if not post_decision.get('allowed'):
+                reason = str(post_decision.get('reason') or '')
+                if reason == 'top_level_post_restricted':
+                    return jsonify({
+                        'error': 'This channel is curated. Only approved posters can start top-level posts.',
+                        'reason': reason,
+                        'post_policy': post_decision.get('post_policy'),
+                        'can_reply': post_decision.get('can_reply'),
+                    }), 403
+                if reason == 'reply_restricted':
+                    return jsonify({
+                        'error': 'Replies are currently restricted in this channel.',
+                        'reason': reason,
+                    }), 403
+                return jsonify({
+                    'error': 'You cannot post in this channel.',
+                    'reason': reason or 'posting_denied',
+                }), 403
+
             security_clean = None
             if security is not None:
                 security_clean, sec_error = channel_manager.validate_security_metadata(security, strict=True)
@@ -12353,6 +12975,9 @@ def create_ui_blueprint() -> Blueprint:
                             channel_type=row['channel_type'],
                             description=row['description'] or '',
                             privacy_mode=privacy_mode,
+                            post_policy=(channel_manager.get_channel_posting_state(channel_id, user_id, allow_admin=_is_admin()) or {}).get('post_policy'),
+                            allow_member_replies=(channel_manager.get_channel_posting_state(channel_id, user_id, allow_admin=_is_admin()) or {}).get('allow_member_replies'),
+                            allowed_poster_user_ids=channel_manager.get_channel_allowed_poster_ids(channel_id),
                             last_activity_at=row['last_activity_at'],
                             lifecycle_ttl_days=row['lifecycle_ttl_days'],
                             lifecycle_preserved=bool(row['lifecycle_preserved']),
@@ -12466,6 +13091,9 @@ def create_ui_blueprint() -> Blueprint:
                             channel_type=row['channel_type'],
                             description=row['description'] or '',
                             privacy_mode=privacy_mode,
+                            post_policy=(channel_manager.get_channel_posting_state(channel_id, user_id, allow_admin=_is_admin()) or {}).get('post_policy'),
+                            allow_member_replies=(channel_manager.get_channel_posting_state(channel_id, user_id, allow_admin=_is_admin()) or {}).get('allow_member_replies'),
+                            allowed_poster_user_ids=channel_manager.get_channel_allowed_poster_ids(channel_id),
                             last_activity_at=row['last_activity_at'],
                             lifecycle_ttl_days=response_lifecycle.get('ttl_days'),
                             lifecycle_preserved=response_lifecycle.get('preserved'),
@@ -13216,9 +13844,13 @@ def create_ui_blueprint() -> Blueprint:
             description = data.get('description', '').strip()
             channel_type_str = data.get('type', 'public')
             privacy_mode = (data.get('privacy_mode') or ('private' if channel_type_str == 'private' else 'open')).strip().lower()
+            post_policy = str(data.get('post_policy') or 'open').strip().lower()
+            allow_member_replies = True if data.get('allow_member_replies') is None else str(data.get('allow_member_replies')).strip().lower() in {'1', 'true', 'yes', 'on'}
             requested_crypto_mode = _normalize_channel_crypto_mode(data.get('crypto_mode'))
             if privacy_mode not in {'open', 'guarded', 'private', 'confidential'}:
                 return jsonify({'error': 'Invalid privacy mode'}), 400
+            if post_policy not in {'open', 'curated'}:
+                return jsonify({'error': 'Invalid post policy'}), 400
             initial_members = data.get('initial_members') or []
             if not isinstance(initial_members, list):
                 initial_members = []
@@ -13257,6 +13889,8 @@ def create_ui_blueprint() -> Blueprint:
                 name, channel_type, user_id, description,
                 initial_members=initial_members,
                 privacy_mode=privacy_mode,
+                post_policy=post_policy,
+                allow_member_replies=allow_member_replies,
                 origin_peer=p2p_manager.get_peer_id() if p2p_manager else None,
             )
             
@@ -13294,6 +13928,9 @@ def create_ui_blueprint() -> Blueprint:
                             channel_type=channel.channel_type.value,
                             description=channel.description or '',
                             privacy_mode=channel.privacy_mode,
+                            post_policy=channel.post_policy,
+                            allow_member_replies=channel.allow_member_replies,
+                            allowed_poster_user_ids=channel_manager.get_channel_allowed_poster_ids(channel.id),
                             last_activity_at=(
                                 channel.last_activity_at.isoformat() if getattr(channel, 'last_activity_at', None) else None
                             ),
@@ -13363,9 +14000,311 @@ def create_ui_blueprint() -> Blueprint:
                 if not row:
                     return jsonify({'error': 'Forbidden'}), 403
             members = channel_manager.get_channel_members_list(channel_id) if channel_manager else []
-            return jsonify({'success': True, 'members': members, 'count': len(members)})
+            policy = channel_manager.get_channel_posting_state(
+                channel_id,
+                user_id,
+                allow_admin=_is_admin(),
+            ) if channel_manager else None
+            return jsonify({
+                'success': True,
+                'members': members,
+                'count': len(members),
+                'policy': {
+                    'post_policy': (policy or {}).get('post_policy', 'open'),
+                    'allow_member_replies': bool((policy or {}).get('allow_member_replies', True)),
+                    'can_manage': bool((policy or {}).get('is_admin_like', False)),
+                    'can_post_top_level': bool((policy or {}).get('can_post_top_level', True)),
+                    'can_reply': bool((policy or {}).get('can_reply', True)),
+                    'allowed_poster_count': int((policy or {}).get('allowed_poster_count', 0) or 0),
+                },
+            })
         except Exception as e:
             logger.error(f"Get channel members (ui) failed: {e}")
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/update_channel_post_policy', methods=['POST'])
+    @require_login
+    def ajax_update_channel_post_policy():
+        """Update top-level posting policy for a channel (admin only)."""
+        try:
+            db_manager, _, _, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+            user_id = get_current_user()
+            data = request.get_json() or {}
+            channel_id = str(data.get('channel_id') or '').strip()
+            post_policy = str(data.get('post_policy') or '').strip().lower()
+            allow_member_replies = data.get('allow_member_replies')
+
+            if not channel_id:
+                return jsonify({'error': 'Channel ID required'}), 400
+            if post_policy not in {'open', 'curated'}:
+                return jsonify({'error': 'Invalid post policy'}), 400
+
+            local_peer_id = None
+            try:
+                if p2p_manager:
+                    local_peer_id = p2p_manager.get_peer_id()
+            except Exception:
+                local_peer_id = None
+
+            result = channel_manager.update_channel_post_policy(
+                channel_id=channel_id,
+                user_id=user_id,
+                post_policy=post_policy,
+                allow_member_replies=True if allow_member_replies is None else bool(allow_member_replies),
+                allow_admin=_is_admin(),
+                local_peer_id=local_peer_id,
+            )
+            if not result:
+                return jsonify({'error': 'Not authorized to update posting policy'}), 403
+
+            if p2p_manager and p2p_manager.is_running():
+                try:
+                    with db_manager.get_connection() as conn:
+                        row = conn.execute(
+                            """
+                            SELECT name, channel_type, description, created_by,
+                                   COALESCE(last_activity_at, created_at) AS last_activity_at,
+                                   COALESCE(lifecycle_ttl_days, ?) AS lifecycle_ttl_days,
+                                   COALESCE(lifecycle_preserved, 0) AS lifecycle_preserved,
+                                   lifecycle_archived_at, lifecycle_archive_reason,
+                                   COALESCE(privacy_mode, 'open') AS privacy_mode
+                            FROM channels
+                            WHERE id = ?
+                            """,
+                            (channel_manager.DEFAULT_CHANNEL_LIFECYCLE_DAYS, channel_id),
+                        ).fetchone()
+                    if row:
+                        member_peer_ids: Optional[list[str]] = None
+                        members_by_peer: Optional[dict[str, list[str]]] = None
+                        privacy_mode = str(row['privacy_mode'] or 'open').strip().lower()
+                        if privacy_mode in {'private', 'confidential'}:
+                            local_peer = p2p_manager.get_peer_id() if p2p_manager else None
+                            member_peer_ids = channel_manager.get_member_peer_ids(channel_id, local_peer)
+                            members_by_peer = {}
+                            try:
+                                members = channel_manager.get_channel_members_list(channel_id)
+                                for member in members:
+                                    uid = member.get('user_id')
+                                    if not uid:
+                                        continue
+                                    user_row = db_manager.get_user(uid)
+                                    peer_key = (user_row.get('origin_peer') if user_row else '') or local_peer
+                                    if peer_key and peer_key in member_peer_ids:
+                                        members_by_peer.setdefault(peer_key, []).append(uid)
+                            except Exception:
+                                members_by_peer = None
+                        p2p_manager.broadcast_channel_announce(
+                            channel_id=channel_id,
+                            name=row['name'],
+                            channel_type=row['channel_type'],
+                            description=row['description'] or '',
+                            privacy_mode=privacy_mode,
+                            post_policy=result.get('post_policy'),
+                            allow_member_replies=result.get('allow_member_replies'),
+                            allowed_poster_user_ids=channel_manager.get_channel_allowed_poster_ids(channel_id),
+                            last_activity_at=row['last_activity_at'],
+                            lifecycle_ttl_days=row['lifecycle_ttl_days'],
+                            lifecycle_preserved=bool(row['lifecycle_preserved']),
+                            lifecycle_archived_at=row['lifecycle_archived_at'],
+                            lifecycle_archive_reason=row['lifecycle_archive_reason'],
+                            created_by_user_id=row['created_by'] if row and 'created_by' in row.keys() else None,
+                            member_peer_ids=member_peer_ids,
+                            initial_members_by_peer=members_by_peer,
+                        )
+                except Exception as ann_err:
+                    logger.warning(f"Channel post policy announce failed: {ann_err}")
+
+            return jsonify({
+                'success': True,
+                'policy': {
+                    'post_policy': result.get('post_policy'),
+                    'allow_member_replies': result.get('allow_member_replies'),
+                    'can_manage': bool(result.get('is_admin_like')),
+                    'can_post_top_level': bool(result.get('can_post_top_level')),
+                    'can_reply': bool(result.get('can_reply')),
+                    'allowed_poster_count': int(result.get('allowed_poster_count') or 0),
+                },
+            })
+        except Exception as e:
+            logger.error(f"Update channel post policy error: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/channel_posters/<channel_id>', methods=['POST'])
+    @require_login
+    def ajax_grant_channel_poster(channel_id):
+        """Grant a member top-level posting permission in a curated channel."""
+        try:
+            db_manager, _, _, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+            user_id = get_current_user()
+            data = request.get_json() or {}
+            target_user_id = str(data.get('user_id') or '').strip()
+            if not target_user_id:
+                return jsonify({'error': 'user_id required'}), 400
+
+            local_peer_id = None
+            try:
+                if p2p_manager:
+                    local_peer_id = p2p_manager.get_peer_id()
+            except Exception:
+                local_peer_id = None
+
+            result = channel_manager.grant_channel_post_permission(
+                channel_id=channel_id,
+                target_user_id=target_user_id,
+                requester_id=user_id,
+                allow_admin=_is_admin(),
+                local_peer_id=local_peer_id,
+            )
+            if not result:
+                return jsonify({'error': 'Not authorized or member not found'}), 403
+
+            if p2p_manager and p2p_manager.is_running():
+                try:
+                    with db_manager.get_connection() as conn:
+                        row = conn.execute(
+                            """
+                            SELECT name, channel_type, description, created_by,
+                                   COALESCE(last_activity_at, created_at) AS last_activity_at,
+                                   COALESCE(lifecycle_ttl_days, ?) AS lifecycle_ttl_days,
+                                   COALESCE(lifecycle_preserved, 0) AS lifecycle_preserved,
+                                   lifecycle_archived_at, lifecycle_archive_reason,
+                                   COALESCE(privacy_mode, 'open') AS privacy_mode
+                            FROM channels
+                            WHERE id = ?
+                            """,
+                            (channel_manager.DEFAULT_CHANNEL_LIFECYCLE_DAYS, channel_id),
+                        ).fetchone()
+                    if row:
+                        privacy_mode = str(row['privacy_mode'] or 'open').strip().lower()
+                        member_peer_ids: Optional[list[str]] = None
+                        members_by_peer: Optional[dict[str, list[str]]] = None
+                        if privacy_mode in {'private', 'confidential'}:
+                            local_peer = p2p_manager.get_peer_id() if p2p_manager else None
+                            member_peer_ids = channel_manager.get_member_peer_ids(channel_id, local_peer)
+                            members_by_peer = {}
+                            try:
+                                members = channel_manager.get_channel_members_list(channel_id)
+                                for member in members:
+                                    uid = member.get('user_id')
+                                    if not uid:
+                                        continue
+                                    user_row = db_manager.get_user(uid)
+                                    peer_key = (user_row.get('origin_peer') if user_row else '') or local_peer
+                                    if peer_key and peer_key in member_peer_ids:
+                                        members_by_peer.setdefault(peer_key, []).append(uid)
+                            except Exception:
+                                members_by_peer = None
+                        p2p_manager.broadcast_channel_announce(
+                            channel_id=channel_id,
+                            name=row['name'],
+                            channel_type=row['channel_type'],
+                            description=row['description'] or '',
+                            privacy_mode=privacy_mode,
+                            post_policy=result.get('post_policy'),
+                            allow_member_replies=result.get('allow_member_replies'),
+                            allowed_poster_user_ids=channel_manager.get_channel_allowed_poster_ids(channel_id),
+                            last_activity_at=row['last_activity_at'],
+                            lifecycle_ttl_days=row['lifecycle_ttl_days'],
+                            lifecycle_preserved=bool(row['lifecycle_preserved']),
+                            lifecycle_archived_at=row['lifecycle_archived_at'],
+                            lifecycle_archive_reason=row['lifecycle_archive_reason'],
+                            created_by_user_id=row['created_by'] if row and 'created_by' in row.keys() else None,
+                            member_peer_ids=member_peer_ids,
+                            initial_members_by_peer=members_by_peer,
+                        )
+                except Exception as ann_err:
+                    logger.warning(f"Channel poster grant announce failed: {ann_err}")
+
+            return jsonify({'success': True, 'policy': result})
+        except Exception as e:
+            logger.error(f"Grant channel poster (ui) failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/channel_posters/<channel_id>/<member_id>', methods=['DELETE'])
+    @require_login
+    def ajax_revoke_channel_poster(channel_id, member_id):
+        """Revoke explicit top-level posting permission from a member."""
+        try:
+            db_manager, _, _, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+            user_id = get_current_user()
+
+            local_peer_id = None
+            try:
+                if p2p_manager:
+                    local_peer_id = p2p_manager.get_peer_id()
+            except Exception:
+                local_peer_id = None
+
+            result = channel_manager.revoke_channel_post_permission(
+                channel_id=channel_id,
+                target_user_id=member_id,
+                requester_id=user_id,
+                allow_admin=_is_admin(),
+                local_peer_id=local_peer_id,
+            )
+            if not result:
+                return jsonify({'error': 'Not authorized or member not found'}), 403
+
+            if p2p_manager and p2p_manager.is_running():
+                try:
+                    with db_manager.get_connection() as conn:
+                        row = conn.execute(
+                            """
+                            SELECT name, channel_type, description, created_by,
+                                   COALESCE(last_activity_at, created_at) AS last_activity_at,
+                                   COALESCE(lifecycle_ttl_days, ?) AS lifecycle_ttl_days,
+                                   COALESCE(lifecycle_preserved, 0) AS lifecycle_preserved,
+                                   lifecycle_archived_at, lifecycle_archive_reason,
+                                   COALESCE(privacy_mode, 'open') AS privacy_mode
+                            FROM channels
+                            WHERE id = ?
+                            """,
+                            (channel_manager.DEFAULT_CHANNEL_LIFECYCLE_DAYS, channel_id),
+                        ).fetchone()
+                    if row:
+                        privacy_mode = str(row['privacy_mode'] or 'open').strip().lower()
+                        member_peer_ids: Optional[list[str]] = None
+                        members_by_peer: Optional[dict[str, list[str]]] = None
+                        if privacy_mode in {'private', 'confidential'}:
+                            local_peer = p2p_manager.get_peer_id() if p2p_manager else None
+                            member_peer_ids = channel_manager.get_member_peer_ids(channel_id, local_peer)
+                            members_by_peer = {}
+                            try:
+                                members = channel_manager.get_channel_members_list(channel_id)
+                                for member in members:
+                                    uid = member.get('user_id')
+                                    if not uid:
+                                        continue
+                                    user_row = db_manager.get_user(uid)
+                                    peer_key = (user_row.get('origin_peer') if user_row else '') or local_peer
+                                    if peer_key and peer_key in member_peer_ids:
+                                        members_by_peer.setdefault(peer_key, []).append(uid)
+                            except Exception:
+                                members_by_peer = None
+                        p2p_manager.broadcast_channel_announce(
+                            channel_id=channel_id,
+                            name=row['name'],
+                            channel_type=row['channel_type'],
+                            description=row['description'] or '',
+                            privacy_mode=privacy_mode,
+                            post_policy=result.get('post_policy'),
+                            allow_member_replies=result.get('allow_member_replies'),
+                            allowed_poster_user_ids=channel_manager.get_channel_allowed_poster_ids(channel_id),
+                            last_activity_at=row['last_activity_at'],
+                            lifecycle_ttl_days=row['lifecycle_ttl_days'],
+                            lifecycle_preserved=bool(row['lifecycle_preserved']),
+                            lifecycle_archived_at=row['lifecycle_archived_at'],
+                            lifecycle_archive_reason=row['lifecycle_archive_reason'],
+                            created_by_user_id=row['created_by'] if row and 'created_by' in row.keys() else None,
+                            member_peer_ids=member_peer_ids,
+                            initial_members_by_peer=members_by_peer,
+                        )
+                except Exception as ann_err:
+                    logger.warning(f"Channel poster revoke announce failed: {ann_err}")
+
+            return jsonify({'success': True, 'policy': result})
+        except Exception as e:
+            logger.error(f"Revoke channel poster (ui) failed: {e}", exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
     def _trigger_member_sync(db_mgr, ch_mgr, channel_id, target_user_id,
@@ -13482,6 +14421,9 @@ def create_ui_blueprint() -> Blueprint:
                         channel_type=row['channel_type'] or 'private',
                         description=row['description'] or '',
                         privacy_mode=mode,
+                        post_policy=(ch_mgr.get_channel_posting_state(channel_id, target_user_id or row['created_by'], allow_admin=False) or {}).get('post_policy'),
+                        allow_member_replies=(ch_mgr.get_channel_posting_state(channel_id, target_user_id or row['created_by'], allow_admin=False) or {}).get('allow_member_replies'),
+                        allowed_poster_user_ids=ch_mgr.get_channel_allowed_poster_ids(channel_id),
                         created_by_user_id=row['created_by'] if row and 'created_by' in row.keys() else None,
                     )
                 except Exception:

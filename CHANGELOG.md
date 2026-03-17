@@ -8,6 +8,76 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.100] - 2026-03-17
+
+### Added
+- **First-run guidance** - New users now see a compact "First-day guide" card on Channels, Feed, and Messages pages showing current workspace stats (messages sent, feed posts, peers online, API keys) and four practical first-day steps. The guide is dismissible per-page via localStorage and automatically hides once core actions are completed.
+- **Smarter first-run landing** - The `/` route now detects first-run users and redirects them to `#general` instead of dropping mobile users into an empty feed. Once the user has sent messages, posted, and seen a peer, the normal mobile→Feed / desktop→Channels default resumes.
+
+## [0.4.99] - 2026-03-17
+
+### Improved
+- **Bell dismiss stability** - Clear now records a per-user dismissal watermark (workspace-event cursor) in `localStorage`. Dismissed items stay hidden across snapshot refreshes; only newer attention events reappear. Unread badges remain independent and unaffected.
+- **Bell type filters** - The bell dropdown now includes persistent per-user filter chips (Mentions, Inbox, DMs, Channels, Feed) stored in `localStorage`. Filters apply only to the bell surface and do not alter event generation, sidebar unread counts, or presence.
+
+## [0.4.98] - 2026-03-16
+
+### Fixed
+- **Bell avatar restoration** - The attention bell now renders user avatar images when available, falling back to an initial letter, then to the semantic icon. The v0.4.97 bell redesign had regressed to always showing generic icons. Avatar metadata is resolved from the profile manager and DB `avatar_file_id`.
+
+## [0.4.97] - 2026-03-16
+
+### Added
+- **Unified attention event model** - Feed activity (`feed.post.created`, `feed.post.updated`, `feed.post.deleted`) now emits workspace events, joining channels, DMs, mentions, and inbox in a single event journal. Feed comments emit `feed.post.updated` with `update_reason=comment`.
+- **Sidebar attention snapshot endpoint** - New `GET /ajax/sidebar_attention_snapshot` returns unread summary (messages, channels, feed, total), recent bell items from workspace events, stable revisions for delta polling, and a workspace event cursor.
+- **Bell redesign** - The notification bell is now a workspace attention menu showing recent mentions, DMs, channel messages, feed activity, and channel state changes. Self-authored activity is filtered out. Peer presence remains on its own separate surface.
+
+### Improved
+- **Single browser event loop** - Left-sidebar unread badges, compact DM sidebar, and bell menu all refresh from one unified workspace-event poll loop instead of multiple independent polling models.
+
+## [0.4.96] - 2026-03-16
+
+### Fixed
+- **YouTube click-to-play facade** - YouTube embeds now show a thumbnail with a play button overlay instead of loading the iframe immediately. The iframe is only injected when the user clicks, eliminating bulk embed requests that trigger YouTube's "sign in to prove you're not a bot" rate-limiting. Thumbnails load from `img.youtube.com` which is not rate-limited. The mini player integration is preserved via the MutationObserver that detects the iframe insertion on click.
+
+## [0.4.95] - 2026-03-16
+
+### Improved
+- **Channel header responsive compaction** - Header controls now wrap cleanly at intermediate widths (768px–1199px) instead of overlapping. Low-height landscape mode (<=520px) gets a dense single-row header with hidden low-value labels and compact composer controls.
+- **Shortened policy/privacy labels** - Posting labels shortened to `Curated`/`Open` (from `Posting: Curated`/`Posting: Open`); privacy labels shortened similarly. Reduces header pressure at all widths.
+- **Open posting badge** - Open channels now show an explicit subdued badge alongside the curated accent badge, reducing layout ambiguity.
+
+## [0.4.94] - 2026-03-16
+
+### Fixed
+- **Public channel sync preserves curated metadata** - `get_all_public_channels()` now includes `post_policy`, `allow_member_replies`, and `allowed_poster_user_ids` in the sync payload. Previously, public channel sync serialized curated channels with default `open` policy, causing the next sync pass to clobber curated state back to open on all peers. This was the root cause of the live `#curation-lab` revert observed on v0.4.93.
+
+## [0.4.93] - 2026-03-16
+
+### Fixed
+- **Curated channel policy authority enforcement** - Remote posting-policy snapshots (from channel announces and piggybacked message metadata) are now authority-gated: only the origin peer can update a channel's `post_policy`, `allow_member_replies`, and allowlist. Stale snapshots from non-origin peers are rejected with audit logging. This fixes a split-brain where a non-origin peer rebroadcasting `open + empty allowlist` could clobber curated state on all receiving peers, including the origin.
+- **Centralized low-level sync** - Posting-policy sync logic extracted into `_sync_channel_post_permissions_conn()` and `_normalize_allowed_poster_ids()`, keeping authority checks in `apply_remote_channel_posting_snapshot()` while trusted local paths continue using the direct `sync_channel_post_permissions()`.
+
+## [0.4.92] - 2026-03-16
+
+### Added
+- **Inbound P2P curated enforcement** - Receiving peers now check curated posting policy before inserting synced channel messages. Unauthorized top-level posts in curated channels are rejected on receive; replies remain open when configured. Rejected message IDs are marked as processed to prevent re-loop via catch-up/replay.
+- **Opportunistic curated metadata convergence** - Normal channel message broadcasts now piggyback `post_policy`, `allow_member_replies`, and `allowed_poster_user_ids` in their metadata, so receiving peers converge on curated state even when they miss a dedicated channel announce.
+- **Duplicate message policy healing** - Even already-processed duplicate messages now apply their curated metadata snapshot, so replayed traffic can heal stale posting policy on receiving peers.
+- **Relaxed allowlist sync** - `sync_channel_post_permissions` no longer requires pre-existing channel membership to persist allowlist entries; it only requires the referenced user to exist in `users`, matching the actual FK schema.
+
+### Fixed
+- **Channel adoption INSERT column count** - The `merge_or_adopt_channel` adoption path now includes `post_policy` and `allow_member_replies` in its INSERT, fixing a column/value count mismatch that caused adoption failures.
+
+## [0.4.91] - 2026-03-16
+
+### Added
+- **Curated channel posting policy** - Channels now support a server-enforced `post_policy` field (`open` or `curated`). In curated channels, only admins and explicitly approved posters can start new top-level posts, while replies remain open to all members by default. Policy is enforced in the channel manager send path, session UI routes, and REST API routes.
+- **Curated poster allowlist management** - New API endpoints (`/api/v1/channels/<id>/post-policy`, `/api/v1/channels/<id>/posters`) and session AJAX routes (`/ajax/update_channel_post_policy`, `/ajax/channel_posters/<id>`) allow admins to toggle posting policy, grant, and revoke top-level posting permission for individual members.
+- **Curated channel creation** - The create-channel form and API now accept `post_policy` and `allow_member_replies` at creation time, so channels can start curated without a two-step reconfigure.
+- **Curated metadata P2P sync** - Channel announce payloads now include `post_policy`, `allow_member_replies`, and `allowed_poster_user_ids`, ensuring curated channels stay consistent across peers during sync-create, merge/adopt, and member-add broadcasts.
+- **Curated channel UI controls** - Channel header shows a posting-policy dropdown (open/curated) with summary, a curated badge, and a composer gate for non-approved members. The members modal displays per-member badges (admin, approved poster, replies only) and grant/revoke buttons.
+
 ## [0.4.90] - 2026-03-16
 
 ### Added

@@ -2377,19 +2377,44 @@ class P2PNetworkManager:
             'privacy_mode': 'open',
             'origin_peer': None,
             'crypto_mode': 'legacy_plaintext',
+            'post_policy': 'open',
+            'allow_member_replies': True,
+            'allowed_poster_user_ids': [],
         }
         if not channel_id:
             return context
         try:
             with self.db.get_connection() as conn:
                 row = conn.execute(
-                    "SELECT privacy_mode, origin_peer, crypto_mode FROM channels WHERE id = ?",
+                    """
+                    SELECT privacy_mode, origin_peer, crypto_mode,
+                           COALESCE(post_policy, 'open') AS post_policy,
+                           COALESCE(allow_member_replies, 1) AS allow_member_replies
+                    FROM channels
+                    WHERE id = ?
+                    """,
                     (channel_id,),
                 ).fetchone()
+                allowed_rows = conn.execute(
+                    """
+                    SELECT user_id
+                    FROM channel_post_permissions
+                    WHERE channel_id = ?
+                    ORDER BY granted_at ASC, user_id ASC
+                    """,
+                    (channel_id,),
+                ).fetchall()
             if row:
                 context['privacy_mode'] = (row['privacy_mode'] or 'open').strip().lower()
                 context['origin_peer'] = row['origin_peer']
                 context['crypto_mode'] = (row['crypto_mode'] or 'legacy_plaintext').strip().lower()
+                context['post_policy'] = (row['post_policy'] or 'open').strip().lower()
+                context['allow_member_replies'] = bool(row['allow_member_replies'])
+            context['allowed_poster_user_ids'] = [
+                str(allowed_row['user_id'])
+                for allowed_row in allowed_rows
+                if allowed_row and allowed_row['user_id']
+            ]
         except Exception as e:
             logger.debug(f"Could not load channel context for {channel_id}: {e}")
         return context
@@ -2559,7 +2584,16 @@ class P2PNetworkManager:
             'ttl_mode': ttl_mode,
             'privacy_mode': privacy_mode,
             'crypto_mode': channel_crypto_mode,
+            'post_policy': str(channel_ctx.get('post_policy') or 'open').strip().lower(),
+            'allow_member_replies': bool(channel_ctx.get('allow_member_replies', True)),
         }
+        allowed_poster_user_ids = channel_ctx.get('allowed_poster_user_ids') or []
+        if allowed_poster_user_ids:
+            metadata['allowed_poster_user_ids'] = [
+                str(allowed_user_id)
+                for allowed_user_id in allowed_poster_user_ids
+                if str(allowed_user_id or '').strip()
+            ]
         if should_encrypt and encrypted_content and nonce_b64 and key_id:
             metadata['encrypted_content'] = encrypted_content
             metadata['nonce'] = nonce_b64
@@ -2917,6 +2951,9 @@ class P2PNetworkManager:
     def broadcast_channel_announce(self, channel_id: str, name: str,
                                      channel_type: str, description: str,
                                      privacy_mode: Optional[str] = None,
+                                     post_policy: Optional[str] = None,
+                                     allow_member_replies: Optional[bool] = None,
+                                     allowed_poster_user_ids: Optional[list[Any]] = None,
                                      last_activity_at: Optional[str] = None,
                                      lifecycle_ttl_days: Optional[int] = None,
                                      lifecycle_preserved: Optional[bool] = None,
@@ -2992,6 +3029,9 @@ class P2PNetworkManager:
                         channel_type=channel_type,
                         description=description or '',
                         privacy_mode=privacy_mode,
+                        post_policy=post_policy,
+                        allow_member_replies=allow_member_replies,
+                        allowed_poster_user_ids=allowed_poster_user_ids,
                         last_activity_at=last_activity_at,
                         lifecycle_ttl_days=lifecycle_ttl_days,
                         lifecycle_preserved=lifecycle_preserved,
@@ -3033,6 +3073,9 @@ class P2PNetworkManager:
                 channel_type=channel_type,
                 description=description or '',
                 privacy_mode=privacy_mode,
+                post_policy=post_policy,
+                allow_member_replies=allow_member_replies,
+                allowed_poster_user_ids=allowed_poster_user_ids,
                 last_activity_at=last_activity_at,
                 lifecycle_ttl_days=lifecycle_ttl_days,
                 lifecycle_preserved=lifecycle_preserved,

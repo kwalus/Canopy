@@ -1041,6 +1041,157 @@
         background: rgba(100, 116, 139, 0.16);
         border: 1px solid rgba(148, 163, 184, 0.2);
     }
+    #channel-posting-badge {
+        font-size: 0.62rem;
+        line-height: 1;
+        padding: 0.2rem 0.42rem;
+        align-items: center;
+    }
+    #channel-posting-badge.curated {
+        color: #facc15;
+        background: rgba(250, 204, 21, 0.14);
+        border: 1px solid rgba(250, 204, 21, 0.26);
+    }
+    #channel-posting-badge.open {
+        color: #cbd5e1;
+        background: rgba(100, 116, 139, 0.12);
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        display: none;
+    }
+    .channel-post-policy-menu {
+        width: min(320px, 92vw);
+        padding: 0;
+        overflow: hidden;
+    }
+    .channel-post-policy-summary {
+        padding: 0.85rem 0.95rem 0.72rem;
+        background: linear-gradient(160deg, rgba(24, 32, 56, 0.94), rgba(18, 25, 44, 0.96));
+    }
+    .channel-post-policy-title {
+        font-size: 0.86rem;
+        font-weight: 600;
+        color: var(--canopy-text-primary);
+        margin-bottom: 0.2rem;
+    }
+    .channel-post-policy-line {
+        font-size: 0.74rem;
+        color: var(--canopy-text-muted);
+        line-height: 1.35;
+    }
+    .channel-post-policy-options .dropdown-item.active {
+        background: rgba(89, 222, 137, 0.16);
+        color: var(--canopy-text-primary);
+    }
+    .channel-post-policy-options .dropdown-item small {
+        white-space: normal;
+    }
+    .channel-posting-gate {
+        border: 1px solid rgba(250, 204, 21, 0.18);
+        background: linear-gradient(145deg, rgba(47, 39, 15, 0.92), rgba(28, 26, 12, 0.94));
+        color: #f8f5d0;
+    }
+    .channel-posting-gate strong {
+        color: #fff4bf;
+    }
+    .create-channel-posture-card {
+        border: 1px solid rgba(89, 222, 137, 0.14);
+        border-radius: 0.85rem;
+        padding: 0.85rem 0.95rem;
+        background: linear-gradient(160deg, rgba(20, 27, 46, 0.92), rgba(17, 24, 39, 0.96));
+    }
+    .create-channel-posture-title {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: var(--canopy-text-primary);
+        margin-bottom: 0.45rem;
+    }
+    .create-channel-posture-meta {
+        font-size: 0.72rem;
+        line-height: 1.4;
+        color: var(--canopy-text-muted);
+        margin-top: 0.5rem;
+    }
+    .create-channel-posture-options {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.5rem;
+    }
+    .create-channel-posture-option {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.6rem;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        border-radius: 0.8rem;
+        padding: 0.72rem 0.8rem;
+        background: rgba(9, 14, 26, 0.38);
+        color: var(--canopy-text-primary);
+        cursor: pointer;
+        transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+    }
+    .create-channel-posture-option:hover {
+        border-color: rgba(89, 222, 137, 0.24);
+        background: rgba(14, 20, 34, 0.62);
+        transform: translateY(-1px);
+    }
+    .create-channel-posture-option strong {
+        display: block;
+        font-size: 0.82rem;
+        font-weight: 600;
+        margin-bottom: 0.12rem;
+    }
+    .create-channel-posture-option span {
+        display: block;
+        font-size: 0.72rem;
+        line-height: 1.38;
+        color: var(--canopy-text-muted);
+    }
+    .btn-check:checked + .create-channel-posture-option {
+        border-color: rgba(89, 222, 137, 0.45);
+        background: linear-gradient(160deg, rgba(19, 38, 50, 0.96), rgba(13, 26, 36, 0.98));
+        box-shadow: inset 0 0 0 1px rgba(89, 222, 137, 0.18);
+    }
+    .create-channel-posture-option .bi {
+        font-size: 1rem;
+        color: #59de89;
+        margin-top: 0.08rem;
+    }
+    @media (max-width: 640px) {
+        .create-channel-posture-options {
+            grid-template-columns: 1fr;
+        }
+    }
+    .channel-member-admin-badge,
+    .channel-member-poster-badge,
+    .channel-member-reply-badge {
+        border-radius: 999px;
+        font-size: 0.68rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        padding: 0.2rem 0.5rem;
+        border: 1px solid transparent;
+    }
+    .channel-member-admin-badge {
+        color: #bae6fd;
+        background: rgba(14, 165, 233, 0.12);
+        border-color: rgba(125, 211, 252, 0.2);
+    }
+    .channel-member-poster-badge {
+        color: #bbf7d0;
+        background: rgba(34, 197, 94, 0.12);
+        border-color: rgba(134, 239, 172, 0.18);
+    }
+    .channel-member-reply-badge {
+        color: var(--canopy-text-muted);
+        background: rgba(148, 163, 184, 0.08);
+        border-color: rgba(148, 163, 184, 0.16);
+    }
+    .channel-member-row {
+        background: var(--canopy-bg-tertiary);
+        border: 1px solid var(--canopy-border);
+    }
+    .channel-member-row .btn-group-sm > .btn {
+        border-radius: 0.5rem;
+    }
     .channel-lifecycle-menu {
         width: min(320px, 92vw);
         padding: 0;
@@ -1119,6 +1270,14 @@
         .channel-header-title h4 {
             max-width: clamp(100px, 20vw, 210px);
         }
+        .channel-post-policy-btn .privacy-label {
+            display: none;
+        }
+        .channel-post-policy-btn {
+            min-width: 0;
+            padding-left: 0.42rem;
+            padding-right: 0.42rem;
+        }
         .channel-privacy-btn .privacy-label {
             display: none;
         }
@@ -1139,6 +1298,46 @@
             flex-basis: 136px;
             min-width: 96px;
             max-width: 165px;
+        }
+    }
+
+    @media (min-width: 768px) and (max-width: 1199.98px) {
+        .channel-header {
+            padding: 0.55rem 0.7rem !important;
+        }
+        .channel-header-row {
+            align-items: flex-start;
+            flex-wrap: wrap;
+            row-gap: 0.35rem;
+        }
+        .channel-header-left {
+            flex: 1 1 100%;
+            max-width: 100%;
+        }
+        .channel-header-right {
+            width: 100%;
+            flex: 1 1 100%;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            row-gap: 0.3rem;
+            padding-top: 0.1rem;
+        }
+        .channel-header-actions {
+            flex: 1 1 auto;
+            flex-wrap: wrap;
+            min-width: 0;
+        }
+        .channel-header-search {
+            order: 3;
+            flex: 1 1 100%;
+            min-width: 0;
+            max-width: none;
+        }
+        .channel-header-controls {
+            margin-left: auto;
+        }
+        #channel-posting-badge.open {
+            display: inline-flex;
         }
     }
 
@@ -1507,6 +1706,9 @@
             min-width: 74px;
             max-width: none;
         }
+        .channel-post-policy-btn .privacy-label {
+            display: none;
+        }
         #channel-search-bar {
             width: 100% !important;
         }
@@ -1589,6 +1791,132 @@
         }
         #message-form .input-group-append .btn-group #channel-stream-quick-toggle {
             width: 100%;
+        }
+    }
+
+    @media (max-width: 1024px) and (orientation: landscape) and (max-height: 520px) {
+        .channel-header {
+            padding: 0.28rem 0.42rem !important;
+        }
+        .channel-header-row {
+            flex-wrap: nowrap;
+            align-items: center;
+            gap: 0.16rem;
+        }
+        .channel-header-left {
+            flex: 1 1 auto;
+            min-width: 0;
+            gap: 0.2rem;
+        }
+        .channel-header-title h4 {
+            font-size: 0.82rem;
+            max-width: min(36vw, 154px);
+        }
+        .channel-inline-desc,
+        .copy-channel-id-label,
+        .channel-members-label,
+        .channel-members-count,
+        #channel-lifecycle-toggle .channel-lifecycle-label {
+            display: none !important;
+        }
+        .channel-post-policy-btn .privacy-label,
+        .channel-privacy-btn .privacy-label {
+            display: none !important;
+        }
+        .channel-header-right {
+            flex: 1 1 auto;
+            min-width: 0;
+            width: auto;
+            flex-wrap: nowrap;
+            justify-content: flex-end;
+            overflow-x: auto;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+            gap: 0.12rem;
+        }
+        .channel-header-right::-webkit-scrollbar {
+            display: none;
+        }
+        .channel-header-actions,
+        .channel-header-controls {
+            gap: 0.12rem;
+            flex-wrap: nowrap;
+        }
+        .channel-header-search {
+            display: none;
+        }
+        .channel-header .btn.btn-sm {
+            padding: 0.16rem 0.3rem;
+        }
+        #channel-posting-badge {
+            font-size: 0.58rem;
+            padding: 0.16rem 0.34rem;
+        }
+        #channel-posting-badge.open {
+            display: inline-flex;
+        }
+        #messages-container {
+            padding: 0.45rem !important;
+        }
+        .channel-composer-wrap {
+            padding: 0.24rem 0.36rem !important;
+            padding-bottom: max(0.28rem, calc(env(safe-area-inset-bottom) + 0.14rem)) !important;
+        }
+        #channel-member-gate,
+        #channel-posting-gate,
+        #reply-context,
+        #channel-task-toggle,
+        #channel-structured-nudge,
+        #channel-structured-validation,
+        #channel-structured-result {
+            margin-bottom: 0.18rem !important;
+            padding-top: 0.3rem;
+            padding-bottom: 0.3rem;
+        }
+        .channel-lifespan-row {
+            margin-bottom: 0.18rem !important;
+            gap: 0.22rem;
+        }
+        .channel-lifespan-label {
+            display: none;
+        }
+        .channel-expiry-select {
+            min-width: 5.2rem;
+            max-width: 6rem;
+            font-size: 0.72rem;
+            padding-top: 0.08rem;
+            padding-bottom: 0.08rem;
+        }
+        #message-form .input-group {
+            align-items: stretch;
+            gap: 0.2rem;
+        }
+        #message-input {
+            min-height: 30px !important;
+            max-height: 18vh;
+            font-size: 0.82rem;
+            padding-top: 0.24rem;
+            padding-bottom: 0.24rem;
+        }
+        #message-form .input-group-append {
+            display: flex !important;
+            width: auto;
+            margin-top: 0;
+            gap: 0.14rem;
+            flex: 0 0 auto;
+            grid-template-columns: none;
+        }
+        #message-form .input-group .btn,
+        #message-form .input-group-append .btn-group .btn {
+            min-height: 28px;
+            padding: 0.18rem 0.16rem;
+            font-size: 0.82rem;
+        }
+        #message-form .input-group-append .btn-group {
+            width: auto;
+        }
+        #message-form .input-group-append .btn-group #channel-stream-quick-toggle {
+            width: auto;
         }
     }
 
@@ -1977,6 +2305,34 @@
                         <div id="create-member-suggestions" class="member-suggestions"></div>
                         <small class="form-text text-muted">You can add members now or after creating the channel.</small>
                     </div>
+                    <div class="mb-2 create-channel-posture-card">
+                        <div class="create-channel-posture-title">Posting posture</div>
+                        <div class="create-channel-posture-options">
+                            <div>
+                                <input class="btn-check" type="radio" name="create-channel-post-policy" id="create-post-policy-open" value="open" checked>
+                                <label class="create-channel-posture-option" for="create-post-policy-open">
+                                    <i class="bi bi-megaphone"></i>
+                                    <div>
+                                        <strong>Open</strong>
+                                        <span>Any member can start top-level posts and replies.</span>
+                                    </div>
+                                </label>
+                            </div>
+                            <div>
+                                <input class="btn-check" type="radio" name="create-channel-post-policy" id="create-post-policy-curated" value="curated">
+                                <label class="create-channel-posture-option" for="create-post-policy-curated">
+                                    <i class="bi bi-person-check"></i>
+                                    <div>
+                                        <strong>Curated</strong>
+                                        <span>Admins and approved posters start top-level posts. Replies stay open to members.</span>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="create-channel-posture-meta">
+                            Use curated posting when the channel should stay high-signal without blocking discussion in replies.
+                        </div>
+                    </div>
                     <div class="d-flex gap-2">
                         <button type="submit" class="btn btn-primary btn-sm">Create</button>
                         <button type="button" class="btn btn-outline-secondary btn-sm" onclick="toggleCreateChannel()">Cancel</button>
@@ -1997,6 +2353,11 @@
                      data-user-role="{{ channel.user_role }}"
                      data-origin-peer="{{ channel.origin_peer or '' }}"
                      data-notifications-enabled="{{ 'true' if channel.notifications_enabled else 'false' }}"
+                     data-post-policy="{{ channel.post_policy }}"
+                     data-allow-member-replies="{{ 'true' if channel.allow_member_replies else 'false' }}"
+                     data-can-post-top-level="{{ 'true' if channel.can_post_top_level else 'false' }}"
+                     data-can-reply="{{ 'true' if channel.can_reply else 'false' }}"
+                     data-allowed-poster-count="{{ channel.allowed_poster_count if channel.allowed_poster_count is not none else 0 }}"
                      data-channel-desc="{{ channel.description|e }}"
                      data-lifecycle-status="{{ lifecycle_status }}"
                      data-lifecycle-ttl-days="{{ channel.lifecycle_ttl_days if channel.lifecycle_ttl_days is not none else 180 }}"
@@ -2113,6 +2474,7 @@
                                 <span id="channel-e2e-badge" class="badge bg-success-subtle text-success border rounded-pill d-none" title="End-to-end encrypted channel">
                                     <i class="bi bi-shield-lock-fill me-1"></i>E2E
                                 </span>
+                                <span id="channel-posting-badge" class="badge rounded-pill d-none"></span>
                                 <span id="channel-lifecycle-badge" class="badge rounded-pill d-none"></span>
                             </div>
                         </div>
@@ -2120,10 +2482,35 @@
                     <div class="channel-header-right">
                         <div class="channel-header-actions">
                             <div class="dropdown">
+                                <button class="btn btn-outline-secondary btn-sm dropdown-toggle channel-post-policy-btn"
+                                        id="channel-post-policy-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                                    <i class="bi bi-megaphone" id="channel-post-policy-icon"></i>
+                                    <span class="privacy-label" id="channel-post-policy-label">Open</span>
+                                </button>
+                                <div class="dropdown-menu channel-post-policy-menu" aria-labelledby="channel-post-policy-toggle">
+                                    <div class="channel-post-policy-summary">
+                                        <div class="channel-post-policy-title" id="channel-post-policy-summary-title">Open posting</div>
+                                        <div class="channel-post-policy-line" id="channel-post-policy-summary-meta">Any member can start a new top-level post in this channel.</div>
+                                        <div class="channel-post-policy-line" id="channel-post-policy-summary-count">0 approved posters</div>
+                                    </div>
+                                    <div class="dropdown-divider"></div>
+                                    <div class="channel-post-policy-options">
+                                        <button type="button" class="dropdown-item" id="channel-post-policy-option-open" onclick="setChannelPostPolicy('open')">
+                                            <i class="bi bi-unlock me-2"></i>Open
+                                            <small class="text-muted d-block">Any member can start a new post</small>
+                                        </button>
+                                        <button type="button" class="dropdown-item" id="channel-post-policy-option-curated" onclick="setChannelPostPolicy('curated')">
+                                            <i class="bi bi-person-check me-2"></i>Curated
+                                            <small class="text-muted d-block">Admins and approved posters can start new top-level posts</small>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="dropdown">
                                 <button class="btn btn-outline-secondary btn-sm dropdown-toggle channel-privacy-btn"
                                         id="channel-privacy-toggle" data-bs-toggle="dropdown" aria-expanded="false">
                                     <i class="bi bi-shield-check" id="channel-privacy-icon"></i>
-                                    <span class="privacy-label" id="channel-privacy-label">Privacy: Open</span>
+                                    <span class="privacy-label" id="channel-privacy-label">Open</span>
                                 </button>
                                 <ul class="dropdown-menu" aria-labelledby="channel-privacy-toggle">
                                     <li><a class="dropdown-item" href="#" onclick="setChannelPrivacy('open')">
@@ -2210,6 +2597,10 @@
                     </div>
                 </div>
             </div>
+
+            <div class="px-3 pt-3">
+                {% include '_workspace_onboarding.html' %}
+            </div>
             
             <!-- Messages Area -->
             <div class="flex-grow-1 overflow-auto p-3" id="messages-container">
@@ -2233,6 +2624,13 @@
                         <strong>Private channel tip:</strong> you can post now; add members when you're ready to share.
                     </div>
                     <button type="button" class="btn btn-sm btn-outline-dark" onclick="openChannelMembersModal()">Add members</button>
+                </div>
+                <div id="channel-posting-gate" class="alert channel-posting-gate d-none align-items-center justify-content-between gap-2" role="alert">
+                    <div>
+                        <strong>Curated posting:</strong>
+                        <span id="channel-posting-gate-text">Only approved posters can start new top-level posts here. Replies stay open to members.</span>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-light" onclick="openChannelMembersModal()">View policy</button>
                 </div>
                 <!-- Reply context bar (shown when replying to a message) -->
                 <div id="reply-context">
@@ -4311,6 +4709,11 @@ let currentChannelMemberIds = new Set();
 let currentChannelPrivacy = 'open';
 let currentChannelType = 'public';
 let currentChannelOriginPeer = '';
+let currentChannelPostPolicy = 'open';
+let currentChannelAllowMemberReplies = true;
+let currentChannelCanPostTopLevel = true;
+let currentChannelCanReply = true;
+let currentChannelAllowedPosterCount = 0;
 let currentChannelLifecycleStatus = 'active';
 let currentChannelLifecycleTtlDays = 180;
 let currentChannelLifecyclePreserved = false;
@@ -4803,6 +5206,11 @@ function selectChannel(channelId, channelName, options = {}) {
         currentChannelPrivacy = (selectedItem.getAttribute('data-privacy-mode') || 'open').toLowerCase();
         currentChannelType = (selectedItem.getAttribute('data-channel-type') || 'public').toLowerCase();
         currentChannelOriginPeer = (selectedItem.getAttribute('data-origin-peer') || '').trim();
+        currentChannelPostPolicy = (selectedItem.getAttribute('data-post-policy') || 'open').toLowerCase();
+        currentChannelAllowMemberReplies = (selectedItem.getAttribute('data-allow-member-replies') || 'true').toLowerCase() !== 'false';
+        currentChannelCanPostTopLevel = (selectedItem.getAttribute('data-can-post-top-level') || 'true').toLowerCase() !== 'false';
+        currentChannelCanReply = (selectedItem.getAttribute('data-can-reply') || 'true').toLowerCase() !== 'false';
+        currentChannelAllowedPosterCount = parseInt(selectedItem.getAttribute('data-allowed-poster-count') || '0', 10) || 0;
         updateChannelMembersCount(currentChannelMemberCount);
         updateMemberGate();
         updateChannelActionVisibility();
@@ -4824,6 +5232,7 @@ function selectChannel(channelId, channelName, options = {}) {
     }
 
     applyChannelPrivacyFromSelection(channelId);
+    applyChannelPostPolicyFromSelection(channelId);
     applyChannelNotificationsFromSelection(channelId);
     
     // Load messages for this channel
@@ -4882,10 +5291,10 @@ function setChannelPrivacyUI(mode, canEdit, reason) {
 
     const normalized = (mode || 'open').toLowerCase();
     const configs = {
-        open: { text: 'Privacy: Open', icon: 'bi-wifi', cls: 'btn-outline-secondary' },
-        guarded: { text: 'Privacy: Guarded', icon: 'bi-shield-check', cls: 'btn-outline-warning' },
-        private: { text: 'Privacy: Private', icon: 'bi-lock-fill', cls: 'btn-outline-success' },
-        confidential: { text: 'Privacy: Confidential', icon: 'bi-shield-lock', cls: 'btn-outline-info' },
+        open: { text: 'Open', icon: 'bi-wifi', cls: 'btn-outline-secondary' },
+        guarded: { text: 'Guarded', icon: 'bi-shield-check', cls: 'btn-outline-warning' },
+        private: { text: 'Private', icon: 'bi-lock-fill', cls: 'btn-outline-success' },
+        confidential: { text: 'Confidential', icon: 'bi-shield-lock', cls: 'btn-outline-info' },
     };
     const cfg = configs[normalized] || configs.open;
     label.textContent = cfg.text;
@@ -4904,6 +5313,141 @@ function setChannelPrivacyUI(mode, canEdit, reason) {
         btn.setAttribute('title', reason || 'Only channel admins can change privacy');
     }
     updateChannelE2EBadge();
+}
+
+function canManageChannelPostPolicy() {
+    const isOriginLocal = !currentChannelOriginPeer || (localPeerId && currentChannelOriginPeer === localPeerId);
+    return !!(isOriginLocal && (isAdmin || String(currentChannelRole || '').toLowerCase() === 'admin'));
+}
+
+function isTopLevelPostingRestricted() {
+    return !replyToMessageId && String(currentChannelPostPolicy || 'open').toLowerCase() === 'curated' && !currentChannelCanPostTopLevel;
+}
+
+function syncChannelComposerAvailability() {
+    const sendBtn = document.querySelector('#message-form button[type="submit"]');
+    if (!sendBtn) return;
+    const blockedByPolicy = isTopLevelPostingRestricted();
+    const shouldDisable = !!channelSendInFlight || blockedByPolicy;
+    sendBtn.disabled = shouldDisable;
+    sendBtn.classList.toggle('disabled', shouldDisable);
+    if (channelSendInFlight) {
+        sendBtn.setAttribute('title', 'Sending...');
+    } else if (blockedByPolicy) {
+        sendBtn.setAttribute('title', 'Curated channel: reply to a thread or ask an admin for posting access');
+    } else {
+        sendBtn.setAttribute('title', 'Send message');
+    }
+}
+
+function updateChannelPostingGate() {
+    const gate = document.getElementById('channel-posting-gate');
+    const gateText = document.getElementById('channel-posting-gate-text');
+    if (!gate || !gateText) {
+        syncChannelComposerAvailability();
+        return;
+    }
+    const curated = String(currentChannelPostPolicy || 'open').toLowerCase() === 'curated';
+    const showGate = curated && !replyToMessageId && !currentChannelCanPostTopLevel;
+    gate.classList.toggle('d-none', !showGate);
+    gate.classList.toggle('d-flex', showGate);
+    gateText.textContent = currentChannelAllowMemberReplies
+        ? 'Only approved posters can start new top-level posts here. Replies stay open to members.'
+        : 'Only approved posters can post in this channel right now.';
+    syncChannelComposerAvailability();
+}
+
+function applyChannelPostPolicyFromSelection(channelId) {
+    const selectedItem = document.querySelector(`[data-channel-id="${channelId}"]`);
+    if (!selectedItem) return;
+    currentChannelPostPolicy = (selectedItem.getAttribute('data-post-policy') || 'open').toLowerCase();
+    currentChannelAllowMemberReplies = (selectedItem.getAttribute('data-allow-member-replies') || 'true').toLowerCase() !== 'false';
+    currentChannelCanPostTopLevel = (selectedItem.getAttribute('data-can-post-top-level') || 'true').toLowerCase() !== 'false';
+    currentChannelCanReply = (selectedItem.getAttribute('data-can-reply') || 'true').toLowerCase() !== 'false';
+    currentChannelAllowedPosterCount = parseInt(selectedItem.getAttribute('data-allowed-poster-count') || '0', 10) || 0;
+
+    const btn = document.getElementById('channel-post-policy-toggle');
+    const label = document.getElementById('channel-post-policy-label');
+    const icon = document.getElementById('channel-post-policy-icon');
+    const badge = document.getElementById('channel-posting-badge');
+    const summaryTitle = document.getElementById('channel-post-policy-summary-title');
+    const summaryMeta = document.getElementById('channel-post-policy-summary-meta');
+    const summaryCount = document.getElementById('channel-post-policy-summary-count');
+    const openOption = document.getElementById('channel-post-policy-option-open');
+    const curatedOption = document.getElementById('channel-post-policy-option-curated');
+    if (!btn || !label || !icon || !badge || !summaryTitle || !summaryMeta || !summaryCount || !openOption || !curatedOption) {
+        updateChannelPostingGate();
+        return;
+    }
+
+    const curated = currentChannelPostPolicy === 'curated';
+    label.textContent = curated ? 'Curated' : 'Open';
+    icon.className = `bi ${curated ? 'bi-person-check' : 'bi-megaphone'}`;
+    btn.classList.remove('btn-outline-secondary', 'btn-outline-warning');
+    btn.classList.add(curated ? 'btn-outline-warning' : 'btn-outline-secondary');
+
+    badge.classList.remove('d-none', 'curated', 'open');
+    badge.classList.add(curated ? 'curated' : 'open');
+    badge.textContent = curated ? 'Curated' : 'Open';
+
+    summaryTitle.textContent = curated ? 'Curated posting' : 'Open posting';
+    summaryMeta.textContent = curated
+        ? 'Admins and approved posters can start top-level posts. Replies stay open to members.'
+        : 'Any member can start a new top-level post in this channel.';
+    summaryCount.textContent = curated
+        ? `${currentChannelAllowedPosterCount} approved poster${currentChannelAllowedPosterCount === 1 ? '' : 's'}`
+        : 'No poster allowlist is required';
+
+    openOption.classList.toggle('active', !curated);
+    curatedOption.classList.toggle('active', curated);
+
+    const canEdit = canManageChannelPostPolicy();
+    const reason = canEdit
+        ? 'Change posting policy'
+        : (!currentChannelOriginPeer || (localPeerId && currentChannelOriginPeer === localPeerId)
+            ? 'Only channel admins can change posting policy'
+            : 'Only the channel origin can change posting policy');
+    if (canEdit) {
+        btn.removeAttribute('disabled');
+        btn.classList.remove('disabled');
+    } else {
+        btn.setAttribute('disabled', 'disabled');
+        btn.classList.add('disabled');
+    }
+    btn.setAttribute('title', reason);
+    updateChannelPostingGate();
+}
+
+function setChannelPostPolicy(mode) {
+    if (!currentChannelId) return;
+    const normalized = String(mode || '').toLowerCase();
+    if (!['open', 'curated'].includes(normalized)) return;
+    apiCall('/ajax/update_channel_post_policy', {
+        method: 'POST',
+        body: JSON.stringify({
+            channel_id: currentChannelId,
+            post_policy: normalized,
+            allow_member_replies: true,
+        })
+    })
+    .then((data) => {
+        const item = document.querySelector(`[data-channel-id="${currentChannelId}"]`);
+        if (item && data && data.policy) {
+            item.setAttribute('data-post-policy', data.policy.post_policy || normalized);
+            item.setAttribute('data-allow-member-replies', data.policy.allow_member_replies === false ? 'false' : 'true');
+            item.setAttribute('data-can-post-top-level', data.policy.can_post_top_level === false ? 'false' : 'true');
+            item.setAttribute('data-can-reply', data.policy.can_reply === false ? 'false' : 'true');
+            item.setAttribute('data-allowed-poster-count', String(data.policy.allowed_poster_count || 0));
+        }
+        applyChannelPostPolicyFromSelection(currentChannelId);
+        showAlert(normalized === 'curated' ? 'Posting is now curated' : 'Posting is now open', 'success');
+        if (document.getElementById('channelMembersModal')) {
+            loadChannelMembers(currentChannelId);
+        }
+    })
+    .catch((error) => {
+        showAlert(error.error || 'Failed to update posting policy', 'danger');
+    });
 }
 
 function parseChannelLifecycleBool(value, fallback = false) {
@@ -5307,6 +5851,7 @@ function updateMemberGate() {
     if (sendBtn) {
         sendBtn.disabled = false;
     }
+    updateChannelPostingGate();
 }
 
 function hydrateCurrentChannelMeta() {
@@ -5319,6 +5864,11 @@ function hydrateCurrentChannelMeta() {
     currentChannelPrivacy = (selectedItem.getAttribute('data-privacy-mode') || 'open').toLowerCase();
     currentChannelType = (selectedItem.getAttribute('data-channel-type') || 'public').toLowerCase();
     currentChannelOriginPeer = (selectedItem.getAttribute('data-origin-peer') || '').trim();
+    currentChannelPostPolicy = (selectedItem.getAttribute('data-post-policy') || 'open').toLowerCase();
+    currentChannelAllowMemberReplies = (selectedItem.getAttribute('data-allow-member-replies') || 'true').toLowerCase() !== 'false';
+    currentChannelCanPostTopLevel = (selectedItem.getAttribute('data-can-post-top-level') || 'true').toLowerCase() !== 'false';
+    currentChannelCanReply = (selectedItem.getAttribute('data-can-reply') || 'true').toLowerCase() !== 'false';
+    currentChannelAllowedPosterCount = parseInt(selectedItem.getAttribute('data-allowed-poster-count') || '0', 10) || 0;
     updateChannelMembersCount(currentChannelMemberCount);
     updateMemberGate();
     updateChannelActionVisibility();
@@ -5328,6 +5878,7 @@ function hydrateCurrentChannelMeta() {
 function updateChannelActionVisibility() {
     applyAllChannelQuickActionStates();
     if (currentChannelId) {
+        applyChannelPostPolicyFromSelection(currentChannelId);
         applyChannelLifecycleFromSelection(currentChannelId);
     }
 }
@@ -7704,6 +8255,11 @@ function applySidebarChannelState(channels) {
             div.setAttribute('data-user-role', ch.user_role || 'member');
             div.setAttribute('data-origin-peer', ch.origin_peer || '');
             div.setAttribute('data-notifications-enabled', ch.notifications_enabled !== false ? 'true' : 'false');
+            div.setAttribute('data-post-policy', ch.post_policy || 'open');
+            div.setAttribute('data-allow-member-replies', ch.allow_member_replies === false ? 'false' : 'true');
+            div.setAttribute('data-can-post-top-level', ch.can_post_top_level === false ? 'false' : 'true');
+            div.setAttribute('data-can-reply', ch.can_reply === false ? 'false' : 'true');
+            div.setAttribute('data-allowed-poster-count', String(ch.allowed_poster_count || 0));
             div.setAttribute('data-channel-desc', ch.description || '');
             div.setAttribute('data-lifecycle-status', lifecycle.status);
             div.setAttribute('data-lifecycle-ttl-days', String(lifecycle.ttlDays));
@@ -7777,6 +8333,11 @@ function applySidebarChannelState(channels) {
         item.setAttribute('data-member-count', String(ch.member_count || 0));
         item.setAttribute('data-user-role', ch.user_role || item.getAttribute('data-user-role') || 'member');
         item.setAttribute('data-origin-peer', ch.origin_peer || item.getAttribute('data-origin-peer') || '');
+        item.setAttribute('data-post-policy', ch.post_policy || item.getAttribute('data-post-policy') || 'open');
+        item.setAttribute('data-allow-member-replies', ch.allow_member_replies === false ? 'false' : (item.getAttribute('data-allow-member-replies') || 'true'));
+        item.setAttribute('data-can-post-top-level', ch.can_post_top_level === false ? 'false' : (Object.prototype.hasOwnProperty.call(ch, 'can_post_top_level') ? 'true' : (item.getAttribute('data-can-post-top-level') || 'true')));
+        item.setAttribute('data-can-reply', ch.can_reply === false ? 'false' : (Object.prototype.hasOwnProperty.call(ch, 'can_reply') ? 'true' : (item.getAttribute('data-can-reply') || 'true')));
+        item.setAttribute('data-allowed-poster-count', String(Object.prototype.hasOwnProperty.call(ch, 'allowed_poster_count') ? (ch.allowed_poster_count || 0) : (item.getAttribute('data-allowed-poster-count') || '0')));
         applyChannelLifecycleToItem(item, {
             status: String(ch.lifecycle_status || item.getAttribute('data-lifecycle-status') || 'active').toLowerCase(),
             ttlDays: parseChannelLifecycleInt(
@@ -7838,10 +8399,16 @@ function applySidebarChannelState(channels) {
             currentChannelPrivacy = privacy;
             currentChannelType = ctype;
             currentChannelOriginPeer = (item.getAttribute('data-origin-peer') || '').trim();
+            currentChannelPostPolicy = (item.getAttribute('data-post-policy') || 'open').toLowerCase();
+            currentChannelAllowMemberReplies = (item.getAttribute('data-allow-member-replies') || 'true').toLowerCase() !== 'false';
+            currentChannelCanPostTopLevel = (item.getAttribute('data-can-post-top-level') || 'true').toLowerCase() !== 'false';
+            currentChannelCanReply = (item.getAttribute('data-can-reply') || 'true').toLowerCase() !== 'false';
+            currentChannelAllowedPosterCount = parseInt(item.getAttribute('data-allowed-poster-count') || '0', 10) || 0;
             updateChannelMembersCount(currentChannelMemberCount);
             updateMemberGate();
             updateChannelActionVisibility();
             applyChannelPrivacyFromSelection(currentChannelId);
+            applyChannelPostPolicyFromSelection(currentChannelId);
             applyChannelNotificationsFromSelection(currentChannelId);
             updateChannelE2EBadge();
             applyChannelLifecycleFromSelection(currentChannelId);
@@ -8015,6 +8582,23 @@ function applySidebarChannelStateUpdate(channelId, payload) {
             applyChannelPrivacyFromSelection(cleanChannelId);
             updateMemberGate();
             updateChannelActionVisibility();
+        }
+        return true;
+    }
+
+    if (reason === 'post_policy_updated' || reason === 'posting_access_updated') {
+        const postPolicy = String(payload && payload.post_policy || item.getAttribute('data-post-policy') || 'open').toLowerCase();
+        const allowReplies = !(payload && payload.allow_member_replies === false);
+        item.setAttribute('data-post-policy', postPolicy);
+        item.setAttribute('data-allow-member-replies', allowReplies ? 'true' : 'false');
+        if (Object.prototype.hasOwnProperty.call(payload || {}, 'allowed_poster_count')) {
+            item.setAttribute('data-allowed-poster-count', String(payload.allowed_poster_count || 0));
+        }
+        if (String(currentChannelId) === cleanChannelId) {
+            applyChannelPostPolicyFromSelection(cleanChannelId);
+            if (document.getElementById('channelMembersModal')) {
+                loadChannelMembers(cleanChannelId);
+            }
         }
         return true;
     }
@@ -8306,6 +8890,7 @@ function setReplyTo(messageId, authorName, preview) {
     document.getElementById('reply-context').style.display = 'block';
     document.getElementById('reply-author').textContent = authorName;
     document.getElementById('reply-preview').textContent = preview || '(attachment)';
+    updateChannelPostingGate();
     document.getElementById('message-input').focus();
 }
 
@@ -8322,6 +8907,7 @@ function cancelReply() {
     replyToMessageId = null;
     replyToAuthor = '';
     document.getElementById('reply-context').style.display = 'none';
+    updateChannelPostingGate();
 }
 
 function toggleThreadInboxSubscription(messageId) {
@@ -10411,11 +10997,7 @@ function updateChannelStructuredValidation() {
 
 function setChannelSendState(inFlight) {
     channelSendInFlight = !!inFlight;
-    const sendBtn = document.querySelector('#message-form button[type="submit"]');
-    if (sendBtn) {
-        sendBtn.disabled = !!inFlight;
-        sendBtn.classList.toggle('disabled', !!inFlight);
-    }
+    syncChannelComposerAvailability();
 }
 
 // Message sending
@@ -10446,6 +11028,10 @@ function sendMessage(event) {
     if (!currentChannelId) {
         console.error('No channel selected!');
         alert('Please select a channel first');
+        return;
+    }
+    if (isTopLevelPostingRestricted()) {
+        showAlert('This channel is curated. Reply to an existing thread or ask an admin for posting access.', 'warning');
         return;
     }
 
@@ -11217,6 +11803,8 @@ function toggleCreateChannel() {
         if (descInput) descInput.value = '';
         const pub = document.getElementById('type-public');
         if (pub) pub.checked = true;
+        const openPosting = document.getElementById('create-post-policy-open');
+        if (openPosting) openPosting.checked = true;
         createMemberSelections = [];
         updateCreateMemberPickerVisibility();
         setupCreateMemberPicker();
@@ -11377,11 +11965,14 @@ function createChannel(event) {
     while (rawName.startsWith('#')) rawName = rawName.slice(1);
     rawName = rawName.trim();
     const channelType = document.querySelector('input[name="channel-type"]:checked').value;
+    const postPolicy = document.querySelector('input[name="create-channel-post-policy"]:checked')?.value || 'open';
     const channelData = {
         name: rawName,
         description: document.getElementById('channel-description').value,
         type: channelType,
         privacy_mode: (channelType === 'private') ? 'private' : 'open',
+        post_policy: postPolicy,
+        allow_member_replies: true,
         initial_members: createMemberSelections.map(u => u.user_id)
     };
     
@@ -11424,6 +12015,15 @@ function openChannelMembersModal() {
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body">
+                        <div class="mb-3 p-3 rounded channel-member-row">
+                            <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
+                                <div>
+                                    <div class="fw-semibold" id="channel-posting-policy-modal-title">Open posting</div>
+                                    <div class="small text-muted" id="channel-posting-policy-modal-meta">Any member can start a new top-level post.</div>
+                                </div>
+                                <span class="badge rounded-pill d-none" id="channel-posting-policy-modal-badge"></span>
+                            </div>
+                        </div>
                         <div class="mb-3">
                             <label class="form-label small text-muted">Add members</label>
                             <div class="member-picker">
@@ -11440,7 +12040,7 @@ function openChannelMembersModal() {
                             ${canManage ? '' : '<span class="text-muted small align-self-center">Admin only</span>'}
                         </div>
                         <div>
-                            <div class="small text-muted mb-2">Current members</div>
+                            <div class="small text-muted mb-2">Current members and posting access</div>
                             <div id="channel-members-list" class="d-flex flex-column gap-2"></div>
                         </div>
                     </div>
@@ -11521,6 +12121,24 @@ function loadChannelMembers(channelId) {
     apiCall(`/ajax/channel_members/${channelId}`)
         .then(data => {
             const members = data.members || [];
+            const policy = data.policy || {};
+            const item = document.querySelector(`.channel-item[data-channel-id="${CSS.escape(String(channelId))}"]`);
+            if (item) {
+                item.setAttribute('data-post-policy', policy.post_policy || item.getAttribute('data-post-policy') || 'open');
+                item.setAttribute('data-allow-member-replies', policy.allow_member_replies === false ? 'false' : 'true');
+                item.setAttribute('data-can-post-top-level', policy.can_post_top_level === false ? 'false' : 'true');
+                item.setAttribute('data-can-reply', policy.can_reply === false ? 'false' : 'true');
+                item.setAttribute('data-allowed-poster-count', String(policy.allowed_poster_count || 0));
+            }
+            if (String(currentChannelId) === String(channelId)) {
+                currentChannelPostPolicy = String(policy.post_policy || currentChannelPostPolicy || 'open').toLowerCase();
+                currentChannelAllowMemberReplies = policy.allow_member_replies !== false;
+                currentChannelCanPostTopLevel = policy.can_post_top_level !== false;
+                currentChannelCanReply = policy.can_reply !== false;
+                currentChannelAllowedPosterCount = parseInt(policy.allowed_poster_count || currentChannelAllowedPosterCount || 0, 10) || 0;
+                applyChannelPostPolicyFromSelection(channelId);
+            }
+            renderChannelPostingPolicySummary(policy);
             currentChannelMemberIds = new Set(
                 members
                     .map(m => String(m.user_id || '').trim())
@@ -11541,17 +12159,60 @@ function renderChannelMembers(members) {
     const list = document.getElementById('channel-members-list');
     if (!list) return;
     const canManage = canManageChannelMembers();
+    const curated = String(currentChannelPostPolicy || 'open').toLowerCase() === 'curated';
+    if (!Array.isArray(members) || !members.length) {
+        list.innerHTML = `
+            <div class="text-center text-muted small py-4">
+                <i class="bi bi-people d-block mb-2" style="font-size: 1.2rem;"></i>
+                No members found for this channel yet.
+            </div>
+        `;
+        return;
+    }
     list.innerHTML = members.map(member => `
-        <div class="d-flex align-items-center justify-content-between p-2 rounded" style="background: var(--canopy-bg-tertiary); border: 1px solid var(--canopy-border);">
-            <div>
+        <div class="channel-member-row d-flex align-items-center justify-content-between p-2 rounded gap-2 flex-wrap">
+            <div class="flex-grow-1">
                 <div class="fw-semibold">${escapeHtml(member.display_name || member.username || member.user_id)}</div>
                 <div class="small text-muted">@${escapeHtml(member.username || member.user_id)} • ${escapeHtml(member.role || 'member')}</div>
+                <div class="d-flex align-items-center gap-2 flex-wrap mt-2">
+                    ${member.posting_access === 'admin' ? '<span class="channel-member-admin-badge">Admin poster</span>' : ''}
+                    ${member.posting_access === 'allowed' ? '<span class="channel-member-poster-badge">Approved poster</span>' : ''}
+                    ${member.posting_access === 'member' ? '<span class="channel-member-reply-badge">Replies only</span>' : ''}
+                </div>
             </div>
-            ${canManage && member.user_id !== currentUserId ? `
-                <button class="btn btn-sm btn-outline-danger" onclick="removeMemberFromChannel('${member.user_id}')">Remove</button>
-            ` : ''}
+            <div class="d-flex align-items-center gap-2">
+                ${canManage && curated && member.user_id !== currentUserId && member.posting_access !== 'admin' ? `
+                    <button class="btn btn-sm ${member.explicit_post_permission ? 'btn-outline-warning' : 'btn-outline-success'}"
+                            onclick="${member.explicit_post_permission ? `revokeChannelPoster('${member.user_id}')` : `grantChannelPoster('${member.user_id}')`}">
+                        ${member.explicit_post_permission ? 'Revoke top-level posts' : 'Allow top-level posts'}
+                    </button>
+                ` : ''}
+                ${canManage && member.user_id !== currentUserId ? `
+                    <button class="btn btn-sm btn-outline-danger" onclick="removeMemberFromChannel('${member.user_id}')">Remove</button>
+                ` : ''}
+            </div>
         </div>
     `).join('');
+}
+
+function renderChannelPostingPolicySummary(policy) {
+    const title = document.getElementById('channel-posting-policy-modal-title');
+    const meta = document.getElementById('channel-posting-policy-modal-meta');
+    const badge = document.getElementById('channel-posting-policy-modal-badge');
+    if (!title || !meta || !badge) return;
+    const curated = String(policy && policy.post_policy || currentChannelPostPolicy || 'open').toLowerCase() === 'curated';
+    const allowedCount = parseInt(policy && policy.allowed_poster_count || currentChannelAllowedPosterCount || 0, 10) || 0;
+    title.textContent = curated ? 'Curated posting' : 'Open posting';
+    meta.textContent = curated
+        ? `Admins and approved posters can start top-level posts. Replies stay open to members. ${allowedCount} approved poster${allowedCount === 1 ? '' : 's'} configured.`
+        : 'Any member can start a new top-level post in this channel.';
+    badge.classList.toggle('d-none', !curated);
+    badge.className = curated ? 'badge rounded-pill curated' : 'badge rounded-pill d-none';
+    if (curated) {
+        badge.textContent = 'Curated';
+    } else {
+        badge.textContent = '';
+    }
 }
 
 function addSelectedMembersToChannel() {
@@ -11591,6 +12252,31 @@ function removeMemberFromChannel(userId) {
             loadChannelMembers(currentChannelId);
         })
         .catch(err => console.error('Remove member failed', err));
+}
+
+function grantChannelPoster(userId) {
+    if (!currentChannelId || !userId) return;
+    apiCall(`/ajax/channel_posters/${currentChannelId}`, {
+        method: 'POST',
+        body: JSON.stringify({ user_id: userId })
+    })
+        .then(() => {
+            loadChannelMembers(currentChannelId);
+            showAlert('Approved poster added', 'success');
+        })
+        .catch(err => showAlert(err.error || 'Failed to grant poster access', 'danger'));
+}
+
+function revokeChannelPoster(userId) {
+    if (!currentChannelId || !userId) return;
+    apiCall(`/ajax/channel_posters/${currentChannelId}/${userId}`, {
+        method: 'DELETE'
+    })
+        .then(() => {
+            loadChannelMembers(currentChannelId);
+            showAlert('Approved poster removed', 'success');
+        })
+        .catch(err => showAlert(err.error || 'Failed to revoke poster access', 'danger'));
 }
 
 function confirmDeleteChannel() {

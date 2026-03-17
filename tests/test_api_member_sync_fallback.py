@@ -25,6 +25,15 @@ def _make_channel_row(privacy_mode='private'):
         'name': 'test-channel',
         'channel_type': 'private',
         'description': 'desc',
+        'crypto_mode': 'legacy_plaintext',
+        'created_by': 'admin',
+        'post_policy': 'curated',
+        'allow_member_replies': 1,
+        'last_activity_at': '2026-03-16T00:00:00+00:00',
+        'lifecycle_ttl_days': 180,
+        'lifecycle_preserved': 0,
+        'lifecycle_archived_at': None,
+        'lifecycle_archive_reason': None,
     }
     m = MagicMock()
     m.__getitem__ = lambda self, k: row[k]
@@ -89,9 +98,13 @@ def _make_db(origin_peer=None, channel_row=None):
 
 def _make_ch_mgr(member_peers=None):
     ch = MagicMock()
+    ch.POST_POLICY_OPEN = 'open'
+    ch.DEFAULT_CHANNEL_LIFECYCLE_DAYS = 180
     ch.get_member_peer_ids.return_value = set(member_peers or [])
     ch.add_member.return_value = True
     ch.remove_member.return_value = True
+    ch.get_channel_allowed_poster_ids.return_value = ['user1']
+    ch.get_channel_members_list.return_value = [{'user_id': 'user1', 'role': 'member'}]
     return ch
 
 
@@ -271,6 +284,10 @@ class TestApiChannelAnnounceAfterMemberAdd:
 
         assert resp.status_code == 200
         p2p.broadcast_channel_announce.assert_called_once()
+        announce = p2p.broadcast_channel_announce.call_args.kwargs
+        assert announce['post_policy'] == 'curated'
+        assert announce['allow_member_replies'] is True
+        assert announce['allowed_poster_user_ids'] == ['user1']
 
     def test_announce_not_fired_on_remove(self):
         """broadcast_channel_announce must NOT be called when a member is removed."""

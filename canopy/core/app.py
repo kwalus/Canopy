@@ -63,6 +63,9 @@ from .events import (
     EVENT_CHANNEL_MESSAGE_DELETED,
     EVENT_CHANNEL_MESSAGE_EDITED,
     EVENT_DM_MESSAGE_DELETED,
+    EVENT_FEED_POST_CREATED,
+    EVENT_FEED_POST_DELETED,
+    EVENT_FEED_POST_UPDATED,
     WorkspaceEventManager,
 )
 from .large_attachments import (
@@ -300,6 +303,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
         logger.info("Initializing interaction manager...")
         interaction_manager = InteractionManager(db_manager)
+        interaction_manager.workspace_events = workspace_event_manager
         app.config['INTERACTION_MANAGER'] = interaction_manager
         logger.info("Interaction manager initialized successfully")
 
@@ -329,6 +333,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
         logger.info("Initializing feed manager...")
         feed_manager = FeedManager(db_manager, api_key_manager)
+        feed_manager.workspace_events = workspace_event_manager
         app.config['FEED_MANAGER'] = feed_manager
         logger.info("Feed manager initialized successfully")
 
@@ -1332,6 +1337,9 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                      update_only: bool = False,
                                      origin_peer: Optional[str] = None,
                                      parent_message_id: Optional[str] = None,
+                                     post_policy: Optional[str] = None,
+                                     allow_member_replies: Optional[bool] = None,
+                                     allowed_poster_user_ids: Optional[list[Any]] = None,
                                      edited_at: Optional[str] = None,
                                      encrypted_content: Optional[str] = None,
                                      crypto_state: Optional[str] = None,
@@ -1357,6 +1365,19 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
                 # --- Persistent dedup check ---
                 if message_id and channel_manager.is_message_processed(message_id) and not update_only:
+                    if (
+                        post_policy is not None
+                        or allow_member_replies is not None
+                        or allowed_poster_user_ids is not None
+                    ):
+                        channel_manager.apply_remote_channel_posting_snapshot(
+                            channel_id,
+                            from_peer,
+                            post_policy=post_policy,
+                            allow_member_replies=allow_member_replies,
+                            allowed_poster_user_ids=cast(Optional[list[str]], allowed_poster_user_ids),
+                            log_context='channel_message_duplicate',
+                        )
                     logger.debug(f"Skipping duplicate P2P message {message_id}")
                     # Even for already-stored messages, re-derive inbox items for
                     # local agent users that were mentioned but whose inbox item
@@ -1494,6 +1515,40 @@ def create_app(config: Optional[Config] = None) -> Flask:
                             )
 
                     conn.commit()
+
+                incoming_policy_snapshot = (
+                    post_policy is not None
+                    or allow_member_replies is not None
+                    or allowed_poster_user_ids is not None
+                )
+                if incoming_policy_snapshot:
+                    channel_manager.apply_remote_channel_posting_snapshot(
+                        channel_id,
+                        from_peer,
+                        post_policy=post_policy,
+                        allow_member_replies=allow_member_replies,
+                        allowed_poster_user_ids=cast(Optional[list[str]], allowed_poster_user_ids),
+                        log_context='channel_message',
+                    )
+
+                if not (update_only and existing_msg):
+                    inbound_post_decision = channel_manager.can_accept_incoming_message(
+                        channel_id,
+                        user_id,
+                        parent_message_id=parent_message_id,
+                    )
+                    if not inbound_post_decision.get('allowed'):
+                        if message_id:
+                            channel_manager.mark_message_processed(message_id)
+                        logger.warning(
+                            "Rejected inbound P2P channel message %s for channel=%s user=%s reason=%s scope=%s",
+                            message_id or '<no-id>',
+                            channel_id,
+                            user_id,
+                            inbound_post_decision.get('reason') or 'post_restricted',
+                            inbound_post_decision.get('post_scope') or ('reply' if parent_message_id else 'top_level'),
+                        )
+                        return
 
                 # --- Process file attachments from P2P ---
                 import base64 as _b64
@@ -2439,6 +2494,8 @@ def create_app(config: Optional[Config] = None) -> Flask:
         # --- Channel announce callback ---
         def _on_channel_announce(channel_id, name, channel_type,
                                   description, created_by_peer, created_by_user_id, privacy_mode,
+                                  post_policy=None, allow_member_replies=None,
+                                  allowed_poster_user_ids=None,
                                   last_activity_at=None,
                                   lifecycle_ttl_days=None, lifecycle_preserved=None,
                                   lifecycle_archived_at=None, lifecycle_archive_reason=None,
@@ -2458,8 +2515,18 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 is_targeted = mode in {'private', 'confidential'} or channel_type_norm == 'private'
 
                 # SECURITY: Log channel announce for audit trail
-                logger.info(f"Channel announce from {from_peer}: '{name}' ({channel_id}) "
-                           f"type={channel_type}, privacy={privacy_mode}")
+                logger.info(
+                    "Channel announce from %s: '%s' (%s) type=%s, privacy=%s, post_policy=%s, "
+                    "allow_member_replies=%s, allowed_poster_count=%d",
+                    from_peer,
+                    name,
+                    channel_id,
+                    channel_type,
+                    privacy_mode,
+                    str(post_policy or 'open').strip().lower() or 'open',
+                    True if allow_member_replies is None else bool(allow_member_replies),
+                    len([uid for uid in (allowed_poster_user_ids or []) if str(uid or '').strip()]),
+                )
 
                 # SECURITY: Strip initial_members from non-targeted channel announces
                 if initial_members and not is_targeted:
@@ -2517,6 +2584,9 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         local_user_id=creator_hint,
                         origin_peer=from_peer,
                         privacy_mode=targeted_mode,
+                        post_policy=post_policy,
+                        allow_member_replies=True if allow_member_replies is None else bool(allow_member_replies),
+                        allowed_poster_user_ids=allowed_poster_user_ids,
                         last_activity_at=last_activity_at,
                         initial_members=local_members,
                         lifecycle_ttl_days=lifecycle_ttl_days,
@@ -2542,6 +2612,14 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                 f"Targeted channel announce {channel_id}: added {len(local_members)} "
                                 f"local member(s) to existing channel"
                             )
+                        channel_manager.apply_remote_channel_posting_snapshot(
+                            channel_id,
+                            from_peer,
+                            post_policy=post_policy,
+                            allow_member_replies=True if allow_member_replies is None else bool(allow_member_replies),
+                            allowed_poster_user_ids=allowed_poster_user_ids,
+                            log_context='channel_announce_targeted_existing',
+                        )
                     return
 
                 # Public channel — existing merge/adopt logic
@@ -2566,6 +2644,9 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     local_user_id=creator_hint or local_user,
                     from_peer=from_peer,
                     privacy_mode=mode,
+                    post_policy=post_policy,
+                    allow_member_replies=True if allow_member_replies is None else bool(allow_member_replies),
+                    allowed_poster_user_ids=allowed_poster_user_ids,
                     last_activity_at=last_activity_at,
                     lifecycle_ttl_days=lifecycle_ttl_days,
                     lifecycle_preserved=bool(lifecycle_preserved),
@@ -5060,6 +5141,21 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                     pid,
                                     mention_sync_err,
                                 )
+                            try:
+                                updated_post = feed_manager.get_post(pid)
+                                if updated_post:
+                                    feed_manager._emit_post_event(
+                                        event_type=EVENT_FEED_POST_UPDATED,
+                                        post=updated_post,
+                                        created_at=datetime.now(timezone.utc),
+                                        update_reason='sync',
+                                    )
+                            except Exception as workspace_event_err:
+                                logger.warning(
+                                    "Failed to emit P2P feed update event for %s: %s",
+                                    pid,
+                                    workspace_event_err,
+                                )
                         return
                     conn.execute("""
                         INSERT OR IGNORE INTO feed_posts
@@ -5070,6 +5166,21 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     conn.commit()
 
                 logger.info(f"Stored P2P feed post {pid} by {author_id} from peer {from_peer}")
+                try:
+                    created_post = feed_manager.get_post(pid)
+                    if created_post:
+                        feed_manager._emit_post_event(
+                            event_type=EVENT_FEED_POST_CREATED,
+                            post=created_post,
+                            created_at=created_dt,
+                            update_reason='sync',
+                        )
+                except Exception as workspace_event_err:
+                    logger.warning(
+                        "Failed to emit P2P feed create event for %s: %s",
+                        pid,
+                        workspace_event_err,
+                    )
 
                 if is_new_post:
                     mentions = extract_mentions(content or '')
@@ -6132,12 +6243,27 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 elif data_type in ('feed_post', 'post'):
                     # Delete a feed post
                     try:
+                        deleted_post = feed_manager.get_post(data_id) if feed_manager else None
                         with db_manager.get_connection() as conn:
                             cur = conn.execute(
                                 "DELETE FROM feed_posts WHERE id = ?",
                                 (data_id,))
                             conn.commit()
                             deleted = cur.rowcount > 0
+                        if deleted and feed_manager and deleted_post:
+                            try:
+                                feed_manager._emit_post_event(
+                                    event_type=EVENT_FEED_POST_DELETED,
+                                    post=deleted_post,
+                                    created_at=datetime.now(timezone.utc),
+                                    update_reason='sync-delete',
+                                )
+                            except Exception as workspace_event_err:
+                                logger.warning(
+                                    "Failed to emit P2P feed delete event for %s: %s",
+                                    data_id,
+                                    workspace_event_err,
+                                )
                     except Exception as del_err:
                         logger.error(f"Failed to delete feed post {data_id}: {del_err}")
 
