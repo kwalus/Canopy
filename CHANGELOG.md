@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.100] - 2026-03-17
+
+### Added
+- **First-run guidance** - New users now see a compact "First-day guide" card on Channels, Feed, and Messages pages showing current workspace stats (messages sent, feed posts, peers online, API keys) and four practical first-day steps. The guide is dismissible per-page via localStorage and automatically hides once core actions are completed.
+- **Smarter first-run landing** - The `/` route now detects first-run users and redirects them to `#general` instead of dropping mobile users into an empty feed. Once the user has sent messages, posted, and seen a peer, the normal mobile→Feed / desktop→Channels default resumes.
+
 ## [0.4.99] - 2026-03-17
 
 ### Improved

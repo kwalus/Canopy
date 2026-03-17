@@ -2786,6 +2786,168 @@ def create_ui_blueprint() -> Blueprint:
         }
 
     # Landing page — redirect to user's preferred page (or smart default)
+    def _build_workspace_onboarding(
+        user_id: str,
+        *,
+        page: str,
+        search_active: bool = False,
+        channels_count: Optional[int] = None,
+        direct_conversations: Optional[int] = None,
+        group_conversations: Optional[int] = None,
+    ) -> dict[str, Any]:
+        """Build a compact first-day guidance payload for human users."""
+        db_manager, _, _, _, _, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+
+        stats = {
+            'messages_sent': 0,
+            'feed_posts': 0,
+            'channels_joined': int(channels_count or 0),
+            'direct_conversations': int(direct_conversations or 0),
+            'group_conversations': int(group_conversations or 0),
+            'api_keys': 0,
+            'connected_peers': 0,
+        }
+        user_row = None
+
+        def _table_exists(conn: Any, table_name: str) -> bool:
+            row = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                (table_name,),
+            ).fetchone()
+            return bool(row)
+
+        try:
+            if db_manager and hasattr(db_manager, 'get_user'):
+                user_row = db_manager.get_user(user_id)
+        except Exception:
+            user_row = None
+
+        try:
+            if db_manager and hasattr(db_manager, 'get_connection'):
+                with db_manager.get_connection() as conn:
+                    if channels_count is None and _table_exists(conn, 'channel_members'):
+                        row = conn.execute(
+                            "SELECT COUNT(DISTINCT channel_id) AS count FROM channel_members WHERE user_id = ?",
+                            (user_id,),
+                        ).fetchone()
+                        stats['channels_joined'] = int((row['count'] if row else 0) or 0)
+
+                    if _table_exists(conn, 'channel_messages'):
+                        row = conn.execute(
+                            "SELECT COUNT(*) AS count FROM channel_messages WHERE user_id = ?",
+                            (user_id,),
+                        ).fetchone()
+                        stats['messages_sent'] += int((row['count'] if row else 0) or 0)
+
+                    if _table_exists(conn, 'messages'):
+                        row = conn.execute(
+                            "SELECT COUNT(*) AS count FROM messages WHERE sender_id = ?",
+                            (user_id,),
+                        ).fetchone()
+                        stats['messages_sent'] += int((row['count'] if row else 0) or 0)
+
+                    if _table_exists(conn, 'feed_posts'):
+                        row = conn.execute(
+                            "SELECT COUNT(*) AS count FROM feed_posts WHERE author_id = ?",
+                            (user_id,),
+                        ).fetchone()
+                        stats['feed_posts'] = int((row['count'] if row else 0) or 0)
+
+                    if _table_exists(conn, 'api_keys'):
+                        row = conn.execute(
+                            "SELECT COUNT(*) AS count FROM api_keys WHERE user_id = ? AND COALESCE(revoked, 0) = 0",
+                            (user_id,),
+                        ).fetchone()
+                        stats['api_keys'] = int((row['count'] if row else 0) or 0)
+        except Exception as stats_err:
+            logger.debug(f"Workspace onboarding stats unavailable for {user_id}: {stats_err}")
+
+        try:
+            if p2p_manager and hasattr(p2p_manager, 'get_connected_peers'):
+                connected_peers = p2p_manager.get_connected_peers() or []
+                stats['connected_peers'] = len({
+                    str(peer or '').strip()
+                    for peer in connected_peers
+                    if str(peer or '').strip()
+                })
+        except Exception:
+            stats['connected_peers'] = 0
+
+        username = str((user_row or {}).get('username') or '').strip().lower()
+        display_name = str((user_row or {}).get('display_name') or '').strip().lower()
+        has_avatar = bool((user_row or {}).get('avatar_file_id'))
+        profile_ready = bool(has_avatar or (display_name and display_name != username))
+
+        steps = [
+            {
+                'label': 'Send a message in a shared space',
+                'done': bool(stats['messages_sent'] > 0),
+            },
+            {
+                'label': 'Create your first feed post',
+                'done': bool(stats['feed_posts'] > 0),
+            },
+            {
+                'label': 'See another peer come online',
+                'done': bool(stats['connected_peers'] > 0),
+            },
+            {
+                'label': 'Generate an API key for automation',
+                'done': bool(stats['api_keys'] > 0),
+            },
+        ]
+
+        core_completed = sum(1 for step in steps[:3] if step.get('done'))
+        show = (
+            not search_active
+            and core_completed < 3
+            and stats['messages_sent'] < 8
+            and stats['feed_posts'] < 3
+        )
+
+        actions: list[dict[str, Any]]
+        if page == 'feed':
+            actions = [
+                {'label': 'Create first post', 'kind': 'button', 'onclick': 'openComposer()'},
+                {'label': 'Open channels', 'kind': 'link', 'href': url_for('ui.channels', channel='general')},
+                {'label': 'Open direct messages', 'kind': 'link', 'href': url_for('ui.messages')},
+            ]
+        elif page == 'messages':
+            actions = [
+                {'label': 'New conversation', 'kind': 'button', 'onclick': 'startNewConversation()'},
+                {'label': 'Open channels', 'kind': 'link', 'href': url_for('ui.channels', channel='general')},
+                {'label': 'Open feed', 'kind': 'link', 'href': url_for('ui.feed')},
+            ]
+        else:
+            actions = [
+                {'label': 'Open #general', 'kind': 'link', 'href': url_for('ui.channels', channel='general')},
+                {'label': 'Create first post', 'kind': 'link', 'href': url_for('ui.feed')},
+                {'label': 'Open direct messages', 'kind': 'link', 'href': url_for('ui.messages')},
+            ]
+
+        advanced_action = None
+        if stats['api_keys'] <= 0:
+            advanced_action = {
+                'label': 'Generate API key',
+                'kind': 'link',
+                'href': url_for('ui.api_keys'),
+            }
+
+        return {
+            'show': show,
+            'dismiss_key': f"canopy:getting-started:v1:{user_id}:{page}",
+            'title': 'Start here',
+            'subtitle': (
+                "Canopy feels much better once you've sent one message, created one post, "
+                "and seen a peer or agent come online."
+            ),
+            'profile_ready': profile_ready,
+            'stats': stats,
+            'steps': steps,
+            'actions': actions,
+            'advanced_action': advanced_action,
+        }
+
     @ui.route('/')
     @require_login
     def dashboard():
@@ -2794,6 +2956,11 @@ def create_ui_blueprint() -> Blueprint:
         landing = request.cookies.get('canopy_landing')
         if landing in ('feed', 'channels', 'messages'):
             return redirect(url_for(f'ui.{landing}'))
+
+        user_id = get_current_user()
+        onboarding = _build_workspace_onboarding(user_id, page='channels')
+        if onboarding.get('show'):
+            return redirect(url_for('ui.channels', channel='general'))
 
         # Smart default: mobile → feed, desktop → channels
         ua = (request.headers.get('User-Agent') or '').lower()
@@ -3365,6 +3532,13 @@ def create_ui_blueprint() -> Blueprint:
                 conversation_with=(request.args.get('with') or '').strip() or None,
                 conversation_group=(request.args.get('group') or '').strip() or None,
                 search_query=request.args.get('search', '').strip(),
+            )
+            template_data['workspace_onboarding'] = _build_workspace_onboarding(
+                user_id,
+                page='messages',
+                search_active=bool(template_data.get('search_query')),
+                direct_conversations=len(template_data.get('direct_conversations') or []),
+                group_conversations=len(template_data.get('group_conversations') or []),
             )
             return render_template('messages.html', **template_data)
         except Exception as e:
@@ -4294,6 +4468,11 @@ def create_ui_blueprint() -> Blueprint:
                 'algorithm': algorithm,
                 'is_admin': _is_admin(),
                 'poll_edit_window_seconds': poll_edit_window_seconds(),
+                'workspace_onboarding': _build_workspace_onboarding(
+                    user_id,
+                    page='feed',
+                    search_active=bool(search_query),
+                ),
             }
             if search_query:
                 template_data['search_query'] = search_query
@@ -4430,7 +4609,12 @@ def create_ui_blueprint() -> Blueprint:
                                  is_admin=_is_admin(),
                                  channel_sidebar_rev=channel_sidebar_snapshot.get('rev', ''),
                                  workspace_event_cursor=workspace_event_cursor,
-                                 poll_edit_window_seconds=poll_edit_window_seconds())
+                                 poll_edit_window_seconds=poll_edit_window_seconds(),
+                                 workspace_onboarding=_build_workspace_onboarding(
+                                     user_id,
+                                     page='channels',
+                                     channels_count=len(channels),
+                                 ))
                                  
         except Exception as e:
             logger.error(f"Channels error: {e}")

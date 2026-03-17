@@ -5310,6 +5310,168 @@
                 font-size: 0.72rem;
             }
         }
+
+        .workspace-onboarding-card {
+            position: relative;
+            display: grid;
+            gap: 0.95rem;
+            padding: 1rem 1.05rem;
+            border-radius: 22px;
+            border: 1px solid rgba(92, 231, 161, 0.18);
+            background:
+                radial-gradient(circle at top right, rgba(92, 231, 161, 0.16), transparent 38%),
+                linear-gradient(180deg, rgba(18, 32, 49, 0.96), rgba(10, 20, 35, 0.96));
+            box-shadow: 0 20px 42px rgba(3, 10, 22, 0.24);
+            overflow: hidden;
+        }
+
+        .workspace-onboarding-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 0.9rem;
+        }
+
+        .workspace-onboarding-copy {
+            min-width: 0;
+        }
+
+        .workspace-onboarding-eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            margin-bottom: 0.34rem;
+            font-size: 0.76rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: rgba(207, 250, 226, 0.9);
+        }
+
+        .workspace-onboarding-copy h2 {
+            margin: 0;
+            font-size: 1.18rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            color: var(--canopy-text-primary);
+        }
+
+        .workspace-onboarding-copy p {
+            margin: 0.35rem 0 0;
+            max-width: 60rem;
+            color: var(--canopy-text-secondary);
+            font-size: 0.94rem;
+        }
+
+        .workspace-onboarding-dismiss {
+            flex: 0 0 auto;
+            opacity: 0.78;
+        }
+
+        .workspace-onboarding-dismiss:hover {
+            opacity: 1;
+        }
+
+        .workspace-onboarding-stats {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 0.7rem;
+        }
+
+        .workspace-onboarding-stat {
+            display: flex;
+            flex-direction: column;
+            gap: 0.08rem;
+            padding: 0.72rem 0.8rem;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            min-width: 0;
+        }
+
+        .workspace-onboarding-stat strong {
+            font-size: 1rem;
+            font-weight: 800;
+            color: var(--canopy-text-primary);
+        }
+
+        .workspace-onboarding-stat span {
+            font-size: 0.78rem;
+            color: var(--canopy-text-secondary);
+        }
+
+        .workspace-onboarding-steps {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.55rem 0.75rem;
+        }
+
+        .workspace-onboarding-step {
+            display: flex;
+            align-items: center;
+            gap: 0.55rem;
+            min-width: 0;
+            padding: 0.55rem 0.65rem;
+            border-radius: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.03);
+            color: var(--canopy-text-secondary);
+            font-size: 0.87rem;
+            font-weight: 600;
+        }
+
+        .workspace-onboarding-step.done {
+            color: #dffbf0;
+            border-color: rgba(92, 231, 161, 0.22);
+            background: rgba(41, 182, 111, 0.13);
+        }
+
+        .workspace-onboarding-step.pending {
+            color: var(--canopy-text-secondary);
+        }
+
+        .workspace-onboarding-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.55rem;
+        }
+
+        .workspace-onboarding-actions .btn {
+            border-radius: 999px;
+            min-height: 2.2rem;
+            font-weight: 700;
+        }
+
+        @media (max-width: 992px) {
+            .workspace-onboarding-stats,
+            .workspace-onboarding-steps {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 640px) {
+            .workspace-onboarding-card {
+                padding: 0.9rem;
+                border-radius: 18px;
+            }
+
+            .workspace-onboarding-head {
+                align-items: flex-start;
+            }
+
+            .workspace-onboarding-stats,
+            .workspace-onboarding-steps {
+                grid-template-columns: minmax(0, 1fr);
+            }
+
+            .workspace-onboarding-copy h2 {
+                font-size: 1.05rem;
+            }
+
+            .workspace-onboarding-copy p {
+                font-size: 0.88rem;
+            }
+        }
     </style>
     
     {% block extra_css %}{% endblock %}

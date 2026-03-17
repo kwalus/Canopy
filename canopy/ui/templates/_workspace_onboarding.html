@@ -1,0 +1,60 @@
+{% if workspace_onboarding and workspace_onboarding.show %}
+<section class="workspace-onboarding-card" data-workspace-onboarding="1" data-dismiss-key="{{ workspace_onboarding.dismiss_key }}">
+    <div class="workspace-onboarding-head">
+        <div class="workspace-onboarding-copy">
+            <span class="workspace-onboarding-eyebrow">First-day guide</span>
+            <h2>{{ workspace_onboarding.title }}</h2>
+            <p>{{ workspace_onboarding.subtitle }}</p>
+        </div>
+        <button type="button"
+                class="btn-close btn-close-white workspace-onboarding-dismiss"
+                aria-label="Hide guide"
+                onclick="dismissWorkspaceOnboarding(this)"></button>
+    </div>
+
+    <div class="workspace-onboarding-stats" aria-label="Getting started status">
+        <span class="workspace-onboarding-stat">
+            <strong>{{ workspace_onboarding.stats.messages_sent }}</strong>
+            <span>messages sent</span>
+        </span>
+        <span class="workspace-onboarding-stat">
+            <strong>{{ workspace_onboarding.stats.feed_posts }}</strong>
+            <span>feed posts</span>
+        </span>
+        <span class="workspace-onboarding-stat">
+            <strong>{{ workspace_onboarding.stats.connected_peers }}</strong>
+            <span>peers online</span>
+        </span>
+        <span class="workspace-onboarding-stat">
+            <strong>{{ workspace_onboarding.stats.api_keys }}</strong>
+            <span>API keys</span>
+        </span>
+    </div>
+
+    <div class="workspace-onboarding-steps">
+        {% for step in workspace_onboarding.steps %}
+            <div class="workspace-onboarding-step {% if step.done %}done{% else %}pending{% endif %}">
+                <i class="bi bi-{% if step.done %}check-circle-fill{% else %}circle{% endif %}"></i>
+                <span>{{ step.label }}</span>
+            </div>
+        {% endfor %}
+    </div>
+
+    <div class="workspace-onboarding-actions">
+        {% for action in workspace_onboarding.actions %}
+            {% if action.kind == 'button' %}
+                <button type="button" class="btn btn-sm btn-light" onclick="{{ action.onclick }}">
+                    {{ action.label }}
+                </button>
+            {% else %}
+                <a class="btn btn-sm btn-light" href="{{ action.href }}">{{ action.label }}</a>
+            {% endif %}
+        {% endfor %}
+        {% if workspace_onboarding.advanced_action %}
+            <a class="btn btn-sm btn-outline-light" href="{{ workspace_onboarding.advanced_action.href }}">
+                {{ workspace_onboarding.advanced_action.label }}
+            </a>
+        {% endif %}
+    </div>
+</section>
+{% endif %}

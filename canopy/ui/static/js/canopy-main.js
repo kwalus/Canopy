@@ -6319,6 +6319,49 @@
             window.requestRemoteAttachmentDownload = requestRemoteAttachmentDownload;
         }
 
+        function applyWorkspaceOnboardingVisibility(root = document) {
+            if (!root || !root.querySelectorAll) {
+                return;
+            }
+            root.querySelectorAll('[data-workspace-onboarding="1"]').forEach((card) => {
+                const dismissKey = String(card.getAttribute('data-dismiss-key') || '').trim();
+                if (!dismissKey) {
+                    return;
+                }
+                try {
+                    if (window.localStorage && window.localStorage.getItem(dismissKey) === '1') {
+                        card.style.display = 'none';
+                    }
+                } catch (err) {
+                    console.debug('Workspace onboarding visibility check skipped', err);
+                }
+            });
+        }
+
+        function dismissWorkspaceOnboarding(buttonOrCard) {
+            const source = buttonOrCard && buttonOrCard.nodeType ? buttonOrCard : null;
+            const card = source ? source.closest('[data-workspace-onboarding="1"]') : null;
+            if (!card) {
+                return;
+            }
+            const dismissKey = String(card.getAttribute('data-dismiss-key') || '').trim();
+            if (dismissKey) {
+                try {
+                    if (window.localStorage) {
+                        window.localStorage.setItem(dismissKey, '1');
+                    }
+                } catch (err) {
+                    console.debug('Workspace onboarding dismiss skipped', err);
+                }
+            }
+            card.style.display = 'none';
+        }
+
+        if (typeof window !== 'undefined') {
+            window.dismissWorkspaceOnboarding = dismissWorkspaceOnboarding;
+            window.applyWorkspaceOnboardingVisibility = applyWorkspaceOnboardingVisibility;
+        }
+
         // Initialize sidebar toggle when DOM is ready
         document.addEventListener('DOMContentLoaded', function() {
             initSidebarMediaMiniPlayer();
@@ -6327,6 +6370,7 @@
             initMobileOptimizations();
             initCanopyAttentionCenter();
             startCanopySidebarPeerPolling();
+            applyWorkspaceOnboardingVisibility(document);
         });
         
         // Mobile-specific optimizations
