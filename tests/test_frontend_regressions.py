@@ -78,6 +78,7 @@ class TestFrontendRegressions(unittest.TestCase):
 
     def test_notification_bell_uses_attention_snapshot_and_peer_polling_stays_separate(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
         self.assertIn("function initCanopyAttentionCenter()", main_js)
         self.assertIn("window.renderCanopyAttentionBell = function(items) {", main_js)
         self.assertIn("const endpoint = ((window.CANOPY_VARS && window.CANOPY_VARS.urls) || {}).peerActivity || '/ajax/peer_activity';", main_js)
@@ -86,6 +87,20 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("const avatarUrl = _safeImageSrc(item.avatar_url || '');", main_js)
         self.assertIn("img.src = avatarUrl;", main_js)
         self.assertIn("iconWrap.textContent = fallbackInitial;", main_js)
+        self.assertIn("const canopyAttentionDismissStorageKey = (() => {", main_js)
+        self.assertIn("window.localStorage.setItem(canopyAttentionDismissStorageKey, String(normalized));", main_js)
+        self.assertIn("function filterCanopyAttentionItems(items) {", main_js)
+        self.assertIn("window.renderCanopyAttentionBell(filterCanopyAttentionItems(canopySidebarAttentionState.items));", main_js)
+        self.assertIn("saveCanopyAttentionDismissCursor(canopySidebarAttentionState.currentEventCursor);", main_js)
+        self.assertIn("const CANOPY_ATTENTION_FILTER_DEFS = [", main_js)
+        self.assertIn("const canopyAttentionFilterStorageKey = (() => {", main_js)
+        self.assertIn("function renderFilterBar() {", main_js)
+        self.assertIn("saveCanopyAttentionFilters(next);", main_js)
+        self.assertIn("const filterBar = document.getElementById('notificationFilterBar');", main_js)
+        self.assertIn("const filterResetBtn = document.getElementById('notificationFilterReset');", main_js)
+        self.assertIn("class=\"notification-filter-wrap\"", base_template)
+        self.assertIn("id=\"notificationFilterBar\"", base_template)
+        self.assertIn("id=\"notificationFilterReset\"", base_template)
 
     def test_channel_focus_uses_context_window_and_container_scroll(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')

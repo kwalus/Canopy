@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.99] - 2026-03-17
+
+### Improved
+- **Bell dismiss stability** - Clear now records a per-user dismissal watermark (workspace-event cursor) in `localStorage`. Dismissed items stay hidden across snapshot refreshes; only newer attention events reappear. Unread badges remain independent and unaffected.
+- **Bell type filters** - The bell dropdown now includes persistent per-user filter chips (Mentions, Inbox, DMs, Channels, Feed) stored in `localStorage`. Filters apply only to the bell surface and do not alter event generation, sidebar unread counts, or presence.
+
 ## [0.4.98] - 2026-03-16
 
 ### Fixed

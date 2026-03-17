@@ -924,6 +924,97 @@
             safetyHandle: null,
         };
 
+        const canopyAttentionDismissStorageKey = (() => {
+            const userId = window.CANOPY_VARS ? String(window.CANOPY_VARS.userId || 'local_user').trim() : 'local_user';
+            return `canopy.attention.dismissedThrough.${userId || 'local_user'}`;
+        })();
+
+        const CANOPY_ATTENTION_FILTER_DEFS = [
+            { key: 'mention', label: 'Mentions', icon: 'bi-at' },
+            { key: 'inbox', label: 'Inbox', icon: 'bi-inbox' },
+            { key: 'dm', label: 'DMs', icon: 'bi-chat-dots' },
+            { key: 'channel', label: 'Channels', icon: 'bi-hash' },
+            { key: 'feed', label: 'Feed', icon: 'bi-rss' },
+        ];
+        const canopyAttentionFilterStorageKey = (() => {
+            const userId = window.CANOPY_VARS ? String(window.CANOPY_VARS.userId || 'local_user').trim() : 'local_user';
+            return `canopy.attention.filters.${userId || 'local_user'}`;
+        })();
+
+        function normalizeCanopyAttentionFilters(raw) {
+            const normalized = {};
+            const source = raw && typeof raw === 'object' ? raw : {};
+            CANOPY_ATTENTION_FILTER_DEFS.forEach((def) => {
+                normalized[def.key] = source[def.key] !== false;
+            });
+            return normalized;
+        }
+
+        function loadCanopyAttentionFilters() {
+            try {
+                const raw = window.localStorage ? window.localStorage.getItem(canopyAttentionFilterStorageKey) : null;
+                if (!raw) return normalizeCanopyAttentionFilters(null);
+                return normalizeCanopyAttentionFilters(JSON.parse(raw));
+            } catch (_) {
+                return normalizeCanopyAttentionFilters(null);
+            }
+        }
+
+        function saveCanopyAttentionFilters(filters) {
+            const normalized = normalizeCanopyAttentionFilters(filters);
+            canopySidebarAttentionState.filters = normalized;
+            try {
+                if (window.localStorage) {
+                    window.localStorage.setItem(canopyAttentionFilterStorageKey, JSON.stringify(normalized));
+                }
+            } catch (_) {}
+            return normalized;
+        }
+
+        function canopyAttentionFilterKeyForItem(item) {
+            const kind = String(item && item.kind || '').trim();
+            if (kind === 'channel-state') return 'channel';
+            return kind;
+        }
+
+        function loadCanopyAttentionDismissCursor() {
+            try {
+                const raw = window.localStorage ? window.localStorage.getItem(canopyAttentionDismissStorageKey) : null;
+                return Math.max(0, Number(raw || 0) || 0);
+            } catch (_) {
+                return 0;
+            }
+        }
+
+        function saveCanopyAttentionDismissCursor(value) {
+            const normalized = Math.max(0, Number(value || 0) || 0);
+            canopySidebarAttentionState.dismissedThroughCursor = normalized;
+            try {
+                if (window.localStorage) {
+                    window.localStorage.setItem(canopyAttentionDismissStorageKey, String(normalized));
+                }
+            } catch (_) {}
+            return normalized;
+        }
+
+        function filterCanopyAttentionItems(items) {
+            const dismissedThrough = Math.max(0, Number(canopySidebarAttentionState.dismissedThroughCursor || 0) || 0);
+            const normalized = Array.isArray(items) ? items.filter(Boolean) : [];
+            const filters = normalizeCanopyAttentionFilters(canopySidebarAttentionState.filters);
+            return normalized.filter((item) => {
+                const seq = Math.max(0, Number(item && item.seq || 0) || 0);
+                if (dismissedThrough > 0 && seq <= dismissedThrough) return false;
+                const filterKey = canopyAttentionFilterKeyForItem(item);
+                if (filterKey && Object.prototype.hasOwnProperty.call(filters, filterKey)) {
+                    return filters[filterKey] !== false;
+                }
+                return true;
+            });
+        }
+
+        canopySidebarAttentionState.dismissedThroughCursor = loadCanopyAttentionDismissCursor();
+        canopySidebarAttentionState.filters = loadCanopyAttentionFilters();
+
         const SIDEBAR_ATTENTION_EVENT_TYPES = [
             'dm.message.created',
             'dm.message.edited',
@@ -977,7 +1068,7 @@
                     canopySidebarAttentionState.items = Array.isArray(data.items) ? data.items.slice(0) : [];
                     renderSidebarAttentionSummary(canopySidebarAttentionState.summary);
                     if (window.renderCanopyAttentionBell) {
-                        window.renderCanopyAttentionBell(canopySidebarAttentionState.items);
+                        window.renderCanopyAttentionBell(filterCanopyAttentionItems(canopySidebarAttentionState.items));
                     }
                     return data;
                 })
@@ -1032,7 +1123,7 @@
             renderSidebarAttentionSummary(canopySidebarAttentionState.summary);
             canopyRenderSidebarDmContacts(canopySidebarDmState.contacts);
             if (window.renderCanopyAttentionBell) {
-                window.renderCanopyAttentionBell(canopySidebarAttentionState.items);
+                window.renderCanopyAttentionBell(filterCanopyAttentionItems(canopySidebarAttentionState.items));
             }
             if (canopySidebarAttentionState.pollHandle) window.clearInterval(canopySidebarAttentionState.pollHandle);
             if (canopySidebarAttentionState.safetyHandle) window.clearInterval(canopySidebarAttentionState.safetyHandle);
@@ -4381,6 +4472,8 @@
             const listEl = document.getElementById('notificationList');
             const emptyWrap = document.getElementById('notificationEmptyWrap');
             const clearBtn = document.getElementById('notificationClear');
+            const filterBar = document.getElementById('notificationFilterBar');
+            const filterResetBtn = document.getElementById('notificationFilterReset');
 
             function cleanPreview(text) {
                 const s = String(text || '').replace(/\s+/g, ' ').trim();
@@ -4401,6 +4494,30 @@
                     badgeEl.style.display = 'none';
                     badgeEl.textContent = '0';
                 }
+            }
+
+            function renderFilterBar() {
+                if (!filterBar) return;
+                const filters = normalizeCanopyAttentionFilters(canopySidebarAttentionState.filters);
+                filterBar.innerHTML = '';
+                CANOPY_ATTENTION_FILTER_DEFS.forEach((def) => {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = `notification-filter-chip${filters[def.key] !== false ? ' is-active' : ''}`;
+                    btn.setAttribute('data-filter-key', def.key);
+                    btn.setAttribute('aria-pressed', filters[def.key] !== false ? 'true' : 'false');
+                    btn.innerHTML = `<i class="bi ${def.icon}"></i><span>${def.label}</span>`;
+                    btn.addEventListener('click', () => {
+                        const next = normalizeCanopyAttentionFilters(canopySidebarAttentionState.filters);
+                        next[def.key] = !(next[def.key] !== false);
+                        saveCanopyAttentionFilters(next);
+                        renderFilterBar();
+                        if (window.renderCanopyAttentionBell) {
+                            window.renderCanopyAttentionBell(filterCanopyAttentionItems(canopySidebarAttentionState.items));
+                        }
+                    });
+                    filterBar.appendChild(btn);
+                });
             }
 
             window.renderCanopyAttentionBell = function(items) {
@@ -4492,8 +4609,19 @@
             if (clearBtn) {
                 clearBtn.addEventListener('click', () => {
                     canopySidebarAttentionState.items = [];
+                    saveCanopyAttentionDismissCursor(canopySidebarAttentionState.currentEventCursor);
                     if (window.renderCanopyAttentionBell) {
                         window.renderCanopyAttentionBell([]);
+                    }
+                });
+            }
+
+            if (filterResetBtn) {
+                filterResetBtn.addEventListener('click', () => {
+                    saveCanopyAttentionFilters(null);
+                    renderFilterBar();
+                    if (window.renderCanopyAttentionBell) {
+                        window.renderCanopyAttentionBell(filterCanopyAttentionItems(canopySidebarAttentionState.items));
                     }
                 });
             }
@@ -4501,13 +4629,14 @@
             if (bellBtn) {
                 bellBtn.addEventListener('click', () => {
                     if (window.renderCanopyAttentionBell) {
-                        window.renderCanopyAttentionBell(canopySidebarAttentionState.items);
+                        window.renderCanopyAttentionBell(filterCanopyAttentionItems(canopySidebarAttentionState.items));
                     }
                 });
             }
 
+            renderFilterBar();
             if (window.renderCanopyAttentionBell) {
-                window.renderCanopyAttentionBell(canopySidebarAttentionState.items);
+                window.renderCanopyAttentionBell(filterCanopyAttentionItems(canopySidebarAttentionState.items));
             }
         }
 

@@ -1981,6 +1981,7 @@ def create_ui_blueprint() -> Blueprint:
 
         return {
             'id': str(item.get('event_id') or ''),
+            'seq': int(item.get('seq') or 0),
             'semantic_key': _attention_activity_semantic_key(item),
             'event_type': event_type,
             'kind': kind,

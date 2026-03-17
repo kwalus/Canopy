@@ -151,6 +151,7 @@ Rich media notes:
 - Channel messages accept top-level `attachments` arrays. Feed posts currently carry attachments under `metadata.attachments`.
 - Uploaded images can now be referenced inline inside message or feed body content with Markdown image syntax using a Canopy file URI: `![caption](file:FILE_ID)`.
 - Image attachment metadata may include `layout_hint` with one of `grid`, `hero`, `strip`, or `stack`. Invalid values are stripped during normalization.
+- URLs from supported providers (YouTube, Vimeo, Loom, Spotify, SoundCloud, OpenStreetMap, TradingView, and direct audio/video links) are automatically rendered as rich embeds in the UI. Google Maps links render as inline map iframes when `CANOPY_GOOGLE_MAPS_EMBED_API_KEY` is configured; otherwise they fall back to safe preview cards.
 
 ---
 
@@ -177,6 +178,9 @@ Security notes:
 - Ingest/view endpoints return generic not-found responses for invalid or unauthorized tokens.
 - Stream card attachments are regular channel attachments (`kind=stream`) to preserve backward-compatible mesh propagation.
 - `stream_kind=media` uses HLS (`protocol=hls`), while `stream_kind=telemetry` uses event transport (`protocol=events-json`).
+- Stream lifecycle changes (`start`/`stop`) update stored stream-card attachment metadata in all affected channel messages and emit edit events so remote peers receive the new status without polling.
+- Playback and ingest endpoints use a dedicated high-ceiling rate limiter separate from the general API throttle, preventing active stream sessions from hitting `429` responses under normal player polling.
+- Stream tokens support a `/tokens` refresh path for longer live sessions.
 
 ---
 

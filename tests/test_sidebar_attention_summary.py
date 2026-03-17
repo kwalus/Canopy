@@ -328,8 +328,10 @@ class TestSidebarAttentionSummary(unittest.TestCase):
         self.assertEqual(items[0].get('kind'), 'mention')
         self.assertIn('/channels/locate?message_id=msg-mention', items[0].get('href', ''))
         self.assertEqual(items[0].get('avatar_url'), '/files/avatar-peer-a')
+        self.assertGreater(items[0].get('seq') or 0, 0)
         self.assertEqual(items[1].get('kind'), 'feed')
         self.assertIn('/feed?focus_post=feed-1', items[1].get('href', ''))
+        self.assertGreater(items[1].get('seq') or 0, 0)
 
     def test_feed_route_marks_feed_viewed_on_page_open(self) -> None:
         response = self.client.get('/feed')
