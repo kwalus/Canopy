@@ -481,6 +481,7 @@ def create_ui_blueprint() -> Blueprint:
             }
             attention_snapshot = _build_sidebar_attention_snapshot(
                 db_manager,
+                profile_manager,
                 channel_manager,
                 feed_manager,
                 p2p_manager,
@@ -1730,6 +1731,56 @@ def create_ui_blueprint() -> Blueprint:
         EVENT_FEED_POST_DELETED,
     ]
 
+    def _sidebar_user_display(
+        db_manager: Any,
+        profile_manager: Any,
+        user_id: Optional[str],
+    ) -> dict[str, Any]:
+        clean_user_id = str(user_id or '').strip()
+        if not clean_user_id:
+            return {'user_id': '', 'display_name': '', 'username': '', 'avatar_url': None}
+        display = {
+            'user_id': clean_user_id,
+            'display_name': clean_user_id,
+            'username': clean_user_id,
+            'avatar_url': None,
+        }
+        try:
+            if profile_manager:
+                profile = profile_manager.get_profile(clean_user_id)
+                if profile:
+                    display['display_name'] = (
+                        str(getattr(profile, 'display_name', None) or '').strip()
+                        or str(getattr(profile, 'username', None) or '').strip()
+                        or clean_user_id
+                    )
+                    display['username'] = (
+                        str(getattr(profile, 'username', None) or '').strip()
+                        or clean_user_id
+                    )
+                    avatar_url = getattr(profile, 'avatar_url', None)
+                    if avatar_url:
+                        display['avatar_url'] = str(avatar_url)
+            if db_manager:
+                row = db_manager.get_user(clean_user_id)
+                if row:
+                    display['display_name'] = (
+                        display.get('display_name')
+                        or str(row.get('display_name') or '').strip()
+                        or str(row.get('username') or '').strip()
+                        or clean_user_id
+                    )
+                    display['username'] = (
+                        display.get('username')
+                        or str(row.get('username') or '').strip()
+                        or clean_user_id
+                    )
+                    if not display.get('avatar_url') and row.get('avatar_file_id'):
+                        display['avatar_url'] = f"/files/{row.get('avatar_file_id')}"
+        except Exception:
+            pass
+        return display
+
     def _sidebar_user_label(db_manager: Any, user_id: Optional[str]) -> str:
         clean_user_id = str(user_id or '').strip()
         if not clean_user_id or not db_manager:
@@ -1812,6 +1863,7 @@ def create_ui_blueprint() -> Blueprint:
 
     def _build_sidebar_attention_item(
         db_manager: Any,
+        profile_manager: Any,
         channel_manager: Any,
         user_id: str,
         item: dict[str, Any],
@@ -1826,7 +1878,9 @@ def create_ui_blueprint() -> Blueprint:
         message_id = str(item.get('message_id') or '').strip()
         post_id = str(item.get('post_id') or '').strip()
         channel_id = str(item.get('channel_id') or '').strip()
-        actor_label = _sidebar_user_label(db_manager, actor_user_id) if actor_user_id else ''
+        actor_display = _sidebar_user_display(db_manager, profile_manager, actor_user_id) if actor_user_id else {}
+        actor_label = str((actor_display or {}).get('display_name') or '').strip()
+        actor_avatar_url = (actor_display or {}).get('avatar_url')
         channel_name = _sidebar_channel_name(channel_manager, channel_id)
         preview = str(payload.get('preview') or '').strip()
         href = None
@@ -1868,9 +1922,11 @@ def create_ui_blueprint() -> Blueprint:
             sender_id = str(payload.get('sender_id') or actor_user_id or '').strip()
             recipient_id = str(payload.get('recipient_id') or '').strip()
             other_user_id = sender_id if sender_id and sender_id != user_id else recipient_id
+            other_display = _sidebar_user_display(db_manager, profile_manager, other_user_id)
             kind = 'dm'
             icon = 'bi-chat-dots'
-            title = _sidebar_user_label(db_manager, other_user_id) or actor_label or 'Direct message'
+            title = str(other_display.get('display_name') or '').strip() or actor_label or 'Direct message'
+            actor_avatar_url = other_display.get('avatar_url') or actor_avatar_url
             meta = 'Direct message'
             href = url_for('ui.messages')
             if other_user_id:
@@ -1935,10 +1991,12 @@ def create_ui_blueprint() -> Blueprint:
             'created_at': created_at,
             'priority': _attention_activity_priority(event_type, payload),
             'icon': icon,
+            'avatar_url': actor_avatar_url,
         }
 
     def _build_sidebar_attention_snapshot(
         db_manager: Any,
+        profile_manager: Any,
         channel_manager: Any,
         feed_manager: Any,
         p2p_manager: Any,
@@ -1972,6 +2030,7 @@ def create_ui_blueprint() -> Blueprint:
             for raw_item in reversed(result.get('items', []) or []):
                 built = _build_sidebar_attention_item(
                     db_manager,
+                    profile_manager,
                     channel_manager,
                     user_id,
                     raw_item,
@@ -4971,10 +5030,11 @@ def create_ui_blueprint() -> Blueprint:
     def ajax_sidebar_attention_snapshot():
         """Return unified unread summary plus recent attention items for the bell."""
         try:
-            db_manager, _, _, _, channel_manager, _, feed_manager, _, _, _, p2p_manager = _get_app_components_any(current_app)
+            db_manager, _, _, _, channel_manager, _, feed_manager, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
             workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
             snapshot = _build_sidebar_attention_snapshot(
                 db_manager,
+                profile_manager,
                 channel_manager,
                 feed_manager,
                 p2p_manager,

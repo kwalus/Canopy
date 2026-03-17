@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.98] - 2026-03-16
+
+### Fixed
+- **Bell avatar restoration** - The attention bell now renders user avatar images when available, falling back to an initial letter, then to the semantic icon. The v0.4.97 bell redesign had regressed to always showing generic icons. Avatar metadata is resolved from the profile manager and DB `avatar_file_id`.
+
 ## [0.4.97] - 2026-03-16
 
 ### Added

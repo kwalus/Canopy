@@ -140,7 +140,7 @@ class TestSidebarAttentionSummary(unittest.TestCase):
             "INSERT INTO users (id, username, display_name, avatar_file_id, account_type, origin_peer, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
             [
                 ('owner', 'owner', 'Owner', None, 'human', None, '2026-03-16T09:00:00+00:00'),
-                ('peer-a', 'peer_a', 'Peer A', None, 'agent', None, '2026-03-16T09:01:00+00:00'),
+                ('peer-a', 'peer_a', 'Peer A', 'avatar-peer-a', 'agent', None, '2026-03-16T09:01:00+00:00'),
                 ('peer-b', 'peer_b', 'Peer B', None, 'human', None, '2026-03-16T09:02:00+00:00'),
             ],
         )
@@ -226,6 +226,8 @@ class TestSidebarAttentionSummary(unittest.TestCase):
 
         self.interaction_manager = MagicMock()
         self.interaction_manager.get_user_liked_ids.return_value = set()
+        self.profile_manager = MagicMock()
+        self.profile_manager.get_profile.return_value = None
 
         components = (
             self.db_manager,
@@ -236,7 +238,7 @@ class TestSidebarAttentionSummary(unittest.TestCase):
             MagicMock(),
             self.feed_manager,
             self.interaction_manager,
-            MagicMock(),
+            self.profile_manager,
             MagicMock(),
             None,
         )
@@ -325,6 +327,7 @@ class TestSidebarAttentionSummary(unittest.TestCase):
         self.assertGreaterEqual(len(items), 2)
         self.assertEqual(items[0].get('kind'), 'mention')
         self.assertIn('/channels/locate?message_id=msg-mention', items[0].get('href', ''))
+        self.assertEqual(items[0].get('avatar_url'), '/files/avatar-peer-a')
         self.assertEqual(items[1].get('kind'), 'feed')
         self.assertIn('/feed?focus_post=feed-1', items[1].get('href', ''))
 

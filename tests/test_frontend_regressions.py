@@ -83,6 +83,9 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("const endpoint = ((window.CANOPY_VARS && window.CANOPY_VARS.urls) || {}).peerActivity || '/ajax/peer_activity';", main_js)
         self.assertIn("const endpoint = routes.sidebarAttentionSnapshot || '/ajax/sidebar_attention_snapshot';", main_js)
         self.assertIn("startCanopySidebarPeerPolling();", main_js)
+        self.assertIn("const avatarUrl = _safeImageSrc(item.avatar_url || '');", main_js)
+        self.assertIn("img.src = avatarUrl;", main_js)
+        self.assertIn("iconWrap.textContent = fallbackInitial;", main_js)
 
     def test_channel_focus_uses_context_window_and_container_scroll(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')

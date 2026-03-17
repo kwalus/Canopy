@@ -4427,9 +4427,23 @@
 
                     const iconWrap = document.createElement('div');
                     iconWrap.className = 'activity-avatar';
-                    const icon = document.createElement('i');
-                    icon.className = String(item.icon || 'bi-bell');
-                    iconWrap.appendChild(icon);
+                    const avatarUrl = _safeImageSrc(item.avatar_url || '');
+                    if (avatarUrl) {
+                        const img = document.createElement('img');
+                        img.src = avatarUrl;
+                        img.alt = String(item.title || 'Activity');
+                        iconWrap.appendChild(img);
+                    } else {
+                        const fallbackLabel = String(item.title || '').trim();
+                        const fallbackInitial = fallbackLabel ? fallbackLabel.slice(0, 1).toUpperCase() : '';
+                        if (fallbackInitial && /^[A-Z0-9]$/.test(fallbackInitial)) {
+                            iconWrap.textContent = fallbackInitial;
+                        } else {
+                            const icon = document.createElement('i');
+                            icon.className = String(item.icon || 'bi-bell');
+                            iconWrap.appendChild(icon);
+                        }
+                    }
 
                     const body = document.createElement('div');
                     body.className = 'activity-body';
