@@ -1065,6 +1065,10 @@
             const userId = window.CANOPY_VARS ? String(window.CANOPY_VARS.userId || 'local_user').trim() : 'local_user';
             return `canopy.attention.dismissedThrough.${userId || 'local_user'}`;
         })();
+        const canopyAttentionSeenStorageKey = (() => {
+            const userId = window.CANOPY_VARS ? String(window.CANOPY_VARS.userId || 'local_user').trim() : 'local_user';
+            return `canopy.attention.seenThrough.${userId || 'local_user'}`;
+        })();
 
         const CANOPY_ATTENTION_FILTER_DEFS = [
             { key: 'mention', label: 'Mentions', icon: 'bi-at' },
@@ -1134,6 +1138,26 @@
             return normalized;
         }
 
+        function loadCanopyAttentionSeenCursor() {
+            try {
+                const raw = window.localStorage ? window.localStorage.getItem(canopyAttentionSeenStorageKey) : null;
+                return Math.max(0, Number(raw || 0) || 0);
+            } catch (_) {
+                return 0;
+            }
+        }
+
+        function saveCanopyAttentionSeenCursor(value) {
+            const normalized = Math.max(0, Number(value || 0) || 0);
+            canopySidebarAttentionState.seenThroughCursor = normalized;
+            try {
+                if (window.localStorage) {
+                    window.localStorage.setItem(canopyAttentionSeenStorageKey, String(normalized));
+                }
+            } catch (_) {}
+            return normalized;
+        }
+
         function filterCanopyAttentionItems(items) {
             const dismissedThrough = Math.max(0, Number(canopySidebarAttentionState.dismissedThroughCursor || 0) || 0);
             const normalized = Array.isArray(items) ? items.filter(Boolean) : [];
@@ -1149,7 +1173,24 @@
             });
         }
 
+        function countUnseenCanopyAttentionItems(items) {
+            const seenThrough = Math.max(
+                0,
+                Number(canopySidebarAttentionState.seenThroughCursor || 0) || 0,
+                Number(canopySidebarAttentionState.dismissedThroughCursor || 0) || 0
+            );
+            const normalized = Array.isArray(items) ? items.filter(Boolean) : [];
+            return normalized.reduce((sum, item) => {
+                const seq = Math.max(0, Number(item && item.seq || 0) || 0);
+                return sum + (seq > seenThrough ? 1 : 0);
+            }, 0);
+        }
+
         canopySidebarAttentionState.dismissedThroughCursor = loadCanopyAttentionDismissCursor();
+        canopySidebarAttentionState.seenThroughCursor = Math.max(
+            canopySidebarAttentionState.dismissedThroughCursor,
+            loadCanopyAttentionSeenCursor()
+        );
         canopySidebarAttentionState.filters = loadCanopyAttentionFilters();
 
         const SIDEBAR_ATTENTION_EVENT_TYPES = [
@@ -4660,11 +4701,11 @@
             window.renderCanopyAttentionBell = function(items) {
                 const normalized = Array.isArray(items) ? items.filter(Boolean).slice(0, 12) : [];
                 if (!listEl) {
-                    setBadge(normalized.length);
+                    setBadge(countUnseenCanopyAttentionItems(normalized));
                     return;
                 }
                 listEl.innerHTML = '';
-                setBadge(normalized.length);
+                setBadge(countUnseenCanopyAttentionItems(normalized));
                 if (!normalized.length) {
                     if (emptyWrap) emptyWrap.style.display = 'block';
                     return;
@@ -4747,6 +4788,7 @@
                 clearBtn.addEventListener('click', () => {
                     canopySidebarAttentionState.items = [];
                     saveCanopyAttentionDismissCursor(canopySidebarAttentionState.currentEventCursor);
+                    saveCanopyAttentionSeenCursor(canopySidebarAttentionState.currentEventCursor);
                     if (window.renderCanopyAttentionBell) {
                         window.renderCanopyAttentionBell([]);
                     }
@@ -4765,6 +4807,7 @@
 
             if (bellBtn) {
                 bellBtn.addEventListener('click', () => {
+                    saveCanopyAttentionSeenCursor(canopySidebarAttentionState.currentEventCursor);
                     if (window.renderCanopyAttentionBell) {
                         window.renderCanopyAttentionBell(filterCanopyAttentionItems(canopySidebarAttentionState.items));
                     }

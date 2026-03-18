@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.103] - 2026-03-18
+
+### Improved
+- **Bell seen vs clear separation** — Opening the bell now clears the red badge without removing entries from the dropdown. A new `seenThrough` localStorage watermark tracks which items the user has already glanced at, while the existing `dismissedThrough` cursor still controls list removal via the Clear button. Badge count reflects only items newer than the seen cursor. Both cursors stay coherent (Clear advances both).
+
 ## [0.4.102] - 2026-03-18
 
 ### Improved
