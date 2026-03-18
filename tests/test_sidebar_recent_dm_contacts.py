@@ -87,6 +87,14 @@ class _FakeP2PManager:
         return []
 
 
+class _FakeWorkspaceEventManager:
+    def __init__(self, latest_seq: int = 0) -> None:
+        self.latest_seq = latest_seq
+
+    def get_latest_seq(self) -> int:
+        return int(self.latest_seq)
+
+
 class TestSidebarRecentDmContacts(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
@@ -166,6 +174,7 @@ class TestSidebarRecentDmContacts(unittest.TestCase):
         self.p2p_manager = _FakeP2PManager()
         self.trust_manager = MagicMock()
         self.trust_manager.get_trust_score.return_value = 90
+        self.workspace_event_manager = _FakeWorkspaceEventManager()
 
         components = (
             self.db_manager,
@@ -191,6 +200,7 @@ class TestSidebarRecentDmContacts(unittest.TestCase):
         app = Flask(__name__)
         app.config['TESTING'] = True
         app.secret_key = 'sidebar-dm-secret'
+        app.config['WORKSPACE_EVENT_MANAGER'] = self.workspace_event_manager
         app.register_blueprint(create_ui_blueprint())
         self.app = app
         self.client = app.test_client()
@@ -215,13 +225,16 @@ class TestSidebarRecentDmContacts(unittest.TestCase):
         self.assertIn('Recent DMs', body)
         self.assertIn('Alice', body)
         self.assertIn('Bob', body)
+        self.assertIn('id="sidebar-dm-card"', body)
+        self.assertIn('id="sidebar-dm-toggle"', body)
+        self.assertIn('id="sidebar-dm-expand-btn"', body)
         self.assertIn('data-dm-user-id="peer-a"', body)
         self.assertIn('data-dm-user-id="peer-b"', body)
         self.assertIn('/messages?with=peer-a#message-DM-a-unread', body)
         self.assertNotIn('data-dm-user-id="group:', body)
 
-    def test_peer_activity_includes_recent_dm_contacts(self) -> None:
-        response = self.client.get('/ajax/peer_activity')
+    def test_sidebar_dm_snapshot_includes_recent_dm_contacts(self) -> None:
+        response = self.client.get('/ajax/sidebar_dm_snapshot')
         self.assertEqual(response.status_code, 200)
         payload = response.get_json() or {}
 
@@ -232,13 +245,13 @@ class TestSidebarRecentDmContacts(unittest.TestCase):
         self.assertEqual(contacts[0].get('target_message_id'), 'DM-a-unread')
         self.assertEqual(contacts[0].get('status_state'), 'online')
 
-    def test_peer_activity_delta_request_omits_recent_dm_contacts_when_unchanged(self) -> None:
-        first = self.client.get('/ajax/peer_activity')
+    def test_sidebar_dm_snapshot_delta_request_omits_contacts_when_unchanged(self) -> None:
+        first = self.client.get('/ajax/sidebar_dm_snapshot')
         self.assertEqual(first.status_code, 200)
         first_payload = first.get_json() or {}
 
         response = self.client.get(
-            f"/ajax/peer_activity?peer_rev={first_payload.get('peer_rev')}&dm_rev={first_payload.get('dm_rev')}"
+            f"/ajax/sidebar_dm_snapshot?dm_rev={first_payload.get('dm_rev')}"
         )
         self.assertEqual(response.status_code, 200)
         payload = response.get_json() or {}
@@ -246,6 +259,23 @@ class TestSidebarRecentDmContacts(unittest.TestCase):
         self.assertTrue(payload.get('success'))
         self.assertFalse(payload.get('dm_changed'))
         self.assertEqual(payload.get('recent_dm_contacts'), [])
+
+    def test_sidebar_dm_snapshot_cursor_does_not_advance_past_snapshot_state(self) -> None:
+        self.workspace_event_manager.latest_seq = 7
+
+        original_get_messages = self.message_manager.get_messages
+
+        def _race_get_messages(*args, **kwargs):
+            self.workspace_event_manager.latest_seq = 11
+            return original_get_messages(*args, **kwargs)
+
+        with patch.object(self.message_manager, 'get_messages', side_effect=_race_get_messages):
+            response = self.client.get('/ajax/sidebar_dm_snapshot')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertEqual(payload.get('workspace_event_cursor'), 7)
 
 
 if __name__ == '__main__':

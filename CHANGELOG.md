@@ -8,6 +8,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.105] - 2026-03-18
+
+### Fixed
+- **DM search stability** — The DM workspace now uses an explicit `isDmSearchActive()` helper that consistently suspends all live-refresh paths (event polling, snapshot resync, visibility-change refresh, manual Refresh button) while a search query is active. The Refresh button reloads the current search page instead of silently reverting to the live thread.
+- **Channel search stability** — Background thread refresh no longer overwrites channel search results. A new `rerunActiveChannelSearch()` path keeps search results coherent after local actions (delete, edit, stream create, note publish/rate, skill endorse) without reverting to the live thread. Search results scroll to the newest matches on initial search; reruns after local actions preserve scroll position.
+
+### Improved
+- **Left-rail card labels** — Card mode labels are hidden when collapsed (the chevron already indicates the state) and tightened to prevent overlap with count badges on narrow sidebars.
+
+## [0.4.103] - 2026-03-18
+
+### Improved
+- **Bell seen vs clear separation** — Opening the bell now clears the red badge without removing entries from the dropdown. A new `seenThrough` localStorage watermark tracks which items the user has already glanced at, while the existing `dismissedThrough` cursor still controls list removal via the Clear button. Badge count reflects only items newer than the seen cursor. Both cursors stay coherent (Clear advances both).
+
+## [0.4.102] - 2026-03-18
+
+### Improved
+- **Left-rail card states** — Recent DMs and Connected cards now support three persistent viewing states: collapsed, top 5 (peek), and expanded (bounded scroll). State persists per user in localStorage. Header toggle collapses/expands; footer toggle switches between peek and full list. DM unread total now reflects all contacts, not just the visible slice.
+- **Mini-player placement** — The sidebar mini-player can now be moved between a top and bottom slot. Placement persists per user in localStorage. Defaults to the top utility slot.
+
+## [0.4.101] - 2026-03-18
+
+### Fixed
+- **Channel read clears attention immediately** — Opening a channel now triggers an immediate sidebar and bell attention refresh when unread state is cleared, instead of waiting for the next poll cycle. `mark_channel_read()` returns whether it actually cleared unread state, the AJAX response exposes `marked_read`, and the channel view calls `requestCanopySidebarAttentionRefresh({ force: true })` on a positive transition.
+
 ## [0.4.100] - 2026-03-17
 
 ### Added

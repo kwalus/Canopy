@@ -75,6 +75,8 @@ class TestFrontendRegressions(unittest.TestCase):
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         self.assertIn("if (currentChannelId && channelId === currentChannelId) {", channels_template)
         self.assertIn("requestChannelThreadRefresh();", channels_template)
+        self.assertIn("if (data && data.marked_read && typeof window.requestCanopySidebarAttentionRefresh === 'function') {", channels_template)
+        self.assertIn("window.requestCanopySidebarAttentionRefresh({ force: true }).catch(() => {});", channels_template)
 
     def test_notification_bell_uses_attention_snapshot_and_peer_polling_stays_separate(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
@@ -88,10 +90,14 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("img.src = avatarUrl;", main_js)
         self.assertIn("iconWrap.textContent = fallbackInitial;", main_js)
         self.assertIn("const canopyAttentionDismissStorageKey = (() => {", main_js)
+        self.assertIn("const canopyAttentionSeenStorageKey = (() => {", main_js)
         self.assertIn("window.localStorage.setItem(canopyAttentionDismissStorageKey, String(normalized));", main_js)
+        self.assertIn("window.localStorage.setItem(canopyAttentionSeenStorageKey, String(normalized));", main_js)
         self.assertIn("function filterCanopyAttentionItems(items) {", main_js)
+        self.assertIn("function countUnseenCanopyAttentionItems(items) {", main_js)
         self.assertIn("window.renderCanopyAttentionBell(filterCanopyAttentionItems(canopySidebarAttentionState.items));", main_js)
         self.assertIn("saveCanopyAttentionDismissCursor(canopySidebarAttentionState.currentEventCursor);", main_js)
+        self.assertIn("saveCanopyAttentionSeenCursor(canopySidebarAttentionState.currentEventCursor);", main_js)
         self.assertIn("const CANOPY_ATTENTION_FILTER_DEFS = [", main_js)
         self.assertIn("const canopyAttentionFilterStorageKey = (() => {", main_js)
         self.assertIn("function renderFilterBar() {", main_js)
@@ -181,6 +187,44 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('function startCanopyWorkspaceAttentionPolling()', main_js)
         self.assertIn('function pollCanopyWorkspaceAttentionEvents()', main_js)
         self.assertIn("requestCanopySidebarDmRefresh({ force: false }).catch(() => {});", main_js)
+
+    def test_sidebar_cards_support_three_states_and_mini_player_placement(self) -> None:
+        base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        self.assertIn('id="sidebar-dm-card"', base_template)
+        self.assertIn('id="sidebar-dm-toggle"', base_template)
+        self.assertIn('id="sidebar-dm-expand-btn"', base_template)
+        self.assertIn('id="sidebar-peers-card"', base_template)
+        self.assertIn('id="sidebar-peers-toggle"', base_template)
+        self.assertIn('id="sidebar-peers-expand-btn"', base_template)
+        self.assertIn('id="sidebar-peers-open-modal"', base_template)
+        self.assertIn('id="sidebar-media-mini-slot-top"', base_template)
+        self.assertIn('id="sidebar-media-mini-slot-bottom"', base_template)
+        self.assertIn('id="sidebar-media-mini-pin"', base_template)
+        self.assertIn("const SIDEBAR_CARD_PEEK_LIMIT = 5;", main_js)
+        self.assertIn("function toggleSidebarCardCollapsed(kind)", main_js)
+        self.assertIn("function toggleSidebarCardExpansion(kind, totalCount)", main_js)
+        self.assertIn("function updateSidebarCardChrome(kind, totalCount)", main_js)
+        self.assertIn("function setCanopySidebarMiniPosition(nextPosition)", main_js)
+        self.assertIn("setCanopySidebarMiniPosition(canopySidebarRailState.miniPosition);", main_js)
+
+    def test_dm_search_uses_explicit_search_state_to_suspend_live_refresh(self) -> None:
+        messages_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
+        self.assertIn("const DM_SEARCH_QUERY = ", messages_template)
+        self.assertIn("function isDmSearchActive() {", messages_template)
+        self.assertIn("if (dmEventPollInFlight || isDmSearchActive()) {", messages_template)
+        self.assertIn("if (isDmSearchActive()) {\n            window.location.reload();\n            return;\n        }", messages_template)
+        self.assertIn("if (!document.hidden && !isDmSearchActive()) {", messages_template)
+        self.assertIn("return window.location.search.includes('search=');", messages_template)
+
+    def test_channel_search_preserves_search_view_and_scrolls_to_top(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        self.assertIn("let currentChannelSearchQuery = '';", channels_template)
+        self.assertIn("if (isSearchActive) {\n        return;\n    }", channels_template)
+        self.assertIn("scrollToBottom: false,", channels_template)
+        self.assertIn("forceScroll: opts.scrollToBottom !== false,", channels_template)
+        self.assertIn("function rerunActiveChannelSearch(options = {}) {", channels_template)
+        self.assertNotIn("if (isSearchActive) {\n        loadChannelMessages(currentChannelId, { forceScroll });", channels_template)
 
     def test_curated_channel_creation_and_member_policy_controls_exist(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')

@@ -349,10 +349,136 @@
         const canopyInitialAttentionActivityRev = window.CANOPY_VARS ? (window.CANOPY_VARS.attentionActivityRev || '') : '';
         const canopyInitialAttentionEventCursor = window.CANOPY_VARS ? Number(window.CANOPY_VARS.attentionEventCursor || 0) : 0;
         const canopyLocalPeerId = window.CANOPY_VARS ? String(window.CANOPY_VARS.localPeerId || '').trim() : '';
-        const SIDEBAR_VISIBLE_PEER_LIMIT = 12;
+        const SIDEBAR_CARD_PEEK_LIMIT = 5;
+        const canopySidebarRailStoragePrefix = (() => {
+            const userId = window.CANOPY_VARS ? String(window.CANOPY_VARS.userId || 'local_user').trim() : 'local_user';
+            return `canopy.sidebar.rail.${userId || 'local_user'}`;
+        })();
         window.canopyPeerProfiles = canopyPeerProfiles || {};
         window.canopyPeerTrust = canopyPeerTrust || {};
         window.canopyInitialConnectedPeers = canopyInitialConnectedPeers || [];
+
+        function normalizeSidebarCardState(state) {
+            const raw = String(state || '').trim().toLowerCase();
+            if (raw === 'collapsed' || raw === 'expanded') return raw;
+            return 'peek';
+        }
+
+        function loadSidebarRailPreference(key, fallback) {
+            try {
+                if (!window.localStorage) return fallback;
+                const raw = window.localStorage.getItem(`${canopySidebarRailStoragePrefix}.${key}`);
+                return raw == null ? fallback : raw;
+            } catch (_) {
+                return fallback;
+            }
+        }
+
+        function saveSidebarRailPreference(key, value) {
+            try {
+                if (window.localStorage) {
+                    window.localStorage.setItem(`${canopySidebarRailStoragePrefix}.${key}`, String(value));
+                }
+            } catch (_) {}
+        }
+
+        const canopySidebarRailState = {
+            cards: {
+                dm: normalizeSidebarCardState(loadSidebarRailPreference('dmCardState', 'peek')),
+                peers: normalizeSidebarCardState(loadSidebarRailPreference('peerCardState', 'peek')),
+            },
+            miniPosition: String(loadSidebarRailPreference('miniPosition', 'top') || 'top').trim().toLowerCase() === 'bottom' ? 'bottom' : 'top',
+        };
+
+        function getSidebarCardState(kind) {
+            return canopySidebarRailState.cards[kind] || 'peek';
+        }
+
+        function setSidebarCardState(kind, nextState) {
+            const normalized = normalizeSidebarCardState(nextState);
+            canopySidebarRailState.cards[kind] = normalized;
+            saveSidebarRailPreference(kind === 'dm' ? 'dmCardState' : 'peerCardState', normalized);
+            if (kind === 'dm') {
+                canopyRenderSidebarDmContacts(canopySidebarDmState.contacts);
+            } else if (kind === 'peers') {
+                renderSidebarPeers();
+            }
+        }
+
+        function toggleSidebarCardCollapsed(kind) {
+            const current = getSidebarCardState(kind);
+            setSidebarCardState(kind, current === 'collapsed' ? 'peek' : 'collapsed');
+        }
+
+        function toggleSidebarCardExpansion(kind, totalCount) {
+            const current = getSidebarCardState(kind);
+            const normalizedTotal = Math.max(0, Number(totalCount) || 0);
+            if (normalizedTotal <= SIDEBAR_CARD_PEEK_LIMIT) {
+                if (current === 'collapsed') {
+                    setSidebarCardState(kind, 'peek');
+                }
+                return;
+            }
+            setSidebarCardState(kind, current === 'expanded' ? 'peek' : 'expanded');
+        }
+
+        function visibleSidebarCardItems(kind, items) {
+            const normalized = Array.isArray(items) ? items.filter(Boolean) : [];
+            const state = getSidebarCardState(kind);
+            if (state === 'collapsed') return [];
+            if (state === 'expanded') return normalized;
+            return normalized.slice(0, SIDEBAR_CARD_PEEK_LIMIT);
+        }
+
+        function updateSidebarCardChrome(kind, totalCount) {
+            const state = getSidebarCardState(kind);
+            const safeTotal = Math.max(0, Number(totalCount) || 0);
+            const prefix = kind === 'dm' ? 'sidebar-dm' : 'sidebar-peers';
+            const card = document.getElementById(`${prefix}-card`);
+            const modeLabel = document.getElementById(`${prefix}-mode-label`);
+            const toggleBtn = document.getElementById(`${prefix}-toggle`);
+            const footer = document.getElementById(`${prefix}-footer`);
+            const summary = document.getElementById(`${prefix}-summary`);
+            const expandBtn = document.getElementById(`${prefix}-expand-btn`);
+            const hasOverflow = safeTotal > SIDEBAR_CARD_PEEK_LIMIT;
+            if (card) {
+                card.setAttribute('data-view-state', state);
+            }
+            if (modeLabel) {
+                modeLabel.textContent = state === 'collapsed' ? '' : (state === 'expanded' ? 'All' : 'Top 5');
+                modeLabel.hidden = state === 'collapsed';
+            }
+            if (toggleBtn) {
+                const icon = toggleBtn.querySelector('i');
+                if (icon) {
+                    icon.className = `bi bi-chevron-${state === 'collapsed' ? 'down' : 'up'}`;
+                }
+                toggleBtn.setAttribute('aria-label', `${state === 'collapsed' ? 'Expand' : 'Collapse'} ${kind === 'dm' ? 'recent direct messages' : 'connected peers'}`);
+            }
+            if (summary) {
+                if (safeTotal <= 0) {
+                    summary.textContent = kind === 'dm' ? 'No recent conversations' : 'No active peers';
+                } else if (state === 'expanded' && hasOverflow) {
+                    summary.textContent = `Showing all ${safeTotal}`;
+                } else if (hasOverflow) {
+                    summary.textContent = `Showing top ${SIDEBAR_CARD_PEEK_LIMIT} of ${safeTotal}`;
+                } else {
+                    summary.textContent = `Showing all ${safeTotal}`;
+                }
+            }
+            if (footer) {
+                footer.hidden = state === 'collapsed' || safeTotal <= 0;
+            }
+            if (expandBtn) {
+                expandBtn.hidden = state === 'collapsed' || !hasOverflow;
+                expandBtn.innerHTML = state === 'expanded'
+                    ? '<i class="bi bi-arrows-collapse"></i><span>Show less</span>'
+                    : `<i class="bi bi-arrows-angle-expand"></i><span>View ${safeTotal - SIDEBAR_CARD_PEEK_LIMIT} more</span>`;
+                expandBtn.setAttribute('aria-label', state === 'expanded'
+                    ? `Show fewer ${kind === 'dm' ? 'direct messages' : 'connected peers'}`
+                    : `Show more ${kind === 'dm' ? 'direct messages' : 'connected peers'}`);
+            }
+        }
 
         function canopyInitial(label) {
             const text = (label || '?').trim();
@@ -523,8 +649,6 @@
 
         function renderSidebarPeers() {
             const listEl = document.getElementById('sidebar-peer-list');
-            const moreWrap = document.getElementById('sidebar-peer-more');
-            const moreBtn = document.getElementById('sidebar-peer-more-btn');
             if (!listEl) return;
             const activePeers = Array.from(canopySidebarPeerState.peers.values())
                 .filter(record => record && record.active)
@@ -541,24 +665,16 @@
                 empty.textContent = 'No active peers';
                 listEl.appendChild(empty);
                 setSidebarPeerCount(0);
-                if (moreWrap) moreWrap.style.display = 'none';
+                updateSidebarCardChrome('peers', 0);
                 return;
             }
 
-            const visiblePeers = activePeers.slice(0, SIDEBAR_VISIBLE_PEER_LIMIT);
+            const visiblePeers = visibleSidebarCardItems('peers', activePeers);
             visiblePeers.forEach(record => {
                 listEl.appendChild(createSidebarPeerElement(record));
             });
             setSidebarPeerCount(activePeers.length);
-            const overflowCount = Math.max(0, activePeers.length - visiblePeers.length);
-            if (moreWrap && moreBtn) {
-                if (overflowCount > 0) {
-                    moreWrap.style.display = '';
-                    moreBtn.textContent = `View ${overflowCount} more peer${overflowCount === 1 ? '' : 's'}`;
-                } else {
-                    moreWrap.style.display = 'none';
-                }
-            }
+            updateSidebarCardChrome('peers', activePeers.length);
             renderSidebarPeerModalList();
         }
 
@@ -635,10 +751,27 @@
 
         document.addEventListener('DOMContentLoaded', function() {
             seedSidebarPeerState();
+            canopyRenderSidebarDmContacts(canopySidebarDmState.contacts);
             renderSidebarPeers();
-            const moreBtn = document.getElementById('sidebar-peer-more-btn');
-            if (moreBtn) {
-                moreBtn.addEventListener('click', openSidebarPeersModal);
+            const dmToggleBtn = document.getElementById('sidebar-dm-toggle');
+            if (dmToggleBtn) {
+                dmToggleBtn.addEventListener('click', () => toggleSidebarCardCollapsed('dm'));
+            }
+            const dmExpandBtn = document.getElementById('sidebar-dm-expand-btn');
+            if (dmExpandBtn) {
+                dmExpandBtn.addEventListener('click', () => toggleSidebarCardExpansion('dm', canopySidebarDmState.contacts.length));
+            }
+            const peersToggleBtn = document.getElementById('sidebar-peers-toggle');
+            if (peersToggleBtn) {
+                peersToggleBtn.addEventListener('click', () => toggleSidebarCardCollapsed('peers'));
+            }
+            const peersExpandBtn = document.getElementById('sidebar-peers-expand-btn');
+            if (peersExpandBtn) {
+                peersExpandBtn.addEventListener('click', () => toggleSidebarCardExpansion('peers', getActiveSidebarPeers().length));
+            }
+            const peersOpenModalBtn = document.getElementById('sidebar-peers-open-modal');
+            if (peersOpenModalBtn) {
+                peersOpenModalBtn.addEventListener('click', openSidebarPeersModal);
             }
             const peerSearch = document.getElementById('sidebar-peers-search');
             if (peerSearch) {
@@ -724,7 +857,8 @@
             const totalEl = document.getElementById('sidebar-dm-unread-total');
             if (!listEl) return;
 
-            const normalized = Array.isArray(contacts) ? contacts.filter(Boolean).slice(0, 5) : [];
+            const normalized = Array.isArray(contacts) ? contacts.filter(Boolean) : [];
+            const visibleContacts = visibleSidebarCardItems('dm', normalized);
             const totalUnread = normalized.reduce((sum, contact) => sum + Math.max(0, Number(contact && contact.unread_count) || 0), 0);
             if (totalEl) totalEl.textContent = String(totalUnread);
 
@@ -734,10 +868,11 @@
                 empty.className = 'sidebar-peer-empty';
                 empty.textContent = 'No recent direct messages';
                 listEl.appendChild(empty);
+                updateSidebarCardChrome('dm', 0);
                 return;
             }
 
-            normalized.forEach(contact => {
+            visibleContacts.forEach(contact => {
                 const link = document.createElement('a');
                 link.className = 'sidebar-dm-contact';
                 if (Number(contact.unread_count) > 0) {
@@ -807,6 +942,8 @@
 
                 listEl.appendChild(link);
             });
+
+            updateSidebarCardChrome('dm', normalized.length);
         }
 
         window.syncCanopySidebarDmContacts = function(payload) {
@@ -928,6 +1065,10 @@
             const userId = window.CANOPY_VARS ? String(window.CANOPY_VARS.userId || 'local_user').trim() : 'local_user';
             return `canopy.attention.dismissedThrough.${userId || 'local_user'}`;
         })();
+        const canopyAttentionSeenStorageKey = (() => {
+            const userId = window.CANOPY_VARS ? String(window.CANOPY_VARS.userId || 'local_user').trim() : 'local_user';
+            return `canopy.attention.seenThrough.${userId || 'local_user'}`;
+        })();
 
         const CANOPY_ATTENTION_FILTER_DEFS = [
             { key: 'mention', label: 'Mentions', icon: 'bi-at' },
@@ -997,6 +1138,26 @@
             return normalized;
         }
 
+        function loadCanopyAttentionSeenCursor() {
+            try {
+                const raw = window.localStorage ? window.localStorage.getItem(canopyAttentionSeenStorageKey) : null;
+                return Math.max(0, Number(raw || 0) || 0);
+            } catch (_) {
+                return 0;
+            }
+        }
+
+        function saveCanopyAttentionSeenCursor(value) {
+            const normalized = Math.max(0, Number(value || 0) || 0);
+            canopySidebarAttentionState.seenThroughCursor = normalized;
+            try {
+                if (window.localStorage) {
+                    window.localStorage.setItem(canopyAttentionSeenStorageKey, String(normalized));
+                }
+            } catch (_) {}
+            return normalized;
+        }
+
         function filterCanopyAttentionItems(items) {
             const dismissedThrough = Math.max(0, Number(canopySidebarAttentionState.dismissedThroughCursor || 0) || 0);
             const normalized = Array.isArray(items) ? items.filter(Boolean) : [];
@@ -1012,7 +1173,24 @@
             });
         }
 
+        function countUnseenCanopyAttentionItems(items) {
+            const seenThrough = Math.max(
+                0,
+                Number(canopySidebarAttentionState.seenThroughCursor || 0) || 0,
+                Number(canopySidebarAttentionState.dismissedThroughCursor || 0) || 0
+            );
+            const normalized = Array.isArray(items) ? items.filter(Boolean) : [];
+            return normalized.reduce((sum, item) => {
+                const seq = Math.max(0, Number(item && item.seq || 0) || 0);
+                return sum + (seq > seenThrough ? 1 : 0);
+            }, 0);
+        }
+
         canopySidebarAttentionState.dismissedThroughCursor = loadCanopyAttentionDismissCursor();
+        canopySidebarAttentionState.seenThroughCursor = Math.max(
+            canopySidebarAttentionState.dismissedThroughCursor,
+            loadCanopyAttentionSeenCursor()
+        );
         canopySidebarAttentionState.filters = loadCanopyAttentionFilters();
 
         const SIDEBAR_ATTENTION_EVENT_TYPES = [
@@ -4523,11 +4701,11 @@
             window.renderCanopyAttentionBell = function(items) {
                 const normalized = Array.isArray(items) ? items.filter(Boolean).slice(0, 12) : [];
                 if (!listEl) {
-                    setBadge(normalized.length);
+                    setBadge(countUnseenCanopyAttentionItems(normalized));
                     return;
                 }
                 listEl.innerHTML = '';
-                setBadge(normalized.length);
+                setBadge(countUnseenCanopyAttentionItems(normalized));
                 if (!normalized.length) {
                     if (emptyWrap) emptyWrap.style.display = 'block';
                     return;
@@ -4610,6 +4788,7 @@
                 clearBtn.addEventListener('click', () => {
                     canopySidebarAttentionState.items = [];
                     saveCanopyAttentionDismissCursor(canopySidebarAttentionState.currentEventCursor);
+                    saveCanopyAttentionSeenCursor(canopySidebarAttentionState.currentEventCursor);
                     if (window.renderCanopyAttentionBell) {
                         window.renderCanopyAttentionBell([]);
                     }
@@ -4628,6 +4807,7 @@
 
             if (bellBtn) {
                 bellBtn.addEventListener('click', () => {
+                    saveCanopyAttentionSeenCursor(canopySidebarAttentionState.currentEventCursor);
                     if (window.renderCanopyAttentionBell) {
                         window.renderCanopyAttentionBell(filterCanopyAttentionItems(canopySidebarAttentionState.items));
                     }
@@ -4676,10 +4856,13 @@
             const playBtn = document.getElementById('sidebar-media-mini-play');
             const jumpBtn = document.getElementById('sidebar-media-mini-jump');
             const pipBtn = document.getElementById('sidebar-media-mini-pip');
+            const pinBtn = document.getElementById('sidebar-media-mini-pin');
             const closeBtn = document.getElementById('sidebar-media-mini-close');
             const timeEl = document.getElementById('sidebar-media-mini-time');
             const mainScroller = document.querySelector('.main-content');
             const miniVideoHost = document.getElementById('sidebar-media-mini-video');
+            const topSlot = document.getElementById('sidebar-media-mini-slot-top');
+            const bottomSlot = document.getElementById('sidebar-media-mini-slot-bottom');
 
             const state = {
                 current: null,
@@ -4691,6 +4874,29 @@
                 returnUrl: null,
                 dockedSubtitle: null
             };
+
+            function updateMiniPlacementControl() {
+                if (!pinBtn) return;
+                const atBottom = canopySidebarRailState.miniPosition === 'bottom';
+                pinBtn.innerHTML = atBottom
+                    ? '<i class="bi bi-arrow-up-square"></i>'
+                    : '<i class="bi bi-arrow-down-square"></i>';
+                pinBtn.title = atBottom ? 'Move mini player to top' : 'Move mini player lower';
+                pinBtn.setAttribute('aria-label', atBottom ? 'Move mini player to top' : 'Move mini player lower');
+            }
+
+            function setCanopySidebarMiniPosition(nextPosition) {
+                const normalized = String(nextPosition || '').trim().toLowerCase() === 'bottom' ? 'bottom' : 'top';
+                const targetSlot = normalized === 'bottom' ? bottomSlot : topSlot;
+                if (mini && targetSlot && mini.parentElement !== targetSlot) {
+                    targetSlot.appendChild(mini);
+                }
+                canopySidebarRailState.miniPosition = normalized;
+                saveSidebarRailPreference('miniPosition', normalized);
+                updateMiniPlacementControl();
+            }
+
+            setCanopySidebarMiniPosition(canopySidebarRailState.miniPosition);
 
             function mediaTypeFor(el) {
                 if (!el || !el.tagName) return '';
@@ -5439,6 +5645,12 @@
                         miniVideoHost.innerHTML = '';
                     }
                     hideMini();
+                });
+            }
+
+            if (pinBtn) {
+                pinBtn.addEventListener('click', () => {
+                    setCanopySidebarMiniPosition(canopySidebarRailState.miniPosition === 'bottom' ? 'top' : 'bottom');
                 });
             }
 

@@ -4733,6 +4733,7 @@ let channelSendInFlight = false;
 let replyToMessageId = null;   // threading: parent message we're replying to
 let replyToAuthor = '';
 let isSearchActive = false;
+let currentChannelSearchQuery = '';
 let initialFocusMessageId = null;
 let channelRefreshInFlight = false;
 let pendingChannelMessages = null;
@@ -6020,6 +6021,9 @@ function loadChannelMessages(channelId, options = {}) {
                 const hint = data.warning ? ` <small class="d-block mt-2 text-muted">${escapeHtml(String(data.warning).slice(0, 120))}</small>` : '';
                 messagesContainer.innerHTML = '<div class="text-center text-muted p-4">No messages yet' + hint + '</div>';
             }
+            if (data && data.marked_read && typeof window.requestCanopySidebarAttentionRefresh === 'function') {
+                window.requestCanopySidebarAttentionRefresh({ force: true }).catch(() => {});
+            }
         })
         .catch(error => {
             if (loadToken !== activeChannelLoadToken || String(currentChannelId) !== requestedChannelId) {
@@ -6248,6 +6252,8 @@ function displayMessages(messages, options = {}) {
 		            if (!focused && container) {
 		                container.scrollTop = container.scrollHeight;
 		            }
+		        } else if (container && options.scrollToTop) {
+		            container.scrollTop = 0;
 		        } else if (container) {
 		            if (options.forceScroll || wasNearBottom) {
 		                container.scrollTop = container.scrollHeight;
@@ -8790,7 +8796,6 @@ function requestChannelThreadRefresh(options = {}) {
         return;
     }
     if (isSearchActive) {
-        loadChannelMessages(currentChannelId, { forceScroll });
         return;
     }
     if (channelLoadInFlight || channelRefreshInFlight) {
@@ -9203,7 +9208,9 @@ function submitCommunityNote() {
             const modal = bootstrap.Modal.getInstance(modalEl);
             if (modal) modal.hide();
         }
-        requestChannelThreadRefresh({ forceScroll: false });
+        if (!rerunActiveChannelSearch({ scrollToTop: false })) {
+            requestChannelThreadRefresh({ forceScroll: false });
+        }
     }).catch((error) => {
         showAlert(error.error || 'Failed to publish note', 'danger');
     });
@@ -9215,7 +9222,9 @@ function rateCommunityNote(noteId, helpful) {
         body: JSON.stringify({ helpful: !!helpful })
     }).then(() => {
         showAlert('Note rating saved', 'success');
-        requestChannelThreadRefresh({ forceScroll: false });
+        if (!rerunActiveChannelSearch({ scrollToTop: false })) {
+            requestChannelThreadRefresh({ forceScroll: false });
+        }
     }).catch((error) => {
         showAlert(error.error || 'Failed to rate note', 'danger');
     });
@@ -9227,7 +9236,9 @@ function endorseSkill(skillId) {
         body: JSON.stringify({ weight: 1.0 })
     }).then(() => {
         showAlert('Skill endorsed', 'success');
-        requestChannelThreadRefresh({ forceScroll: false });
+        if (!rerunActiveChannelSearch({ scrollToTop: false })) {
+            requestChannelThreadRefresh({ forceScroll: false });
+        }
     }).catch((error) => {
         showAlert(error.error || 'Failed to endorse skill', 'danger');
     });
@@ -9773,7 +9784,9 @@ async function submitStreamCreateModal() {
             if (modal) modal.hide();
         }
         showAlert(`Stream "${title}" created`, 'success');
-        requestChannelThreadRefresh({ forceScroll: true });
+        if (!rerunActiveChannelSearch({ scrollToTop: false })) {
+            requestChannelThreadRefresh({ forceScroll: true });
+        }
     } catch (err) {
         const msg = err && err.message ? err.message : 'Failed to create stream';
         showAlert(msg, 'danger');
@@ -11091,12 +11104,16 @@ function sendMessage(event) {
             apiCall(`/ajax/channel_messages/${currentChannelId}`)
                 .then(freshData => {
                     if (freshData && freshData.messages) {
-                        if (!appendNewMessages(freshData.messages)) {
+                        if (isSearchActive) {
+                            rerunActiveChannelSearch({ scrollToTop: false });
+                        } else if (!appendNewMessages(freshData.messages)) {
                             displayMessages(freshData.messages, { forceScroll: true });
                         }
                     }
                 }).catch(() => {
-                    requestChannelThreadRefresh({ forceScroll: true });
+                    if (!rerunActiveChannelSearch({ scrollToTop: false })) {
+                        requestChannelThreadRefresh({ forceScroll: true });
+                    }
                 });
         } else {
             console.error('Send message failed:', data.error);
@@ -11779,7 +11796,9 @@ function saveInlineChannelMessageEdit(messageId) {
         }
         cancelInlineChannelMessageEdit(messageId, true);
         showAlert('Message updated successfully', 'success');
-        requestChannelThreadRefresh({ forceScroll: false });
+        if (!rerunActiveChannelSearch({ scrollToTop: false })) {
+            requestChannelThreadRefresh({ forceScroll: false });
+        }
     })
     .catch(error => {
         showAlert(error.error || error.message || 'Failed to update message', 'danger');
@@ -12369,6 +12388,9 @@ function deleteChannelById(channelId, modal) {
 // Utility functions
 function refreshMessages() {
     if (!currentChannelId) return;
+    if (rerunActiveChannelSearch({ scrollToTop: false })) {
+        return;
+    }
     if (isChannelMediaPlaying()) {
         // Incremental refresh to preserve audio/video playback
         apiCall(`/ajax/channel_messages/${currentChannelId}`)
@@ -12872,7 +12894,9 @@ function deleteChannelMessage(messageId) {
                 msgEl.style.opacity = '0';
                 setTimeout(() => msgEl.remove(), 300);
             }
-            requestChannelThreadRefresh({ forceScroll: false });
+            if (!rerunActiveChannelSearch({ scrollToTop: false })) {
+                requestChannelThreadRefresh({ forceScroll: false });
+            }
         } else {
             showAlert(data.error || 'Failed to delete message', 'danger');
         }
@@ -12883,19 +12907,31 @@ function deleteChannelMessage(messageId) {
 }
 
 // --- Channel Search ---
-function searchChannelMessages() {
-    const query = document.getElementById('search-input').value.trim();
-    if (!query || !currentChannelId) return;
+function searchChannelMessages(options = {}) {
+    const opts = options || {};
+    const query = String(Object.prototype.hasOwnProperty.call(opts, 'query') ? opts.query : (document.getElementById('search-input').value || '')).trim();
+    if (!query || !currentChannelId) return Promise.resolve(null);
 
     isSearchActive = true;
+    currentChannelSearchQuery = query;
     document.getElementById('search-clear-btn').style.display = '';
 
-    apiCall(`/ajax/channel_search/${currentChannelId}?q=${encodeURIComponent(query)}`)
+    if (!Object.prototype.hasOwnProperty.call(opts, 'query')) {
+        const searchInput = document.getElementById('search-input');
+        if (searchInput) {
+            searchInput.value = query;
+        }
+    }
+
+    return apiCall(`/ajax/channel_search/${currentChannelId}?q=${encodeURIComponent(query)}`)
         .then(data => {
             const container = document.getElementById('messages-list');
+            const scrollContainer = document.getElementById('messages-container');
             if (data.messages && data.messages.length > 0) {
-                // displayMessages writes into messages-list; prepend banner after
-                displayMessages(data.messages, { ignoreSignature: true, forceScroll: true });
+                displayMessages(data.messages, {
+                    ignoreSignature: true,
+                    forceScroll: opts.scrollToBottom !== false,
+                });
                 const banner = document.createElement('div');
                 banner.className = 'alert alert-info py-1 px-2 mb-2';
                 banner.style.fontSize = '0.85rem';
@@ -12903,6 +12939,9 @@ function searchChannelMessages() {
                     ${data.count} result${data.count !== 1 ? 's' : ''} for "<strong>${escapeHtml(query)}</strong>"
                     <button class="btn btn-sm btn-link p-0 ms-2" onclick="clearSearch()">Clear</button>`;
                 container.prepend(banner);
+                if (scrollContainer && opts.scrollToBottom !== false) {
+                    scrollContainer.scrollTop = scrollContainer.scrollHeight;
+                }
             } else {
                 container.innerHTML = `<div class="text-center text-muted p-4">
                     <i class="bi bi-search fs-3"></i>
@@ -12910,14 +12949,32 @@ function searchChannelMessages() {
                     <button class="btn btn-sm btn-outline-secondary" onclick="clearSearch()">Clear search</button>
                 </div>`;
             }
+            return data;
         })
         .catch(err => {
             console.error('Search error:', err);
+            return null;
         });
+}
+
+function rerunActiveChannelSearch(options = {}) {
+    if (!isSearchActive || !currentChannelId) {
+        return false;
+    }
+    const query = String(currentChannelSearchQuery || '').trim();
+    if (!query) {
+        return false;
+    }
+    searchChannelMessages({
+        query,
+        scrollToBottom: false,
+    }).catch(() => {});
+    return true;
 }
 
 function clearSearch() {
     isSearchActive = false;
+    currentChannelSearchQuery = '';
     document.getElementById('search-input').value = '';
     document.getElementById('search-clear-btn').style.display = 'none';
     if (currentChannelId) loadChannelMessages(currentChannelId, { forceScroll: true });
