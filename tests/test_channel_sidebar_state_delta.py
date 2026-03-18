@@ -194,7 +194,7 @@ class TestChannelSidebarStateDelta(unittest.TestCase):
         self.assertIn("function refreshChannelMessagesSnapshot(options = {}) {", body)
         self.assertIn("function requestChannelThreadRefresh(options = {}) {", body)
         self.assertIn("if (isSearchActive) {", body)
-        self.assertIn("loadChannelMessages(currentChannelId, { forceScroll });", body)
+        self.assertIn("refreshChannelMessagesSnapshot({ forceScroll });", body)
         self.assertIn("function setSidebarChannelMemberCount(channelId, memberCount) {", body)
         self.assertIn("function applySidebarChannelStateUpdate(channelId, payload) {", body)
         self.assertIn("reason === 'notifications_updated'", body)

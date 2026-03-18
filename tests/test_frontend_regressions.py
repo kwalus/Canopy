@@ -208,6 +208,25 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("function setCanopySidebarMiniPosition(nextPosition)", main_js)
         self.assertIn("setCanopySidebarMiniPosition(canopySidebarRailState.miniPosition);", main_js)
 
+    def test_dm_search_uses_explicit_search_state_to_suspend_live_refresh(self) -> None:
+        messages_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
+        self.assertIn("const DM_SEARCH_QUERY = ", messages_template)
+        self.assertIn("function isDmSearchActive() {", messages_template)
+        self.assertIn("if (dmEventPollInFlight || isDmSearchActive()) {", messages_template)
+        self.assertIn("if (isDmSearchActive()) {\n            window.location.reload();\n            return;\n        }", messages_template)
+        self.assertIn("if (!document.hidden && !isDmSearchActive()) {", messages_template)
+        self.assertIn("return window.location.search.includes('search=');", messages_template)
+
+    def test_channel_search_preserves_search_view_and_scrolls_to_top(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        self.assertIn("let currentChannelSearchQuery = '';", channels_template)
+        self.assertIn("if (isSearchActive) {\n        return;\n    }", channels_template)
+        self.assertIn("scrollToTop: opts.scrollToTop !== false,", channels_template)
+        self.assertIn("forceScroll: false,", channels_template)
+        self.assertIn("container.scrollTop = 0;", channels_template)
+        self.assertIn("function rerunActiveChannelSearch(options = {}) {", channels_template)
+        self.assertNotIn("if (isSearchActive) {\n        loadChannelMessages(currentChannelId, { forceScroll });", channels_template)
+
     def test_curated_channel_creation_and_member_policy_controls_exist(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         self.assertIn('name="create-channel-post-policy"', channels_template)

@@ -244,7 +244,9 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertIn('function pollDmEvents() {', body)
         self.assertIn('function queueDmSnapshot(options) {', body)
         self.assertIn('dmQueuedSnapshotOptions', body)
-        self.assertIn("function refreshMessages() {\n        loadDmSnapshot(", body)
+        self.assertIn("function refreshMessages() {", body)
+        self.assertIn("if (isDmSearchActive()) {", body)
+        self.assertIn("loadDmSnapshot({ forceBottom: false, allowDeferred: false, hardFallback: true }).catch(() => {});", body)
         self.assertIn('/ajax/mention_suggestions?', body)
         self.assertIn('setupMessageDropzone();', body)
         self.assertIn("composer.addEventListener('drop'", body)
@@ -257,7 +259,10 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.get_data(as_text=True)
         self.assertIn('Search DMs and group chats', body)
+        self.assertIn('Search results', body)
         self.assertIn('Relay delivered through broker', body)
+        self.assertIn('Clear search', body)
+        self.assertNotIn('id="dm-composer"', body)
 
     def test_message_search_decrypts_before_matching(self) -> None:
         self.conn.execute(
