@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.102] - 2026-03-18
+
+### Improved
+- **Left-rail card states** — Recent DMs and Connected cards now support three persistent viewing states: collapsed, top 5 (peek), and expanded (bounded scroll). State persists per user in localStorage. Header toggle collapses/expands; footer toggle switches between peek and full list. DM unread total now reflects all contacts, not just the visible slice.
+- **Mini-player placement** — The sidebar mini-player can now be moved between a top and bottom slot. Placement persists per user in localStorage. Defaults to the top utility slot.
+
 ## [0.4.101] - 2026-03-18
 
 ### Fixed

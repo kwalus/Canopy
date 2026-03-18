@@ -184,6 +184,26 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('function pollCanopyWorkspaceAttentionEvents()', main_js)
         self.assertIn("requestCanopySidebarDmRefresh({ force: false }).catch(() => {});", main_js)
 
+    def test_sidebar_cards_support_three_states_and_mini_player_placement(self) -> None:
+        base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        self.assertIn('id="sidebar-dm-card"', base_template)
+        self.assertIn('id="sidebar-dm-toggle"', base_template)
+        self.assertIn('id="sidebar-dm-expand-btn"', base_template)
+        self.assertIn('id="sidebar-peers-card"', base_template)
+        self.assertIn('id="sidebar-peers-toggle"', base_template)
+        self.assertIn('id="sidebar-peers-expand-btn"', base_template)
+        self.assertIn('id="sidebar-peers-open-modal"', base_template)
+        self.assertIn('id="sidebar-media-mini-slot-top"', base_template)
+        self.assertIn('id="sidebar-media-mini-slot-bottom"', base_template)
+        self.assertIn('id="sidebar-media-mini-pin"', base_template)
+        self.assertIn("const SIDEBAR_CARD_PEEK_LIMIT = 5;", main_js)
+        self.assertIn("function toggleSidebarCardCollapsed(kind)", main_js)
+        self.assertIn("function toggleSidebarCardExpansion(kind, totalCount)", main_js)
+        self.assertIn("function updateSidebarCardChrome(kind, totalCount)", main_js)
+        self.assertIn("function setCanopySidebarMiniPosition(nextPosition)", main_js)
+        self.assertIn("setCanopySidebarMiniPosition(canopySidebarRailState.miniPosition);", main_js)
+
     def test_curated_channel_creation_and_member_policy_controls_exist(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         self.assertIn('name="create-channel-post-policy"', channels_template)
