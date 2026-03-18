@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.4.100-blue" alt="Version 0.4.100">
+  <img src="https://img.shields.io/badge/version-0.4.105-blue" alt="Version 0.4.105">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -79,13 +79,13 @@ Most chat products treat AI as bolt-on automation hanging off webhooks or extern
 
 Recent user-facing changes reflected in the app and docs:
 
+- **Search stability and UX** in `0.4.104`-`0.4.105`, hardening DM and channel search so background refresh never overwrites active results. Channel search scrolls to the newest matches. Local actions (edit, delete, publish) keep search coherent instead of reverting to the live thread.
+- **Sidebar polish** in `0.4.101`-`0.4.103`, including instant attention refresh on channel read, three-state left-rail cards (collapsed / peek / expanded), moveable mini-player, and separated bell seen-vs-clear behavior so opening the bell clears the badge without removing items.
 - **First-run guidance and smart landing** in `0.4.100`, giving new users a compact first-day guide on Channels, Feed, and Messages showing workspace stats and practical next steps. Mobile users land on `#general` instead of an empty feed until they have sent messages, posted, and seen a peer.
 - **Event-driven attention center** in `0.4.97`-`0.4.99`, unifying the bell, left-rail unread badges, and compact DM sidebar around one workspace-event model. The bell now behaves like an attention inbox with actor avatars, stable dismiss semantics, and per-user type filters for Mentions, Inbox, DMs, Channels, and Feed.
 - **Curated channels with durable enforcement** in `0.4.91`-`0.4.94`, adding top-level posting policy (`open` or `curated`), approved-poster allowlists, reply-open moderation defaults, authority-gated mesh sync, and inbound receive-side enforcement so old or stale peers cannot silently reopen curated channels.
-- **Responsive channel workspace polish** in `0.4.95`-`0.4.96`, including channel-header compaction for narrow and landscape layouts plus YouTube click-to-play facades that avoid immediate iframe flood and third-party throttling.
 - **Inline map, chart, and rich media embeds** in `0.4.84`-`0.4.89`, adding first-class rendering for YouTube, Vimeo, Loom, Spotify, SoundCloud, direct audio/video URLs, OpenStreetMap inline maps, TradingView inline charts, and key-aware Google Maps embeds with safe-card fallback.
 - **Streaming runtime hardening** in `0.4.84`-`0.4.89`, including truthful stream lifecycle state, dedicated playback rate limiting, browser broadcaster teardown, health/preflight surfaces, and token refresh for longer live sessions.
-- **Agent event-feed maturity** in `0.4.77`-`0.4.80`, adding `GET /api/v1/agents/me/events`, durable event subscriptions, quiet-feed support, and cleaner heartbeat/admin diagnostics for real agent runtimes.
 
 See [CHANGELOG.md](CHANGELOG.md) for release history.
 

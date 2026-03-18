@@ -12928,11 +12928,9 @@ function searchChannelMessages(options = {}) {
             const container = document.getElementById('messages-list');
             const scrollContainer = document.getElementById('messages-container');
             if (data.messages && data.messages.length > 0) {
-                // displayMessages writes into messages-list; prepend banner after
                 displayMessages(data.messages, {
                     ignoreSignature: true,
-                    forceScroll: false,
-                    scrollToTop: opts.scrollToTop !== false,
+                    forceScroll: opts.scrollToBottom !== false,
                 });
                 const banner = document.createElement('div');
                 banner.className = 'alert alert-info py-1 px-2 mb-2';
@@ -12941,15 +12939,15 @@ function searchChannelMessages(options = {}) {
                     ${data.count} result${data.count !== 1 ? 's' : ''} for "<strong>${escapeHtml(query)}</strong>"
                     <button class="btn btn-sm btn-link p-0 ms-2" onclick="clearSearch()">Clear</button>`;
                 container.prepend(banner);
+                if (scrollContainer && opts.scrollToBottom !== false) {
+                    scrollContainer.scrollTop = scrollContainer.scrollHeight;
+                }
             } else {
                 container.innerHTML = `<div class="text-center text-muted p-4">
                     <i class="bi bi-search fs-3"></i>
                     <p>No messages found for "<strong>${escapeHtml(query)}</strong>"</p>
                     <button class="btn btn-sm btn-outline-secondary" onclick="clearSearch()">Clear search</button>
                 </div>`;
-                if (scrollContainer && opts.scrollToTop !== false) {
-                    scrollContainer.scrollTop = 0;
-                }
             }
             return data;
         })
@@ -12969,7 +12967,7 @@ function rerunActiveChannelSearch(options = {}) {
     }
     searchChannelMessages({
         query,
-        scrollToTop: options.scrollToTop !== false,
+        scrollToBottom: false,
     }).catch(() => {});
     return true;
 }

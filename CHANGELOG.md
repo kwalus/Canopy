@@ -8,11 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
-## [0.4.104] - 2026-03-18
+## [0.4.105] - 2026-03-18
 
 ### Fixed
 - **DM search stability** — The DM workspace now uses an explicit `isDmSearchActive()` helper that consistently suspends all live-refresh paths (event polling, snapshot resync, visibility-change refresh, manual Refresh button) while a search query is active. The Refresh button reloads the current search page instead of silently reverting to the live thread.
-- **Channel search stability** — Background thread refresh no longer overwrites channel search results. Search results now render from the top instead of snapping to the bottom. A new `rerunActiveChannelSearch()` path keeps search results coherent after local actions (delete, edit, stream create, note publish/rate, skill endorse) without reverting to the live thread.
+- **Channel search stability** — Background thread refresh no longer overwrites channel search results. A new `rerunActiveChannelSearch()` path keeps search results coherent after local actions (delete, edit, stream create, note publish/rate, skill endorse) without reverting to the live thread. Search results scroll to the newest matches on initial search; reruns after local actions preserve scroll position.
+
+### Improved
+- **Left-rail card labels** — Card mode labels are hidden when collapsed (the chevron already indicates the state) and tightened to prevent overlap with count badges on narrow sidebars.
 
 ## [0.4.103] - 2026-03-18
 

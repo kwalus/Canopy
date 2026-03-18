@@ -221,9 +221,8 @@ class TestFrontendRegressions(unittest.TestCase):
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         self.assertIn("let currentChannelSearchQuery = '';", channels_template)
         self.assertIn("if (isSearchActive) {\n        return;\n    }", channels_template)
-        self.assertIn("scrollToTop: opts.scrollToTop !== false,", channels_template)
-        self.assertIn("forceScroll: false,", channels_template)
-        self.assertIn("container.scrollTop = 0;", channels_template)
+        self.assertIn("scrollToBottom: false,", channels_template)
+        self.assertIn("forceScroll: opts.scrollToBottom !== false,", channels_template)
         self.assertIn("function rerunActiveChannelSearch(options = {}) {", channels_template)
         self.assertNotIn("if (isSearchActive) {\n        loadChannelMessages(currentChannelId, { forceScroll });", channels_template)
 
