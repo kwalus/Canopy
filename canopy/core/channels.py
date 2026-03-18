@@ -4802,7 +4802,7 @@ class ChannelManager:
         role = decision.get('role')
         return str(role) if role else None
 
-    def mark_channel_read(self, channel_id: str, user_id: str) -> None:
+    def mark_channel_read(self, channel_id: str, user_id: str) -> bool:
         """Update last_read_at for a user in a channel to now, clearing its unread count."""
         try:
             with self.db.get_connection() as conn:
@@ -4824,7 +4824,7 @@ class ChannelManager:
                     (channel_id, user_id),
                 ).fetchone()
                 if not unread_exists:
-                    return
+                    return False
                 conn.execute(
                     """UPDATE channel_members SET last_read_at = CURRENT_TIMESTAMP
                        WHERE channel_id = ? AND user_id = ?""",
@@ -4839,8 +4839,10 @@ class ChannelManager:
                 payload={"reason": "channel_read"},
                 dedupe_suffix=f"channel_read:{user_id}",
             )
+            return True
         except Exception as e:
             logger.warning(f"Failed to mark channel {channel_id} as read for {user_id}: {e}")
+            return False
 
     def is_channel_admin(self, channel_id: str, user_id: str) -> bool:
         """Check if a user is an admin (or creator) of a channel."""

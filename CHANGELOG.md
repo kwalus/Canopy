@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.101] - 2026-03-18
+
+### Fixed
+- **Channel read clears attention immediately** — Opening a channel now triggers an immediate sidebar and bell attention refresh when unread state is cleared, instead of waiting for the next poll cycle. `mark_channel_read()` returns whether it actually cleared unread state, the AJAX response exposes `marked_read`, and the channel view calls `requestCanopySidebarAttentionRefresh({ force: true })` on a positive transition.
+
 ## [0.4.100] - 2026-03-17
 
 ### Added

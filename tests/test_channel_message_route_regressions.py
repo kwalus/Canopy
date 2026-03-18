@@ -223,6 +223,15 @@ class TestChannelMessageRouteRegressions(unittest.TestCase):
         payload = response.get_json() or {}
         self.assertEqual(payload.get('workspace_event_cursor'), 5)
 
+    def test_channel_messages_reports_when_view_marks_channel_read(self) -> None:
+        self.channel_manager.mark_channel_read.return_value = True
+
+        response = self.client.get('/ajax/channel_messages/general')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('marked_read'))
+
     def test_channel_messages_snapshot_refreshes_remote_stream_attachment_status(self) -> None:
         message = MagicMock()
         message.id = 'M-stream'

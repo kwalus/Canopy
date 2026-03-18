@@ -75,6 +75,8 @@ class TestFrontendRegressions(unittest.TestCase):
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         self.assertIn("if (currentChannelId && channelId === currentChannelId) {", channels_template)
         self.assertIn("requestChannelThreadRefresh();", channels_template)
+        self.assertIn("if (data && data.marked_read && typeof window.requestCanopySidebarAttentionRefresh === 'function') {", channels_template)
+        self.assertIn("window.requestCanopySidebarAttentionRefresh({ force: true }).catch(() => {});", channels_template)
 
     def test_notification_bell_uses_attention_snapshot_and_peer_polling_stays_separate(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')

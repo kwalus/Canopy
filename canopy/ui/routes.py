@@ -10511,8 +10511,8 @@ def create_ui_blueprint() -> Blueprint:
                         'reason': access.get('reason'),
                     }), 403
                 return jsonify({'error': 'You are not a member of this channel'}), 403
-            # Mark channel as read now that the user is viewing it
-            channel_manager.mark_channel_read(channel_id, user_id)
+            # Mark channel as read now that the user is viewing it.
+            marked_read = channel_manager.mark_channel_read(channel_id, user_id) is True
             try:
                 workspace_event_cursor = int((workspace_event_manager.get_latest_seq() if workspace_event_manager else 0) or 0)
             except Exception:
@@ -11139,6 +11139,7 @@ def create_ui_blueprint() -> Blueprint:
                 'messages': messages_data,
                 'channel_id': channel_id,
                 'count': len(messages_data),
+                'marked_read': marked_read,
                 'workspace_event_cursor': workspace_event_cursor,
                 'focus_message_id': focus_message_id or None,
                 'focus_message_found': focus_message_found,
