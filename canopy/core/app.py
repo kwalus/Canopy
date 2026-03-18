@@ -4062,14 +4062,21 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 # Feed posts newer than what the peer has
                 try:
                     since_feed = feed_latest or '1970-01-01 00:00:00'
+                    visible_feed_modes = ['network', 'public']
+                    try:
+                        if trust_manager and trust_manager.is_peer_trusted(str(from_peer or '').strip()):
+                            visible_feed_modes.append('trusted')
+                    except Exception:
+                        pass
                     with db_manager.get_connection() as conn:
+                        placeholders = ",".join("?" for _ in visible_feed_modes)
                         rows = conn.execute(
                             "SELECT id, author_id, content, content_type, "
                             "visibility, metadata, created_at, expires_at "
                             "FROM feed_posts WHERE created_at > ? AND "
-                            "(visibility = 'network' OR visibility = 'public') "
+                            f"visibility IN ({placeholders}) "
                             "ORDER BY created_at ASC LIMIT 200",
-                            (since_feed,)
+                            (since_feed, *visible_feed_modes)
                         ).fetchall()
                     if rows:
                         feed_posts = []

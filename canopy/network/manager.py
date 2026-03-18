@@ -1872,13 +1872,17 @@ class P2PNetworkManager:
             logger.info(f"Broker request from {from_peer} declined (relay_policy=off)")
             return
 
-        # Check trust score — decline relay for low-trust peers
+        # Privacy-first relay posture: unknown peers do not get broker help.
         if self.get_trust_score:
             try:
                 score = self.get_trust_score(from_peer)
-                if score < 20:
+                threshold = max(
+                    1,
+                    int(getattr(getattr(self.config, 'security', None), 'trust_threshold', 50) or 50),
+                )
+                if score < threshold:
                     logger.warning(f"Broker request from {from_peer} declined "
-                                   f"(trust score {score} < 20)")
+                                   f"(trust score {score} < {threshold})")
                     return
             except Exception:
                 pass
@@ -2650,6 +2654,7 @@ class P2PNetworkManager:
     def broadcast_feed_post(self, post_id: str, author_id: str,
                              content: str, post_type: str = 'text',
                              visibility: str = 'network',
+                             previous_visibility: Optional[str] = None,
                              timestamp: Optional[str] = None,
                              metadata: Optional[dict[Any, Any]] = None,
                              expires_at: Optional[str] = None,
@@ -2666,12 +2671,14 @@ class P2PNetworkManager:
 
         if not self.message_router:
             return False
+        visibility_mode = str(visibility or 'private').strip().lower() or 'private'
+        previous_visibility_mode = str(previous_visibility or visibility_mode).strip().lower() or visibility_mode
         meta: Dict[str, Any] = {
             'type': 'feed_post',
             'post_id': post_id,
             'author_id': author_id,
             'post_type': post_type,
-            'visibility': visibility,
+            'visibility': visibility_mode,
             'timestamp': timestamp,
             'metadata': metadata or {},
             'expires_at': expires_at,
@@ -2706,16 +2713,105 @@ class P2PNetworkManager:
         except Exception as e:
             logger.debug(f"Feed attachment embedding failed: {e}")
 
-        future = asyncio.run_coroutine_threadsafe(
-            self.message_router.send_feed_post_broadcast(content, meta),
-            self._event_loop
+        target_peers, revoke_peers = self._get_feed_post_target_delta(
+            previous_visibility_mode,
+            visibility_mode,
         )
+        if visibility_mode == 'trusted' and not target_peers:
+            logger.info(
+                "Feed post %s visibility=trusted has no trusted connected peers; keeping local only",
+                post_id,
+            )
+
+        async def _send_feed_post() -> bool:
+            sent_any = False
+            if visibility_mode in {'public', 'network'}:
+                sent_any = await self.message_router.send_feed_post_broadcast(content, meta)
+            else:
+                for peer_id in target_peers:
+                    payload = {
+                        'content': content,
+                        'metadata': dict(meta),
+                    }
+                    message = self.message_router.create_message(
+                        MessageType.FEED_POST,
+                        peer_id,
+                        payload,
+                        ttl=getattr(self.message_router, '_CONTENT_TTL', 5),
+                    )
+                    self.message_router.sign_message(message)
+                    if await self.message_router._route_to_peer(message):
+                        sent_any = True
+
+            revoked_any = False
+            if revoke_peers:
+                for peer_id in revoke_peers:
+                    signal_id = secrets.token_hex(12)
+                    if await self.message_router.send_delete_signal(
+                        signal_id=signal_id,
+                        data_type='feed_post',
+                        data_id=post_id,
+                        reason=f"visibility_narrowed:{previous_visibility_mode}->{visibility_mode}",
+                        target_peer=peer_id,
+                    ):
+                        revoked_any = True
+                logger.info(
+                    "Feed post %s revoked from %d peer(s) due to visibility change %s -> %s",
+                    post_id,
+                    len(revoke_peers),
+                    previous_visibility_mode,
+                    visibility_mode,
+                )
+            if visibility_mode in {'private', 'custom'}:
+                return revoked_any or not revoke_peers
+            return sent_any or revoked_any
+
+        future = asyncio.run_coroutine_threadsafe(_send_feed_post(), self._event_loop)
 
         try:
             return future.result(timeout=5.0)
         except Exception as e:
             logger.error(f"Error broadcasting feed post: {e}", exc_info=True)
             return False
+
+    def _get_feed_post_target_peers(self, visibility: str) -> list[str]:
+        """Return connected peer targets for a feed post visibility mode."""
+        visibility_mode = str(visibility or 'private').strip().lower() or 'private'
+        if visibility_mode in {'private', 'custom'}:
+            return []
+        peers = list(self.get_connected_peers())
+        if visibility_mode in {'public', 'network'}:
+            return peers
+        if visibility_mode != 'trusted' or not self.get_trust_score:
+            return []
+        threshold = max(
+            1,
+            int(getattr(getattr(self.config, 'security', None), 'trust_threshold', 50) or 50),
+        )
+        trusted_peers: list[str] = []
+        for peer_id in peers:
+            if not peer_id:
+                continue
+            try:
+                if int(self.get_trust_score(peer_id)) >= threshold:
+                    trusted_peers.append(peer_id)
+            except Exception:
+                continue
+        return trusted_peers
+
+    def _get_feed_post_target_delta(
+        self,
+        previous_visibility: str,
+        visibility: str,
+    ) -> tuple[list[str], list[str]]:
+        """Return (target_peers, revoke_peers) for a feed visibility change."""
+        target_peers = self._get_feed_post_target_peers(visibility)
+        previous_targets = self._get_feed_post_target_peers(previous_visibility)
+        if not previous_targets:
+            return target_peers, []
+        target_set = set(target_peers)
+        revoke_peers = [peer_id for peer_id in previous_targets if peer_id not in target_set]
+        return target_peers, revoke_peers
 
     def broadcast_interaction(self, item_id: str, user_id: str,
                                action: str, item_type: str = 'post',

@@ -387,7 +387,7 @@ class FeedManager:
     @log_performance('feed')
     def create_post(self, author_id: str, content: str,
                    post_type: PostType = PostType.TEXT,
-                   visibility: PostVisibility = PostVisibility.NETWORK,
+                   visibility: PostVisibility = PostVisibility.PRIVATE,
                    metadata: Optional[Dict[str, Any]] = None,
                    permissions: Optional[List[str]] = None,
                    source_type: str = 'human',
@@ -579,6 +579,7 @@ class FeedManager:
                     WHERE (
                         p.visibility = 'public' OR
                         p.visibility = 'network' OR
+                        p.visibility = 'trusted' OR
                         (p.visibility = 'custom' AND pp.user_id = ?) OR
                         p.author_id = ?
                     ) AND (p.expires_at IS NULL OR p.expires_at > CURRENT_TIMESTAMP)
@@ -632,6 +633,7 @@ class FeedManager:
                     WHERE (
                         p.visibility = 'public' OR
                         p.visibility = 'network' OR
+                        p.visibility = 'trusted' OR
                         (p.visibility = 'custom' AND pp.user_id = ?) OR
                         p.author_id = ?
                     )
@@ -663,6 +665,7 @@ class FeedManager:
             WHERE (
                 p.visibility = 'public' OR
                 p.visibility = 'network' OR
+                p.visibility = 'trusted' OR
                 (p.visibility = 'custom' AND pp.user_id = ?) OR
                 p.author_id = ?
             ) AND (p.expires_at IS NULL OR p.expires_at > CURRENT_TIMESTAMP) {max_age_clause}
@@ -992,6 +995,7 @@ class FeedManager:
                     WHERE (
                         p.visibility = 'public' OR
                         p.visibility = 'network' OR
+                        p.visibility = 'trusted' OR
                         (p.visibility = 'custom' AND pp.user_id = ?) OR
                         p.author_id = ?
                     ) AND (p.expires_at IS NULL OR p.expires_at > CURRENT_TIMESTAMP)
@@ -1016,7 +1020,12 @@ class FeedManager:
                         SUM(CASE WHEN author_id = ? THEN 1 ELSE 0 END) as user_posts,
                         COUNT(DISTINCT author_id) as unique_authors
                     FROM feed_posts
-                    WHERE (visibility = 'public' OR visibility = 'network' OR author_id = ?)
+                    WHERE (
+                        visibility = 'public'
+                        OR visibility = 'network'
+                        OR visibility = 'trusted'
+                        OR author_id = ?
+                    )
                       AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
                 """, (user_id, user_id))
                 
@@ -1129,6 +1138,7 @@ class FeedManager:
                     WHERE (
                         p.visibility = 'public' OR
                         p.visibility = 'network' OR
+                        p.visibility = 'trusted' OR
                         (p.visibility = 'custom' AND pp.user_id = ?) OR
                         p.author_id = ?
                     )

@@ -76,13 +76,31 @@ class TrustManager:
     def __init__(self, db_manager: DatabaseManager):
         """Initialize trust manager with database connection."""
         self.db = db_manager
-        self.default_trust_score = 100
+        # Privacy-first baseline: unknown peers are pending review, not trusted.
+        self.default_trust_score = 0
         self.min_trust_score = 0
         self.max_trust_score = 100
         self.delete_timeout_hours = 24
+
+    def has_explicit_trust_score(self, peer_id: str) -> bool:
+        """Return True when a peer has a persisted trust row."""
+        if not peer_id:
+            return False
+        try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT 1 FROM trust_scores WHERE peer_id = ?",
+                    (peer_id,),
+                ).fetchone()
+                return bool(row)
+        except Exception as e:
+            logger.error(f"Failed to check trust row for {peer_id}: {e}")
+            return False
     
     def get_trust_score(self, peer_id: str) -> int:
         """Get current trust score for a peer."""
+        if not peer_id:
+            return self.default_trust_score
         try:
             with self.db.get_connection() as conn:
                 cursor = conn.execute("""
@@ -367,6 +385,8 @@ class TrustManager:
     
     def is_peer_trusted(self, peer_id: str, threshold: int = 50) -> bool:
         """Check if a peer is trusted based on their trust score."""
+        if not self.has_explicit_trust_score(peer_id):
+            return False
         return self.get_trust_score(peer_id) >= threshold
     
     def get_trusted_peers(self, threshold: int = 50) -> List[str]:

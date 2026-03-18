@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.106] - 2026-03-18
+
+### Changed
+- **Privacy-first trust baseline** — Unknown peers now start at trust score 0 (pending review) instead of 100 (implicitly trusted). `is_peer_trusted()` requires an explicit trust row before a peer qualifies. The Trust UI now separates connected-but-unreviewed peers into a "Potential peers" queue rather than placing them into trust tiers by default.
+- **Feed defaults to private** — Feed post creation defaults to `private` ("Only Me") across UI, API, and MCP. Agents and users that omit visibility no longer broadcast unintentionally. Helper text in the feed composer clarifies the default and explains trusted sharing.
+- **Trusted feed visibility consistency** — All feed query paths (`get_user_feed`, `search_posts`, `count_unread_posts`, `get_feed_statistics`, `_get_smart_feed`, `get_posts_since`) now include `trusted` visibility so trusted posts are no longer inconsistently omitted.
+- **Targeted feed propagation** — `broadcast_feed_post()` now computes target peers by visibility scope: public/network → all connected, trusted → only peers meeting the trust threshold, private/custom → no P2P broadcast. Catch-up sync includes trusted posts only for explicitly trusted peers.
+- **Feed visibility narrowing revocation** — When a post is edited from a broader to a narrower visibility, peers that are no longer in scope receive a delete signal. Update call sites in UI, API, and MCP now pass `previous_visibility` so revocation logic can run.
+- **Operator copy clarity** — Settings advise using a separate node for public relay. Channel privacy descriptions clarify that Guarded is moderated/mesh-visible (not private) and Private is for sensitive work.
+
 ## [0.4.105] - 2026-03-18
 
 ### Fixed

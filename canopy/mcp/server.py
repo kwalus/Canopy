@@ -3973,11 +3973,14 @@ class CanopyMCPServer:
                 if not content:
                     raise ValueError("content is required")
                 post_type_str = (args.get("post_type") or "text").lower()
-                visibility_str = (args.get("visibility") or "network").lower()
+                visibility_str = (args.get("visibility") or "private").lower()
                 post_type = PostType.TEXT
                 if post_type_str in {"poll"} or parse_poll(content or ""):
                     post_type = PostType.POLL
-                visibility = PostVisibility.NETWORK if visibility_str == "network" else PostVisibility.NETWORK
+                try:
+                    visibility = PostVisibility(visibility_str)
+                except Exception:
+                    visibility = PostVisibility.PRIVATE
                 expires_at = args.get("expires_at")
                 ttl_seconds = args.get("ttl_seconds")
                 ttl_mode = args.get("ttl_mode")
@@ -4110,6 +4113,7 @@ class CanopyMCPServer:
                     except Exception:
                         pass
 
+                previous_post = feed_manager.get_post(post_id)
                 try:
                     metadata["edited_at"] = datetime.now(timezone.utc).isoformat()
                 except Exception:
@@ -4141,6 +4145,7 @@ class CanopyMCPServer:
                                 content=updated.content,
                                 post_type=updated.post_type.value,
                                 visibility=updated.visibility.value,
+                                previous_visibility=previous_post.visibility.value if getattr(previous_post, "visibility", None) else None,
                                 timestamp=updated.created_at.isoformat() if hasattr(updated.created_at, "isoformat") else str(updated.created_at),
                                 metadata=updated.metadata,
                                 expires_at=updated.expires_at.isoformat() if getattr(updated, "expires_at", None) else None,

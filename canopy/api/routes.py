@@ -3600,7 +3600,8 @@ def create_api_blueprint() -> Blueprint:
             return jsonify({
                 'peer_id': peer_id,
                 'trust_score': score,
-                'is_trusted': is_trusted
+                'is_trusted': is_trusted,
+                'has_explicit_score': trust_manager.has_explicit_trust_score(peer_id),
             })
             
         except Exception as e:
@@ -3751,7 +3752,7 @@ def create_api_blueprint() -> Blueprint:
             
             content = data.get('content')
             post_type = data.get('post_type', 'text')
-            visibility = data.get('visibility', 'network')
+            visibility = data.get('visibility', 'private')
             permissions = data.get('permissions', [])
             metadata = data.get('metadata')
             expires_at = data.get('expires_at')
@@ -3776,7 +3777,7 @@ def create_api_blueprint() -> Blueprint:
             try:
                 vis = PostVisibility(visibility)
             except ValueError:
-                vis = PostVisibility.NETWORK
+                vis = PostVisibility.PRIVATE
             
             # Auto-detect poll posts when content matches poll format
             if pt == PostType.TEXT and parse_poll(content or ''):
@@ -6409,6 +6410,7 @@ def create_api_blueprint() -> Blueprint:
                                 content=updated.content,
                                 post_type=updated.post_type.value,
                                 visibility=updated.visibility.value,
+                                previous_visibility=post.visibility.value if getattr(post, 'visibility', None) else None,
                                 timestamp=updated.created_at.isoformat() if hasattr(updated.created_at, 'isoformat') else str(updated.created_at),
                                 metadata=updated.metadata,
                                 expires_at=updated.expires_at.isoformat() if getattr(updated, 'expires_at', None) else None,

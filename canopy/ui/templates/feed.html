@@ -136,9 +136,10 @@
                         <option value="network">Local Network</option>
                         <option value="trusted">Trusted Peers Only</option>
                         <option value="public">Everyone</option>
-                        <option value="private">Only Me</option>
+                        <option value="private" selected>Only Me</option>
                         <option value="custom">Custom Permissions</option>
                     </select>
+                    <div class="form-text">Default is private. `Trusted` only reaches peers you have explicitly reviewed.</div>
                 </div>
 
                 <div class="col-md-4">
@@ -5275,7 +5276,7 @@
                     id: postId,
                     content: currentContent,
                     post_type: 'text',
-                    visibility: 'network',
+                    visibility: 'private',
                     metadata: {},
                 });
             })
@@ -5338,9 +5339,10 @@
                         <option value="network">Local Network</option>
                         <option value="trusted">Trusted Peers Only</option>
                         <option value="public">Everyone</option>
-                        <option value="private">Only Me</option>
+                        <option value="private" selected>Only Me</option>
                         <option value="custom">Custom Permissions</option>
                     </select>
+                    <div class="form-text small mt-1">Private is the safe default. Promote only when you mean to share.</div>
                 </div>
             </div>
             <div class="mt-2" data-inline-post-existing-attachments></div>
@@ -5398,7 +5400,7 @@
         }
         const visibilitySelect = panel.querySelector('select[data-inline-post-visibility]');
         if (visibilitySelect) {
-            const visibilityValue = String(post.visibility || 'network');
+            const visibilityValue = String(post.visibility || 'private');
             if (visibilitySelect.querySelector(`option[value="${visibilityValue}"]`)) {
                 visibilitySelect.value = visibilityValue;
             }
@@ -5566,7 +5568,7 @@
         const visibilitySelect = panel.querySelector('select[data-inline-post-visibility]');
         const content = ((textarea && textarea.value) || '').trim();
         const postType = ((typeSelect && typeSelect.value) || 'text').trim();
-        const visibility = ((visibilitySelect && visibilitySelect.value) || 'network').trim();
+        const visibility = ((visibilitySelect && visibilitySelect.value) || 'private').trim();
 
         if (!content && state.existingAttachments.length === 0 && state.newAttachments.length === 0) {
             showAlert('Post content or attachments are required', 'warning');

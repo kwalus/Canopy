@@ -1549,7 +1549,7 @@ class DatabaseManager:
         with self.get_connection() as conn:
             conn.execute("""
                 INSERT INTO trust_scores (peer_id, score, notes) 
-                VALUES (?, 100 + ?, ?)
+                VALUES (?, max(0, min(100, ?)), ?)
                 ON CONFLICT(peer_id) DO UPDATE SET
                     score = max(0, min(100, score + ?)),
                     last_interaction = CURRENT_TIMESTAMP,
@@ -1564,7 +1564,7 @@ class DatabaseManager:
                 "SELECT score FROM trust_scores WHERE peer_id = ?", (peer_id,)
             )
             row = cursor.fetchone()
-            return row['score'] if row else 100  # Default trust score
+            return row['score'] if row else 0  # Unknown peers are pending review
     
     def get_all_trust_scores(self) -> Dict[str, int]:
         """Get all trust scores."""

@@ -3631,24 +3631,6 @@ def create_ui_blueprint() -> Blueprint:
             # Device profiles for peer identification
             peer_device_profiles = channel_manager.get_all_peer_device_profiles() if channel_manager else {}
 
-            # Ensure connected peers have entries
-            all_peer_ids = set(trust_scores.keys())
-            for pid in connected_peers:
-                if pid:
-                    all_peer_ids.add(pid)
-            if trust_manager:
-                for pid in all_peer_ids:
-                    if pid not in trust_scores:
-                        score = trust_manager.get_trust_score(pid)
-                        trust_scores[pid] = {
-                            'score': score,
-                            'last_interaction': None,
-                            'compliance_events': 0,
-                            'violation_events': 0,
-                            'notes': 'discovered',
-                            'is_trusted': score >= 50
-                        }
-            
             # Get trust statistics
             trust_stats = trust_manager.get_trust_statistics() if trust_manager else {}
             
@@ -3669,9 +3651,9 @@ def create_ui_blueprint() -> Blueprint:
                 score = score_info.get('score', 0)
                 if score >= 80:
                     tier = 'safe'
-                elif score >= 60:
-                    tier = 'guarded'
                 elif score >= 40:
+                    tier = 'guarded'
+                elif score > 0:
                     tier = 'restricted'
                 else:
                     tier = 'quarantine'
@@ -3680,10 +3662,15 @@ def create_ui_blueprint() -> Blueprint:
             # Potential peers list (introduced but not yet assigned a trust tier)
             potential_peers = []
             existing_peer_ids = set(trust_scores.keys())
+            for pid in connected_peers:
+                if pid and pid not in existing_peer_ids:
+                    potential_peers.append({'peer_id': pid, 'status': 'connected'})
+                    existing_peer_ids.add(pid)
             for peer in introduced_peers:
                 pid = peer.get('peer_id') if isinstance(peer, dict) else None
                 if pid and pid not in existing_peer_ids:
                     potential_peers.append(peer)
+                    existing_peer_ids.add(pid)
             
             return render_template('trust.html',
                                  trust_scores=trust_scores,
@@ -3722,9 +3709,9 @@ def create_ui_blueprint() -> Blueprint:
             if score is None:
                 tier_map = {
                     'safe': 90,
-                    'guarded': 65,
-                    'restricted': 40,
-                    'quarantine': 10
+                    'guarded': 40,
+                    'restricted': 10,
+                    'quarantine': 0
                 }
                 if tier not in tier_map:
                     return jsonify({'error': 'Invalid tier'}), 400
@@ -8565,7 +8552,7 @@ def create_ui_blueprint() -> Blueprint:
             data = request.get_json()
             content = data.get('content', '').strip()
             post_type = data.get('post_type', 'text')
-            visibility = data.get('visibility', 'network')
+            visibility = data.get('visibility', 'private')
             permissions = data.get('permissions', [])
             metadata = data.get('metadata')
             file_attachments = data.get('attachments', [])
@@ -8629,7 +8616,7 @@ def create_ui_blueprint() -> Blueprint:
             
             # Convert visibility to PostVisibility enum
             try:
-                visibility_enum = PostVisibility(visibility if visibility in ['network', 'trusted', 'public', 'private', 'custom'] else 'network')
+                visibility_enum = PostVisibility(visibility if visibility in ['network', 'trusted', 'public', 'private', 'custom'] else 'private')
             except ValueError as e:
                 return jsonify({'error': f'Invalid visibility: {e}'}), 400
             
@@ -9516,6 +9503,7 @@ def create_ui_blueprint() -> Blueprint:
                                 content=updated.content,
                                 post_type=updated.post_type.value,
                                 visibility=updated.visibility.value,
+                                previous_visibility=existing_post.visibility.value if getattr(existing_post, 'visibility', None) else None,
                                 timestamp=updated.created_at.isoformat() if hasattr(updated.created_at, 'isoformat') else str(updated.created_at),
                                 metadata=updated.metadata,
                                 expires_at=updated.expires_at.isoformat() if getattr(updated, 'expires_at', None) else None,
