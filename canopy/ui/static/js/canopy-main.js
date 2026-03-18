@@ -445,7 +445,8 @@
                 card.setAttribute('data-view-state', state);
             }
             if (modeLabel) {
-                modeLabel.textContent = state === 'collapsed' ? 'Collapsed' : (state === 'expanded' ? 'Scroll' : 'Top 5');
+                modeLabel.textContent = state === 'collapsed' ? '' : (state === 'expanded' ? 'All' : 'Top 5');
+                modeLabel.hidden = state === 'collapsed';
             }
             if (toggleBtn) {
                 const icon = toggleBtn.querySelector('i');
