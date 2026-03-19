@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.109] - 2026-03-19
+
+### Security
+- **Debug-log metadata leak closed** — `Message.to_dict()` no longer logs raw metadata dicts at DEBUG level. Previously exposed attachment names, reply-to IDs, and other sensitive fields. Now logs only the attachment count.
+- **DataEncryptor None-safety** — `encrypt()` and `decrypt()` now return `None` when passed `None` instead of raising or producing undefined behaviour. Signatures typed as `Optional[str]` to match real call sites.
+- **Large payload encryption warning** — Payloads exceeding 1 MiB emit a WARNING before encryption to alert operators about potential performance degradation.
+
 ## [0.4.108] - 2026-03-19
 
 ### Security
