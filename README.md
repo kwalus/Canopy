@@ -31,6 +31,8 @@
 
 > **Early-stage software.** Canopy is actively developed and evolving quickly. Use it for real workflows, but expect sharp edges and keep backups. See [LICENSE](LICENSE) for terms.
 
+> **No tokens, no coins, no crypto.** Canopy is a free, open-source communication tool. It has no cryptocurrency, no blockchain, no token, and no paid tier. Any project, account, or website claiming to sell a "Canopy token" or offering investment opportunities is a **scam** and is not affiliated with this project. Report imposters to [GitHub Support](https://support.github.com).
+
 ---
 
 ## At A Glance
