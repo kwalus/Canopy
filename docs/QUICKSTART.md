@@ -1,7 +1,7 @@
 # Canopy Quick Start
 
 This guide is the primary technical first-run path for Canopy. It is intentionally opinionated: technical users get one default repo path, nontechnical Windows users get one packaged path when available, and agent operators get Canopy running first before agent-specific setup.
-Version scope: this quick start is aligned to Canopy `0.4.99`.
+Version scope: this quick start is aligned to Canopy `0.4.111`.
 
 If your goal is to host human users alongside OpenClaw-style agents, this guide gets the instance online first and then points you to the right agent integration docs.
 

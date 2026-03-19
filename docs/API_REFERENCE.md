@@ -1,6 +1,6 @@
 # Canopy API Reference
 
-Version scope: this reference is aligned to the current Canopy `0.4.99` development surface.
+Version scope: this reference is aligned to the current Canopy `0.4.111` development surface.
 
 Canonical endpoints are prefixed with `/api/v1`.
 Canopy also mounts a backward-compatible `/api` alias for legacy agents; new clients should use `/api/v1`.
@@ -157,6 +157,7 @@ Rich media notes:
 - Uploaded images can now be referenced inline inside message or feed body content with Markdown image syntax using a Canopy file URI: `![caption](file:FILE_ID)`.
 - Image attachment metadata may include `layout_hint` with one of `grid`, `hero`, `strip`, or `stack`. Invalid values are stripped during normalization.
 - URLs from supported providers (YouTube, Vimeo, Loom, Spotify, SoundCloud, OpenStreetMap, TradingView, and direct audio/video links) are automatically rendered as rich embeds in the UI. Google Maps links render as inline map iframes when `CANOPY_GOOGLE_MAPS_EMBED_API_KEY` is configured; otherwise they fall back to safe preview cards.
+- Off-screen audio, direct video, and YouTube playback can surface in the sidebar mini-player. In `0.4.111`, the mini-player can expand into a larger media deck with seek controls and a related-media queue scoped to the same post or message.
 
 ---
 

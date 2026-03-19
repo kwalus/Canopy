@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.111] - 2026-03-19
+
+### Added
+- **Expanded media deck and related queue** — The sidebar mini-player can now open into a larger floating media deck with a stage area, richer controls, seek support, PiP for supported video, and a related-media queue scoped to the same post or message.
+
+### Improved
+- **Mini-player continuity** — Off-screen audio, direct video, and YouTube playback now share one media state across the compact dock and expanded deck, including source return, minimize/close handling, and placeholder-preserving docking for larger playback.
+- **Frontend coverage for media deck** — Regression assertions now cover the expanded deck markup, expand control, queue wiring, docking helpers, and seek behavior.
+
 ## [0.4.110] - 2026-03-19
 
 ### Hardened

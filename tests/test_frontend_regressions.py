@@ -208,6 +208,27 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("function setCanopySidebarMiniPosition(nextPosition)", main_js)
         self.assertIn("setCanopySidebarMiniPosition(canopySidebarRailState.miniPosition);", main_js)
 
+    def test_sidebar_media_deck_expands_miniplayer_with_queue_and_stage(self) -> None:
+        base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        self.assertIn('id="sidebar-media-mini-expand"', base_template)
+        self.assertIn('id="sidebar-media-deck"', base_template)
+        self.assertIn('id="sidebar-media-deck-stage"', base_template)
+        self.assertIn('id="sidebar-media-deck-queue"', base_template)
+        self.assertIn('id="sidebar-media-deck-seek"', base_template)
+        self.assertIn('id="sidebar-media-deck-prev"', base_template)
+        self.assertIn('id="sidebar-media-deck-next"', base_template)
+        self.assertIn(".sidebar-media-deck-shell", base_template)
+        self.assertIn(".sidebar-media-deck-queue {", base_template)
+        self.assertIn("function buildRelatedMediaList(sourceEl, activeEl) {", main_js)
+        self.assertIn("function openMediaDeck() {", main_js)
+        self.assertIn("function closeMediaDeck(options = {}) {", main_js)
+        self.assertIn("function renderDeckQueue() {", main_js)
+        self.assertIn("function moveDockedMediaToHost(el, host) {", main_js)
+        self.assertIn("function seekCurrentMediaTo(ratio) {", main_js)
+        self.assertIn("deckQueue.addEventListener('click'", main_js)
+        self.assertIn("deckSeek.addEventListener('change'", main_js)
+
     def test_dm_search_uses_explicit_search_state_to_suspend_live_refresh(self) -> None:
         messages_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
         self.assertIn("const DM_SEARCH_QUERY = ", messages_template)
