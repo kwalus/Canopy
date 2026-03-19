@@ -8,6 +8,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.107] - 2026-03-19
+
+### Security
+- **Delete-signal trust manipulation closed** — `comply_with_delete_signal` and `violate_delete_signal` now verify signal ownership (`target_peer_id == from_peer`) before awarding or penalising trust. Prevents an attacker from harvesting +5 trust by claiming compliance on signals addressed to other peers.
+- **Manually penalized peers cannot re-earn trust** — New `manually_penalized` flag in `trust_scores` table. When a peer is set below score 50 manually, all positive automated trust deltas (MESSAGE_DELIVERED, NETWORK_CONTRIBUTION, etc.) are blocked until the penalty is cleared.
+- **Non-existent delete signals no longer return success** — `update_delete_signal_status` now checks `rowcount == 0` and returns `False` for unknown signal IDs, closing a second avenue for the fake-ACK attack.
+- **`/api/v1/p2p/status` now requires authentication** — Previously exposed P2P network topology to unauthenticated callers.
+- **CSRF guard on session-based API key generation** — `POST /api/v1/keys` via session auth now validates the CSRF token, preventing cross-site key creation.
+- **P2P payload and content size limits** — Messages exceeding 512 KB total or 256 KB content are dropped before any handler runs. ID fields are capped at 512 bytes.
+- **P2P feed post visibility rejection** — Inbound feed posts with `private` or `custom` visibility are rejected; these must never be broadcast or stored on remote nodes.
+- **P2P author-ID spoofing prevention** — Inbound feed posts now verify that the claimed `author_id` belongs to the sending peer via `origin_peer` check.
+- **Feed post delete ownership verification** — Delete signals for feed posts now verify that the requester's peer owns the post author before executing deletion.
+
+### Changed
+- **`can_view()` default trust_score → 0** — Callers that omit `trust_score` no longer silently pass the trusted-visibility threshold. Prevents unintended exposure of trusted posts.
+- **`get_user_posts()` visibility filter** — Now accepts optional `viewer_id` and applies standard visibility rules. Without a viewer, only public/network/trusted posts are returned.
+- **`get_feed_statistics()` includes custom visibility** — Statistics query now counts custom-visibility posts the user has permission to see.
+
+### Performance
+- **O(n²) → O(n) orphan-reply check in channel rendering** — Replaced `Array.find()` loop with `Set.has()` lookup for thread-root matching.
+- **`displayMessages` returns its Promise** — Enables proper chaining for search banner insertion, fixing a race condition where the banner was wiped by a subsequent `innerHTML` write.
+
 ## [0.4.106] - 2026-03-18
 
 ### Changed

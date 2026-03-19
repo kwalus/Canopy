@@ -4906,6 +4906,36 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                display_name, from_peer):
             """Store an incoming P2P feed post locally. Updates content/metadata when post already exists (edit broadcast)."""
             try:
+                # --- Input validation ---
+
+                # Reject posts with private/custom visibility over P2P
+                vis_str = str(visibility or '').lower()
+                if vis_str in ('private', 'custom'):
+                    logger.warning(f"Rejecting P2P feed post {post_id} with visibility={vis_str} from {from_peer}")
+                    return
+
+                # ID length limits
+                for label, val in [('post_id', post_id), ('author_id', author_id)]:
+                    if val and len(str(val).encode('utf-8')) > 512:
+                        logger.warning(f"Rejecting P2P feed post: {label} too long from {from_peer}")
+                        return
+
+                # Content size limit (256 KB)
+                if content and len(str(content).encode('utf-8')) > 256 * 1024:
+                    logger.warning(f"Rejecting oversized P2P feed post content from {from_peer}")
+                    return
+
+                # Metadata size limit (64 KB)
+                if metadata:
+                    import json as _json
+                    try:
+                        meta_size = len(_json.dumps(metadata).encode('utf-8'))
+                        if meta_size > 64 * 1024:
+                            logger.warning(f"Rejecting oversized P2P feed post metadata from {from_peer}")
+                            return
+                    except Exception:
+                        pass
+
                 # Ensure shadow user exists (reuse channel message logic)
                 feed_origin_peer = ''
                 try:
@@ -4920,6 +4950,18 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     feed_origin_peer,
                     allow_origin_reassign=True,
                 )
+
+                # Author-ID spoofing prevention: verify the claimed author
+                # belongs to the sending peer
+                author_row = db_manager.get_user(author_id)
+                if author_row:
+                    origin = (author_row.get('origin_peer') or '').strip()
+                    if origin and origin != str(from_peer or '').strip():
+                        logger.warning(
+                            f"Rejecting P2P feed post {post_id}: author {author_id} "
+                            f"origin_peer={origin} != from_peer={from_peer}"
+                        )
+                        return
 
                 # Normalise timestamp
                 normalised_ts = None
@@ -6155,6 +6197,14 @@ def create_app(config: Optional[Config] = None) -> Flask:
         p2p_manager.on_direct_message = _on_p2p_direct_message
 
         # --- Delete signal handler ---
+        def _requester_owns_user(owner_user_id: str, from_peer_id: str) -> bool:
+            """Check that owner_user_id's origin_peer matches from_peer_id."""
+            urow = db_manager.get_user(owner_user_id)
+            if not urow:
+                return False
+            origin = (urow.get('origin_peer') or '').strip()
+            return bool(origin) and origin == str(from_peer_id or '').strip()
+
         def _on_delete_signal(signal_id, data_type, data_id, reason,
                               requester_peer, is_ack, ack_status, from_peer):
             """Handle incoming DELETE_SIGNAL from a peer.
@@ -6166,6 +6216,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
                We update our local signal status and adjust trust score.
             """
             try:
+                # ID length limits
+                for label, val in [('signal_id', signal_id), ('data_id', data_id)]:
+                    if val and len(str(val).encode('utf-8')) > 512:
+                        logger.warning(f"Rejecting delete signal: {label} too long from {from_peer}")
+                        return
+
                 if is_ack:
                     # --- Acknowledgment from a peer ---
                     status = ack_status or 'acknowledged'
@@ -6248,15 +6304,21 @@ def create_app(config: Optional[Config] = None) -> Flask:
                             logger.error(f"Failed to delete file {data_id}: {del_err}")
 
                 elif data_type in ('feed_post', 'post'):
-                    # Delete a feed post
+                    # Delete a feed post — verify requester owns the author
                     try:
                         deleted_post = feed_manager.get_post(data_id) if feed_manager else None
-                        with db_manager.get_connection() as conn:
-                            cur = conn.execute(
-                                "DELETE FROM feed_posts WHERE id = ?",
-                                (data_id,))
-                            conn.commit()
-                            deleted = cur.rowcount > 0
+                        if deleted_post and not _requester_owns_user(deleted_post.author_id, from_peer):
+                            logger.warning(
+                                f"SECURITY: Rejected feed post delete for {data_id}: "
+                                f"author={deleted_post.author_id} not owned by {from_peer}"
+                            )
+                        elif deleted_post or not feed_manager:
+                            with db_manager.get_connection() as conn:
+                                cur = conn.execute(
+                                    "DELETE FROM feed_posts WHERE id = ?",
+                                    (data_id,))
+                                conn.commit()
+                                deleted = cur.rowcount > 0
                         if deleted and feed_manager and deleted_post:
                             try:
                                 feed_manager._emit_post_event(

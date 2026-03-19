@@ -1939,6 +1939,7 @@ def create_api_blueprint() -> Blueprint:
     
     # P2P Network endpoints
     @api.route('/p2p/status', methods=['GET'])
+    @require_auth(allow_session=True)
     def get_p2p_status():
         """Get P2P network status."""
         *_, p2p_manager = _get_app_components_any(current_app)
@@ -2862,6 +2863,7 @@ def create_api_blueprint() -> Blueprint:
             else:
                 session_user = session.get('user_id')
                 if session_user:
+                    validate_csrf_request()
                     user_id = session_user
                 else:
                     return jsonify({
@@ -2904,6 +2906,9 @@ def create_api_blueprint() -> Blueprint:
                 return jsonify({'error': 'Failed to generate API key'}), 500
                 
         except Exception as e:
+            from werkzeug.exceptions import HTTPException
+            if isinstance(e, HTTPException):
+                raise
             logger.error(f"Failed to generate API key: {e}")
             return jsonify({'error': 'Internal server error'}), 500
     

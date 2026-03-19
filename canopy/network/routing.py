@@ -130,6 +130,10 @@ def encode_channel_key_material(key_material: bytes) -> str:
 # Prevents a misbehaving or permanently-offline peer from exhausting RAM.
 MAX_PENDING_PER_PEER = 500
 
+MAX_CONTENT_BYTES = 256 * 1024       # 256 KB for text content
+MAX_PAYLOAD_BYTES = 512 * 1024       # 512 KB for total message payload
+MAX_ID_BYTES = 512                   # max length for any user/post/signal ID
+
 
 class MessageType(Enum):
     """Types of P2P messages."""
@@ -813,13 +817,33 @@ class MessageRouter:
         """Deliver message to local application."""
         logger.debug(f"Delivering message {message.id} locally")
         payload = cast(Dict[str, Any], message.payload)
-        
+
         # Decrypt if needed
         if message.encrypted_payload:
             if not self.decrypt_message(message):
                 logger.error(f"Failed to decrypt message {message.id}")
                 return False
-        
+
+        # Payload size guard: drop oversized messages before any handler runs
+        try:
+            import json as _json
+            payload_bytes = len(_json.dumps(payload).encode('utf-8'))
+            if payload_bytes > MAX_PAYLOAD_BYTES:
+                logger.warning(
+                    f"Dropping oversized message {message.id} from {message.from_peer}: "
+                    f"{payload_bytes} bytes exceeds {MAX_PAYLOAD_BYTES} limit"
+                )
+                return False
+            content_val = payload.get('content', '')
+            if isinstance(content_val, str) and len(content_val.encode('utf-8')) > MAX_CONTENT_BYTES:
+                logger.warning(
+                    f"Dropping message {message.id} from {message.from_peer}: "
+                    f"content exceeds {MAX_CONTENT_BYTES} byte limit"
+                )
+                return False
+        except Exception:
+            pass
+
         logger.debug(f"Received {message.type.value} message from {message.from_peer}")
 
         # Emit a lightweight UI-facing activity event for user-level messages.

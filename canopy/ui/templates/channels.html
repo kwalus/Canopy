@@ -6178,7 +6178,7 @@ function displayMessages(messages, options = {}) {
     const userIds = [...userIdSet];
     
     // Fetch user display info and mention candidates in parallel; build handle->display_name map
-    Promise.all([
+    return Promise.all([
         fetchUserDisplayInfo(userIds),
         fetchChannelMentionCandidates(currentChannelId)
     ]).then(([userInfo, candidates]) => {
@@ -6213,9 +6213,10 @@ function displayMessages(messages, options = {}) {
             }
         });
 
-        // Render orphan replies whose thread root isn't in view
+        // Render orphan replies whose thread root isn't in view (O(n) via Set)
+        const rootIdSet = new Set(rootMessages.map(m => m.id));
         Object.keys(repliesByRoot).forEach(rid => {
-            if (!rootMessages.find(m => m.id === rid)) {
+            if (!rootIdSet.has(rid)) {
                 repliesByRoot[rid].forEach(r => { html += renderMessage(r, userInfo, true); });
             }
         });
