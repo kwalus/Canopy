@@ -76,13 +76,31 @@ class TrustManager:
     def __init__(self, db_manager: DatabaseManager):
         """Initialize trust manager with database connection."""
         self.db = db_manager
-        self.default_trust_score = 100
+        # Privacy-first baseline: unknown peers are pending review, not trusted.
+        self.default_trust_score = 0
         self.min_trust_score = 0
         self.max_trust_score = 100
         self.delete_timeout_hours = 24
+
+    def has_explicit_trust_score(self, peer_id: str) -> bool:
+        """Return True when a peer has a persisted trust row."""
+        if not peer_id:
+            return False
+        try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT 1 FROM trust_scores WHERE peer_id = ?",
+                    (peer_id,),
+                ).fetchone()
+                return bool(row)
+        except Exception as e:
+            logger.error(f"Failed to check trust row for {peer_id}: {e}")
+            return False
     
     def get_trust_score(self, peer_id: str) -> int:
         """Get current trust score for a peer."""
+        if not peer_id:
+            return self.default_trust_score
         try:
             with self.db.get_connection() as conn:
                 cursor = conn.execute("""
@@ -118,11 +136,17 @@ class TrustManager:
             with self.db.get_connection() as conn:
                 # Get current score or create new entry
                 cursor = conn.execute("""
-                    SELECT score FROM trust_scores WHERE peer_id = ?
+                    SELECT score, manually_penalized FROM trust_scores WHERE peer_id = ?
                 """, (peer_id,))
                 
                 row = cursor.fetchone()
                 current_score = row['score'] if row else self.default_trust_score
+                manually_penalized = bool(row['manually_penalized']) if row and 'manually_penalized' in row.keys() else False
+
+                # Block positive score changes for manually penalized peers
+                if manually_penalized and score_delta > 0:
+                    logger.debug(f"Skipping positive trust delta for manually penalized peer {peer_id}")
+                    return current_score
                 
                 # Calculate new score within bounds
                 new_score = max(
@@ -133,7 +157,7 @@ class TrustManager:
                 # Update or insert trust score
                 if row:
                     conn.execute("""
-                        UPDATE trust_scores 
+                        UPDATE trust_scores
                         SET score = ?, last_interaction = CURRENT_TIMESTAMP,
                             compliance_events = compliance_events + ?,
                             violation_events = violation_events + ?,
@@ -184,18 +208,20 @@ class TrustManager:
                 row = cursor.fetchone()
 
                 note = f"manual: {reason}" if reason else "manual"
+                penalized = 1 if clamped_score < 50 else 0
                 if row:
                     conn.execute("""
                         UPDATE trust_scores
-                        SET score = ?, last_interaction = CURRENT_TIMESTAMP, notes = ?
+                        SET score = ?, last_interaction = CURRENT_TIMESTAMP,
+                            notes = ?, manually_penalized = ?
                         WHERE peer_id = ?
-                    """, (clamped_score, note, peer_id))
+                    """, (clamped_score, note, penalized, peer_id))
                 else:
                     conn.execute("""
                         INSERT INTO trust_scores
-                        (peer_id, score, compliance_events, violation_events, notes)
-                        VALUES (?, ?, 0, 0, ?)
-                    """, (peer_id, clamped_score, note))
+                        (peer_id, score, compliance_events, violation_events, notes, manually_penalized)
+                        VALUES (?, ?, 0, 0, ?, ?)
+                    """, (peer_id, clamped_score, note, penalized))
 
                 conn.commit()
                 logger.info(f"Set trust score for {peer_id}: {clamped_score} ({note})")
@@ -273,14 +299,26 @@ class TrustManager:
             return False
     
     def comply_with_delete_signal(self, signal_id: str, peer_id: str) -> bool:
-        """Mark a delete signal as complied with and update trust score."""
+        """Mark a delete signal as complied with and update trust score.
+        
+        Ownership check: the signal's target_peer_id must match peer_id
+        to prevent a peer claiming compliance credit for someone else's signal.
+        """
         try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT target_peer_id FROM delete_signals WHERE id = ?",
+                    (signal_id,)
+                ).fetchone()
+                if not row or row['target_peer_id'] != peer_id:
+                    logger.warning(f"Ownership check failed for comply: signal={signal_id} peer={peer_id}")
+                    return False
+
             success = self.db.update_delete_signal_status(signal_id, "complied")
             if success:
-                # Reward compliance with positive trust score
                 self.update_trust_score(
-                    peer_id, 
-                    TrustEvent.DELETE_COMPLIED, 
+                    peer_id,
+                    TrustEvent.DELETE_COMPLIED,
                     reason=f"Complied with delete signal {signal_id}"
                 )
                 logger.info(f"Marked delete signal {signal_id} as complied")
@@ -288,16 +326,27 @@ class TrustManager:
         except Exception as e:
             logger.error(f"Failed to mark delete signal as complied: {e}")
             return False
-    
+
     def violate_delete_signal(self, signal_id: str, peer_id: str) -> bool:
-        """Mark a delete signal as violated and penalize trust score."""
+        """Mark a delete signal as violated and penalize trust score.
+        
+        Ownership check: the signal's target_peer_id must match peer_id.
+        """
         try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT target_peer_id FROM delete_signals WHERE id = ?",
+                    (signal_id,)
+                ).fetchone()
+                if not row or row['target_peer_id'] != peer_id:
+                    logger.warning(f"Ownership check failed for violate: signal={signal_id} peer={peer_id}")
+                    return False
+
             success = self.db.update_delete_signal_status(signal_id, "violated")
             if success:
-                # Penalize violation with negative trust score
                 self.update_trust_score(
-                    peer_id, 
-                    TrustEvent.DELETE_VIOLATED, 
+                    peer_id,
+                    TrustEvent.DELETE_VIOLATED,
                     reason=f"Violated delete signal {signal_id}"
                 )
                 logger.warning(f"Marked delete signal {signal_id} as violated by {peer_id}")
@@ -367,6 +416,8 @@ class TrustManager:
     
     def is_peer_trusted(self, peer_id: str, threshold: int = 50) -> bool:
         """Check if a peer is trusted based on their trust score."""
+        if not self.has_explicit_trust_score(peer_id):
+            return False
         return self.get_trust_score(peer_id) >= threshold
     
     def get_trusted_peers(self, threshold: int = 50) -> List[str]:

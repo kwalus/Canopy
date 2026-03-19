@@ -144,11 +144,12 @@ class DatabaseManager:
                 CREATE TABLE IF NOT EXISTS trust_scores (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     peer_id TEXT NOT NULL,
-                    score INTEGER DEFAULT 100,
+                    score INTEGER DEFAULT 0,
                     last_interaction TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     compliance_events INTEGER DEFAULT 0,
                     violation_events INTEGER DEFAULT 0,
                     notes TEXT,
+                    manually_penalized BOOLEAN NOT NULL DEFAULT 0,
                     UNIQUE(peer_id)
                 );
                 
@@ -851,6 +852,13 @@ class DatabaseManager:
             if self._identity_portability_enabled():
                 self._ensure_identity_portability_schema(conn)
 
+            # --- Trust scores: add manually_penalized column ---
+            trust_cursor = conn.execute("PRAGMA table_info(trust_scores)")
+            trust_columns = [row[1] for row in trust_cursor.fetchall()]
+            if 'manually_penalized' not in trust_columns:
+                logger.info("Migration: Adding manually_penalized column to trust_scores")
+                conn.execute("ALTER TABLE trust_scores ADD COLUMN manually_penalized BOOLEAN NOT NULL DEFAULT 0")
+
             conn.commit()
         except Exception as e:
             logger.critical(
@@ -1549,7 +1557,7 @@ class DatabaseManager:
         with self.get_connection() as conn:
             conn.execute("""
                 INSERT INTO trust_scores (peer_id, score, notes) 
-                VALUES (?, 100 + ?, ?)
+                VALUES (?, max(0, min(100, ?)), ?)
                 ON CONFLICT(peer_id) DO UPDATE SET
                     score = max(0, min(100, score + ?)),
                     last_interaction = CURRENT_TIMESTAMP,
@@ -1564,7 +1572,7 @@ class DatabaseManager:
                 "SELECT score FROM trust_scores WHERE peer_id = ?", (peer_id,)
             )
             row = cursor.fetchone()
-            return row['score'] if row else 100  # Default trust score
+            return row['score'] if row else 0  # Unknown peers are pending review
     
     def get_all_trust_scores(self) -> Dict[str, int]:
         """Get all trust scores."""
@@ -1589,7 +1597,7 @@ class DatabaseManager:
             return False
     
     def update_delete_signal_status(self, signal_id: str, status: str) -> bool:
-        """Update delete signal status."""
+        """Update delete signal status. Returns False if signal_id not found."""
         VALID_STATUS_COLUMNS = {
             'pending': 'sent_at',
             'acknowledged': 'acknowledged_at',
@@ -1601,18 +1609,21 @@ class DatabaseManager:
             with self.get_connection() as conn:
                 timestamp_col = VALID_STATUS_COLUMNS.get(status)
                 if timestamp_col:
-                    conn.execute(f"""
+                    cur = conn.execute(f"""
                         UPDATE delete_signals 
                         SET status = ?, {timestamp_col} = CURRENT_TIMESTAMP
                         WHERE id = ?
                     """, (status, signal_id))
                 else:
-                    conn.execute("""
+                    cur = conn.execute("""
                         UPDATE delete_signals 
                         SET status = ?
                         WHERE id = ?
                     """, (status, signal_id))
                 conn.commit()
+                if cur.rowcount == 0:
+                    logger.warning(f"Delete signal {signal_id} not found for status update")
+                    return False
                 return True
         except Exception as e:
             logger.error(f"Failed to update delete signal: {e}")

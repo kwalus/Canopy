@@ -2519,11 +2519,11 @@
                                     </a></li>
                                     <li><a class="dropdown-item" href="#" onclick="setChannelPrivacy('guarded')">
                                         <i class="bi bi-shield-check me-2"></i>Guarded
-                                        <small class="text-muted d-block">Signed, limited metadata</small>
+                                        <small class="text-muted d-block">Moderated and visible to the mesh. Not private.</small>
                                     </a></li>
                                     <li><a class="dropdown-item" href="#" onclick="setChannelPrivacy('private')">
                                         <i class="bi bi-lock-fill me-2"></i>Private
-                                        <small class="text-muted d-block">E2EE-ready (pilot)</small>
+                                        <small class="text-muted d-block">Targeted membership. Use this for sensitive work.</small>
                                     </a></li>
                                     <li><a class="dropdown-item" href="#" onclick="setChannelPrivacy('confidential')">
                                         <i class="bi bi-shield-lock me-2"></i>Confidential
@@ -6178,7 +6178,7 @@ function displayMessages(messages, options = {}) {
     const userIds = [...userIdSet];
     
     // Fetch user display info and mention candidates in parallel; build handle->display_name map
-    Promise.all([
+    return Promise.all([
         fetchUserDisplayInfo(userIds),
         fetchChannelMentionCandidates(currentChannelId)
     ]).then(([userInfo, candidates]) => {
@@ -6213,9 +6213,10 @@ function displayMessages(messages, options = {}) {
             }
         });
 
-        // Render orphan replies whose thread root isn't in view
+        // Render orphan replies whose thread root isn't in view (O(n) via Set)
+        const rootIdSet = new Set(rootMessages.map(m => m.id));
         Object.keys(repliesByRoot).forEach(rid => {
-            if (!rootMessages.find(m => m.id === rid)) {
+            if (!rootIdSet.has(rid)) {
                 repliesByRoot[rid].forEach(r => { html += renderMessage(r, userInfo, true); });
             }
         });

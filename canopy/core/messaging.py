@@ -398,7 +398,7 @@ class Message:
             logger.debug(f"Message {self.id}: Found {len(self.metadata['attachments'])} attachments")
         else:
             result['attachments'] = []
-            logger.debug(f"Message {self.id}: No attachments found (metadata: {self.metadata})")
+            logger.debug(f"Message {self.id}: No attachments found")
             
         return result
     

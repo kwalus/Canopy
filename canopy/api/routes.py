@@ -1939,6 +1939,7 @@ def create_api_blueprint() -> Blueprint:
     
     # P2P Network endpoints
     @api.route('/p2p/status', methods=['GET'])
+    @require_auth(allow_session=True)
     def get_p2p_status():
         """Get P2P network status."""
         *_, p2p_manager = _get_app_components_any(current_app)
@@ -2862,6 +2863,7 @@ def create_api_blueprint() -> Blueprint:
             else:
                 session_user = session.get('user_id')
                 if session_user:
+                    validate_csrf_request()
                     user_id = session_user
                 else:
                     return jsonify({
@@ -2904,6 +2906,9 @@ def create_api_blueprint() -> Blueprint:
                 return jsonify({'error': 'Failed to generate API key'}), 500
                 
         except Exception as e:
+            from werkzeug.exceptions import HTTPException
+            if isinstance(e, HTTPException):
+                raise
             logger.error(f"Failed to generate API key: {e}")
             return jsonify({'error': 'Internal server error'}), 500
     
@@ -3600,7 +3605,8 @@ def create_api_blueprint() -> Blueprint:
             return jsonify({
                 'peer_id': peer_id,
                 'trust_score': score,
-                'is_trusted': is_trusted
+                'is_trusted': is_trusted,
+                'has_explicit_score': trust_manager.has_explicit_trust_score(peer_id),
             })
             
         except Exception as e:
@@ -3751,7 +3757,7 @@ def create_api_blueprint() -> Blueprint:
             
             content = data.get('content')
             post_type = data.get('post_type', 'text')
-            visibility = data.get('visibility', 'network')
+            visibility = data.get('visibility', 'private')
             permissions = data.get('permissions', [])
             metadata = data.get('metadata')
             expires_at = data.get('expires_at')
@@ -3776,7 +3782,7 @@ def create_api_blueprint() -> Blueprint:
             try:
                 vis = PostVisibility(visibility)
             except ValueError:
-                vis = PostVisibility.NETWORK
+                vis = PostVisibility.PRIVATE
             
             # Auto-detect poll posts when content matches poll format
             if pt == PostType.TEXT and parse_poll(content or ''):
@@ -6409,6 +6415,7 @@ def create_api_blueprint() -> Blueprint:
                                 content=updated.content,
                                 post_type=updated.post_type.value,
                                 visibility=updated.visibility.value,
+                                previous_visibility=post.visibility.value if getattr(post, 'visibility', None) else None,
                                 timestamp=updated.created_at.isoformat() if hasattr(updated.created_at, 'isoformat') else str(updated.created_at),
                                 metadata=updated.metadata,
                                 expires_at=updated.expires_at.isoformat() if getattr(updated, 'expires_at', None) else None,

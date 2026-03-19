@@ -93,24 +93,34 @@ class DataEncryptor:
         """Check if encryption is currently enabled."""
         return self._enabled
     
-    def encrypt(self, plaintext: str) -> str:
+    _LARGE_PAYLOAD_WARN_BYTES = 1 * 1024 * 1024  # 1 MiB
+
+    def encrypt(self, plaintext: Optional[str]) -> Optional[str]:
         """
         Encrypt a string for storage.
         
         Args:
-            plaintext: The string to encrypt
+            plaintext: The string to encrypt. Binary data must be
+                       base64-encoded by the caller before passing here.
             
         Returns:
-            Encrypted string with prefix, or original string if encryption disabled
+            Encrypted string with prefix, or original string if encryption
+            disabled. Returns None when plaintext is None.
         """
+        if plaintext is None:
+            return None
         if not self._enabled or not plaintext:
             return plaintext
         
         try:
+            plaintext_bytes = plaintext.encode('utf-8')
+            if len(plaintext_bytes) > self._LARGE_PAYLOAD_WARN_BYTES:
+                logger.warning(
+                    f"Encrypting large payload ({len(plaintext_bytes)} bytes); "
+                    "consider chunking or compressing before encryption"
+                )
             cipher = ChaCha20Poly1305(cast(bytes, self._cipher_key))
             nonce = secrets.token_bytes(12)
-            
-            plaintext_bytes = plaintext.encode('utf-8')
             ciphertext = cipher.encrypt(nonce, plaintext_bytes, None)
             
             # Format: ENC:1:<nonce_hex>:<ciphertext_hex>
@@ -120,7 +130,7 @@ class DataEncryptor:
             logger.error(f"Encryption failed: {e}")
             return plaintext  # Fail open - store unencrypted rather than lose data
     
-    def decrypt(self, stored_value: str) -> str:
+    def decrypt(self, stored_value: Optional[str]) -> Optional[str]:
         """
         Decrypt a stored string.
         
@@ -128,8 +138,11 @@ class DataEncryptor:
             stored_value: The stored string (possibly encrypted)
             
         Returns:
-            Decrypted string, or original string if not encrypted
+            Decrypted string, or original string if not encrypted.
+            Returns None when stored_value is None.
         """
+        if stored_value is None:
+            return None
         if not stored_value or not stored_value.startswith(ENCRYPTED_PREFIX):
             return stored_value  # Not encrypted, return as-is
         
@@ -167,7 +180,7 @@ class DataEncryptor:
                 logger.debug(f"Decryption failed (suppressed repeat, fingerprint={fingerprint}): {e}")
             return "[Decryption failed]"
     
-    def is_encrypted(self, value: str) -> bool:
+    def is_encrypted(self, value: Optional[str]) -> bool:
         """Check if a value is encrypted."""
         return value is not None and value.startswith(ENCRYPTED_PREFIX)
 

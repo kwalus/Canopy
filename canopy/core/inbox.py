@@ -58,9 +58,8 @@ DEFAULT_AGENT_INBOX_CONFIG: Dict[str, Any] = {
     "allowed_trigger_types": ["mention", "dm", "reply", "channel_added"],
     "thread_reply_notifications": True,
     "auto_subscribe_own_threads": True,
-    # Mesh peers are implicitly trusted; TrustManager default_trust_score=100
-    # so this is belt-and-suspenders, but disabling it avoids false rejections
-    # when a peer hasn't been explicitly added to trust_scores yet.
+    # Agent inbox delivery should not depend on manual trust review unless the
+    # operator explicitly enables trusted-only filtering for that account.
     "trusted_only": False,
     "min_trust_score": 0,
     # Very short cooldowns for agent use — agents need to react quickly.

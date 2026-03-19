@@ -670,9 +670,11 @@
             }
 
             const visiblePeers = visibleSidebarCardItems('peers', activePeers);
+            const peerFrag = document.createDocumentFragment();
             visiblePeers.forEach(record => {
-                listEl.appendChild(createSidebarPeerElement(record));
+                peerFrag.appendChild(createSidebarPeerElement(record));
             });
+            listEl.appendChild(peerFrag);
             setSidebarPeerCount(activePeers.length);
             updateSidebarCardChrome('peers', activePeers.length);
             renderSidebarPeerModalList();
@@ -862,6 +864,16 @@
             const totalUnread = normalized.reduce((sum, contact) => sum + Math.max(0, Number(contact && contact.unread_count) || 0), 0);
             if (totalEl) totalEl.textContent = String(totalUnread);
 
+            // Render-key diffing: skip DOM writes when data is unchanged
+            const dmRenderKey = visibleContacts.map(c =>
+                `${c.user_id}:${c.unread_count}:${c.status_state}:${c.latest_preview}:${c.latest_message_at}`
+            ).join('|');
+            if (listEl.__canopyDmRenderKey === dmRenderKey && listEl.childElementCount > 0) {
+                updateSidebarCardChrome('dm', normalized.length);
+                return;
+            }
+            listEl.__canopyDmRenderKey = dmRenderKey;
+
             listEl.innerHTML = '';
             if (!normalized.length) {
                 const empty = document.createElement('div');
@@ -872,6 +884,7 @@
                 return;
             }
 
+            const dmFrag = document.createDocumentFragment();
             visibleContacts.forEach(contact => {
                 const link = document.createElement('a');
                 link.className = 'sidebar-dm-contact';
@@ -940,8 +953,9 @@
                 }
                 link.appendChild(time);
 
-                listEl.appendChild(link);
+                dmFrag.appendChild(link);
             });
+            listEl.appendChild(dmFrag);
 
             updateSidebarCardChrome('dm', normalized.length);
         }
@@ -1308,7 +1322,7 @@
             requestCanopySidebarAttentionRefresh({ force: false }).catch(() => {});
             requestCanopySidebarDmRefresh({ force: false }).catch(() => {});
             pollCanopyWorkspaceAttentionEvents();
-            canopySidebarAttentionState.pollHandle = window.setInterval(pollCanopyWorkspaceAttentionEvents, 2500);
+            canopySidebarAttentionState.pollHandle = window.setInterval(pollCanopyWorkspaceAttentionEvents, 5000);
             canopySidebarAttentionState.safetyHandle = window.setInterval(() => {
                 requestCanopySidebarAttentionRefresh({ force: false }).catch(() => {});
                 requestCanopySidebarDmRefresh({ force: false }).catch(() => {});

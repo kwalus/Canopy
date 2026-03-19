@@ -58,6 +58,7 @@ from canopy.core.agent_heartbeat import (
     build_agent_heartbeat_snapshot,
     build_actionable_work_preview,
 )
+from canopy.core.inbox import AGENT_SETTABLE_STATUSES
 from canopy.security.api_keys import Permission
 
 # Set up logging
@@ -226,7 +227,7 @@ class CanopyMCPServer:
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "status": {"type": "string", "description": "Filter by status (pending|handled|skipped|expired)"},
+                            "status": {"type": "string", "description": "Filter by status (pending|seen|completed|handled|skipped|expired)"},
                             "limit": {"type": "integer", "description": "Maximum items to retrieve (default: 50)", "default": 50},
                             "since": {"type": "string", "description": "Optional. ISO timestamp to fetch items after."},
                             "include_handled": {"type": "boolean", "description": "Include handled items (default: false)", "default": False}
@@ -239,7 +240,7 @@ class CanopyMCPServer:
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "status": {"type": "string", "description": "Filter by status (pending|handled|skipped|expired)"}
+                            "status": {"type": "string", "description": "Filter by status (pending|seen|completed|handled|skipped|expired)"}
                         }
                     }
                 ),
@@ -290,12 +291,13 @@ class CanopyMCPServer:
                 ),
                 Tool(
                     name="canopy_ack_inbox",
-                    description="Update agent inbox items (mark handled/skipped/pending)",
+                    description="Update agent inbox items (mark seen/completed/skipped/pending) with optional completion linkage",
                     inputSchema={
                         "type": "object",
                         "properties": {
                             "ids": {"type": "array", "items": {"type": "string"}, "description": "Inbox item IDs"},
-                            "status": {"type": "string", "description": "New status (handled|skipped|pending)", "default": "handled"}
+                            "status": {"type": "string", "description": "New status (seen|completed|skipped|pending); legacy alias 'handled' maps to completed. 'expired' is system-only and will be rejected.", "default": "handled"},
+                            "completion_ref": {"type": "object", "description": "Optional evidence link when completing or skipping work, e.g. {source_type, source_id, message_id, post_id}"}
                         },
                         "required": ["ids"]
                     }
@@ -1883,9 +1885,7 @@ class CanopyMCPServer:
                     window_hours=window_hours,
                     limit=limit,
                 )
-                pending_after = inbox_manager.count_items(
-                    user_id=self.user_id, status='pending'
-                )
+                pending_after = inbox_manager.count_items(user_id=self.user_id)
                 result['pending_after'] = pending_after
                 result['user_id'] = self.user_id
                 result['window_hours'] = window_hours
@@ -1900,6 +1900,12 @@ class CanopyMCPServer:
             if not isinstance(ids, list) or not ids:
                 return [TextContent(type="text", text="Error: ids must be a non-empty list")]
             status = args.get("status", "handled")
+            completion_ref = args.get("completion_ref")
+            if completion_ref is not None and not isinstance(completion_ref, dict):
+                return [TextContent(type="text", text="Error: completion_ref must be an object if provided")]
+            normalized_status = str(status or "").strip().lower()
+            if normalized_status not in AGENT_SETTABLE_STATUSES:
+                return [TextContent(type="text", text=f"Error: invalid status '{normalized_status}'. Must be one of: seen, completed, skipped, pending (or legacy alias handled)")]
 
             from canopy.core.app import create_app
 
@@ -1912,6 +1918,7 @@ class CanopyMCPServer:
                     user_id=self.user_id,
                     ids=ids,
                     status=status,
+                    completion_ref=completion_ref,
                 )
                 payload = {"updated": count}
                 return [TextContent(type="text", text=json.dumps(payload, indent=2))]
@@ -2063,7 +2070,7 @@ class CanopyMCPServer:
 
                 inbox_items = []
                 if inbox_manager:
-                    inbox_items = inbox_manager.list_items(self.user_id, status='pending', limit=limit, since=since_iso, include_handled=False)
+                    inbox_items = inbox_manager.list_items(self.user_id, limit=limit, since=since_iso, include_handled=False)
 
                 task_items = []
                 if task_manager:
@@ -2197,13 +2204,13 @@ class CanopyMCPServer:
                 if inbox_manager:
                     try:
                         stats = inbox_manager.get_stats(self.user_id, window_hours=window_hours)
-                        inbox_count = int((stats.get('status_counts') or {}).get('pending', 0))
+                        status_counts = stats.get('status_counts') or {}
+                        inbox_count = int(status_counts.get('pending', 0) or 0) + int(status_counts.get('seen', 0) or 0)
                     except Exception:
                         inbox_count = 0
                     try:
                         preview_items = inbox_manager.list_items(
                             user_id=self.user_id,
-                            status='pending',
                             limit=5,
                             since=since_iso,
                             include_handled=False,
@@ -3966,11 +3973,14 @@ class CanopyMCPServer:
                 if not content:
                     raise ValueError("content is required")
                 post_type_str = (args.get("post_type") or "text").lower()
-                visibility_str = (args.get("visibility") or "network").lower()
+                visibility_str = (args.get("visibility") or "private").lower()
                 post_type = PostType.TEXT
                 if post_type_str in {"poll"} or parse_poll(content or ""):
                     post_type = PostType.POLL
-                visibility = PostVisibility.NETWORK if visibility_str == "network" else PostVisibility.NETWORK
+                try:
+                    visibility = PostVisibility(visibility_str)
+                except Exception:
+                    visibility = PostVisibility.PRIVATE
                 expires_at = args.get("expires_at")
                 ttl_seconds = args.get("ttl_seconds")
                 ttl_mode = args.get("ttl_mode")
@@ -4103,6 +4113,7 @@ class CanopyMCPServer:
                     except Exception:
                         pass
 
+                previous_post = feed_manager.get_post(post_id)
                 try:
                     metadata["edited_at"] = datetime.now(timezone.utc).isoformat()
                 except Exception:
@@ -4134,6 +4145,7 @@ class CanopyMCPServer:
                                 content=updated.content,
                                 post_type=updated.post_type.value,
                                 visibility=updated.visibility.value,
+                                previous_visibility=previous_post.visibility.value if getattr(previous_post, "visibility", None) else None,
                                 timestamp=updated.created_at.isoformat() if hasattr(updated.created_at, "isoformat") else str(updated.created_at),
                                 metadata=updated.metadata,
                                 expires_at=updated.expires_at.isoformat() if getattr(updated, "expires_at", None) else None,

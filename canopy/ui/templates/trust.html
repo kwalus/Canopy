@@ -617,7 +617,7 @@
             <div class="trust-map-header">
                 <div>
                     <h2 class="trust-map-title">Trust Zones</h2>
-                    <p class="trust-map-sub">Layer your mesh so humans and agents stay inside the right permission band.</p>
+                    <p class="trust-map-sub">Manual trust bands for peers you have explicitly reviewed. New peers stay pending until you place them.</p>
                 </div>
                 <div class="trust-map-legend">
                     <span class="legend-chip safe">Safe</span>
@@ -631,7 +631,7 @@
                 <div class="trust-zone-header">
                     <div>
                         <h3 class="trust-zone-title">Safe Zone</h3>
-                        <p class="trust-zone-sub">Full relay + private data access.</p>
+                        <p class="trust-zone-sub">Explicitly trusted peers. Suitable for broker help and trusted-only sharing.</p>
                     </div>
                     <div class="trust-zone-count" data-zone-count="safe">{{ trust_tiers.safe|length }}</div>
                 </div>
@@ -648,7 +648,7 @@
                 <div class="trust-zone-header">
                     <div>
                         <h3 class="trust-zone-title">Guarded</h3>
-                        <p class="trust-zone-sub">Messaging ok, sensitive data gated.</p>
+                        <p class="trust-zone-sub">Known peers under review. Do not treat this as a privacy boundary.</p>
                     </div>
                     <div class="trust-zone-count" data-zone-count="guarded">{{ trust_tiers.guarded|length }}</div>
                 </div>
@@ -665,7 +665,7 @@
                 <div class="trust-zone-header">
                     <div>
                         <h3 class="trust-zone-title">Restricted</h3>
-                        <p class="trust-zone-sub">Limited participation, no relay.</p>
+                        <p class="trust-zone-sub">Limited participation. Keep them off broker and relay paths.</p>
                     </div>
                     <div class="trust-zone-count" data-zone-count="restricted">{{ trust_tiers.restricted|length }}</div>
                 </div>
@@ -727,7 +727,7 @@
 
             <div class="trust-side-card">
                 <div class="trust-side-title">Potential Peers</div>
-                <div class="trust-side-sub">Introduced by your network. Drag into a zone to trust.</div>
+                <div class="trust-side-sub">Connected or introduced peers without an explicit trust score. Drag into a zone only after review.</div>
                 <div class="trust-side-list" data-potential-list>
                     {% if potential_peers %}
                         {% for peer in potential_peers %}
@@ -762,9 +762,9 @@
             <div class="trust-side-card">
                 <div class="trust-side-title">Trust Policy</div>
                 <ul class="trust-policy-list">
-                    <li><span class="trust-policy-dot"></span>Safe peers can relay and access protected data.</li>
-                    <li><span class="trust-policy-dot"></span>Guarded peers can message but cannot relay.</li>
-                    <li><span class="trust-policy-dot"></span>Restricted peers are read-mostly and monitored.</li>
+                    <li><span class="trust-policy-dot"></span>Peers are pending by default until you assign an explicit trust score.</li>
+                    <li><span class="trust-policy-dot"></span>Safe peers can participate in trusted-only sharing and broker requests.</li>
+                    <li><span class="trust-policy-dot"></span>Guarded is a review state, not a private zone.</li>
                     <li><span class="trust-policy-dot"></span>Quarantined peers stay isolated until reviewed.</li>
                 </ul>
             </div>

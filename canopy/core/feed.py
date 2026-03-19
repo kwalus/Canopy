@@ -231,8 +231,12 @@ class Post:
             'tags': self.tags_list,
         }
     
-    def can_view(self, viewer_id: str, trust_score: int = 50) -> bool:
-        """Check if a user can view this post based on visibility settings."""
+    def can_view(self, viewer_id: str, trust_score: int = 0) -> bool:
+        """Check if a user can view this post based on visibility settings.
+        
+        Default trust_score is 0 (untrusted) so callers must explicitly
+        pass the viewer's actual trust level to allow trusted-visibility access.
+        """
         if self.visibility == PostVisibility.PUBLIC:
             return True
         elif self.visibility == PostVisibility.NETWORK:
@@ -387,7 +391,7 @@ class FeedManager:
     @log_performance('feed')
     def create_post(self, author_id: str, content: str,
                    post_type: PostType = PostType.TEXT,
-                   visibility: PostVisibility = PostVisibility.NETWORK,
+                   visibility: PostVisibility = PostVisibility.PRIVATE,
                    metadata: Optional[Dict[str, Any]] = None,
                    permissions: Optional[List[str]] = None,
                    source_type: str = 'human',
@@ -579,6 +583,7 @@ class FeedManager:
                     WHERE (
                         p.visibility = 'public' OR
                         p.visibility = 'network' OR
+                        p.visibility = 'trusted' OR
                         (p.visibility = 'custom' AND pp.user_id = ?) OR
                         p.author_id = ?
                     ) AND (p.expires_at IS NULL OR p.expires_at > CURRENT_TIMESTAMP)
@@ -632,6 +637,7 @@ class FeedManager:
                     WHERE (
                         p.visibility = 'public' OR
                         p.visibility = 'network' OR
+                        p.visibility = 'trusted' OR
                         (p.visibility = 'custom' AND pp.user_id = ?) OR
                         p.author_id = ?
                     )
@@ -663,6 +669,7 @@ class FeedManager:
             WHERE (
                 p.visibility = 'public' OR
                 p.visibility = 'network' OR
+                p.visibility = 'trusted' OR
                 (p.visibility = 'custom' AND pp.user_id = ?) OR
                 p.author_id = ?
             ) AND (p.expires_at IS NULL OR p.expires_at > CURRENT_TIMESTAMP) {max_age_clause}
@@ -687,22 +694,48 @@ class FeedManager:
         scored.sort(key=lambda x: x[0], reverse=True)
         return [post for _, post in scored[:limit]]
     
-    def get_user_posts(self, author_id: str, limit: int = 50) -> List[Post]:
-        """Get all posts by a specific user."""
+    def get_user_posts(self, author_id: str, limit: int = 50,
+                       viewer_id: Optional[str] = None) -> List[Post]:
+        """Get posts by a specific user, filtered by visibility.
+        
+        When viewer_id is provided, applies the standard visibility filter
+        so private/custom posts are only returned to authorised viewers.
+        When viewer_id is None, only public/network/trusted posts are returned.
+        """
         try:
             with self.db.get_connection() as conn:
-                cursor = conn.execute("""
-                    SELECT p.*, u.username as author_username
-                    FROM feed_posts p
-                    LEFT JOIN users u ON p.author_id = u.id
-                    WHERE p.author_id = ?
-                      AND (p.expires_at IS NULL OR p.expires_at > CURRENT_TIMESTAMP)
-                    ORDER BY p.created_at DESC
-                    LIMIT ?
-                """, (author_id, limit))
-                
+                if viewer_id:
+                    cursor = conn.execute("""
+                        SELECT p.*, u.username as author_username
+                        FROM feed_posts p
+                        LEFT JOIN users u ON p.author_id = u.id
+                        LEFT JOIN post_permissions pp ON p.id = pp.post_id
+                        WHERE p.author_id = ?
+                          AND (p.expires_at IS NULL OR p.expires_at > CURRENT_TIMESTAMP)
+                          AND (
+                              p.visibility = 'public'
+                              OR p.visibility = 'network'
+                              OR p.visibility = 'trusted'
+                              OR p.author_id = ?
+                              OR (p.visibility = 'custom' AND pp.user_id = ?)
+                          )
+                        ORDER BY p.created_at DESC
+                        LIMIT ?
+                    """, (author_id, viewer_id, viewer_id, limit))
+                else:
+                    cursor = conn.execute("""
+                        SELECT p.*, u.username as author_username
+                        FROM feed_posts p
+                        LEFT JOIN users u ON p.author_id = u.id
+                        WHERE p.author_id = ?
+                          AND (p.expires_at IS NULL OR p.expires_at > CURRENT_TIMESTAMP)
+                          AND p.visibility IN ('public', 'network', 'trusted')
+                        ORDER BY p.created_at DESC
+                        LIMIT ?
+                    """, (author_id, limit))
+
                 return [self._row_to_post(row, conn) for row in cursor.fetchall()]
-                
+
         except Exception as e:
             logger.error(f"Failed to get posts for user {author_id}: {e}")
             return []
@@ -992,6 +1025,7 @@ class FeedManager:
                     WHERE (
                         p.visibility = 'public' OR
                         p.visibility = 'network' OR
+                        p.visibility = 'trusted' OR
                         (p.visibility = 'custom' AND pp.user_id = ?) OR
                         p.author_id = ?
                     ) AND (p.expires_at IS NULL OR p.expires_at > CURRENT_TIMESTAMP)
@@ -1007,18 +1041,25 @@ class FeedManager:
             return []
     
     def get_feed_statistics(self, user_id: str) -> Dict[str, int]:
-        """Get feed statistics for a user."""
+        """Get feed statistics for a user (includes custom-visibility posts)."""
         try:
             with self.db.get_connection() as conn:
                 cursor = conn.execute("""
-                    SELECT 
-                        COUNT(*) as total_posts,
-                        SUM(CASE WHEN author_id = ? THEN 1 ELSE 0 END) as user_posts,
-                        COUNT(DISTINCT author_id) as unique_authors
-                    FROM feed_posts
-                    WHERE (visibility = 'public' OR visibility = 'network' OR author_id = ?)
-                      AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-                """, (user_id, user_id))
+                    SELECT
+                        COUNT(DISTINCT p.id) as total_posts,
+                        SUM(CASE WHEN p.author_id = ? THEN 1 ELSE 0 END) as user_posts,
+                        COUNT(DISTINCT p.author_id) as unique_authors
+                    FROM feed_posts p
+                    LEFT JOIN post_permissions pp ON p.id = pp.post_id
+                    WHERE (
+                        p.visibility = 'public'
+                        OR p.visibility = 'network'
+                        OR p.visibility = 'trusted'
+                        OR p.author_id = ?
+                        OR (p.visibility = 'custom' AND pp.user_id = ?)
+                    )
+                      AND (p.expires_at IS NULL OR p.expires_at > CURRENT_TIMESTAMP)
+                """, (user_id, user_id, user_id))
                 
                 row = cursor.fetchone()
                 return {
@@ -1129,6 +1170,7 @@ class FeedManager:
                     WHERE (
                         p.visibility = 'public' OR
                         p.visibility = 'network' OR
+                        p.visibility = 'trusted' OR
                         (p.visibility = 'custom' AND pp.user_id = ?) OR
                         p.author_id = ?
                     )
