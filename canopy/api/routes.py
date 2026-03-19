@@ -2022,7 +2022,7 @@ def create_api_blueprint() -> Blueprint:
             })
         except Exception as e:
             logger.error(f"Failed to generate invite: {e}", exc_info=True)
-            return jsonify({'error': str(e)}), 500
+            return jsonify({'error': 'Failed to generate invite'}), 500
 
     @api.route('/p2p/invite/import', methods=['POST'])
     @require_auth(allow_session=True)
@@ -2112,10 +2112,11 @@ def create_api_blueprint() -> Blueprint:
             return jsonify(result)
 
         except ValueError as ve:
-            return jsonify({'error': str(ve)}), 400
+            logger.warning(f"Failed to import invite (invalid format): {ve}", exc_info=True)
+            return jsonify({'error': 'Invalid invite code'}), 400
         except Exception as e:
             logger.error(f"Failed to import invite: {e}", exc_info=True)
-            return jsonify({'error': str(e)}), 500
+            return jsonify({'error': 'Failed to import invite'}), 500
 
     @api.route('/p2p/introduced', methods=['GET'])
     @require_auth(allow_session=True)

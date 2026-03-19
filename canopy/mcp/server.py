@@ -1258,10 +1258,10 @@ class CanopyMCPServer:
                     raise ValueError(f"Unknown tool: {name}")
                     
             except Exception as e:
-                logger.error(f"Error handling tool call {name}: {e}")
+                logger.error(f"Error handling tool call {name}: {e}", exc_info=True)
                 return [TextContent(
                     type="text",
-                    text=f"Error: {str(e)}"
+                    text="Error: Tool call failed"
                 )]
 
     async def _send_message(self, args: Dict[str, Any]) -> List[TextContent]:

@@ -6090,7 +6090,7 @@ def create_ui_blueprint() -> Blueprint:
             return jsonify({'success': True, **result})
         except Exception as e:
             logger.error(f"Identity portability create grant error: {e}", exc_info=True)
-            return jsonify({'success': False, 'error': str(e)}), 400
+            return jsonify({'success': False, 'error': 'Failed to create grant'}), 400
 
     @ui.route('/ajax/admin/identity-portability/grants/import', methods=['POST'])
     @require_login
@@ -6131,7 +6131,7 @@ def create_ui_blueprint() -> Blueprint:
             return jsonify(response)
         except Exception as e:
             logger.error(f"Identity portability import grant error: {e}", exc_info=True)
-            return jsonify({'success': False, 'error': str(e)}), 400
+            return jsonify({'success': False, 'error': 'Failed to import grant'}), 400
 
     @ui.route('/ajax/admin/identity-portability/grants/<grant_id>/apply', methods=['POST'])
     @require_login
@@ -6158,7 +6158,7 @@ def create_ui_blueprint() -> Blueprint:
             return jsonify({'success': True, **result})
         except Exception as e:
             logger.error(f"Identity portability apply grant error: {e}", exc_info=True)
-            return jsonify({'success': False, 'error': str(e)}), 400
+            return jsonify({'success': False, 'error': 'Failed to apply grant'}), 400
 
     @ui.route('/ajax/admin/identity-portability/grants/<grant_id>/revoke', methods=['POST'])
     @require_login
@@ -6183,7 +6183,7 @@ def create_ui_blueprint() -> Blueprint:
             return jsonify({'success': True, **result})
         except Exception as e:
             logger.error(f"Identity portability revoke grant error: {e}", exc_info=True)
-            return jsonify({'success': False, 'error': str(e)}), 400
+            return jsonify({'success': False, 'error': 'Failed to revoke grant'}), 400
 
     @ui.route('/ajax/admin/agent-directives/presets', methods=['GET'])
     @require_login
@@ -11140,7 +11140,7 @@ def create_ui_blueprint() -> Blueprint:
         except Exception as e:
             logger.error(f"Get channel messages error: {e}", exc_info=True)
             # Return empty messages instead of 500 so the UI doesn't show an error
-            return jsonify({'messages': [], 'channel_id': channel_id, 'count': 0, 'warning': str(e)})
+            return jsonify({'messages': [], 'channel_id': channel_id, 'count': 0, 'warning': 'Failed to load messages'})
 
     @ui.route('/ajax/channel_search/<channel_id>', methods=['GET'])
     @require_login
@@ -15202,11 +15202,9 @@ def create_ui_blueprint() -> Blueprint:
                     logger.critical(f"Database import rollback failed: {rollback_err}")
                     return jsonify({
                         'error': 'Database import failed and automatic rollback also failed. Manual restore is required.',
-                        'details': str(import_err),
                     }), 500
                 return jsonify({
                     'error': 'Database import failed. Previous database was restored from backup.',
-                    'details': str(import_err),
                 }), 500
 
             return jsonify({

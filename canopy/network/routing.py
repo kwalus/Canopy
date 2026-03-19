@@ -134,6 +134,18 @@ MAX_CONTENT_BYTES = 256 * 1024       # 256 KB for text content
 MAX_PAYLOAD_BYTES = 512 * 1024       # 512 KB for total message payload
 MAX_ID_BYTES = 512                   # max length for any user/post/signal ID
 
+# Replay-attack and clock-skew guards applied to all inbound messages.
+# Messages older than this are rejected even if their ID was evicted from the
+# seen-message cache.  Set generously to accommodate store-and-forward queuing.
+MAX_MESSAGE_AGE_S: float = 7200.0    # 2 hours – max acceptable message age
+# Messages timestamped this far *ahead* of local clock are rejected to stop
+# peers from injecting artificially "fresh" messages that bypass replay guards.
+MAX_CLOCK_SKEW_FUTURE_S: float = 30.0  # 30 s of future clock skew permitted
+
+# Routing-table cap: bounds memory and limits the blast radius of a relay
+# advertising stale or poisoned routes.
+MAX_ROUTING_TABLE_SIZE: int = 500
+
 
 class MessageType(Enum):
     """Types of P2P messages."""
@@ -580,7 +592,27 @@ class MessageRouter:
         if message.id in self.seen_messages:
             logger.debug(f"Already seen message {message.id}, skipping")
             return False
-        
+
+        # Reject inbound messages with stale or far-future timestamps to
+        # prevent replay attacks after the seen-message cache evicts old IDs.
+        # Locally-created messages (from_peer == local_peer_id) are exempt so
+        # that store-and-forward delivery of our own queued messages still works.
+        if message.from_peer and message.from_peer != self.local_peer_id:
+            _now = time.time()
+            _age = _now - message.timestamp
+            if _age > MAX_MESSAGE_AGE_S:
+                logger.warning(
+                    f"Dropping stale message {message.id} from {message.from_peer}: "
+                    f"age={_age:.0f}s exceeds {MAX_MESSAGE_AGE_S:.0f}s limit"
+                )
+                return False
+            if message.timestamp > _now + MAX_CLOCK_SKEW_FUTURE_S:
+                logger.warning(
+                    f"Dropping future-dated message {message.id} from {message.from_peer}: "
+                    f"timestamp is {message.timestamp - _now:.0f}s ahead of local clock"
+                )
+                return False
+
         # Per-peer rate limiting for incoming messages
         if message.from_peer and message.from_peer != self.local_peer_id:
             now = time.time()
@@ -1981,9 +2013,15 @@ class MessageRouter:
             peer_id: Destination peer ID
             next_hop: Next hop peer ID
         """
+        # Enforce table size cap: evict the oldest entry to keep memory
+        # bounded and limit the blast radius of relay-table poisoning.
+        if len(self.routing_table) >= MAX_ROUTING_TABLE_SIZE and peer_id not in self.routing_table:
+            oldest = next(iter(self.routing_table))
+            del self.routing_table[oldest]
+            logger.debug(f"Routing table full; evicted oldest entry for {oldest}")
         self.routing_table[peer_id] = next_hop
         logger.debug(f"Updated route: {peer_id} -> {next_hop}")
-    
+
     # ------------------------------------------------------------------ #
     #  Connection brokering and relay                                      #
     # ------------------------------------------------------------------ #

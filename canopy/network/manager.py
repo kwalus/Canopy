@@ -2002,6 +2002,17 @@ class P2PNetworkManager:
             logger.debug(f"Declining relay offer for {target_peer}: already connected")
             return
 
+        # Only accept a relay offer from a peer we are currently connected to.
+        # A relay offer relayed through a third party would name a peer we cannot
+        # directly reach as the next-hop, producing a useless or potentially
+        # misleading routing table entry.
+        if self.connection_manager and not self.connection_manager.is_connected(relay_peer):
+            logger.warning(
+                f"Declining relay offer from {relay_peer} for {target_peer}: "
+                f"relay peer is not directly connected"
+            )
+            return
+
         logger.info(f"Accepted relay offer from {relay_peer} for {target_peer}")
         self.message_router.update_routing_table(target_peer, relay_peer)
         self._active_relays[target_peer] = relay_peer

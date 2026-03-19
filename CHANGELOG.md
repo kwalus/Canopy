@@ -8,46 +8,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.110] - 2026-03-19
+
+### Hardened
+- **Message replay prevention** — Inbound P2P messages older than 2 hours or timestamped more than 30 seconds in the future are rejected, preventing replay attacks after the seen-message cache evicts old IDs. Locally-created messages are exempt for store-and-forward compatibility.
+- **Routing table size cap** — The routing table is capped at 500 entries. When full, the oldest entry is evicted to bound memory and limit the impact of stale or poisoned routes.
+- **Relay offer validation** — Relay offers are only accepted from directly connected peers, preventing a relayed offer from creating a routing entry through an unreachable intermediary.
+- **Generic error responses** — API, UI, and MCP error responses no longer include raw exception strings. Internal details (paths, SQL, stack frames) are replaced with safe generic messages while full context is preserved in server logs.
+
 ## [0.4.109] - 2026-03-19
 
-### Security
-- **Debug-log metadata leak closed** — `Message.to_dict()` no longer logs raw metadata dicts at DEBUG level. Previously exposed attachment names, reply-to IDs, and other sensitive fields. Now logs only the attachment count.
-- **DataEncryptor None-safety** — `encrypt()` and `decrypt()` now return `None` when passed `None` instead of raising or producing undefined behaviour. Signatures typed as `Optional[str]` to match real call sites.
-- **Large payload encryption warning** — Payloads exceeding 1 MiB emit a WARNING before encryption to alert operators about potential performance degradation.
+### Hardened
+- **Encryption helper robustness** — `DataEncryptor.encrypt()` and `decrypt()` handle `None` inputs gracefully. Large-payload warnings alert operators before performance-sensitive paths. Debug logging no longer includes raw metadata.
 
 ## [0.4.108] - 2026-03-19
 
-### Security
-- **Channel message delete ownership verification** — Inbound P2P delete signals for channel messages now verify the requester is either the message author's origin peer or the channel admin (origin peer). Unauthorized delete requests are rejected with a security warning.
-- **Delete signal queue priority** — When the store-and-forward queue for an offline peer overflows, the oldest non-delete-signal message is evicted instead of the oldest message unconditionally. Ensures visibility revocation signals survive queue pressure.
+### Hardened
+- **Delete signal authorization** — Inbound P2P delete signals for channel messages now verify requester ownership (message author or channel admin). Revocation signals are prioritised in the store-and-forward queue to survive offline-peer overflow.
 
 ### Performance
-- **DocumentFragment batching for sidebar DOM writes** — DM contact list and peer list renderers now build into a DocumentFragment and flush in a single appendChild, reducing per-poll reflows.
-- **Render-key diffing for DM contacts** — DM sidebar skips DOM writes entirely when contact data hasn't changed between polls.
-- **Attention poll interval relaxed** — Event poll interval increased from 2500ms to 5000ms, halving idle CPU overhead.
-- **GPU compositing hints** — `will-change` added to sidebar peer activity animation and mini-player slide-in for smoother rendering.
+- **Sidebar rendering efficiency** — DM contacts and peer list use DocumentFragment batching and render-key diffing to skip unnecessary DOM writes. Attention poll interval relaxed from 2.5s to 5s. GPU compositing hints added to animated sidebar elements.
 
 ## [0.4.107] - 2026-03-19
 
-### Security
-- **Delete-signal trust manipulation closed** — `comply_with_delete_signal` and `violate_delete_signal` now verify signal ownership (`target_peer_id == from_peer`) before awarding or penalising trust. Prevents an attacker from harvesting +5 trust by claiming compliance on signals addressed to other peers.
-- **Manually penalized peers cannot re-earn trust** — New `manually_penalized` flag in `trust_scores` table. When a peer is set below score 50 manually, all positive automated trust deltas (MESSAGE_DELIVERED, NETWORK_CONTRIBUTION, etc.) are blocked until the penalty is cleared.
-- **Non-existent delete signals no longer return success** — `update_delete_signal_status` now checks `rowcount == 0` and returns `False` for unknown signal IDs, closing a second avenue for the fake-ACK attack.
-- **`/api/v1/p2p/status` now requires authentication** — Previously exposed P2P network topology to unauthenticated callers.
-- **CSRF guard on session-based API key generation** — `POST /api/v1/keys` via session auth now validates the CSRF token, preventing cross-site key creation.
-- **P2P payload and content size limits** — Messages exceeding 512 KB total or 256 KB content are dropped before any handler runs. ID fields are capped at 512 bytes.
-- **P2P feed post visibility rejection** — Inbound feed posts with `private` or `custom` visibility are rejected; these must never be broadcast or stored on remote nodes.
-- **P2P author-ID spoofing prevention** — Inbound feed posts now verify that the claimed `author_id` belongs to the sending peer via `origin_peer` check.
-- **Feed post delete ownership verification** — Delete signals for feed posts now verify that the requester's peer owns the post author before executing deletion.
-
-### Changed
-- **`can_view()` default trust_score → 0** — Callers that omit `trust_score` no longer silently pass the trusted-visibility threshold. Prevents unintended exposure of trusted posts.
-- **`get_user_posts()` visibility filter** — Now accepts optional `viewer_id` and applies standard visibility rules. Without a viewer, only public/network/trusted posts are returned.
-- **`get_feed_statistics()` includes custom visibility** — Statistics query now counts custom-visibility posts the user has permission to see.
+### Hardened
+- **Trust boundary enforcement** — Delete-signal compliance and violation handlers verify signal ownership before adjusting trust scores. Manually penalised peers are locked from automated trust recovery. Trust score operations validate against non-existent records.
+- **P2P input validation** — Inbound messages enforce payload size limits (512 KB total, 256 KB content, 512-byte IDs). Feed posts with private or custom visibility are rejected at the P2P layer. Author identity is verified against origin peer on inbound feed posts. Delete signal handlers verify requester ownership across all data types.
+- **API authentication tightening** — All P2P status endpoints require authentication. Session-based API key generation validates CSRF tokens.
+- **Feed visibility defaults** — `can_view()` defaults to untrusted, requiring callers to pass explicit trust context. `get_user_posts()` applies standard visibility filters. Feed statistics include custom-visibility posts the viewer has permission to see.
 
 ### Performance
-- **O(n²) → O(n) orphan-reply check in channel rendering** — Replaced `Array.find()` loop with `Set.has()` lookup for thread-root matching.
-- **`displayMessages` returns its Promise** — Enables proper chaining for search banner insertion, fixing a race condition where the banner was wiped by a subsequent `innerHTML` write.
+- **Channel rendering** — O(n) orphan-reply check via Set lookup (previously O(n²)). `displayMessages` returns its Promise for proper search-banner chaining.
 
 ## [0.4.106] - 2026-03-18
 
