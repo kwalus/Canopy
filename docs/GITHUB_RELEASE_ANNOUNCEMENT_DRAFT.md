@@ -1,4 +1,4 @@
-# GitHub Release Announcement Draft (Canopy 0.4.105)
+# GitHub Release Announcement Draft (Canopy 0.4.109)
 
 Use this as the base for the GitHub release page, repo announcement, and launch posts.
 
@@ -8,13 +8,9 @@ Use this as the base for the GitHub release page, repo announcement, and launch 
 
 ## Full announcement (GitHub release notes)
 
-**Canopy 0.4.105 is out.**
+**Canopy 0.4.109 is out.**
 
-This release focuses on making search, sidebar, and notification surfaces feel reliable and responsive under real daily use:
-- search results stay stable across DMs and channels instead of getting overwritten by live refresh,
-- the sidebar gives you real control over card layout and attention flow,
-- the bell separates "I saw this" from "clear this",
-- first-run users get a guided landing instead of a blank page.
+This release focuses on trust, privacy defaults, and making the mesh harder to abuse — while also speeding up the sidebar and keeping search rock-solid.
 
 ### What is Canopy?
 
@@ -25,18 +21,20 @@ Canopy is a local-first encrypted collaboration system for humans and AI agents:
 - built-in AI-native runtime surfaces through REST, MCP, agent inbox, heartbeat, and workspace events,
 - no mandatory hosted collaboration backend for day-to-day operation.
 
-### Highlights since 0.4.100
+### Highlights since 0.4.105
 
-- **Search that stays put** (`0.4.104`-`0.4.105`): DM and channel search are now first-class UI states. Background refresh, event polling, visibility-change handlers, and manual Refresh all suspend while a search is active. Channel search scrolls you to the newest matches. Local actions (edit, delete, publish, endorse) rerun the active search instead of reverting to the live thread.
-- **Sidebar you can shape** (`0.4.101`-`0.4.103`): Recent DMs and Connected cards support three persistent states — collapsed, top 5, and expanded. The mini-player can be pinned top or bottom. Opening a channel instantly clears its attention badge instead of waiting for the next poll. All preferences persist per user in localStorage.
-- **Bell that respects your attention** (`0.4.103`): Opening the bell clears the red badge without removing entries. A separate "seen" watermark tracks what you've glanced at; "Clear" still removes items from the list. Both cursors stay coherent.
-- **First-run guidance** (`0.4.100`): New users see a compact first-day guide on Channels, Feed, and Messages showing workspace stats and four practical next steps. Mobile users land on `#general` instead of an empty feed.
+- **Privacy-first trust baseline** (`0.4.106`): Unknown peers now start at trust score 0 instead of being implicitly trusted. Feed posts default to private. When you narrow a post's visibility, peers that should no longer see it receive a revocation signal automatically.
+- **Proactive P2P hardening** (`0.4.107`-`0.4.109`): Trust boundaries enforce ownership verification on compliance and violation signals. Inbound messages are validated for payload size, identity, and visibility scope. Delete signal authorization covers all data types. Encryption helpers handle edge cases gracefully. API authentication extended across status endpoints.
+- **Sidebar performance** (`0.4.108`): DOM batching and render-key diffing skip unnecessary redraws. Polling intervals relaxed. GPU compositing hints added for smoother animations.
+- **Search that stays put** (`0.4.104`-`0.4.105`): DM and channel search are first-class UI states. Background refresh, event polling, and manual Refresh all suspend while a search is active. Local actions rerun the active search instead of reverting to the live thread.
 
 ### Why this release matters
 
-The surfaces people touch every minute — search, sidebar layout, the notification bell — are exactly the places where small inconsistencies erode trust in a product. A search that jumps back to the live thread, a badge that won't clear, a sidebar that forgets your preferences — these feel like bugs even when the underlying data is correct.
+A mesh network is only as trustworthy as its defaults. Previously, unknown peers started with implicit trust and feed posts defaulted to broadcasting. That's backwards for a privacy-first system.
 
-`0.4.105` fixes that layer. Search is stable, the sidebar remembers, the bell makes sense, and new users get oriented instead of dropped into a blank screen. The result is a workspace that feels calmer and more predictable during sustained daily use.
+`0.4.106` flips those defaults: peers earn trust, posts stay private until you choose otherwise, and visibility changes propagate revocation signals. The hardening passes in `0.4.107`-`0.4.109` then enforce those boundaries across every P2P message handler.
+
+The result is a workspace where privacy is the starting position, not something you have to opt into.
 
 ### Getting started
 
@@ -48,19 +46,20 @@ The surfaces people touch every minute — search, sidebar layout, the notificat
 
 ### Notes
 
-Canopy remains early-stage software. Test search behavior, sidebar persistence, and attention surfaces on your own instance before broad rollout.
+Canopy remains early-stage software. Test trust and visibility behavior on your own instance before broad rollout.
 
 ---
 
 ## Short version (for repo Discussions / announcements)
 
-Canopy 0.4.105 is live.
+Canopy 0.4.109 is live.
 
-This release hardens the surfaces you touch every day:
-- DM and channel search stays stable — no more live-refresh stomping your results,
-- sidebar cards remember your preferred layout (collapsed / peek / expanded),
-- the bell separates "seen" from "cleared" so the badge makes sense,
-- first-run users get a guided landing instead of a blank page.
+This release flips Canopy's defaults to privacy-first:
+- unknown peers start at trust 0 instead of being implicitly trusted,
+- feed posts default to private,
+- visibility narrowing sends automatic revocation signals,
+- P2P message handlers enforce trust boundaries, payload validation, and identity checks,
+- sidebar rendering is faster with DOM batching and render-key diffing.
 
 Start here:
 - [docs/QUICKSTART.md](https://github.com/kwalus/Canopy/blob/main/docs/QUICKSTART.md)
@@ -71,10 +70,6 @@ Start here:
 
 ## Social copy (very short)
 
-Canopy 0.4.105 is out: local-first encrypted collaboration for humans and AI agents.
+Canopy 0.4.109 is out: local-first encrypted collaboration for humans and AI agents.
 
-This drop makes daily use feel much more solid:
-- search that stays put across DMs and channels,
-- sidebar that remembers your layout,
-- bell that knows seen vs cleared,
-- guided first-run experience.
+Privacy-first by default — peers earn trust, posts stay private, visibility changes propagate revocation. Plus faster sidebar rendering and hardened P2P message handling.

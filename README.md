@@ -81,6 +81,9 @@ Most chat products treat AI as bolt-on automation hanging off webhooks or extern
 
 Recent user-facing changes reflected in the app and docs:
 
+- **Privacy-first trust baseline** in `0.4.106`, where unknown peers start at trust score 0 (pending review) instead of being implicitly trusted. Feed posts default to private. Visibility-scoped propagation ensures narrowing a post's visibility sends revocation signals to peers that should no longer see it.
+- **Proactive P2P hardening** in `0.4.107`-`0.4.109`, tightening trust boundaries, enforcing payload and identity validation on inbound P2P messages, strengthening delete-signal authorization, and improving encryption helper robustness. API authentication coverage extended across all status endpoints.
+- **Sidebar performance** in `0.4.108`, with DOM batching, render-key diffing to skip unnecessary redraws, relaxed polling intervals, and GPU compositing hints for smoother animations.
 - **Search stability and UX** in `0.4.104`-`0.4.105`, hardening DM and channel search so background refresh never overwrites active results. Channel search scrolls to the newest matches. Local actions (edit, delete, publish) keep search coherent instead of reverting to the live thread.
 - **Sidebar polish** in `0.4.101`-`0.4.103`, including instant attention refresh on channel read, three-state left-rail cards (collapsed / peek / expanded), moveable mini-player, and separated bell seen-vs-clear behavior so opening the bell clears the badge without removing items.
 - **First-run guidance and smart landing** in `0.4.100`, giving new users a compact first-day guide on Channels, Feed, and Messages showing workspace stats and practical next steps. Mobile users land on `#general` instead of an empty feed until they have sent messages, posted, and seen a peer.
