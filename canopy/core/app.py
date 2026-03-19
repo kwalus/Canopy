@@ -6255,26 +6255,48 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
                 elif data_type == 'channel_message':
                     # Delete a specific channel message (explicit type).
-                    # Remove FK references first: likes and parent_message_id.
+                    # Security: only the message's origin peer or the channel's
+                    # origin peer (admin) may request deletion.
                     try:
                         channel_id = None
                         with db_manager.get_connection() as conn:
                             row = conn.execute(
-                                "SELECT channel_id FROM channel_messages WHERE id = ?",
+                                "SELECT channel_id, user_id FROM channel_messages WHERE id = ?",
                                 (data_id,),
                             ).fetchone()
                             if row:
                                 channel_id = row['channel_id'] if hasattr(row, 'keys') else row[0]
-                            conn.execute("DELETE FROM likes WHERE message_id = ?", (data_id,))
-                            conn.execute(
-                                "UPDATE channel_messages SET parent_message_id = NULL WHERE parent_message_id = ?",
-                                (data_id,),
-                            )
-                            cur = conn.execute(
-                                "DELETE FROM channel_messages WHERE id = ?",
-                                (data_id,))
-                            conn.commit()
-                            deleted = cur.rowcount > 0
+                                msg_user_id = row['user_id'] if hasattr(row, 'keys') else row[1]
+                                requester = str(requester_peer or from_peer or '').strip()
+                                msg_authorized = _requester_owns_user(msg_user_id, requester)
+                                ch_row = conn.execute(
+                                    "SELECT origin_peer FROM channels WHERE id = ?",
+                                    (channel_id,),
+                                ).fetchone()
+                                ch_origin = ''
+                                if ch_row:
+                                    ch_origin = (ch_row['origin_peer'] if hasattr(ch_row, 'keys') else ch_row[0]) or ''
+                                ch_admin = bool(ch_origin) and requester == ch_origin
+                                if not msg_authorized and not ch_admin:
+                                    logger.warning(
+                                        "SECURITY: Rejected channel_message delete for %s "
+                                        "(requester=%s, msg_user=%s, ch_origin=%s)",
+                                        data_id, requester, msg_user_id, ch_origin,
+                                    )
+                                    deleted = False
+                                else:
+                                    conn.execute("DELETE FROM likes WHERE message_id = ?", (data_id,))
+                                    conn.execute(
+                                        "UPDATE channel_messages SET parent_message_id = NULL WHERE parent_message_id = ?",
+                                        (data_id,),
+                                    )
+                                    cur = conn.execute(
+                                        "DELETE FROM channel_messages WHERE id = ?",
+                                        (data_id,))
+                                    conn.commit()
+                                    deleted = cur.rowcount > 0
+                            else:
+                                deleted = True  # Already gone, idempotent
                         if deleted and channel_id:
                             try:
                                 channel_manager._emit_channel_user_event(

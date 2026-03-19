@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.108] - 2026-03-19
+
+### Security
+- **Channel message delete ownership verification** — Inbound P2P delete signals for channel messages now verify the requester is either the message author's origin peer or the channel admin (origin peer). Unauthorized delete requests are rejected with a security warning.
+- **Delete signal queue priority** — When the store-and-forward queue for an offline peer overflows, the oldest non-delete-signal message is evicted instead of the oldest message unconditionally. Ensures visibility revocation signals survive queue pressure.
+
+### Performance
+- **DocumentFragment batching for sidebar DOM writes** — DM contact list and peer list renderers now build into a DocumentFragment and flush in a single appendChild, reducing per-poll reflows.
+- **Render-key diffing for DM contacts** — DM sidebar skips DOM writes entirely when contact data hasn't changed between polls.
+- **Attention poll interval relaxed** — Event poll interval increased from 2500ms to 5000ms, halving idle CPU overhead.
+- **GPU compositing hints** — `will-change` added to sidebar peer activity animation and mini-player slide-in for smoother rendering.
+
 ## [0.4.107] - 2026-03-19
 
 ### Security

@@ -780,7 +780,17 @@ class MessageRouter:
             self.pending_messages[target_peer] = []
         queue = self.pending_messages[target_peer]
         if len(queue) >= MAX_PENDING_PER_PEER:
-            dropped = queue.pop(0)
+            # Prioritise delete signals: evict the oldest non-delete-signal
+            # message so revocation/privacy signals survive queue overflow.
+            evict_idx = None
+            for i, m in enumerate(queue):
+                if m.type != MessageType.DELETE_SIGNAL:
+                    evict_idx = i
+                    break
+            if evict_idx is not None:
+                dropped = queue.pop(evict_idx)
+            else:
+                dropped = queue.pop(0)
             logger.warning(
                 f"Pending queue for {target_peer} full ({MAX_PENDING_PER_PEER}); "
                 f"dropped oldest message {dropped.id}"
