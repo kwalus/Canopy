@@ -1,12 +1,22 @@
-# GitHub Release Announcement Draft (Canopy 0.4.111)
+# GitHub Release Announcement Draft (Canopy)
 
-Use this as the base for the GitHub release page, repo announcement, and launch posts.
+Use this as the base for the GitHub release page, repo announcement, and launch posts. For **authoritative versioned notes**, always align with [CHANGELOG.md](../CHANGELOG.md).
 
 **Guideline:** keep the announcement user-facing. Focus on workflows, operator value, and product behavior rather than internal patch mechanics.
 
 ---
 
-## Full announcement (GitHub release notes)
+## Addendum: media deck follow-ups (0.4.114 – 0.4.116)
+
+Use these bullets when announcing or testing **Canopy-Dev** / recent mesh builds:
+
+- **Widget-aware deck** — Maps, charts, Spotify, SoundCloud, Vimeo, Loom, and similar embeds ship structured **deck manifests** so one post can queue many items, not just one video.
+- **Reliability** — Deck map/chart iframes are not rebuilt on every UI tick; **Spotify** `intl-*/` URLs parse correctly; Spotify/SoundCloud deck iframes match in-feed embed behavior.
+- **UI** — One **Deck \| Mini** segmented control per post (instead of two separate buttons); cleaner deck header (**Canopy Deck · N items**) and **Item k of N** when stepping through a queue.
+
+---
+
+## Full announcement (GitHub release notes — 0.4.111 era)
 
 **Canopy 0.4.111 is out.**
 

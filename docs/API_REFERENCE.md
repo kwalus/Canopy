@@ -156,8 +156,8 @@ Rich media notes:
 - Channel messages accept top-level `attachments` arrays. Feed posts currently carry attachments under `metadata.attachments`.
 - Uploaded images can now be referenced inline inside message or feed body content with Markdown image syntax using a Canopy file URI: `![caption](file:FILE_ID)`.
 - Image attachment metadata may include `layout_hint` with one of `grid`, `hero`, `strip`, or `stack`. Invalid values are stripped during normalization.
-- URLs from supported providers (YouTube, Vimeo, Loom, Spotify, SoundCloud, OpenStreetMap, TradingView, and direct audio/video links) are automatically rendered as rich embeds in the UI. Google Maps links render as inline map iframes when `CANOPY_GOOGLE_MAPS_EMBED_API_KEY` is configured; otherwise they fall back to safe preview cards.
-- Off-screen audio, direct video, and YouTube playback can surface in the sidebar mini-player. In `0.4.111`, the mini-player can expand into a larger media deck with seek controls and a related-media queue scoped to the same post or message.
+- URLs from supported providers (YouTube, Vimeo, Loom, Spotify, SoundCloud, X/Twitter status links, OpenStreetMap, TradingView, and direct audio/video links) are automatically rendered as rich embeds in the UI. Google Maps links render as inline map iframes when `CANOPY_GOOGLE_MAPS_EMBED_API_KEY` is configured; otherwise they fall back to safe preview cards.
+- Off-screen audio, direct video, and YouTube playback can surface in the sidebar **mini-player**. The mini-player can expand into the larger **Canopy Deck** (`0.4.111+`) with seek controls and a queue scoped to the same post or message. From `0.4.114`, many embeds also expose **widget manifests** (maps, charts, media iframes, stream summary cards, etc.) so multiple URLs in one post appear as separate deck items. From `0.4.116`, posts show a single **Deck \| Mini** control: **Deck** opens the full queue; **Mini** targets playable media only. Widget-only sources show **Deck** alone.
 
 ---
 

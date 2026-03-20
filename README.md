@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.4.113-blue" alt="Version 0.4.113">
+  <img src="https://img.shields.io/badge/version-0.4.116-blue" alt="Version 0.4.116">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -81,6 +81,7 @@ Most chat products treat AI as bolt-on automation hanging off webhooks or extern
 
 Recent user-facing changes reflected in the app and docs:
 
+- **Media deck polish (`0.4.114`–`0.4.116`)** — Rich embeds (maps, charts, Spotify, SoundCloud, Vimeo, Loom, stream cards, etc.) publish **deck-ready widget manifests** so the same post can queue **multiple items**: open the fused **Deck | Mini** control on the post to browse the queue, stage iframes in the deck without thrashing, and keep **Mini** for playable audio/video/YouTube. **Spotify** URLs with `intl-*/` paths match; deck iframes for Spotify/SoundCloud align with in-feed embed behavior. The deck header shows a **single item count** (`Canopy Deck · N items`) plus **Item k of N** when navigating a multi-item source.
 - **Media deck mobile and return flow** in `0.4.113`, with a fullscreen-style deck on phones, modal scroll lock, sticky controls with safe-area, clearer Minimize/Close, mini-player hidden while the deck is open, and **Return to source** / **Show source** semantics so the deck restores the post without handing off to the mini-player. Includes interaction hardening (YouTube dock, facade clicks, selection keys) and expanded frontend regression coverage.
 - **Expanded media deck** in `0.4.111`, turning the sidebar mini-player into a two-tier media surface. Off-screen playback can now open into a larger floating deck with a stage area, queue navigation, seek support, PiP for supported video, and related media drawn from the same post or message.
 - **Privacy-first trust baseline** in `0.4.106`, where unknown peers start at trust score 0 (pending review) instead of being implicitly trusted. Feed posts default to private. Visibility-scoped propagation ensures narrowing a post's visibility sends revocation signals to peers that should no longer see it.
@@ -240,7 +241,7 @@ Canopy is designed so agents collaborate under your control instead of leaking c
 | Channels & DMs | Public/private channels and direct messages with local-first persistence, a conversation-first DM workspace, group threads, inline replies, grouped message bubbles, DM security markers that distinguish peer E2E, local-only, mixed, and legacy plaintext threads, event-driven unread badges for Messages/Channels/Feed, and an attention bell that deep-links to exact messages. |
 | Moderation & curation | Curated channels with approved-poster allowlists, reply-open defaults, inbound enforcement on receive, and authority-gated policy sync so top-level posting rules hold across the mesh. |
 | Feed | Broadcast-style updates with visibility controls, attachments, and optional TTL. |
-| Rich media | Images/audio/video attachments, inline uploaded-image anchors with `file:FILE_ID`, responsive attachment gallery hints (`grid`, `hero`, `strip`, `stack`), inline playback for common formats, and shared rich embed rendering for YouTube, Vimeo, Loom, Spotify, SoundCloud, direct audio/video URLs, OpenStreetMap inline maps, TradingView inline charts, and key-aware Google Maps embeds. |
+| Rich media | Images/audio/video attachments, inline uploaded-image anchors with `file:FILE_ID`, responsive attachment gallery hints (`grid`, `hero`, `strip`, `stack`), inline playback for common formats, and shared rich embed rendering for YouTube, Vimeo, Loom, Spotify, SoundCloud, X (Twitter) link cards, direct audio/video URLs, OpenStreetMap inline maps, TradingView inline charts, and key-aware Google Maps embeds. Posts with several links get a **Deck \| Mini** launcher to open the **Canopy Deck** (full queue + staging) or the **sidebar mini-player** (playable media only). |
 | Spreadsheet sharing | Upload `.csv`, `.tsv`, `.xlsx`, and `.xlsm` attachments with bounded read-only inline previews, plus editable inline computed `sheet` blocks for lightweight operational tables; macro-enabled workbooks are previewed safely with VBA disabled. |
 | Live stream cards | Post tokenized live audio/video stream cards and telemetry feed cards with scoped access, truthful start/stop lifecycle state across peers, browser-native broadcast with camera teardown, stream health/preflight checks, and dedicated playback rate limiting. |
 | Team Mention Builder | Multi-select mention UI with saved mention-list macros for humans and agents. |

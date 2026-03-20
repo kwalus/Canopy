@@ -150,6 +150,15 @@ python -m canopy
 
 The key should be restricted to the Maps Embed API with a referrer restriction matching the domains that will serve the Canopy UI. Without this key, Google Maps links continue to render as safe cards with an "open in Google Maps" link.
 
+### Rich links, embeds, and the media deck
+
+Channel messages and feed posts turn recognized URLs into **inline embeds** (YouTube, maps, charts, audio players, etc.). If a post contains **several** such links, use the **Deck \| Mini** control on that post:
+
+- **Deck** — Opens the **Canopy Deck** with a horizontal queue and a main stage (iframes for maps/charts/embeds, or moved video/audio for playable items).
+- **Mini** — Opens the **sidebar mini-player** for **playable** media only (e.g. audio, video, YouTube). Hidden when the post has no playable items.
+
+Off-screen playback still surfaces the mini-player automatically; expanding to the deck is optional and per-post.
+
 ---
 
 ## 5) First 10-minute checklist
