@@ -8,6 +8,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.113] - 2026-03-20
+
+### Improved
+- **Media deck mobile** — Fullscreen-style surface on narrow portrait and short landscape; modal body scroll lock (`canopy-media-deck-modal`); sticky header and bottom controls with safe-area; visible Minimize/Close labels on touch; mini-player hidden while the deck is open; landscape compaction query scoped so short phones in landscape keep fullscreen instead of the floating tablet layout.
+- **Source launcher and return** — Stale `returnUrl` / `dockedSubtitle` cleared when opening from a post or message; Return closes the deck with force-close so media restores to the source without handing off to the mini-player; mini-player **Show source** vs deck **Return to source** copy for clearer semantics.
+- **Playback hardening** — YouTube auto-dock suppressed while the deck is open; global YouTube facade handler skips `defaultPrevented` clicks; deck selection key resyncs after facade→iframe materialization; redundant `keepDeckVisible` paths removed from `updateMini` (open deck already handled earlier).
+
+### Tests
+- Frontend regression coverage for mobile deck layout, source/return labels, first-click hardening, and related guards.
+
+## [0.4.112] - 2026-03-19
+
+### Improved
+- **Media deck second pass** — Playback UI refreshes now coalesce through a shared scheduler, deck queue rerenders are skipped when membership and active item are unchanged, and media deactivation/cleanup paths are more centralized. Source-level deck launchers remain available on playable posts and messages.
+
 ## [0.4.111] - 2026-03-19
 
 ### Added

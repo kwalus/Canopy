@@ -1814,14 +1814,19 @@
             );
         }
 
-        document.addEventListener('click', function(e) {
-            var facade = e.target.closest('.yt-facade');
-            if (!facade) return;
-            var src = facade.getAttribute('data-iframe-src');
-            if (!src) return;
-            var container = facade.parentElement;
-            var iframe = document.createElement('iframe');
-            iframe.src = src;
+        function materializeYouTubeFacade(facade, options = {}) {
+            if (!facade) return null;
+            if (facade.tagName && facade.tagName.toLowerCase() === 'iframe') return facade;
+            const src = facade.getAttribute('data-iframe-src');
+            if (!src) return null;
+            let iframeSrc = src;
+            try {
+                const url = new URL(src, window.location.origin);
+                url.searchParams.set('autoplay', options.autoplay === true ? '1' : '0');
+                iframeSrc = url.toString();
+            } catch (_) {}
+            const iframe = document.createElement('iframe');
+            iframe.src = iframeSrc;
             iframe.title = 'YouTube video';
             iframe.frameBorder = '0';
             iframe.allowFullscreen = true;
@@ -1833,6 +1838,15 @@
             iframe.style.background = '#000';
             iframe.style.display = 'block';
             facade.replaceWith(iframe);
+            registerMediaNode(iframe);
+            return iframe;
+        }
+
+        document.addEventListener('click', function(e) {
+            if (e.defaultPrevented) return;
+            var facade = e.target.closest('.yt-facade');
+            if (!facade) return;
+            materializeYouTubeFacade(facade, { autoplay: true });
         });
 
         const RICH_EMBED_PROVIDERS = [
@@ -4879,6 +4893,7 @@
             const topSlot = document.getElementById('sidebar-media-mini-slot-top');
             const bottomSlot = document.getElementById('sidebar-media-mini-slot-bottom');
             const deck = document.getElementById('sidebar-media-deck');
+            const deckShell = deck ? deck.querySelector('.sidebar-media-deck-shell') : null;
             const deckBackdrop = document.getElementById('sidebar-media-deck-backdrop');
             const deckStage = document.getElementById('sidebar-media-deck-stage');
             const deckVisual = document.getElementById('sidebar-media-deck-visual');
@@ -4918,8 +4933,12 @@
                 dockedSubtitle: null,
                 deckOpen: false,
                 deckItems: [],
+                deckSelectedKey: '',
+                deckQueueSignature: '',
                 deckSeeking: false,
-                mediaCounter: 0
+                mediaCounter: 0,
+                miniUpdateFrame: 0,
+                miniUpdateTimer: null
             };
 
             function updateMiniPlacementControl() {
@@ -4945,13 +4964,48 @@
 
             setCanopySidebarMiniPosition(canopySidebarRailState.miniPosition);
 
+            function scheduleMiniUpdate(delay = 0) {
+                const wait = Number(delay || 0);
+                if (wait > 0) {
+                    if (state.miniUpdateTimer) {
+                        clearTimeout(state.miniUpdateTimer);
+                    }
+                    state.miniUpdateTimer = setTimeout(() => {
+                        state.miniUpdateTimer = null;
+                        scheduleMiniUpdate(0);
+                    }, wait);
+                    return;
+                }
+                if (state.miniUpdateFrame) return;
+                state.miniUpdateFrame = window.requestAnimationFrame(() => {
+                    state.miniUpdateFrame = 0;
+                    updateMini();
+                });
+            }
+
             function mediaTypeFor(el) {
                 if (!el || !el.tagName) return '';
                 const tag = el.tagName.toLowerCase();
                 if (tag === 'audio') return 'audio';
                 if (tag === 'video') return 'video';
-                if (tag === 'iframe' && el.closest('.youtube-embed')) return 'youtube';
+                if ((tag === 'iframe' || tag === 'div') && (el.closest('.youtube-embed') || el.matches('.youtube-embed, .yt-facade'))) return 'youtube';
                 return '';
+            }
+
+            function resolveYouTubeMediaElement(el, options = {}) {
+                if (!el) return null;
+                if (el.tagName && el.tagName.toLowerCase() === 'iframe' && el.closest('.youtube-embed')) {
+                    return el;
+                }
+                const wrapper = el.matches && el.matches('.youtube-embed')
+                    ? el
+                    : (el.closest ? el.closest('.youtube-embed') : null);
+                if (!wrapper) return null;
+                const existingIframe = wrapper.querySelector('iframe');
+                if (existingIframe) return existingIframe;
+                if (options.activate !== true) return wrapper;
+                const facade = wrapper.querySelector('.yt-facade');
+                return materializeYouTubeFacade(facade, { autoplay: options.autoplay === true }) || wrapper;
             }
 
             function mediaIcon(type) {
@@ -5081,7 +5135,7 @@
                                         setCurrent(el, 'youtube');
                                         return;
                                     }
-                                    setTimeout(updateMini, 50);
+                                    scheduleMiniUpdate(50);
                                 }
                             }
                         });
@@ -5105,7 +5159,9 @@
             }
 
             function sourceContainer(el) {
-                return el.closest('.post-card[data-post-id], .message-item[data-message-id], .card');
+                if (!el || !el.closest) return null;
+                const postOrMessage = el.closest('.post-card[data-post-id], .message-item[data-message-id]');
+                return postOrMessage || el.closest('.card');
             }
 
             function sourceSubtitle(el) {
@@ -5224,7 +5280,7 @@
 
             function getMediaDockWrapper(el, type) {
                 if (!el) return null;
-                if (type === 'youtube') return el.closest('.youtube-embed') || el;
+                if (type === 'youtube') return (el.matches && el.matches('.youtube-embed') ? el : el.closest('.youtube-embed')) || el;
                 if (type === 'video') return el;
                 return null;
             }
@@ -5320,6 +5376,24 @@
                 return true;
             }
 
+            function clearOrphanedDockedMedia(el, type, sourceEl) {
+                if (!el) return;
+                const wrapper = getMediaDockWrapper(el, type);
+                if (!wrapper) return;
+                const parent = wrapper.parentNode;
+                if (parent !== miniVideoHost && parent !== deckStage) return;
+                if (sourceEl && sourceEl.isConnected) return;
+                wrapper.remove();
+                if (parent === miniVideoHost && miniVideoHost) {
+                    miniVideoHost.innerHTML = '';
+                    miniVideoHost.style.display = 'none';
+                }
+                if (parent === deckStage && deckStage) {
+                    clearDeckStageDockedNodes();
+                    deckStage.classList.add('is-empty');
+                }
+            }
+
             function pauseMediaElement(el, type) {
                 if (!el) return;
                 try {
@@ -5335,6 +5409,26 @@
                 } catch (_) {}
             }
 
+            function deactivateMediaEntry(entry, options = {}) {
+                if (!entry || !entry.el) return;
+                const el = entry.el;
+                const type = entry.type || mediaTypeFor(el);
+                if (!type) return;
+                pauseMediaElement(el, type);
+                if (type === 'youtube') {
+                    clearYouTubeDockResumeState(el);
+                }
+                restoreDockedMedia(el, { preferMini: false });
+                // Re-assert pause after restoration so a switched-away item cannot
+                // keep playing from its original source behind the active deck item.
+                pauseMediaElement(el, type);
+                clearOrphanedDockedMedia(el, type, entry.sourceEl || sourceContainer(el));
+                if (options.resetReturnState !== false) {
+                    state.dockedSubtitle = null;
+                    state.returnUrl = null;
+                }
+            }
+
             function playMediaElement(el, type) {
                 if (!el) return;
                 try {
@@ -5344,11 +5438,13 @@
                             playResult.catch(() => {});
                         }
                     } else if (type === 'youtube') {
-                        initYouTubePlayer(el);
-                        const player = el.__canopyMiniYTPlayer;
+                        const ytEl = resolveYouTubeMediaElement(el, { activate: true, autoplay: true });
+                        if (!ytEl || ytEl.tagName.toLowerCase() !== 'iframe') return;
+                        initYouTubePlayer(ytEl);
+                        const player = ytEl.__canopyMiniYTPlayer;
                         if (player && typeof player.playVideo === 'function') {
                             player.playVideo();
-                            el.__canopyMiniYTState = 1;
+                            ytEl.__canopyMiniYTState = 1;
                         }
                     }
                 } catch (_) {}
@@ -5362,24 +5458,217 @@
                     if (!node || !(node instanceof Element)) return;
                     const type = mediaTypeFor(node);
                     if (!type) return;
-                    const key = ensureMediaIdentity(node);
+                    const target = type === 'youtube' ? (resolveYouTubeMediaElement(node, { activate: false }) || node) : node;
+                    const key = ensureMediaIdentity(target);
                     if (!key || seen.has(key)) return;
                     seen.add(key);
                     items.push({
                         key,
-                        el: node,
+                        el: target,
                         type,
-                        title: titleFromMedia(node, type),
-                        subtitle: subtitleFromMedia(node, type),
-                        thumb: resolveMediaThumbnail(node, type),
+                        title: titleFromMedia(target, type),
+                        subtitle: subtitleFromMedia(target, type),
+                        thumb: resolveMediaThumbnail(target, type),
                     });
                 }
 
                 if (activeEl) pushCandidate(activeEl);
                 if (sourceEl && sourceEl.querySelectorAll) {
-                    sourceEl.querySelectorAll('audio, video, .youtube-embed iframe').forEach(pushCandidate);
+                    sourceEl.querySelectorAll('audio, video, .youtube-embed').forEach(pushCandidate);
                 }
                 return items;
+            }
+
+            function getSourceMediaDeckItems(sourceEl) {
+                if (!sourceEl || !sourceEl.isConnected) return [];
+                return buildRelatedMediaList(sourceEl, null);
+            }
+
+            function getDeckSelectedItem() {
+                if (!Array.isArray(state.deckItems) || !state.deckItems.length) return null;
+                if (state.deckSelectedKey) {
+                    const selected = state.deckItems.find((item) => item.key === state.deckSelectedKey);
+                    if (selected) return selected;
+                }
+                if (state.current && state.current.el) {
+                    const currentMatch = state.deckItems.find((item) => item.el === state.current.el);
+                    if (currentMatch) return currentMatch;
+                }
+                return state.deckItems[0] || null;
+            }
+
+            function scrollDeckSelectionIntoView() {
+                if (!deckQueue || !state.deckSelectedKey) return;
+                const selectorKey = window.CSS && typeof window.CSS.escape === 'function'
+                    ? window.CSS.escape(state.deckSelectedKey)
+                    : state.deckSelectedKey.replace(/["\\]/g, '\\$&');
+                const activeBtn = deckQueue.querySelector(`.sidebar-media-deck-item[data-media-key="${selectorKey}"]`);
+                if (!activeBtn || typeof activeBtn.scrollIntoView !== 'function') return;
+                window.requestAnimationFrame(() => {
+                    activeBtn.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+                });
+            }
+
+            function selectDeckItem(item, options = {}) {
+                if (!item) return;
+                const shouldPlay = options.play === true;
+                state.dismissedEl = null;
+                setCurrent(item.el, item.type);
+                state.deckSelectedKey = (state.current && state.current.el)
+                    ? ensureMediaIdentity(state.current.el)
+                    : (item.key || '');
+                if (state.current && state.current.el) {
+                    if (shouldPlay) {
+                        playMediaElement(state.current.el, state.current.type);
+                    } else {
+                        pauseMediaElement(state.current.el, state.current.type);
+                    }
+                }
+                updateDeckPanel();
+                updateSourceDeckLauncherActiveStates();
+                scrollDeckSelectionIntoView();
+            }
+
+            function resolveSourceMediaDeckLauncherHost(sourceEl) {
+                if (!sourceEl || !sourceEl.isConnected) {
+                    return { host: null, owned: false };
+                }
+                const actionsHost = sourceEl.querySelector('[data-post-actions] .d-flex.gap-2.flex-wrap, .message-actions .d-flex.gap-2.flex-wrap');
+                if (actionsHost) {
+                    return { host: actionsHost, owned: false };
+                }
+                let slot = sourceEl.__canopyMediaDeckSlot;
+                if (slot && slot.isConnected) {
+                    return { host: slot, owned: true };
+                }
+                slot = sourceEl.querySelector('.canopy-media-deck-source-slot[data-media-deck-slot="1"]');
+                if (!slot) {
+                    slot = document.createElement('div');
+                    slot.className = 'canopy-media-deck-source-slot';
+                    slot.setAttribute('data-media-deck-slot', '1');
+                    const dmFooter = sourceEl.querySelector('.dm-bubble-footer');
+                    const dmBubble = sourceEl.querySelector('.dm-bubble');
+                    if (dmFooter && typeof dmFooter.insertAdjacentElement === 'function') {
+                        dmFooter.insertAdjacentElement('afterend', slot);
+                    } else if (dmBubble) {
+                        dmBubble.appendChild(slot);
+                    } else {
+                        sourceEl.appendChild(slot);
+                    }
+                }
+                sourceEl.__canopyMediaDeckSlot = slot;
+                return { host: slot, owned: true };
+            }
+
+            function getPreferredDeckItemForSource(sourceEl, items) {
+                const playableItems = Array.isArray(items) ? items : getSourceMediaDeckItems(sourceEl);
+                if (!playableItems.length) return null;
+                if (state.current && state.current.el && state.current.sourceEl === sourceEl) {
+                    const currentMatch = playableItems.find((item) => item.el === state.current.el);
+                    if (currentMatch) return currentMatch;
+                }
+                const playingMatch = playableItems.find((item) => isElementPlaying(item.el, item.type));
+                if (playingMatch) return playingMatch;
+                return playableItems[0] || null;
+            }
+
+            function updateSourceDeckLauncherActiveStates() {
+                document.querySelectorAll('[data-open-media-deck]').forEach((btn) => {
+                    const sourceId = String(btn.getAttribute('data-source-media-id') || '');
+                    const activeSource = (state.current && state.current.sourceEl && state.dismissedEl !== state.current.el)
+                        ? ensureMediaIdentity(state.current.sourceEl)
+                        : '';
+                    const isActive = !!sourceId && !!activeSource && sourceId === activeSource;
+                    btn.classList.toggle('is-active', isActive);
+                    btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+                    btn.setAttribute('aria-expanded', isActive && state.deckOpen ? 'true' : 'false');
+                });
+            }
+
+            function openMediaDeckForSource(sourceEl) {
+                if (!sourceEl || !sourceEl.isConnected) return;
+                const items = getSourceMediaDeckItems(sourceEl);
+                const preferred = getPreferredDeckItemForSource(sourceEl, items);
+                if (!preferred) return;
+                state.deckItems = items;
+                state.deckSelectedKey = preferred.key;
+                state.dismissedEl = null;
+                state.returnUrl = null;
+                state.dockedSubtitle = null;
+                state.deckOpen = true;
+                selectDeckItem(preferred, { play: false });
+                updateSourceDeckLauncherActiveStates();
+                scheduleMiniUpdate(20);
+            }
+
+            function syncSourceMediaDeckLauncher(sourceEl) {
+                if (!sourceEl || !sourceEl.isConnected) return;
+                const items = getSourceMediaDeckItems(sourceEl);
+                let btn = sourceEl.querySelector('[data-open-media-deck]');
+                if (!items.length) {
+                    if (btn) btn.remove();
+                    if (sourceEl.__canopyMediaDeckSlot && sourceEl.__canopyMediaDeckSlot.isConnected && !sourceEl.__canopyMediaDeckSlot.childElementCount) {
+                        sourceEl.__canopyMediaDeckSlot.remove();
+                    }
+                    delete sourceEl.__canopyMediaDeckSlot;
+                    return;
+                }
+
+                const hostInfo = resolveSourceMediaDeckLauncherHost(sourceEl);
+                const host = hostInfo.host;
+                if (!host) return;
+                const currentSourceId = ensureMediaIdentity(sourceEl);
+                if (!btn) {
+                    btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'canopy-media-deck-launcher';
+                    btn.setAttribute('data-open-media-deck', '1');
+                    btn.addEventListener('click', (event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        openMediaDeckForSource(sourceEl);
+                    });
+                }
+
+                if (btn.parentNode !== host) {
+                    host.appendChild(btn);
+                }
+
+                const countLabel = items.length === 1 ? '1' : String(items.length);
+                const launcherSignature = `${currentSourceId}|${countLabel}`;
+                btn.setAttribute('data-source-media-id', currentSourceId);
+                btn.setAttribute('data-launcher-signature', launcherSignature);
+                btn.classList.toggle('is-in-source-slot', !!hostInfo.owned);
+                btn.setAttribute('aria-label', items.length > 1 ? `Open media deck with ${items.length} items` : 'Open media deck');
+                btn.title = items.length > 1 ? `Open media deck (${items.length} items)` : 'Open media deck';
+                if (btn.getAttribute('data-rendered-signature') !== launcherSignature) {
+                    btn.innerHTML = `<i class="bi bi-collection-play"></i><span class="canopy-media-deck-launcher-label">Media deck</span><span class="canopy-media-deck-launcher-count">${countLabel}</span>`;
+                    btn.setAttribute('data-rendered-signature', launcherSignature);
+                }
+                btn.classList.toggle('is-active', !!(state.current && state.current.sourceEl === sourceEl));
+                btn.setAttribute('aria-pressed', state.current && state.current.sourceEl === sourceEl ? 'true' : 'false');
+                btn.setAttribute('aria-expanded', state.current && state.current.sourceEl === sourceEl && state.deckOpen ? 'true' : 'false');
+            }
+
+            function syncSourceMediaDeckLaunchersInScope(scope) {
+                const seen = new Set();
+                const addSource = (node) => {
+                    if (!(node instanceof Element)) return;
+                    const source = node.matches && node.matches('.post-card[data-post-id], .message-item[data-message-id]')
+                        ? node
+                        : node.closest ? node.closest('.post-card[data-post-id], .message-item[data-message-id]') : null;
+                    if (!source || seen.has(source)) return;
+                    seen.add(source);
+                    syncSourceMediaDeckLauncher(source);
+                };
+
+                addSource(scope instanceof Element ? scope : null);
+                if (scope && scope.querySelectorAll) {
+                    scope.querySelectorAll('.post-card[data-post-id], .message-item[data-message-id]').forEach(addSource);
+                } else {
+                    document.querySelectorAll('.post-card[data-post-id], .message-item[data-message-id]').forEach(addSource);
+                }
+                updateSourceDeckLauncherActiveStates();
             }
 
             function setDeckVisualState(item) {
@@ -5402,12 +5691,20 @@
                 const sourceEl = current && current.sourceEl ? current.sourceEl : null;
                 state.deckItems = buildRelatedMediaList(sourceEl, current ? current.el : null);
                 const items = state.deckItems;
+                const selectedItem = getDeckSelectedItem();
                 const total = items.length;
                 const label = total === 1 ? '1 item' : `${total} items`;
+                const activeKey = selectedItem ? selectedItem.key : '';
+                const nextSignature = `${activeKey}::${items.map((item) => `${item.key}:${item.type}`).join('|')}`;
                 deckQueueCount.textContent = label;
                 deckCount.textContent = total === 1 ? '1 playable item' : `${total} playable items`;
                 deckCountChip.textContent = label;
-                deckSource.textContent = current ? sourceSubtitle(current.el) : 'Now playing from Canopy';
+                deckSource.textContent = selectedItem ? sourceSubtitle(selectedItem.el) : 'Now playing from Canopy';
+
+                if (state.deckQueueSignature === nextSignature && deckQueue.childElementCount) {
+                    return;
+                }
+                state.deckQueueSignature = nextSignature;
 
                 deckQueue.innerHTML = '';
                 if (!items.length) {
@@ -5421,7 +5718,7 @@
                 items.forEach((item, index) => {
                     const btn = document.createElement('button');
                     btn.type = 'button';
-                    btn.className = 'sidebar-media-deck-item' + (current && current.el === item.el ? ' is-active' : '');
+                    btn.className = 'sidebar-media-deck-item' + (selectedItem && selectedItem.key === item.key ? ' is-active' : '');
                     btn.dataset.mediaKey = item.key;
                     btn.dataset.mediaIndex = String(index);
 
@@ -5454,31 +5751,37 @@
                     btn.appendChild(labelWrap);
                     deckQueue.appendChild(btn);
                 });
+                scrollDeckSelectionIntoView();
             }
 
             function updateDeckVisibility() {
                 if (!deck || !deckBackdrop) return;
                 const visible = state.deckOpen && !!state.current;
+                const mobileDeckMode = window.matchMedia('(max-width: 640px), (max-height: 540px) and (orientation: landscape)').matches;
                 deck.hidden = !visible;
                 deck.setAttribute('aria-hidden', visible ? 'false' : 'true');
                 deck.classList.toggle('is-visible', visible);
                 deckBackdrop.hidden = !visible;
                 deckBackdrop.classList.toggle('is-visible', visible);
                 document.body.classList.toggle('canopy-media-deck-open', visible);
+                document.body.classList.toggle('canopy-media-deck-modal', visible && mobileDeckMode);
+                if (deckShell) {
+                    deckShell.setAttribute('aria-modal', visible && mobileDeckMode ? 'true' : 'false');
+                }
             }
 
             function syncDeckStage() {
                 if (!deckStage) return;
-                const current = state.current;
-                if (!current || !state.deckOpen) {
+                const selectedItem = getDeckSelectedItem();
+                if (!selectedItem || !state.deckOpen) {
                     clearDeckStageDockedNodes();
                     deckStage.classList.add('is-empty');
                     setDeckVisualState(null);
                     return;
                 }
 
-                const type = current.type;
-                const el = current.el;
+                const type = selectedItem.type;
+                const el = selectedItem.el;
                 if (type === 'youtube' || type === 'video') {
                     const moved = moveDockedMediaToHost(el, deckStage);
                     if (moved) {
@@ -5490,7 +5793,7 @@
 
                 clearDeckStageDockedNodes();
                 deckStage.classList.add('is-empty');
-                setDeckVisualState(state.deckItems.find((item) => item.el === el) || {
+                setDeckVisualState(selectedItem || {
                     el,
                     type,
                     title: titleFromMedia(el, type),
@@ -5512,7 +5815,7 @@
                     duration = Number(el.duration || 0);
                 } else if (type === 'youtube') {
                     const ytState = Number(el.__canopyMiniYTState);
-                    paused = ytState === 2 || ytState === 5;
+                    paused = !isYouTubePlayingState(ytState);
                     currentTime = getYouTubeCurrentTimeSafe(el);
                     try {
                         const player = el.__canopyMiniYTPlayer;
@@ -5550,10 +5853,11 @@
                 if (!state.deckOpen || !state.current) return;
                 renderDeckQueue();
 
-                const current = state.current;
-                const type = current.type;
-                const mediaTitle = titleFromMedia(current.el, type);
-                const subtitle = sourceSubtitle(current.el);
+                const selectedItem = getDeckSelectedItem();
+                if (!selectedItem) return;
+                const type = selectedItem.type;
+                const mediaTitle = titleFromMedia(selectedItem.el, type);
+                const subtitle = sourceSubtitle(selectedItem.el);
 
                 if (deckChipLabel) deckChipLabel.textContent = 'Media Deck';
                 if (deckTitle) deckTitle.textContent = mediaTitle;
@@ -5573,13 +5877,14 @@
                 }
 
                 syncDeckStage();
-                updateDeckControls(current.el, type);
+                updateDeckControls(selectedItem.el, type);
             }
 
             function openMediaDeck() {
-                if (!state.current) return;
                 state.deckOpen = true;
-                updateDeckPanel();
+                if (state.current) updateDeckPanel();
+                else updateDeckVisibility();
+                updateSourceDeckLauncherActiveStates();
                 if (expandBtn) {
                     expandBtn.innerHTML = '<i class="bi bi-arrows-angle-contract"></i>';
                     expandBtn.title = 'Collapse media deck';
@@ -5589,6 +5894,7 @@
             function closeMediaDeck(options = {}) {
                 const preserveMini = !(options && options.forceClose === true);
                 state.deckOpen = false;
+                state.deckSelectedKey = '';
                 if (expandBtn) {
                     expandBtn.innerHTML = '<i class="bi bi-arrows-angle-expand"></i>';
                     expandBtn.title = 'Open media deck';
@@ -5601,23 +5907,19 @@
                     deckStage.classList.add('is-empty');
                 }
                 updateDeckVisibility();
-                setTimeout(updateMini, 40);
+                updateSourceDeckLauncherActiveStates();
+                scheduleMiniUpdate(40);
             }
 
             function playDeckRelative(delta) {
                 if (!state.deckItems.length || !state.current) return;
-                const currentIndex = Math.max(0, state.deckItems.findIndex((item) => item.el === state.current.el));
+                const selectedItem = getDeckSelectedItem();
+                const currentIndex = Math.max(0, state.deckItems.findIndex((item) => selectedItem && item.key === selectedItem.key));
                 const nextIndex = (currentIndex + delta + state.deckItems.length) % state.deckItems.length;
                 const nextItem = state.deckItems[nextIndex];
                 if (!nextItem) return;
-                if (state.current && state.current.el && state.current.el !== nextItem.el) {
-                    pauseMediaElement(state.current.el, state.current.type);
-                    restoreDockedMedia(state.current.el, { preferMini: false });
-                }
-                state.dismissedEl = null;
-                setCurrent(nextItem.el, nextItem.type);
-                playMediaElement(nextItem.el, nextItem.type);
-                setTimeout(updateMini, 60);
+                selectDeckItem(nextItem, { play: false });
+                scheduleMiniUpdate(20);
             }
 
             function seekCurrentMediaTo(ratio) {
@@ -5639,7 +5941,7 @@
                         }
                     } catch (_) {}
                 }
-                setTimeout(updateMini, 40);
+                scheduleMiniUpdate(40);
             }
 
             function isElementPlaying(el, type) {
@@ -5829,14 +6131,17 @@
                 if (!el) return;
                 const type = forcedType || mediaTypeFor(el);
                 if (!type) return;
+                if (type === 'youtube') {
+                    el = resolveYouTubeMediaElement(el, { activate: true, autoplay: false }) || el;
+                }
 
                 if (state.current && state.current.el === el && state.current.type === type) {
-                    updateMini();
+                    scheduleMiniUpdate();
                     return;
                 }
 
                 if (state.current && state.current.el && state.current.el !== el) {
-                    restoreDockedMedia(state.current.el, { preferMini: false });
+                    deactivateMediaEntry(state.current);
                 }
 
                 state.current = {
@@ -5846,10 +6151,11 @@
                     activatedAt: Date.now()
                 };
                 state.dismissedEl = null;
-                if (type === 'youtube' && miniVideoHost && !isDockedInMiniHost(el) && isOffscreen(el)) {
+                if (type === 'youtube' && miniVideoHost && !state.deckOpen && !isDockedInMiniHost(el) && isOffscreen(el)) {
                     autoDockYouTube(el);
                 }
-                updateMini();
+                updateSourceDeckLauncherActiveStates();
+                scheduleMiniUpdate();
             }
 
             function findPlayingElement() {
@@ -5904,6 +6210,11 @@
 
             function updateMini() {
                 if (!state.current || !state.current.el || !state.current.el.isConnected) {
+                    if (state.current && state.current.el) {
+                        const staleCurrent = state.current;
+                        state.current = null;
+                        deactivateMediaEntry(staleCurrent);
+                    }
                     const fallback = findPlayingElement();
                     if (fallback) {
                         setCurrent(fallback);
@@ -5922,6 +6233,12 @@
 
                 if (state.dismissedEl && state.dismissedEl === el) {
                     if (state.deckOpen) closeMediaDeck({ forceClose: true });
+                    hideMini();
+                    return;
+                }
+
+                if (state.deckOpen) {
+                    updateDeckPanel();
                     hideMini();
                     return;
                 }
@@ -6047,13 +6364,13 @@
                         state.dismissedEl = null;
                         setCurrent(el, type);
                     });
-                    el.addEventListener('pause', () => setTimeout(updateMini, 60));
-                    el.addEventListener('ended', () => setTimeout(updateMini, 60));
-                    el.addEventListener('timeupdate', updateMini);
-                    el.addEventListener('seeking', updateMini);
+                    el.addEventListener('pause', () => scheduleMiniUpdate(60));
+                    el.addEventListener('ended', () => scheduleMiniUpdate(60));
+                    el.addEventListener('timeupdate', scheduleMiniUpdate);
+                    el.addEventListener('seeking', scheduleMiniUpdate);
                     if (type === 'video') {
-                        el.addEventListener('enterpictureinpicture', () => setTimeout(updateMini, 20));
-                        el.addEventListener('leavepictureinpicture', () => setTimeout(updateMini, 20));
+                        el.addEventListener('enterpictureinpicture', () => scheduleMiniUpdate(20));
+                        el.addEventListener('leavepictureinpicture', () => scheduleMiniUpdate(20));
                     }
                 } else if (type === 'youtube') {
                     initYouTubePlayer(el);
@@ -6070,17 +6387,21 @@
             function scanForMedia(scope) {
                 const root = scope || document;
                 root.querySelectorAll('audio, video, .youtube-embed iframe').forEach(registerMediaNode);
+                syncSourceMediaDeckLaunchersInScope(root);
             }
 
             function jumpToCurrentSource() {
                 if (!state.current || !state.current.el) return;
                 const el = state.current.el;
 
+                if (state.deckOpen) {
+                    closeMediaDeck({ forceClose: true });
+                }
+
                 if (el.__canopyAutoDockPlaceholder || el.__canopyMiniVideoPlaceholder) {
                     restoreDockedMedia(el, { preferMini: false });
                     state.dismissedEl = null;
                     state.dockedSubtitle = null;
-                    if (state.deckOpen) closeMediaDeck();
                     const container = sourceContainer(el);
                     const scrollTarget = container && container.isConnected ? container : el;
                     if (scrollTarget.isConnected) {
@@ -6103,6 +6424,7 @@
                     target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
                     applyFocusFlash(target);
                 }
+                hideMini();
             }
 
             if (playBtn) {
@@ -6129,7 +6451,7 @@
                             }
                         } catch (_) {}
                     }
-                    setTimeout(updateMini, 50);
+                    scheduleMiniUpdate(50);
                 });
             }
 
@@ -6169,7 +6491,7 @@
                             showAlert('Picture-in-Picture could not be started.', 'info');
                         }
                     }
-                    setTimeout(updateMini, 50);
+                    scheduleMiniUpdate(50);
                 });
             }
 
@@ -6193,6 +6515,10 @@
                                 const wrapper = el.closest('.youtube-embed') || el;
                                 wrapper.remove();
                             }
+                        }
+                        pauseMediaElement(el, type);
+                        if (type === 'video' || type === 'youtube') {
+                            clearOrphanedDockedMedia(el, type, state.current.sourceEl || sourceContainer(el));
                         }
                         state.dismissedEl = el;
                     }
@@ -6262,7 +6588,7 @@
                             }
                         } catch (_) {}
                     }
-                    setTimeout(updateMini, 50);
+                    scheduleMiniUpdate(50);
                 });
             }
 
@@ -6299,7 +6625,7 @@
                             showAlert('Picture-in-Picture could not be started.', 'info');
                         }
                     }
-                    setTimeout(updateMini, 50);
+                    scheduleMiniUpdate(50);
                 });
             }
 
@@ -6338,14 +6664,8 @@
                     if (!Number.isFinite(index) || index < 0 || index >= state.deckItems.length) return;
                     const nextItem = state.deckItems[index];
                     if (!nextItem) return;
-                    if (state.current && state.current.el && state.current.el !== nextItem.el) {
-                        pauseMediaElement(state.current.el, state.current.type);
-                        restoreDockedMedia(state.current.el, { preferMini: false });
-                    }
-                    state.dismissedEl = null;
-                    setCurrent(nextItem.el, nextItem.type);
-                    playMediaElement(nextItem.el, nextItem.type);
-                    setTimeout(updateMini, 60);
+                    selectDeckItem(nextItem, { play: false });
+                    scheduleMiniUpdate(20);
                 });
             }
 
@@ -6360,13 +6680,14 @@
                         state.current.el === entry.target &&
                         !visible &&
                         miniVideoHost &&
+                        !state.deckOpen &&
                         !isDockedInMiniHost(entry.target) &&
                         isYouTubePlayingState(Number(entry.target.__canopyMiniYTState))
                     ) {
                         autoDockYouTube(entry.target);
                     }
                 });
-                updateMini();
+                scheduleMiniUpdate();
             }, {
                 root: observerRoot,
                 threshold: [0, 0.2, 0.4, 0.7, 1]
@@ -6376,9 +6697,19 @@
 
             const mutationRoot = mainScroller || document.body;
             state.mutationObserver = new MutationObserver((mutations) => {
+                const dirtySources = new Set();
+                function addDirtySource(node) {
+                    if (!(node instanceof Element)) return;
+                    const source = node.matches && node.matches('.post-card[data-post-id], .message-item[data-message-id]')
+                        ? node
+                        : node.closest ? node.closest('.post-card[data-post-id], .message-item[data-message-id]') : null;
+                    if (source) dirtySources.add(source);
+                }
                 mutations.forEach((mutation) => {
+                    addDirtySource(mutation.target);
                     mutation.addedNodes.forEach((node) => {
                         if (!(node instanceof Element)) return;
+                        addDirtySource(node);
                         if (node.matches && (node.matches('audio') || node.matches('video') || node.matches('.youtube-embed iframe'))) {
                             registerMediaNode(node);
                         }
@@ -6386,21 +6717,30 @@
                             scanForMedia(node);
                         }
                     });
+                    mutation.removedNodes.forEach((node) => {
+                        if (!(node instanceof Element)) return;
+                        addDirtySource(mutation.target);
+                    });
                 });
-                updateMini();
+                dirtySources.forEach((source) => {
+                    if (state.deckOpen && state.current && state.current.sourceEl === source) return;
+                    syncSourceMediaDeckLauncher(source);
+                });
+                updateSourceDeckLauncherActiveStates();
+                scheduleMiniUpdate();
             });
             state.mutationObserver.observe(mutationRoot, { childList: true, subtree: true });
 
-            window.addEventListener('resize', updateMini);
-            document.addEventListener('visibilitychange', updateMini);
+            window.addEventListener('resize', scheduleMiniUpdate);
+            document.addEventListener('visibilitychange', scheduleMiniUpdate);
             document.addEventListener('keydown', (event) => {
                 if (!state.deckOpen) return;
                 if (event.key === 'Escape') {
                     closeMediaDeck();
                 }
             });
-            state.tickHandle = setInterval(updateMini, 700);
-            updateMini();
+            state.tickHandle = setInterval(scheduleMiniUpdate, 700);
+            scheduleMiniUpdate();
 
             window.canopyPersistActiveMedia = function() {
                 if (!state.current || !state.current.el) return;
