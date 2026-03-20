@@ -6,13 +6,14 @@ Use this as the base for the GitHub release page, repo announcement, and launch 
 
 ---
 
-## Addendum: media deck follow-ups (0.4.114 – 0.4.116)
+## Addendum: media deck follow-ups (0.4.114 – 0.4.117)
 
 Use these bullets when announcing or testing **Canopy-Dev** / recent mesh builds:
 
 - **Widget-aware deck** — Maps, charts, Spotify, SoundCloud, Vimeo, Loom, and similar embeds ship structured **deck manifests** so one post can queue many items, not just one video.
 - **Reliability** — Deck map/chart iframes are not rebuilt on every UI tick; **Spotify** `intl-*/` URLs parse correctly; Spotify/SoundCloud deck iframes match in-feed embed behavior.
 - **UI** — One **Deck \| Mini** segmented control per post (instead of two separate buttons); cleaner deck header (**Canopy Deck · N items**) and **Item k of N** when stepping through a queue.
+- **Manifest v1 & station surface (`0.4.117`)** — Manifests normalize **station_surface**, **action_policy**, and **source_binding**; deck shows a **Station Surface** summary for trust/context; stream cards are the canonical full producer. Reference: [docs/CANOPY_DECK_WIDGET_MANIFEST_V1.md](https://github.com/kwalus/Canopy/blob/main/docs/CANOPY_DECK_WIDGET_MANIFEST_V1.md).
 
 ---
 

@@ -9315,6 +9315,9 @@ function displayAttachments(attachments) {
         const actionLabel = streamKind === 'telemetry' ? 'Open workspace' : (mediaKind === 'video' ? 'Watch live' : 'Listen live');
         const isOwner = att.created_by && att.created_by === currentUserId;
         const scenarioLabel = _streamScenarioLabel(domain, streamKind, mediaKind);
+        const stationLabel = streamKind === 'telemetry'
+            ? `${scenarioLabel} Station`
+            : `${scenarioLabel} Surface`;
         const widgetManifest = streamId ? {
             version: 1,
             key: `stream:${streamId}`,
@@ -9339,18 +9342,43 @@ function displayAttachments(attachments) {
                 { label: 'Domain', value: domain || 'media' },
                 { label: 'Transport', value: String(att.protocol || (streamKind === 'telemetry' ? 'events-json' : 'hls')) },
             ],
+            station_surface: {
+                kind: streamKind === 'telemetry' ? 'telemetry_station' : 'stream_station',
+                domain: domain || (streamKind === 'telemetry' ? 'sensor' : 'media'),
+                label: stationLabel,
+                summary: streamKind === 'telemetry'
+                    ? 'Telemetry, operator context, and bounded follow-up actions remain attached to this source.'
+                    : 'Live media, operator context, and bounded follow-up actions remain attached to this source.',
+                recurring: true,
+                scope: 'station',
+            },
+            action_policy: {
+                bounded: true,
+                max_risk: 'low',
+                human_gate: 'none',
+                audit_label: 'Bounded actions',
+            },
+            source_binding: {
+                binding_type: 'message_attachment',
+                source_scope: 'source',
+                return_label: 'Return to source',
+            },
             actions: [
                 {
                     kind: 'callback',
                     handler: 'open_stream_workspace',
                     label: actionLabel,
                     icon: 'bi-play-fill',
+                    risk: 'low',
+                    scope: 'station',
                     args: { streamId, mediaKind, slotId, streamKind },
                 },
                 {
                     kind: 'clipboard',
                     label: 'Copy stream ID',
                     icon: 'bi-clipboard',
+                    risk: 'view',
+                    scope: 'source',
                     text: streamId,
                 },
             ],

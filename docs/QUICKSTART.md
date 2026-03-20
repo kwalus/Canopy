@@ -159,6 +159,8 @@ Channel messages and feed posts turn recognized URLs into **inline embeds** (You
 
 Off-screen playback still surfaces the mini-player automatically; expanding to the deck is optional and per-post.
 
+For **manifest fields, station surface semantics, and bounded actions** (integrators / custom UI work), see [CANOPY_DECK_WIDGET_MANIFEST_V1.md](CANOPY_DECK_WIDGET_MANIFEST_V1.md).
+
 ---
 
 ## 5) First 10-minute checklist

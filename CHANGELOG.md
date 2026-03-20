@@ -8,6 +8,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.118] - 2026-03-20
+
+### Changed
+- Version bump (local testing / mesh verification).
+
+## [0.4.117] - 2026-03-20
+
+### Added
+- **Widget manifest v1 contract** — Sanitized deck manifests now always include **`station_surface`** (kind, domain, label, summary, recurring, scope), **`action_policy`** (`max_risk`, `human_gate`, `audit_label`, bounded flag), and **`source_binding`** (`return_label` drives deck **Return** copy). Defaults apply when older embed producers omit these fields.
+- **Bounded action model** — Per-action **`risk`** (`view` \| `low`) and **`scope`** (`source` \| `station`); `canRunDeckWidgetAction` enforces policy at runtime; optional **`requires_confirmation`** before run.
+- **Station surface UI** — Deck shows a **Station Surface** summary (policy pill + badges for domain, recurring/source-bound, scope, risk tier, human gate) when a widget with `station_surface` is selected.
+- **Stream cards** — Channel stream/telemetry cards emit the full manifest (explicit `station_surface`, `action_policy`, `source_binding`, and per-action risk/scope).
+
+### Documentation
+- **[docs/CANOPY_DECK_WIDGET_MANIFEST_V1.md](docs/CANOPY_DECK_WIDGET_MANIFEST_V1.md)** — Integrator reference for manifest v1, enums, and non-goals.
+
 ## [0.4.116] - 2026-03-20
 
 ### Improved

@@ -1148,6 +1148,81 @@
             background: rgba(255, 255, 255, 0.035);
         }
 
+        .sidebar-media-deck-station-summary {
+            display: grid;
+            gap: 8px;
+            padding: 12px 14px;
+            margin-top: 4px;
+            border-radius: 16px;
+            border: 1px solid rgba(34, 197, 94, 0.18);
+            background:
+                radial-gradient(circle at top left, rgba(34, 197, 94, 0.12), transparent 40%),
+                rgba(255, 255, 255, 0.03);
+        }
+
+        .sidebar-media-deck-station-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .sidebar-media-deck-station-kicker {
+            font-size: 0.68rem;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--canopy-text-muted);
+        }
+
+        .sidebar-media-deck-station-policy {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 8px;
+            border-radius: 999px;
+            border: 1px solid rgba(96, 165, 250, 0.24);
+            background: rgba(15, 23, 42, 0.72);
+            color: var(--canopy-text-secondary);
+            font-size: 0.69rem;
+            font-weight: 700;
+        }
+
+        .sidebar-media-deck-station-title {
+            font-size: 0.95rem;
+            font-weight: 800;
+            color: var(--canopy-text-primary);
+            line-height: 1.3;
+        }
+
+        .sidebar-media-deck-station-subtitle {
+            font-size: 0.8rem;
+            line-height: 1.5;
+            color: var(--canopy-text-secondary);
+        }
+
+        .sidebar-media-deck-station-badges {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .sidebar-media-deck-station-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 9px;
+            border-radius: 999px;
+            border: 1px solid rgba(34, 197, 94, 0.18);
+            background: rgba(7, 15, 28, 0.7);
+            color: var(--canopy-text-secondary);
+            font-size: 0.69rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+
         .sidebar-media-deck-widget-badges {
             display: flex;
             align-items: center;
@@ -6708,7 +6783,7 @@
         <!-- Navigation -->
         <nav class="navbar navbar-expand-lg navbar-dark">
             <div class="container-fluid">
-                <a class="navbar-brand" href="/">
+                <a class="navbar-brand" href="/" data-canopy-stop-active-media-nav="1">
                     <img src="{{ url_for('static', filename='icons/canopy-logo.png') }}" alt="Canopy" class="brand-logo">
                     <span class="brand-text">Canopy</span>
                 </a>
@@ -7150,6 +7225,15 @@
                         </div>
                         <div class="sidebar-media-deck-title" id="sidebar-media-deck-title">Canopy Deck</div>
                         <div class="sidebar-media-deck-subtitle" id="sidebar-media-deck-subtitle">Stay with media, maps, streams, telemetry, and related widgets while you keep working.</div>
+                    </div>
+                    <div class="sidebar-media-deck-station-summary" id="sidebar-media-deck-station-summary" hidden>
+                        <div class="sidebar-media-deck-station-head">
+                            <span class="sidebar-media-deck-station-kicker">Station Surface</span>
+                            <span class="sidebar-media-deck-station-policy" id="sidebar-media-deck-station-policy">Bounded actions</span>
+                        </div>
+                        <div class="sidebar-media-deck-station-title" id="sidebar-media-deck-station-title">Source-bound surface</div>
+                        <div class="sidebar-media-deck-station-subtitle" id="sidebar-media-deck-station-subtitle">Typed operational context stays attached to the source while actions remain bounded.</div>
+                        <div class="sidebar-media-deck-station-badges" id="sidebar-media-deck-station-badges"></div>
                     </div>
                     <div class="sidebar-media-deck-widget-summary" id="sidebar-media-deck-widget-summary" hidden>
                         <div class="sidebar-media-deck-widget-badges" id="sidebar-media-deck-widget-badges"></div>
