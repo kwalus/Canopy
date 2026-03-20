@@ -856,15 +856,16 @@
             right: 24px;
             bottom: 22px;
             width: min(456px, calc(100vw - 36px));
-            max-height: min(82vh, 860px);
             z-index: 1600;
             display: none;
             pointer-events: none;
         }
 
         .sidebar-media-deck.is-visible {
-            display: block;
+            display: flex;
+            flex-direction: column;
             pointer-events: auto;
+            max-height: min(82vh, 860px);
         }
 
         .sidebar-media-deck-shell {
@@ -879,11 +880,41 @@
                 0 28px 64px rgba(2, 8, 23, 0.55),
                 inset 0 1px 0 rgba(255, 255, 255, 0.07);
             backdrop-filter: blur(18px) saturate(145%);
+            display: flex;
+            flex-direction: column;
+            flex: 1 1 auto;
+            min-height: 0;
+            max-height: min(82vh, 860px);
+        }
+
+        /* Scrollable middle: stage, queue, meta / station / widget — not transport controls */
+        .sidebar-media-deck-scroll {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+            overflow-x: hidden;
+            overscroll-behavior-y: contain;
+            scrollbar-gutter: stable;
+        }
+
+        .sidebar-media-deck-detail {
             display: grid;
-            grid-template-rows: auto auto auto auto;
+            gap: 12px;
+            padding: 0 18px 12px;
+            min-width: 0;
+        }
+
+        .sidebar-media-deck-footer {
+            flex-shrink: 0;
+            display: grid;
+            gap: 12px;
+            padding: 12px 18px 18px;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            background: linear-gradient(180deg, rgba(9, 15, 30, 0.55), rgba(9, 15, 30, 0.92));
         }
 
         .sidebar-media-deck-header {
+            flex-shrink: 0;
             display: flex;
             align-items: flex-start;
             flex-wrap: wrap;
@@ -1086,12 +1117,6 @@
             font-size: 0.86rem;
             color: rgba(226, 232, 240, 0.85);
             max-width: 82%;
-        }
-
-        .sidebar-media-deck-body {
-            padding: 0 18px 18px;
-            display: grid;
-            gap: 12px;
         }
 
         .sidebar-media-deck-meta {
@@ -1828,6 +1853,14 @@
                 max-height: min(86vh, 860px);
             }
 
+            .sidebar-media-deck.is-visible {
+                max-height: min(86vh, 860px);
+            }
+
+            .sidebar-media-deck-shell {
+                max-height: min(86vh, 860px);
+            }
+
             .sidebar-media-deck-item {
                 min-width: 130px;
                 width: 130px;
@@ -1859,15 +1892,20 @@
                 bottom: 0;
                 width: 100%;
                 max-height: 100dvh;
+                height: 100dvh;
             }
 
             .sidebar-media-deck-shell {
                 position: relative;
                 border-radius: 0;
-                height: 100dvh;
+                height: 100%;
                 max-height: 100dvh;
-                overflow-y: auto;
-                overscroll-behavior-y: contain;
+                flex: 1 1 auto;
+                min-height: 0;
+                overflow: hidden;
+            }
+
+            .sidebar-media-deck-scroll {
                 -webkit-overflow-scrolling: touch;
             }
 
@@ -1886,9 +1924,14 @@
             }
 
             .sidebar-media-deck-stage-shell,
-            .sidebar-media-deck-body,
+            .sidebar-media-deck-detail,
             .sidebar-media-deck-header,
             .sidebar-media-deck-queue-shell {
+                padding-left: 14px;
+                padding-right: 14px;
+            }
+
+            .sidebar-media-deck-footer {
                 padding-left: 14px;
                 padding-right: 14px;
             }
@@ -1950,16 +1993,18 @@
                 padding-bottom: 10px;
             }
 
-            .sidebar-media-deck-body {
-                position: sticky;
-                bottom: 0;
-                z-index: 5;
-                padding: 12px 14px calc(env(safe-area-inset-bottom) + 14px);
+            .sidebar-media-deck-footer {
+                padding-top: 12px;
+                padding-bottom: calc(env(safe-area-inset-bottom) + 14px);
                 gap: 10px;
+                z-index: 5;
                 background:
-                    linear-gradient(180deg, rgba(9, 15, 30, 0.72), rgba(9, 15, 30, 0.98) 24%);
+                    linear-gradient(180deg, rgba(9, 15, 30, 0.82), rgba(9, 15, 30, 0.98) 40%);
                 backdrop-filter: blur(18px) saturate(125%);
-                border-top: 1px solid rgba(255, 255, 255, 0.08);
+            }
+
+            .sidebar-media-deck-detail {
+                padding-bottom: 10px;
             }
 
             .sidebar-media-deck-controls {
@@ -2004,10 +2049,7 @@
             }
 
             .sidebar-media-deck-shell {
-                grid-template-rows: auto auto auto auto;
                 max-height: calc(100vh - 20px);
-                overflow-y: auto;
-                overscroll-behavior-y: contain;
             }
 
             .sidebar-media-deck-stage {
@@ -7190,6 +7232,7 @@
                         </button>
                     </div>
                 </div>
+                <div class="sidebar-media-deck-scroll">
                 <div class="sidebar-media-deck-stage-shell">
                     <div id="sidebar-media-deck-stage" class="sidebar-media-deck-stage is-empty" aria-label="Expanded media stage">
                         <div id="sidebar-media-deck-visual" class="sidebar-media-deck-visual">
@@ -7214,7 +7257,7 @@
                         <div class="sidebar-media-deck-empty">Media, maps, charts, streams, and other safe widgets from the same post/message will appear here.</div>
                     </div>
                 </div>
-                <div class="sidebar-media-deck-body">
+                <div class="sidebar-media-deck-detail">
                     <div class="sidebar-media-deck-meta">
                         <div class="sidebar-media-deck-meta-top">
                             <span class="sidebar-media-deck-provider" id="sidebar-media-deck-provider">
@@ -7240,6 +7283,9 @@
                         <div class="sidebar-media-deck-widget-details" id="sidebar-media-deck-widget-details"></div>
                         <div class="sidebar-media-deck-widget-actions" id="sidebar-media-deck-widget-actions"></div>
                     </div>
+                </div>
+                </div>
+                <div class="sidebar-media-deck-footer">
                     <div class="sidebar-media-deck-progress-row" id="sidebar-media-deck-progress-row">
                         <span class="sidebar-media-deck-time" id="sidebar-media-deck-current-time">--:--</span>
                         <input type="range" class="sidebar-media-deck-seek" id="sidebar-media-deck-seek" min="0" max="1000" value="0" step="1" disabled aria-label="Seek media">

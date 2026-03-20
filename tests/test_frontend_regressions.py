@@ -388,6 +388,24 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("(min-height: 541px) and (max-height: 720px) and (orientation: landscape)", base_html)
         self.assertNotIn("min-height: min(86vh, 860px);", base_html)
 
+    def test_media_deck_desktop_scroll_and_reference_station_dedup(self) -> None:
+        base_html = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        self.assertIn('class="sidebar-media-deck-scroll"', base_html)
+        self.assertIn('class="sidebar-media-deck-footer"', base_html)
+        scroll_idx = base_html.find(".sidebar-media-deck-scroll {")
+        self.assertGreater(scroll_idx, 0, "Expected .sidebar-media-deck-scroll block")
+        scroll_snip = base_html[scroll_idx : scroll_idx + 420]
+        self.assertIn("min-height: 0", scroll_snip)
+        self.assertIn("overflow-y: auto", scroll_snip)
+        self.assertIn("scrollbar-gutter: stable", scroll_snip)
+        footer_idx = base_html.find(".sidebar-media-deck-footer {")
+        self.assertGreater(footer_idx, 0)
+        self.assertIn("flex-shrink: 0", base_html[footer_idx : footer_idx + 220])
+        self.assertIn("const isSimpleReferenceSurface =", main_js)
+        self.assertIn("station.kind === 'reference_surface'", main_js)
+        self.assertIn("if (isSimpleReferenceSurface) return;", main_js)
+
     def test_deck_widget_manifests_are_typed_and_sanitized(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')

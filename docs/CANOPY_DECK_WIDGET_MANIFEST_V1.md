@@ -55,6 +55,8 @@ For end-user behavior, see [QUICKSTART.md](QUICKSTART.md) (rich links and media 
 
 **Defaults:** If the producer omits `station_surface`, defaults are chosen from `widget_type` (e.g. maps → `reference_surface` / `mapping`; streams → `stream_station` or `telemetry_station`).
 
+**Deck UI note:** For a *simple* reference surface (`kind: reference_surface`, not recurring, `scope: source`, `max_risk: view`, `human_gate: none`), the web UI **may omit** the separate **Station Surface** summary block to avoid repeating context already obvious from the map/chart stage. The manifest fields are still normalized and used elsewhere (e.g. policy). Streams and station-scoped surfaces always show the summary when relevant.
+
 ---
 
 ## `action_policy`

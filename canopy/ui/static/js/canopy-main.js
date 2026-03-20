@@ -6676,9 +6676,19 @@
                 if (!manifest) return;
                 const station = manifest.station_surface || null;
                 if (!station) return;
+                const policy = manifest.action_policy || {};
+                const maxRisk = String(policy.max_risk || 'view').toLowerCase();
+                const humanGate = String(policy.human_gate || 'none').toLowerCase();
+                const isSimpleReferenceSurface =
+                    station.kind === 'reference_surface'
+                    && station.recurring !== true
+                    && station.scope !== 'station'
+                    && maxRisk === 'view'
+                    && humanGate === 'none';
+                if (isSimpleReferenceSurface) return;
                 setDeckStationSummaryHidden(false);
                 if (deckStationPolicy) {
-                    deckStationPolicy.textContent = ((manifest.action_policy || {}).audit_label || 'Bounded actions');
+                    deckStationPolicy.textContent = (policy.audit_label || 'Bounded actions');
                 }
                 if (deckStationTitle) {
                     deckStationTitle.textContent = station.label || manifest.provider_label || manifest.title || 'Station surface';
@@ -6688,12 +6698,11 @@
                 }
                 if (deckStationBadges) {
                     deckStationBadges.innerHTML = '';
-                    const humanGate = String(((manifest.action_policy || {}).human_gate || 'none')).toLowerCase();
                     [
                         station.domain || '',
                         station.recurring ? 'Recurring station' : 'Source-bound',
                         station.scope === 'station' ? 'Station-scoped' : 'Source-scoped',
-                        ((manifest.action_policy || {}).max_risk || '') === 'low' ? 'Low-risk actions' : 'View-only',
+                        maxRisk === 'low' ? 'Low-risk actions' : 'View-only',
                         humanGate !== 'none' ? `Human gate: ${humanGate}` : '',
                     ].filter(Boolean).forEach((label) => {
                         const badge = document.createElement('span');

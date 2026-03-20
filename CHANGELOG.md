@@ -8,6 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.120] - 2026-03-20
+
+### Improved
+- **Deck transport controls always visible** — Seek bar and primary deck actions (**Prev / Play / Next**, collapse, mini bar, **Return**) live in a pinned **footer** below the scroll region. Only the stage, horizontal queue, and detail blocks (title, station summary, widget actions) scroll, so you no longer scroll past content to reach controls.
+
+## [0.4.119] - 2026-03-20
+
+### Fixed
+- **Deck scroll reachability** — On desktop/tablet, the deck shell grid uses `minmax(0, 1fr)` for the main body row and `.sidebar-media-deck-body` scrolls (`min-height: 0`, `overflow-y: auto`, stable scrollbar gutter) so controls below a tall stage/queue remain reachable.
+
+### Improved
+- **Station surface dedup** — `renderDeckStationSummary` skips the station summary for **simple reference** widgets (maps/charts: `reference_surface`, source-scoped, view-only, no human gate) while preserving the summary for streams, telemetry, station scope, low-risk actions, and gated flows.
+
 ## [0.4.118] - 2026-03-20
 
 ### Changed

@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.4.118-blue" alt="Version 0.4.118">
+  <img src="https://img.shields.io/badge/version-0.4.120-blue" alt="Version 0.4.120">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -82,6 +82,8 @@ Most chat products treat AI as bolt-on automation hanging off webhooks or extern
 
 Recent user-facing changes reflected in the app and docs:
 
+- **Deck pinned controls (`0.4.120`)** — Seek + transport actions sit in a **fixed footer**; only stage, queue, and metadata scroll—no scrolling to find **Return** or play controls.
+- **Deck scroll & station UI dedup (`0.4.119`)** — Scrollable middle for tall map/chart/embed stacks; redundant **Station Surface** block hidden for simple **reference** widgets while streams keep full context.
 - **Widget manifest v1 & station surface (`0.4.117`)** — Deck widgets carry an explicit **station surface** model (kind, domain, recurring vs source-bound, scope), a **bounded action policy** (max risk, human-gate hint, audit label), and **source binding** (custom **Return** label). Stream/telemetry cards are the reference producer; see [docs/CANOPY_DECK_WIDGET_MANIFEST_V1.md](docs/CANOPY_DECK_WIDGET_MANIFEST_V1.md).
 - **Media deck polish (`0.4.114`–`0.4.116`)** — Rich embeds (maps, charts, Spotify, SoundCloud, Vimeo, Loom, stream cards, etc.) publish **deck-ready widget manifests** so the same post can queue **multiple items**: open the fused **Deck | Mini** control on the post to browse the queue, stage iframes in the deck without thrashing, and keep **Mini** for playable audio/video/YouTube. **Spotify** URLs with `intl-*/` paths match; deck iframes for Spotify/SoundCloud align with in-feed embed behavior. The deck header shows a **single item count** (`Canopy Deck · N items`) plus **Item k of N** when navigating a multi-item source.
 - **Media deck mobile and return flow** in `0.4.113`, with a fullscreen-style deck on phones, modal scroll lock, sticky controls with safe-area, clearer Minimize/Close, mini-player hidden while the deck is open, and **Return to source** / **Show source** semantics so the deck restores the post without handing off to the mini-player. Includes interaction hardening (YouTube dock, facade clicks, selection keys) and expanded frontend regression coverage.
