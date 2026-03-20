@@ -402,7 +402,8 @@
         }
 
         .sidebar-panel-icon-btn,
-        .sidebar-media-mini-pin {
+        .sidebar-media-mini-pin,
+        .sidebar-media-mini-expand {
             border: 1px solid rgba(255, 255, 255, 0.12);
             background: rgba(255, 255, 255, 0.06);
             color: var(--canopy-text-secondary);
@@ -417,14 +418,16 @@
         }
 
         .sidebar-panel-icon-btn:hover,
-        .sidebar-media-mini-pin:hover {
+        .sidebar-media-mini-pin:hover,
+        .sidebar-media-mini-expand:hover {
             background: rgba(34, 197, 94, 0.12);
             border-color: rgba(74, 222, 128, 0.35);
             color: #dcfce7;
         }
 
         .sidebar-panel-icon-btn:focus-visible,
-        .sidebar-media-mini-pin:focus-visible {
+        .sidebar-media-mini-pin:focus-visible,
+        .sidebar-media-mini-expand:focus-visible {
             outline: none;
             background: rgba(34, 197, 94, 0.12);
             border-color: rgba(74, 222, 128, 0.42);
@@ -848,6 +851,877 @@
             text-align: right;
         }
 
+        .sidebar-media-deck {
+            position: fixed;
+            right: 24px;
+            bottom: 22px;
+            width: min(456px, calc(100vw - 36px));
+            max-height: min(82vh, 860px);
+            z-index: 1600;
+            display: none;
+            pointer-events: none;
+        }
+
+        .sidebar-media-deck.is-visible {
+            display: block;
+            pointer-events: auto;
+        }
+
+        .sidebar-media-deck-shell {
+            border-radius: 26px;
+            overflow: hidden;
+            background:
+                radial-gradient(circle at top left, rgba(34, 197, 94, 0.12), transparent 36%),
+                radial-gradient(circle at top right, rgba(59, 130, 246, 0.12), transparent 32%),
+                linear-gradient(180deg, rgba(12, 20, 38, 0.97), rgba(9, 15, 30, 0.96));
+            border: 1px solid rgba(118, 189, 255, 0.18);
+            box-shadow:
+                0 28px 64px rgba(2, 8, 23, 0.55),
+                inset 0 1px 0 rgba(255, 255, 255, 0.07);
+            backdrop-filter: blur(18px) saturate(145%);
+            display: grid;
+            grid-template-rows: auto auto auto auto;
+        }
+
+        .sidebar-media-deck-header {
+            display: flex;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 12px;
+            padding: 16px 18px 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent);
+        }
+
+        .sidebar-media-deck-context {
+            min-width: 0;
+            flex: 1;
+            display: grid;
+            gap: 5px;
+        }
+
+        .sidebar-media-deck-chip-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .sidebar-media-deck-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 0.2rem 0.65rem;
+            border-radius: 999px;
+            background: rgba(16, 185, 129, 0.12);
+            border: 1px solid rgba(74, 222, 128, 0.24);
+            color: #d1fae5;
+            font-size: 0.68rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .sidebar-media-deck-chip.muted {
+            background: rgba(148, 163, 184, 0.1);
+            border-color: rgba(148, 163, 184, 0.16);
+            color: var(--canopy-text-secondary);
+        }
+
+        .sidebar-media-deck-source {
+            font-size: 0.76rem;
+            color: var(--canopy-text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .sidebar-media-deck-actions {
+            display: inline-flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            flex-shrink: 0;
+            justify-content: flex-end;
+            max-width: 100%;
+        }
+
+        .sidebar-media-deck-action-btn {
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--canopy-text-secondary);
+            width: 34px;
+            height: 34px;
+            border-radius: 11px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+
+        .sidebar-media-deck-action-label {
+            display: none;
+            line-height: 1;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+
+        .sidebar-media-deck-action-btn:hover {
+            background: rgba(34, 197, 94, 0.12);
+            border-color: rgba(74, 222, 128, 0.35);
+            color: #dcfce7;
+        }
+
+        .sidebar-media-deck-action-btn:focus-visible {
+            outline: none;
+            background: rgba(34, 197, 94, 0.12);
+            border-color: rgba(74, 222, 128, 0.42);
+            box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.22);
+            color: #dcfce7;
+        }
+
+        .sidebar-media-deck-stage-shell {
+            padding: 0 18px 14px;
+        }
+
+        .sidebar-media-deck-stage {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            border-radius: 22px;
+            overflow: hidden;
+            background: linear-gradient(180deg, rgba(2, 6, 23, 0.95), rgba(15, 23, 42, 0.98));
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+        }
+
+        .sidebar-media-deck-stage.is-empty {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .sidebar-media-deck-stage iframe,
+        .sidebar-media-deck-stage video {
+            width: 100% !important;
+            height: 100% !important;
+            border: 0;
+            display: block;
+            object-fit: cover;
+            background: #000;
+        }
+
+        .sidebar-media-deck-stage .youtube-embed,
+        .sidebar-media-deck-stage .embed-preview {
+            margin: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        .sidebar-media-deck-visual {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            padding: 20px;
+            background:
+                linear-gradient(180deg, rgba(2, 6, 23, 0.08) 0%, rgba(2, 6, 23, 0.78) 100%),
+                radial-gradient(circle at top right, rgba(34, 197, 94, 0.24), transparent 32%);
+        }
+
+        .sidebar-media-deck-visual[hidden] {
+            display: none !important;
+        }
+
+        .sidebar-media-deck-visual-cover {
+            position: absolute;
+            inset: 0;
+            background-size: cover;
+            background-position: center;
+            opacity: 0.72;
+            filter: saturate(1.05) contrast(1.04);
+        }
+
+        .sidebar-media-deck-visual-overlay {
+            position: absolute;
+            inset: 0;
+            background:
+                linear-gradient(180deg, rgba(2, 6, 23, 0.18), rgba(2, 6, 23, 0.86)),
+                linear-gradient(120deg, rgba(34, 197, 94, 0.18), transparent 34%);
+        }
+
+        .sidebar-media-deck-visual-body {
+            position: relative;
+            z-index: 1;
+            display: grid;
+            gap: 10px;
+        }
+
+        .sidebar-media-deck-visual-icon {
+            width: 54px;
+            height: 54px;
+            border-radius: 18px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            color: #eff6ff;
+            font-size: 1.4rem;
+            box-shadow: 0 14px 28px rgba(2, 8, 23, 0.28);
+        }
+
+        .sidebar-media-deck-visual-text {
+            font-size: 1.55rem;
+            line-height: 1;
+            font-weight: 800;
+            color: #f8fafc;
+            letter-spacing: 0.01em;
+            text-shadow: 0 10px 24px rgba(2, 8, 23, 0.45);
+        }
+
+        .sidebar-media-deck-visual-subtext {
+            font-size: 0.86rem;
+            color: rgba(226, 232, 240, 0.85);
+            max-width: 82%;
+        }
+
+        .sidebar-media-deck-body {
+            padding: 0 18px 18px;
+            display: grid;
+            gap: 12px;
+        }
+
+        .sidebar-media-deck-meta {
+            display: grid;
+            gap: 6px;
+        }
+
+        .sidebar-media-deck-meta-top {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .sidebar-media-deck-provider {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 0.26rem 0.65rem;
+            border-radius: 999px;
+            background: rgba(59, 130, 246, 0.12);
+            border: 1px solid rgba(96, 165, 250, 0.22);
+            color: #dbeafe;
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .sidebar-media-deck-count {
+            font-size: 0.72rem;
+            color: var(--canopy-text-muted);
+        }
+
+        .sidebar-media-deck-title {
+            font-size: 1.08rem;
+            font-weight: 800;
+            line-height: 1.28;
+            color: var(--canopy-text-primary);
+        }
+
+        .sidebar-media-deck-subtitle {
+            font-size: 0.82rem;
+            color: var(--canopy-text-secondary);
+        }
+
+        .sidebar-media-deck-progress-row {
+            display: grid;
+            grid-template-columns: auto 1fr auto;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .sidebar-media-deck-time {
+            min-width: 54px;
+            font-size: 0.75rem;
+            color: var(--canopy-text-secondary);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .sidebar-media-deck-time.end {
+            text-align: right;
+        }
+
+        .sidebar-media-deck-seek {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 6px;
+            border-radius: 999px;
+            background: linear-gradient(90deg, rgba(34, 197, 94, 0.9), rgba(59, 130, 246, 0.9));
+            outline: none;
+        }
+
+        .sidebar-media-deck-seek::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #f8fafc;
+            border: 2px solid rgba(34, 197, 94, 0.85);
+            box-shadow: 0 4px 12px rgba(2, 8, 23, 0.34);
+            cursor: pointer;
+        }
+
+        .sidebar-media-deck-seek::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            border: none;
+            border-radius: 50%;
+            background: #f8fafc;
+            box-shadow: 0 4px 12px rgba(2, 8, 23, 0.34);
+            cursor: pointer;
+        }
+
+        .sidebar-media-deck-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            row-gap: 8px;
+        }
+
+        .sidebar-media-deck-btn-aux {
+            border-color: rgba(148, 163, 184, 0.35);
+            color: var(--canopy-text-secondary);
+            font-size: 0.78rem;
+        }
+
+        .sidebar-media-deck-btn-aux:hover {
+            border-color: rgba(129, 140, 248, 0.45);
+            color: #e0e7ff;
+        }
+
+        .sidebar-media-deck-btn {
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            color: var(--canopy-text-primary);
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 12px;
+            font-size: 0.76rem;
+            line-height: 1;
+            padding: 9px 12px;
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            transition: all 0.2s ease;
+        }
+
+        .sidebar-media-deck-btn:hover {
+            border-color: rgba(74, 222, 128, 0.55);
+            background: rgba(34, 197, 94, 0.14);
+            color: #dcfce7;
+        }
+
+        .sidebar-media-deck-btn:focus-visible {
+            outline: none;
+            border-color: rgba(74, 222, 128, 0.55);
+            background: rgba(34, 197, 94, 0.14);
+            color: #dcfce7;
+            box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.18);
+        }
+
+        .sidebar-media-deck-btn.primary {
+            background: linear-gradient(135deg, rgba(34, 197, 94, 0.22), rgba(59, 130, 246, 0.2));
+            border-color: rgba(74, 222, 128, 0.35);
+        }
+
+        .sidebar-media-deck-spacer {
+            flex: 1;
+        }
+
+        .sidebar-media-deck-queue-shell {
+            padding: 0 18px 14px;
+            display: grid;
+            gap: 10px;
+            min-width: 0;
+        }
+
+        .sidebar-media-deck-queue-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .sidebar-media-deck-queue-title {
+            font-size: 0.74rem;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--canopy-text-muted);
+        }
+
+        .sidebar-media-deck-queue-count {
+            font-size: 0.73rem;
+            color: var(--canopy-text-secondary);
+        }
+
+        .sidebar-media-deck-queue {
+            display: flex;
+            gap: 10px;
+            overflow-x: auto;
+            overflow-y: hidden;
+            overscroll-behavior-x: contain;
+            scroll-snap-type: x proximity;
+            scrollbar-gutter: stable;
+            padding: 2px 2px 6px;
+        }
+
+        .sidebar-media-deck-item {
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 18px;
+            padding: 10px;
+            min-width: 138px;
+            width: 138px;
+            flex: 0 0 138px;
+            display: grid;
+            gap: 8px;
+            text-align: left;
+            scroll-snap-align: start;
+            transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+        }
+
+        .sidebar-media-deck-item:hover {
+            transform: translateY(-1px);
+            border-color: rgba(96, 165, 250, 0.3);
+            background: rgba(59, 130, 246, 0.08);
+        }
+
+        .sidebar-media-deck-item:focus-visible {
+            outline: none;
+            border-color: rgba(74, 222, 128, 0.55);
+            box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.16);
+        }
+
+        .sidebar-media-deck-item.is-active {
+            border-color: rgba(74, 222, 128, 0.48);
+            background: rgba(34, 197, 94, 0.1);
+            box-shadow: inset 0 0 0 1px rgba(74, 222, 128, 0.18);
+        }
+
+        .sidebar-media-deck-item-thumb {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            border-radius: 14px;
+            overflow: hidden;
+            background:
+                linear-gradient(145deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.94)),
+                radial-gradient(circle at top left, rgba(34, 197, 94, 0.18), transparent 40%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #e2e8f0;
+            font-size: 1.4rem;
+        }
+
+        .sidebar-media-deck-item-thumb::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(180deg, transparent 40%, rgba(2, 6, 23, 0.34));
+            pointer-events: none;
+        }
+
+        .sidebar-media-deck-item-thumb img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .sidebar-media-deck-item-label {
+            min-width: 0;
+            display: grid;
+            gap: 4px;
+        }
+
+        .sidebar-media-deck-item-title {
+            font-size: 0.76rem;
+            font-weight: 700;
+            color: var(--canopy-text-primary);
+            line-height: 1.25;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .sidebar-media-deck-item-meta {
+            font-size: 0.67rem;
+            color: var(--canopy-text-muted);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .sidebar-media-deck-empty {
+            padding: 14px 16px;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px dashed rgba(255, 255, 255, 0.12);
+            color: var(--canopy-text-secondary);
+            font-size: 0.82rem;
+        }
+
+        .sidebar-media-deck-backdrop {
+            position: fixed;
+            inset: 0;
+            background: linear-gradient(180deg, rgba(2, 6, 23, 0.18), rgba(2, 6, 23, 0.34));
+            z-index: 1590;
+            display: none;
+        }
+
+        .sidebar-media-deck-backdrop.is-visible {
+            display: block;
+        }
+
+        .canopy-media-deck-source-slot {
+            display: flex;
+            justify-content: flex-end;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 0.65rem;
+            position: relative;
+            z-index: 2;
+        }
+
+        [data-post-actions],
+        .message-actions {
+            position: relative;
+            z-index: 2;
+        }
+
+        .canopy-media-mini-launcher {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 11px;
+            border-radius: 10px;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(130, 170, 255, 0.35);
+            background: rgba(9, 17, 32, 0.58);
+            color: #e8eeff;
+            box-shadow: 0 8px 18px rgba(0, 0, 0, 0.16);
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+        }
+
+        .canopy-media-mini-launcher:hover {
+            transform: translateY(-1px);
+            background: rgba(13, 28, 48, 0.88);
+            border-color: rgba(160, 190, 255, 0.55);
+            box-shadow: 0 16px 30px rgba(0, 0, 0, 0.28);
+        }
+
+        .canopy-media-mini-launcher:focus-visible {
+            outline: 2px solid rgba(160, 190, 255, 0.75);
+            outline-offset: 2px;
+        }
+
+        .canopy-media-mini-launcher.is-active {
+            background: linear-gradient(135deg, rgba(88, 120, 220, 0.88), rgba(14, 32, 56, 0.94));
+            border-color: rgba(190, 210, 255, 0.55);
+            color: #ffffff;
+        }
+
+        .canopy-media-mini-launcher i {
+            font-size: 0.9rem;
+        }
+
+        .canopy-media-mini-launcher.is-in-source-slot {
+            margin-left: 0.5rem;
+        }
+
+        .canopy-media-deck-launcher {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 11px;
+            border-radius: 10px;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(89, 222, 137, 0.28);
+            background: rgba(9, 17, 32, 0.66);
+            color: #eefbf4;
+            box-shadow: 0 8px 18px rgba(0, 0, 0, 0.16);
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+        }
+
+        .canopy-media-deck-launcher:hover {
+            transform: translateY(-1px);
+            background: rgba(13, 28, 48, 0.92);
+            border-color: rgba(89, 222, 137, 0.48);
+            box-shadow: 0 16px 30px rgba(0, 0, 0, 0.28);
+        }
+
+        .canopy-media-deck-launcher:focus-visible {
+            outline: 2px solid rgba(89, 222, 137, 0.7);
+            outline-offset: 2px;
+        }
+
+        .canopy-media-deck-launcher.is-active {
+            background: linear-gradient(135deg, rgba(26, 184, 108, 0.92), rgba(14, 32, 56, 0.94));
+            border-color: rgba(161, 247, 198, 0.58);
+            color: #ffffff;
+        }
+
+        .canopy-media-deck-launcher i {
+            font-size: 0.9rem;
+        }
+
+        .canopy-media-deck-launcher-label {
+            line-height: 1;
+        }
+
+        .canopy-media-deck-launcher-count {
+            min-width: 1.35rem;
+            height: 1.35rem;
+            padding: 0 0.38rem;
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255, 255, 255, 0.14);
+            color: inherit;
+            font-size: 0.68rem;
+            font-weight: 800;
+        }
+
+        .canopy-media-deck-launcher.is-in-source-slot {
+            margin-left: auto;
+        }
+
+        body.canopy-media-deck-open .sidebar-media-mini {
+            opacity: 0.36;
+        }
+
+        body.canopy-media-deck-modal {
+            overflow: hidden;
+            overscroll-behavior: contain;
+        }
+
+        @media (max-width: 900px) {
+            .sidebar-media-deck {
+                right: 16px;
+                left: 16px;
+                width: auto;
+                bottom: 14px;
+                max-height: min(86vh, 860px);
+            }
+
+            .sidebar-media-deck-item {
+                min-width: 130px;
+                width: 130px;
+                flex-basis: 130px;
+            }
+
+            .canopy-media-deck-launcher,
+            .canopy-media-mini-launcher {
+                padding: 7px 10px;
+                gap: 6px;
+            }
+        }
+
+        @media (max-width: 640px), (max-height: 540px) and (orientation: landscape) {
+            body.canopy-media-deck-open .sidebar-media-mini {
+                display: none !important;
+            }
+
+            .sidebar-media-deck {
+                left: 0;
+                right: 0;
+                top: 0;
+                bottom: 0;
+                width: 100%;
+                max-height: 100dvh;
+            }
+
+            .sidebar-media-deck-shell {
+                position: relative;
+                border-radius: 0;
+                height: 100dvh;
+                max-height: 100dvh;
+                overflow-y: auto;
+                overscroll-behavior-y: contain;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            .sidebar-media-deck-shell::before {
+                content: "";
+                position: absolute;
+                top: calc(env(safe-area-inset-top) + 8px);
+                left: 50%;
+                transform: translateX(-50%);
+                width: 42px;
+                height: 4px;
+                border-radius: 999px;
+                background: rgba(255, 255, 255, 0.2);
+                pointer-events: none;
+                z-index: 6;
+            }
+
+            .sidebar-media-deck-stage-shell,
+            .sidebar-media-deck-body,
+            .sidebar-media-deck-header,
+            .sidebar-media-deck-queue-shell {
+                padding-left: 14px;
+                padding-right: 14px;
+            }
+
+            .sidebar-media-deck-header {
+                position: sticky;
+                top: 0;
+                z-index: 5;
+                padding-top: calc(env(safe-area-inset-top) + 20px);
+                padding-bottom: 10px;
+                background:
+                    linear-gradient(180deg, rgba(10, 16, 29, 0.98), rgba(10, 16, 29, 0.92));
+                backdrop-filter: blur(20px) saturate(130%);
+            }
+
+            .sidebar-media-deck-source {
+                white-space: normal;
+                overflow: visible;
+                text-overflow: unset;
+            }
+
+            .sidebar-media-deck-action-btn {
+                width: auto;
+                min-width: 42px;
+                min-height: 40px;
+                padding: 0 12px;
+                border-radius: 12px;
+                gap: 6px;
+            }
+
+            .sidebar-media-deck-action-label {
+                display: inline;
+            }
+
+            .sidebar-media-deck-stage {
+                max-height: min(34dvh, 280px);
+                border-radius: 18px;
+            }
+
+            .sidebar-media-deck-stage-shell {
+                padding-top: 10px;
+                padding-bottom: 8px;
+            }
+
+            .sidebar-media-deck-visual {
+                padding: 16px;
+            }
+
+            .sidebar-media-deck-visual-text {
+                font-size: 1.2rem;
+            }
+
+            .sidebar-media-deck-visual-subtext {
+                max-width: 100%;
+                font-size: 0.8rem;
+            }
+
+            .sidebar-media-deck-queue-shell {
+                padding-bottom: 10px;
+            }
+
+            .sidebar-media-deck-body {
+                position: sticky;
+                bottom: 0;
+                z-index: 5;
+                padding: 12px 14px calc(env(safe-area-inset-bottom) + 14px);
+                gap: 10px;
+                background:
+                    linear-gradient(180deg, rgba(9, 15, 30, 0.72), rgba(9, 15, 30, 0.98) 24%);
+                backdrop-filter: blur(18px) saturate(125%);
+                border-top: 1px solid rgba(255, 255, 255, 0.08);
+            }
+
+            .sidebar-media-deck-controls {
+                gap: 8px;
+            }
+
+            .sidebar-media-deck-btn {
+                min-height: 44px;
+                padding: 9px 12px;
+                font-size: 0.74rem;
+                border-radius: 12px;
+                justify-content: center;
+                flex: 1 1 calc(50% - 4px);
+            }
+
+            .sidebar-media-deck-btn.primary {
+                order: -1;
+                flex-basis: 100%;
+                min-height: 48px;
+            }
+
+            .sidebar-media-deck-spacer {
+                display: none;
+            }
+
+            #sidebar-media-deck-return {
+                flex-basis: 100%;
+            }
+
+            .sidebar-media-deck-item {
+                min-width: 124px;
+                width: 124px;
+                flex-basis: 124px;
+            }
+        }
+
+        @media (min-height: 541px) and (max-height: 720px) and (orientation: landscape) {
+            .sidebar-media-deck {
+                width: min(640px, calc(100vw - 28px));
+                bottom: 10px;
+                max-height: calc(100vh - 20px);
+            }
+
+            .sidebar-media-deck-shell {
+                grid-template-rows: auto auto auto auto;
+                max-height: calc(100vh - 20px);
+                overflow-y: auto;
+                overscroll-behavior-y: contain;
+            }
+
+            .sidebar-media-deck-stage {
+                min-height: 180px;
+                max-height: 42vh;
+            }
+
+            .sidebar-media-deck-item {
+                min-width: 126px;
+                width: 126px;
+                flex-basis: 126px;
+            }
+        }
+
         .canopy-mini-focus-flash {
             animation: canopyMiniFocusFlash 1.2s ease;
         }
@@ -870,6 +1744,9 @@
             .sidebar-media-mini-progress > span,
             .sidebar-media-mini-btn,
             .sidebar-media-mini-close,
+            .sidebar-media-deck-shell,
+            .sidebar-media-deck-item,
+            .sidebar-media-deck-btn,
             .canopy-mini-focus-flash {
                 animation: none !important;
                 transition: none !important;
@@ -5795,6 +6672,9 @@
                                     <div class="sidebar-media-mini-subtitle" id="sidebar-media-mini-subtitle">Media is docked while off-screen</div>
                                 </div>
                                 <div class="sidebar-media-mini-actions">
+                                    <button type="button" class="sidebar-media-mini-expand" id="sidebar-media-mini-expand" aria-label="Open media deck">
+                                        <i class="bi bi-arrows-angle-expand"></i>
+                                    </button>
                                     <button type="button" class="sidebar-media-mini-pin" id="sidebar-media-mini-pin" aria-label="Move mini player">
                                         <i class="bi bi-arrow-up-right-square"></i>
                                     </button>
@@ -5812,7 +6692,7 @@
                                     <i class="bi bi-pause-fill me-1"></i><span>Pause</span>
                                 </button>
                                 <button type="button" class="sidebar-media-mini-btn" id="sidebar-media-mini-jump">
-                                    <i class="bi bi-arrow-up-right-square me-1"></i><span>Return</span>
+                                    <i class="bi bi-arrow-up-right-square me-1"></i><span>Show source</span>
                                 </button>
                                 <button type="button" class="sidebar-media-mini-btn" id="sidebar-media-mini-pip" style="display:none;">
                                     <i class="bi bi-pip me-1"></i><span>PiP</span>
@@ -5973,6 +6853,108 @@
             <div class="content-container" id="content-container">
                 <div class="main-content">
                     {% block content %}{% endblock %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# Media deck lives outside .app-container so position:fixed is not clipped by overflow/stacking
+       inside .sidebar / .main-row (critical for iOS Safari). IDs unchanged for canopy-main.js. #}
+    <div class="canopy-media-deck-portal" data-canopy-deck-portal="1">
+        <div id="sidebar-media-deck-backdrop" class="sidebar-media-deck-backdrop" hidden></div>
+        <div id="sidebar-media-deck" class="sidebar-media-deck" aria-hidden="true" hidden>
+            <div class="sidebar-media-deck-shell" role="dialog" aria-modal="false" aria-label="Expanded media player">
+                <div class="sidebar-media-deck-header">
+                    <div class="sidebar-media-deck-context">
+                        <div class="sidebar-media-deck-chip-row">
+                            <span class="sidebar-media-deck-chip">
+                                <i class="bi bi-broadcast"></i>
+                                <span id="sidebar-media-deck-chip-label">Media Deck</span>
+                            </span>
+                            <span class="sidebar-media-deck-chip muted" id="sidebar-media-deck-count-chip">1 item</span>
+                        </div>
+                        <div class="sidebar-media-deck-source" id="sidebar-media-deck-source">Now playing from Canopy</div>
+                    </div>
+                    <div class="sidebar-media-deck-actions">
+                        <button type="button" class="sidebar-media-deck-action-btn" id="sidebar-media-deck-minimize" aria-label="Minimize media deck">
+                            <i class="bi bi-dash-lg"></i>
+                            <span class="sidebar-media-deck-action-label">Minimize</span>
+                        </button>
+                        <button type="button" class="sidebar-media-deck-action-btn" id="sidebar-media-deck-mini-player" aria-label="Switch to mini player">
+                            <i class="bi bi-pip"></i>
+                            <span class="sidebar-media-deck-action-label">Mini player</span>
+                        </button>
+                        <button type="button" class="sidebar-media-deck-action-btn" id="sidebar-media-deck-close" aria-label="Close media deck">
+                            <i class="bi bi-x-lg"></i>
+                            <span class="sidebar-media-deck-action-label">Close</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="sidebar-media-deck-stage-shell">
+                    <div id="sidebar-media-deck-stage" class="sidebar-media-deck-stage is-empty" aria-label="Expanded media stage">
+                        <div id="sidebar-media-deck-visual" class="sidebar-media-deck-visual">
+                            <div id="sidebar-media-deck-visual-cover" class="sidebar-media-deck-visual-cover"></div>
+                            <div class="sidebar-media-deck-visual-overlay"></div>
+                            <div class="sidebar-media-deck-visual-body">
+                                <div class="sidebar-media-deck-visual-icon" id="sidebar-media-deck-visual-icon">
+                                    <i class="bi bi-music-note-beamed"></i>
+                                </div>
+                                <div class="sidebar-media-deck-visual-text" id="sidebar-media-deck-visual-title">Now Playing</div>
+                                <div class="sidebar-media-deck-visual-subtext" id="sidebar-media-deck-visual-subtitle">Expanded playback with related media from the same post or message.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="sidebar-media-deck-queue-shell">
+                    <div class="sidebar-media-deck-queue-header">
+                        <span class="sidebar-media-deck-queue-title">More From This Source</span>
+                        <span class="sidebar-media-deck-queue-count" id="sidebar-media-deck-queue-count">0 items</span>
+                    </div>
+                    <div id="sidebar-media-deck-queue" class="sidebar-media-deck-queue">
+                        <div class="sidebar-media-deck-empty">Multiple videos or clips in the same post/message will appear here.</div>
+                    </div>
+                </div>
+                <div class="sidebar-media-deck-body">
+                    <div class="sidebar-media-deck-meta">
+                        <div class="sidebar-media-deck-meta-top">
+                            <span class="sidebar-media-deck-provider" id="sidebar-media-deck-provider">
+                                <i class="bi bi-play-circle"></i>
+                                <span id="sidebar-media-deck-provider-label">Media</span>
+                            </span>
+                            <span class="sidebar-media-deck-count" id="sidebar-media-deck-count">1 playable item</span>
+                        </div>
+                        <div class="sidebar-media-deck-title" id="sidebar-media-deck-title">Now Playing</div>
+                        <div class="sidebar-media-deck-subtitle" id="sidebar-media-deck-subtitle">Use the deck to stay with media while you keep working.</div>
+                    </div>
+                    <div class="sidebar-media-deck-progress-row">
+                        <span class="sidebar-media-deck-time" id="sidebar-media-deck-current-time">--:--</span>
+                        <input type="range" class="sidebar-media-deck-seek" id="sidebar-media-deck-seek" min="0" max="1000" value="0" step="1" disabled aria-label="Seek media">
+                        <span class="sidebar-media-deck-time end" id="sidebar-media-deck-duration">--:--</span>
+                    </div>
+                    <div class="sidebar-media-deck-controls">
+                        <button type="button" class="sidebar-media-deck-btn" id="sidebar-media-deck-prev">
+                            <i class="bi bi-skip-backward-fill"></i><span>Prev</span>
+                        </button>
+                        <button type="button" class="sidebar-media-deck-btn primary" id="sidebar-media-deck-play">
+                            <i class="bi bi-play-fill"></i><span>Play</span>
+                        </button>
+                        <button type="button" class="sidebar-media-deck-btn" id="sidebar-media-deck-next">
+                            <i class="bi bi-skip-forward-fill"></i><span>Next</span>
+                        </button>
+                        <button type="button" class="sidebar-media-deck-btn sidebar-media-deck-btn-aux" id="sidebar-media-deck-minimize-footer" title="Collapse deck to mini player" aria-label="Collapse deck to mini player">
+                            <i class="bi bi-dash-lg"></i><span>Collapse</span>
+                        </button>
+                        <button type="button" class="sidebar-media-deck-btn sidebar-media-deck-btn-aux" id="sidebar-media-deck-mini-player-footer" title="Open mini player" aria-label="Open mini player">
+                            <i class="bi bi-pip"></i><span>Mini bar</span>
+                        </button>
+                        <div class="sidebar-media-deck-spacer"></div>
+                        <button type="button" class="sidebar-media-deck-btn" id="sidebar-media-deck-pip" style="display:none;">
+                            <i class="bi bi-pip"></i><span>PiP</span>
+                        </button>
+                        <button type="button" class="sidebar-media-deck-btn" id="sidebar-media-deck-return">
+                            <i class="bi bi-arrow-up-right-square"></i><span>Return to source</span>
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

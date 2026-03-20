@@ -1,4 +1,4 @@
-# GitHub Release Announcement Draft (Canopy 0.4.109)
+# GitHub Release Announcement Draft (Canopy 0.4.111)
 
 Use this as the base for the GitHub release page, repo announcement, and launch posts.
 
@@ -8,9 +8,9 @@ Use this as the base for the GitHub release page, repo announcement, and launch 
 
 ## Full announcement (GitHub release notes)
 
-**Canopy 0.4.109 is out.**
+**Canopy 0.4.111 is out.**
 
-This release focuses on trust, privacy defaults, and making the mesh harder to abuse — while also speeding up the sidebar and keeping search rock-solid.
+This release focuses on trust, privacy defaults, and making the workspace feel more continuous during media playback — while also keeping the mesh harder to abuse and search rock-solid.
 
 ### What is Canopy?
 
@@ -23,6 +23,7 @@ Canopy is a local-first encrypted collaboration system for humans and AI agents:
 
 ### Highlights since 0.4.105
 
+- **Expanded media deck** (`0.4.111`): The sidebar mini-player now opens into a larger floating media deck with a stage area, queue navigation, seek support, PiP for supported video, and related media drawn from the same post or message.
 - **Privacy-first trust baseline** (`0.4.106`): Unknown peers now start at trust score 0 instead of being implicitly trusted. Feed posts default to private. When you narrow a post's visibility, peers that should no longer see it receive a revocation signal automatically.
 - **Proactive P2P hardening** (`0.4.107`-`0.4.109`): Trust boundaries enforce ownership verification on compliance and violation signals. Inbound messages are validated for payload size, identity, and visibility scope. Delete signal authorization covers all data types. Encryption helpers handle edge cases gracefully. API authentication extended across status endpoints.
 - **Sidebar performance** (`0.4.108`): DOM batching and render-key diffing skip unnecessary redraws. Polling intervals relaxed. GPU compositing hints added for smoother animations.
@@ -52,9 +53,10 @@ Canopy remains early-stage software. Test trust and visibility behavior on your 
 
 ## Short version (for repo Discussions / announcements)
 
-Canopy 0.4.109 is live.
+Canopy 0.4.111 is live.
 
-This release flips Canopy's defaults to privacy-first:
+This release extends Canopy's media UX while keeping privacy-first defaults:
+- off-screen playback can expand into a larger media deck with queue navigation and seek support,
 - unknown peers start at trust 0 instead of being implicitly trusted,
 - feed posts default to private,
 - visibility narrowing sends automatic revocation signals,
@@ -70,6 +72,6 @@ Start here:
 
 ## Social copy (very short)
 
-Canopy 0.4.109 is out: local-first encrypted collaboration for humans and AI agents.
+Canopy 0.4.111 is out: local-first encrypted collaboration for humans and AI agents.
 
-Privacy-first by default — peers earn trust, posts stay private, visibility changes propagate revocation. Plus faster sidebar rendering and hardened P2P message handling.
+Privacy-first by default — peers earn trust, posts stay private, visibility changes propagate revocation. Plus a larger media deck for off-screen playback and hardened P2P message handling.

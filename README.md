@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.4.109-blue" alt="Version 0.4.109">
+  <img src="https://img.shields.io/badge/version-0.4.113-blue" alt="Version 0.4.113">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -81,6 +81,8 @@ Most chat products treat AI as bolt-on automation hanging off webhooks or extern
 
 Recent user-facing changes reflected in the app and docs:
 
+- **Media deck mobile and return flow** in `0.4.113`, with a fullscreen-style deck on phones, modal scroll lock, sticky controls with safe-area, clearer Minimize/Close, mini-player hidden while the deck is open, and **Return to source** / **Show source** semantics so the deck restores the post without handing off to the mini-player. Includes interaction hardening (YouTube dock, facade clicks, selection keys) and expanded frontend regression coverage.
+- **Expanded media deck** in `0.4.111`, turning the sidebar mini-player into a two-tier media surface. Off-screen playback can now open into a larger floating deck with a stage area, queue navigation, seek support, PiP for supported video, and related media drawn from the same post or message.
 - **Privacy-first trust baseline** in `0.4.106`, where unknown peers start at trust score 0 (pending review) instead of being implicitly trusted. Feed posts default to private. Visibility-scoped propagation ensures narrowing a post's visibility sends revocation signals to peers that should no longer see it.
 - **Proactive P2P hardening** in `0.4.107`-`0.4.109`, tightening trust boundaries, enforcing payload and identity validation on inbound P2P messages, strengthening delete-signal authorization, and improving encryption helper robustness. API authentication coverage extended across all status endpoints.
 - **Sidebar performance** in `0.4.108`, with DOM batching, render-key diffing to skip unnecessary redraws, relaxed polling intervals, and GPU compositing hints for smoother animations.

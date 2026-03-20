@@ -8,6 +8,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+### Fixed
+- **Media deck on iOS** — The deck and backdrop are rendered in a body-level portal (outside `.app-container` / scrollable `.sidebar`) so `position: fixed` overlays are not clipped by overflow on iPhone Safari. Touch/narrow layouts open the source **Media deck** button on `pointerdown` to avoid the first tap only materializing YouTube in-page.
+
+### Improved
+- **Media deck vs mini player** — Opening the deck from a post no longer materializes YouTube until **Play** (facade stays static; avoids the “first tap wakes video, second opens deck” feel). Source actions add **Mini player** next to **Media deck**; the deck header adds **Mini player** to hand off from the expanded view. **Minimize** docks YouTube into the mini player even when the source is still on-screen (`forceDockMini`). Mini player stays visible for a docked facade until Play; deck/mini controls resolve the iframe when present.
+- **YouTube handoff** — Before reparenting embeds (mini ↔ deck ↔ inline), the app snapshots time/play state, updates the embed URL (`start` / `autoplay`) when needed, re-bridges the IFrame API after a `src` change, and runs the existing dock-restore loop so playback can continue instead of restarting at 0. The same path is used when restoring docked YouTube to the post placeholder. **Mini ↔ deck** moves skip URL rewrites and player resets so the iframe is not torn down in-place (avoids a blank deck stage).
+- **Media deck resilience** — `repairMediaCurrentReference` rebinds `state.current` from the post/message when the prior node is disconnected; `reconcileDeckStageMediaPlacement` moves video/YouTube back onto the deck stage if it was left elsewhere; failed repair while the deck is open force-closes the deck. Docked YouTube **ENDED** uses the iframe’s `__canopyMiniYTState` when `state.current.el` is the wrapper.
+- **Deck controls on short screens** — Header actions wrap; **Collapse** and **Mini bar** are duplicated in the sticky bottom control row (with Prev/Play/Next) so you can reach mini-player handoff without scrolling to the top.
+
+## [0.4.113] - 2026-03-20
+
+### Improved
+- **Media deck mobile** — Fullscreen-style surface on narrow portrait and short landscape; modal body scroll lock (`canopy-media-deck-modal`); sticky header and bottom controls with safe-area; visible Minimize/Close labels on touch; mini-player hidden while the deck is open; landscape compaction query scoped so short phones in landscape keep fullscreen instead of the floating tablet layout.
+- **Source launcher and return** — Stale `returnUrl` / `dockedSubtitle` cleared when opening from a post or message; Return closes the deck with force-close so media restores to the source without handing off to the mini-player; mini-player **Show source** vs deck **Return to source** copy for clearer semantics.
+- **Playback hardening** — YouTube auto-dock suppressed while the deck is open; global YouTube facade handler skips `defaultPrevented` clicks; deck selection key resyncs after facade→iframe materialization; redundant `keepDeckVisible` paths removed from `updateMini` (open deck already handled earlier).
+
+### Tests
+- Frontend regression coverage for mobile deck layout, source/return labels, first-click hardening, and related guards.
+
+## [0.4.112] - 2026-03-19
+
+### Improved
+- **Media deck second pass** — Playback UI refreshes now coalesce through a shared scheduler, deck queue rerenders are skipped when membership and active item are unchanged, and media deactivation/cleanup paths are more centralized. Source-level deck launchers remain available on playable posts and messages.
+
+## [0.4.111] - 2026-03-19
+
+### Added
+- **Expanded media deck and related queue** — The sidebar mini-player can now open into a larger floating media deck with a stage area, richer controls, seek support, PiP for supported video, and a related-media queue scoped to the same post or message.
+
+### Improved
+- **Mini-player continuity** — Off-screen audio, direct video, and YouTube playback now share one media state across the compact dock and expanded deck, including source return, minimize/close handling, and placeholder-preserving docking for larger playback.
+- **Frontend coverage for media deck** — Regression assertions now cover the expanded deck markup, expand control, queue wiring, docking helpers, and seek behavior.
+
+## [0.4.110] - 2026-03-19
+
+### Hardened
+- **Message replay prevention** — Inbound P2P messages older than 2 hours or timestamped more than 30 seconds in the future are rejected, preventing replay attacks after the seen-message cache evicts old IDs. Locally-created messages are exempt for store-and-forward compatibility.
+- **Routing table size cap** — The routing table is capped at 500 entries. When full, the oldest entry is evicted to bound memory and limit the impact of stale or poisoned routes.
+- **Relay offer validation** — Relay offers are only accepted from directly connected peers, preventing a relayed offer from creating a routing entry through an unreachable intermediary.
+- **Generic error responses** — API, UI, and MCP error responses no longer include raw exception strings. Internal details (paths, SQL, stack frames) are replaced with safe generic messages while full context is preserved in server logs.
+
 ## [0.4.109] - 2026-03-19
 
 ### Hardened
