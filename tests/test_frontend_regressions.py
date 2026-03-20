@@ -233,6 +233,16 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("function seekCurrentMediaTo(ratio) {", main_js)
         self.assertIn("deckQueue.addEventListener('click'", main_js)
         self.assertIn("deckSeek.addEventListener('change'", main_js)
+        self.assertIn('id="sidebar-media-deck-widget-summary"', base_template)
+        self.assertIn('id="sidebar-media-deck-widget-badges"', base_template)
+        self.assertIn('id="sidebar-media-deck-widget-details"', base_template)
+        self.assertIn('id="sidebar-media-deck-widget-actions"', base_template)
+        self.assertIn(".sidebar-media-deck-widget-summary", base_template)
+        self.assertIn("function buildSourceDeckItems(sourceEl, activeEl) {", main_js)
+        self.assertIn("function buildSourceWidgetList(sourceEl) {", main_js)
+        self.assertIn("function renderDeckWidgetSummary(item) {", main_js)
+        self.assertIn("function renderDeckWidgetStage(item) {", main_js)
+        self.assertIn("function runDeckWidgetAction(action, item) {", main_js)
 
     def test_media_deck_switching_uses_central_deactivation_and_disconnect_cleanup(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
@@ -245,12 +255,13 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("const staleCurrent = state.current;", main_js)
         self.assertIn("deactivateMediaEntry(staleCurrent);", main_js)
 
-    def test_media_deck_adds_source_level_launcher_for_playable_posts_and_messages(self) -> None:
+    def test_media_deck_adds_source_level_launcher_for_media_and_widget_posts(self) -> None:
         base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
         self.assertIn(".canopy-media-deck-source-slot", base_template)
         self.assertIn(".canopy-media-deck-launcher", base_template)
         self.assertIn(".canopy-media-mini-launcher", base_template)
+        self.assertIn(".canopy-media-playback-launcher", base_template)
         self.assertIn(".canopy-media-deck-launcher-count", base_template)
         self.assertIn("touch-action: manipulation", base_template)
         self.assertIn("const mqCoarseOrNarrow = window.matchMedia('(max-width: 640px), (pointer: coarse)');", main_js)
@@ -261,7 +272,10 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("btnDeck.setAttribute('data-open-media-deck', '1');", main_js)
         self.assertIn("const actionsHost = sourceEl.querySelector('[data-post-actions] .d-flex.gap-2.flex-wrap, .message-actions .d-flex.gap-2.flex-wrap');", main_js)
         self.assertIn("slot.className = 'canopy-media-deck-source-slot';", main_js)
-        self.assertIn("btnDeck.innerHTML = `<i class=\"bi bi-collection-play\"></i><span class=\"canopy-media-deck-launcher-label\">Media deck</span><span class=\"canopy-media-deck-launcher-count\">${countLabel}</span>`;", main_js)
+        self.assertIn("data-canopy-playback-launcher", main_js)
+        self.assertIn("canopy-media-playback-launcher", main_js)
+        self.assertIn("btnDeck.innerHTML =", main_js)
+        self.assertIn("canopy-media-deck-launcher-count", main_js)
         self.assertIn("state.deckSelectedKey = preferred.key;", main_js)
         self.assertIn("state.deckOpen = true;", main_js)
         self.assertIn("selectDeckItem(preferred, { play: false });", main_js)
@@ -275,6 +289,7 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("function openMiniPlayerForSource(sourceEl) {", main_js)
         self.assertIn("function switchDeckToMiniPlayer() {", main_js)
         self.assertIn("btnMini.setAttribute('data-open-mini-player', '1');", main_js)
+        self.assertIn("const mediaItems = items.filter(isDeckMediaItem);", main_js)
         self.assertIn("forceDockMini:", main_js)
         self.assertIn("function isYouTubeFacadeOnly(el) {", main_js)
         self.assertIn("function repairMediaCurrentReference() {", main_js)
@@ -302,7 +317,7 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("state.miniUpdateFrame = window.requestAnimationFrame(() => {", main_js)
         self.assertIn("const nextSignature = `${activeKey}::${items.map((item) => `${item.key}:${item.type}`).join('|')}`;", main_js)
         self.assertIn("if (state.deckQueueSignature === nextSignature && deckQueue.childElementCount) {", main_js)
-        self.assertIn("btn.setAttribute('aria-expanded', isActive && state.deckOpen ? 'true' : 'false');", main_js)
+        self.assertIn("btn.setAttribute('aria-expanded', isActive ? 'true' : 'false');", main_js)
         self.assertIn("state.tickHandle = setInterval(scheduleMiniUpdate, 700);", main_js)
         self.assertNotIn("state.tickHandle = setInterval(updateMini, 700);", main_js)
 
@@ -355,6 +370,19 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("<span class=\"sidebar-media-deck-action-label\">Close</span>", base_html)
         self.assertIn("(min-height: 541px) and (max-height: 720px) and (orientation: landscape)", base_html)
         self.assertNotIn("min-height: min(86vh, 860px);", base_html)
+
+    def test_deck_widget_manifests_are_typed_and_sanitized(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        self.assertIn("const CANOPY_DECK_WIDGET_RENDER_MODES = new Set([", main_js)
+        self.assertIn("const CANOPY_DECK_WIDGET_TYPES = new Set([", main_js)
+        self.assertIn("const CANOPY_DECK_IFRAME_HOSTS = new Set([", main_js)
+        self.assertIn("const CANOPY_DECK_EXTERNAL_HOSTS = new Set([", main_js)
+        self.assertIn("function sanitizeDeckWidgetManifest(rawManifest) {", main_js)
+        self.assertIn("function buildDeckWidgetManifestAttrs(rawManifest) {", main_js)
+        self.assertIn("function parseDeckWidgetManifest(node) {", main_js)
+        self.assertIn("handler: 'open_stream_workspace'", channels_template)
+        self.assertIn("data-canopy-widget-manifest", channels_template)
 
     def test_media_deck_portal_is_body_level_for_ios_fixed_positioning(self) -> None:
         base_html = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')

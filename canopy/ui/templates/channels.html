@@ -9315,6 +9315,47 @@ function displayAttachments(attachments) {
         const actionLabel = streamKind === 'telemetry' ? 'Open workspace' : (mediaKind === 'video' ? 'Watch live' : 'Listen live');
         const isOwner = att.created_by && att.created_by === currentUserId;
         const scenarioLabel = _streamScenarioLabel(domain, streamKind, mediaKind);
+        const widgetManifest = streamId ? {
+            version: 1,
+            key: `stream:${streamId}`,
+            widget_type: streamKind === 'telemetry' ? 'telemetry_panel' : 'media_stream',
+            render_mode: 'stream_summary',
+            title: att.title || att.name || 'Live stream',
+            subtitle: att.description || scenarioLabel,
+            provider_label: streamKind === 'telemetry'
+                ? 'Telemetry'
+                : (mediaKind === 'video' ? 'Live video' : 'Live audio'),
+            icon: `bi-${icon}`,
+            body_text: streamId ? `Stream ID ${streamId}` : '',
+            badges: [
+                streamKind === 'telemetry' ? 'Telemetry' : (mediaKind === 'video' ? 'Video' : 'Audio'),
+                scenarioLabel,
+                att.relay_allowed ? 'Relay ready' : '',
+                statusLabel,
+            ].filter(Boolean),
+            details: [
+                { label: 'Status', value: statusLabel },
+                { label: 'Scenario', value: scenarioLabel },
+                { label: 'Domain', value: domain || 'media' },
+                { label: 'Transport', value: String(att.protocol || (streamKind === 'telemetry' ? 'events-json' : 'hls')) },
+            ],
+            actions: [
+                {
+                    kind: 'callback',
+                    handler: 'open_stream_workspace',
+                    label: actionLabel,
+                    icon: 'bi-play-fill',
+                    args: { streamId, mediaKind, slotId, streamKind },
+                },
+                {
+                    kind: 'clipboard',
+                    label: 'Copy stream ID',
+                    icon: 'bi-clipboard',
+                    text: streamId,
+                },
+            ],
+        } : null;
+        const widgetManifestAttr = widgetManifest ? _escapeAttr(JSON.stringify(widgetManifest)) : '';
         const goLiveBtn = isOwner && streamId && streamKind !== 'telemetry'
             ? `<button class="btn btn-sm btn-outline-warning" onclick="openBroadcasterPanel('${streamId.replace(/'/g, "\\'")}', '${mediaKind}', '${slotId}')">
                     <i class="bi bi-broadcast"></i> Go Live
@@ -9331,7 +9372,7 @@ function displayAttachments(attachments) {
                </button>`
             : `<span class="small text-muted">Stream metadata incomplete</span>`;
         html += `
-            <div class="attachment-item stream-card mb-2 p-3 rounded">
+            <div class="attachment-item stream-card mb-2 p-3 rounded"${widgetManifestAttr ? ` data-canopy-widget-manifest="${widgetManifestAttr}"` : ''}>
                 <div class="stream-card-header">
                     <div class="stream-card-identity">
                         <div class="stream-card-icon">

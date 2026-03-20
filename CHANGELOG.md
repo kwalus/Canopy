@@ -8,14 +8,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
-### Fixed
-- **Media deck on iOS** — The deck and backdrop are rendered in a body-level portal (outside `.app-container` / scrollable `.sidebar`) so `position: fixed` overlays are not clipped by overflow on iPhone Safari. Touch/narrow layouts open the source **Media deck** button on `pointerdown` to avoid the first tap only materializing YouTube in-page.
+## [0.4.116] - 2026-03-20
 
 ### Improved
-- **Media deck vs mini player** — Opening the deck from a post no longer materializes YouTube until **Play** (facade stays static; avoids the “first tap wakes video, second opens deck” feel). Source actions add **Mini player** next to **Media deck**; the deck header adds **Mini player** to hand off from the expanded view. **Minimize** docks YouTube into the mini player even when the source is still on-screen (`forceDockMini`). Mini player stays visible for a docked facade until Play; deck/mini controls resolve the iframe when present.
-- **YouTube handoff** — Before reparenting embeds (mini ↔ deck ↔ inline), the app snapshots time/play state, updates the embed URL (`start` / `autoplay`) when needed, re-bridges the IFrame API after a `src` change, and runs the existing dock-restore loop so playback can continue instead of restarting at 0. The same path is used when restoring docked YouTube to the post placeholder. **Mini ↔ deck** moves skip URL rewrites and player resets so the iframe is not torn down in-place (avoids a blank deck stage).
-- **Media deck resilience** — `repairMediaCurrentReference` rebinds `state.current` from the post/message when the prior node is disconnected; `reconcileDeckStageMediaPlacement` moves video/YouTube back onto the deck stage if it was left elsewhere; failed repair while the deck is open force-closes the deck. Docked YouTube **ENDED** uses the iframe’s `__canopyMiniYTState` when `state.current.el` is the wrapper.
-- **Deck controls on short screens** — Header actions wrap; **Collapse** and **Mini bar** are duplicated in the sticky bottom control row (with Prev/Play/Next) so you can reach mini-player handoff without scrolling to the top.
+- **Deck / mini launcher on posts** — Single fused **Deck | Mini** segmented control (one pill, subtle divider, count badges per side) instead of two separate buttons; deck-only sources hide the Mini segment.
+- **Deck panel copy** — Item total appears once in the header chip (`Canopy Deck · N items`); queue header no longer repeats the count; meta line shows **Item k of N** when there are multiple entries instead of duplicating totals.
+
+## [0.4.115] - 2026-03-20
+
+### Fixed
+- **Deck widget iframe flash** — Map and other deck widgets no longer rebuild their iframe on every mini-player tick (~700ms); the stage is reused when the embed signature is unchanged.
+- **Spotify deck embed** — Optional `intl-*/` path segment in Spotify URLs is recognized; Spotify (and SoundCloud) deck iframes omit the sandbox attribute so behavior matches in-feed embed previews.
+
+## [0.4.114] - 2026-03-20
+
+### Added
+- **Canopy Deck widget foundation (phase 1 + bounded phase 2)** — Typed, sanitized widget manifests (`map`, `chart`, `media_embed`, `story`, `media_stream`, `telemetry_panel`) with allowlisted iframe hosts, external links, and callback actions (`open_stream_workspace`, clipboard copy, etc.). Rich embeds (Vimeo, Loom, Spotify, SoundCloud, Google Maps, OSM, TradingView, etc.) publish deck-safe manifests; channel stream cards expose `stream_summary` with workspace / copy-id actions. Deck UI supports widget summary, badges, details, and safe iframe or summary staging; mini player stays media-only; **Deck** launcher counts all deck items while **Mini player** counts playable media only.
+
+### Fixed
+- **Media deck on iOS** — Deck portal outside `.app-container`; touch/narrow `pointerdown` on deck launcher avoids first-tap-only YouTube materialize.
+
+### Improved
+- **Media deck vs mini player** — Deferred YouTube materialize for deck open; dual launchers; `forceDockMini` on minimize; facade-friendly mini chrome; iframe-resolved controls.
+- **YouTube handoff** — Snapshot time/play across hosts; skip URL rewrite for mini↔deck reparents; restore path for post placeholder.
+- **Deck resilience** — `repairMediaCurrentReference` uses full deck items (media + widgets) and leaves `state.current` null for widget-only repair; stage reconciliation; short-screen footer **Collapse** / **Mini bar**.
 
 ## [0.4.113] - 2026-03-20
 

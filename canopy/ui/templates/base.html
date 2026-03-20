@@ -1138,6 +1138,115 @@
             color: var(--canopy-text-secondary);
         }
 
+        .sidebar-media-deck-widget-summary {
+            display: grid;
+            gap: 10px;
+            padding: 12px 14px;
+            margin-top: 4px;
+            border-radius: 16px;
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            background: rgba(255, 255, 255, 0.035);
+        }
+
+        .sidebar-media-deck-widget-badges {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .sidebar-media-deck-widget-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 9px;
+            border-radius: 999px;
+            border: 1px solid rgba(129, 140, 248, 0.2);
+            background: rgba(15, 23, 42, 0.7);
+            color: var(--canopy-text-secondary);
+            font-size: 0.69rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+
+        .sidebar-media-deck-widget-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+            gap: 10px;
+        }
+
+        .sidebar-media-deck-widget-kv {
+            padding: 10px 11px;
+            border-radius: 14px;
+            background: rgba(2, 6, 23, 0.34);
+            border: 1px solid rgba(148, 163, 184, 0.12);
+        }
+
+        .sidebar-media-deck-widget-kv-label {
+            font-size: 0.65rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--canopy-text-muted);
+            margin-bottom: 4px;
+        }
+
+        .sidebar-media-deck-widget-kv-value {
+            font-size: 0.8rem;
+            color: var(--canopy-text-primary);
+            font-weight: 600;
+            line-height: 1.35;
+        }
+
+        .sidebar-media-deck-widget-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 2px;
+        }
+
+        .sidebar-media-deck-widget-stage {
+            width: 100%;
+            min-height: 100%;
+            display: grid;
+            align-items: stretch;
+            gap: 12px;
+        }
+
+        .sidebar-media-deck-widget-frame {
+            width: 100%;
+            min-height: 100%;
+            border: 0;
+            border-radius: 18px;
+            background: linear-gradient(180deg, rgba(10, 16, 29, 0.98), rgba(10, 16, 29, 0.82));
+        }
+
+        .sidebar-media-deck-widget-panel {
+            min-height: 100%;
+            padding: 20px;
+            border-radius: 18px;
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            background:
+                radial-gradient(circle at top left, rgba(34, 197, 94, 0.14), transparent 35%),
+                linear-gradient(180deg, rgba(10, 16, 29, 0.98), rgba(10, 16, 29, 0.82));
+            display: grid;
+            gap: 14px;
+        }
+
+        .sidebar-media-deck-widget-panel-title {
+            font-size: 1rem;
+            font-weight: 800;
+            color: var(--canopy-text-primary);
+            line-height: 1.25;
+        }
+
+        .sidebar-media-deck-widget-panel-copy {
+            font-size: 0.84rem;
+            line-height: 1.55;
+            color: var(--canopy-text-secondary);
+            white-space: pre-wrap;
+        }
+
         .sidebar-media-deck-progress-row {
             display: grid;
             grid-template-columns: auto 1fr auto;
@@ -1254,7 +1363,7 @@
         .sidebar-media-deck-queue-header {
             display: flex;
             align-items: center;
-            justify-content: space-between;
+            justify-content: flex-start;
             gap: 10px;
         }
 
@@ -1404,6 +1513,116 @@
             z-index: 2;
         }
 
+        /* Single fused control: Deck | Mini (replaces two separate launcher pills) */
+        .canopy-media-playback-launcher {
+            display: inline-flex;
+            align-items: stretch;
+            flex-wrap: nowrap;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid rgba(120, 160, 255, 0.32);
+            background: linear-gradient(165deg, rgba(12, 22, 42, 0.92), rgba(8, 14, 28, 0.88));
+            box-shadow:
+                0 4px 16px rgba(0, 0, 0, 0.22),
+                inset 0 1px 0 rgba(255, 255, 255, 0.06);
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: rgba(255, 255, 255, 0.08);
+            transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.18s ease;
+        }
+
+        .canopy-media-playback-launcher:hover {
+            border-color: rgba(150, 190, 255, 0.45);
+            box-shadow:
+                0 8px 26px rgba(0, 0, 0, 0.28),
+                inset 0 1px 0 rgba(255, 255, 255, 0.09);
+        }
+
+        .canopy-media-playback-launcher:focus-within {
+            outline: 2px solid rgba(130, 190, 255, 0.55);
+            outline-offset: 2px;
+        }
+
+        .canopy-media-playback-launcher.is-in-source-slot {
+            margin-left: auto;
+        }
+
+        .canopy-media-playback-seg {
+            flex: 1 1 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+            min-width: 0;
+            padding: 8px 13px;
+            border: none;
+            margin: 0;
+            background: transparent;
+            color: #e8f0ff;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
+            transition: background 0.2s ease, color 0.2s ease;
+        }
+
+        .canopy-media-playback-seg-divider {
+            width: 1px;
+            align-self: stretch;
+            flex-shrink: 0;
+            background: linear-gradient(
+                180deg,
+                transparent,
+                rgba(255, 255, 255, 0.14) 22%,
+                rgba(255, 255, 255, 0.14) 78%,
+                transparent
+            );
+        }
+
+        .canopy-media-playback-seg--deck:hover,
+        .canopy-media-playback-seg--mini:hover {
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        .canopy-media-playback-seg--deck.is-active {
+            background: linear-gradient(135deg, rgba(34, 197, 94, 0.35), rgba(16, 40, 72, 0.75));
+            color: #f0fff4;
+        }
+
+        .canopy-media-playback-seg--mini.is-active {
+            background: linear-gradient(135deg, rgba(96, 140, 240, 0.42), rgba(14, 28, 52, 0.82));
+            color: #ffffff;
+        }
+
+        .canopy-media-playback-launcher--deck-only .canopy-media-playback-seg--deck {
+            flex: 1 1 auto;
+        }
+
+        .canopy-media-playback-seg i {
+            font-size: 0.95rem;
+            opacity: 0.92;
+        }
+
+        .canopy-media-playback-launcher .canopy-media-deck-launcher-count {
+            min-width: 1.35rem;
+            height: 1.35rem;
+            padding: 0 0.38rem;
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255, 255, 255, 0.12);
+            color: inherit;
+            font-size: 0.68rem;
+            font-weight: 800;
+            letter-spacing: 0;
+            text-transform: none;
+        }
+
+        .canopy-media-playback-seg--deck.is-active .canopy-media-deck-launcher-count,
+        .canopy-media-playback-seg--mini.is-active .canopy-media-deck-launcher-count {
+            background: rgba(0, 0, 0, 0.22);
+        }
+
         [data-post-actions],
         .message-actions {
             position: relative;
@@ -1544,6 +1763,12 @@
             .canopy-media-mini-launcher {
                 padding: 7px 10px;
                 gap: 6px;
+            }
+
+            .canopy-media-playback-seg {
+                padding: 7px 10px;
+                gap: 6px;
+                font-size: 0.68rem;
             }
         }
 
@@ -6672,7 +6897,7 @@
                                     <div class="sidebar-media-mini-subtitle" id="sidebar-media-mini-subtitle">Media is docked while off-screen</div>
                                 </div>
                                 <div class="sidebar-media-mini-actions">
-                                    <button type="button" class="sidebar-media-mini-expand" id="sidebar-media-mini-expand" aria-label="Open media deck">
+                                    <button type="button" class="sidebar-media-mini-expand" id="sidebar-media-mini-expand" aria-label="Open Canopy deck">
                                         <i class="bi bi-arrows-angle-expand"></i>
                                     </button>
                                     <button type="button" class="sidebar-media-mini-pin" id="sidebar-media-mini-pin" aria-label="Move mini player">
@@ -6869,14 +7094,14 @@
                         <div class="sidebar-media-deck-chip-row">
                             <span class="sidebar-media-deck-chip">
                                 <i class="bi bi-broadcast"></i>
-                                <span id="sidebar-media-deck-chip-label">Media Deck</span>
+                                <span id="sidebar-media-deck-chip-label">Canopy Deck · 1 item</span>
                             </span>
-                            <span class="sidebar-media-deck-chip muted" id="sidebar-media-deck-count-chip">1 item</span>
+                            <span class="sidebar-media-deck-chip muted" id="sidebar-media-deck-count-chip" hidden aria-hidden="true"></span>
                         </div>
                         <div class="sidebar-media-deck-source" id="sidebar-media-deck-source">Now playing from Canopy</div>
                     </div>
                     <div class="sidebar-media-deck-actions">
-                        <button type="button" class="sidebar-media-deck-action-btn" id="sidebar-media-deck-minimize" aria-label="Minimize media deck">
+                        <button type="button" class="sidebar-media-deck-action-btn" id="sidebar-media-deck-minimize" aria-label="Minimize Canopy deck">
                             <i class="bi bi-dash-lg"></i>
                             <span class="sidebar-media-deck-action-label">Minimize</span>
                         </button>
@@ -6884,7 +7109,7 @@
                             <i class="bi bi-pip"></i>
                             <span class="sidebar-media-deck-action-label">Mini player</span>
                         </button>
-                        <button type="button" class="sidebar-media-deck-action-btn" id="sidebar-media-deck-close" aria-label="Close media deck">
+                        <button type="button" class="sidebar-media-deck-action-btn" id="sidebar-media-deck-close" aria-label="Close Canopy deck">
                             <i class="bi bi-x-lg"></i>
                             <span class="sidebar-media-deck-action-label">Close</span>
                         </button>
@@ -6907,11 +7132,11 @@
                 </div>
                 <div class="sidebar-media-deck-queue-shell">
                     <div class="sidebar-media-deck-queue-header">
-                        <span class="sidebar-media-deck-queue-title">More From This Source</span>
-                        <span class="sidebar-media-deck-queue-count" id="sidebar-media-deck-queue-count">0 items</span>
+                        <span class="sidebar-media-deck-queue-title">From this source</span>
+                        <span class="sidebar-media-deck-queue-count" id="sidebar-media-deck-queue-count" hidden aria-hidden="true"></span>
                     </div>
                     <div id="sidebar-media-deck-queue" class="sidebar-media-deck-queue">
-                        <div class="sidebar-media-deck-empty">Multiple videos or clips in the same post/message will appear here.</div>
+                        <div class="sidebar-media-deck-empty">Media, maps, charts, streams, and other safe widgets from the same post/message will appear here.</div>
                     </div>
                 </div>
                 <div class="sidebar-media-deck-body">
@@ -6919,19 +7144,24 @@
                         <div class="sidebar-media-deck-meta-top">
                             <span class="sidebar-media-deck-provider" id="sidebar-media-deck-provider">
                                 <i class="bi bi-play-circle"></i>
-                                <span id="sidebar-media-deck-provider-label">Media</span>
+                                <span id="sidebar-media-deck-provider-label">Deck item</span>
                             </span>
-                            <span class="sidebar-media-deck-count" id="sidebar-media-deck-count">1 playable item</span>
+                            <span class="sidebar-media-deck-count" id="sidebar-media-deck-count">1 item</span>
                         </div>
-                        <div class="sidebar-media-deck-title" id="sidebar-media-deck-title">Now Playing</div>
-                        <div class="sidebar-media-deck-subtitle" id="sidebar-media-deck-subtitle">Use the deck to stay with media while you keep working.</div>
+                        <div class="sidebar-media-deck-title" id="sidebar-media-deck-title">Canopy Deck</div>
+                        <div class="sidebar-media-deck-subtitle" id="sidebar-media-deck-subtitle">Stay with media, maps, streams, telemetry, and related widgets while you keep working.</div>
                     </div>
-                    <div class="sidebar-media-deck-progress-row">
+                    <div class="sidebar-media-deck-widget-summary" id="sidebar-media-deck-widget-summary" hidden>
+                        <div class="sidebar-media-deck-widget-badges" id="sidebar-media-deck-widget-badges"></div>
+                        <div class="sidebar-media-deck-widget-details" id="sidebar-media-deck-widget-details"></div>
+                        <div class="sidebar-media-deck-widget-actions" id="sidebar-media-deck-widget-actions"></div>
+                    </div>
+                    <div class="sidebar-media-deck-progress-row" id="sidebar-media-deck-progress-row">
                         <span class="sidebar-media-deck-time" id="sidebar-media-deck-current-time">--:--</span>
                         <input type="range" class="sidebar-media-deck-seek" id="sidebar-media-deck-seek" min="0" max="1000" value="0" step="1" disabled aria-label="Seek media">
                         <span class="sidebar-media-deck-time end" id="sidebar-media-deck-duration">--:--</span>
                     </div>
-                    <div class="sidebar-media-deck-controls">
+                    <div class="sidebar-media-deck-controls" id="sidebar-media-deck-controls">
                         <button type="button" class="sidebar-media-deck-btn" id="sidebar-media-deck-prev">
                             <i class="bi bi-skip-backward-fill"></i><span>Prev</span>
                         </button>

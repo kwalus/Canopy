@@ -1554,6 +1554,196 @@
                 .replace(/'/g, '&#39;');
         }
 
+        const CANOPY_DECK_WIDGET_RENDER_MODES = new Set(['iframe', 'card', 'stream_summary']);
+        const CANOPY_DECK_WIDGET_TYPES = new Set([
+            'map',
+            'chart',
+            'media_embed',
+            'story',
+            'media_stream',
+            'telemetry_panel',
+        ]);
+        const CANOPY_DECK_WIDGET_CALLBACKS = new Set(['open_stream_workspace']);
+        const CANOPY_DECK_IFRAME_HOSTS = new Set([
+            'www.youtube-nocookie.com',
+            'player.vimeo.com',
+            'open.spotify.com',
+            'w.soundcloud.com',
+            'www.google.com',
+            'www.openstreetmap.org',
+            's.tradingview.com',
+            'www.loom.com',
+        ]);
+        const CANOPY_DECK_EXTERNAL_HOSTS = new Set([
+            'www.youtube.com',
+            'youtu.be',
+            'vimeo.com',
+            'www.loom.com',
+            'loom.com',
+            'open.spotify.com',
+            'www.soundcloud.com',
+            'soundcloud.com',
+            'www.google.com',
+            'maps.google.com',
+            'www.openstreetmap.org',
+            'www.tradingview.com',
+            'tradingview.com',
+            'x.com',
+            'www.x.com',
+            'twitter.com',
+            'www.twitter.com',
+        ]);
+
+        function normalizeDeckWidgetText(value, maxLength = 240) {
+            const normalized = String(value == null ? '' : value).trim().replace(/\s+/g, ' ');
+            if (!normalized) return '';
+            return normalized.slice(0, maxLength);
+        }
+
+        function sanitizeDeckWidgetUrl(rawUrl, allowedHosts) {
+            const urlObj = safeUrlParse(rawUrl);
+            if (!urlObj) return '';
+            const protocol = String(urlObj.protocol || '').toLowerCase();
+            const host = String(urlObj.hostname || '').toLowerCase();
+            if (protocol !== 'https:' && protocol !== 'http:') return '';
+            if (protocol === 'http:' && host !== window.location.hostname) return '';
+            if (Array.isArray(allowedHosts) || allowedHosts instanceof Set) {
+                const list = allowedHosts instanceof Set ? allowedHosts : new Set(allowedHosts);
+                if (!list.has(host)) return '';
+            }
+            return urlObj.toString();
+        }
+
+        function normalizeDeckWidgetBadges(badges) {
+            if (!Array.isArray(badges)) return [];
+            return badges
+                .map((value) => normalizeDeckWidgetText(value, 48))
+                .filter(Boolean)
+                .slice(0, 6);
+        }
+
+        function normalizeDeckWidgetDetails(details) {
+            if (!Array.isArray(details)) return [];
+            return details
+                .map((entry) => {
+                    if (!entry || typeof entry !== 'object') return null;
+                    const label = normalizeDeckWidgetText(entry.label, 32);
+                    const value = normalizeDeckWidgetText(entry.value, 80);
+                    if (!label || !value) return null;
+                    return { label, value };
+                })
+                .filter(Boolean)
+                .slice(0, 8);
+        }
+
+        function normalizeDeckWidgetActions(actions) {
+            if (!Array.isArray(actions)) return [];
+            return actions
+                .map((action) => {
+                    if (!action || typeof action !== 'object') return null;
+                    const kind = String(action.kind || '').trim().toLowerCase();
+                    const label = normalizeDeckWidgetText(action.label, 32);
+                    const icon = /^bi-[a-z0-9-]+$/i.test(String(action.icon || '').trim()) ? String(action.icon).trim() : '';
+                    if (!label) return null;
+                    if (kind === 'external_link') {
+                        const url = sanitizeDeckWidgetUrl(action.url, CANOPY_DECK_EXTERNAL_HOSTS);
+                        if (!url) return null;
+                        return { kind, label, icon, url };
+                    }
+                    if (kind === 'clipboard') {
+                        const text = normalizeDeckWidgetText(action.text, 160);
+                        if (!text) return null;
+                        return { kind, label, icon, text };
+                    }
+                    if (kind === 'callback') {
+                        const handler = String(action.handler || '').trim();
+                        if (!CANOPY_DECK_WIDGET_CALLBACKS.has(handler)) return null;
+                        const args = action.args && typeof action.args === 'object' ? action.args : {};
+                        if (handler === 'open_stream_workspace') {
+                            const streamId = normalizeDeckWidgetText(args.streamId, 120);
+                            const mediaKind = normalizeDeckWidgetText(args.mediaKind, 16).toLowerCase();
+                            const slotId = normalizeDeckWidgetText(args.slotId, 120);
+                            const streamKind = normalizeDeckWidgetText(args.streamKind, 24).toLowerCase();
+                            if (!streamId || !slotId) return null;
+                            return {
+                                kind,
+                                label,
+                                icon,
+                                handler,
+                                args: { streamId, mediaKind, slotId, streamKind },
+                            };
+                        }
+                    }
+                    return null;
+                })
+                .filter(Boolean)
+                .slice(0, 4);
+        }
+
+        function sanitizeDeckWidgetManifest(rawManifest) {
+            if (!rawManifest || typeof rawManifest !== 'object') return null;
+            const widgetType = String(rawManifest.widget_type || '').trim().toLowerCase();
+            const renderMode = String(rawManifest.render_mode || '').trim().toLowerCase();
+            if (!CANOPY_DECK_WIDGET_TYPES.has(widgetType)) return null;
+            if (!CANOPY_DECK_WIDGET_RENDER_MODES.has(renderMode)) return null;
+            const title = normalizeDeckWidgetText(rawManifest.title, 96);
+            if (!title) return null;
+            const subtitle = normalizeDeckWidgetText(rawManifest.subtitle, 160);
+            const providerLabel = normalizeDeckWidgetText(rawManifest.provider_label, 32) || 'Widget';
+            const bodyText = normalizeDeckWidgetText(rawManifest.body_text, 420);
+            const key = normalizeDeckWidgetText(rawManifest.key, 160) || `${widgetType}:${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+            const icon = /^bi-[a-z0-9-]+$/i.test(String(rawManifest.icon || '').trim()) ? String(rawManifest.icon).trim() : 'bi-grid-3x3-gap';
+            const embedUrl = renderMode === 'iframe'
+                ? sanitizeDeckWidgetUrl(rawManifest.embed_url, CANOPY_DECK_IFRAME_HOSTS)
+                : '';
+            const externalUrl = rawManifest.external_url
+                ? sanitizeDeckWidgetUrl(rawManifest.external_url, CANOPY_DECK_EXTERNAL_HOSTS)
+                : '';
+            const thumbUrl = typeof _safeImageSrc === 'function'
+                ? _safeImageSrc(rawManifest.thumb_url || '')
+                : normalizeDeckWidgetText(rawManifest.thumb_url, 240);
+            if (renderMode === 'iframe' && !embedUrl) return null;
+            return {
+                version: 1,
+                key,
+                widget_type: widgetType,
+                render_mode: renderMode,
+                title,
+                subtitle,
+                provider_label: providerLabel,
+                icon,
+                body_text: bodyText,
+                embed_url: embedUrl,
+                external_url: externalUrl,
+                thumb_url: thumbUrl,
+                badges: normalizeDeckWidgetBadges(rawManifest.badges),
+                details: normalizeDeckWidgetDetails(rawManifest.details),
+                actions: normalizeDeckWidgetActions(rawManifest.actions),
+            };
+        }
+
+        function buildDeckWidgetManifestAttrs(rawManifest) {
+            const manifest = sanitizeDeckWidgetManifest(rawManifest);
+            if (!manifest) return '';
+            const json = escapeEmbedAttr(JSON.stringify(manifest));
+            return (
+                ' data-canopy-widget-manifest="' + json + '"' +
+                ' data-canopy-widget-type="' + escapeEmbedAttr(manifest.widget_type) + '"' +
+                ' data-canopy-widget-key="' + escapeEmbedAttr(manifest.key) + '"'
+            );
+        }
+
+        function parseDeckWidgetManifest(node) {
+            if (!node || !node.getAttribute) return null;
+            const raw = node.getAttribute('data-canopy-widget-manifest');
+            if (!raw) return null;
+            try {
+                return sanitizeDeckWidgetManifest(JSON.parse(raw));
+            } catch (_) {
+                return null;
+            }
+        }
+
         function trimEmbedUrlTrailingPunctuation(rawUrl) {
             let url = String(rawUrl || '');
             let trailing = '';
@@ -1584,8 +1774,9 @@
             const sandbox = options.sandbox ? ' sandbox="' + escapeEmbedAttr(options.sandbox) + '"' : '';
             const referrerPolicy = escapeEmbedAttr(options.referrerPolicy || 'strict-origin-when-cross-origin');
             const caption = buildEmbedCaption(options.caption || '');
+            const widgetAttrs = buildDeckWidgetManifestAttrs(options.widgetManifest);
             return (
-                '<div class="embed-preview iframe-embed ' + escapeEmbedAttr(providerClass) + extraClass + '">' +
+                '<div class="embed-preview iframe-embed ' + escapeEmbedAttr(providerClass) + extraClass + '"' + widgetAttrs + '>' +
                 '<iframe src="' + safeSrc + '" title="' + safeTitle + '" frameborder="0" loading="lazy" allowfullscreen ' +
                 'referrerpolicy="' + referrerPolicy + '" allow="' + allow + '"' + sandbox + heightStyle +
                 ' class="' + frameClass.trim() + '"></iframe>' +
@@ -1617,8 +1808,9 @@
             const safeIcon = escapeEmbedAttr(iconClass || 'bi-box-arrow-up-right');
             const providerLabel = options.providerLabel ? '<span class="embed-provider-pill">' + escapeEmbedHtml(options.providerLabel) + '</span>' : '';
             const note = options.note ? '<div class="embed-provider-note">' + escapeEmbedHtml(options.note) + '</div>' : '';
+            const widgetAttrs = buildDeckWidgetManifestAttrs(options.widgetManifest);
             return (
-                '<div class="embed-preview provider-card-embed ' + escapeEmbedAttr(providerClass) + '">' +
+                '<div class="embed-preview provider-card-embed ' + escapeEmbedAttr(providerClass) + '"' + widgetAttrs + '>' +
                 '<a class="provider-embed-card" href="' + safeUrl + '" target="_blank" rel="noopener noreferrer">' +
                 '<div class="provider-embed-head">' +
                 '<span class="provider-embed-icon"><i class="bi ' + safeIcon + '"></i></span>' +
@@ -1862,12 +2054,30 @@
                 pattern: /https?:\/\/(?:www\.)?vimeo\.com\/(?:video\/)?(\d+)(?:[/?#]\S*)?/g,
                 render(match, videoId) {
                     const parts = trimEmbedUrlTrailingPunctuation(match);
+                    const embedUrl = 'https://player.vimeo.com/video/' + encodeURIComponent(videoId);
                     return {
                         html: buildIframeEmbedPreview(
                             'vimeo-embed',
-                            'https://player.vimeo.com/video/' + encodeURIComponent(videoId),
+                            embedUrl,
                             'Vimeo video ' + videoId,
-                            { caption: 'Vimeo' }
+                            {
+                                caption: 'Vimeo',
+                                widgetManifest: {
+                                    key: `vimeo:${videoId}`,
+                                    widget_type: 'media_embed',
+                                    render_mode: 'iframe',
+                                    title: 'Vimeo video',
+                                    subtitle: 'Expanded Vimeo playback inside the deck.',
+                                    provider_label: 'Vimeo',
+                                    icon: 'bi-vimeo',
+                                    embed_url: embedUrl,
+                                    external_url: parts.url,
+                                    badges: ['Video', 'Embed'],
+                                    actions: [
+                                        { kind: 'external_link', label: 'Open Vimeo', icon: 'bi-box-arrow-up-right', url: parts.url },
+                                    ],
+                                },
+                            }
                         ),
                         trailing: parts.trailing,
                     };
@@ -1878,12 +2088,30 @@
                 pattern: /https?:\/\/(?:www\.)?loom\.com\/(?:share|embed)\/([A-Za-z0-9]+)(?:\?\S*)?/g,
                 render(match, shareId) {
                     const parts = trimEmbedUrlTrailingPunctuation(match);
+                    const embedUrl = 'https://www.loom.com/embed/' + encodeURIComponent(shareId);
                     return {
                         html: buildIframeEmbedPreview(
                             'loom-embed',
-                            'https://www.loom.com/embed/' + encodeURIComponent(shareId),
+                            embedUrl,
                             'Loom recording ' + shareId,
-                            { caption: 'Loom' }
+                            {
+                                caption: 'Loom',
+                                widgetManifest: {
+                                    key: `loom:${shareId}`,
+                                    widget_type: 'media_embed',
+                                    render_mode: 'iframe',
+                                    title: 'Loom recording',
+                                    subtitle: 'Deck-ready walkthrough video.',
+                                    provider_label: 'Loom',
+                                    icon: 'bi-camera-reels',
+                                    embed_url: embedUrl,
+                                    external_url: parts.url,
+                                    badges: ['Video', 'Walkthrough'],
+                                    actions: [
+                                        { kind: 'external_link', label: 'Open Loom', icon: 'bi-box-arrow-up-right', url: parts.url },
+                                    ],
+                                },
+                            }
                         ),
                         trailing: parts.trailing,
                     };
@@ -1891,19 +2119,36 @@
             },
             {
                 key: 'spotify',
-                pattern: /https?:\/\/open\.spotify\.com\/(track|album|playlist|episode|show|artist)\/([A-Za-z0-9]+)(?:\?\S*)?/g,
+                pattern:
+                    /https?:\/\/open\.spotify\.com\/(?:intl-[a-z]{2}(?:-[a-z]{2})?\/)?(track|album|playlist|episode|show|artist)\/([A-Za-z0-9]+)(?:\?\S*)?/gi,
                 render(match, kind, entityId) {
                     const parts = trimEmbedUrlTrailingPunctuation(match);
+                    const embedUrl = 'https://open.spotify.com/embed/' + encodeURIComponent(kind) + '/' + encodeURIComponent(entityId) + '?utm_source=generator';
                     return {
                         html: buildIframeEmbedPreview(
                             'spotify-embed',
-                            'https://open.spotify.com/embed/' + encodeURIComponent(kind) + '/' + encodeURIComponent(entityId) + '?utm_source=generator',
+                            embedUrl,
                             'Spotify ' + kind,
                             {
                                 caption: 'Spotify',
                                 height: spotifyEmbedHeight(kind),
                                 allow: 'autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture',
                                 extraClass: 'fixed-height-embed',
+                                widgetManifest: {
+                                    key: `spotify:${kind}:${entityId}`,
+                                    widget_type: 'media_embed',
+                                    render_mode: 'iframe',
+                                    title: 'Spotify ' + kind,
+                                    subtitle: 'Deck-ready audio player.',
+                                    provider_label: 'Spotify',
+                                    icon: 'bi-spotify',
+                                    embed_url: embedUrl,
+                                    external_url: parts.url,
+                                    badges: ['Audio', kind],
+                                    actions: [
+                                        { kind: 'external_link', label: 'Open Spotify', icon: 'bi-box-arrow-up-right', url: parts.url },
+                                    ],
+                                },
                             }
                         ),
                         trailing: parts.trailing,
@@ -1915,16 +2160,32 @@
                 pattern: /https?:\/\/(?:www\.)?soundcloud\.com\/[^\s<"]+/g,
                 render(match) {
                     const parts = trimEmbedUrlTrailingPunctuation(match);
+                    const embedUrl = 'https://w.soundcloud.com/player/?url=' + encodeURIComponent(parts.url) + '&color=%2359de89&auto_play=false&hide_related=false&show_comments=true&show_user=true&show_reposts=false&show_teaser=true&visual=false';
                     return {
                         html: buildIframeEmbedPreview(
                             'soundcloud-embed',
-                            'https://w.soundcloud.com/player/?url=' + encodeURIComponent(parts.url) + '&color=%2359de89&auto_play=false&hide_related=false&show_comments=true&show_user=true&show_reposts=false&show_teaser=true&visual=false',
+                            embedUrl,
                             'SoundCloud audio',
                             {
                                 caption: 'SoundCloud',
                                 height: 166,
                                 allow: 'autoplay',
                                 extraClass: 'fixed-height-embed',
+                                widgetManifest: {
+                                    key: `soundcloud:${parts.url}`,
+                                    widget_type: 'media_embed',
+                                    render_mode: 'iframe',
+                                    title: 'SoundCloud audio',
+                                    subtitle: 'Deck-ready shared audio.',
+                                    provider_label: 'SoundCloud',
+                                    icon: 'bi-soundwave',
+                                    embed_url: embedUrl,
+                                    external_url: parts.url,
+                                    badges: ['Audio', 'Embed'],
+                                    actions: [
+                                        { kind: 'external_link', label: 'Open SoundCloud', icon: 'bi-box-arrow-up-right', url: parts.url },
+                                    ],
+                                },
                             }
                         ),
                         trailing: parts.trailing,
@@ -1977,6 +2238,21 @@
                                     allow: 'geolocation',
                                     referrerPolicy: 'no-referrer-when-downgrade',
                                     extraClass: 'fixed-height-embed map-service-embed',
+                                    widgetManifest: {
+                                        key: `map:${parts.url}`,
+                                        widget_type: 'map',
+                                        render_mode: 'iframe',
+                                        title: 'Google Maps',
+                                        subtitle: 'Explore the shared location in the deck.',
+                                        provider_label: 'Google Maps',
+                                        icon: 'bi-geo-alt-fill',
+                                        embed_url: embedUrl,
+                                        external_url: parts.url,
+                                        badges: ['Map', 'Interactive'],
+                                        actions: [
+                                            { kind: 'external_link', label: 'Open map', icon: 'bi-box-arrow-up-right', url: parts.url },
+                                        ],
+                                    },
                                 }
                             ),
                             trailing: parts.trailing,
@@ -1994,6 +2270,20 @@
                                 note: getGoogleMapsEmbedApiKey()
                                     ? 'Open this location in Google Maps.'
                                     : 'Inline Google Maps requires CANOPY_GOOGLE_MAPS_EMBED_API_KEY; showing a safe card instead.',
+                                widgetManifest: {
+                                    key: `map-card:${parts.url}`,
+                                    widget_type: 'map',
+                                    render_mode: 'card',
+                                    title: 'Google Maps link',
+                                    subtitle: 'Open the shared location externally.',
+                                    provider_label: 'Google Maps',
+                                    icon: 'bi-geo-alt-fill',
+                                    external_url: parts.url,
+                                    badges: ['Map', 'External'],
+                                    actions: [
+                                        { kind: 'external_link', label: 'Open map', icon: 'bi-box-arrow-up-right', url: parts.url },
+                                    ],
+                                },
                             }
                         ),
                         trailing: parts.trailing,
@@ -2016,6 +2306,21 @@
                                     caption: 'OpenStreetMap',
                                     height: 320,
                                     extraClass: 'fixed-height-embed map-service-embed',
+                                    widgetManifest: {
+                                        key: `osm:${parts.url}`,
+                                        widget_type: 'map',
+                                        render_mode: 'iframe',
+                                        title: 'OpenStreetMap',
+                                        subtitle: 'Explore the shared map context in the deck.',
+                                        provider_label: 'OpenStreetMap',
+                                        icon: 'bi-map',
+                                        embed_url: embedUrl,
+                                        external_url: parts.url,
+                                        badges: ['Map', 'Interactive'],
+                                        actions: [
+                                            { kind: 'external_link', label: 'Open map', icon: 'bi-box-arrow-up-right', url: parts.url },
+                                        ],
+                                    },
                                 }
                             ),
                             trailing: parts.trailing,
@@ -2028,7 +2333,24 @@
                             'Map link',
                             'Open this location in OpenStreetMap.',
                             'bi-map',
-                            { providerLabel: 'OpenStreetMap', note: 'Preview card for shared map context.' }
+                            {
+                                providerLabel: 'OpenStreetMap',
+                                note: 'Preview card for shared map context.',
+                                widgetManifest: {
+                                    key: `osm-card:${parts.url}`,
+                                    widget_type: 'map',
+                                    render_mode: 'card',
+                                    title: 'OpenStreetMap link',
+                                    subtitle: 'Open the shared map externally.',
+                                    provider_label: 'OpenStreetMap',
+                                    icon: 'bi-map',
+                                    external_url: parts.url,
+                                    badges: ['Map', 'External'],
+                                    actions: [
+                                        { kind: 'external_link', label: 'Open map', icon: 'bi-box-arrow-up-right', url: parts.url },
+                                    ],
+                                },
+                            }
                         ),
                         trailing: parts.trailing,
                     };
@@ -2050,6 +2372,21 @@
                                     caption: 'TradingView',
                                     height: 360,
                                     extraClass: 'fixed-height-embed chart-service-embed',
+                                    widgetManifest: {
+                                        key: `chart:${parts.url}`,
+                                        widget_type: 'chart',
+                                        render_mode: 'iframe',
+                                        title: 'TradingView chart',
+                                        subtitle: 'Interactive market context in the deck.',
+                                        provider_label: 'TradingView',
+                                        icon: 'bi-graph-up-arrow',
+                                        embed_url: embedUrl,
+                                        external_url: parts.url,
+                                        badges: ['Chart', 'Interactive'],
+                                        actions: [
+                                            { kind: 'external_link', label: 'Open chart', icon: 'bi-box-arrow-up-right', url: parts.url },
+                                        ],
+                                    },
                                 }
                             ),
                             trailing: parts.trailing,
@@ -2062,7 +2399,24 @@
                             'TradingView chart',
                             'Open the live chart or symbol page in TradingView.',
                             'bi-graph-up-arrow',
-                            { providerLabel: 'TradingView', note: 'Official TradingView widgets exist; this safe card keeps the channel lightweight.' }
+                            {
+                                providerLabel: 'TradingView',
+                                note: 'Official TradingView widgets exist; this safe card keeps the channel lightweight.',
+                                widgetManifest: {
+                                    key: `chart-card:${parts.url}`,
+                                    widget_type: 'chart',
+                                    render_mode: 'card',
+                                    title: 'TradingView chart',
+                                    subtitle: 'Open the live chart externally.',
+                                    provider_label: 'TradingView',
+                                    icon: 'bi-graph-up-arrow',
+                                    external_url: parts.url,
+                                    badges: ['Chart', 'External'],
+                                    actions: [
+                                        { kind: 'external_link', label: 'Open chart', icon: 'bi-box-arrow-up-right', url: parts.url },
+                                    ],
+                                },
+                            }
                         ),
                         trailing: parts.trailing,
                     };
@@ -4909,6 +5263,12 @@
             const deckProvider = document.getElementById('sidebar-media-deck-provider');
             const deckProviderLabel = document.getElementById('sidebar-media-deck-provider-label');
             const deckCount = document.getElementById('sidebar-media-deck-count');
+            const deckWidgetSummary = document.getElementById('sidebar-media-deck-widget-summary');
+            const deckWidgetBadges = document.getElementById('sidebar-media-deck-widget-badges');
+            const deckWidgetDetails = document.getElementById('sidebar-media-deck-widget-details');
+            const deckWidgetActions = document.getElementById('sidebar-media-deck-widget-actions');
+            const deckProgressRow = document.getElementById('sidebar-media-deck-progress-row');
+            const deckControls = document.getElementById('sidebar-media-deck-controls');
             const deckSeek = document.getElementById('sidebar-media-deck-seek');
             const deckCurrentTime = document.getElementById('sidebar-media-deck-current-time');
             const deckDuration = document.getElementById('sidebar-media-deck-duration');
@@ -4937,6 +5297,7 @@
                 deckOpen: false,
                 deckItems: [],
                 deckSelectedKey: '',
+                deckSourceEl: null,
                 deckQueueSignature: '',
                 deckSeeking: false,
                 mediaCounter: 0,
@@ -5023,6 +5384,12 @@
                 if (type === 'audio') return 'bi-music-note-beamed';
                 if (type === 'video') return 'bi-camera-video';
                 if (type === 'youtube') return 'bi-youtube';
+                if (type === 'map') return 'bi-geo-alt';
+                if (type === 'chart') return 'bi-graph-up-arrow';
+                if (type === 'media_stream') return 'bi-broadcast';
+                if (type === 'telemetry_panel') return 'bi-cpu';
+                if (type === 'media_embed') return 'bi-grid-1x2';
+                if (type === 'story') return 'bi-newspaper';
                 return 'bi-play-circle';
             }
 
@@ -5030,7 +5397,24 @@
                 if (type === 'audio') return 'Audio';
                 if (type === 'video') return 'Video';
                 if (type === 'youtube') return 'YouTube';
+                if (type === 'map') return 'Map';
+                if (type === 'chart') return 'Chart';
+                if (type === 'media_stream') return 'Live stream';
+                if (type === 'telemetry_panel') return 'Telemetry';
+                if (type === 'media_embed') return 'Embedded media';
+                if (type === 'story') return 'Story';
                 return 'Media';
+            }
+
+            function isDeckMediaItem(item) {
+                return !!(item && (item.type === 'audio' || item.type === 'video' || item.type === 'youtube'));
+            }
+
+            function deckItemSourceEl(item) {
+                if (!item) return null;
+                if (item.sourceEl && item.sourceEl.isConnected) return item.sourceEl;
+                if (item.el && item.el.isConnected) return sourceContainer(item.el);
+                return null;
             }
 
             function ensureMediaIdentity(el) {
@@ -5513,9 +5897,47 @@
                 return items;
             }
 
+            function buildSourceWidgetList(sourceEl) {
+                const items = [];
+                const seen = new Set();
+                if (!sourceEl || !sourceEl.querySelectorAll) return items;
+                sourceEl.querySelectorAll('[data-canopy-widget-manifest]').forEach((node) => {
+                    const manifest = parseDeckWidgetManifest(node);
+                    if (!manifest || !manifest.key || seen.has(manifest.key)) return;
+                    seen.add(manifest.key);
+                    items.push({
+                        key: manifest.key,
+                        el: node,
+                        sourceEl,
+                        type: manifest.widget_type,
+                        title: manifest.title,
+                        subtitle: manifest.subtitle || sourceSubtitle(node),
+                        thumb: manifest.thumb_url || '',
+                        providerLabel: manifest.provider_label || mediaProviderLabel(manifest.widget_type),
+                        icon: manifest.icon || mediaIcon(manifest.widget_type),
+                        manifest,
+                    });
+                });
+                return items;
+            }
+
+            function buildSourceDeckItems(sourceEl, activeEl) {
+                const mediaItems = buildRelatedMediaList(sourceEl, activeEl).map((item) => ({
+                    ...item,
+                    sourceEl: sourceEl || sourceContainer(item.el),
+                }));
+                const widgetItems = buildSourceWidgetList(sourceEl);
+                return mediaItems.concat(widgetItems);
+            }
+
             function getSourceMediaDeckItems(sourceEl) {
                 if (!sourceEl || !sourceEl.isConnected) return [];
                 return buildRelatedMediaList(sourceEl, null);
+            }
+
+            function getSourceDeckItems(sourceEl) {
+                if (!sourceEl || !sourceEl.isConnected) return [];
+                return buildSourceDeckItems(sourceEl, null);
             }
 
             function getDeckSelectedItem() {
@@ -5560,7 +5982,7 @@
                 if (!cur.sourceEl || !cur.sourceEl.isConnected) {
                     return false;
                 }
-                const items = getSourceMediaDeckItems(cur.sourceEl);
+                const items = getSourceDeckItems(cur.sourceEl);
                 if (!items.length) {
                     return false;
                 }
@@ -5570,13 +5992,18 @@
                 }
                 state.deckItems = items;
                 state.deckQueueSignature = '';
-                state.current = {
-                    el: pref.el,
-                    type: pref.type,
-                    sourceEl: cur.sourceEl,
-                    activatedAt: Date.now(),
-                };
-                state.deckSelectedKey = ensureMediaIdentity(pref.el);
+                if (isDeckMediaItem(pref)) {
+                    state.current = {
+                        el: pref.el,
+                        type: pref.type,
+                        sourceEl: cur.sourceEl,
+                        activatedAt: Date.now(),
+                    };
+                    state.deckSelectedKey = ensureMediaIdentity(pref.el);
+                } else {
+                    state.current = null;
+                    state.deckSelectedKey = pref.key || '';
+                }
                 state.dismissedEl = null;
                 return true;
             }
@@ -5609,17 +6036,26 @@
                 if (!item) return;
                 const shouldPlay = options.play === true;
                 state.dismissedEl = null;
-                const deferYt = !shouldPlay && item.type === 'youtube';
-                setCurrent(item.el, item.type, deferYt ? { deferYouTubeMaterialize: true } : undefined);
-                state.deckSelectedKey = (state.current && state.current.el)
-                    ? ensureMediaIdentity(state.current.el)
-                    : (item.key || '');
-                if (state.current && state.current.el) {
-                    if (shouldPlay) {
-                        playMediaElement(state.current.el, state.current.type);
-                    } else {
-                        pauseMediaElement(state.current.el, state.current.type);
+                state.deckSourceEl = deckItemSourceEl(item) || state.deckSourceEl;
+                if (isDeckMediaItem(item)) {
+                    const deferYt = !shouldPlay && item.type === 'youtube';
+                    setCurrent(item.el, item.type, deferYt ? { deferYouTubeMaterialize: true } : undefined);
+                    state.deckSelectedKey = (state.current && state.current.el)
+                        ? ensureMediaIdentity(state.current.el)
+                        : (item.key || '');
+                    if (state.current && state.current.el) {
+                        if (shouldPlay) {
+                            playMediaElement(state.current.el, state.current.type);
+                        } else {
+                            pauseMediaElement(state.current.el, state.current.type);
+                        }
                     }
+                } else {
+                    if (state.current && state.current.el) {
+                        deactivateMediaEntry(state.current);
+                    }
+                    state.current = null;
+                    state.deckSelectedKey = item.key || '';
                 }
                 updateDeckPanel();
                 updateSourceDeckLauncherActiveStates();
@@ -5670,35 +6106,36 @@
             }
 
             function getPreferredDeckItemForSource(sourceEl, items) {
-                const playableItems = Array.isArray(items) ? items : getSourceMediaDeckItems(sourceEl);
-                if (!playableItems.length) return null;
+                const deckItems = Array.isArray(items) ? items : getSourceDeckItems(sourceEl);
+                if (!deckItems.length) return null;
                 if (state.current && state.current.el && state.current.sourceEl === sourceEl) {
-                    const currentMatch = playableItems.find((item) => isSameDeckMediaItem(
+                    const currentMatch = deckItems.find((item) => isDeckMediaItem(item) && isSameDeckMediaItem(
                         state.current.el,
                         state.current.type,
                         item
                     ));
                     if (currentMatch) return currentMatch;
                 }
-                const playingMatch = playableItems.find((item) => isElementPlaying(item.el, item.type));
+                const playingMatch = deckItems.find((item) => isDeckMediaItem(item) && isElementPlaying(item.el, item.type));
                 if (playingMatch) return playingMatch;
-                return playableItems[0] || null;
+                return deckItems[0] || null;
             }
 
             function updateSourceDeckLauncherActiveStates() {
-                const activeSource = (state.current && state.current.sourceEl && state.dismissedEl !== state.current.el)
-                    ? ensureMediaIdentity(state.current.sourceEl)
-                    : '';
+                const activeSourceEl = state.deckOpen
+                    ? (state.deckSourceEl && state.deckSourceEl.isConnected ? state.deckSourceEl : (state.current && state.current.sourceEl))
+                    : ((state.current && state.current.sourceEl && state.dismissedEl !== state.current.el) ? state.current.sourceEl : null);
+                const activeSource = activeSourceEl ? ensureMediaIdentity(activeSourceEl) : '';
                 document.querySelectorAll('[data-open-media-deck]').forEach((btn) => {
                     const sourceId = String(btn.getAttribute('data-source-media-id') || '');
-                    const isActive = !!sourceId && !!activeSource && sourceId === activeSource;
+                    const isActive = !!sourceId && !!activeSource && sourceId === activeSource && state.deckOpen;
                     btn.classList.toggle('is-active', isActive);
                     btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
-                    btn.setAttribute('aria-expanded', isActive && state.deckOpen ? 'true' : 'false');
+                    btn.setAttribute('aria-expanded', isActive ? 'true' : 'false');
                 });
                 document.querySelectorAll('[data-open-mini-player]').forEach((btn) => {
                     const sourceId = String(btn.getAttribute('data-source-media-id') || '');
-                    const isActive = !!sourceId && !!activeSource && sourceId === activeSource;
+                    const isActive = !!sourceId && !!activeSource && sourceId === activeSource && !state.deckOpen;
                     btn.classList.toggle('is-active', isActive);
                     btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
                 });
@@ -5706,10 +6143,12 @@
 
             function openMediaDeckForSource(sourceEl) {
                 if (!sourceEl || !sourceEl.isConnected) return;
-                const items = getSourceMediaDeckItems(sourceEl);
+                const items = getSourceDeckItems(sourceEl);
                 const preferred = getPreferredDeckItemForSource(sourceEl, items);
                 if (!preferred) return;
                 state.deckItems = items;
+                state.deckQueueSignature = '';
+                state.deckSourceEl = sourceEl;
                 state.deckSelectedKey = preferred.key;
                 state.dismissedEl = null;
                 state.returnUrl = null;
@@ -5727,11 +6166,13 @@
                 const preferred = getPreferredDeckItemForSource(sourceEl, items);
                 if (!preferred) return;
                 state.deckOpen = false;
+                state.deckSourceEl = sourceEl;
                 if (expandBtn) {
                     expandBtn.innerHTML = '<i class="bi bi-arrows-angle-expand"></i>';
-                    expandBtn.title = 'Open media deck';
+                    expandBtn.title = 'Open Canopy deck';
                 }
                 state.deckItems = items;
+                state.deckQueueSignature = '';
                 state.deckSelectedKey = preferred.key;
                 state.dismissedEl = null;
                 state.returnUrl = null;
@@ -5750,11 +6191,15 @@
             }
 
             function switchDeckToMiniPlayer() {
-                if (!state.current || !state.current.el || !miniVideoHost) return;
+                const selectedItem = getDeckSelectedItem();
+                if (!selectedItem || !isDeckMediaItem(selectedItem) || !state.current || !state.current.el || !miniVideoHost) {
+                    closeMediaDeck({ forceClose: true });
+                    return;
+                }
                 state.deckOpen = false;
                 if (expandBtn) {
                     expandBtn.innerHTML = '<i class="bi bi-arrows-angle-expand"></i>';
-                    expandBtn.title = 'Open media deck';
+                    expandBtn.title = 'Open Canopy deck';
                 }
                 const { el, type } = state.current;
                 if (type === 'youtube' || type === 'video') {
@@ -5793,12 +6238,21 @@
 
             function syncSourceMediaDeckLauncher(sourceEl) {
                 if (!sourceEl || !sourceEl.isConnected) return;
-                const items = getSourceMediaDeckItems(sourceEl);
-                let btnDeck = sourceEl.querySelector('[data-open-media-deck]');
-                let btnMini = sourceEl.querySelector('[data-open-mini-player]');
+                const items = getSourceDeckItems(sourceEl);
+                const mediaItems = items.filter(isDeckMediaItem);
+
+                function removeLegacyStandaloneLaunchers() {
+                    sourceEl.querySelectorAll('[data-open-media-deck], [data-open-mini-player]').forEach((btn) => {
+                        if (!btn.closest('[data-canopy-playback-launcher]')) {
+                            btn.remove();
+                        }
+                    });
+                }
+
                 if (!items.length) {
-                    if (btnDeck) btnDeck.remove();
-                    if (btnMini) btnMini.remove();
+                    const wrap = sourceEl.querySelector('[data-canopy-playback-launcher]');
+                    if (wrap) wrap.remove();
+                    removeLegacyStandaloneLaunchers();
                     if (sourceEl.__canopyMediaDeckSlot && sourceEl.__canopyMediaDeckSlot.isConnected && !sourceEl.__canopyMediaDeckSlot.childElementCount) {
                         sourceEl.__canopyMediaDeckSlot.remove();
                     }
@@ -5806,57 +6260,96 @@
                     return;
                 }
 
+                removeLegacyStandaloneLaunchers();
+
                 const hostInfo = resolveSourceMediaDeckLauncherHost(sourceEl);
                 const host = hostInfo.host;
                 if (!host) return;
                 const currentSourceId = ensureMediaIdentity(sourceEl);
                 const mqCoarseOrNarrow = window.matchMedia('(max-width: 640px), (pointer: coarse)');
-                if (!btnDeck) {
+
+                let wrap = sourceEl.querySelector('[data-canopy-playback-launcher]');
+                let btnDeck;
+                let btnMini;
+                let divider;
+
+                if (!wrap) {
+                    wrap = document.createElement('div');
+                    wrap.className = 'canopy-media-playback-launcher';
+                    wrap.setAttribute('data-canopy-playback-launcher', '1');
+                    wrap.setAttribute('role', 'group');
+                    wrap.setAttribute('aria-label', 'Open Canopy deck or mini player');
+
                     btnDeck = document.createElement('button');
                     btnDeck.type = 'button';
-                    btnDeck.className = 'canopy-media-deck-launcher';
+                    btnDeck.className = 'canopy-media-playback-seg canopy-media-playback-seg--deck';
                     btnDeck.setAttribute('data-open-media-deck', '1');
                     attachMediaLauncherButton(btnDeck, mqCoarseOrNarrow, () => openMediaDeckForSource(sourceEl));
-                }
-                if (!btnMini) {
+
+                    divider = document.createElement('span');
+                    divider.className = 'canopy-media-playback-seg-divider';
+                    divider.setAttribute('aria-hidden', 'true');
+
                     btnMini = document.createElement('button');
                     btnMini.type = 'button';
-                    btnMini.className = 'canopy-media-mini-launcher';
+                    btnMini.className = 'canopy-media-playback-seg canopy-media-playback-seg--mini';
                     btnMini.setAttribute('data-open-mini-player', '1');
                     attachMediaLauncherButton(btnMini, mqCoarseOrNarrow, () => openMiniPlayerForSource(sourceEl));
+
+                    wrap.appendChild(btnDeck);
+                    wrap.appendChild(divider);
+                    wrap.appendChild(btnMini);
+                } else {
+                    btnDeck = wrap.querySelector('[data-open-media-deck]');
+                    btnMini = wrap.querySelector('[data-open-mini-player]');
+                    divider = wrap.querySelector('.canopy-media-playback-seg-divider');
                 }
 
-                if (btnDeck.parentNode !== host) {
-                    host.appendChild(btnDeck);
-                }
-                if (btnMini.parentNode !== host) {
-                    host.appendChild(btnMini);
+                if (wrap.parentNode !== host) {
+                    host.appendChild(wrap);
                 }
 
                 const countLabel = items.length === 1 ? '1' : String(items.length);
-                const launcherSignature = `${currentSourceId}|${countLabel}`;
+                const miniCountLabel = mediaItems.length === 1 ? '1' : String(mediaItems.length);
+                const deckOnly = mediaItems.length === 0;
+                const renderSig = `${currentSourceId}|${countLabel}|${miniCountLabel}|${deckOnly ? '1' : '0'}`;
+
+                wrap.classList.toggle('canopy-media-playback-launcher--deck-only', deckOnly);
+                wrap.classList.toggle('is-in-source-slot', !!hostInfo.owned);
+                if (divider) {
+                    divider.hidden = deckOnly;
+                    divider.style.display = deckOnly ? 'none' : '';
+                }
+                if (btnMini) {
+                    btnMini.hidden = deckOnly;
+                    btnMini.style.display = deckOnly ? 'none' : '';
+                }
+
                 btnDeck.setAttribute('data-source-media-id', currentSourceId);
-                btnDeck.setAttribute('data-launcher-signature', launcherSignature);
                 btnMini.setAttribute('data-source-media-id', currentSourceId);
-                btnMini.setAttribute('data-launcher-signature', launcherSignature);
-                btnDeck.classList.toggle('is-in-source-slot', !!hostInfo.owned);
-                btnMini.classList.toggle('is-in-source-slot', !!hostInfo.owned);
-                btnDeck.setAttribute('aria-label', items.length > 1 ? `Open media deck with ${items.length} items` : 'Open media deck');
-                btnDeck.title = items.length > 1 ? `Open media deck (${items.length} items)` : 'Open media deck';
-                btnMini.setAttribute('aria-label', items.length > 1 ? `Open mini player with ${items.length} items` : 'Open mini player');
-                btnMini.title = items.length > 1 ? `Mini player (${items.length} items)` : 'Mini player';
-                if (btnDeck.getAttribute('data-rendered-signature') !== launcherSignature) {
-                    btnDeck.innerHTML = `<i class="bi bi-collection-play"></i><span class="canopy-media-deck-launcher-label">Media deck</span><span class="canopy-media-deck-launcher-count">${countLabel}</span>`;
-                    btnDeck.setAttribute('data-rendered-signature', launcherSignature);
+                btnDeck.setAttribute('data-launcher-signature', `${currentSourceId}|${countLabel}`);
+                btnMini.setAttribute('data-launcher-signature', `${currentSourceId}|${miniCountLabel}`);
+                btnDeck.setAttribute('aria-label', items.length > 1 ? `Open deck with ${items.length} items` : 'Open deck');
+                btnDeck.title = items.length > 1 ? `Open deck (${items.length} items)` : 'Open deck';
+                btnMini.setAttribute(
+                    'aria-label',
+                    mediaItems.length > 1 ? `Open mini player (${mediaItems.length} playable)` : 'Open mini player'
+                );
+                btnMini.title = mediaItems.length > 1 ? `Mini player · ${mediaItems.length} playable` : 'Mini player';
+
+                if (wrap.getAttribute('data-rendered-signature') !== renderSig) {
+                    btnDeck.innerHTML =
+                        `<i class="bi bi-grid-1x2" aria-hidden="true"></i>` +
+                        `<span class="canopy-media-deck-launcher-label">Deck</span>` +
+                        `<span class="canopy-media-deck-launcher-count">${countLabel}</span>`;
+                    if (!deckOnly) {
+                        btnMini.innerHTML =
+                            `<i class="bi bi-pip" aria-hidden="true"></i>` +
+                            `<span class="canopy-media-deck-launcher-label">Mini</span>` +
+                            `<span class="canopy-media-deck-launcher-count">${miniCountLabel}</span>`;
+                    }
+                    wrap.setAttribute('data-rendered-signature', renderSig);
                 }
-                if (btnMini.getAttribute('data-rendered-signature') !== launcherSignature) {
-                    btnMini.innerHTML = `<i class="bi bi-pip"></i><span class="canopy-media-deck-launcher-label">Mini player</span><span class="canopy-media-deck-launcher-count">${countLabel}</span>`;
-                    btnMini.setAttribute('data-rendered-signature', launcherSignature);
-                }
-                const srcActive = !!(state.current && state.current.sourceEl === sourceEl);
-                btnDeck.setAttribute('aria-pressed', srcActive ? 'true' : 'false');
-                btnDeck.setAttribute('aria-expanded', srcActive && state.deckOpen ? 'true' : 'false');
-                btnMini.setAttribute('aria-pressed', srcActive ? 'true' : 'false');
             }
 
             function syncSourceMediaDeckLaunchersInScope(scope) {
@@ -5894,11 +6387,203 @@
                     : 'none';
             }
 
+            function setDeckWidgetSummaryHidden(hidden) {
+                if (!deckWidgetSummary) return;
+                deckWidgetSummary.hidden = !!hidden;
+            }
+
+            function clearDeckWidgetSummary() {
+                setDeckWidgetSummaryHidden(true);
+                if (deckWidgetBadges) deckWidgetBadges.innerHTML = '';
+                if (deckWidgetDetails) deckWidgetDetails.innerHTML = '';
+                if (deckWidgetActions) deckWidgetActions.innerHTML = '';
+            }
+
+            function deckItemContextSubtitle(item) {
+                const sourceEl = deckItemSourceEl(item) || state.deckSourceEl;
+                return sourceEl ? sourceSubtitle(sourceEl) : 'Canopy source';
+            }
+
+            function widgetIframeAllow(manifest) {
+                const widgetType = String((manifest && manifest.widget_type) || '').toLowerCase();
+                if (widgetType === 'map') return 'geolocation';
+                if (widgetType === 'chart') return 'clipboard-write';
+                return 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
+            }
+
+            /** Spotify/SoundCloud deck iframes match in-feed previews (no sandbox) so embeds can initialize. */
+            function deckWidgetIframeSandboxValue(embedUrl) {
+                try {
+                    const u = new URL(String(embedUrl || ''), window.location.origin);
+                    const host = u.hostname.toLowerCase();
+                    if (host === 'open.spotify.com' || host === 'w.soundcloud.com') {
+                        return '';
+                    }
+                } catch (_) {
+                    /* fall through */
+                }
+                return 'allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation';
+            }
+
+            function deckWidgetStageSignature(item) {
+                if (!item || !item.manifest) return '';
+                const m = item.manifest;
+                if (m.render_mode === 'iframe' && m.embed_url) {
+                    return `iframe:${String(m.embed_url)}`;
+                }
+                const body = String(m.body_text || m.subtitle || '');
+                return `panel:${String(item.key || '')}:${String(m.title || '')}:${body.slice(0, 200)}`;
+            }
+
+            function jumpToDeckItemSource(item, options = {}) {
+                const forceClose = options.forceClose === true;
+                const sourceEl = deckItemSourceEl(item) || state.deckSourceEl;
+                if (forceClose && state.deckOpen) {
+                    closeMediaDeck({ forceClose: true });
+                }
+                if (sourceEl && sourceEl.isConnected) {
+                    sourceEl.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+                    applyFocusFlash(sourceEl);
+                }
+            }
+
+            async function runDeckWidgetAction(action, item) {
+                if (!action || !item) return;
+                if (action.kind === 'external_link' && action.url) {
+                    window.open(action.url, '_blank', 'noopener');
+                    return;
+                }
+                if (action.kind === 'clipboard' && action.text) {
+                    try {
+                        await navigator.clipboard.writeText(action.text);
+                        if (typeof showAlert === 'function') showAlert('Copied to clipboard', 'success');
+                    } catch (_) {
+                        if (typeof showAlert === 'function') showAlert('Clipboard write failed', 'warning');
+                    }
+                    return;
+                }
+                if (action.kind === 'callback' && action.handler === 'open_stream_workspace') {
+                    const args = action.args || {};
+                    if (typeof window.openStreamAttachmentPlayer !== 'function') {
+                        if (typeof showAlert === 'function') showAlert('Stream workspace is not available on this surface.', 'info');
+                        return;
+                    }
+                    try {
+                        await window.openStreamAttachmentPlayer(args.streamId, args.mediaKind, args.slotId, args.streamKind || 'media');
+                        jumpToDeckItemSource(item, { forceClose: true });
+                    } catch (_) {
+                        if (typeof showAlert === 'function') showAlert('Could not open the stream workspace.', 'warning');
+                    }
+                }
+            }
+
+            function renderDeckWidgetSummary(item) {
+                clearDeckWidgetSummary();
+                if (!item || isDeckMediaItem(item) || !item.manifest) return;
+                const manifest = item.manifest;
+                setDeckWidgetSummaryHidden(false);
+
+                if (deckWidgetBadges) {
+                    const badges = manifest.badges || [];
+                    deckWidgetBadges.innerHTML = '';
+                    badges.forEach((badgeText) => {
+                        const badge = document.createElement('span');
+                        badge.className = 'sidebar-media-deck-widget-badge';
+                        badge.textContent = badgeText;
+                        deckWidgetBadges.appendChild(badge);
+                    });
+                    if (!deckWidgetBadges.childElementCount) {
+                        const badge = document.createElement('span');
+                        badge.className = 'sidebar-media-deck-widget-badge';
+                        badge.textContent = manifest.provider_label || 'Widget';
+                        deckWidgetBadges.appendChild(badge);
+                    }
+                }
+
+                if (deckWidgetDetails) {
+                    deckWidgetDetails.innerHTML = '';
+                    (manifest.details || []).forEach((entry) => {
+                        const block = document.createElement('div');
+                        block.className = 'sidebar-media-deck-widget-kv';
+                        block.innerHTML =
+                            `<div class="sidebar-media-deck-widget-kv-label">${escapeEmbedHtml(entry.label)}</div>` +
+                            `<div class="sidebar-media-deck-widget-kv-value">${escapeEmbedHtml(entry.value)}</div>`;
+                        deckWidgetDetails.appendChild(block);
+                    });
+                }
+
+                if (deckWidgetActions) {
+                    deckWidgetActions.innerHTML = '';
+                    const actions = Array.isArray(manifest.actions) ? manifest.actions : [];
+                    actions.forEach((action) => {
+                        const btn = document.createElement('button');
+                        btn.type = 'button';
+                        btn.className = 'sidebar-media-deck-btn';
+                        btn.innerHTML = `${action.icon ? `<i class="bi ${escapeEmbedAttr(action.icon)}"></i>` : ''}<span>${escapeEmbedHtml(action.label)}</span>`;
+                        btn.addEventListener('click', () => { runDeckWidgetAction(action, item); });
+                        deckWidgetActions.appendChild(btn);
+                    });
+                }
+            }
+
+            function renderDeckWidgetStage(item) {
+                if (!deckStage || !item || !item.manifest) return;
+                const manifest = item.manifest;
+                const nextSig = deckWidgetStageSignature(item);
+                const existingHost = deckStage.querySelector(':scope > .sidebar-media-deck-widget-stage');
+                if (existingHost && nextSig && existingHost.dataset.canopyDeckWidgetSig === nextSig) {
+                    deckStage.classList.remove('is-empty');
+                    if (deckVisual) deckVisual.hidden = true;
+                    return;
+                }
+
+                clearDeckStageDockedNodes();
+                deckStage.classList.remove('is-empty');
+                if (deckVisual) deckVisual.hidden = true;
+
+                const host = document.createElement('div');
+                host.className = 'sidebar-media-deck-widget-stage';
+                host.dataset.canopyDeckWidgetSig = nextSig;
+
+                if (manifest.render_mode === 'iframe' && manifest.embed_url) {
+                    const iframe = document.createElement('iframe');
+                    iframe.className = 'sidebar-media-deck-widget-frame';
+                    iframe.src = manifest.embed_url;
+                    iframe.title = manifest.title || 'Deck widget';
+                    iframe.loading = 'lazy';
+                    iframe.referrerPolicy = 'strict-origin-when-cross-origin';
+                    iframe.allow = widgetIframeAllow(manifest);
+                    const sandboxVal = deckWidgetIframeSandboxValue(manifest.embed_url);
+                    if (sandboxVal) {
+                        iframe.setAttribute('sandbox', sandboxVal);
+                    }
+                    host.appendChild(iframe);
+                } else {
+                    const panel = document.createElement('div');
+                    panel.className = 'sidebar-media-deck-widget-panel';
+                    panel.innerHTML =
+                        `<div class="sidebar-media-deck-widget-panel-title">${escapeEmbedHtml(manifest.title)}</div>` +
+                        `<div class="sidebar-media-deck-widget-panel-copy">${escapeEmbedHtml(manifest.subtitle || manifest.body_text || deckItemContextSubtitle(item))}</div>`;
+                    if (manifest.body_text && manifest.body_text !== manifest.subtitle) {
+                        const copy = document.createElement('div');
+                        copy.className = 'sidebar-media-deck-widget-panel-copy';
+                        copy.textContent = manifest.body_text;
+                        panel.appendChild(copy);
+                    }
+                    host.appendChild(panel);
+                }
+                deckStage.appendChild(host);
+            }
+
             function renderDeckQueue() {
                 if (!deckQueue || !deckQueueCount || !deckCount || !deckCountChip || !deckSource) return;
                 const current = state.current;
-                const sourceEl = current && current.sourceEl ? current.sourceEl : null;
-                state.deckItems = buildRelatedMediaList(sourceEl, current ? current.el : null);
+                const selectedNow = getDeckSelectedItem();
+                const sourceEl = (selectedNow && deckItemSourceEl(selectedNow))
+                    || state.deckSourceEl
+                    || (current && current.sourceEl ? current.sourceEl : null);
+                state.deckSourceEl = sourceEl || null;
+                state.deckItems = buildSourceDeckItems(sourceEl, current ? current.el : null);
                 const items = state.deckItems;
                 const selectedItem = getDeckSelectedItem();
                 const total = items.length;
@@ -5906,8 +6591,24 @@
                 const activeKey = selectedItem ? selectedItem.key : '';
                 const nextSignature = `${activeKey}::${items.map((item) => `${item.key}:${item.type}`).join('|')}`;
                 deckQueueCount.textContent = label;
-                deckCount.textContent = total === 1 ? '1 playable item' : `${total} playable items`;
                 deckCountChip.textContent = label;
+                if (deckChipLabel) {
+                    deckChipLabel.textContent = `Canopy Deck · ${label}`;
+                }
+                if (deckCountChip) {
+                    deckCountChip.hidden = true;
+                }
+                if (deckQueueCount) {
+                    deckQueueCount.hidden = true;
+                }
+                if (total <= 1) {
+                    deckCount.textContent = '';
+                    deckCount.hidden = true;
+                } else {
+                    deckCount.hidden = false;
+                    const idx = items.findIndex((row) => selectedItem && row.key === selectedItem.key);
+                    deckCount.textContent = idx >= 0 ? `Item ${idx + 1} of ${total}` : `${total} in queue`;
+                }
                 deckSource.textContent = selectedItem ? sourceSubtitle(selectedItem.el) : 'Now playing from Canopy';
 
                 if (state.deckQueueSignature === nextSignature && deckQueue.childElementCount) {
@@ -5952,7 +6653,7 @@
 
                     const meta = document.createElement('div');
                     meta.className = 'sidebar-media-deck-item-meta';
-                    meta.textContent = mediaProviderLabel(item.type);
+                    meta.textContent = item.providerLabel || mediaProviderLabel(item.type);
 
                     labelWrap.appendChild(title);
                     labelWrap.appendChild(meta);
@@ -5965,7 +6666,7 @@
 
             function updateDeckVisibility() {
                 if (!deck || !deckBackdrop) return;
-                const visible = state.deckOpen && !!state.current;
+                const visible = state.deckOpen && !!(state.current || getDeckSelectedItem());
                 const mobileDeckMode = window.matchMedia('(max-width: 640px), (max-height: 540px) and (orientation: landscape)').matches;
                 deck.hidden = !visible;
                 deck.setAttribute('aria-hidden', visible ? 'false' : 'true');
@@ -5986,6 +6687,11 @@
                     clearDeckStageDockedNodes();
                     deckStage.classList.add('is-empty');
                     setDeckVisualState(null);
+                    return;
+                }
+
+                if (!isDeckMediaItem(selectedItem)) {
+                    renderDeckWidgetStage(selectedItem);
                     return;
                 }
 
@@ -6011,8 +6717,25 @@
                 });
             }
 
-            function updateDeckControls(el, type) {
+            function updateDeckControls(selectedItem) {
                 if (!deckPlayBtn || !deckSeek || !deckCurrentTime || !deckDuration || !deckPipBtn) return;
+                const isMedia = isDeckMediaItem(selectedItem);
+                const el = selectedItem ? selectedItem.el : null;
+                const type = selectedItem ? selectedItem.type : '';
+
+                if (deckProgressRow) deckProgressRow.hidden = !isMedia;
+                if (deckPlayBtn) deckPlayBtn.hidden = !isMedia;
+                if (deckMiniPlayerBtn) deckMiniPlayerBtn.hidden = !isMedia;
+                if (deckMiniFooterBtn) deckMiniFooterBtn.hidden = !isMedia;
+
+                if (!isMedia) {
+                    deckCurrentTime.textContent = '--:--';
+                    deckDuration.textContent = '--:--';
+                    deckSeek.value = '0';
+                    deckSeek.disabled = true;
+                    if (deckPipBtn) deckPipBtn.style.display = 'none';
+                    return;
+                }
 
                 let currentTime = 0;
                 let duration = 0;
@@ -6060,58 +6783,56 @@
 
             function updateDeckPanel() {
                 updateDeckVisibility();
-                if (!state.deckOpen || !state.current) return;
-                if (state.current.el && !state.current.el.isConnected) {
-                    repairMediaCurrentReference();
-                } else {
-                    ensureMediaSourceLinked();
+                const selectedItem = getDeckSelectedItem();
+                if (!state.deckOpen || !selectedItem) return;
+                state.deckSourceEl = deckItemSourceEl(selectedItem) || state.deckSourceEl;
+
+                if (isDeckMediaItem(selectedItem)) {
+                    if (state.current && state.current.el && !state.current.el.isConnected) {
+                        repairMediaCurrentReference();
+                    } else {
+                        ensureMediaSourceLinked();
+                    }
+                    if (!state.current || !state.current.el || !state.current.el.isConnected) {
+                        closeMediaDeck({ forceClose: true });
+                        scheduleMiniUpdate(30);
+                        return;
+                    }
+                    reconcileDeckStageMediaPlacement();
                 }
-                if (!state.current || !state.current.el || !state.current.el.isConnected) {
-                    closeMediaDeck({ forceClose: true });
-                    scheduleMiniUpdate(30);
-                    return;
-                }
-                reconcileDeckStageMediaPlacement();
                 renderDeckQueue();
 
-                const selectedItem = getDeckSelectedItem();
-                if (!selectedItem) {
-                    syncDeckStage();
-                    return;
-                }
                 const type = selectedItem.type;
-                const mediaTitle = titleFromMedia(selectedItem.el, type);
-                const subtitle = sourceSubtitle(selectedItem.el);
+                const mediaTitle = selectedItem.title || titleFromMedia(selectedItem.el, type);
+                const subtitle = deckItemContextSubtitle(selectedItem);
 
-                if (deckChipLabel) deckChipLabel.textContent = 'Media Deck';
                 if (deckTitle) deckTitle.textContent = mediaTitle;
                 if (deckSubtitle) {
-                    deckSubtitle.textContent = state.deckItems.length > 1
-                        ? `${subtitle} • ${state.deckItems.length} playable items in this source`
-                        : subtitle;
+                    deckSubtitle.textContent = subtitle;
                 }
                 if (deckProvider) {
                     const iconNode = deckProvider.querySelector('i');
                     if (iconNode) {
-                        iconNode.className = `bi ${mediaIcon(type)}`;
+                        iconNode.className = `bi ${selectedItem.icon || mediaIcon(type)}`;
                     }
                 }
                 if (deckProviderLabel) {
-                    deckProviderLabel.textContent = mediaProviderLabel(type);
+                    deckProviderLabel.textContent = selectedItem.providerLabel || mediaProviderLabel(type);
                 }
 
                 syncDeckStage();
-                updateDeckControls(selectedItem.el, type);
+                renderDeckWidgetSummary(selectedItem);
+                updateDeckControls(selectedItem);
             }
 
             function openMediaDeck() {
                 state.deckOpen = true;
-                if (state.current) updateDeckPanel();
+                if (state.current || getDeckSelectedItem()) updateDeckPanel();
                 else updateDeckVisibility();
                 updateSourceDeckLauncherActiveStates();
                 if (expandBtn) {
                     expandBtn.innerHTML = '<i class="bi bi-arrows-angle-contract"></i>';
-                    expandBtn.title = 'Collapse media deck';
+                    expandBtn.title = 'Collapse Canopy deck';
                 }
             }
 
@@ -6119,11 +6840,12 @@
                 const preserveMini = !(options && options.forceClose === true);
                 state.deckOpen = false;
                 state.deckSelectedKey = '';
+                state.deckSourceEl = null;
                 if (expandBtn) {
                     expandBtn.innerHTML = '<i class="bi bi-arrows-angle-expand"></i>';
-                    expandBtn.title = 'Open media deck';
+                    expandBtn.title = 'Open Canopy deck';
                 }
-                if (state.current && state.current.el) {
+                if (state.current && state.current.el && isDeckMediaItem(state.current)) {
                     restoreDockedMedia(state.current.el, {
                         preferMini: preserveMini,
                         forceDockMini: preserveMini,
@@ -6133,13 +6855,14 @@
                     clearDeckStageDockedNodes();
                     deckStage.classList.add('is-empty');
                 }
+                clearDeckWidgetSummary();
                 updateDeckVisibility();
                 updateSourceDeckLauncherActiveStates();
                 scheduleMiniUpdate(40);
             }
 
             function playDeckRelative(delta) {
-                if (!state.deckItems.length || !state.current) return;
+                if (!state.deckItems.length) return;
                 const selectedItem = getDeckSelectedItem();
                 const currentIndex = Math.max(0, state.deckItems.findIndex((item) => selectedItem && item.key === selectedItem.key));
                 const nextIndex = (currentIndex + delta + state.deckItems.length) % state.deckItems.length;
@@ -6507,6 +7230,11 @@
 
             function updateMini() {
                 if (!state.current) {
+                    if (state.deckOpen && getDeckSelectedItem()) {
+                        updateDeckPanel();
+                        hideMini();
+                        return;
+                    }
                     const fallback = findPlayingElement();
                     if (fallback) {
                         setCurrent(fallback);
@@ -6663,7 +7391,7 @@
                     expandBtn.innerHTML = state.deckOpen
                         ? '<i class="bi bi-arrows-angle-contract"></i>'
                         : '<i class="bi bi-arrows-angle-expand"></i>';
-                    expandBtn.title = state.deckOpen ? 'Collapse media deck' : 'Open media deck';
+                    expandBtn.title = state.deckOpen ? 'Collapse Canopy deck' : 'Open Canopy deck';
                 }
 
                 showMini();
@@ -6715,7 +7443,13 @@
             }
 
             function jumpToCurrentSource() {
-                if (!state.current || !state.current.el) return;
+                const selectedItem = getDeckSelectedItem();
+                if (!state.current && !selectedItem && !state.deckSourceEl) return;
+                if (!state.current || !state.current.el || !isDeckMediaItem(selectedItem)) {
+                    jumpToDeckItemSource(selectedItem || { sourceEl: state.deckSourceEl }, { forceClose: true });
+                    hideMini();
+                    return;
+                }
                 const el = state.current.el;
 
                 if (state.deckOpen) {
