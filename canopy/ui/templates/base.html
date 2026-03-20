@@ -886,6 +886,7 @@
         .sidebar-media-deck-header {
             display: flex;
             align-items: flex-start;
+            flex-wrap: wrap;
             gap: 12px;
             padding: 16px 18px 12px;
             border-bottom: 1px solid rgba(255, 255, 255, 0.08);
@@ -937,9 +938,12 @@
 
         .sidebar-media-deck-actions {
             display: inline-flex;
+            flex-wrap: wrap;
             gap: 8px;
             align-items: center;
             flex-shrink: 0;
+            justify-content: flex-end;
+            max-width: 100%;
         }
 
         .sidebar-media-deck-action-btn {
@@ -1189,6 +1193,18 @@
             align-items: center;
             gap: 8px;
             flex-wrap: wrap;
+            row-gap: 8px;
+        }
+
+        .sidebar-media-deck-btn-aux {
+            border-color: rgba(148, 163, 184, 0.35);
+            color: var(--canopy-text-secondary);
+            font-size: 0.78rem;
+        }
+
+        .sidebar-media-deck-btn-aux:hover {
+            border-color: rgba(129, 140, 248, 0.45);
+            color: #e0e7ff;
         }
 
         .sidebar-media-deck-btn {
@@ -1380,6 +1396,9 @@
         .canopy-media-deck-source-slot {
             display: flex;
             justify-content: flex-end;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.5rem;
             margin-top: 0.65rem;
             position: relative;
             z-index: 2;
@@ -1391,12 +1410,58 @@
             z-index: 2;
         }
 
+        .canopy-media-mini-launcher {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 11px;
+            border-radius: 10px;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(130, 170, 255, 0.35);
+            background: rgba(9, 17, 32, 0.58);
+            color: #e8eeff;
+            box-shadow: 0 8px 18px rgba(0, 0, 0, 0.16);
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+        }
+
+        .canopy-media-mini-launcher:hover {
+            transform: translateY(-1px);
+            background: rgba(13, 28, 48, 0.88);
+            border-color: rgba(160, 190, 255, 0.55);
+            box-shadow: 0 16px 30px rgba(0, 0, 0, 0.28);
+        }
+
+        .canopy-media-mini-launcher:focus-visible {
+            outline: 2px solid rgba(160, 190, 255, 0.75);
+            outline-offset: 2px;
+        }
+
+        .canopy-media-mini-launcher.is-active {
+            background: linear-gradient(135deg, rgba(88, 120, 220, 0.88), rgba(14, 32, 56, 0.94));
+            border-color: rgba(190, 210, 255, 0.55);
+            color: #ffffff;
+        }
+
+        .canopy-media-mini-launcher i {
+            font-size: 0.9rem;
+        }
+
+        .canopy-media-mini-launcher.is-in-source-slot {
+            margin-left: 0.5rem;
+        }
+
         .canopy-media-deck-launcher {
             display: inline-flex;
             align-items: center;
             gap: 8px;
             padding: 7px 11px;
             border-radius: 10px;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: rgba(255, 255, 255, 0.1);
             border: 1px solid rgba(89, 222, 137, 0.28);
             background: rgba(9, 17, 32, 0.66);
             color: #eefbf4;
@@ -1475,7 +1540,8 @@
                 flex-basis: 130px;
             }
 
-            .canopy-media-deck-launcher {
+            .canopy-media-deck-launcher,
+            .canopy-media-mini-launcher {
                 padding: 7px 10px;
                 gap: 6px;
             }
@@ -6635,93 +6701,6 @@
                             </div>
                         </div>
                     </div>
-                    <div id="sidebar-media-deck-backdrop" class="sidebar-media-deck-backdrop" hidden></div>
-                    <div id="sidebar-media-deck" class="sidebar-media-deck" aria-hidden="true" hidden>
-                        <div class="sidebar-media-deck-shell" role="dialog" aria-modal="false" aria-label="Expanded media player">
-                            <div class="sidebar-media-deck-header">
-                                <div class="sidebar-media-deck-context">
-                                    <div class="sidebar-media-deck-chip-row">
-                                        <span class="sidebar-media-deck-chip">
-                                            <i class="bi bi-broadcast"></i>
-                                            <span id="sidebar-media-deck-chip-label">Media Deck</span>
-                                        </span>
-                                        <span class="sidebar-media-deck-chip muted" id="sidebar-media-deck-count-chip">1 item</span>
-                                    </div>
-                                    <div class="sidebar-media-deck-source" id="sidebar-media-deck-source">Now playing from Canopy</div>
-                                </div>
-                                <div class="sidebar-media-deck-actions">
-                                    <button type="button" class="sidebar-media-deck-action-btn" id="sidebar-media-deck-minimize" aria-label="Minimize media deck">
-                                        <i class="bi bi-dash-lg"></i>
-                                        <span class="sidebar-media-deck-action-label">Minimize</span>
-                                    </button>
-                                    <button type="button" class="sidebar-media-deck-action-btn" id="sidebar-media-deck-close" aria-label="Close media deck">
-                                        <i class="bi bi-x-lg"></i>
-                                        <span class="sidebar-media-deck-action-label">Close</span>
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="sidebar-media-deck-stage-shell">
-                                <div id="sidebar-media-deck-stage" class="sidebar-media-deck-stage is-empty" aria-label="Expanded media stage">
-                                    <div id="sidebar-media-deck-visual" class="sidebar-media-deck-visual">
-                                        <div id="sidebar-media-deck-visual-cover" class="sidebar-media-deck-visual-cover"></div>
-                                        <div class="sidebar-media-deck-visual-overlay"></div>
-                                        <div class="sidebar-media-deck-visual-body">
-                                            <div class="sidebar-media-deck-visual-icon" id="sidebar-media-deck-visual-icon">
-                                                <i class="bi bi-music-note-beamed"></i>
-                                            </div>
-                                            <div class="sidebar-media-deck-visual-text" id="sidebar-media-deck-visual-title">Now Playing</div>
-                                            <div class="sidebar-media-deck-visual-subtext" id="sidebar-media-deck-visual-subtitle">Expanded playback with related media from the same post or message.</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="sidebar-media-deck-queue-shell">
-                                <div class="sidebar-media-deck-queue-header">
-                                    <span class="sidebar-media-deck-queue-title">More From This Source</span>
-                                    <span class="sidebar-media-deck-queue-count" id="sidebar-media-deck-queue-count">0 items</span>
-                                </div>
-                                <div id="sidebar-media-deck-queue" class="sidebar-media-deck-queue">
-                                    <div class="sidebar-media-deck-empty">Multiple videos or clips in the same post/message will appear here.</div>
-                                </div>
-                            </div>
-                            <div class="sidebar-media-deck-body">
-                                <div class="sidebar-media-deck-meta">
-                                    <div class="sidebar-media-deck-meta-top">
-                                        <span class="sidebar-media-deck-provider" id="sidebar-media-deck-provider">
-                                            <i class="bi bi-play-circle"></i>
-                                            <span id="sidebar-media-deck-provider-label">Media</span>
-                                        </span>
-                                        <span class="sidebar-media-deck-count" id="sidebar-media-deck-count">1 playable item</span>
-                                    </div>
-                                    <div class="sidebar-media-deck-title" id="sidebar-media-deck-title">Now Playing</div>
-                                    <div class="sidebar-media-deck-subtitle" id="sidebar-media-deck-subtitle">Use the deck to stay with media while you keep working.</div>
-                                </div>
-                                <div class="sidebar-media-deck-progress-row">
-                                    <span class="sidebar-media-deck-time" id="sidebar-media-deck-current-time">--:--</span>
-                                    <input type="range" class="sidebar-media-deck-seek" id="sidebar-media-deck-seek" min="0" max="1000" value="0" step="1" disabled aria-label="Seek media">
-                                    <span class="sidebar-media-deck-time end" id="sidebar-media-deck-duration">--:--</span>
-                                </div>
-                                <div class="sidebar-media-deck-controls">
-                                    <button type="button" class="sidebar-media-deck-btn" id="sidebar-media-deck-prev">
-                                        <i class="bi bi-skip-backward-fill"></i><span>Prev</span>
-                                    </button>
-                                    <button type="button" class="sidebar-media-deck-btn primary" id="sidebar-media-deck-play">
-                                        <i class="bi bi-play-fill"></i><span>Play</span>
-                                    </button>
-                                    <button type="button" class="sidebar-media-deck-btn" id="sidebar-media-deck-next">
-                                        <i class="bi bi-skip-forward-fill"></i><span>Next</span>
-                                    </button>
-                                    <div class="sidebar-media-deck-spacer"></div>
-                                    <button type="button" class="sidebar-media-deck-btn" id="sidebar-media-deck-pip" style="display:none;">
-                                        <i class="bi bi-pip"></i><span>PiP</span>
-                                    </button>
-                                    <button type="button" class="sidebar-media-deck-btn" id="sidebar-media-deck-return">
-                                        <i class="bi bi-arrow-up-right-square"></i><span>Return to source</span>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
 
                     {% if sidebar_recent_dm_contacts is defined %}
                     <div class="sidebar-dm-contacts" id="sidebar-dm-card" data-view-state="peek">
@@ -6874,6 +6853,108 @@
             <div class="content-container" id="content-container">
                 <div class="main-content">
                     {% block content %}{% endblock %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# Media deck lives outside .app-container so position:fixed is not clipped by overflow/stacking
+       inside .sidebar / .main-row (critical for iOS Safari). IDs unchanged for canopy-main.js. #}
+    <div class="canopy-media-deck-portal" data-canopy-deck-portal="1">
+        <div id="sidebar-media-deck-backdrop" class="sidebar-media-deck-backdrop" hidden></div>
+        <div id="sidebar-media-deck" class="sidebar-media-deck" aria-hidden="true" hidden>
+            <div class="sidebar-media-deck-shell" role="dialog" aria-modal="false" aria-label="Expanded media player">
+                <div class="sidebar-media-deck-header">
+                    <div class="sidebar-media-deck-context">
+                        <div class="sidebar-media-deck-chip-row">
+                            <span class="sidebar-media-deck-chip">
+                                <i class="bi bi-broadcast"></i>
+                                <span id="sidebar-media-deck-chip-label">Media Deck</span>
+                            </span>
+                            <span class="sidebar-media-deck-chip muted" id="sidebar-media-deck-count-chip">1 item</span>
+                        </div>
+                        <div class="sidebar-media-deck-source" id="sidebar-media-deck-source">Now playing from Canopy</div>
+                    </div>
+                    <div class="sidebar-media-deck-actions">
+                        <button type="button" class="sidebar-media-deck-action-btn" id="sidebar-media-deck-minimize" aria-label="Minimize media deck">
+                            <i class="bi bi-dash-lg"></i>
+                            <span class="sidebar-media-deck-action-label">Minimize</span>
+                        </button>
+                        <button type="button" class="sidebar-media-deck-action-btn" id="sidebar-media-deck-mini-player" aria-label="Switch to mini player">
+                            <i class="bi bi-pip"></i>
+                            <span class="sidebar-media-deck-action-label">Mini player</span>
+                        </button>
+                        <button type="button" class="sidebar-media-deck-action-btn" id="sidebar-media-deck-close" aria-label="Close media deck">
+                            <i class="bi bi-x-lg"></i>
+                            <span class="sidebar-media-deck-action-label">Close</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="sidebar-media-deck-stage-shell">
+                    <div id="sidebar-media-deck-stage" class="sidebar-media-deck-stage is-empty" aria-label="Expanded media stage">
+                        <div id="sidebar-media-deck-visual" class="sidebar-media-deck-visual">
+                            <div id="sidebar-media-deck-visual-cover" class="sidebar-media-deck-visual-cover"></div>
+                            <div class="sidebar-media-deck-visual-overlay"></div>
+                            <div class="sidebar-media-deck-visual-body">
+                                <div class="sidebar-media-deck-visual-icon" id="sidebar-media-deck-visual-icon">
+                                    <i class="bi bi-music-note-beamed"></i>
+                                </div>
+                                <div class="sidebar-media-deck-visual-text" id="sidebar-media-deck-visual-title">Now Playing</div>
+                                <div class="sidebar-media-deck-visual-subtext" id="sidebar-media-deck-visual-subtitle">Expanded playback with related media from the same post or message.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="sidebar-media-deck-queue-shell">
+                    <div class="sidebar-media-deck-queue-header">
+                        <span class="sidebar-media-deck-queue-title">More From This Source</span>
+                        <span class="sidebar-media-deck-queue-count" id="sidebar-media-deck-queue-count">0 items</span>
+                    </div>
+                    <div id="sidebar-media-deck-queue" class="sidebar-media-deck-queue">
+                        <div class="sidebar-media-deck-empty">Multiple videos or clips in the same post/message will appear here.</div>
+                    </div>
+                </div>
+                <div class="sidebar-media-deck-body">
+                    <div class="sidebar-media-deck-meta">
+                        <div class="sidebar-media-deck-meta-top">
+                            <span class="sidebar-media-deck-provider" id="sidebar-media-deck-provider">
+                                <i class="bi bi-play-circle"></i>
+                                <span id="sidebar-media-deck-provider-label">Media</span>
+                            </span>
+                            <span class="sidebar-media-deck-count" id="sidebar-media-deck-count">1 playable item</span>
+                        </div>
+                        <div class="sidebar-media-deck-title" id="sidebar-media-deck-title">Now Playing</div>
+                        <div class="sidebar-media-deck-subtitle" id="sidebar-media-deck-subtitle">Use the deck to stay with media while you keep working.</div>
+                    </div>
+                    <div class="sidebar-media-deck-progress-row">
+                        <span class="sidebar-media-deck-time" id="sidebar-media-deck-current-time">--:--</span>
+                        <input type="range" class="sidebar-media-deck-seek" id="sidebar-media-deck-seek" min="0" max="1000" value="0" step="1" disabled aria-label="Seek media">
+                        <span class="sidebar-media-deck-time end" id="sidebar-media-deck-duration">--:--</span>
+                    </div>
+                    <div class="sidebar-media-deck-controls">
+                        <button type="button" class="sidebar-media-deck-btn" id="sidebar-media-deck-prev">
+                            <i class="bi bi-skip-backward-fill"></i><span>Prev</span>
+                        </button>
+                        <button type="button" class="sidebar-media-deck-btn primary" id="sidebar-media-deck-play">
+                            <i class="bi bi-play-fill"></i><span>Play</span>
+                        </button>
+                        <button type="button" class="sidebar-media-deck-btn" id="sidebar-media-deck-next">
+                            <i class="bi bi-skip-forward-fill"></i><span>Next</span>
+                        </button>
+                        <button type="button" class="sidebar-media-deck-btn sidebar-media-deck-btn-aux" id="sidebar-media-deck-minimize-footer" title="Collapse deck to mini player" aria-label="Collapse deck to mini player">
+                            <i class="bi bi-dash-lg"></i><span>Collapse</span>
+                        </button>
+                        <button type="button" class="sidebar-media-deck-btn sidebar-media-deck-btn-aux" id="sidebar-media-deck-mini-player-footer" title="Open mini player" aria-label="Open mini player">
+                            <i class="bi bi-pip"></i><span>Mini bar</span>
+                        </button>
+                        <div class="sidebar-media-deck-spacer"></div>
+                        <button type="button" class="sidebar-media-deck-btn" id="sidebar-media-deck-pip" style="display:none;">
+                            <i class="bi bi-pip"></i><span>PiP</span>
+                        </button>
+                        <button type="button" class="sidebar-media-deck-btn" id="sidebar-media-deck-return">
+                            <i class="bi bi-arrow-up-right-square"></i><span>Return to source</span>
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

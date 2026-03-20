@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+### Fixed
+- **Media deck on iOS** — The deck and backdrop are rendered in a body-level portal (outside `.app-container` / scrollable `.sidebar`) so `position: fixed` overlays are not clipped by overflow on iPhone Safari. Touch/narrow layouts open the source **Media deck** button on `pointerdown` to avoid the first tap only materializing YouTube in-page.
+
+### Improved
+- **Media deck vs mini player** — Opening the deck from a post no longer materializes YouTube until **Play** (facade stays static; avoids the “first tap wakes video, second opens deck” feel). Source actions add **Mini player** next to **Media deck**; the deck header adds **Mini player** to hand off from the expanded view. **Minimize** docks YouTube into the mini player even when the source is still on-screen (`forceDockMini`). Mini player stays visible for a docked facade until Play; deck/mini controls resolve the iframe when present.
+- **YouTube handoff** — Before reparenting embeds (mini ↔ deck ↔ inline), the app snapshots time/play state, updates the embed URL (`start` / `autoplay`) when needed, re-bridges the IFrame API after a `src` change, and runs the existing dock-restore loop so playback can continue instead of restarting at 0. The same path is used when restoring docked YouTube to the post placeholder. **Mini ↔ deck** moves skip URL rewrites and player resets so the iframe is not torn down in-place (avoids a blank deck stage).
+- **Media deck resilience** — `repairMediaCurrentReference` rebinds `state.current` from the post/message when the prior node is disconnected; `reconcileDeckStageMediaPlacement` moves video/YouTube back onto the deck stage if it was left elsewhere; failed repair while the deck is open force-closes the deck. Docked YouTube **ENDED** uses the iframe’s `__canopyMiniYTState` when `state.current.el` is the wrapper.
+- **Deck controls on short screens** — Header actions wrap; **Collapse** and **Mini bar** are duplicated in the sticky bottom control row (with Prev/Play/Next) so you can reach mini-player handoff without scrolling to the top.
+
 ## [0.4.113] - 2026-03-20
 
 ### Improved

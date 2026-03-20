@@ -4918,6 +4918,9 @@
             const deckPipBtn = document.getElementById('sidebar-media-deck-pip');
             const deckReturnBtn = document.getElementById('sidebar-media-deck-return');
             const deckMinimizeBtn = document.getElementById('sidebar-media-deck-minimize');
+            const deckMiniPlayerBtn = document.getElementById('sidebar-media-deck-mini-player');
+            const deckMinimizeFooterBtn = document.getElementById('sidebar-media-deck-minimize-footer');
+            const deckMiniFooterBtn = document.getElementById('sidebar-media-deck-mini-player-footer');
             const deckCloseBtn = document.getElementById('sidebar-media-deck-close');
             const deckQueue = document.getElementById('sidebar-media-deck-queue');
             const deckQueueCount = document.getElementById('sidebar-media-deck-queue-count');
@@ -5006,6 +5009,14 @@
                 if (options.activate !== true) return wrapper;
                 const facade = wrapper.querySelector('.yt-facade');
                 return materializeYouTubeFacade(facade, { autoplay: options.autoplay === true }) || wrapper;
+            }
+
+            /** True when this embed is still the static facade (no iframe) — avoids loading YouTube until Play. */
+            function isYouTubeFacadeOnly(el) {
+                if (!el) return false;
+                const w = resolveYouTubeMediaElement(el, { activate: false });
+                if (!w || typeof w.querySelector !== 'function') return false;
+                return !!(w.querySelector('.yt-facade')) && !w.querySelector('iframe');
             }
 
             function mediaIcon(type) {
@@ -5321,20 +5332,33 @@
                 const type = mediaTypeFor(el);
                 const preferMini = options && options.preferMini === true;
                 if (type === 'youtube') {
-                    if (preferMini && miniVideoHost && isOffscreen(el)) {
+                    const forceDockMini = options && options.forceDockMini === true;
+                    if (preferMini && miniVideoHost && (forceDockMini || isOffscreen(el))) {
                         const wrapper = getMediaDockWrapper(el, type);
                         if (wrapper && wrapper.parentNode !== miniVideoHost) {
+                            prepareYouTubeEmbedForHostMove(el, {
+                                skipResumeUrlRewrite: isSidebarDeckOrMiniHost(wrapper.parentNode),
+                            });
                             miniVideoHost.innerHTML = '';
                             miniVideoHost.appendChild(wrapper);
                             miniVideoHost.style.display = 'block';
+                            const ytIframe = resolveYouTubeMediaElement(el, { activate: false });
+                            if (ytIframe && ytIframe.tagName.toLowerCase() === 'iframe') {
+                                maybeRestoreYouTubeDockState(ytIframe);
+                            }
                         }
                         return;
                     }
                     const ph = el.__canopyAutoDockPlaceholder;
                     const wrapper = getMediaDockWrapper(el, type);
                     if (ph && ph.isConnected && ph.parentNode && wrapper) {
+                        prepareYouTubeEmbedForHostMove(el);
                         ph.parentNode.insertBefore(wrapper, ph);
                         ph.remove();
+                        const ytIframe = resolveYouTubeMediaElement(el, { activate: false });
+                        if (ytIframe && ytIframe.tagName.toLowerCase() === 'iframe') {
+                            maybeRestoreYouTubeDockState(ytIframe);
+                        }
                     }
                     delete el.__canopyAutoDockPlaceholder;
                 } else if (type === 'video') {
@@ -5358,6 +5382,12 @@
                     host.style.display = 'block';
                     return true;
                 }
+                if (type === 'youtube') {
+                    prepareYouTubeEmbedForHostMove(el, {
+                        skipResumeUrlRewrite: isSidebarDeckOrMiniHost(wrapper.parentNode) &&
+                            isSidebarDeckOrMiniHost(host),
+                    });
+                }
                 if (host === deckStage) {
                     clearDeckStageDockedNodes();
                     if (deckVisual && deckVisual.parentNode === deckStage) {
@@ -5371,7 +5401,10 @@
                 }
                 host.style.display = 'block';
                 if (type === 'youtube') {
-                    maybeRestoreYouTubeDockState(el);
+                    const ytIframe = resolveYouTubeMediaElement(el, { activate: false });
+                    if (ytIframe && ytIframe.tagName.toLowerCase() === 'iframe') {
+                        maybeRestoreYouTubeDockState(ytIframe);
+                    }
                 }
                 return true;
             }
@@ -5400,10 +5433,11 @@
                     if (type === 'audio' || type === 'video') {
                         el.pause();
                     } else if (type === 'youtube') {
-                        const player = el.__canopyMiniYTPlayer;
+                        const target = resolveYouTubeMediaElement(el, { activate: false });
+                        const player = target && target.__canopyMiniYTPlayer;
                         if (player && typeof player.pauseVideo === 'function') {
                             player.pauseVideo();
-                            el.__canopyMiniYTState = 2;
+                            target.__canopyMiniYTState = 2;
                         }
                     }
                 } catch (_) {}
@@ -5491,10 +5525,72 @@
                     if (selected) return selected;
                 }
                 if (state.current && state.current.el) {
-                    const currentMatch = state.deckItems.find((item) => item.el === state.current.el);
+                    const currentMatch = state.deckItems.find((item) => isSameDeckMediaItem(
+                        state.current.el,
+                        state.current.type,
+                        item
+                    ));
                     if (currentMatch) return currentMatch;
                 }
                 return state.deckItems[0] || null;
+            }
+
+            function ensureMediaSourceLinked() {
+                if (!state.current || !state.current.el || !state.current.el.isConnected) return;
+                if (!state.current.sourceEl || !state.current.sourceEl.isConnected) {
+                    const next = sourceContainer(state.current.el);
+                    if (next && next.isConnected) {
+                        state.current.sourceEl = next;
+                    }
+                }
+            }
+
+            /**
+             * If the current media node was removed (DOM churn) but the post/message is still in the document,
+             * rebind `state.current` to the best playable element in that source.
+             * @returns {boolean} true if `state.current` points at a connected node afterward
+             */
+            function repairMediaCurrentReference() {
+                if (!state.current) return false;
+                const cur = state.current;
+                if (cur.el && cur.el.isConnected) {
+                    ensureMediaSourceLinked();
+                    return true;
+                }
+                if (!cur.sourceEl || !cur.sourceEl.isConnected) {
+                    return false;
+                }
+                const items = getSourceMediaDeckItems(cur.sourceEl);
+                if (!items.length) {
+                    return false;
+                }
+                const pref = getPreferredDeckItemForSource(cur.sourceEl, items);
+                if (!pref) {
+                    return false;
+                }
+                state.deckItems = items;
+                state.deckQueueSignature = '';
+                state.current = {
+                    el: pref.el,
+                    type: pref.type,
+                    sourceEl: cur.sourceEl,
+                    activatedAt: Date.now(),
+                };
+                state.deckSelectedKey = ensureMediaIdentity(pref.el);
+                state.dismissedEl = null;
+                return true;
+            }
+
+            /** If the deck is open but the video/YT wrapper is not on the stage, move it back (fixes empty stage after races). */
+            function reconcileDeckStageMediaPlacement() {
+                if (!state.deckOpen || !state.current || !deckStage) return;
+                const t = state.current.type;
+                if (t !== 'youtube' && t !== 'video') return;
+                const w = getMediaDockWrapper(state.current.el, t);
+                if (!w || !w.isConnected) return;
+                if (deckStage.contains(w)) return;
+                if (miniVideoHost && miniVideoHost.contains(w)) return;
+                moveDockedMediaToHost(state.current.el, deckStage);
             }
 
             function scrollDeckSelectionIntoView() {
@@ -5513,7 +5609,8 @@
                 if (!item) return;
                 const shouldPlay = options.play === true;
                 state.dismissedEl = null;
-                setCurrent(item.el, item.type);
+                const deferYt = !shouldPlay && item.type === 'youtube';
+                setCurrent(item.el, item.type, deferYt ? { deferYouTubeMaterialize: true } : undefined);
                 state.deckSelectedKey = (state.current && state.current.el)
                     ? ensureMediaIdentity(state.current.el)
                     : (item.key || '');
@@ -5560,11 +5657,27 @@
                 return { host: slot, owned: true };
             }
 
+            /** True when deck item matches current media (YouTube may be iframe in state vs wrapper in item list). */
+            function isSameDeckMediaItem(currentEl, currentType, item) {
+                if (!currentEl || !item) return false;
+                if (currentType !== item.type) return false;
+                if (item.type === 'youtube') {
+                    const a = getMediaDockWrapper(currentEl, 'youtube');
+                    const b = getMediaDockWrapper(item.el, 'youtube');
+                    return !!(a && b && a === b);
+                }
+                return item.el === currentEl;
+            }
+
             function getPreferredDeckItemForSource(sourceEl, items) {
                 const playableItems = Array.isArray(items) ? items : getSourceMediaDeckItems(sourceEl);
                 if (!playableItems.length) return null;
                 if (state.current && state.current.el && state.current.sourceEl === sourceEl) {
-                    const currentMatch = playableItems.find((item) => item.el === state.current.el);
+                    const currentMatch = playableItems.find((item) => isSameDeckMediaItem(
+                        state.current.el,
+                        state.current.type,
+                        item
+                    ));
                     if (currentMatch) return currentMatch;
                 }
                 const playingMatch = playableItems.find((item) => isElementPlaying(item.el, item.type));
@@ -5573,15 +5686,21 @@
             }
 
             function updateSourceDeckLauncherActiveStates() {
+                const activeSource = (state.current && state.current.sourceEl && state.dismissedEl !== state.current.el)
+                    ? ensureMediaIdentity(state.current.sourceEl)
+                    : '';
                 document.querySelectorAll('[data-open-media-deck]').forEach((btn) => {
                     const sourceId = String(btn.getAttribute('data-source-media-id') || '');
-                    const activeSource = (state.current && state.current.sourceEl && state.dismissedEl !== state.current.el)
-                        ? ensureMediaIdentity(state.current.sourceEl)
-                        : '';
                     const isActive = !!sourceId && !!activeSource && sourceId === activeSource;
                     btn.classList.toggle('is-active', isActive);
                     btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
                     btn.setAttribute('aria-expanded', isActive && state.deckOpen ? 'true' : 'false');
+                });
+                document.querySelectorAll('[data-open-mini-player]').forEach((btn) => {
+                    const sourceId = String(btn.getAttribute('data-source-media-id') || '');
+                    const isActive = !!sourceId && !!activeSource && sourceId === activeSource;
+                    btn.classList.toggle('is-active', isActive);
+                    btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
                 });
             }
 
@@ -5601,12 +5720,85 @@
                 scheduleMiniUpdate(20);
             }
 
+            /** Open the sidebar mini player for this post/message (no deck); keeps YouTube as facade until Play. */
+            function openMiniPlayerForSource(sourceEl) {
+                if (!sourceEl || !sourceEl.isConnected || !miniVideoHost) return;
+                const items = getSourceMediaDeckItems(sourceEl);
+                const preferred = getPreferredDeckItemForSource(sourceEl, items);
+                if (!preferred) return;
+                state.deckOpen = false;
+                if (expandBtn) {
+                    expandBtn.innerHTML = '<i class="bi bi-arrows-angle-expand"></i>';
+                    expandBtn.title = 'Open media deck';
+                }
+                state.deckItems = items;
+                state.deckSelectedKey = preferred.key;
+                state.dismissedEl = null;
+                state.returnUrl = null;
+                state.dockedSubtitle = null;
+                selectDeckItem(preferred, { play: false });
+                if (state.current && (preferred.type === 'youtube' || preferred.type === 'video')) {
+                    moveDockedMediaToHost(state.current.el, miniVideoHost);
+                }
+                if (deckStage && !deckStage.querySelector('.youtube-embed, video')) {
+                    deckStage.classList.add('is-empty');
+                    if (deckVisual) deckVisual.hidden = false;
+                }
+                updateDeckVisibility();
+                updateSourceDeckLauncherActiveStates();
+                scheduleMiniUpdate(20);
+            }
+
+            function switchDeckToMiniPlayer() {
+                if (!state.current || !state.current.el || !miniVideoHost) return;
+                state.deckOpen = false;
+                if (expandBtn) {
+                    expandBtn.innerHTML = '<i class="bi bi-arrows-angle-expand"></i>';
+                    expandBtn.title = 'Open media deck';
+                }
+                const { el, type } = state.current;
+                if (type === 'youtube' || type === 'video') {
+                    moveDockedMediaToHost(el, miniVideoHost);
+                }
+                if (deckStage && !deckStage.querySelector('.youtube-embed, video')) {
+                    deckStage.classList.add('is-empty');
+                    if (deckVisual) deckVisual.hidden = false;
+                }
+                updateDeckVisibility();
+                updateSourceDeckLauncherActiveStates();
+                scheduleMiniUpdate(30);
+            }
+
+            function attachMediaLauncherButton(btn, mqCoarseOrNarrow, openFn) {
+                let lastOpenAt = 0;
+                const openFromLauncher = (event) => {
+                    if (event) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                    }
+                    openFn();
+                    lastOpenAt = Date.now();
+                };
+                btn.addEventListener('pointerdown', (event) => {
+                    if (!mqCoarseOrNarrow.matches || event.pointerType === 'mouse' || event.button !== 0) return;
+                    openFromLauncher(event);
+                }, true);
+                btn.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (mqCoarseOrNarrow.matches && (Date.now() - lastOpenAt) < 650) return;
+                    openFromLauncher(event);
+                });
+            }
+
             function syncSourceMediaDeckLauncher(sourceEl) {
                 if (!sourceEl || !sourceEl.isConnected) return;
                 const items = getSourceMediaDeckItems(sourceEl);
-                let btn = sourceEl.querySelector('[data-open-media-deck]');
+                let btnDeck = sourceEl.querySelector('[data-open-media-deck]');
+                let btnMini = sourceEl.querySelector('[data-open-mini-player]');
                 if (!items.length) {
-                    if (btn) btn.remove();
+                    if (btnDeck) btnDeck.remove();
+                    if (btnMini) btnMini.remove();
                     if (sourceEl.__canopyMediaDeckSlot && sourceEl.__canopyMediaDeckSlot.isConnected && !sourceEl.__canopyMediaDeckSlot.childElementCount) {
                         sourceEl.__canopyMediaDeckSlot.remove();
                     }
@@ -5618,36 +5810,53 @@
                 const host = hostInfo.host;
                 if (!host) return;
                 const currentSourceId = ensureMediaIdentity(sourceEl);
-                if (!btn) {
-                    btn = document.createElement('button');
-                    btn.type = 'button';
-                    btn.className = 'canopy-media-deck-launcher';
-                    btn.setAttribute('data-open-media-deck', '1');
-                    btn.addEventListener('click', (event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        openMediaDeckForSource(sourceEl);
-                    });
+                const mqCoarseOrNarrow = window.matchMedia('(max-width: 640px), (pointer: coarse)');
+                if (!btnDeck) {
+                    btnDeck = document.createElement('button');
+                    btnDeck.type = 'button';
+                    btnDeck.className = 'canopy-media-deck-launcher';
+                    btnDeck.setAttribute('data-open-media-deck', '1');
+                    attachMediaLauncherButton(btnDeck, mqCoarseOrNarrow, () => openMediaDeckForSource(sourceEl));
+                }
+                if (!btnMini) {
+                    btnMini = document.createElement('button');
+                    btnMini.type = 'button';
+                    btnMini.className = 'canopy-media-mini-launcher';
+                    btnMini.setAttribute('data-open-mini-player', '1');
+                    attachMediaLauncherButton(btnMini, mqCoarseOrNarrow, () => openMiniPlayerForSource(sourceEl));
                 }
 
-                if (btn.parentNode !== host) {
-                    host.appendChild(btn);
+                if (btnDeck.parentNode !== host) {
+                    host.appendChild(btnDeck);
+                }
+                if (btnMini.parentNode !== host) {
+                    host.appendChild(btnMini);
                 }
 
                 const countLabel = items.length === 1 ? '1' : String(items.length);
                 const launcherSignature = `${currentSourceId}|${countLabel}`;
-                btn.setAttribute('data-source-media-id', currentSourceId);
-                btn.setAttribute('data-launcher-signature', launcherSignature);
-                btn.classList.toggle('is-in-source-slot', !!hostInfo.owned);
-                btn.setAttribute('aria-label', items.length > 1 ? `Open media deck with ${items.length} items` : 'Open media deck');
-                btn.title = items.length > 1 ? `Open media deck (${items.length} items)` : 'Open media deck';
-                if (btn.getAttribute('data-rendered-signature') !== launcherSignature) {
-                    btn.innerHTML = `<i class="bi bi-collection-play"></i><span class="canopy-media-deck-launcher-label">Media deck</span><span class="canopy-media-deck-launcher-count">${countLabel}</span>`;
-                    btn.setAttribute('data-rendered-signature', launcherSignature);
+                btnDeck.setAttribute('data-source-media-id', currentSourceId);
+                btnDeck.setAttribute('data-launcher-signature', launcherSignature);
+                btnMini.setAttribute('data-source-media-id', currentSourceId);
+                btnMini.setAttribute('data-launcher-signature', launcherSignature);
+                btnDeck.classList.toggle('is-in-source-slot', !!hostInfo.owned);
+                btnMini.classList.toggle('is-in-source-slot', !!hostInfo.owned);
+                btnDeck.setAttribute('aria-label', items.length > 1 ? `Open media deck with ${items.length} items` : 'Open media deck');
+                btnDeck.title = items.length > 1 ? `Open media deck (${items.length} items)` : 'Open media deck';
+                btnMini.setAttribute('aria-label', items.length > 1 ? `Open mini player with ${items.length} items` : 'Open mini player');
+                btnMini.title = items.length > 1 ? `Mini player (${items.length} items)` : 'Mini player';
+                if (btnDeck.getAttribute('data-rendered-signature') !== launcherSignature) {
+                    btnDeck.innerHTML = `<i class="bi bi-collection-play"></i><span class="canopy-media-deck-launcher-label">Media deck</span><span class="canopy-media-deck-launcher-count">${countLabel}</span>`;
+                    btnDeck.setAttribute('data-rendered-signature', launcherSignature);
                 }
-                btn.classList.toggle('is-active', !!(state.current && state.current.sourceEl === sourceEl));
-                btn.setAttribute('aria-pressed', state.current && state.current.sourceEl === sourceEl ? 'true' : 'false');
-                btn.setAttribute('aria-expanded', state.current && state.current.sourceEl === sourceEl && state.deckOpen ? 'true' : 'false');
+                if (btnMini.getAttribute('data-rendered-signature') !== launcherSignature) {
+                    btnMini.innerHTML = `<i class="bi bi-pip"></i><span class="canopy-media-deck-launcher-label">Mini player</span><span class="canopy-media-deck-launcher-count">${countLabel}</span>`;
+                    btnMini.setAttribute('data-rendered-signature', launcherSignature);
+                }
+                const srcActive = !!(state.current && state.current.sourceEl === sourceEl);
+                btnDeck.setAttribute('aria-pressed', srcActive ? 'true' : 'false');
+                btnDeck.setAttribute('aria-expanded', srcActive && state.deckOpen ? 'true' : 'false');
+                btnMini.setAttribute('aria-pressed', srcActive ? 'true' : 'false');
             }
 
             function syncSourceMediaDeckLaunchersInScope(scope) {
@@ -5814,11 +6023,12 @@
                     currentTime = Number(el.currentTime || 0);
                     duration = Number(el.duration || 0);
                 } else if (type === 'youtube') {
-                    const ytState = Number(el.__canopyMiniYTState);
+                    const ytIframe = resolveYouTubeMediaElement(el, { activate: false });
+                    const ytState = Number(ytIframe && ytIframe.__canopyMiniYTState);
                     paused = !isYouTubePlayingState(ytState);
-                    currentTime = getYouTubeCurrentTimeSafe(el);
+                    currentTime = getYouTubeCurrentTimeSafe(ytIframe || el);
                     try {
-                        const player = el.__canopyMiniYTPlayer;
+                        const player = ytIframe && ytIframe.__canopyMiniYTPlayer;
                         if (player && typeof player.getDuration === 'function') {
                             duration = Number(player.getDuration() || 0);
                         }
@@ -5851,10 +6061,24 @@
             function updateDeckPanel() {
                 updateDeckVisibility();
                 if (!state.deckOpen || !state.current) return;
+                if (state.current.el && !state.current.el.isConnected) {
+                    repairMediaCurrentReference();
+                } else {
+                    ensureMediaSourceLinked();
+                }
+                if (!state.current || !state.current.el || !state.current.el.isConnected) {
+                    closeMediaDeck({ forceClose: true });
+                    scheduleMiniUpdate(30);
+                    return;
+                }
+                reconcileDeckStageMediaPlacement();
                 renderDeckQueue();
 
                 const selectedItem = getDeckSelectedItem();
-                if (!selectedItem) return;
+                if (!selectedItem) {
+                    syncDeckStage();
+                    return;
+                }
                 const type = selectedItem.type;
                 const mediaTitle = titleFromMedia(selectedItem.el, type);
                 const subtitle = sourceSubtitle(selectedItem.el);
@@ -5900,7 +6124,10 @@
                     expandBtn.title = 'Open media deck';
                 }
                 if (state.current && state.current.el) {
-                    restoreDockedMedia(state.current.el, { preferMini: preserveMini });
+                    restoreDockedMedia(state.current.el, {
+                        preferMini: preserveMini,
+                        forceDockMini: preserveMini,
+                    });
                 }
                 if (deckStage) {
                     clearDeckStageDockedNodes();
@@ -5934,7 +6161,8 @@
                     }
                 } else if (type === 'youtube') {
                     try {
-                        const player = el.__canopyMiniYTPlayer;
+                        const ytIframe = resolveYouTubeMediaElement(el, { activate: false });
+                        const player = ytIframe && ytIframe.__canopyMiniYTPlayer;
                         const duration = Number(player && typeof player.getDuration === 'function' ? player.getDuration() : 0);
                         if (player && typeof player.seekTo === 'function' && duration > 0) {
                             player.seekTo(duration * clampedRatio, true);
@@ -5954,7 +6182,8 @@
                     }
                 }
                 if (type === 'youtube') {
-                    return isYouTubePlayingState(Number(el.__canopyMiniYTState));
+                    const ytIframe = resolveYouTubeMediaElement(el, { activate: false });
+                    return isYouTubePlayingState(Number(ytIframe && ytIframe.__canopyMiniYTState));
                 }
                 return false;
             }
@@ -6046,11 +6275,12 @@
                 return isYouTubePlayingState(getYouTubePlayerStateSafe(el));
             }
 
+            /** @returns {boolean} true if iframe src was updated (navigation; YT.Player must be re-created). */
             function setYouTubeDockResumeParams(el, resumeAt, shouldResume) {
-                if (!el) return;
+                if (!el) return false;
                 try {
                     const src = el.getAttribute('src') || '';
-                    if (!src) return;
+                    if (!src) return false;
                     const url = new URL(src, window.location.origin);
                     if (resumeAt > 1) {
                         url.searchParams.set('start', String(Math.max(0, Math.floor(resumeAt))));
@@ -6065,8 +6295,73 @@
                     const next = url.toString();
                     if (next !== src) {
                         el.src = next;
+                        return true;
                     }
                 } catch (_) {}
+                return false;
+            }
+
+            /** After iframe src change or full reload, tear down stale YT API bridge so initYouTubePlayer can run again. */
+            function resetYouTubePlayerBridge(iframe) {
+                if (!iframe) return;
+                try {
+                    const p = iframe.__canopyMiniYTPlayer;
+                    if (p && typeof p.destroy === 'function') {
+                        p.destroy();
+                    }
+                } catch (_) {}
+                if (iframe.__canopyMiniYTDockRestoreTimer) {
+                    try {
+                        clearInterval(iframe.__canopyMiniYTDockRestoreTimer);
+                    } catch (_) {}
+                    delete iframe.__canopyMiniYTDockRestoreTimer;
+                }
+                delete iframe.__canopyMiniYTPlayer;
+                delete iframe.__canopyMiniYTReady;
+                delete iframe.__canopyMiniYTReadyInit;
+                delete iframe.__canopyMiniYTFailed;
+                iframe.__canopyMiniYTState = -1;
+            }
+
+            /** True when the embed wrapper currently lives in sidebar mini or deck stage (DOM stays in-page; avoid forced iframe reload). */
+            function isSidebarDeckOrMiniHost(node) {
+                return !!(node && (node === deckStage || node === miniVideoHost));
+            }
+
+            /**
+             * Snapshot time/play state; optionally sync embed URL before reparenting.
+             * Mini ↔ deck: reparenting usually keeps the iframe document — rewriting src + resetYouTubePlayerBridge
+             * can blank the player. Post ↔ sidebar: URL + re-init still helps when the embed reloads.
+             */
+            function prepareYouTubeEmbedForHostMove(el, opts) {
+                const options = opts && typeof opts === 'object' ? opts : {};
+                const iframe = resolveYouTubeMediaElement(el, { activate: false });
+                if (!iframe || iframe.tagName.toLowerCase() !== 'iframe') return;
+                const t = getYouTubeCurrentTimeSafe(iframe);
+                let playing = isYouTubePlayingState(Number(iframe.__canopyMiniYTState));
+                try {
+                    const p = iframe.__canopyMiniYTPlayer;
+                    if (p && typeof p.getPlayerState === 'function') {
+                        playing = isYouTubePlayingState(Number(p.getPlayerState()));
+                    }
+                } catch (_) {}
+                iframe.__canopyMiniYTDockResumeAt = t;
+                iframe.__canopyMiniYTDockShouldResume = playing;
+                if (t > 0.5) {
+                    iframe.__canopyMiniYTLastTime = t;
+                }
+                if (options.skipResumeUrlRewrite === true) {
+                    return;
+                }
+                const srcChanged = setYouTubeDockResumeParams(
+                    iframe,
+                    Number(iframe.__canopyMiniYTDockResumeAt || 0),
+                    iframe.__canopyMiniYTDockShouldResume === true
+                );
+                if (srcChanged) {
+                    resetYouTubePlayerBridge(iframe);
+                    initYouTubePlayer(iframe);
+                }
             }
 
             function maybeRestoreYouTubeDockState(el) {
@@ -6127,12 +6422,14 @@
                 pipBtn.title = inPiP ? 'Exit Picture-in-Picture' : 'Open Picture-in-Picture';
             }
 
-            function setCurrent(el, forcedType) {
+            function setCurrent(el, forcedType, opts) {
                 if (!el) return;
+                const options = opts && typeof opts === 'object' ? opts : {};
                 const type = forcedType || mediaTypeFor(el);
                 if (!type) return;
                 if (type === 'youtube') {
-                    el = resolveYouTubeMediaElement(el, { activate: true, autoplay: false }) || el;
+                    const defer = options.deferYouTubeMaterialize === true;
+                    el = resolveYouTubeMediaElement(el, { activate: !defer, autoplay: false }) || el;
                 }
 
                 if (state.current && state.current.el === el && state.current.type === type) {
@@ -6209,12 +6506,7 @@
             }
 
             function updateMini() {
-                if (!state.current || !state.current.el || !state.current.el.isConnected) {
-                    if (state.current && state.current.el) {
-                        const staleCurrent = state.current;
-                        state.current = null;
-                        deactivateMediaEntry(staleCurrent);
-                    }
+                if (!state.current) {
                     const fallback = findPlayingElement();
                     if (fallback) {
                         setCurrent(fallback);
@@ -6223,6 +6515,23 @@
                     if (state.deckOpen) closeMediaDeck({ forceClose: true });
                     hideMini();
                     return;
+                }
+                if (!state.current.el || !state.current.el.isConnected) {
+                    if (!repairMediaCurrentReference()) {
+                        const staleCurrent = state.current;
+                        state.current = null;
+                        deactivateMediaEntry(staleCurrent);
+                        const fallback = findPlayingElement();
+                        if (fallback) {
+                            setCurrent(fallback);
+                            return;
+                        }
+                        if (state.deckOpen) closeMediaDeck({ forceClose: true });
+                        hideMini();
+                        return;
+                    }
+                } else {
+                    ensureMediaSourceLinked();
                 }
 
                 const current = state.current;
@@ -6244,21 +6553,28 @@
                 }
 
                 if (isDocked && type === 'youtube') {
-                    const ytState = Number(el.__canopyMiniYTState);
-                    if (ytState === 0) {
+                    const ytIframe = resolveYouTubeMediaElement(el, { activate: false });
+                    const ytState = Number(ytIframe && ytIframe.__canopyMiniYTState);
+                    const ytWrap = getMediaDockWrapper(el, 'youtube');
+                    const hasIframe = !!(ytWrap && ytWrap.querySelector('iframe'));
+                    if (hasIframe && ytState === 0) {
                         if (state.deckOpen) closeMediaDeck({ forceClose: true });
                         hideMini();
                         return;
                     }
                 } else if (!isElementPlaying(el, type) && !isResumablePause) {
-                    const fallback = findPlayingElement();
-                    if (fallback && fallback !== el) {
-                        setCurrent(fallback);
+                    if (isDocked && type === 'youtube' && isYouTubeFacadeOnly(el)) {
+                        // Static preview in mini — keep chrome visible until user taps Play.
+                    } else {
+                        const fallback = findPlayingElement();
+                        if (fallback && fallback !== el) {
+                            setCurrent(fallback);
+                            return;
+                        }
+                        if (state.deckOpen) closeMediaDeck({ forceClose: true });
+                        hideMini();
                         return;
                     }
-                    if (state.deckOpen) closeMediaDeck({ forceClose: true });
-                    hideMini();
-                    return;
                 }
 
                 if (!isDocked && !isOffscreen(el)) {
@@ -6300,30 +6616,38 @@
                     updatePiPButton(el, type);
                 } else if (type === 'youtube') {
                     playBtn.style.display = '';
-                    const ytPlayer = el.__canopyMiniYTPlayer;
-                    const ytState = Number(el.__canopyMiniYTState);
-                    const isPaused = ytState === 2;
-                    playBtn.innerHTML = `<i class="bi bi-${isPaused ? 'play-fill' : 'pause-fill'} me-1"></i><span>${isPaused ? 'Play' : 'Pause'}</span>`;
-                    progressWrap.classList.remove('show');
-                    progressBar.style.width = '0%';
-                    if (ytPlayer && typeof ytPlayer.getCurrentTime === 'function') {
-                        try {
-                            const cur = ytPlayer.getCurrentTime();
-                            const dur = ytPlayer.getDuration();
-                            if (dur > 0) {
-                                const pct = Math.max(0, Math.min(100, (cur / dur) * 100));
-                                progressWrap.classList.add('show');
-                                progressBar.style.width = `${pct}%`;
-                                timeEl.textContent = `${formatTime(cur)} / ${formatTime(dur)}`;
-                                el.__canopyMiniYTLastTime = cur;
-                            } else {
+                    if (isYouTubeFacadeOnly(el)) {
+                        playBtn.innerHTML = '<i class="bi bi-play-fill me-1"></i><span>Play</span>';
+                        progressWrap.classList.remove('show');
+                        progressBar.style.width = '0%';
+                        timeEl.textContent = 'YouTube';
+                    } else {
+                        const ytIframe = resolveYouTubeMediaElement(el, { activate: false });
+                        const ytPlayer = ytIframe && ytIframe.__canopyMiniYTPlayer;
+                        const ytState = Number(ytIframe && ytIframe.__canopyMiniYTState);
+                        const isPaused = ytState === 2;
+                        playBtn.innerHTML = `<i class="bi bi-${isPaused ? 'play-fill' : 'pause-fill'} me-1"></i><span>${isPaused ? 'Play' : 'Pause'}</span>`;
+                        progressWrap.classList.remove('show');
+                        progressBar.style.width = '0%';
+                        if (ytPlayer && typeof ytPlayer.getCurrentTime === 'function') {
+                            try {
+                                const cur = ytPlayer.getCurrentTime();
+                                const dur = ytPlayer.getDuration();
+                                if (dur > 0) {
+                                    const pct = Math.max(0, Math.min(100, (cur / dur) * 100));
+                                    progressWrap.classList.add('show');
+                                    progressBar.style.width = `${pct}%`;
+                                    timeEl.textContent = `${formatTime(cur)} / ${formatTime(dur)}`;
+                                    if (ytIframe) ytIframe.__canopyMiniYTLastTime = cur;
+                                } else {
+                                    timeEl.textContent = 'YouTube';
+                                }
+                            } catch (_) {
                                 timeEl.textContent = 'YouTube';
                             }
-                        } catch (_) {
+                        } else {
                             timeEl.textContent = 'YouTube';
                         }
-                    } else {
-                        timeEl.textContent = 'YouTube';
                     }
                     updatePiPButton(null, '');
                 } else {
@@ -6438,16 +6762,17 @@
                         } catch (_) {}
                     } else if (type === 'youtube') {
                         try {
-                            const player = el.__canopyMiniYTPlayer;
-                            if (player) {
+                            const ytEl = resolveYouTubeMediaElement(el, { activate: false });
+                            const player = ytEl && ytEl.__canopyMiniYTPlayer;
+                            if (player && typeof player.getPlayerState === 'function') {
                                 const s = player.getPlayerState();
                                 if (s === 1 || s === 3) {
-                                    player.pauseVideo();
-                                    el.__canopyMiniYTState = 2;
+                                    pauseMediaElement(el, type);
                                 } else {
-                                    player.playVideo();
-                                    el.__canopyMiniYTState = 1;
+                                    playMediaElement(el, type);
                                 }
+                            } else {
+                                playMediaElement(el, type);
                             }
                         } catch (_) {}
                     }
@@ -6549,6 +6874,18 @@
 
             if (deckMinimizeBtn) {
                 deckMinimizeBtn.addEventListener('click', () => closeMediaDeck());
+            }
+
+            if (deckMiniPlayerBtn) {
+                deckMiniPlayerBtn.addEventListener('click', () => switchDeckToMiniPlayer());
+            }
+
+            if (deckMinimizeFooterBtn) {
+                deckMinimizeFooterBtn.addEventListener('click', () => closeMediaDeck());
+            }
+
+            if (deckMiniFooterBtn) {
+                deckMiniFooterBtn.addEventListener('click', () => switchDeckToMiniPlayer());
             }
 
             if (deckCloseBtn) {
