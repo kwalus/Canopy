@@ -254,6 +254,9 @@ class TestFrontendRegressions(unittest.TestCase):
             ".sidebar-media-deck.is-module-active .sidebar-media-deck-scroll {",
             base_template,
         )
+        self.assertIn("position: absolute !important", base_template)
+        self.assertIn("inset: 0 !important", base_template)
+        self.assertIn('data-canopy-module-shell="1"', main_js)
         self.assertIn(".sidebar-media-deck-detail.is-collapsed", base_template)
         self.assertIn(".sidebar-media-deck-queue-shell.is-collapsed .sidebar-media-deck-queue", base_template)
         self.assertIn("function buildSourceDeckItems(sourceEl, activeEl) {", main_js)

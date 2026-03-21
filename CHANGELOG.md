@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.131] - 2026-03-21
+
+### Fixed
+- **Module deck: iframe fills stage on Windows (Chromium)** — **`height:100%` / flex on replaced iframes** often left a large empty band (stage background visible). **`is-module-active`** module iframe now uses **`position: absolute; inset: 0`** inside **`position: relative`** **`.sidebar-media-deck-widget-stage`** (desktop, mobile, short landscape). **`injectDeckModuleRuntime`** adds base **`html, body { height: 100%; … }`** so module documents can fill the frame.
+
+### Tests
+- **`tests/test_frontend_regressions.py`** — absolute/inset module frame + **`data-canopy-module-shell`**.
+
 ## [0.4.130] - 2026-03-21
 
 ### Fixed

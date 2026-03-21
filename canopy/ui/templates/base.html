@@ -934,8 +934,10 @@
             align-items: stretch;
         }
 
-        /* Fill the stage with the module iframe (avoids short iframe + empty band below on Windows / tall min-heights) */
+        /* Fill the stage with the module iframe. Flex + height:100% on iframes is unreliable (Chromium/Edge);
+           absolute inset against a positioned widget-stage matches the screenshot gap fix. */
         .sidebar-media-deck.is-module-active .sidebar-media-deck-widget-stage {
+            position: relative;
             flex: 1 1 auto;
             min-height: 0;
             display: flex;
@@ -950,12 +952,13 @@
 
         .sidebar-media-deck.is-module-active .sidebar-media-deck-widget-frame.sidebar-media-deck-module-frame,
         .sidebar-media-deck.is-module-active .sidebar-media-deck-module-frame {
-            flex: 1 1 auto;
-            min-height: 0 !important;
+            position: absolute !important;
+            inset: 0 !important;
+            flex: none !important;
             width: 100% !important;
             height: 100% !important;
             min-width: 0;
-            align-self: stretch;
+            min-height: 0 !important;
             object-fit: fill;
         }
 
@@ -2130,6 +2133,7 @@
             }
 
             .sidebar-media-deck.is-module-active .sidebar-media-deck-widget-stage {
+                position: relative;
                 flex: 1 1 auto;
                 min-height: 0;
                 display: flex;
@@ -2138,10 +2142,13 @@
             }
 
             .sidebar-media-deck.is-module-active .sidebar-media-deck-module-frame {
-                flex: 1 1 auto;
-                min-height: 0 !important;
+                position: absolute !important;
+                inset: 0 !important;
+                flex: none !important;
+                width: 100% !important;
                 height: 100% !important;
                 min-width: 0;
+                min-height: 0 !important;
                 object-fit: fill;
             }
 
@@ -2256,6 +2263,7 @@
             }
 
             .sidebar-media-deck.is-module-active .sidebar-media-deck-widget-stage {
+                position: relative;
                 flex: 1 1 auto;
                 min-height: 0;
                 display: flex;
@@ -2264,10 +2272,13 @@
             }
 
             .sidebar-media-deck.is-module-active .sidebar-media-deck-module-frame {
-                flex: 1 1 auto;
-                min-height: 0 !important;
+                position: absolute !important;
+                inset: 0 !important;
+                flex: none !important;
+                width: 100% !important;
                 height: 100% !important;
                 min-width: 0;
+                min-height: 0 !important;
                 object-fit: fill;
             }
 

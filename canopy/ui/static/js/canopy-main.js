@@ -7384,11 +7384,17 @@
                 const shellTitle = escapeEmbedHtml((manifest && manifest.title) || 'Canopy Module');
                 const csp = "default-src 'none'; img-src data: blob:; media-src data: blob:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; font-src data:; frame-src 'none'; worker-src 'none'; child-src 'none'; form-action 'none'; base-uri 'none';";
                 const bootstrapTag = `<script>${bootstrapJs.replace(/<\/script/gi, '<\\\\/script')}<\/script>`;
+                /* Let module UIs use height:100% / flex-fill inside the deck iframe (avoids a short document box). */
+                const moduleShellBaseStyle =
+                    '<style data-canopy-module-shell="1">' +
+                    'html,body{min-height:100%;height:100%;margin:0;box-sizing:border-box}' +
+                    '</style>';
                 const headInjection =
                     `<meta charset="utf-8">` +
                     `<meta name="viewport" content="width=device-width, initial-scale=1">` +
                     `<meta http-equiv="Content-Security-Policy" content="${escapeEmbedAttr(csp)}">` +
                     `<title>${shellTitle}</title>` +
+                    moduleShellBaseStyle +
                     bootstrapTag;
                 const rawHtml = String(bundleHtml || '');
                 if (/<head[\s>]/i.test(rawHtml)) {
