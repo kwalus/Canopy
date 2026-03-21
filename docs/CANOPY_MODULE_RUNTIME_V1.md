@@ -139,6 +139,25 @@ Opening the module in the deck gives:
 - audit-visible actions
 - return-to-source behavior consistent with current deck semantics
 
+### Web UI: opening the module from channels, feed, and DMs (implementation — v0.4.126+)
+
+The **Open module** control must bind to the **module attachment card**, not an arbitrary ancestor that happens to carry `data-canopy-widget-manifest` (e.g. another embed with an empty or invalid manifest).
+
+| Mechanism | Purpose |
+|-----------|---------|
+| **`data-canopy-module-card="1"`** | Markup on the module card root (`channels.html` `displayAttachments`, `feed.html`, `_messages_macros.html`). **`resolveCanopyModuleDeckManifestHost(node)`** in `canopy-main.js` prefers this node. |
+| **`data-canopy-widget-manifest`** | JSON string (HTML-escaped) of the sanitized deck widget manifest; **`parseDeckWidgetManifest`** runs **`JSON.parse` + `sanitizeDeckWidgetManifest`**. |
+| **`data-canopy-module-bundle-id` / `data-canopy-module-bundle-name`** | Stable file id and filename when the inline JSON fails; enables **`buildCanopyModuleSurfaceManifestFromBundleId` + `sanitizeDeckWidgetManifest`** rebuild. |
+| **`extractCanopyModuleBundleFileIdFromHost`** | Fallback: read same-origin **`a[href*="/files/"]`** on the card (e.g. **Download**) to recover the id. |
+| **`openMediaDeckForManifestNode(this)`** | Button passes **`this`**; do **not** use `this.closest('[data-canopy-widget-manifest]')` alone — it can match the wrong element. |
+
+Server / sanitizer notes:
+
+- **`sanitizeDeckModuleBundleUrl`** allows percent-encoded **`/files/<id>`** segments on the current origin; **`normalizeDeckModuleRuntime`** must not use **`normalizeDeckWidgetText`** on opaque **`bundle_file_id`** (use trim + length cap only).
+- Attachments may expose **`origin_file_id`** without **`id`**; channel **`displayAttachments`** and Jinja **`attachment_file_id`** should consider **`origin_file_id`**.
+
+Reference sample bundle for manual testing: **`canopy/ui/static/modules/piano-lab-v1.canopy-module.html`**.
+
 ### Station surface
 A recurring channel or station can pin or reuse the same module with different state.
 

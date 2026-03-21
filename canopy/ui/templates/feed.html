@@ -631,7 +631,7 @@
                                                 'large_attachment': true,
                                                 'storage_mode': attachment.storage_mode or 'remote_large'
                                             } %}
-                                            {% set attachment_file_id = attachment.id or attachment.file_id or ((attachment.url.split('/files/')[1].split('/')[0]) if attachment.url and '/files/' in attachment.url else None) %}
+                                            {% set attachment_file_id = attachment.id or attachment.file_id or attachment.origin_file_id or ((attachment.url.split('/files/')[1].split('/')[0]) if attachment.url and '/files/' in attachment.url else None) %}
                                             {% set lower_name = (attachment.name or '')|lower %}
                                             {% set is_module = (attachment.type or '') == 'text/html' and (lower_name.endswith('.canopy-module.html') or lower_name.endswith('.canopy-module.htm')) %}
                                             {% set spreadsheet_preview = lower_name.endswith('.csv') or lower_name.endswith('.tsv') or lower_name.endswith('.xlsx') or lower_name.endswith('.xlsm') %}
@@ -685,7 +685,7 @@
                                                 }
                                             } %}
                                             {% if is_module %}
-                                            <div class="attachment-item mb-2 p-3 border rounded" data-canopy-widget-manifest="{{ module_manifest|tojson|forceescape }}">
+                                            <div class="attachment-item mb-2 p-3 border rounded" data-canopy-module-card="1" data-canopy-widget-manifest="{{ module_manifest|tojson|forceescape }}" data-canopy-widget-key="{{ module_manifest.key|e }}"{% if attachment_file_id %} data-canopy-module-bundle-id="{{ attachment_file_id|e }}" data-canopy-module-bundle-name="{{ (attachment.name or '')|e }}"{% endif %}>
                                                 <div class="d-flex align-items-start justify-content-between gap-3 flex-wrap">
                                                     <div>
                                                         <div class="fw-semibold"><i class="bi bi-box-fill me-2"></i>{{ module_title }}</div>
@@ -703,7 +703,7 @@
                                                     <div class="stream-card-actions">
                                                         <button type="button"
                                                                 class="btn btn-sm btn-outline-success"
-                                                                onclick="openMediaDeckForManifestNode(this.closest('[data-canopy-widget-manifest]'))">
+                                                                onclick="openMediaDeckForManifestNode(this)">
                                                             <i class="bi bi-grid-1x2"></i> Open module
                                                         </button>
                                                         {% if attachment.url %}

@@ -8,6 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.126] - 2026-02-27
+
+### Fixed
+- **Module card “Open module” silent failure / wrong deck item** — Module attachment roots now carry **`data-canopy-module-bundle-id`** (and name) whenever a file id is known. **`openMediaDeckForManifestNode(this)`** resolves that host and, if inline JSON fails to parse/sanitize, rebuilds the manifest from the bundle id so the deck opens on the **module** (not only when a YouTube embed is also present). User-visible **`showAlert`** when metadata is still unusable.
+- **“Metadata incomplete or invalid” follow-up** — **`sanitizeDeckModuleBundleUrl`** accepts percent-encoded same-origin **`/files/<id>`** paths (no traversal). **`normalizeDeckModuleRuntime`** uses trim-only **`bundle_file_id`** and **`encodeURIComponent`** on the fallback **`/files/…`** path. Channel/feed/DM **`file_id`** resolution includes **`origin_file_id`**. **`extractDeckModuleBundleFileIdFromManifestAttr`** scrapes **`bundle_file_id` / `bundle_url`** from a broken manifest attribute when needed.
+- **Open module matched wrong DOM node** — Module cards use **`data-canopy-module-card="1"`**. **`resolveCanopyModuleDeckManifestHost`** prefers that root so **`closest('[data-canopy-widget-manifest]')` no longer stops on an unrelated ancestor** (e.g. empty/broken manifest). **`extractCanopyModuleBundleFileIdFromHost`** reads the file id from same-origin **`/files/…`** links on the card (e.g. **Download**) when data attributes fail. Clear alert if the source message/post container cannot be resolved.
+
+### Documentation
+- **`docs/CANOPY_MODULE_RUNTIME_V1.md`** — Web UI deck-open path: data attributes and JS helpers used by channels, feed, and DMs.
+
+### Tests
+- **`tests/test_frontend_regressions.py`** — `resolveCanopyModuleDeckManifestHost`, `extractCanopyModuleBundleFileIdFromHost`, `data-canopy-module-card`, bundle attrs, `openMediaDeckForManifestNode(this)` wiring.
+
 ## [0.4.125] - 2026-02-27
 
 ### Fixed

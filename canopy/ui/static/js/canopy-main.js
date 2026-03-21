@@ -1685,16 +1685,31 @@
             if (protocol !== 'https:' && protocol !== 'http:') return '';
             if (String(urlObj.origin || '') !== String(window.location.origin || '')) return '';
             const path = String(urlObj.pathname || '');
-            if (!/^\/(?:files\/[A-Za-z0-9_-]+|static\/modules\/[A-Za-z0-9._-]+)$/.test(path)) return '';
-            return `${path}${urlObj.search || ''}${urlObj.hash || ''}`;
+            if (/^\/static\/modules\/[A-Za-z0-9._-]+$/.test(path)) {
+                return `${path}${urlObj.search || ''}${urlObj.hash || ''}`;
+            }
+            const filesMatch = path.match(/^\/files\/([^/?#]+)$/);
+            if (!filesMatch) return '';
+            const encSeg = filesMatch[1];
+            if (encSeg.includes('/') || /%(?:2f|5c)/i.test(encSeg)) return '';
+            let decoded;
+            try {
+                decoded = decodeURIComponent(encSeg);
+            } catch (_) {
+                return '';
+            }
+            if (!decoded || decoded.includes('/') || decoded.includes('\\') || decoded === '.' || decoded === '..') return '';
+            if (!/^[A-Za-z0-9_.-]+$/.test(decoded)) return '';
+            return `/files/${encodeURIComponent(decoded)}${urlObj.search || ''}${urlObj.hash || ''}`;
         }
 
         function normalizeDeckModuleRuntime(rawRuntime, title) {
             if (!rawRuntime || typeof rawRuntime !== 'object') return null;
             const format = String(rawRuntime.format || 'single_html').trim().toLowerCase();
             if (!CANOPY_MODULE_BUNDLE_FORMATS.has(format)) return null;
-            const bundleFileId = normalizeDeckWidgetText(rawRuntime.bundle_file_id || rawRuntime.file_id, 120);
-            const fallbackBundleUrl = bundleFileId ? `/files/${bundleFileId}` : '';
+            const rawBundleId = rawRuntime.bundle_file_id != null ? rawRuntime.bundle_file_id : rawRuntime.file_id;
+            const bundleFileId = String(rawBundleId == null ? '' : rawBundleId).trim().slice(0, 120);
+            const fallbackBundleUrl = bundleFileId ? `/files/${encodeURIComponent(bundleFileId)}` : '';
             const primaryBundleUrl = sanitizeDeckModuleBundleUrl(rawRuntime.bundle_url || '');
             const bundleUrl = primaryBundleUrl || sanitizeDeckModuleBundleUrl(fallbackBundleUrl);
             if (!bundleUrl) return null;
@@ -1974,6 +1989,148 @@
             } catch (_) {
                 return null;
             }
+        }
+
+        /**
+         * Human-readable title from a .canopy-module.html filename (matches channel attachment card builder).
+         */
+        function humanizeCanopyModuleBundleTitle(rawName) {
+            const raw = String(rawName || 'canopy-module').replace(/\.canopy-module\.html?$/i, '');
+            const spaced = raw
+                .replace(/[-_]+/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+            if (!spaced) return 'Canopy Module';
+            return spaced.replace(/\b\w/g, (ch) => ch.toUpperCase());
+        }
+
+        /**
+         * Build a module_surface manifest object (before sanitization) from bundle file id and filename.
+         * Used when the inline JSON attribute is missing or fails to parse/sanitize.
+         */
+        function buildCanopyModuleSurfaceManifestFromBundleId(fileId, rawFileName) {
+            const fid = String(fileId || '').trim();
+            if (!fid) return null;
+            const bundleUrl = `/files/${encodeURIComponent(fid)}`;
+            const title = humanizeCanopyModuleBundleTitle(rawFileName);
+            const safeName = String(rawFileName || 'module bundle').trim().slice(0, 200) || 'module bundle';
+            return {
+                version: 1,
+                key: `module:${fid}`,
+                widget_type: 'module_surface',
+                render_mode: 'module_runtime',
+                title,
+                subtitle: 'Safe executable lesson or station logic bound to this source.',
+                provider_label: 'Canopy Module',
+                icon: 'bi-box-fill',
+                body_text: 'Single-file module bundle executed inside the Canopy Module Runtime.',
+                badges: ['Module', 'Sandboxed', 'Source-bound'],
+                details: [
+                    { label: 'File', value: safeName },
+                    { label: 'Format', value: 'Single HTML bundle' },
+                ],
+                station_surface: {
+                    kind: 'station_surface',
+                    domain: 'education',
+                    label: `${title} Surface`,
+                    summary: 'Executable lesson or station logic remains bound to this source while capabilities stay brokered.',
+                    recurring: false,
+                    scope: 'source',
+                },
+                action_policy: {
+                    bounded: true,
+                    max_risk: 'view',
+                    human_gate: 'none',
+                    audit_label: 'Bounded runtime',
+                },
+                source_binding: {
+                    binding_type: 'message_attachment',
+                    source_scope: 'source',
+                    return_label: 'Return to source',
+                },
+                module_runtime: {
+                    format: 'single_html',
+                    bundle_file_id: fid,
+                    bundle_url: bundleUrl,
+                    module_type: title,
+                    runtime_label: 'Canopy Module',
+                    capabilities: {
+                        required: ['source.read', 'deck.return'],
+                        optional: ['clipboard.write', 'module.storage.local'],
+                    },
+                },
+            };
+        }
+
+        /**
+         * When JSON.parse/sanitize fails on data-canopy-widget-manifest, recover bundle file id from the raw string.
+         */
+        function extractDeckModuleBundleFileIdFromManifestAttr(raw) {
+            if (!raw || typeof raw !== 'string') return '';
+            const idMatch = raw.match(/"bundle_file_id"\s*:\s*"([^"]+)"/);
+            if (idMatch && idMatch[1]) {
+                const id = String(idMatch[1]).trim();
+                if (id && /^[A-Za-z0-9_.-]+$/.test(id)) return id;
+            }
+            const urlMatch = raw.match(/"bundle_url"\s*:\s*"(\/files\/[^"]+)"/);
+            if (urlMatch && urlMatch[1]) {
+                try {
+                    const u = new URL(urlMatch[1], window.location.origin);
+                    const m = String(u.pathname || '').match(/^\/files\/([^/]+)$/);
+                    if (!m || !m[1]) return '';
+                    const seg = decodeURIComponent(m[1]);
+                    if (seg && /^[A-Za-z0-9_.-]+$/.test(seg)) return seg;
+                } catch (_) {
+                    return '';
+                }
+            }
+            return '';
+        }
+
+        /**
+         * DOM root for module deck open — prefer explicit marker so we never match an unrelated ancestor
+         * that has an empty or invalid data-canopy-widget-manifest (e.g. another embed).
+         */
+        function resolveCanopyModuleDeckManifestHost(node) {
+            if (!(node instanceof Element)) return null;
+            const marked = node.closest('[data-canopy-module-card]');
+            if (marked) return marked;
+            const feedAtt = node.closest(
+                '.attachment-item[data-canopy-widget-manifest], .attachment-item[data-canopy-module-bundle-id]'
+            );
+            if (feedAtt) return feedAtt;
+            const dmCard = node.closest(
+                '.dm-attachment-card[data-canopy-widget-manifest], .dm-attachment-card[data-canopy-module-bundle-id]'
+            );
+            if (dmCard) return dmCard;
+            return node.closest('[data-canopy-widget-manifest],[data-canopy-module-bundle-id]');
+        }
+
+        /**
+         * Bundle file id: data-canopy-module-bundle-id, scrape manifest attr, or any same-origin /files/<id> link on the card (Download).
+         */
+        function extractCanopyModuleBundleFileIdFromHost(host) {
+            if (!host || !host.getAttribute) return '';
+            let fid = String(host.getAttribute('data-canopy-module-bundle-id') || '').trim();
+            if (fid) return fid;
+            fid = extractDeckModuleBundleFileIdFromManifestAttr(host.getAttribute('data-canopy-widget-manifest') || '');
+            if (fid) return fid;
+            if (host.querySelectorAll) {
+                const links = host.querySelectorAll('a[href*="/files/"]');
+                for (let i = 0; i < links.length; i++) {
+                    try {
+                        const u = new URL(links[i].href, window.location.origin);
+                        if (String(u.origin || '') !== String(window.location.origin || '')) continue;
+                        const m = String(u.pathname || '').match(/^\/files\/([^/]+)$/);
+                        if (!m || !m[1]) continue;
+                        const id = decodeURIComponent(m[1]);
+                        if (id && /^[A-Za-z0-9_.-]+$/.test(id)) return id;
+                    } catch (_) {
+                        /* ignore */
+                    }
+                }
+            }
+            return '';
         }
 
         function trimEmbedUrlTrailingPunctuation(rawUrl) {
@@ -6445,18 +6602,44 @@
             }
 
             function openMediaDeckForManifestNode(node) {
-                const manifestNode = node instanceof Element
-                    ? node.closest('[data-canopy-widget-manifest]')
-                    : null;
-                if (!manifestNode) return false;
-                const manifest = parseDeckWidgetManifest(manifestNode);
-                const sourceEl = deckItemSourceEl({ el: manifestNode }) || sourceContainer(manifestNode);
-                if (!sourceEl || !sourceEl.isConnected) return false;
-                const explicitItem = manifest ? buildDeckWidgetItem(manifestNode, manifest, sourceEl) : null;
+                if (!(node instanceof Element)) return false;
+                const manifestHost = resolveCanopyModuleDeckManifestHost(node);
+                if (!manifestHost || !manifestHost.isConnected) return false;
+                let manifest = parseDeckWidgetManifest(manifestHost);
+                if (!manifest) {
+                    const fid = extractCanopyModuleBundleFileIdFromHost(manifestHost);
+                    if (fid) {
+                        let rawName = manifestHost.getAttribute('data-canopy-module-bundle-name') || '';
+                        if (!rawName) {
+                            const titleEl = manifestHost.querySelector('.stream-card-title, .fw-semibold');
+                            if (titleEl && titleEl.textContent) rawName = titleEl.textContent.trim();
+                        }
+                        const rawBuilt = buildCanopyModuleSurfaceManifestFromBundleId(fid, rawName);
+                        manifest = rawBuilt ? sanitizeDeckWidgetManifest(rawBuilt) : null;
+                    }
+                }
+                if (!manifest) {
+                    if (typeof showAlert === 'function') {
+                        showAlert('Could not open module — attachment metadata is incomplete or invalid.', 'warning');
+                    }
+                    return false;
+                }
+                const sourceEl = deckItemSourceEl({ el: manifestHost }) || sourceContainer(manifestHost);
+                if (!sourceEl || !sourceEl.isConnected) {
+                    if (typeof showAlert === 'function') {
+                        showAlert('Could not open module — source message/post container was not found.', 'warning');
+                    }
+                    return false;
+                }
+                const explicitItem = buildDeckWidgetItem(manifestHost, manifest, sourceEl);
+                if (!explicitItem) {
+                    if (typeof showAlert === 'function') {
+                        showAlert('Could not open module — deck item could not be built.', 'warning');
+                    }
+                    return false;
+                }
                 openMediaDeckForSource(sourceEl, {
-                    preferredKey: manifest && manifest.key
-                        ? manifest.key
-                        : String(manifestNode.getAttribute('data-canopy-widget-key') || '').trim(),
+                    preferredKey: manifest.key || String(manifestHost.getAttribute('data-canopy-widget-key') || '').trim(),
                     explicitItem,
                 });
                 return true;

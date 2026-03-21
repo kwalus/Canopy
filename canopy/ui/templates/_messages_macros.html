@@ -66,7 +66,7 @@
 {%- endmacro %}
 
 {% macro render_dm_attachment(attachment, message_id, idx) -%}
-    {% set attachment_file_id = attachment.id or attachment.file_id or ((attachment.url.split('/files/')[1].split('/')[0]) if attachment.url and '/files/' in attachment.url else None) %}
+    {% set attachment_file_id = attachment.id or attachment.file_id or attachment.origin_file_id or ((attachment.url.split('/files/')[1].split('/')[0]) if attachment.url and '/files/' in attachment.url else None) %}
     {% set remote_large = attachment.large_attachment or attachment.storage_mode == 'remote_large' %}
     {% set remote_payload = {
         'origin_file_id': attachment.origin_file_id or attachment.id or attachment.file_id,
@@ -179,7 +179,7 @@
             {% endif %}
         </div>
     {% elif is_module %}
-        <div class="dm-attachment dm-attachment-card" data-canopy-widget-manifest="{{ module_manifest|tojson|forceescape }}">
+        <div class="dm-attachment dm-attachment-card" data-canopy-module-card="1" data-canopy-widget-manifest="{{ module_manifest|tojson|forceescape }}" data-canopy-widget-key="{{ module_manifest.key|e }}"{% if attachment_file_id %} data-canopy-module-bundle-id="{{ attachment_file_id|e }}" data-canopy-module-bundle-name="{{ (attachment.name or '')|e }}"{% endif %}>
             <div class="d-flex align-items-start justify-content-between gap-3 flex-wrap">
                 <div>
                     <div class="fw-semibold"><i class="bi bi-box-fill me-2"></i>{{ module_title }}</div>
@@ -199,7 +199,7 @@
                 <div class="dm-attachment-actions">
                     <button type="button"
                             class="btn btn-sm btn-outline-success"
-                            onclick="openMediaDeckForManifestNode(this.closest('[data-canopy-widget-manifest]'))">
+                            onclick="openMediaDeckForManifestNode(this)">
                         <i class="bi bi-grid-1x2"></i>
                         Open module
                     </button>

@@ -9270,8 +9270,23 @@ function displayAttachments(attachments) {
             .replace(/\b\w/g, (ch) => ch.toUpperCase()) || 'Canopy Module';
     };
 
+    const fileIdFromAttachmentUrl = (att) => {
+        const raw = String((att && att.url) || '').trim();
+        if (!raw || raw.indexOf('/files/') === -1) return '';
+        try {
+            const path = raw.split(/[?#]/)[0];
+            const idx = path.indexOf('/files/');
+            if (idx < 0) return '';
+            const rest = path.slice(idx + '/files/'.length);
+            const seg = rest.split('/').filter(Boolean)[0] || '';
+            return String(seg).trim();
+        } catch (_) {
+            return '';
+        }
+    };
+
     const buildModuleAttachmentManifest = (att) => {
-        const fileId = String((att && (att.id || att.file_id)) || '').trim();
+        const fileId = String((att && (att.id || att.file_id || att.origin_file_id)) || fileIdFromAttachmentUrl(att) || '').trim();
         const bundleUrl = fileId ? `/files/${encodeURIComponent(fileId)}` : '';
         if (!bundleUrl) return null;
         const title = humanizeModuleTitle(att);
@@ -9504,13 +9519,16 @@ function displayAttachments(attachments) {
     });
 
     moduleBundles.forEach((att, idx) => {
+        const fileId = String((att && (att.id || att.file_id || att.origin_file_id)) || fileIdFromAttachmentUrl(att) || '').trim();
         const manifest = buildModuleAttachmentManifest(att);
         const manifestAttr = manifest ? _escapeAttr(JSON.stringify(manifest)) : '';
+        const manifestKeyAttr = manifest && manifest.key ? ` data-canopy-widget-key="${_escapeAttr(manifest.key)}"` : '';
+        const bundleIdAttr = fileId ? ` data-canopy-module-bundle-id="${_escapeAttr(fileId)}" data-canopy-module-bundle-name="${_escapeAttr(att.name || '')}"` : '';
         const safeName = _escapeHtml(att.name || 'module bundle');
         const safeTitle = _escapeHtml(humanizeModuleTitle(att));
         const escapedUrl = att.url ? String(att.url).replace(/"/g, '&quot;') : '';
         html += `
-            <div class="attachment-item stream-card mb-2 p-3 rounded"${manifestAttr ? ` data-canopy-widget-manifest="${manifestAttr}"` : ''}>
+            <div class="attachment-item stream-card mb-2 p-3 rounded" data-canopy-module-card="1"${manifestAttr ? ` data-canopy-widget-manifest="${manifestAttr}"` : ''}${manifestKeyAttr}${bundleIdAttr}>
                 <div class="stream-card-header">
                     <div class="stream-card-identity">
                         <div class="stream-card-icon">
@@ -9531,7 +9549,7 @@ function displayAttachments(attachments) {
                 <div class="d-flex align-items-center justify-content-between mt-3 gap-2 flex-wrap">
                     <span class="small text-muted">${safeName}</span>
                     <div class="stream-card-actions">
-                        <button type="button" class="btn btn-sm btn-outline-success" onclick="openMediaDeckForManifestNode(this.closest('[data-canopy-widget-manifest]'))">
+                        <button type="button" class="btn btn-sm btn-outline-success" onclick="openMediaDeckForManifestNode(this)">
                             <i class="bi bi-grid-1x2"></i> Open module
                         </button>
                         ${escapedUrl ? `<a href="${escapedUrl}" class="btn btn-sm btn-outline-primary" download="${safeName}"><i class="bi bi-download"></i> Download</a>` : ''}
