@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.130] - 2026-03-21
+
+### Fixed
+- **Module deck: stage fills available pane (Windows)** — Replaces the fixed **`vh` height clamp** on **`is-module-active`** (which capped the stage and made the module look smaller). **`sidebar-media-deck-scroll`** and **`stage-shell`** use a column **flex** chain so the stage **grows with the deck**; **`is-module-active`** shell **`max-height`** aligned with the taller deck cap; **`object-fit: fill !important`** on the module **iframe** so it overrides the global stage **`object-fit: cover`**.
+
+### Tests
+- **`tests/test_frontend_regressions.py`** — **`is-module-active`** **`stage-shell`** / **`scroll`** layout rules.
+
 ## [0.4.129] - 2026-02-27
 
 ### Fixed

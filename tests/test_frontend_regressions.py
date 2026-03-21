@@ -246,6 +246,14 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn(".sidebar-media-deck-station-summary", base_template)
         self.assertIn(".sidebar-media-deck-widget-summary", base_template)
         self.assertIn(".sidebar-media-deck.is-module-active .sidebar-media-deck-stage {", base_template)
+        self.assertIn(
+            ".sidebar-media-deck.is-module-active .sidebar-media-deck-stage-shell {",
+            base_template,
+        )
+        self.assertIn(
+            ".sidebar-media-deck.is-module-active .sidebar-media-deck-scroll {",
+            base_template,
+        )
         self.assertIn(".sidebar-media-deck-detail.is-collapsed", base_template)
         self.assertIn(".sidebar-media-deck-queue-shell.is-collapsed .sidebar-media-deck-queue", base_template)
         self.assertIn("function buildSourceDeckItems(sourceEl, activeEl) {", main_js)

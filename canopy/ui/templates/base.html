@@ -905,15 +905,30 @@
         }
 
         .sidebar-media-deck.is-module-active {
-            max-height: min(88vh, 960px);
+            max-height: min(92vh, 1020px);
+        }
+
+        .sidebar-media-deck.is-module-active .sidebar-media-deck-shell {
+            max-height: min(92vh, 1020px);
+        }
+
+        /* Give the module stage all remaining vertical space in the scroll region (avoids a short fixed vh box). */
+        .sidebar-media-deck.is-module-active .sidebar-media-deck-scroll {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sidebar-media-deck.is-module-active .sidebar-media-deck-stage-shell {
+            flex: 1 1 auto;
+            min-height: clamp(260px, 34vh, 560px);
+            display: flex;
+            flex-direction: column;
         }
 
         .sidebar-media-deck.is-module-active .sidebar-media-deck-stage {
             aspect-ratio: auto;
-            /* Definite height so module iframe `height:100%` resolves (Windows / Chromium). */
-            height: clamp(420px, 58vh, 760px);
-            min-height: clamp(420px, 58vh, 760px);
-            max-height: clamp(420px, 58vh, 760px);
+            flex: 1 1 auto;
+            min-height: 0;
             display: flex;
             flex-direction: column;
             align-items: stretch;
@@ -939,8 +954,14 @@
             min-height: 0 !important;
             width: 100% !important;
             height: 100% !important;
+            min-width: 0;
             align-self: stretch;
             object-fit: fill;
+        }
+
+        /* srcdoc module iframes: cover letterboxes the replaced content; fill uses the full frame box. */
+        .sidebar-media-deck.is-module-active .sidebar-media-deck-stage iframe.sidebar-media-deck-module-frame {
+            object-fit: fill !important;
         }
 
         /* Keep queue header + Show list in view when scrolling a tall module stage */
@@ -2087,10 +2108,22 @@
                 border-radius: 18px;
             }
 
+            .sidebar-media-deck.is-module-active .sidebar-media-deck-scroll {
+                display: flex;
+                flex-direction: column;
+            }
+
+            .sidebar-media-deck.is-module-active .sidebar-media-deck-stage-shell {
+                flex: 1 1 auto;
+                min-height: clamp(220px, 40dvh, 520px);
+                display: flex;
+                flex-direction: column;
+            }
+
             .sidebar-media-deck.is-module-active .sidebar-media-deck-stage {
                 max-height: none;
-                height: clamp(320px, 52dvh, 620px);
-                min-height: clamp(320px, 52dvh, 620px);
+                flex: 1 1 auto;
+                min-height: 0;
                 display: flex;
                 flex-direction: column;
                 align-items: stretch;
@@ -2108,7 +2141,12 @@
                 flex: 1 1 auto;
                 min-height: 0 !important;
                 height: 100% !important;
+                min-width: 0;
                 object-fit: fill;
+            }
+
+            .sidebar-media-deck.is-module-active .sidebar-media-deck-stage iframe.sidebar-media-deck-module-frame {
+                object-fit: fill !important;
             }
 
             .sidebar-media-deck-stage-shell {
@@ -2197,10 +2235,21 @@
                 max-height: 42vh;
             }
 
+            .sidebar-media-deck.is-module-active .sidebar-media-deck-scroll {
+                display: flex;
+                flex-direction: column;
+            }
+
+            .sidebar-media-deck.is-module-active .sidebar-media-deck-stage-shell {
+                flex: 1 1 auto;
+                min-height: clamp(180px, 42vh, 480px);
+                display: flex;
+                flex-direction: column;
+            }
+
             .sidebar-media-deck.is-module-active .sidebar-media-deck-stage {
-                max-height: min(72vh, 680px);
-                height: clamp(220px, 50vh, min(72vh, 680px));
-                min-height: clamp(200px, 48vh, 560px);
+                flex: 1 1 auto;
+                min-height: 0;
                 display: flex;
                 flex-direction: column;
                 align-items: stretch;
@@ -2218,7 +2267,12 @@
                 flex: 1 1 auto;
                 min-height: 0 !important;
                 height: 100% !important;
+                min-width: 0;
                 object-fit: fill;
+            }
+
+            .sidebar-media-deck.is-module-active .sidebar-media-deck-stage iframe.sidebar-media-deck-module-frame {
+                object-fit: fill !important;
             }
 
             .sidebar-media-deck-item {
