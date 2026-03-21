@@ -197,6 +197,12 @@
                     <small>{{ attachment.name }}</small>
                 </div>
                 <div class="dm-attachment-actions">
+                    <button type="button"
+                            class="btn btn-sm btn-outline-success"
+                            onclick="openMediaDeckForManifestNode(this.closest('[data-canopy-widget-manifest]'))">
+                        <i class="bi bi-grid-1x2"></i>
+                        Open module
+                    </button>
                     {% if attachment.url %}
                         <a href="{{ attachment.url }}" class="btn btn-sm btn-outline-primary" download="{{ attachment.name }}">
                             <i class="bi bi-download"></i>

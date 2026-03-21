@@ -701,6 +701,11 @@
                                                 <div class="d-flex align-items-center justify-content-between mt-3 gap-2 flex-wrap">
                                                     <span class="small text-muted">{{ attachment.name }}</span>
                                                     <div class="stream-card-actions">
+                                                        <button type="button"
+                                                                class="btn btn-sm btn-outline-success"
+                                                                onclick="openMediaDeckForManifestNode(this.closest('[data-canopy-widget-manifest]'))">
+                                                            <i class="bi bi-grid-1x2"></i> Open module
+                                                        </button>
                                                         {% if attachment.url %}
                                                         <a href="{{ attachment.url }}" class="btn btn-sm btn-outline-primary" download="{{ attachment.name }}">
                                                             <i class="bi bi-download"></i> Download

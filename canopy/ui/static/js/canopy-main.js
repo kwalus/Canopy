@@ -6391,10 +6391,16 @@
                 });
             }
 
-            function openMediaDeckForSource(sourceEl) {
+            function openMediaDeckForSource(sourceEl, options = {}) {
                 if (!sourceEl || !sourceEl.isConnected) return;
                 const items = getSourceDeckItems(sourceEl);
-                const preferred = getPreferredDeckItemForSource(sourceEl, items);
+                const preferredKey = String(options.preferredKey || '').trim();
+                let preferred = preferredKey
+                    ? items.find((item) => String(item.key || '').trim() === preferredKey)
+                    : null;
+                if (!preferred) {
+                    preferred = getPreferredDeckItemForSource(sourceEl, items);
+                }
                 if (!preferred) return;
                 state.deckItems = items;
                 state.deckQueueSignature = '';
@@ -6407,6 +6413,20 @@
                 selectDeckItem(preferred, { play: false });
                 updateSourceDeckLauncherActiveStates();
                 scheduleMiniUpdate(20);
+            }
+
+            function openMediaDeckForManifestNode(node) {
+                const manifestNode = node instanceof Element
+                    ? node.closest('[data-canopy-widget-manifest]')
+                    : null;
+                if (!manifestNode) return false;
+                const manifest = parseDeckWidgetManifest(manifestNode);
+                const sourceEl = deckItemSourceEl({ el: manifestNode }) || sourceContainer(manifestNode);
+                if (!sourceEl || !sourceEl.isConnected) return false;
+                openMediaDeckForSource(sourceEl, {
+                    preferredKey: manifest && manifest.key ? manifest.key : '',
+                });
+                return true;
             }
 
             /** Open the sidebar mini player for this post/message (no deck); keeps YouTube as facade until Play. */
@@ -8277,6 +8297,10 @@
                     applyFocusFlash(target);
                 }
                 hideMini();
+            }
+
+            if (typeof window !== 'undefined') {
+                window.openMediaDeckForManifestNode = openMediaDeckForManifestNode;
             }
 
             if (playBtn) {

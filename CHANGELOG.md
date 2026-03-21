@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.123] - 2026-02-27
+
+### Added
+- **`openMediaDeckForManifestNode(node)`** — Resolves a widget manifest node, finds its source, opens the media deck with **`preferredKey`** set to that manifest’s **`key`** so the correct module item is selected (not a generic source default).
+
+### Changed
+- **Module attachment cards** (channels, feed, DMs) — Primary **Open module** button on the card; optional **Download** when a file URL exists. Removes passive “use the deck launcher” style copy so single-module posts have a direct affordance. Source-level **Deck | Mini** launcher unchanged for mixed-media sources.
+
+### Tests
+- **`tests/test_frontend_regressions.py`** — Assertions for `openMediaDeckForManifestNode`, `window` export, and template `onclick` wiring across channels, feed, and DM macros.
+
 ## [0.4.122] - 2026-02-27
 
 ### Added

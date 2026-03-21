@@ -9531,7 +9531,9 @@ function displayAttachments(attachments) {
                 <div class="d-flex align-items-center justify-content-between mt-3 gap-2 flex-wrap">
                     <span class="small text-muted">${safeName}</span>
                     <div class="stream-card-actions">
-                        <span class="small text-muted">Open with the deck launcher on this source</span>
+                        <button type="button" class="btn btn-sm btn-outline-success" onclick="openMediaDeckForManifestNode(this.closest('[data-canopy-widget-manifest]'))">
+                            <i class="bi bi-grid-1x2"></i> Open module
+                        </button>
                         ${escapedUrl ? `<a href="${escapedUrl}" class="btn btn-sm btn-outline-primary" download="${safeName}"><i class="bi bi-download"></i> Download</a>` : ''}
                     </div>
                 </div>

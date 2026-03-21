@@ -272,7 +272,7 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("touch-action: manipulation", base_template)
         self.assertIn("const mqCoarseOrNarrow = window.matchMedia('(max-width: 640px), (pointer: coarse)');", main_js)
         self.assertIn("function resolveSourceMediaDeckLauncherHost(sourceEl) {", main_js)
-        self.assertIn("function openMediaDeckForSource(sourceEl) {", main_js)
+        self.assertIn("function openMediaDeckForSource(sourceEl, options = {}) {", main_js)
         self.assertIn("function syncSourceMediaDeckLauncher(sourceEl) {", main_js)
         self.assertIn("function syncSourceMediaDeckLaunchersInScope(scope) {", main_js)
         self.assertIn("btnDeck.setAttribute('data-open-media-deck', '1');", main_js)
@@ -460,6 +460,12 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("function canopyIsModuleBundle(filename, contentType) {", main_js)
         self.assertIn("if (canopyIsModuleBundle(filename, contentType)) return false;", main_js)
         self.assertIn("window.canopyIsModuleBundle = canopyIsModuleBundle;", main_js)
+        self.assertIn("function openMediaDeckForManifestNode(node) {", main_js)
+        self.assertIn("window.openMediaDeckForManifestNode = openMediaDeckForManifestNode;", main_js)
+        self.assertIn("Open module", channels_template)
+        self.assertIn("openMediaDeckForManifestNode(this.closest('[data-canopy-widget-manifest]'))", channels_template)
+        self.assertIn("openMediaDeckForManifestNode(this.closest('[data-canopy-widget-manifest]'))", feed_template)
+        self.assertIn("openMediaDeckForManifestNode(this.closest('[data-canopy-widget-manifest]'))", dm_macros)
 
     def test_deck_widget_actions_are_policy_gated_and_source_binding_updates_return_label(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
