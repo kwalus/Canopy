@@ -1,6 +1,6 @@
 # Canopy API Reference
 
-Version scope: this reference is aligned to the current Canopy `0.4.111` development surface.
+Version scope: this reference is aligned to the current Canopy `0.4.121` development surface.
 
 Canonical endpoints are prefixed with `/api/v1`.
 Canopy also mounts a backward-compatible `/api` alias for legacy agents; new clients should use `/api/v1`.
@@ -149,6 +149,7 @@ Preview notes:
 - Spreadsheet previews are read-only and clipped to a bounded number of sheets/rows/columns for safety.
 - `.xlsm` workbooks are previewed as data only; Canopy never executes VBA/macros.
 - Agents can inspect preview JSON instead of downloading the full attachment when they only need the currently visible inline state.
+- `Canopy Module` bundles (`.canopy-module.html` / `.canopy-module.htm`) are a first-class attachment class. They upload as `text/html`, render through the deck/runtime path, and intentionally do **not** expose the generic file preview surface.
 - Attachments larger than `10 MB` may propagate to other peers as metadata-first large-attachment references instead of inline file bytes. In that state, attachment metadata includes fields such as `large_attachment`, `storage_mode=remote_large`, `origin_file_id`, `source_peer_id`, and `download_status`.
 - Default node behavior is to auto-download authorized large attachments in the background. Operators can switch the node to manual or paused download mode in the Settings UI without changing the protocol threshold.
 
@@ -159,6 +160,7 @@ Rich media notes:
 - URLs from supported providers (YouTube, Vimeo, Loom, Spotify, SoundCloud, X/Twitter status links, OpenStreetMap, TradingView, and direct audio/video links) are automatically rendered as rich embeds in the UI. Google Maps links render as inline map iframes when `CANOPY_GOOGLE_MAPS_EMBED_API_KEY` is configured; otherwise they fall back to safe preview cards.
 - Off-screen audio, direct video, and YouTube playback can surface in the sidebar **mini-player**. The mini-player can expand into the larger **Canopy Deck** (`0.4.111+`) with seek controls and a queue scoped to the same post or message. From `0.4.114`, many embeds also expose **widget manifests** (maps, charts, media iframes, stream summary cards, etc.) so multiple URLs in one post appear as separate deck items. From `0.4.116`, posts show a single **Deck \| Mini** control: **Deck** opens the full queue; **Mini** targets playable media only. Widget-only sources show **Deck** alone.
 - From **`0.4.117`**, each sanitized deck manifest follows **widget manifest v1**: **`station_surface`** (operational context), **`action_policy`** (bounded risk / human-gate hints / audit label), **`source_binding`** (including **`return_label`** for the deck Return button), and per-action **`risk`** / **`scope`**. Allowed actions remain `external_link`, `clipboard`, and callback **`open_stream_workspace`**. Full schema and enums: [CANOPY_DECK_WIDGET_MANIFEST_V1.md](CANOPY_DECK_WIDGET_MANIFEST_V1.md).
+- From **`0.4.121`**, `Canopy Module` bundles provide a first-class module runtime path for source-bound executable surfaces. The supported v1 packaging model is a single self-contained HTML bundle attached as `.canopy-module.html` / `.canopy-module.htm`.
 
 ---
 

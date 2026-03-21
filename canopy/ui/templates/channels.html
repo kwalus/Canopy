@@ -9255,8 +9255,77 @@ function displayAttachments(attachments) {
         return (parts.pop() || '').toLowerCase();
     };
 
-    // Separate stream cards, images, audio, video, and other files
+    const isCanopyModuleAttachment = (att) => {
+        const mime = String((att && att.type) || '').toLowerCase();
+        const name = String((att && att.name) || '').toLowerCase();
+        return mime === 'text/html' && (name.endsWith('.canopy-module.html') || name.endsWith('.canopy-module.htm'));
+    };
+
+    const humanizeModuleTitle = (att) => {
+        const raw = String((att && att.name) || 'canopy-module').replace(/\.canopy-module\.html?$/i, '');
+        return raw
+            .replace(/[-_]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .replace(/\b\w/g, (ch) => ch.toUpperCase()) || 'Canopy Module';
+    };
+
+    const buildModuleAttachmentManifest = (att) => {
+        const fileId = String((att && (att.id || att.file_id)) || '').trim();
+        const bundleUrl = String((att && att.url) || '').trim();
+        if (!bundleUrl) return null;
+        const title = humanizeModuleTitle(att);
+        return {
+            version: 1,
+            key: `module:${fileId || title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+            widget_type: 'module_surface',
+            render_mode: 'module_runtime',
+            title,
+            subtitle: 'Safe executable lesson or station logic bound to this source.',
+            provider_label: 'Canopy Module',
+            icon: 'bi-box-fill',
+            body_text: 'Single-file module bundle executed inside the Canopy Module Runtime.',
+            badges: ['Module', 'Sandboxed', 'Source-bound'],
+            details: [
+                { label: 'File', value: String(att.name || 'module bundle') },
+                { label: 'Format', value: 'Single HTML bundle' },
+            ],
+            station_surface: {
+                kind: 'station_surface',
+                domain: 'education',
+                label: `${title} Surface`,
+                summary: 'Executable lesson or station logic remains bound to this source while capabilities stay brokered.',
+                recurring: false,
+                scope: 'source',
+            },
+            action_policy: {
+                bounded: true,
+                max_risk: 'view',
+                human_gate: 'none',
+                audit_label: 'Bounded runtime',
+            },
+            source_binding: {
+                binding_type: 'message_attachment',
+                source_scope: 'source',
+                return_label: 'Return to source',
+            },
+            module_runtime: {
+                format: 'single_html',
+                bundle_file_id: fileId,
+                bundle_url: bundleUrl,
+                module_type: title,
+                runtime_label: 'Canopy Module',
+                capabilities: {
+                    required: ['source.read', 'deck.return'],
+                    optional: ['clipboard.write', 'module.storage.local'],
+                },
+            },
+        };
+    };
+
+    // Separate stream cards, modules, images, audio, video, and other files
     const streamCards = [];
+    const moduleBundles = [];
     const images = [];
     const audioFiles = [];
     const videoFiles = [];
@@ -9273,6 +9342,8 @@ function displayAttachments(attachments) {
 
         if (isStream) {
             streamCards.push(att);
+        } else if (isCanopyModuleAttachment(att)) {
+            moduleBundles.push(att);
         } else if (isImage) {
             images.push(att);
         } else if (isAudio) {
@@ -9428,6 +9499,42 @@ function displayAttachments(attachments) {
                     </div>
                 </div>
                 <div id="${slotId}" class="stream-workspace" style="display:none;"></div>
+            </div>
+        `;
+    });
+
+    moduleBundles.forEach((att, idx) => {
+        const manifest = buildModuleAttachmentManifest(att);
+        const manifestAttr = manifest ? _escapeAttr(JSON.stringify(manifest)) : '';
+        const safeName = _escapeHtml(att.name || 'module bundle');
+        const safeTitle = _escapeHtml(humanizeModuleTitle(att));
+        const escapedUrl = att.url ? String(att.url).replace(/"/g, '&quot;') : '';
+        html += `
+            <div class="attachment-item stream-card mb-2 p-3 rounded"${manifestAttr ? ` data-canopy-widget-manifest="${manifestAttr}"` : ''}>
+                <div class="stream-card-header">
+                    <div class="stream-card-identity">
+                        <div class="stream-card-icon">
+                            <i class="bi bi-box-fill"></i>
+                        </div>
+                        <div>
+                            <div class="stream-card-title">${safeTitle}</div>
+                            <div class="stream-card-subtitle">Safe executable module bundle attached to this source.</div>
+                            <div class="stream-meta-row mt-2">
+                                <span class="stream-meta-chip">Module</span>
+                                <span class="stream-meta-chip">Sandboxed</span>
+                                <span class="stream-meta-chip">Source-bound</span>
+                            </div>
+                        </div>
+                    </div>
+                    <span class="stream-meta-chip" data-state="telemetry">Canopy Module</span>
+                </div>
+                <div class="d-flex align-items-center justify-content-between mt-3 gap-2 flex-wrap">
+                    <span class="small text-muted">${safeName}</span>
+                    <div class="stream-card-actions">
+                        <span class="small text-muted">Open with the deck launcher on this source</span>
+                        ${escapedUrl ? `<a href="${escapedUrl}" class="btn btn-sm btn-outline-primary" download="${safeName}"><i class="bi bi-download"></i> Download</a>` : ''}
+                    </div>
+                </div>
             </div>
         `;
     });

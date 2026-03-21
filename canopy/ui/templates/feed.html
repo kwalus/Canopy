@@ -633,9 +633,83 @@
                                             } %}
                                             {% set attachment_file_id = attachment.id or attachment.file_id or ((attachment.url.split('/files/')[1].split('/')[0]) if attachment.url and '/files/' in attachment.url else None) %}
                                             {% set lower_name = (attachment.name or '')|lower %}
+                                            {% set is_module = (attachment.type or '') == 'text/html' and (lower_name.endswith('.canopy-module.html') or lower_name.endswith('.canopy-module.htm')) %}
                                             {% set spreadsheet_preview = lower_name.endswith('.csv') or lower_name.endswith('.tsv') or lower_name.endswith('.xlsx') or lower_name.endswith('.xlsm') %}
                                             {% set previewable = attachment_file_id and (lower_name.endswith('.md') or lower_name.endswith('.markdown') or lower_name.endswith('.txt') or lower_name.endswith('.log') or lower_name.endswith('.json') or lower_name.endswith('.py') or lower_name.endswith('.js') or lower_name.endswith('.ts') or spreadsheet_preview or lower_name.endswith('.yaml') or lower_name.endswith('.yml') or lower_name.endswith('.xml') or lower_name.endswith('.tex') or lower_name.endswith('.html') or lower_name.endswith('.css') or lower_name.endswith('.sh') or lower_name.endswith('.bat') or lower_name.endswith('.cfg') or lower_name.endswith('.ini') or lower_name.endswith('.toml')) %}
                                             {% set preview_id = 'feed-attachment-preview-' ~ post.id ~ '-' ~ loop.index0 %}
+                                            {% set module_title = (attachment.name or 'Canopy Module')|replace('.canopy-module.html', '')|replace('.canopy-module.htm', '')|replace('-', ' ')|replace('_', ' ')|title %}
+                                            {% set module_manifest = {
+                                                'version': 1,
+                                                'key': 'module:' ~ (attachment_file_id or module_title|lower|replace(' ', '-')),
+                                                'widget_type': 'module_surface',
+                                                'render_mode': 'module_runtime',
+                                                'title': module_title,
+                                                'subtitle': 'Safe executable lesson or station logic bound to this source.',
+                                                'provider_label': 'Canopy Module',
+                                                'icon': 'bi-box-fill',
+                                                'body_text': 'Single-file module bundle executed inside the Canopy Module Runtime.',
+                                                'badges': ['Module', 'Sandboxed', 'Source-bound'],
+                                                'details': [
+                                                    {'label': 'File', 'value': attachment.name or 'module bundle'},
+                                                    {'label': 'Format', 'value': 'Single HTML bundle'}
+                                                ],
+                                                'station_surface': {
+                                                    'kind': 'station_surface',
+                                                    'domain': 'education',
+                                                    'label': module_title ~ ' Surface',
+                                                    'summary': 'Executable lesson or station logic remains bound to this source while capabilities stay brokered.',
+                                                    'recurring': false,
+                                                    'scope': 'source'
+                                                },
+                                                'action_policy': {
+                                                    'bounded': true,
+                                                    'max_risk': 'view',
+                                                    'human_gate': 'none',
+                                                    'audit_label': 'Bounded runtime'
+                                                },
+                                                'source_binding': {
+                                                    'binding_type': 'post_attachment',
+                                                    'source_scope': 'source',
+                                                    'return_label': 'Return to source'
+                                                },
+                                                'module_runtime': {
+                                                    'format': 'single_html',
+                                                    'bundle_file_id': attachment_file_id,
+                                                    'bundle_url': attachment.url,
+                                                    'module_type': module_title,
+                                                    'runtime_label': 'Canopy Module',
+                                                    'capabilities': {
+                                                        'required': ['source.read', 'deck.return'],
+                                                        'optional': ['clipboard.write', 'module.storage.local']
+                                                    }
+                                                }
+                                            } %}
+                                            {% if is_module %}
+                                            <div class="attachment-item mb-2 p-3 border rounded" data-canopy-widget-manifest="{{ module_manifest|tojson|forceescape }}">
+                                                <div class="d-flex align-items-start justify-content-between gap-3 flex-wrap">
+                                                    <div>
+                                                        <div class="fw-semibold"><i class="bi bi-box-fill me-2"></i>{{ module_title }}</div>
+                                                        <div class="small text-muted mt-1">Safe executable module bundle attached to this source.</div>
+                                                        <div class="d-flex flex-wrap gap-2 mt-2">
+                                                            <span class="badge rounded-pill text-bg-secondary">Module</span>
+                                                            <span class="badge rounded-pill text-bg-secondary">Sandboxed</span>
+                                                            <span class="badge rounded-pill text-bg-secondary">Source-bound</span>
+                                                        </div>
+                                                    </div>
+                                                    <span class="badge rounded-pill text-bg-info">Canopy Module</span>
+                                                </div>
+                                                <div class="d-flex align-items-center justify-content-between mt-3 gap-2 flex-wrap">
+                                                    <span class="small text-muted">{{ attachment.name }}</span>
+                                                    <div class="stream-card-actions">
+                                                        {% if attachment.url %}
+                                                        <a href="{{ attachment.url }}" class="btn btn-sm btn-outline-primary" download="{{ attachment.name }}">
+                                                            <i class="bi bi-download"></i> Download
+                                                        </a>
+                                                        {% endif %}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            {% else %}
                                             <div class="attachment-item mb-2 p-2 border rounded">
                                                 <div class="d-flex align-items-center">
                                                     <i class="bi bi-{% if attachment.type.startswith('video/') %}camera-video{% elif 'pdf' in (attachment.type or '') %}file-pdf{% elif lower_name.endswith('.csv') or lower_name.endswith('.tsv') or lower_name.endswith('.xlsx') or lower_name.endswith('.xlsm') %}file-earmark-spreadsheet{% else %}file-earmark{% endif %} me-2"></i>
@@ -683,6 +757,7 @@
                                                 <div id="{{ preview_id }}" class="file-preview-wrapper mt-2" style="display:none;"></div>
                                                 {% endif %}
                                             </div>
+                                            {% endif %}
                                         {% endfor %}
                                     </div>
                                 {% endif %}

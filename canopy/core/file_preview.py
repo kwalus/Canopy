@@ -60,6 +60,7 @@ TEXT_PREVIEW_MIME_TYPES = {
     "text/x-tex",
     "application/x-latex",
 }
+CANOPY_MODULE_SUFFIXES = (".canopy-module.html", ".canopy-module.htm")
 
 MAX_TEXT_PREVIEW_BYTES = 512 * 1024
 MAX_TEXT_PREVIEW_CHARS = 50_000
@@ -72,6 +73,12 @@ MAX_CELL_CHARS = 160
 
 def _file_extension(filename: str | None) -> str:
     return Path(filename or "").suffix.lower()
+
+
+def is_canopy_module_bundle(filename: str | None, content_type: str | None) -> bool:
+    lower_name = str(filename or "").strip().lower()
+    lower_type = str(content_type or "").strip().lower()
+    return lower_type == "text/html" and any(lower_name.endswith(suffix) for suffix in CANOPY_MODULE_SUFFIXES)
 
 
 def is_markdown_previewable(filename: str | None, content_type: str | None) -> bool:
@@ -87,6 +94,8 @@ def is_spreadsheet_previewable(filename: str | None, content_type: str | None) -
 
 
 def is_text_previewable(filename: str | None, content_type: str | None) -> bool:
+    if is_canopy_module_bundle(filename, content_type):
+        return False
     if is_spreadsheet_previewable(filename, content_type):
         return False
     ext = _file_extension(filename)
@@ -294,6 +303,12 @@ def _build_workbook_preview(file_data: bytes, filename: str, content_type: str) 
 
 
 def build_file_preview(file_data: bytes, filename: str, content_type: str) -> dict[str, Any]:
+    if is_canopy_module_bundle(filename, content_type):
+        return {
+            "previewable": False,
+            "kind": "module",
+            "error": "Canopy Module bundles open in the deck, not the generic file preview.",
+        }
     if is_spreadsheet_previewable(filename, content_type):
         if _file_extension(filename) in {".csv", ".tsv"} or str(content_type or "").lower() == "text/csv":
             return _build_csv_preview(file_data, filename, content_type)

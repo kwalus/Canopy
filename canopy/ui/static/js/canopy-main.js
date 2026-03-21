@@ -1554,7 +1554,7 @@
                 .replace(/'/g, '&#39;');
         }
 
-        const CANOPY_DECK_WIDGET_RENDER_MODES = new Set(['iframe', 'card', 'stream_summary']);
+        const CANOPY_DECK_WIDGET_RENDER_MODES = new Set(['iframe', 'card', 'stream_summary', 'module_runtime']);
         const CANOPY_DECK_WIDGET_TYPES = new Set([
             'map',
             'chart',
@@ -1562,6 +1562,7 @@
             'story',
             'media_stream',
             'telemetry_panel',
+            'module_surface',
         ]);
         const CANOPY_DECK_WIDGET_CALLBACKS = new Set(['open_stream_workspace']);
         const CANOPY_DECK_WIDGET_ACTION_RISKS = new Set(['view', 'low']);
@@ -1581,10 +1582,21 @@
             'news',
             'radio',
             'tv',
+            'education',
             'mapping',
             'market',
             'operations',
             'general',
+        ]);
+        const CANOPY_MODULE_BUNDLE_FORMATS = new Set(['single_html']);
+        const CANOPY_MODULE_CAPABILITIES = new Set([
+            'source.read',
+            'source.snapshot',
+            'deck.return',
+            'deck.close',
+            'deck.media.observe',
+            'clipboard.write',
+            'module.storage.local',
         ]);
         const CANOPY_DECK_IFRAME_HOSTS = new Set([
             'www.youtube-nocookie.com',
@@ -1658,6 +1670,51 @@
                 .slice(0, 8);
         }
 
+        function normalizeDeckModuleCapabilityList(values) {
+            if (!Array.isArray(values)) return [];
+            return values
+                .map((value) => normalizeDeckWidgetText(value, 48).toLowerCase())
+                .filter((value, index, list) => value && CANOPY_MODULE_CAPABILITIES.has(value) && list.indexOf(value) === index)
+                .slice(0, 8);
+        }
+
+        function sanitizeDeckModuleBundleUrl(rawUrl) {
+            const urlObj = safeUrlParse(rawUrl);
+            if (!urlObj) return '';
+            const protocol = String(urlObj.protocol || '').toLowerCase();
+            if (protocol !== 'https:' && protocol !== 'http:') return '';
+            if (String(urlObj.origin || '') !== String(window.location.origin || '')) return '';
+            const path = String(urlObj.pathname || '');
+            if (!/^\/(?:files\/[A-Za-z0-9_-]+|static\/modules\/[A-Za-z0-9._-]+)$/.test(path)) return '';
+            return `${path}${urlObj.search || ''}${urlObj.hash || ''}`;
+        }
+
+        function normalizeDeckModuleRuntime(rawRuntime, title) {
+            if (!rawRuntime || typeof rawRuntime !== 'object') return null;
+            const format = String(rawRuntime.format || 'single_html').trim().toLowerCase();
+            if (!CANOPY_MODULE_BUNDLE_FORMATS.has(format)) return null;
+            const bundleFileId = normalizeDeckWidgetText(rawRuntime.bundle_file_id || rawRuntime.file_id, 120);
+            const fallbackBundleUrl = bundleFileId ? `/files/${bundleFileId}` : '';
+            const bundleUrl = sanitizeDeckModuleBundleUrl(rawRuntime.bundle_url || fallbackBundleUrl);
+            if (!bundleUrl) return null;
+            const moduleType = normalizeDeckWidgetText(rawRuntime.module_type || title || 'module surface', 56) || 'module surface';
+            const runtimeLabel = normalizeDeckWidgetText(rawRuntime.runtime_label || 'Canopy Module', 48) || 'Canopy Module';
+            const capabilities = rawRuntime.capabilities && typeof rawRuntime.capabilities === 'object'
+                ? rawRuntime.capabilities
+                : {};
+            return {
+                format,
+                bundle_file_id: bundleFileId,
+                bundle_url: bundleUrl,
+                module_type: moduleType,
+                runtime_label: runtimeLabel,
+                capabilities: {
+                    required: normalizeDeckModuleCapabilityList(capabilities.required),
+                    optional: normalizeDeckModuleCapabilityList(capabilities.optional),
+                },
+            };
+        }
+
         function defaultDeckWidgetStationSurface(widgetType, providerLabel, title) {
             if (widgetType === 'map') {
                 return {
@@ -1697,6 +1754,16 @@
                     summary: 'Live telemetry surface with bounded operator actions.',
                     recurring: true,
                     scope: 'station',
+                };
+            }
+            if (widgetType === 'module_surface') {
+                return {
+                    kind: 'station_surface',
+                    domain: 'education',
+                    label: providerLabel || title || 'Interactive Module',
+                    summary: 'Safe executable module bound to this source and opened inside the Canopy deck.',
+                    recurring: false,
+                    scope: 'source',
                 };
             }
             if (widgetType === 'story') {
@@ -1859,6 +1926,10 @@
             const stationSurface = normalizeDeckWidgetStationSurface(rawManifest.station_surface, widgetType, providerLabel, title);
             const sourceBinding = normalizeDeckWidgetSourceBinding(rawManifest.source_binding);
             const actionPolicy = normalizeDeckWidgetActionPolicy(rawManifest.action_policy, widgetType, rawManifest.actions);
+            const moduleRuntime = renderMode === 'module_runtime'
+                ? normalizeDeckModuleRuntime(rawManifest.module_runtime, title)
+                : null;
+            if (renderMode === 'module_runtime' && !moduleRuntime) return null;
             return {
                 version: 1,
                 key,
@@ -1878,6 +1949,7 @@
                 action_policy: actionPolicy,
                 source_binding: sourceBinding,
                 actions: normalizeDeckWidgetActions(rawManifest.actions, actionPolicy),
+                module_runtime: moduleRuntime,
             };
         }
 
@@ -2808,6 +2880,12 @@
                 return CANOPY_MARKDOWN_PREVIEW_EXTENSIONS.includes(ext) || type === 'text/markdown' || type === 'text/x-markdown';
             }
 
+            function canopyIsModuleBundle(filename, contentType) {
+                const name = String(filename || '').toLowerCase();
+                const type = String(contentType || '').toLowerCase();
+                return type === 'text/html' && (name.endsWith('.canopy-module.html') || name.endsWith('.canopy-module.htm'));
+            }
+
             function canopyIsSpreadsheetPreviewable(filename, contentType) {
                 const ext = canopyFileExtension(filename);
                 const type = String(contentType || '').toLowerCase();
@@ -2815,6 +2893,7 @@
             }
 
             function canopyIsTextPreviewable(filename, contentType) {
+                if (canopyIsModuleBundle(filename, contentType)) return false;
                 if (canopyIsSpreadsheetPreviewable(filename, contentType)) return false;
                 const ext = canopyFileExtension(filename);
                 const type = String(contentType || '').toLowerCase();
@@ -2995,6 +3074,7 @@
                 window.canopyIsTextPreviewable = canopyIsTextPreviewable;
                 window.canopyIsMarkdownPreviewable = canopyIsMarkdownPreviewable;
                 window.canopyAttachmentPreviewLabels = canopyAttachmentPreviewLabels;
+                window.canopyIsModuleBundle = canopyIsModuleBundle;
             }
 
             function renderInlineSheetFallback(body) {
@@ -5466,7 +5546,10 @@
                 deckSeeking: false,
                 mediaCounter: 0,
                 miniUpdateFrame: 0,
-                miniUpdateTimer: null
+                miniUpdateTimer: null,
+                moduleBundleCache: new Map(),
+                moduleSessions: new Map(),
+                moduleSessionCounter: 0,
             };
 
             function updateMiniPlacementControl() {
@@ -5552,6 +5635,7 @@
                 if (type === 'chart') return 'bi-graph-up-arrow';
                 if (type === 'media_stream') return 'bi-broadcast';
                 if (type === 'telemetry_panel') return 'bi-cpu';
+                if (type === 'module_surface') return 'bi-box-fill';
                 if (type === 'media_embed') return 'bi-grid-1x2';
                 if (type === 'story') return 'bi-newspaper';
                 return 'bi-play-circle';
@@ -5565,6 +5649,7 @@
                 if (type === 'chart') return 'Chart';
                 if (type === 'media_stream') return 'Live stream';
                 if (type === 'telemetry_panel') return 'Telemetry';
+                if (type === 'module_surface') return 'Canopy Module';
                 if (type === 'media_embed') return 'Embedded media';
                 if (type === 'story') return 'Story';
                 return 'Media';
@@ -5601,6 +5686,7 @@
                 if (!deckStage) return;
                 Array.from(deckStage.children).forEach((child) => {
                     if (child !== deckVisual) {
+                        teardownDeckModuleSessionsInNode(child);
                         child.remove();
                     }
                 });
@@ -6576,6 +6662,365 @@
                 if (deckStationBadges) deckStationBadges.innerHTML = '';
             }
 
+            function getGrantedDeckModuleCapabilities(manifest) {
+                const runtime = manifest && manifest.module_runtime && typeof manifest.module_runtime === 'object'
+                    ? manifest.module_runtime
+                    : {};
+                const required = Array.isArray(runtime.capabilities && runtime.capabilities.required)
+                    ? runtime.capabilities.required
+                    : [];
+                const optional = Array.isArray(runtime.capabilities && runtime.capabilities.optional)
+                    ? runtime.capabilities.optional
+                    : [];
+                return Array.from(new Set(required.concat(optional)));
+            }
+
+            function deckModuleHasCapability(manifest, capability) {
+                return getGrantedDeckModuleCapabilities(manifest).includes(String(capability || '').trim().toLowerCase());
+            }
+
+            function serializeDeckModuleInlineJson(value) {
+                return JSON.stringify(value || {}).replace(/</g, '\\u003c');
+            }
+
+            function deckModuleSessionStorageKey(session, payloadKey) {
+                if (!session || !session.item || !session.item.manifest) return '';
+                const key = normalizeDeckWidgetText(payloadKey, 64);
+                if (!key) return '';
+                const sourceEl = deckItemSourceEl(session.item);
+                const sourceId = sourceEl
+                    ? String(sourceEl.getAttribute('data-post-id') || sourceEl.getAttribute('data-message-id') || 'source')
+                    : 'source';
+                return `canopy-module:${session.item.manifest.key}:${sourceId}:${key}`;
+            }
+
+            function buildDeckModuleSourceSnapshot(sourceEl) {
+                if (!sourceEl) {
+                    return {
+                        kind: 'source',
+                        source_id: '',
+                        subtitle: 'Canopy source',
+                        text: '',
+                        deck_items: [],
+                    };
+                }
+                const contentNode =
+                    sourceEl.querySelector('.message-content, .card-text, .feed-post-content, [data-message-body], .dm-bubble-body')
+                    || sourceEl;
+                const text = normalizeDeckWidgetText((contentNode && contentNode.textContent) || '', 1800);
+                const kind = sourceEl.matches('.post-card[data-post-id]') ? 'post' : 'message';
+                const sourceId = String(sourceEl.getAttribute('data-post-id') || sourceEl.getAttribute('data-message-id') || '').trim();
+                const deckItems = buildSourceDeckItems(sourceEl, null).map((entry) => ({
+                    key: entry.key,
+                    type: entry.type,
+                    title: entry.title,
+                    provider_label: entry.providerLabel || mediaProviderLabel(entry.type),
+                })).slice(0, 12);
+                return {
+                    kind,
+                    source_id: sourceId,
+                    subtitle: sourceSubtitle(sourceEl),
+                    text,
+                    deck_items: deckItems,
+                };
+            }
+
+            function buildDeckModuleMediaSnapshot() {
+                if (!(state.current && state.current.el && isDeckMediaItem(state.current))) return null;
+                return {
+                    type: state.current.type,
+                    title: state.current.title || titleFromMedia(state.current.el, state.current.type),
+                    subtitle: state.current.subtitle || subtitleFromMedia(state.current.el, state.current.type),
+                    is_playing: isElementPlaying(state.current.el, state.current.type),
+                };
+            }
+
+            function buildDeckModuleContext(item) {
+                const manifest = item && item.manifest ? item.manifest : null;
+                const sourceEl = deckItemSourceEl(item) || state.deckSourceEl || null;
+                return {
+                    version: 1,
+                    title: manifest ? manifest.title : '',
+                    subtitle: manifest ? (manifest.subtitle || '') : '',
+                    provider_label: manifest ? (manifest.provider_label || '') : '',
+                    station_surface: manifest ? (manifest.station_surface || null) : null,
+                    source_binding: manifest ? (manifest.source_binding || null) : null,
+                    capabilities: getGrantedDeckModuleCapabilities(manifest),
+                    source: buildDeckModuleSourceSnapshot(sourceEl),
+                    media: buildDeckModuleMediaSnapshot(),
+                };
+            }
+
+            function moduleRuntimeCacheKey(runtime) {
+                if (!runtime) return '';
+                return `${runtime.bundle_url || ''}:${runtime.bundle_file_id || ''}:${runtime.format || ''}`;
+            }
+
+            function fetchDeckModuleBundle(runtime) {
+                const cacheKey = moduleRuntimeCacheKey(runtime);
+                if (!cacheKey) return Promise.reject(new Error('Module bundle not configured'));
+                if (state.moduleBundleCache.has(cacheKey)) {
+                    return state.moduleBundleCache.get(cacheKey);
+                }
+                const pending = fetch(runtime.bundle_url, {
+                    credentials: 'same-origin',
+                    headers: { 'Accept': 'text/html, text/plain;q=0.9' },
+                }).then(async (response) => {
+                    if (!response.ok) {
+                        throw new Error(`Bundle request failed (${response.status})`);
+                    }
+                    const text = await response.text();
+                    if (!text || !String(text).trim()) {
+                        throw new Error('Module bundle is empty');
+                    }
+                    if (text.length > 300000) {
+                        throw new Error('Module bundle exceeds the v1 size budget');
+                    }
+                    return text;
+                }).catch((error) => {
+                    state.moduleBundleCache.delete(cacheKey);
+                    throw error;
+                });
+                state.moduleBundleCache.set(cacheKey, pending);
+                return pending;
+            }
+
+            function buildDeckModuleBootstrapScript(sessionId, item) {
+                const manifest = item && item.manifest ? item.manifest : {};
+                const capabilities = getGrantedDeckModuleCapabilities(manifest);
+                return `
+(function () {
+  const sessionId = ${serializeDeckModuleInlineJson(sessionId)};
+  const grantedCapabilities = ${serializeDeckModuleInlineJson(capabilities)};
+  const pending = new Map();
+  const listeners = new Set();
+  let counter = 0;
+
+  function emit(type, payload) {
+    parent.postMessage({ canopyModule: true, sessionId, type, payload: payload || {} }, '*');
+  }
+
+  function request(method, payload) {
+    return new Promise((resolve, reject) => {
+      const id = 'req-' + (++counter);
+      pending.set(id, { resolve, reject });
+      emit('request', { id, method, payload: payload || {} });
+      window.setTimeout(() => {
+        if (!pending.has(id)) return;
+        pending.delete(id);
+        reject(new Error('Module request timed out'));
+      }, 8000);
+    });
+  }
+
+  window.addEventListener('message', (event) => {
+    const msg = event && event.data ? event.data : {};
+    if (!msg || msg.canopyModule !== true || msg.sessionId !== sessionId) return;
+    if (msg.type === 'response' && msg.payload && msg.payload.id) {
+      const entry = pending.get(msg.payload.id);
+      if (!entry) return;
+      pending.delete(msg.payload.id);
+      if (msg.payload.ok === false) {
+        entry.reject(new Error((msg.payload.error && msg.payload.error.message) || 'Module request failed'));
+      } else {
+        entry.resolve(msg.payload.result);
+      }
+      return;
+    }
+    if (msg.type === 'context') {
+      listeners.forEach((listener) => {
+        try { listener(msg.payload || null); } catch (_) {}
+      });
+    }
+  });
+
+  window.CanopyModule = Object.freeze({
+    version: 1,
+    sessionId,
+    capabilities: grantedCapabilities.slice(),
+    request(method, payload) {
+      return request(method, payload);
+    },
+    perform(method, payload) {
+      return request(method, payload);
+    },
+    getContext() {
+      return request('context.get', {});
+    },
+    onContext(listener) {
+      if (typeof listener !== 'function') return () => {};
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    }
+  });
+
+  emit('runtime.ready', {
+    href: String(window.location.href || ''),
+    title: String(document.title || '')
+  });
+})();`;
+            }
+
+            function injectDeckModuleRuntime(bundleHtml, bootstrapJs, manifest) {
+                const shellTitle = escapeEmbedHtml((manifest && manifest.title) || 'Canopy Module');
+                const csp = "default-src 'none'; img-src data: blob:; media-src data: blob:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; font-src data:; frame-src 'none'; worker-src 'none'; child-src 'none'; form-action 'none'; base-uri 'none';";
+                const bootstrapTag = `<script>${bootstrapJs.replace(/<\/script/gi, '<\\\\/script')}<\/script>`;
+                const headInjection =
+                    `<meta charset="utf-8">` +
+                    `<meta name="viewport" content="width=device-width, initial-scale=1">` +
+                    `<meta http-equiv="Content-Security-Policy" content="${escapeEmbedAttr(csp)}">` +
+                    `<title>${shellTitle}</title>` +
+                    bootstrapTag;
+                const rawHtml = String(bundleHtml || '');
+                if (/<head[\s>]/i.test(rawHtml)) {
+                    return rawHtml.replace(/<head([^>]*)>/i, `<head$1>${headInjection}`);
+                }
+                if (/<html[\s>]/i.test(rawHtml)) {
+                    return rawHtml.replace(/<html([^>]*)>/i, `<html$1><head>${headInjection}</head>`);
+                }
+                return `<!doctype html><html><head>${headInjection}</head><body>${rawHtml}</body></html>`;
+            }
+
+            function teardownDeckModuleSessionsInNode(node) {
+                if (!node || !node.querySelectorAll) return;
+                node.querySelectorAll('[data-canopy-module-session-id]').forEach((frame) => {
+                    const sessionId = String(frame.getAttribute('data-canopy-module-session-id') || '').trim();
+                    if (sessionId) {
+                        state.moduleSessions.delete(sessionId);
+                    }
+                });
+            }
+
+            function postDeckModuleSessionMessage(session, type, payload) {
+                if (!(session && session.frame && session.frame.contentWindow)) return;
+                session.frame.contentWindow.postMessage({
+                    canopyModule: true,
+                    sessionId: session.id,
+                    type,
+                    payload: payload || {},
+                }, '*');
+            }
+
+            function postDeckModuleContext(session) {
+                postDeckModuleSessionMessage(session, 'context', buildDeckModuleContext(session.item));
+            }
+
+            async function respondDeckModuleRequest(session, payload) {
+                const id = payload && payload.id ? String(payload.id) : '';
+                const method = String(payload && payload.method || '').trim().toLowerCase();
+                const params = payload && payload.payload && typeof payload.payload === 'object' ? payload.payload : {};
+                const manifest = session && session.item ? session.item.manifest : null;
+                const respond = (ok, result, errorMessage) => {
+                    postDeckModuleSessionMessage(session, 'response', {
+                        id,
+                        ok,
+                        result: ok ? (result == null ? null : result) : null,
+                        error: ok ? null : { message: errorMessage || 'Module request failed' },
+                    });
+                };
+                if (!id || !method || !manifest) {
+                    respond(false, null, 'Invalid module request');
+                    return;
+                }
+                try {
+                    if (method === 'context.get') {
+                        respond(true, buildDeckModuleContext(session.item), '');
+                        return;
+                    }
+                    if (method === 'source.snapshot') {
+                        if (!deckModuleHasCapability(manifest, 'source.read') && !deckModuleHasCapability(manifest, 'source.snapshot')) {
+                            respond(false, null, 'source.snapshot not granted');
+                            return;
+                        }
+                        respond(true, buildDeckModuleContext(session.item).source, '');
+                        return;
+                    }
+                    if (method === 'deck.media.get_state') {
+                        if (!deckModuleHasCapability(manifest, 'deck.media.observe')) {
+                            respond(false, null, 'deck.media.observe not granted');
+                            return;
+                        }
+                        respond(true, buildDeckModuleMediaSnapshot(), '');
+                        return;
+                    }
+                    if (method === 'deck.return') {
+                        if (!deckModuleHasCapability(manifest, 'deck.return')) {
+                            respond(false, null, 'deck.return not granted');
+                            return;
+                        }
+                        jumpToDeckItemSource(session.item, { forceClose: true });
+                        respond(true, { returned: true }, '');
+                        return;
+                    }
+                    if (method === 'deck.close') {
+                        if (!deckModuleHasCapability(manifest, 'deck.close')) {
+                            respond(false, null, 'deck.close not granted');
+                            return;
+                        }
+                        closeMediaDeck({ forceClose: true });
+                        respond(true, { closed: true }, '');
+                        return;
+                    }
+                    if (method === 'clipboard.write') {
+                        if (!deckModuleHasCapability(manifest, 'clipboard.write')) {
+                            respond(false, null, 'clipboard.write not granted');
+                            return;
+                        }
+                        const text = normalizeDeckWidgetText(params.text, 2000);
+                        if (!text) {
+                            respond(false, null, 'No clipboard text provided');
+                            return;
+                        }
+                        await navigator.clipboard.writeText(text);
+                        respond(true, { written: true }, '');
+                        return;
+                    }
+                    if (method === 'module.storage.get') {
+                        if (!deckModuleHasCapability(manifest, 'module.storage.local')) {
+                            respond(false, null, 'module.storage.local not granted');
+                            return;
+                        }
+                        const storageKey = deckModuleSessionStorageKey(session, params.key);
+                        respond(true, { value: storageKey ? window.localStorage.getItem(storageKey) : null }, '');
+                        return;
+                    }
+                    if (method === 'module.storage.set') {
+                        if (!deckModuleHasCapability(manifest, 'module.storage.local')) {
+                            respond(false, null, 'module.storage.local not granted');
+                            return;
+                        }
+                        const storageKey = deckModuleSessionStorageKey(session, params.key);
+                        if (!storageKey) {
+                            respond(false, null, 'Invalid storage key');
+                            return;
+                        }
+                        const value = normalizeDeckWidgetText(params.value, 4000);
+                        window.localStorage.setItem(storageKey, value);
+                        respond(true, { stored: true }, '');
+                        return;
+                    }
+                    respond(false, null, `Unsupported module method: ${method}`);
+                } catch (error) {
+                    respond(false, null, error && error.message ? error.message : 'Module request failed');
+                }
+            }
+
+            window.addEventListener('message', (event) => {
+                const msg = event && event.data ? event.data : {};
+                if (!msg || msg.canopyModule !== true) return;
+                const sessionId = String(msg.sessionId || '').trim();
+                if (!sessionId || !state.moduleSessions.has(sessionId)) return;
+                const session = state.moduleSessions.get(sessionId);
+                if (!session || !session.frame || event.source !== session.frame.contentWindow) return;
+                if (msg.type === 'runtime.ready') {
+                    postDeckModuleContext(session);
+                    return;
+                }
+                if (msg.type === 'request') {
+                    respondDeckModuleRequest(session, msg.payload || {});
+                }
+            });
+
             function deckItemContextSubtitle(item) {
                 const sourceEl = deckItemSourceEl(item) || state.deckSourceEl;
                 return sourceEl ? sourceSubtitle(sourceEl) : 'Canopy source';
@@ -6605,6 +7050,9 @@
             function deckWidgetStageSignature(item) {
                 if (!item || !item.manifest) return '';
                 const m = item.manifest;
+                if (m.render_mode === 'module_runtime' && m.module_runtime) {
+                    return `module:${String(m.module_runtime.bundle_url || '')}:${String(m.key || '')}`;
+                }
                 if (m.render_mode === 'iframe' && m.embed_url) {
                     return `iframe:${String(m.embed_url)}`;
                 }
@@ -6739,8 +7187,26 @@
                 }
 
                 if (deckWidgetDetails) {
+                    const detailEntries = Array.isArray(manifest.details) ? [...manifest.details] : [];
+                    if (manifest.render_mode === 'module_runtime' && manifest.module_runtime) {
+                        const caps = getGrantedDeckModuleCapabilities(manifest);
+                        if (caps.length) {
+                            detailEntries.unshift({
+                                label: 'Capabilities',
+                                value: caps.join(', '),
+                            });
+                        }
+                        detailEntries.push({
+                            label: 'Runtime',
+                            value: manifest.module_runtime.runtime_label || 'Canopy Module',
+                        });
+                        detailEntries.push({
+                            label: 'Bundle',
+                            value: manifest.module_runtime.format === 'single_html' ? 'Single HTML bundle' : manifest.module_runtime.format,
+                        });
+                    }
                     deckWidgetDetails.innerHTML = '';
-                    (manifest.details || []).forEach((entry) => {
+                    detailEntries.slice(0, 8).forEach((entry) => {
                         const block = document.createElement('div');
                         block.className = 'sidebar-media-deck-widget-kv';
                         block.innerHTML =
@@ -6784,7 +7250,46 @@
                 host.className = 'sidebar-media-deck-widget-stage';
                 host.dataset.canopyDeckWidgetSig = nextSig;
 
-                if (manifest.render_mode === 'iframe' && manifest.embed_url) {
+                if (manifest.render_mode === 'module_runtime' && manifest.module_runtime) {
+                    host.innerHTML = `
+                        <div class="sidebar-media-deck-widget-panel sidebar-media-deck-module-panel">
+                            <div class="sidebar-media-deck-widget-panel-title">Loading module</div>
+                            <div class="sidebar-media-deck-widget-panel-copy">Preparing the sandboxed runtime for this source-bound module.</div>
+                        </div>
+                    `;
+                    deckStage.appendChild(host);
+                    fetchDeckModuleBundle(manifest.module_runtime).then((bundleHtml) => {
+                        if (!host.isConnected || host.dataset.canopyDeckWidgetSig !== nextSig) return;
+                        state.moduleSessionCounter += 1;
+                        const sessionId = `canopy-module-session-${state.moduleSessionCounter}`;
+                        const iframe = document.createElement('iframe');
+                        iframe.className = 'sidebar-media-deck-widget-frame sidebar-media-deck-module-frame';
+                        iframe.title = manifest.title || 'Canopy Module';
+                        iframe.loading = 'lazy';
+                        iframe.setAttribute('sandbox', 'allow-scripts');
+                        iframe.setAttribute('data-canopy-module-session-id', sessionId);
+                        iframe.srcdoc = injectDeckModuleRuntime(
+                            bundleHtml,
+                            buildDeckModuleBootstrapScript(sessionId, item),
+                            manifest
+                        );
+                        state.moduleSessions.set(sessionId, {
+                            id: sessionId,
+                            item,
+                            frame: iframe,
+                        });
+                        host.innerHTML = '';
+                        host.appendChild(iframe);
+                    }).catch((error) => {
+                        if (!host.isConnected || host.dataset.canopyDeckWidgetSig !== nextSig) return;
+                        host.innerHTML = `
+                            <div class="sidebar-media-deck-widget-panel sidebar-media-deck-module-panel">
+                                <div class="sidebar-media-deck-widget-panel-title">Module unavailable</div>
+                                <div class="sidebar-media-deck-widget-panel-copy">${escapeEmbedHtml((error && error.message) || 'Could not load the module bundle.')}</div>
+                            </div>
+                        `;
+                    });
+                } else if (manifest.render_mode === 'iframe' && manifest.embed_url) {
                     const iframe = document.createElement('iframe');
                     iframe.className = 'sidebar-media-deck-widget-frame';
                     iframe.src = manifest.embed_url;

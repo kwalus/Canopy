@@ -8,6 +8,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.122] - 2026-02-27
+
+### Added
+- **Canopy Module bundle validation** — Filenames ending in `.canopy-module.html` / `.canopy-module.htm` use `_validate_canopy_module_bundle()`: UTF-8 HTML document, **300 KiB** max, inline script allowed; blocks external scripts, inline event handlers, CSP override meta, embedded browsing tags, and non–self-contained resource URLs (`data:` / `blob:` / `#` only).
+- **Module-aware MIME inference** — Generic uploads (`application/octet-stream`, etc.) still normalize to `text/html` when the filename extension implies HTML, so agents can upload modules without spoofing types.
+- **Module preview semantics** — `build_file_preview()` returns `previewable: false`, `kind: "module"` for module bundles; `is_text_previewable()` excludes them.
+- **Sample module** — `canopy/ui/static/modules/piano-lab-v1.canopy-module.html` for regression tests and manual deck checks.
+- **Documentation** — `docs/CANOPY_MODULE_RUNTIME_V1.md` and cross-links in README / API / agent docs.
+
+### Changed
+- **Channel / feed / DM templates** — Module attachments emit `module_surface` / `module_runtime` deck manifests instead of behaving like plain HTML files.
+- **Frontend** — `canopyIsModuleBundle()` excludes module bundles from generic text preview eligibility (`canopy-main.js`).
+
+### Tests
+- **`tests/test_spreadsheet_preview_support.py`** — Module accept/reject and preview behavior.
+- **`tests/test_frontend_regressions.py`** — Module preview helpers and runtime/template assertions.
+
 ## [0.4.121] - 2026-02-27
 
 ### Changed
