@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.124] - 2026-02-27
+
+### Fixed
+- **Canopy Module cross-peer deck queue** — Module manifests now set **`bundle_url`** to the local **`/files/<id>`** path (channels JS, feed + DM Jinja) instead of reusing **`attachment.url`**, which could be an absolute remote URL and fail **`sanitizeDeckModuleBundleUrl`**. **`normalizeDeckModuleRuntime`** falls back to **`/files/<bundle_file_id>`** when the primary URL sanitizes to empty so older manifests can recover.
+
+### Tests
+- **`tests/test_frontend_regressions.py`** — Strings for `primaryBundleUrl` / fallback `bundleUrl`, channels `encodeURIComponent` bundle path, Jinja `bundle_url` bindings.
+
 ## [0.4.123] - 2026-02-27
 
 ### Added

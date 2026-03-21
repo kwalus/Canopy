@@ -1695,7 +1695,8 @@
             if (!CANOPY_MODULE_BUNDLE_FORMATS.has(format)) return null;
             const bundleFileId = normalizeDeckWidgetText(rawRuntime.bundle_file_id || rawRuntime.file_id, 120);
             const fallbackBundleUrl = bundleFileId ? `/files/${bundleFileId}` : '';
-            const bundleUrl = sanitizeDeckModuleBundleUrl(rawRuntime.bundle_url || fallbackBundleUrl);
+            const primaryBundleUrl = sanitizeDeckModuleBundleUrl(rawRuntime.bundle_url || '');
+            const bundleUrl = primaryBundleUrl || sanitizeDeckModuleBundleUrl(fallbackBundleUrl);
             if (!bundleUrl) return null;
             const moduleType = normalizeDeckWidgetText(rawRuntime.module_type || title || 'module surface', 56) || 'module surface';
             const runtimeLabel = normalizeDeckWidgetText(rawRuntime.runtime_label || 'Canopy Module', 48) || 'Canopy Module';

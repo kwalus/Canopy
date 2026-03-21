@@ -9272,7 +9272,7 @@ function displayAttachments(attachments) {
 
     const buildModuleAttachmentManifest = (att) => {
         const fileId = String((att && (att.id || att.file_id)) || '').trim();
-        const bundleUrl = String((att && att.url) || '').trim();
+        const bundleUrl = fileId ? `/files/${encodeURIComponent(fileId)}` : '';
         if (!bundleUrl) return null;
         const title = humanizeModuleTitle(att);
         return {
