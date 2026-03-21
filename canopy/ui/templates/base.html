@@ -910,7 +910,37 @@
 
         .sidebar-media-deck.is-module-active .sidebar-media-deck-stage {
             aspect-ratio: auto;
+            /* Definite height so module iframe `height:100%` resolves (Windows / Chromium). */
+            height: clamp(420px, 58vh, 760px);
             min-height: clamp(420px, 58vh, 760px);
+            max-height: clamp(420px, 58vh, 760px);
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        /* Fill the stage with the module iframe (avoids short iframe + empty band below on Windows / tall min-heights) */
+        .sidebar-media-deck.is-module-active .sidebar-media-deck-widget-stage {
+            flex: 1 1 auto;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+            gap: 0;
+        }
+
+        .sidebar-media-deck.is-module-active .sidebar-media-deck-widget-stage > .sidebar-media-deck-widget-panel {
+            flex: 0 0 auto;
+        }
+
+        .sidebar-media-deck.is-module-active .sidebar-media-deck-widget-frame.sidebar-media-deck-module-frame,
+        .sidebar-media-deck.is-module-active .sidebar-media-deck-module-frame {
+            flex: 1 1 auto;
+            min-height: 0 !important;
+            width: 100% !important;
+            height: 100% !important;
+            align-self: stretch;
+            object-fit: fill;
         }
 
         /* Keep queue header + Show list in view when scrolling a tall module stage */
@@ -2059,7 +2089,26 @@
 
             .sidebar-media-deck.is-module-active .sidebar-media-deck-stage {
                 max-height: none;
+                height: clamp(320px, 52dvh, 620px);
                 min-height: clamp(320px, 52dvh, 620px);
+                display: flex;
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .sidebar-media-deck.is-module-active .sidebar-media-deck-widget-stage {
+                flex: 1 1 auto;
+                min-height: 0;
+                display: flex;
+                flex-direction: column;
+                gap: 0;
+            }
+
+            .sidebar-media-deck.is-module-active .sidebar-media-deck-module-frame {
+                flex: 1 1 auto;
+                min-height: 0 !important;
+                height: 100% !important;
+                object-fit: fill;
             }
 
             .sidebar-media-deck-stage-shell {
@@ -2146,6 +2195,30 @@
             .sidebar-media-deck-stage {
                 min-height: 180px;
                 max-height: 42vh;
+            }
+
+            .sidebar-media-deck.is-module-active .sidebar-media-deck-stage {
+                max-height: min(72vh, 680px);
+                height: clamp(220px, 50vh, min(72vh, 680px));
+                min-height: clamp(200px, 48vh, 560px);
+                display: flex;
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .sidebar-media-deck.is-module-active .sidebar-media-deck-widget-stage {
+                flex: 1 1 auto;
+                min-height: 0;
+                display: flex;
+                flex-direction: column;
+                gap: 0;
+            }
+
+            .sidebar-media-deck.is-module-active .sidebar-media-deck-module-frame {
+                flex: 1 1 auto;
+                min-height: 0 !important;
+                height: 100% !important;
+                object-fit: fill;
             }
 
             .sidebar-media-deck-item {

@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.129] - 2026-02-27
+
+### Fixed
+- **Module deck: module iframe not filling the stage (Windows / Chromium)** — When **`is-module-active`**, the deck stage now uses a **definite `height`** (same **`clamp`** as min/max) so **`height: 100%`** on the module iframe resolves; widget stage remains a column flex child with **`min-height: 0`**; module frame uses **`flex: 1`**, **`object-fit: fill`**, and matching rules for mobile and short-landscape breakpoints.
+
 ## [0.4.128] - 2026-03-21
 
 ### Fixed
