@@ -928,18 +928,17 @@
         .sidebar-media-deck.is-module-active .sidebar-media-deck-stage {
             aspect-ratio: auto;
             flex: 1 1 auto;
-            min-height: 0;
+            min-height: clamp(240px, 34vh, 560px);
             display: flex;
             flex-direction: column;
             align-items: stretch;
         }
 
-        /* Fill the stage with the module iframe. Flex + height:100% on iframes is unreliable (Chromium/Edge);
-           absolute inset against a positioned widget-stage matches the screenshot gap fix. */
+        /* Module iframe must stay in-flow: position:absolute removed all in-flow children from widget-stage,
+           so the flex box could collapse to 0 height and the module vanished. */
         .sidebar-media-deck.is-module-active .sidebar-media-deck-widget-stage {
-            position: relative;
             flex: 1 1 auto;
-            min-height: 0;
+            min-height: clamp(220px, 32vh, 520px);
             display: flex;
             flex-direction: column;
             align-items: stretch;
@@ -952,13 +951,12 @@
 
         .sidebar-media-deck.is-module-active .sidebar-media-deck-widget-frame.sidebar-media-deck-module-frame,
         .sidebar-media-deck.is-module-active .sidebar-media-deck-module-frame {
-            position: absolute !important;
-            inset: 0 !important;
-            flex: none !important;
+            flex: 1 1 auto;
+            align-self: stretch;
             width: 100% !important;
-            height: 100% !important;
             min-width: 0;
-            min-height: 0 !important;
+            min-height: clamp(260px, 42vh, 720px) !important;
+            height: auto;
             object-fit: fill;
         }
 
@@ -2126,29 +2124,27 @@
             .sidebar-media-deck.is-module-active .sidebar-media-deck-stage {
                 max-height: none;
                 flex: 1 1 auto;
-                min-height: 0;
+                min-height: clamp(200px, 36dvh, 480px);
                 display: flex;
                 flex-direction: column;
                 align-items: stretch;
             }
 
             .sidebar-media-deck.is-module-active .sidebar-media-deck-widget-stage {
-                position: relative;
                 flex: 1 1 auto;
-                min-height: 0;
+                min-height: clamp(180px, 34dvh, 440px);
                 display: flex;
                 flex-direction: column;
                 gap: 0;
             }
 
             .sidebar-media-deck.is-module-active .sidebar-media-deck-module-frame {
-                position: absolute !important;
-                inset: 0 !important;
-                flex: none !important;
+                flex: 1 1 auto;
+                align-self: stretch;
                 width: 100% !important;
-                height: 100% !important;
                 min-width: 0;
-                min-height: 0 !important;
+                min-height: clamp(200px, 40dvh, 520px) !important;
+                height: auto;
                 object-fit: fill;
             }
 
@@ -2256,29 +2252,27 @@
 
             .sidebar-media-deck.is-module-active .sidebar-media-deck-stage {
                 flex: 1 1 auto;
-                min-height: 0;
+                min-height: clamp(160px, 38vh, 420px);
                 display: flex;
                 flex-direction: column;
                 align-items: stretch;
             }
 
             .sidebar-media-deck.is-module-active .sidebar-media-deck-widget-stage {
-                position: relative;
                 flex: 1 1 auto;
-                min-height: 0;
+                min-height: clamp(140px, 36vh, 400px);
                 display: flex;
                 flex-direction: column;
                 gap: 0;
             }
 
             .sidebar-media-deck.is-module-active .sidebar-media-deck-module-frame {
-                position: absolute !important;
-                inset: 0 !important;
-                flex: none !important;
+                flex: 1 1 auto;
+                align-self: stretch;
                 width: 100% !important;
-                height: 100% !important;
                 min-width: 0;
-                min-height: 0 !important;
+                min-height: clamp(160px, 42vh, 480px) !important;
+                height: auto;
                 object-fit: fill;
             }
 

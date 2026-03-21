@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.132] - 2026-03-21
+
+### Fixed
+- **Module deck: module visible again (regression from absolute iframe)** — **`position: absolute`** on the module iframe removed it from flow, so **`.sidebar-media-deck-widget-stage`** could collapse to **0 height** and the module disappeared. Restored **in-flow** **`flex`** sizing with **`min-height` clamps** on stage, widget-stage, and module iframe; kept **`object-fit: fill`** and **`injectDeckModuleRuntime`** **`html, body`** height shell.
+
+### Tests
+- **`tests/test_frontend_regressions.py`** — module iframe **`min-height` clamp** substring (replaces absolute/inset asserts).
+
 ## [0.4.131] - 2026-03-21
 
 ### Fixed
