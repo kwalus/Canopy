@@ -913,6 +913,20 @@
             min-height: clamp(420px, 58vh, 760px);
         }
 
+        /* Keep queue header + Show list in view when scrolling a tall module stage */
+        .sidebar-media-deck.is-module-active .sidebar-media-deck-queue-header {
+            position: sticky;
+            top: 0;
+            z-index: 4;
+            padding-top: 6px;
+            padding-bottom: 8px;
+            margin: 0 -4px;
+            padding-left: 4px;
+            padding-right: 4px;
+            background: linear-gradient(180deg, rgba(12, 20, 38, 0.98), rgba(12, 20, 38, 0.88));
+            backdrop-filter: blur(14px) saturate(130%);
+        }
+
         .sidebar-media-deck-footer {
             flex-shrink: 0;
             display: grid;

@@ -5720,6 +5720,8 @@
                 deckDetailCollapsed: false,
                 deckLayoutMode: 'default',
                 deckLayoutPrimedKey: '',
+                /** Last `state.deckItems.length` applied in `syncDeckLayoutMode` (module layout). */
+                deckLayoutLastQueueCount: -1,
             };
 
             function updateMiniPlacementControl() {
@@ -7140,10 +7142,17 @@
                     deck.classList.toggle('is-module-active', moduleActive);
                 }
                 if (moduleActive) {
-                    if (state.deckLayoutMode !== 'module' || state.deckLayoutPrimedKey !== String(selectedItem.key || '')) {
-                        setDeckQueueCollapsed(true);
+                    const itemCount = Array.isArray(state.deckItems) ? state.deckItems.length : 0;
+                    const multi = itemCount > 1;
+                    const keyStr = String(selectedItem.key || '');
+                    const layoutBump = state.deckLayoutMode !== 'module'
+                        || state.deckLayoutPrimedKey !== keyStr
+                        || state.deckLayoutLastQueueCount !== itemCount;
+                    if (layoutBump) {
+                        setDeckQueueCollapsed(!multi);
                         setDeckDetailCollapsed(true);
-                        state.deckLayoutPrimedKey = String(selectedItem.key || '');
+                        state.deckLayoutPrimedKey = keyStr;
+                        state.deckLayoutLastQueueCount = itemCount;
                     }
                     state.deckLayoutMode = 'module';
                     return;
@@ -7154,6 +7163,7 @@
                 }
                 state.deckLayoutMode = 'default';
                 state.deckLayoutPrimedKey = '';
+                state.deckLayoutLastQueueCount = -1;
             }
 
             function resetDeckLayoutMode() {
@@ -7164,6 +7174,7 @@
                 setDeckDetailCollapsed(false);
                 state.deckLayoutMode = 'default';
                 state.deckLayoutPrimedKey = '';
+                state.deckLayoutLastQueueCount = -1;
             }
 
             function getGrantedDeckModuleCapabilities(manifest) {
@@ -8095,6 +8106,7 @@
                     reconcileDeckStageMediaPlacement();
                 }
                 renderDeckQueue();
+                syncDeckLayoutMode(getDeckSelectedItem() || selectedItem);
 
                 const type = selectedItem.type;
                 const mediaTitle = selectedItem.title || titleFromMedia(selectedItem.el, type);

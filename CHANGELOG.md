@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.128] - 2026-03-21
+
+### Fixed
+- **Module deck: queue missing for mixed sources** — `syncDeckLayoutMode` ran before `renderDeckQueue`, so the queue item count could be stale and the list stayed collapsed with no way to pick YouTube. Layout now keys off `state.deckItems.length` (`deckLayoutLastQueueCount`), keeps the **FROM THIS SOURCE** strip **expanded** when there is more than one deck item, and re-runs `syncDeckLayoutMode` after `renderDeckQueue`.
+
+### Changed
+- **Module deck scroll** — Sticky **FROM THIS SOURCE** queue header while **`is-module-active`** so **Show list** / the strip stays reachable above a tall module stage.
+
+### Tests
+- **`tests/test_frontend_regressions.py`** — `deckLayoutLastQueueCount` substring.
+
 ## [0.4.127] - 2026-03-21
 
 ### Changed

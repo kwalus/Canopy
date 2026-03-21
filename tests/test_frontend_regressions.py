@@ -258,6 +258,7 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("function setDeckQueueCollapsed(collapsed) {", main_js)
         self.assertIn("function setDeckDetailCollapsed(collapsed) {", main_js)
         self.assertIn("function syncDeckLayoutMode(selectedItem) {", main_js)
+        self.assertIn("deckLayoutLastQueueCount", main_js)
         self.assertIn("deck.classList.toggle('is-module-active', moduleActive);", main_js)
 
     def test_media_deck_switching_uses_central_deactivation_and_disconnect_cleanup(self) -> None:
