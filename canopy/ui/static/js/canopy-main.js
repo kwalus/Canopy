@@ -6148,26 +6148,50 @@
                 return items;
             }
 
+            function buildDeckWidgetItem(node, manifest, sourceEl) {
+                if (!(node instanceof Element) || !manifest || !manifest.key) return null;
+                return {
+                    key: manifest.key,
+                    el: node,
+                    sourceEl: sourceEl || sourceContainer(node),
+                    type: manifest.widget_type,
+                    title: manifest.title,
+                    subtitle: manifest.subtitle || sourceSubtitle(node),
+                    thumb: manifest.thumb_url || '',
+                    providerLabel: manifest.provider_label || mediaProviderLabel(manifest.widget_type),
+                    icon: manifest.icon || mediaIcon(manifest.widget_type),
+                    manifest,
+                };
+            }
+
+            function mergeExplicitDeckItem(items, explicitItem) {
+                const merged = Array.isArray(items) ? items.slice() : [];
+                if (!explicitItem || !explicitItem.key) return merged;
+                const existingIndex = merged.findIndex((item) => String(item && item.key || '') === String(explicitItem.key || ''));
+                if (existingIndex >= 0) {
+                    merged[existingIndex] = {
+                        ...merged[existingIndex],
+                        ...explicitItem,
+                        sourceEl: explicitItem.sourceEl || merged[existingIndex].sourceEl || null,
+                        manifest: explicitItem.manifest || merged[existingIndex].manifest || null,
+                        el: explicitItem.el || merged[existingIndex].el,
+                    };
+                    return merged;
+                }
+                merged.push(explicitItem);
+                return merged;
+            }
+
             function buildSourceWidgetList(sourceEl) {
                 const items = [];
                 const seen = new Set();
                 if (!sourceEl || !sourceEl.querySelectorAll) return items;
                 sourceEl.querySelectorAll('[data-canopy-widget-manifest]').forEach((node) => {
                     const manifest = parseDeckWidgetManifest(node);
-                    if (!manifest || !manifest.key || seen.has(manifest.key)) return;
-                    seen.add(manifest.key);
-                    items.push({
-                        key: manifest.key,
-                        el: node,
-                        sourceEl,
-                        type: manifest.widget_type,
-                        title: manifest.title,
-                        subtitle: manifest.subtitle || sourceSubtitle(node),
-                        thumb: manifest.thumb_url || '',
-                        providerLabel: manifest.provider_label || mediaProviderLabel(manifest.widget_type),
-                        icon: manifest.icon || mediaIcon(manifest.widget_type),
-                        manifest,
-                    });
+                    const item = buildDeckWidgetItem(node, manifest, sourceEl);
+                    if (!item || seen.has(item.key)) return;
+                    seen.add(item.key);
+                    items.push(item);
                 });
                 return items;
             }
@@ -6394,11 +6418,15 @@
 
             function openMediaDeckForSource(sourceEl, options = {}) {
                 if (!sourceEl || !sourceEl.isConnected) return;
-                const items = getSourceDeckItems(sourceEl);
+                const explicitItem = options.explicitItem || null;
+                const items = mergeExplicitDeckItem(getSourceDeckItems(sourceEl), explicitItem);
                 const preferredKey = String(options.preferredKey || '').trim();
                 let preferred = preferredKey
                     ? items.find((item) => String(item.key || '').trim() === preferredKey)
                     : null;
+                if (!preferred && explicitItem && explicitItem.key) {
+                    preferred = items.find((item) => String(item.key || '').trim() === String(explicitItem.key || '').trim()) || explicitItem;
+                }
                 if (!preferred) {
                     preferred = getPreferredDeckItemForSource(sourceEl, items);
                 }
@@ -6424,8 +6452,12 @@
                 const manifest = parseDeckWidgetManifest(manifestNode);
                 const sourceEl = deckItemSourceEl({ el: manifestNode }) || sourceContainer(manifestNode);
                 if (!sourceEl || !sourceEl.isConnected) return false;
+                const explicitItem = manifest ? buildDeckWidgetItem(manifestNode, manifest, sourceEl) : null;
                 openMediaDeckForSource(sourceEl, {
-                    preferredKey: manifest && manifest.key ? manifest.key : '',
+                    preferredKey: manifest && manifest.key
+                        ? manifest.key
+                        : String(manifestNode.getAttribute('data-canopy-widget-key') || '').trim(),
+                    explicitItem,
                 });
                 return true;
             }
@@ -7348,7 +7380,18 @@
                     || state.deckSourceEl
                     || (current && current.sourceEl ? current.sourceEl : null);
                 state.deckSourceEl = sourceEl || null;
-                state.deckItems = buildSourceDeckItems(sourceEl, current ? current.el : null);
+                const explicitSelectedWidget = (
+                    selectedNow
+                    && !isDeckMediaItem(selectedNow)
+                    && selectedNow.manifest
+                    && selectedNow.el
+                    && selectedNow.el.isConnected
+                    && deckItemSourceEl(selectedNow) === sourceEl
+                ) ? buildDeckWidgetItem(selectedNow.el, selectedNow.manifest, sourceEl) : null;
+                state.deckItems = mergeExplicitDeckItem(
+                    buildSourceDeckItems(sourceEl, current ? current.el : null),
+                    explicitSelectedWidget
+                );
                 const items = state.deckItems;
                 const selectedItem = getDeckSelectedItem();
                 const total = items.length;

@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.125] - 2026-02-27
+
+### Fixed
+- **Canopy Module deck queue on Open module** — When opening the deck from a module card, the clicked module is now passed as an **`explicitItem`** (`buildDeckWidgetItem` + **`mergeExplicitDeckItem`**) into **`openMediaDeckForSource`**, so the module row cannot disappear if DOM recollection omits it. **`renderDeckQueue`** re-merges the **selected non-media widget** the same way on the first queue rebuild so the queue does not collapse to media-only items.
+
+### Tests
+- **`tests/test_frontend_regressions.py`** — Substrings for `buildDeckWidgetItem`, `mergeExplicitDeckItem`, `explicitItem` / `explicitSelectedWidget`, and `state.deckItems = mergeExplicitDeckItem(`.
+
 ## [0.4.124] - 2026-02-27
 
 ### Fixed
