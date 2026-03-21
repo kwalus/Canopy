@@ -904,6 +904,15 @@
             min-width: 0;
         }
 
+        .sidebar-media-deck.is-module-active {
+            max-height: min(88vh, 960px);
+        }
+
+        .sidebar-media-deck.is-module-active .sidebar-media-deck-stage {
+            aspect-ratio: auto;
+            min-height: clamp(420px, 58vh, 760px);
+        }
+
         .sidebar-media-deck-footer {
             flex-shrink: 0;
             display: grid;
@@ -1129,6 +1138,36 @@
             flex-wrap: wrap;
             align-items: center;
             gap: 8px;
+        }
+
+        .sidebar-media-deck-inline-toggle {
+            margin-left: auto;
+            border: 1px solid rgba(148, 163, 184, 0.16);
+            background: rgba(255, 255, 255, 0.04);
+            color: var(--canopy-text-secondary);
+            border-radius: 999px;
+            padding: 5px 10px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.69rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            transition: all 0.2s ease;
+        }
+
+        .sidebar-media-deck-inline-toggle:hover {
+            background: rgba(34, 197, 94, 0.12);
+            border-color: rgba(74, 222, 128, 0.28);
+            color: #dcfce7;
+        }
+
+        .sidebar-media-deck-inline-toggle:focus-visible {
+            outline: none;
+            background: rgba(34, 197, 94, 0.12);
+            border-color: rgba(74, 222, 128, 0.4);
+            color: #dcfce7;
+            box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2);
         }
 
         .sidebar-media-deck-provider {
@@ -1474,6 +1513,14 @@
             min-width: 0;
         }
 
+        .sidebar-media-deck-queue-shell.is-collapsed {
+            padding-bottom: 10px;
+        }
+
+        .sidebar-media-deck-queue-shell.is-collapsed .sidebar-media-deck-queue {
+            display: none;
+        }
+
         .sidebar-media-deck-queue-header {
             display: flex;
             align-items: center;
@@ -1503,6 +1550,17 @@
             scroll-snap-type: x proximity;
             scrollbar-gutter: stable;
             padding: 2px 2px 6px;
+        }
+
+        .sidebar-media-deck-detail.is-collapsed {
+            gap: 8px;
+            padding-bottom: 8px;
+        }
+
+        .sidebar-media-deck-detail.is-collapsed .sidebar-media-deck-subtitle,
+        .sidebar-media-deck-detail.is-collapsed .sidebar-media-deck-station-summary,
+        .sidebar-media-deck-detail.is-collapsed .sidebar-media-deck-widget-summary {
+            display: none !important;
         }
 
         .sidebar-media-deck-item {
@@ -1983,6 +2041,11 @@
             .sidebar-media-deck-stage {
                 max-height: min(34dvh, 280px);
                 border-radius: 18px;
+            }
+
+            .sidebar-media-deck.is-module-active .sidebar-media-deck-stage {
+                max-height: none;
+                min-height: clamp(320px, 52dvh, 620px);
             }
 
             .sidebar-media-deck-stage-shell {
@@ -7266,6 +7329,10 @@
                     <div class="sidebar-media-deck-queue-header">
                         <span class="sidebar-media-deck-queue-title">From this source</span>
                         <span class="sidebar-media-deck-queue-count" id="sidebar-media-deck-queue-count" hidden aria-hidden="true"></span>
+                        <button type="button" class="sidebar-media-deck-inline-toggle" id="sidebar-media-deck-queue-toggle" aria-expanded="true">
+                            <i class="bi bi-chevron-up"></i>
+                            <span>Collapse list</span>
+                        </button>
                     </div>
                     <div id="sidebar-media-deck-queue" class="sidebar-media-deck-queue">
                         <div class="sidebar-media-deck-empty">Media, maps, charts, streams, and other safe widgets from the same post/message will appear here.</div>
@@ -7279,6 +7346,10 @@
                                 <span id="sidebar-media-deck-provider-label">Deck item</span>
                             </span>
                             <span class="sidebar-media-deck-count" id="sidebar-media-deck-count">1 item</span>
+                            <button type="button" class="sidebar-media-deck-inline-toggle" id="sidebar-media-deck-detail-toggle" aria-expanded="true">
+                                <i class="bi bi-layout-text-window-reverse"></i>
+                                <span>Hide details</span>
+                            </button>
                         </div>
                         <div class="sidebar-media-deck-title" id="sidebar-media-deck-title">Canopy Deck</div>
                         <div class="sidebar-media-deck-subtitle" id="sidebar-media-deck-subtitle">Stay with media, maps, streams, telemetry, and related widgets while you keep working.</div>

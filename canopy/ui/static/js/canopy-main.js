@@ -5669,6 +5669,7 @@
             const deckWidgetBadges = document.getElementById('sidebar-media-deck-widget-badges');
             const deckWidgetDetails = document.getElementById('sidebar-media-deck-widget-details');
             const deckWidgetActions = document.getElementById('sidebar-media-deck-widget-actions');
+            const deckDetail = document.querySelector('.sidebar-media-deck-detail');
             const deckProgressRow = document.getElementById('sidebar-media-deck-progress-row');
             const deckControls = document.getElementById('sidebar-media-deck-controls');
             const deckSeek = document.getElementById('sidebar-media-deck-seek');
@@ -5686,6 +5687,9 @@
             const deckCloseBtn = document.getElementById('sidebar-media-deck-close');
             const deckQueue = document.getElementById('sidebar-media-deck-queue');
             const deckQueueCount = document.getElementById('sidebar-media-deck-queue-count');
+            const deckQueueShell = deckQueue ? deckQueue.closest('.sidebar-media-deck-queue-shell') : null;
+            const deckQueueToggle = document.getElementById('sidebar-media-deck-queue-toggle');
+            const deckDetailToggle = document.getElementById('sidebar-media-deck-detail-toggle');
 
             const state = {
                 current: null,
@@ -5712,6 +5716,10 @@
                 moduleBundleCache: new Map(),
                 moduleSessions: new Map(),
                 moduleSessionCounter: 0,
+                deckQueueCollapsed: false,
+                deckDetailCollapsed: false,
+                deckLayoutMode: 'default',
+                deckLayoutPrimedKey: '',
             };
 
             function updateMiniPlacementControl() {
@@ -7094,6 +7102,70 @@
                 if (deckStationBadges) deckStationBadges.innerHTML = '';
             }
 
+            function isDeckModuleItem(item) {
+                return !!(item && item.manifest && item.manifest.render_mode === 'module_runtime');
+            }
+
+            function setDeckQueueCollapsed(collapsed) {
+                const next = !!collapsed;
+                state.deckQueueCollapsed = next;
+                if (deckQueueShell) {
+                    deckQueueShell.classList.toggle('is-collapsed', next);
+                }
+                if (deckQueueToggle) {
+                    deckQueueToggle.setAttribute('aria-expanded', next ? 'false' : 'true');
+                    deckQueueToggle.innerHTML = next
+                        ? '<i class="bi bi-chevron-down"></i><span>Show list</span>'
+                        : '<i class="bi bi-chevron-up"></i><span>Collapse list</span>';
+                }
+            }
+
+            function setDeckDetailCollapsed(collapsed) {
+                const next = !!collapsed;
+                state.deckDetailCollapsed = next;
+                if (deckDetail) {
+                    deckDetail.classList.toggle('is-collapsed', next);
+                }
+                if (deckDetailToggle) {
+                    deckDetailToggle.setAttribute('aria-expanded', next ? 'false' : 'true');
+                    deckDetailToggle.innerHTML = next
+                        ? '<i class="bi bi-layout-text-window"></i><span>Show details</span>'
+                        : '<i class="bi bi-layout-text-window-reverse"></i><span>Hide details</span>';
+                }
+            }
+
+            function syncDeckLayoutMode(selectedItem) {
+                const moduleActive = isDeckModuleItem(selectedItem);
+                if (deck) {
+                    deck.classList.toggle('is-module-active', moduleActive);
+                }
+                if (moduleActive) {
+                    if (state.deckLayoutMode !== 'module' || state.deckLayoutPrimedKey !== String(selectedItem.key || '')) {
+                        setDeckQueueCollapsed(true);
+                        setDeckDetailCollapsed(true);
+                        state.deckLayoutPrimedKey = String(selectedItem.key || '');
+                    }
+                    state.deckLayoutMode = 'module';
+                    return;
+                }
+                if (state.deckLayoutMode === 'module') {
+                    setDeckQueueCollapsed(false);
+                    setDeckDetailCollapsed(false);
+                }
+                state.deckLayoutMode = 'default';
+                state.deckLayoutPrimedKey = '';
+            }
+
+            function resetDeckLayoutMode() {
+                if (deck) {
+                    deck.classList.remove('is-module-active');
+                }
+                setDeckQueueCollapsed(false);
+                setDeckDetailCollapsed(false);
+                state.deckLayoutMode = 'default';
+                state.deckLayoutPrimedKey = '';
+            }
+
             function getGrantedDeckModuleCapabilities(manifest) {
                 const runtime = manifest && manifest.module_runtime && typeof manifest.module_runtime === 'object'
                     ? manifest.module_runtime
@@ -7812,6 +7884,9 @@
                 if (deckQueueCount) {
                     deckQueueCount.hidden = true;
                 }
+                if (deckQueueToggle) {
+                    deckQueueToggle.hidden = total <= 1;
+                }
                 if (total <= 1) {
                     deckCount.textContent = '';
                     deckCount.hidden = true;
@@ -7996,6 +8071,7 @@
                 updateDeckVisibility();
                 const selectedItem = getDeckSelectedItem();
                 if (!state.deckOpen || !selectedItem) return;
+                syncDeckLayoutMode(selectedItem);
                 refreshDeckOriginSourceElIfStale();
                 const anchorUpdate = firstConnectedDeckAnchor(
                     state.deckOriginSourceEl,
@@ -8096,6 +8172,7 @@
                     clearDeckStageDockedNodes();
                     deckStage.classList.add('is-empty');
                 }
+                resetDeckLayoutMode();
                 clearDeckStationSummary();
                 clearDeckWidgetSummary();
                 updateDeckVisibility();
@@ -8142,6 +8219,7 @@
                     clearDeckStageDockedNodes();
                     deckStage.classList.add('is-empty');
                 }
+                resetDeckLayoutMode();
                 clearDeckStationSummary();
                 clearDeckWidgetSummary();
                 updateDeckVisibility();
@@ -8893,6 +8971,18 @@
 
             if (deckCloseBtn) {
                 deckCloseBtn.addEventListener('click', () => closeMediaDeck({ forceClose: true }));
+            }
+
+            if (deckQueueToggle) {
+                deckQueueToggle.addEventListener('click', () => {
+                    setDeckQueueCollapsed(!state.deckQueueCollapsed);
+                });
+            }
+
+            if (deckDetailToggle) {
+                deckDetailToggle.addEventListener('click', () => {
+                    setDeckDetailCollapsed(!state.deckDetailCollapsed);
+                });
             }
 
             if (deckBackdrop) {

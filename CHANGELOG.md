@@ -8,9 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.127] - 2026-03-21
+
+### Changed
+- **Module-focused deck layout** — When the selected deck item is **`module_runtime`**, the deck uses **`is-module-active`**: larger stage budget, **FROM THIS SOURCE** queue and detail/context default collapsed (**Show list** / **Show details** restore them). Non-module selection returns to the usual expanded layout. CSS in **`base.html`**; **`syncDeckLayoutMode`** / toggles in **`canopy-main.js`**.
+
 ### Fixed
 - **Deck fails to open / disappears after queue rebuild** — **`reconcileDeckQueueItemsBuilt`** no longer uses **`!item.key`** (drops valid keys only when **`undefined` / `null` / ''**). If a rebuild would yield an empty list while the prior queue had items, the previous list is reused. **`buildSourceWidgetList`** / union paths are wrapped in **`try/catch`** so malformed DOM cannot abort deck open.
 - **Deck queue loses module after switching to YouTube (mixed source)** — Docked media breaks **`sourceContainer`**, so **`renderDeckQueue`** could rebuild with only the active clip. Mitigations: **`deckOriginSourceEl`** + **`deckOriginMessageId` / `deckOriginPostId`**; **`deckItemSourceEl`** skips sidebar hosts; **`widgetManifestFromDeckNode`** + module-card discovery in **`buildSourceWidgetList`**; **`reconcileDeckQueueItemsBuilt`** keeps prior widget rows when DOM nodes still belong to the pinned message/post (**`widgetDeckOriginContainsEl`**) and backfills from **`buildSourceWidgetList(origin)`**; **`mergeDeckWidgetUnionIntoDeckItems`** on **`openMediaDeckForSource`** and full-item **`openMiniPlayerForSource`** so Deck / mini / Open module share the same widget union; explicit widget merge in **`renderDeckQueue`** uses **`widgetDeckOriginContainsEl`** instead of **`deckItemSourceEl === sourceEl`**.
+
+### Tests
+- **`tests/test_frontend_regressions.py`** — **`is-module-active`** layout CSS and **`syncDeckLayoutMode`** toggle string; deck queue / **`deckItemKeyUsable`** / **`reconcileDeckQueueItemsBuilt`** substrings as applicable.
 
 ## [0.4.126] - 2026-02-27
 
