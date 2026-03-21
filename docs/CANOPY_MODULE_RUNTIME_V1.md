@@ -158,6 +158,8 @@ Server / sanitizer notes:
 
 Reference sample bundle for manual testing: **`canopy/ui/static/modules/piano-lab-v1.canopy-module.html`**.
 
+**Mixed source (e.g. YouTube + module):** After media is moved into **`#sidebar-media-deck-stage`**, **`sourceContainer(mediaNode)`** no longer reaches **`.message-item`**. The deck keeps **`state.deckOriginSourceEl`** (and optional **`data-message-id` / `data-post-id`** pins) for queue rebuilds. **`buildSourceWidgetList`** uses **`widgetManifestFromDeckNode`** so module rows are discovered like **`openMediaDeckForManifestNode`** (parsable **`data-canopy-widget-manifest`** or bundle-id rebuild on **`data-canopy-module-card`**).
+
 ### Station surface
 A recurring channel or station can pin or reuse the same module with different state.
 

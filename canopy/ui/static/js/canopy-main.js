@@ -5700,6 +5700,10 @@
                 deckItems: [],
                 deckSelectedKey: '',
                 deckSourceEl: null,
+                /** Message/post root captured when opening deck or mini; queue rebuild must not depend on docked media's DOM parent. */
+                deckOriginSourceEl: null,
+                deckOriginMessageId: '',
+                deckOriginPostId: '',
                 deckQueueSignature: '',
                 deckSeeking: false,
                 mediaCounter: 0,
@@ -5817,11 +5821,61 @@
                 return !!(item && (item.type === 'audio' || item.type === 'video' || item.type === 'youtube'));
             }
 
+            /**
+             * Resolve the post/message root for a deck queue item.
+             * When media has been moved into the deck or mini host, `sourceContainer(item.el)` is null — do not use it.
+             */
             function deckItemSourceEl(item) {
                 if (!item) return null;
                 if (item.sourceEl && item.sourceEl.isConnected) return item.sourceEl;
-                if (item.el && item.el.isConnected) return sourceContainer(item.el);
+                if (item.el && item.el.isConnected) {
+                    const el = item.el;
+                    if (el.closest && el.closest('#sidebar-media-deck-stage, #sidebar-media-mini-video')) {
+                        return null;
+                    }
+                    return sourceContainer(el);
+                }
                 return null;
+            }
+
+            function firstConnectedDeckAnchor(...candidates) {
+                for (let i = 0; i < candidates.length; i++) {
+                    const el = candidates[i];
+                    if (el && el.isConnected) return el;
+                }
+                return null;
+            }
+
+            /** If the pinned source node was replaced (e.g. channel re-render), re-resolve from stored ids. */
+            function refreshDeckOriginSourceElIfStale() {
+                if (state.deckOriginSourceEl && state.deckOriginSourceEl.isConnected) return;
+                const mid = String(state.deckOriginMessageId || '').trim();
+                const pid = String(state.deckOriginPostId || '').trim();
+                if (mid && typeof document.querySelector === 'function') {
+                    const esc = window.CSS && typeof window.CSS.escape === 'function'
+                        ? window.CSS.escape(mid)
+                        : mid.replace(/["\\]/g, '\\$&');
+                    const row = document.querySelector(`.message-item[data-message-id="${esc}"]`);
+                    if (row && row.isConnected) {
+                        state.deckOriginSourceEl = row;
+                        return;
+                    }
+                }
+                if (pid && typeof document.querySelector === 'function') {
+                    const esc = window.CSS && typeof window.CSS.escape === 'function'
+                        ? window.CSS.escape(pid)
+                        : pid.replace(/["\\]/g, '\\$&');
+                    const card = document.querySelector(`.post-card[data-post-id="${esc}"]`);
+                    if (card && card.isConnected) {
+                        state.deckOriginSourceEl = card;
+                    }
+                }
+            }
+
+            function pinDeckOriginIdsFromSourceEl(sourceEl) {
+                if (!sourceEl || !sourceEl.getAttribute) return;
+                state.deckOriginMessageId = String(sourceEl.getAttribute('data-message-id') || '').trim();
+                state.deckOriginPostId = String(sourceEl.getAttribute('data-post-id') || '').trim();
             }
 
             function ensureMediaIdentity(el) {
@@ -6339,12 +6393,35 @@
                 return merged;
             }
 
+            /**
+             * Resolve a widget manifest for deck queue discovery: inline JSON, or module card bundle-id rebuild
+             * (matches openMediaDeckForManifestNode so queue rebuilds do not drop modules without data-canopy-widget-manifest).
+             */
+            function widgetManifestFromDeckNode(node) {
+                if (!(node instanceof Element)) return null;
+                let manifest = parseDeckWidgetManifest(node);
+                if (manifest) return manifest;
+                if (String(node.getAttribute('data-canopy-module-card') || '').trim() !== '1') return null;
+                const fid = extractCanopyModuleBundleFileIdFromHost(node);
+                if (!fid) return null;
+                let rawName = String(node.getAttribute('data-canopy-module-bundle-name') || '').trim();
+                if (!rawName) {
+                    const titleEl = node.querySelector('.stream-card-title, .fw-semibold');
+                    if (titleEl && titleEl.textContent) rawName = titleEl.textContent.trim();
+                }
+                const rawBuilt = buildCanopyModuleSurfaceManifestFromBundleId(fid, rawName);
+                return rawBuilt ? sanitizeDeckWidgetManifest(rawBuilt) : null;
+            }
+
             function buildSourceWidgetList(sourceEl) {
                 const items = [];
                 const seen = new Set();
                 if (!sourceEl || !sourceEl.querySelectorAll) return items;
-                sourceEl.querySelectorAll('[data-canopy-widget-manifest]').forEach((node) => {
-                    const manifest = parseDeckWidgetManifest(node);
+                const candidates = new Set();
+                sourceEl.querySelectorAll('[data-canopy-widget-manifest]').forEach((n) => candidates.add(n));
+                sourceEl.querySelectorAll('[data-canopy-module-card="1"]').forEach((n) => candidates.add(n));
+                candidates.forEach((node) => {
+                    const manifest = widgetManifestFromDeckNode(node);
                     const item = buildDeckWidgetItem(node, manifest, sourceEl);
                     if (!item || seen.has(item.key)) return;
                     seen.add(item.key);
@@ -6353,12 +6430,105 @@
                 return items;
             }
 
+            /** True if el is still under this deck session's message/post (survives stale sourceEl refs). */
+            function widgetDeckOriginContainsEl(origin, el) {
+                if (!(el instanceof Element) || !el.isConnected) return false;
+                if (origin && origin.isConnected && origin.contains(el)) return true;
+                const mid = String(state.deckOriginMessageId || '').trim();
+                if (mid && typeof document.querySelector === 'function') {
+                    const esc = window.CSS && typeof window.CSS.escape === 'function'
+                        ? window.CSS.escape(mid)
+                        : mid.replace(/["\\]/g, '\\$&');
+                    const row = document.querySelector(`.message-item[data-message-id="${esc}"]`);
+                    if (row && row.isConnected && row.contains(el)) return true;
+                }
+                const pid = String(state.deckOriginPostId || '').trim();
+                if (pid && typeof document.querySelector === 'function') {
+                    const esc = window.CSS && typeof window.CSS.escape === 'function'
+                        ? window.CSS.escape(pid)
+                        : pid.replace(/["\\]/g, '\\$&');
+                    const card = document.querySelector(`.post-card[data-post-id="${esc}"]`);
+                    if (card && card.isConnected && card.contains(el)) return true;
+                }
+                return false;
+            }
+
+            /** On deck open: ensure every widget node under sourceEl appears in the list (Deck launcher + Open module parity). */
+            function mergeDeckWidgetUnionIntoDeckItems(sourceEl, items) {
+                if (!sourceEl || !sourceEl.isConnected || !sourceEl.querySelectorAll) return items;
+                const out = Array.isArray(items) ? items.slice() : [];
+                const keys = new Set();
+                out.forEach((i) => {
+                    if (i && i.key !== undefined && i.key !== null && i.key !== '') keys.add(i.key);
+                });
+                try {
+                    buildSourceWidgetList(sourceEl).forEach((w) => {
+                        if (!w || w.key === undefined || w.key === null || w.key === '' || keys.has(w.key)) return;
+                        out.push(w);
+                        keys.add(w.key);
+                    });
+                } catch (_) {
+                    /* Do not block deck open if widget discovery throws on malformed DOM. */
+                }
+                return out;
+            }
+
+            /**
+             * After a queue rebuild, never drop widget rows that still belong to this session's post/message
+             * if the fresh DOM scan missed them (docked media, anchor churn, manifest attr edge cases).
+             */
+            function deckItemKeyUsable(key) {
+                return key !== undefined && key !== null && key !== '';
+            }
+
+            function reconcileDeckQueueItemsBuilt(built, previousItems, origin) {
+                const merged = [];
+                const keys = new Set();
+                const builtArr = Array.isArray(built) ? built : [];
+                builtArr.forEach((item) => {
+                    if (!item || !deckItemKeyUsable(item.key)) return;
+                    merged.push(item);
+                    keys.add(item.key);
+                });
+                const prevArr = Array.isArray(previousItems) ? previousItems : [];
+                prevArr.forEach((item) => {
+                    if (!item || !deckItemKeyUsable(item.key) || keys.has(item.key)) return;
+                    if (isDeckMediaItem(item)) return;
+                    if (!item.manifest) return;
+                    if (!(item.el instanceof Element) || !item.el.isConnected) return;
+                    if (!widgetDeckOriginContainsEl(origin, item.el)) return;
+                    merged.push(item);
+                    keys.add(item.key);
+                });
+                if (origin && origin.isConnected && origin.querySelectorAll) {
+                    try {
+                        buildSourceWidgetList(origin).forEach((w) => {
+                            if (!w || !deckItemKeyUsable(w.key) || keys.has(w.key)) return;
+                            merged.push(w);
+                            keys.add(w.key);
+                        });
+                    } catch (_) {
+                        /* Keep merged list from built + preserved widgets. */
+                    }
+                }
+                /* Empty rebuild would clear deckItems → getDeckSelectedItem null → deck hides when current is null. */
+                if (!merged.length && prevArr.length) {
+                    return prevArr.filter((item) => item && deckItemKeyUsable(item.key));
+                }
+                return merged;
+            }
+
             function buildSourceDeckItems(sourceEl, activeEl) {
                 const mediaItems = buildRelatedMediaList(sourceEl, activeEl).map((item) => ({
                     ...item,
                     sourceEl: sourceEl || sourceContainer(item.el),
                 }));
-                const widgetItems = buildSourceWidgetList(sourceEl);
+                let widgetItems = [];
+                try {
+                    widgetItems = buildSourceWidgetList(sourceEl);
+                } catch (_) {
+                    widgetItems = [];
+                }
                 return mediaItems.concat(widgetItems);
             }
 
@@ -6395,6 +6565,14 @@
                     const next = sourceContainer(state.current.el);
                     if (next && next.isConnected) {
                         state.current.sourceEl = next;
+                    } else if (state.deckOpen) {
+                        const pinned = firstConnectedDeckAnchor(
+                            state.deckOriginSourceEl,
+                            state.deckSourceEl
+                        );
+                        if (pinned) {
+                            state.current.sourceEl = pinned;
+                        }
                     }
                 }
             }
@@ -6468,7 +6646,11 @@
                 if (!item) return;
                 const shouldPlay = options.play === true;
                 state.dismissedEl = null;
-                state.deckSourceEl = deckItemSourceEl(item) || state.deckSourceEl;
+                state.deckSourceEl = firstConnectedDeckAnchor(
+                    deckItemSourceEl(item),
+                    state.deckOriginSourceEl,
+                    state.deckSourceEl
+                );
                 if (isDeckMediaItem(item)) {
                     const deferYt = !shouldPlay && item.type === 'youtube';
                     setCurrent(item.el, item.type, deferYt ? { deferYouTubeMaterialize: true } : undefined);
@@ -6555,7 +6737,11 @@
 
             function updateSourceDeckLauncherActiveStates() {
                 const activeSourceEl = state.deckOpen
-                    ? (state.deckSourceEl && state.deckSourceEl.isConnected ? state.deckSourceEl : (state.current && state.current.sourceEl))
+                    ? firstConnectedDeckAnchor(
+                        state.deckSourceEl,
+                        state.deckOriginSourceEl,
+                        state.current && state.current.sourceEl
+                    )
                     : ((state.current && state.current.sourceEl && state.dismissedEl !== state.current.el) ? state.current.sourceEl : null);
                 const activeSource = activeSourceEl ? ensureMediaIdentity(activeSourceEl) : '';
                 document.querySelectorAll('[data-open-media-deck]').forEach((btn) => {
@@ -6588,9 +6774,16 @@
                     preferred = getPreferredDeckItemForSource(sourceEl, items);
                 }
                 if (!preferred) return;
+                try {
+                    items = mergeDeckWidgetUnionIntoDeckItems(sourceEl, items);
+                } catch (_) {
+                    /* Keep pre-union list so deck still opens. */
+                }
                 state.deckItems = items;
                 state.deckQueueSignature = '';
                 state.deckSourceEl = sourceEl;
+                state.deckOriginSourceEl = sourceEl;
+                pinDeckOriginIdsFromSourceEl(sourceEl);
                 state.deckSelectedKey = preferred.key;
                 state.dismissedEl = null;
                 state.returnUrl = null;
@@ -6648,16 +6841,19 @@
             /** Open the sidebar mini player for this post/message (no deck); keeps YouTube as facade until Play. */
             function openMiniPlayerForSource(sourceEl) {
                 if (!sourceEl || !sourceEl.isConnected || !miniVideoHost) return;
+                const fullDeckItems = mergeDeckWidgetUnionIntoDeckItems(sourceEl, getSourceDeckItems(sourceEl));
                 const items = getSourceMediaDeckItems(sourceEl);
                 const preferred = getPreferredDeckItemForSource(sourceEl, items);
                 if (!preferred) return;
                 state.deckOpen = false;
                 state.deckSourceEl = sourceEl;
+                state.deckOriginSourceEl = sourceEl;
+                pinDeckOriginIdsFromSourceEl(sourceEl);
                 if (expandBtn) {
                     expandBtn.innerHTML = '<i class="bi bi-arrows-angle-expand"></i>';
                     expandBtn.title = 'Open Canopy deck';
                 }
-                state.deckItems = items;
+                state.deckItems = fullDeckItems;
                 state.deckQueueSignature = '';
                 state.deckSelectedKey = preferred.key;
                 state.dismissedEl = null;
@@ -6973,7 +7169,11 @@
 
             function buildDeckModuleContext(item) {
                 const manifest = item && item.manifest ? item.manifest : null;
-                const sourceEl = deckItemSourceEl(item) || state.deckSourceEl || null;
+                const sourceEl = firstConnectedDeckAnchor(
+                    deckItemSourceEl(item),
+                    state.deckOriginSourceEl,
+                    state.deckSourceEl
+                );
                 return {
                     version: 1,
                     title: manifest ? manifest.title : '',
@@ -7258,7 +7458,11 @@
             });
 
             function deckItemContextSubtitle(item) {
-                const sourceEl = deckItemSourceEl(item) || state.deckSourceEl;
+                const sourceEl = firstConnectedDeckAnchor(
+                    deckItemSourceEl(item),
+                    state.deckOriginSourceEl,
+                    state.deckSourceEl
+                );
                 return sourceEl ? sourceSubtitle(sourceEl) : 'Canopy source';
             }
 
@@ -7298,7 +7502,11 @@
 
             function jumpToDeckItemSource(item, options = {}) {
                 const forceClose = options.forceClose === true;
-                const sourceEl = deckItemSourceEl(item) || state.deckSourceEl;
+                const sourceEl = firstConnectedDeckAnchor(
+                    deckItemSourceEl(item),
+                    state.deckOriginSourceEl,
+                    state.deckSourceEl
+                );
                 if (forceClose && state.deckOpen) {
                     closeMediaDeck({ forceClose: true });
                 }
@@ -7557,24 +7765,36 @@
 
             function renderDeckQueue() {
                 if (!deckQueue || !deckQueueCount || !deckCount || !deckCountChip || !deckSource) return;
+                refreshDeckOriginSourceElIfStale();
                 const current = state.current;
                 const selectedNow = getDeckSelectedItem();
-                const sourceEl = (selectedNow && deckItemSourceEl(selectedNow))
-                    || state.deckSourceEl
-                    || (current && current.sourceEl ? current.sourceEl : null);
-                state.deckSourceEl = sourceEl || null;
+                const sourceEl = firstConnectedDeckAnchor(
+                    state.deckOriginSourceEl,
+                    selectedNow && deckItemSourceEl(selectedNow),
+                    state.deckSourceEl,
+                    current && current.sourceEl
+                );
+                state.deckSourceEl = sourceEl || (state.deckSourceEl && state.deckSourceEl.isConnected ? state.deckSourceEl : null);
+                const anchorForExplicit = sourceEl || state.deckOriginSourceEl || state.deckSourceEl;
                 const explicitSelectedWidget = (
                     selectedNow
                     && !isDeckMediaItem(selectedNow)
                     && selectedNow.manifest
                     && selectedNow.el
                     && selectedNow.el.isConnected
-                    && deckItemSourceEl(selectedNow) === sourceEl
-                ) ? buildDeckWidgetItem(selectedNow.el, selectedNow.manifest, sourceEl) : null;
-                state.deckItems = mergeExplicitDeckItem(
+                    && widgetDeckOriginContainsEl(anchorForExplicit, selectedNow.el)
+                ) ? buildDeckWidgetItem(selectedNow.el, selectedNow.manifest, anchorForExplicit) : null;
+                const built = mergeExplicitDeckItem(
                     buildSourceDeckItems(sourceEl, current ? current.el : null),
                     explicitSelectedWidget
                 );
+                const originForReconcile = firstConnectedDeckAnchor(
+                    state.deckOriginSourceEl,
+                    sourceEl,
+                    state.deckSourceEl
+                );
+                const previousDeckItems = Array.isArray(state.deckItems) ? state.deckItems : [];
+                state.deckItems = reconcileDeckQueueItemsBuilt(built, previousDeckItems, originForReconcile);
                 const items = state.deckItems;
                 const selectedItem = getDeckSelectedItem();
                 const total = items.length;
@@ -7776,7 +7996,14 @@
                 updateDeckVisibility();
                 const selectedItem = getDeckSelectedItem();
                 if (!state.deckOpen || !selectedItem) return;
-                state.deckSourceEl = deckItemSourceEl(selectedItem) || state.deckSourceEl;
+                refreshDeckOriginSourceElIfStale();
+                const anchorUpdate = firstConnectedDeckAnchor(
+                    state.deckOriginSourceEl,
+                    deckItemSourceEl(selectedItem),
+                    state.deckSourceEl,
+                    state.current && state.current.sourceEl
+                );
+                state.deckSourceEl = anchorUpdate || (state.deckSourceEl && state.deckSourceEl.isConnected ? state.deckSourceEl : null);
 
                 if (isDeckMediaItem(selectedItem)) {
                     if (state.current && state.current.el && !state.current.el.isConnected) {
@@ -7823,6 +8050,20 @@
             }
 
             function openMediaDeck() {
+                if (!state.deckOriginSourceEl || !state.deckOriginSourceEl.isConnected) {
+                    state.deckOriginSourceEl = firstConnectedDeckAnchor(
+                        state.deckSourceEl,
+                        state.current && state.current.sourceEl
+                    );
+                }
+                if (state.deckOriginSourceEl && state.deckOriginSourceEl.isConnected) {
+                    if (!String(state.deckOriginMessageId || '').trim()) {
+                        state.deckOriginMessageId = String(state.deckOriginSourceEl.getAttribute('data-message-id') || '').trim();
+                    }
+                    if (!String(state.deckOriginPostId || '').trim()) {
+                        state.deckOriginPostId = String(state.deckOriginSourceEl.getAttribute('data-post-id') || '').trim();
+                    }
+                }
                 state.deckOpen = true;
                 if (state.current || getDeckSelectedItem()) updateDeckPanel();
                 else updateDeckVisibility();
@@ -7838,6 +8079,9 @@
                 state.deckOpen = false;
                 state.deckSelectedKey = '';
                 state.deckSourceEl = null;
+                state.deckOriginSourceEl = null;
+                state.deckOriginMessageId = '';
+                state.deckOriginPostId = '';
                 if (expandBtn) {
                     expandBtn.innerHTML = '<i class="bi bi-arrows-angle-expand"></i>';
                     expandBtn.title = 'Open Canopy deck';
@@ -7885,6 +8129,9 @@
                 state.deckItems = [];
                 state.deckQueueSignature = '';
                 state.deckSourceEl = null;
+                state.deckOriginSourceEl = null;
+                state.deckOriginMessageId = '';
+                state.deckOriginPostId = '';
                 state.deckOpen = false;
 
                 if (miniVideoHost) {
@@ -8205,10 +8452,18 @@
                     deactivateMediaEntry(state.current);
                 }
 
+                let nextSourceEl = sourceContainer(el);
+                if (!nextSourceEl && state.deckOpen) {
+                    nextSourceEl = firstConnectedDeckAnchor(
+                        state.deckOriginSourceEl,
+                        state.deckSourceEl,
+                        state.current && state.current.sourceEl
+                    );
+                }
                 state.current = {
                     el: el,
                     type: type,
-                    sourceEl: sourceContainer(el),
+                    sourceEl: nextSourceEl,
                     activatedAt: Date.now()
                 };
                 state.dismissedEl = null;
@@ -8485,9 +8740,10 @@
 
             function jumpToCurrentSource() {
                 const selectedItem = getDeckSelectedItem();
-                if (!state.current && !selectedItem && !state.deckSourceEl) return;
+                const deckJumpAnchor = firstConnectedDeckAnchor(state.deckSourceEl, state.deckOriginSourceEl);
+                if (!state.current && !selectedItem && !deckJumpAnchor) return;
                 if (!state.current || !state.current.el || !isDeckMediaItem(selectedItem)) {
-                    jumpToDeckItemSource(selectedItem || { sourceEl: state.deckSourceEl }, { forceClose: true });
+                    jumpToDeckItemSource(selectedItem || { sourceEl: deckJumpAnchor }, { forceClose: true });
                     hideMini();
                     return;
                 }
