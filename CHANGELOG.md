@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.121] - 2026-02-27
+
+### Changed
+- **Version bump** — Canopy-Dev / local testing alignment; no functional runtime change in this commit.
+
+### Documentation
+- **Agent note (local only)** — `agent_note/AGENT_NOTE_CANOPY_MODULE_RUNTIME_V1_SCAFFOLD_2026-03-20.md` revised: repo-relative paths, explicit capability allowlist and gating (`context.get` vs broker methods), `CanopyModule` API, CSP/sandbox notes, link to `docs/CANOPY_MODULE_RUNTIME_V1.md`.
+
 ## [0.4.120] - 2026-03-20
 
 ### Improved
