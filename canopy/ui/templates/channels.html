@@ -6098,6 +6098,18 @@ function focusMessageById(messageId, options = {}) {
     return true;
 }
 
+/** Run source-layout compositor now and on next animation frame (after embed/DOM settle). */
+function scheduleChannelSourceLayouts(messagesContainer) {
+    const el = messagesContainer || document.getElementById('messages-list');
+    if (!el || typeof window.canopyApplySourceLayoutsInScope !== 'function') return;
+    window.canopyApplySourceLayoutsInScope(el);
+    requestAnimationFrame(function () {
+        if (typeof window.canopyApplySourceLayoutsInScope === 'function') {
+            window.canopyApplySourceLayoutsInScope(el);
+        }
+    });
+}
+
 function displayMessages(messages, options = {}) {
     const messagesContainer = document.getElementById('messages-list');
     const scrollContainer = document.getElementById('messages-container');
@@ -6241,6 +6253,8 @@ function displayMessages(messages, options = {}) {
 		        if (typeof hydrateXEmbeds === 'function') {
 		            hydrateXEmbeds(messagesContainer);
 		        }
+		        // Source layout compositor (feed uses full-page scan; channels inject HTML async — run explicitly)
+		        scheduleChannelSourceLayouts(messagesContainer);
 
             const container = document.getElementById('messages-container');
             applyUserAvatarStacks(userInfo, messagesContainer);
@@ -6344,6 +6358,9 @@ function renderMessage(message, userInfo, isReply) {
     } else if (channelIsE2E && (cs === 'plaintext' || !cs)) {
         cryptoBadge = `<span class="badge bg-success-subtle text-success border rounded-pill" title="End-to-end encrypted"><i class="bi bi-shield-lock-fill"></i></span>`;
     }
+    const sourceLayoutAttr = message.source_layout
+        ? ` data-canopy-source-layout="${String(JSON.stringify(message.source_layout || {})).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')}"`
+        : '';
 
     return `
     <div class="message-item message-card ${replyClass}" data-message-id="${message.id}">
@@ -6371,7 +6388,7 @@ function renderMessage(message, userInfo, isReply) {
                     ${expiryBadge}
                     ${cryptoBadge}
                 </div>
-                <div class="message-content">
+                <div class="message-content"${sourceLayoutAttr}>
                     ${objectiveHtml}
                     ${requestHtml}
                     ${signalHtml}
@@ -6380,8 +6397,8 @@ function renderMessage(message, userInfo, isReply) {
                     ${handoffHtml}
                     ${circleHtml}
                     ${skillHtml}
-                    ${message.poll ? pollHtml : (displayContent ? renderRichContent(displayContent) : '')}
-                    ${message.attachments ? displayAttachments(message.attachments) : ''}
+                    ${(message.poll || displayContent) ? `<div data-canopy-source-ref="content:lede">${message.poll ? pollHtml : renderRichContent(displayContent)}</div>` : ''}
+                    ${message.attachments ? displayAttachments(message.attachments, message.source_layout) : ''}
                     ${notesHtml}
                 </div>
                 
@@ -7846,7 +7863,13 @@ function getMessagesSignature(messages) {
     const last = messages[messages.length - 1];
     let hash = 2166136261; // FNV-1a 32-bit basis
     messages.forEach(m => {
-        const token = `${m.id || ''}|${m.parent_message_id || ''}|${m.created_at || ''}|${m.edited_at || ''}`;
+        let layoutToken = '';
+        try {
+            layoutToken = m && m.source_layout != null ? JSON.stringify(m.source_layout) : '';
+        } catch (err) {
+            layoutToken = '';
+        }
+        const token = `${m.id || ''}|${m.parent_message_id || ''}|${m.created_at || ''}|${m.edited_at || ''}|${layoutToken}`;
         for (let i = 0; i < token.length; i += 1) {
             hash ^= token.charCodeAt(i);
             hash = Math.imul(hash, 16777619);
@@ -8030,6 +8053,7 @@ function appendNewMessages(allMessages) {
         if (typeof hydrateXEmbeds === 'function') {
             hydrateXEmbeds(messagesContainer);
         }
+        scheduleChannelSourceLayouts(messagesContainer);
 
         // Scroll to bottom if user was near bottom
         const container = document.getElementById('messages-container');
@@ -8193,6 +8217,7 @@ function loadOlderMessages() {
                 if (typeof hydrateXEmbeds === 'function') {
                     hydrateXEmbeds(messagesContainer);
                 }
+                scheduleChannelSourceLayouts(messagesContainer);
             });
         })
         .catch(err => {
@@ -9003,9 +9028,11 @@ function buildMediaGrid(images, layoutHint = '') {
         const img = images[i];
         const hasUrl = img.url && String(img.url).trim();
         const isLast = (i === show - 1) && extraCount > 0 && !showAll;
+        const imageFileId = String((img && (img.id || img.file_id || img.origin_file_id)) || '').trim();
+        const sourceRefAttr = imageFileId ? ` data-canopy-source-ref="attachment:${imageFileId.replace(/"/g, '&quot;')}"` : '';
         if (hasUrl) {
             const thumbUrl = img.url + '/thumb';
-            cells += `<div class="mg-cell" onclick="openLightbox(${i}, '${urlsAttr}')">
+            cells += `<div class="mg-cell"${sourceRefAttr} onclick="openLightbox(${i}, '${urlsAttr}')">
                 <img src="${thumbUrl}" alt="${(img.name || '').replace(/"/g, '&quot;')}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling&&this.nextElementSibling.classList.remove('d-none');">
                 <div class="mg-placeholder d-none small text-muted p-2">Image unavailable</div>
                 <a class="mg-download" href="${img.url}" download="${(img.name || 'image').replace(/"/g, '&quot;')}" title="Download full resolution" onclick="event.stopPropagation();">
@@ -9014,7 +9041,7 @@ function buildMediaGrid(images, layoutHint = '') {
                 ${isLast ? `<div class="mg-more-overlay">+${extraCount}</div>` : ''}
             </div>`;
         } else {
-            cells += `<div class="mg-cell mg-cell-unavailable d-flex align-items-center justify-content-center p-2" style="min-height:80px;background:var(--canopy-bg-tertiary, #f0f0f0);border-radius:8px;">
+            cells += `<div class="mg-cell mg-cell-unavailable d-flex align-items-center justify-content-center p-2"${sourceRefAttr} style="min-height:80px;background:var(--canopy-bg-tertiary, #f0f0f0);border-radius:8px;">
                 <span class="small text-muted text-center">${(img.name || 'Image').replace(/</g, '&lt;')}<br><span class="opacity-75">Not on this device yet — will appear when synced</span></span>
         </div>`;
         }
@@ -9245,7 +9272,42 @@ function endorseSkill(skillId) {
     });
 }
 
-function displayAttachments(attachments) {
+/**
+ * When source_layout references 2+ distinct image attachment refs, render each image in its own
+ * `.media-grid` so the compositor can move hero / side / strip cells without sharing one grid.
+ */
+function shouldSplitChannelImageGridsForSourceLayout(sourceLayout, images) {
+    if (!sourceLayout || typeof sourceLayout !== 'object' || !Array.isArray(images) || images.length < 2) {
+        return false;
+    }
+    const fileRef = (att) => {
+        const id = String((att && (att.id || att.file_id || att.origin_file_id)) || '').trim();
+        return id ? `attachment:${id}` : '';
+    };
+    const want = new Set();
+    const push = (raw) => {
+        const r = String(raw || '').trim();
+        if (r.startsWith('attachment:')) want.add(r);
+    };
+    try {
+        if (sourceLayout.hero && sourceLayout.hero.ref) push(sourceLayout.hero.ref);
+        if (Array.isArray(sourceLayout.supporting)) {
+            sourceLayout.supporting.forEach((e) => push(e && e.ref));
+        }
+        if (sourceLayout.deck && sourceLayout.deck.default_ref) push(sourceLayout.deck.default_ref);
+    } catch (_) {
+        return false;
+    }
+    if (want.size < 2) return false;
+    let matched = 0;
+    for (let i = 0; i < images.length; i++) {
+        const ref = fileRef(images[i]);
+        if (ref && want.has(ref)) matched++;
+    }
+    return matched >= 2;
+}
+
+function displayAttachments(attachments, sourceLayout) {
     if (!attachments || attachments.length === 0) return '';
 
     const extOf = (value) => {
@@ -9283,6 +9345,10 @@ function displayAttachments(attachments) {
         } catch (_) {
             return '';
         }
+    };
+    const buildAttachmentSourceRefAttr = (att) => {
+        const fileId = String((att && (att.id || att.file_id || att.origin_file_id)) || fileIdFromAttachmentUrl(att) || '').trim();
+        return fileId ? ` data-canopy-source-ref="attachment:${_escapeAttr(fileId)}"` : '';
     };
 
     const buildModuleAttachmentManifest = (att) => {
@@ -9486,7 +9552,7 @@ function displayAttachments(attachments) {
                </button>`
             : `<span class="small text-muted">Stream metadata incomplete</span>`;
         html += `
-            <div class="attachment-item stream-card mb-2 p-3 rounded"${widgetManifestAttr ? ` data-canopy-widget-manifest="${widgetManifestAttr}"` : ''}>
+            <div class="attachment-item stream-card mb-2 p-3 rounded"${buildAttachmentSourceRefAttr(att)}${widgetManifestAttr ? ` data-canopy-widget-manifest="${widgetManifestAttr}"` : ''}>
                 <div class="stream-card-header">
                     <div class="stream-card-identity">
                         <div class="stream-card-icon">
@@ -9524,11 +9590,14 @@ function displayAttachments(attachments) {
         const manifestAttr = manifest ? _escapeAttr(JSON.stringify(manifest)) : '';
         const manifestKeyAttr = manifest && manifest.key ? ` data-canopy-widget-key="${_escapeAttr(manifest.key)}"` : '';
         const bundleIdAttr = fileId ? ` data-canopy-module-bundle-id="${_escapeAttr(fileId)}" data-canopy-module-bundle-name="${_escapeAttr(att.name || '')}"` : '';
+        const widgetSourceRefAttr = manifest && manifest.key
+            ? ` data-canopy-source-ref="widget:${_escapeAttr(manifest.key)}"`
+            : buildAttachmentSourceRefAttr(att);
         const safeName = _escapeHtml(att.name || 'module bundle');
         const safeTitle = _escapeHtml(humanizeModuleTitle(att));
         const escapedUrl = att.url ? String(att.url).replace(/"/g, '&quot;') : '';
         html += `
-            <div class="attachment-item stream-card mb-2 p-3 rounded" data-canopy-module-card="1"${manifestAttr ? ` data-canopy-widget-manifest="${manifestAttr}"` : ''}${manifestKeyAttr}${bundleIdAttr}>
+            <div class="attachment-item stream-card mb-2 p-3 rounded" data-canopy-module-card="1"${widgetSourceRefAttr}${manifestAttr ? ` data-canopy-widget-manifest="${manifestAttr}"` : ''}${manifestKeyAttr}${bundleIdAttr}>
                 <div class="stream-card-header">
                     <div class="stream-card-identity">
                         <div class="stream-card-icon">
@@ -9561,9 +9630,15 @@ function displayAttachments(attachments) {
 
     const imageLayout = resolveAttachmentLayoutHint(images);
 
-    // Render image grid
+    // Render image grid(s)
     if (images.length > 0) {
-        html += buildMediaGrid(images, imageLayout);
+        if (shouldSplitChannelImageGridsForSourceLayout(sourceLayout, images)) {
+            images.forEach((img) => {
+                html += buildMediaGrid([img], resolveAttachmentLayoutHint([img]));
+            });
+        } else {
+            html += buildMediaGrid(images, imageLayout);
+        }
     }
 
     const escapeAttr = (value) => String(value || '').replace(/"/g, '&quot;');
@@ -9603,7 +9678,7 @@ function displayAttachments(attachments) {
             : notOnDeviceMsg(att);
         const audioPlayer = hasUrl ? `<audio controls preload="metadata" class="mt-1 w-100" style="max-width:100%;"><source src="${att.url.replace(/"/g, '&quot;')}" type="${(att.type || 'audio/mpeg').replace(/"/g, '&quot;')}">Your browser does not support the audio element.</audio>` : '';
         html += `
-            <div class="attachment-item mb-2 p-2 border rounded">
+            <div class="attachment-item mb-2 p-2 border rounded"${buildAttachmentSourceRefAttr(att)}>
                 <div class="d-flex align-items-center flex-wrap">
                     <i class="bi bi-${getFileIcon(att.type, att.name)} me-2"></i>
                     <div class="flex-grow-1">
@@ -9636,7 +9711,7 @@ function displayAttachments(attachments) {
                </video>`
             : '';
         html += `
-            <div class="attachment-item mb-2 p-2 border rounded">
+            <div class="attachment-item mb-2 p-2 border rounded"${buildAttachmentSourceRefAttr(att)}>
                 <div class="d-flex align-items-center flex-wrap">
                     <i class="bi bi-camera-video me-2"></i>
                     <div class="flex-grow-1">
@@ -9674,7 +9749,7 @@ function displayAttachments(attachments) {
                 </div>
             ` : notOnDeviceMsg(att);
             html += `
-                <div class="attachment-item mb-2 p-2 border rounded">
+                <div class="attachment-item mb-2 p-2 border rounded"${buildAttachmentSourceRefAttr(att)}>
                     <div class="d-flex align-items-center">
                         <i class="bi bi-${getFileIcon(att.type, att.name)} me-2"></i>
                         <div class="flex-grow-1">
@@ -9696,7 +9771,7 @@ function displayAttachments(attachments) {
                 </div>
             ` : notOnDeviceMsg(att);
             html += `
-                <div class="attachment-item mb-2 p-2 border rounded">
+                <div class="attachment-item mb-2 p-2 border rounded"${buildAttachmentSourceRefAttr(att)}>
                     <div class="d-flex align-items-center">
                         <i class="bi bi-${getFileIcon(att.type, att.name)} me-2"></i>
                         <div class="flex-grow-1">

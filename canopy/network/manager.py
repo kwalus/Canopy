@@ -2503,6 +2503,7 @@ class P2PNetworkManager:
                                    content: str, message_id: str,
                                    timestamp: str,
                                    attachments: Optional[list[Any]] = None,
+                                   source_layout: Optional[dict[str, Any]] = None,
                                    display_name: Optional[str] = None,
                                    expires_at: Optional[str] = None,
                                    ttl_seconds: Optional[int] = None,
@@ -2627,6 +2628,8 @@ class P2PNetworkManager:
             metadata['edited_at'] = edited_at
         if security:
             metadata['security'] = security
+        if isinstance(source_layout, dict) and source_layout:
+            metadata['source_layout'] = source_layout
 
         # Include sender display_name so remote peers can show the
         # correct name even if they haven't received a profile sync

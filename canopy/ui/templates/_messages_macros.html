@@ -39,8 +39,9 @@
          {% if gallery_id %}data-gallery-id="{{ gallery_id }}"{% endif %}>
         {% for img in images[:show_count] %}
             {% set has_url = img.url and img.url|trim %}
+            {% set image_file_id = img.id or img.file_id or img.origin_file_id or ((img.url.split('/files/')[1].split('/')[0]) if img.url and '/files/' in img.url else None) %}
             {% if has_url %}
-                <div class="mg-cell" onclick="openLightbox({{ loop.index0 }}, '{{ image_urls | tojson | urlencode }}')">
+                <div class="mg-cell"{% if image_file_id %} data-canopy-source-ref="attachment:{{ image_file_id }}"{% endif %} onclick="openLightbox({{ loop.index0 }}, '{{ image_urls | tojson | urlencode }}')">
                     <img src="{{ img.url }}/thumb" alt="{{ img.name or 'image' }}" loading="lazy">
                     <a class="mg-download"
                        href="{{ img.url }}"
@@ -133,7 +134,7 @@
 
     {% if attachment.type and attachment.type.startswith('image/') %}
         {% if attachment.url %}
-            <div class="dm-attachment dm-attachment-image">
+            <div class="dm-attachment dm-attachment-image"{% if attachment_file_id %} data-canopy-source-ref="attachment:{{ attachment_file_id }}"{% endif %}>
                 <img src="{{ attachment.url }}" alt="{{ attachment.name }}" onclick="viewImage('{{ attachment.url }}')">
                 <div class="dm-attachment-meta">
                     <span>{{ attachment.name }}</span>
@@ -156,7 +157,7 @@
             </div>
         {% endif %}
     {% elif attachment.type and attachment.type.startswith('audio/') %}
-        <div class="dm-attachment dm-attachment-card">
+        <div class="dm-attachment dm-attachment-card"{% if attachment_file_id %} data-canopy-source-ref="attachment:{{ attachment_file_id }}"{% endif %}>
             <div class="dm-attachment-title-row">
                 <div>
                     <strong>{{ attachment.name }}</strong>
@@ -179,7 +180,7 @@
             {% endif %}
         </div>
     {% elif is_module %}
-        <div class="dm-attachment dm-attachment-card" data-canopy-module-card="1" data-canopy-widget-manifest="{{ module_manifest|tojson|forceescape }}" data-canopy-widget-key="{{ module_manifest.key|e }}"{% if attachment_file_id %} data-canopy-module-bundle-id="{{ attachment_file_id|e }}" data-canopy-module-bundle-name="{{ (attachment.name or '')|e }}"{% endif %}>
+        <div class="dm-attachment dm-attachment-card" data-canopy-module-card="1" data-canopy-widget-manifest="{{ module_manifest|tojson|forceescape }}" data-canopy-widget-key="{{ module_manifest.key|e }}"{% if attachment_file_id %} data-canopy-module-bundle-id="{{ attachment_file_id|e }}" data-canopy-module-bundle-name="{{ (attachment.name or '')|e }}" data-canopy-source-ref="attachment:{{ attachment_file_id }}"{% endif %}>
             <div class="d-flex align-items-start justify-content-between gap-3 flex-wrap">
                 <div>
                     <div class="fw-semibold"><i class="bi bi-box-fill me-2"></i>{{ module_title }}</div>
@@ -212,7 +213,7 @@
             </div>
         </div>
     {% else %}
-        <div class="dm-attachment dm-attachment-card">
+        <div class="dm-attachment dm-attachment-card"{% if attachment_file_id %} data-canopy-source-ref="attachment:{{ attachment_file_id }}"{% endif %}>
             <div class="dm-attachment-title-row">
                 <div>
                     <strong>{{ attachment.name }}</strong>

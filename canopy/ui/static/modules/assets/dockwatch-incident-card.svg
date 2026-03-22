@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="860" viewBox="0 0 1400 860" role="img" aria-labelledby="title desc">
+  <title id="title">Dockwatch incident card</title>
+  <desc id="desc">Security station incident card.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#081019"/><stop offset="100%" stop-color="#0c1521"/></linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#60a5fa"/></linearGradient>
+  </defs>
+  <rect width="1400" height="860" rx="40" fill="url(#bg)"/>
+  <text x="76" y="108" fill="#34d399" font-size="28" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800" letter-spacing="3">CANOPY SECURITY</text>
+  <text x="76" y="152" fill="#f8fafc" font-size="58" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="900">Dockwatch Incident Card</text>
+  <g transform="translate(76 224)">
+    <rect width="1248" height="168" rx="28" fill="#101b29" stroke="#24374b"/>
+    <text x="36" y="58" fill="#f8fafc" font-size="32" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Operating principle</text>
+    <text x="36" y="104" fill="#9fb0c2" font-size="24" font-family="Avenir Next, Segoe UI, sans-serif">Curated agent output should collapse noise into a clean queue, not invent extra drama.</text>
+    <text x="36" y="142" fill="#9fb0c2" font-size="24" font-family="Avenir Next, Segoe UI, sans-serif">The human operator needs triage, posture, and a clear handoff summary.</text>
+  </g>
+  <g transform="translate(76 438)">
+    <rect width="596" height="282" rx="28" fill="#101b29" stroke="#24374b"/>
+    <text x="32" y="58" fill="#f8fafc" font-size="30" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Desk fields</text>
+    <text x="32" y="108" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">• threat score</text>
+    <text x="32" y="146" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">• focus camera</text>
+    <text x="32" y="184" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">• patrol posture</text>
+    <text x="32" y="222" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">• incident queue</text>
+  </g>
+  <g transform="translate(728 438)">
+    <rect width="596" height="282" rx="28" fill="#101b29" stroke="#24374b"/>
+    <rect x="32" y="34" width="228" height="44" rx="22" fill="url(#accent)"/>
+    <text x="60" y="64" fill="#06261b" font-size="20" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="900" letter-spacing="1">BOUNDED SECURITY DESK</text>
+    <text x="32" y="120" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">No raw control fantasy.</text>
+    <text x="32" y="158" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">This module is about sensing, risk ranking, and human review.</text>
+    <text x="32" y="196" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">That keeps the platform serious.</text>
+  </g>
+</svg>

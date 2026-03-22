@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="860" viewBox="0 0 1400 860" role="img" aria-labelledby="title desc">
+  <title id="title">Drone race heat card</title>
+  <desc id="desc">Heat overview card for drone race control.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#08111b"/><stop offset="100%" stop-color="#0d1724"/></linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#a855f7"/><stop offset="100%" stop-color="#22d3ee"/></linearGradient>
+  </defs>
+  <rect width="1400" height="860" rx="40" fill="url(#bg)"/>
+  <text x="76" y="108" fill="#a855f7" font-size="28" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800" letter-spacing="3">CANOPY RACE CONTROL</text>
+  <text x="76" y="152" fill="#f8fafc" font-size="58" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="900">Heat Overview</text>
+  <g transform="translate(76 228)">
+    <rect width="1248" height="158" rx="28" fill="#101b29" stroke="#24374b"/>
+    <text x="36" y="58" fill="#f8fafc" font-size="32" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Race promise</text>
+    <text x="36" y="104" fill="#9fb0c2" font-size="24" font-family="Avenir Next, Segoe UI, sans-serif">The module lets operators feel the live event: heat state, leaderboard, gate pressure, and penalties.</text>
+    <text x="36" y="142" fill="#9fb0c2" font-size="24" font-family="Avenir Next, Segoe UI, sans-serif">It is a station, not a video player with buttons.</text>
+  </g>
+  <g transform="translate(76 434)">
+    <rect width="596" height="292" rx="28" fill="#101b29" stroke="#24374b"/>
+    <text x="32" y="56" fill="#f8fafc" font-size="30" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Race desk fields</text>
+    <text x="32" y="108" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">• current heat</text>
+    <text x="32" y="146" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">• time remaining</text>
+    <text x="32" y="184" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">• split pressure and penalties</text>
+    <text x="32" y="222" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">• leaderboard with live gap</text>
+  </g>
+  <g transform="translate(728 434)">
+    <rect width="596" height="292" rx="28" fill="#101b29" stroke="#24374b"/>
+    <rect x="32" y="34" width="236" height="44" rx="22" fill="url(#accent)"/>
+    <text x="58" y="64" fill="#200530" font-size="20" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="900" letter-spacing="1">LIVE EVENT STATION</text>
+    <text x="32" y="122" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">The audience sees spectacle.</text>
+    <text x="32" y="160" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">The operator sees a controllable world.</text>
+  </g>
+</svg>

@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Harbor Crisis World</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --panel: rgba(9, 18, 32, 0.96);
+      --panel-2: rgba(12, 27, 47, 0.96);
+      --panel-3: rgba(8, 15, 26, 0.96);
+      --edge: rgba(34, 211, 238, 0.16);
+      --text: #f4f8ff;
+      --muted: #9ab0c8;
+      --cyan: #22d3ee;
+      --amber: #fbbf24;
+      --violet: #818cf8;
+      --good: #34d399;
+      --danger: #fb7185;
+      --shadow: 0 24px 60px rgba(0,0,0,.34);
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;min-height:100%;background:radial-gradient(circle at top right,rgba(34,211,238,.16),transparent 28%),radial-gradient(circle at bottom left,rgba(129,140,248,.16),transparent 26%),linear-gradient(180deg,#03070d,#09111b 52%,#0b1622);color:var(--text);font-family:"Avenir Next","Segoe UI",sans-serif}
+    body{padding:16px}
+    .shell{min-height:calc(100vh - 32px);display:grid;gap:14px;align-content:start}
+    .hero,.card,.map-card,.timeline-card,.toolbar{border:1px solid var(--edge);border-radius:22px;background:var(--panel);box-shadow:var(--shadow)}
+    .hero{padding:16px;background:radial-gradient(circle at top right,rgba(34,211,238,.18),transparent 26%),radial-gradient(circle at bottom left,rgba(251,191,36,.12),transparent 22%),linear-gradient(180deg,rgba(9,18,32,.98),rgba(10,20,34,.98))}
+    .eyebrow{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:rgba(15,23,42,.52);border:1px solid rgba(34,211,238,.18);color:var(--cyan);font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+    h1,h2,h3,p{margin:0}
+    h1{font-size:clamp(1.7rem,3vw,2.35rem);line-height:1.02;letter-spacing:-.04em;margin-bottom:8px}
+    .copy,.subtle{color:var(--muted);line-height:1.5}
+    .hero-grid{margin-top:12px;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(300px,.9fr);gap:14px}
+    .metric-row,.chip-row,.capability-row,.status-row,.toolbar-group{display:flex;flex-wrap:wrap;gap:8px}
+    .metric,.chip,.flag,.status-pill{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;border:1px solid rgba(148,163,184,.16);background:rgba(15,23,42,.56);font-size:12px;font-weight:800}
+    .metric.highlight,.chip.highlight{color:#072531;background:linear-gradient(135deg,#67e8f9,#60a5fa);border-color:transparent}
+    .metric-row{margin-top:14px}.metric strong{font-size:1rem;letter-spacing:-.03em}
+    .grid{display:grid;grid-template-columns:minmax(320px,.86fr) minmax(0,1.14fr);gap:14px}
+    .card,.timeline-card{padding:14px;display:grid;gap:12px;background:var(--panel-2)}
+    .card-title{font-size:.74rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:800}
+    .control{border-radius:16px;border:1px solid rgba(148,163,184,.14);background:rgba(8,15,27,.92);padding:12px;display:grid;gap:8px}
+    .control-head{display:flex;justify-content:space-between;gap:10px;align-items:center}
+    .control-label{font-size:.86rem;font-weight:800}.control-value{color:var(--cyan);font-weight:800;font-variant-numeric:tabular-nums}
+    input[type="range"]{width:100%;appearance:none;height:6px;border-radius:999px;background:linear-gradient(90deg,rgba(34,211,238,.8),rgba(129,140,248,.9));outline:none}
+    input[type="range"]::-webkit-slider-thumb{appearance:none;width:16px;height:16px;border-radius:50%;background:#f8fafc;border:2px solid rgba(34,211,238,.8);cursor:pointer}
+    .score-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+    .score-box{border-radius:16px;border:1px solid rgba(148,163,184,.14);background:rgba(8,15,27,.92);padding:12px;display:grid;gap:6px}
+    .score-label{font-size:.66rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:800}
+    .score-value{font-size:1rem;font-weight:800;letter-spacing:-.02em}
+    .score-copy{font-size:.8rem;line-height:1.45;color:var(--muted)}
+    .map-card{padding:14px;display:grid;gap:12px;background:radial-gradient(circle at top left,rgba(34,211,238,.12),transparent 28%),linear-gradient(180deg,rgba(8,16,28,.98),rgba(9,18,31,.96))}
+    .map-stage{width:100%;height:280px;border-radius:18px;border:1px solid rgba(148,163,184,.14);background:linear-gradient(180deg,rgba(10,18,31,.98),rgba(8,15,27,.96));overflow:hidden}
+    .map-legend{display:flex;flex-wrap:wrap;gap:8px}.legend-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;background:rgba(15,23,42,.52);border:1px solid rgba(148,163,184,.12);color:var(--muted);font-size:.76rem;font-weight:800}.dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+    .timeline-list{display:grid;gap:10px}.timeline-item{border-radius:16px;border:1px solid rgba(148,163,184,.14);background:rgba(8,15,27,.92);padding:12px;display:grid;gap:6px}.timeline-top{display:flex;justify-content:space-between;gap:10px;align-items:center}.timeline-time{color:var(--cyan);font-size:.82rem;font-weight:800;font-variant-numeric:tabular-nums}.timeline-item h3{font-size:.92rem}.timeline-item p{color:var(--muted);font-size:.8rem;line-height:1.45}
+    .toolbar{padding:12px 14px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;background:rgba(8,15,27,.96)}
+    .btn{appearance:none;border:1px solid rgba(148,163,184,.18);background:rgba(15,23,42,.62);color:var(--text);border-radius:14px;padding:10px 14px;font-weight:800;cursor:pointer;transition:transform 120ms ease,border-color 120ms ease,background 120ms ease}
+    .btn:hover,.btn:focus-visible{transform:translateY(-1px);border-color:rgba(34,211,238,.38);outline:none}.btn.primary{background:linear-gradient(135deg,rgba(34,211,238,.24),rgba(129,140,248,.22));border-color:rgba(34,211,238,.3)}
+    .status-text{min-height:20px;color:var(--muted);font-size:.8rem}
+    @media (max-width:980px){.hero-grid,.grid,.score-grid{grid-template-columns:1fr}.map-stage{height:240px}}
+    @media (max-width:700px){body{padding:12px}.shell{min-height:calc(100vh - 24px)}.hero,.card,.map-card,.timeline-card,.toolbar{border-radius:18px}.btn{width:100%;justify-content:center}.toolbar-group{width:100%}}
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <div class="eyebrow">Canopy TV World</div>
+      <div class="hero-grid">
+        <div>
+          <h1>Harbor Crisis World</h1>
+          <p class="copy">A source-bound news world: one post becomes a live briefing surface with route pressure, disruption intensity, impact estimates, and agent-curated event flow.</p>
+          <div class="metric-row">
+            <div class="metric highlight"><strong id="metric-severity">62</strong> severity</div>
+            <div class="metric"><strong id="metric-delay">18</strong> arrivals delayed</div>
+            <div class="metric"><strong id="metric-impact">$42M</strong> est. impact</div>
+          </div>
+          <div class="chip-row" style="margin-top:14px;">
+            <span class="chip highlight">Situation world</span>
+            <span class="chip">Curated by agents</span>
+            <span class="chip">Map + simulation + briefing</span>
+          </div>
+        </div>
+        <div class="card" style="gap:10px;">
+          <div class="card-title">Capabilities</div>
+          <div class="capability-row" id="capability-row"></div>
+          <div class="card-title" style="margin-top:4px;">Why this matters</div>
+          <p class="subtle">This is the jump from “news link” to operational world. The user can see the incident, feel the impact, and carry the same source into action or discussion.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <section class="card">
+        <div class="card-title">Scenario controls</div>
+        <div class="control">
+          <div class="control-head"><span class="control-label">Storm severity</span><span class="control-value" id="severity-label">62 / 100</span></div>
+          <input id="severity-range" type="range" min="20" max="95" step="1" value="62">
+        </div>
+        <div class="control">
+          <div class="control-head"><span class="control-label">Forecast horizon</span><span class="control-value" id="horizon-label">18 hours</span></div>
+          <input id="horizon-range" type="range" min="6" max="36" step="1" value="18">
+        </div>
+        <div class="control">
+          <div class="control-head"><span class="control-label">Priority corridor</span><span class="control-value" id="corridor-label">Container North</span></div>
+          <input id="corridor-range" type="range" min="0" max="2" step="1" value="0">
+        </div>
+        <div class="score-grid">
+          <div class="score-box"><div class="score-label">Route confidence</div><div class="score-value" id="route-confidence">0.81</div><div class="score-copy">Likelihood the selected corridor stays serviceable.</div></div>
+          <div class="score-box"><div class="score-label">Backlog pulse</div><div class="score-value" id="backlog-pulse">high</div><div class="score-copy">Expected queue pressure if arrivals continue.</div></div>
+          <div class="score-box"><div class="score-label">Media posture</div><div class="score-value" id="media-posture">watch</div><div class="score-copy">Recommended tone for the next public update.</div></div>
+          <div class="score-box"><div class="score-label">Lead takeaway</div><div class="score-value" id="lead-takeaway">Hold outer anchorage</div><div class="score-copy">The shortest summary an operator could repeat.</div></div>
+        </div>
+      </section>
+
+      <section class="map-card">
+        <div class="card-title">World stage</div>
+        <svg id="map-stage" class="map-stage" viewBox="0 0 640 320" preserveAspectRatio="none" aria-label="Harbor crisis map">
+          <rect width="640" height="320" fill="#0a1421"></rect>
+          <path d="M18 250 C120 180, 170 150, 240 132 C294 118, 350 112, 420 104 C480 98, 548 88, 620 58 L620 320 L18 320 Z" fill="#13324a"></path>
+          <path d="M0 232 C90 164, 176 136, 276 120 C374 104, 462 104, 640 34" fill="none" stroke="rgba(34,211,238,.12)" stroke-width="26"></path>
+          <path id="route-a" d="M72 226 C156 194, 224 168, 318 138 C412 108, 492 92, 582 76" fill="none" stroke="#22d3ee" stroke-width="8" stroke-linecap="round" stroke-dasharray="10 8"></path>
+          <path id="route-b" d="M86 244 C170 220, 258 200, 346 176 C430 154, 500 126, 576 104" fill="none" stroke="#818cf8" stroke-width="8" stroke-linecap="round" stroke-dasharray="10 8"></path>
+          <path id="route-c" d="M110 266 C212 252, 302 236, 398 218 C472 204, 532 186, 590 166" fill="none" stroke="#34d399" stroke-width="8" stroke-linecap="round" stroke-dasharray="10 8"></path>
+          <circle id="storm-core" cx="462" cy="90" r="54" fill="rgba(251,191,36,.14)" stroke="#fbbf24" stroke-width="3"></circle>
+          <circle id="storm-ring" cx="462" cy="90" r="88" fill="rgba(251,191,36,.05)" stroke="rgba(251,191,36,.25)" stroke-width="2" stroke-dasharray="8 8"></circle>
+          <circle id="anchor-a" cx="156" cy="198" r="8" fill="#22d3ee"></circle>
+          <circle id="anchor-b" cx="258" cy="200" r="8" fill="#818cf8"></circle>
+          <circle id="anchor-c" cx="412" cy="164" r="8" fill="#34d399"></circle>
+          <text x="68" y="188" fill="#dbeafe" font-size="16" font-weight="800">Outer anchorage</text>
+          <text x="226" y="188" fill="#dbeafe" font-size="16" font-weight="800">Container North</text>
+          <text x="392" y="150" fill="#dbeafe" font-size="16" font-weight="800">Fuel lane</text>
+          <text x="478" y="88" fill="#fde68a" font-size="16" font-weight="900">storm cell</text>
+        </svg>
+        <div class="map-legend">
+          <span class="legend-chip"><span class="dot" style="background:#22d3ee"></span>Container North</span>
+          <span class="legend-chip"><span class="dot" style="background:#818cf8"></span>Passenger South</span>
+          <span class="legend-chip"><span class="dot" style="background:#34d399"></span>Fuel lane</span>
+          <span class="legend-chip"><span class="dot" style="background:#fbbf24"></span>Storm field</span>
+        </div>
+      </section>
+    </section>
+
+    <section class="timeline-card">
+      <div class="card-title">Agent-curated event flow</div>
+      <div class="timeline-list" id="timeline-list"></div>
+    </section>
+
+    <section class="toolbar">
+      <div class="toolbar-group">
+        <button class="btn primary" id="copy-brief" type="button">Copy editorial brief</button>
+        <button class="btn" id="copy-ops" type="button">Copy ops note</button>
+      </div>
+      <div class="toolbar-group">
+        <button class="btn" id="return-btn" type="button">Return to source</button>
+      </div>
+      <div class="status-text" id="status-text">World primed.</div>
+    </section>
+  </div>
+  <script>
+    const corridors = ['Container North', 'Passenger South', 'Fuel lane'];
+    const corridorCopy = {
+      'Container North': { confidence: 0.81, takeaway: 'Hold outer anchorage', shift: 'containers', color: '#22d3ee' },
+      'Passenger South': { confidence: 0.66, takeaway: 'Meter departures', shift: 'passenger', color: '#818cf8' },
+      'Fuel lane': { confidence: 0.74, takeaway: 'Protect fuel lane', shift: 'energy', color: '#34d399' },
+    };
+    const baseEvents = [
+      { t: 'T-18h', title: 'Weather desk raises corridor watch', body: 'Agents mark the harbor cell as a routing risk and switch coverage to live mode.' },
+      { t: 'T-12h', title: 'Port ops slow inbound sequencing', body: 'Priority traffic gets a protected lane while outer anchorage backlog begins building.' },
+      { t: 'T-06h', title: 'Logistics agents flag container cascade', body: 'Backlog pressure starts spreading beyond the port into rail and drayage timing.' },
+      { t: 'Now', title: 'Public briefing window opens', body: 'Editorial and ops views align on the same source-bound world before release.' },
+    ];
+    const els = {
+      severityRange: document.getElementById('severity-range'),
+      horizonRange: document.getElementById('horizon-range'),
+      corridorRange: document.getElementById('corridor-range'),
+      severityLabel: document.getElementById('severity-label'),
+      horizonLabel: document.getElementById('horizon-label'),
+      corridorLabel: document.getElementById('corridor-label'),
+      metricSeverity: document.getElementById('metric-severity'),
+      metricDelay: document.getElementById('metric-delay'),
+      metricImpact: document.getElementById('metric-impact'),
+      routeConfidence: document.getElementById('route-confidence'),
+      backlogPulse: document.getElementById('backlog-pulse'),
+      mediaPosture: document.getElementById('media-posture'),
+      leadTakeaway: document.getElementById('lead-takeaway'),
+      timelineList: document.getElementById('timeline-list'),
+      statusText: document.getElementById('status-text'),
+      capabilityRow: document.getElementById('capability-row'),
+      routeA: document.getElementById('route-a'),
+      routeB: document.getElementById('route-b'),
+      routeC: document.getElementById('route-c'),
+      stormCore: document.getElementById('storm-core'),
+      stormRing: document.getElementById('storm-ring'),
+      copyBrief: document.getElementById('copy-brief'),
+      copyOps: document.getElementById('copy-ops'),
+      returnBtn: document.getElementById('return-btn'),
+    };
+    const state = { severity: 62, horizon: 18, corridor: 0 };
+    function hasCapability(name){return !!(window.CanopyModule && Array.isArray(window.CanopyModule.capabilities) && window.CanopyModule.capabilities.includes(name));}
+    function renderCapabilities(){const caps=(window.CanopyModule&&Array.isArray(window.CanopyModule.capabilities))?window.CanopyModule.capabilities:[];els.capabilityRow.innerHTML='';if(!caps.length){const s=document.createElement('span');s.className='flag';s.textContent='Local demo mode';els.capabilityRow.appendChild(s);return;}caps.forEach((cap)=>{const s=document.createElement('span');s.className='flag'+(cap==='deck.return'?' highlight':'');s.textContent=cap;els.capabilityRow.appendChild(s);});}
+    function compute(){const corridor=corridors[state.corridor];const cfg=corridorCopy[corridor];const delays=Math.round((state.severity*0.18)+(state.horizon*0.35)+(state.corridor*2));const impact=Math.round((state.severity*0.42)+(state.horizon*0.9)+(state.corridor*8));const confidence=Math.max(0.42,Math.min(0.92,cfg.confidence-(state.severity-50)*0.004-(state.horizon-12)*0.003));const pulse=state.severity>75?'critical':state.severity>58?'high':'building';const posture=state.severity>78?'lead now':state.severity>60?'watch':'monitor';return { corridor, cfg, delays, impact, confidence, pulse, posture };}
+    function renderTimeline(result){els.timelineList.innerHTML='';baseEvents.forEach((event, idx)=>{const row=document.createElement('div');row.className='timeline-item';const body=idx===1?`${event.body} Priority corridor: ${result.corridor}.`:idx===2?`${event.body} Forecast horizon now ${state.horizon}h.`:idx===3?`Editorial brief: ${result.cfg.takeaway}. Estimated impact ${'$'+result.impact+'M'}.`:event.body;row.innerHTML=`<div class="timeline-top"><span class="timeline-time">${event.t}</span><span class="status-pill">${idx===3?result.posture||result.posture:result.pulse}</span></div><h3>${event.title}</h3><p>${body}</p>`;els.timelineList.appendChild(row);});}
+    function renderWorld(result){els.metricSeverity.textContent=String(state.severity);els.metricDelay.textContent=String(result.delays);els.metricImpact.textContent='$'+String(result.impact)+'M';els.severityLabel.textContent=`${state.severity} / 100`;els.horizonLabel.textContent=`${state.horizon} hours`;els.corridorLabel.textContent=result.corridor;els.routeConfidence.textContent=result.confidence.toFixed(2);els.backlogPulse.textContent=result.pulse;els.mediaPosture.textContent=result.posture;els.leadTakeaway.textContent=result.cfg.takeaway;const routes=[els.routeA,els.routeB,els.routeC];routes.forEach((route,idx)=>{route.setAttribute('opacity',idx===state.corridor?'1':'0.28');route.setAttribute('stroke-width',idx===state.corridor?'10':'6');});const coreR=32+((state.severity-20)/75)*48;const ringR=coreR+32+((state.horizon-6)/30)*24;els.stormCore.setAttribute('r',String(coreR.toFixed(1)));els.stormRing.setAttribute('r',String(ringR.toFixed(1)));renderTimeline(result);}
+    async function persist(k,v){if(!(window.CanopyModule&&Array.isArray(window.CanopyModule.capabilities)&&window.CanopyModule.capabilities.includes('module.storage.local')))return;try{await window.CanopyModule.perform('module.storage.set',{key:k,value:v});}catch(_){}}
+    async function restore(k){if(!(window.CanopyModule&&Array.isArray(window.CanopyModule.capabilities)&&window.CanopyModule.capabilities.includes('module.storage.local')))return null;try{const r=await window.CanopyModule.perform('module.storage.get',{key:k});return r&&Object.prototype.hasOwnProperty.call(r,'value')?r.value:null;}catch(_){return null;}}
+    async function writeClipboard(text,msg){try{if(hasCapability('clipboard.write'))await window.CanopyModule.perform('clipboard.write',{text});else if(navigator.clipboard&&navigator.clipboard.writeText)await navigator.clipboard.writeText(text);else throw new Error('clipboard');els.statusText.textContent=msg;}catch(_){els.statusText.textContent='Clipboard write unavailable.';}}
+    async function returnToSource(){if(!hasCapability('deck.return'))return;try{await window.CanopyModule.perform('deck.return',{});}catch(_){}}
+    function sync(){const result=compute();renderWorld(result);}
+    function bindRange(el,key,cast){el.addEventListener('input',async()=>{state[key]=cast(el.value);sync();await persist('world-'+key,String(state[key]));});}
+    bindRange(els.severityRange,'severity',Number);bindRange(els.horizonRange,'horizon',Number);bindRange(els.corridorRange,'corridor',Number);
+    els.copyBrief.addEventListener('click',()=>{const r=compute();writeClipboard(['Harbor Crisis World','Priority corridor: '+r.corridor,'Severity: '+state.severity+'/100','Forecast horizon: '+state.horizon+'h','Estimated impact: $'+r.impact+'M','Lead takeaway: '+r.cfg.takeaway].join('\n'),'Editorial brief copied.');});
+    els.copyOps.addEventListener('click',()=>{const r=compute();writeClipboard(['Ops note','Delayed arrivals: '+r.delays,'Route confidence: '+r.confidence.toFixed(2),'Backlog pulse: '+r.pulse,'Posture: '+r.posture].join('\n'),'Ops note copied.');});
+    els.returnBtn.addEventListener('click',returnToSource);
+    async function hydrate(){renderCapabilities();const s=await restore('world-severity');const h=await restore('world-horizon');const c=await restore('world-corridor');if(s)state.severity=Number(s)||state.severity;if(h)state.horizon=Number(h)||state.horizon;if(c)state.corridor=Number(c)||state.corridor;els.severityRange.value=String(state.severity);els.horizonRange.value=String(state.horizon);els.corridorRange.value=String(state.corridor);sync();}
+    hydrate();
+  </script>
+</body>
+</html>

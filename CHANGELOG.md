@@ -8,6 +8,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.135] - 2026-03-22
+
+### Added
+- **Source layout v1 (channels)** — Compositor upgrades: promote single-cell **media grids** for hero sizing; **split image grids** when the layout references multiple `attachment:` ids; **widget `data-canopy-source-ref`** on module cards for `supporting` / deck; **Open deck** in the action toolbar; shell / hero / lede / side / strip CSS.
+- **`scripts/post_source_layout_multimedia_demo.py`** — Optional API demo post (images + module + full `source_layout`).
+- **`docs/CANOPY_SOURCE_LAYOUT_V1.md`** — Source layout documentation.
+- **Bundled `.canopy-module.html` surfaces** under `canopy/ui/static/modules/` (with SVG assets).
+
+### Changed
+- **AJAX channel messages** — Batch-merge `source_layout` from `channel_messages` so payloads match DB.
+- **Channels template** — `scheduleChannelSourceLayouts` (rAF) after message inject; `displayAttachments(..., source_layout)`.
+
+### Tests
+- **`tests/test_source_layout.py`**, **`tests/test_frontend_regressions.py`** — Layout / UI regressions.
+
+### Notes
+- Restart the Canopy web process and **hard-refresh** so static `?v=0.4.135` and templates load.
+
 ## [0.4.134] - 2026-02-27
 
 ### Security

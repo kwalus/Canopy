@@ -29,6 +29,7 @@ from .events import (
     EVENT_CHANNEL_MESSAGE_READ,
     EVENT_CHANNEL_STATE_UPDATED,
 )
+from .source_layout import normalize_source_layout
 from ..security.api_keys import ApiKeyManager, Permission
 from .logging_config import log_performance, LogOperation
 from ..network.routing import (
@@ -138,6 +139,7 @@ class Message:
     reactions: Optional[Dict[str, List[str]]] = None  # emoji -> [user_ids]
     attachments: Optional[List[Dict[str, Any]]] = None
     security: Optional[Dict[str, Any]] = None
+    source_layout: Optional[Dict[str, Any]] = None
     edited_at: Optional[datetime] = None
     expires_at: Optional[datetime] = None
     origin_peer: Optional[str] = None
@@ -243,6 +245,7 @@ class Message:
             'reactions': self.reactions or {},
             'attachments': attachments,
             'security': self.security or {},
+            'source_layout': self.source_layout,
             'edited_at': self.edited_at.isoformat() if self.edited_at else None,
             'origin_peer': self.origin_peer,
             'crypto_state': self.crypto_state,
@@ -909,7 +912,7 @@ class ChannelManager:
                     logger.debug(f"Could not create expires_at index: {idx_err}")
 
                 # Add ttl_seconds, ttl_mode, edited_at, security so catchup/edit can send them
-                for col, typ in [('ttl_seconds', 'INTEGER'), ('ttl_mode', 'TEXT'), ('edited_at', 'TIMESTAMP'), ('security', 'TEXT')]:
+                for col, typ in [('ttl_seconds', 'INTEGER'), ('ttl_mode', 'TEXT'), ('edited_at', 'TIMESTAMP'), ('security', 'TEXT'), ('source_layout', 'TEXT')]:
                     try:
                         conn.execute(f"SELECT {col} FROM channel_messages LIMIT 1")
                     except Exception:
@@ -4480,6 +4483,7 @@ class ChannelManager:
                     thread_id: Optional[str] = None, parent_message_id: Optional[str] = None,
                     attachments: Optional[List[Dict[str, Any]]] = None,
                     security: Optional[Dict[str, Any]] = None,
+                    source_layout: Optional[Dict[str, Any]] = None,
                     expires_at: Optional[Any] = None,
                     ttl_seconds: Optional[int] = None,
                     ttl_mode: Optional[str] = None,
@@ -4506,6 +4510,7 @@ class ChannelManager:
             if sec_error:
                 logger.warning(f"Dropping invalid security metadata for channel {channel_id}: {sec_error}")
             security = security_clean
+            source_layout = normalize_source_layout(source_layout)
 
             normalized_attachments = Message.normalize_attachments(attachments)
             if normalized_attachments:
@@ -4540,6 +4545,7 @@ class ChannelManager:
                 parent_message_id=parent_message_id,
                 attachments=normalized_attachments,
                 security=security,
+                source_layout=source_layout,
                 expires_at=expires_dt,
                 origin_peer=origin_peer,
             )
@@ -4552,13 +4558,14 @@ class ChannelManager:
                 with self.db.get_connection() as conn:
                     conn.execute("""
                         INSERT INTO channel_messages 
-                        (id, channel_id, user_id, content, message_type, thread_id, parent_message_id, attachments, security, created_at, origin_peer, expires_at, ttl_seconds, ttl_mode)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        (id, channel_id, user_id, content, message_type, thread_id, parent_message_id, attachments, security, source_layout, created_at, origin_peer, expires_at, ttl_seconds, ttl_mode)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         message_id, channel_id, user_id, content, message_type.value,
                         thread_id, parent_message_id,
                         json.dumps(normalized_attachments) if normalized_attachments else None,
                         json.dumps(security) if security else None,
+                        json.dumps(source_layout) if source_layout else None,
                         created_db,
                         origin_peer,
                         expires_db,
@@ -4611,12 +4618,13 @@ class ChannelManager:
 
     def update_message(self, message_id: str, user_id: str, content: str,
                        attachments: Optional[List[Dict[str, Any]]] = None,
+                       source_layout: Optional[Dict[str, Any]] = None,
                        allow_admin: bool = False) -> bool:
         """Update a channel message (author or admin)."""
         try:
             with self.db.get_connection() as conn:
                 row = conn.execute(
-                    "SELECT channel_id, user_id, attachments, message_type FROM channel_messages WHERE id = ?",
+                    "SELECT channel_id, user_id, attachments, message_type, source_layout FROM channel_messages WHERE id = ?",
                     (message_id,)
                 ).fetchone()
                 if not row or (row['user_id'] != user_id and not allow_admin):
@@ -4625,6 +4633,7 @@ class ChannelManager:
                 channel_id = str(row['channel_id'] or '').strip()
 
                 final_attachments = attachments
+                final_source_layout = source_layout
                 if final_attachments is None:
                     if row['attachments']:
                         try:
@@ -4632,6 +4641,12 @@ class ChannelManager:
                         except Exception:
                             final_attachments = None
                 final_attachments = Message.normalize_attachments(final_attachments) if final_attachments else None
+                if final_source_layout is None and row['source_layout']:
+                    try:
+                        final_source_layout = json.loads(row['source_layout'])
+                    except Exception:
+                        final_source_layout = None
+                final_source_layout = normalize_source_layout(final_source_layout)
 
                 if final_attachments:
                     final_message_type = MessageType.FILE.value
@@ -4642,11 +4657,12 @@ class ChannelManager:
                 edited_db = self._format_db_timestamp(edited_at)
 
                 conn.execute(
-                    "UPDATE channel_messages SET content = ?, message_type = ?, attachments = ?, edited_at = ? WHERE id = ?",
+                    "UPDATE channel_messages SET content = ?, message_type = ?, attachments = ?, source_layout = ?, edited_at = ? WHERE id = ?",
                     (
                         content,
                         final_message_type,
                         json.dumps(final_attachments) if final_attachments else None,
+                        json.dumps(final_source_layout) if final_source_layout else None,
                         edited_db,
                         message_id,
                     )
@@ -5417,6 +5433,7 @@ class ChannelManager:
                 reactions=json.loads(row['reactions']) if row['reactions'] else None,
                 attachments=json.loads(row['attachments']) if row['attachments'] else None,
                 security=json.loads(row['security']) if row['security'] else None,
+                source_layout=json.loads(row['source_layout']) if ('source_layout' in row.keys() and row['source_layout']) else None,
                 edited_at=edited_at,
                 expires_at=expires_at,
                 origin_peer=row['origin_peer'] if 'origin_peer' in row.keys() else None,
@@ -6200,7 +6217,7 @@ class ChannelManager:
                     SELECT id, channel_id, user_id, content,
                            message_type, created_at, attachments, expires_at,
                            origin_peer,
-                           ttl_seconds, ttl_mode, parent_message_id,
+                           ttl_seconds, ttl_mode, parent_message_id, source_layout,
                            encrypted_content, crypto_state, key_id, nonce
                     FROM channel_messages
                     WHERE channel_id = ?
@@ -6224,6 +6241,7 @@ class ChannelManager:
                         'ttl_seconds': row['ttl_seconds'] if 'ttl_seconds' in row.keys() else None,
                         'ttl_mode': row['ttl_mode'] if 'ttl_mode' in row.keys() else None,
                         'parent_message_id': row['parent_message_id'] if 'parent_message_id' in row.keys() else None,
+                        'source_layout': json.loads(row['source_layout']) if ('source_layout' in row.keys() and row['source_layout']) else None,
                         'encrypted_content': (
                             row['encrypted_content'] if 'encrypted_content' in row.keys() else None
                         ),

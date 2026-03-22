@@ -2970,6 +2970,12 @@ def create_api_blueprint() -> Blueprint:
                 metadata = {}
             else:
                 metadata = dict(metadata)
+            from ..core.source_layout import normalize_source_layout
+            normalized_source_layout = normalize_source_layout(data.get('source_layout', metadata.get('source_layout')))
+            if normalized_source_layout:
+                metadata['source_layout'] = normalized_source_layout
+            else:
+                metadata.pop('source_layout', None)
             top_level_attachments = data.get('attachments')
             if isinstance(top_level_attachments, list):
                 metadata['attachments'] = top_level_attachments
@@ -3126,6 +3132,12 @@ def create_api_blueprint() -> Blueprint:
                 metadata = {}
             else:
                 metadata = dict(metadata)
+            from ..core.source_layout import normalize_source_layout
+            normalized_source_layout = normalize_source_layout(data.get('source_layout', metadata.get('source_layout')))
+            if normalized_source_layout:
+                metadata['source_layout'] = normalized_source_layout
+            else:
+                metadata.pop('source_layout', None)
             attachments = data.get('attachments')
             if isinstance(attachments, list):
                 metadata['attachments'] = attachments
@@ -3284,6 +3296,7 @@ def create_api_blueprint() -> Blueprint:
             content = data.get('content')
             attachments = data.get('attachments')
             metadata = data.get('metadata')
+            from ..core.source_layout import normalize_source_layout
 
             msg = message_manager.get_message(message_id)
             if not msg:
@@ -3296,6 +3309,11 @@ def create_api_blueprint() -> Blueprint:
             final_metadata = dict(existing_meta)
             if isinstance(metadata, dict):
                 final_metadata.update(metadata)
+            normalized_source_layout = normalize_source_layout(data.get('source_layout', final_metadata.get('source_layout')))
+            if normalized_source_layout:
+                final_metadata['source_layout'] = normalized_source_layout
+            else:
+                final_metadata.pop('source_layout', None)
 
             if attachments is None:
                 final_attachments = final_metadata.get('attachments') or []
@@ -3764,6 +3782,7 @@ def create_api_blueprint() -> Blueprint:
             expires_at = data.get('expires_at')
             ttl_seconds = data.get('ttl_seconds')
             ttl_mode = data.get('ttl_mode')
+            from ..core.source_layout import normalize_source_layout
             
             if not content:
                 return jsonify({'error': 'Post content required'}), 400
@@ -3771,6 +3790,15 @@ def create_api_blueprint() -> Blueprint:
             # --- Input validation (cherry-picked from Copilot PR #9) ---
             if len(content) > 50_000:
                 return jsonify({'error': 'Content exceeds maximum length (50000 chars)'}), 400
+            if isinstance(metadata, dict):
+                metadata = dict(metadata)
+            else:
+                metadata = {}
+            normalized_source_layout = normalize_source_layout(data.get('source_layout', metadata.get('source_layout')))
+            if normalized_source_layout:
+                metadata['source_layout'] = normalized_source_layout
+            else:
+                metadata.pop('source_layout', None)
             
             from ..core.feed import PostType, PostVisibility
             from ..core.polls import parse_poll, poll_edit_lock_reason
@@ -6145,6 +6173,7 @@ def create_api_blueprint() -> Blueprint:
             visibility = data.get('visibility')
             permissions = data.get('permissions')
             metadata = data.get('metadata')
+            from ..core.source_layout import normalize_source_layout
 
             if not content:
                 return jsonify({'error': 'Post content required'}), 400
@@ -6173,6 +6202,11 @@ def create_api_blueprint() -> Blueprint:
                     final_metadata.update(metadata)
                 except Exception:
                     pass
+            normalized_source_layout = normalize_source_layout(data.get('source_layout', final_metadata.get('source_layout')))
+            if normalized_source_layout:
+                final_metadata['source_layout'] = normalized_source_layout
+            else:
+                final_metadata.pop('source_layout', None)
             try:
                 final_metadata['edited_at'] = datetime.now(timezone.utc).isoformat()
             except Exception:
@@ -7204,6 +7238,7 @@ def create_api_blueprint() -> Blueprint:
         try:
             db_manager, _, _, _, channel_manager, file_manager, _, interaction_manager, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
             from ..core.polls import parse_poll, poll_edit_lock_reason
+            from ..core.source_layout import normalize_source_layout
 
             data = request.get_json() or {}
             content = data.get('content')
@@ -7211,7 +7246,7 @@ def create_api_blueprint() -> Blueprint:
 
             with db_manager.get_connection() as conn:
                 row = conn.execute(
-                    "SELECT user_id, content, created_at, attachments, expires_at, ttl_seconds, ttl_mode, parent_message_id "
+                    "SELECT user_id, content, created_at, attachments, source_layout, expires_at, ttl_seconds, ttl_mode, parent_message_id "
                     "FROM channel_messages WHERE id = ? AND channel_id = ?",
                     (message_id, channel_id)
                 ).fetchone()
@@ -7247,12 +7282,19 @@ def create_api_blueprint() -> Blueprint:
                 final_attachments = _normalize_channel_attachments(final_attachments, file_manager)
             else:
                 final_attachments = _normalize_channel_attachments(attachments, file_manager)
+            final_source_layout = normalize_source_layout(data.get('source_layout'))
+            if final_source_layout is None and row['source_layout']:
+                try:
+                    final_source_layout = normalize_source_layout(json.loads(row['source_layout']))
+                except Exception:
+                    final_source_layout = None
 
             success = channel_manager.update_message(
                 message_id=message_id,
                 user_id=g.api_key_info.user_id,
                 content=final_content,
                 attachments=final_attachments if final_attachments else None,
+                source_layout=final_source_layout,
                 allow_admin=False,
             )
             if not success:
@@ -7577,6 +7619,7 @@ def create_api_blueprint() -> Blueprint:
                         message_id=message_id,
                         timestamp=str(row['created_at']),
                         attachments=final_attachments if final_attachments else None,
+                        source_layout=final_source_layout,
                         display_name=sender_display,
                         expires_at=row['expires_at'],
                         ttl_seconds=row['ttl_seconds'],
@@ -8588,6 +8631,8 @@ def create_api_blueprint() -> Blueprint:
             attachments = _normalize_channel_attachments(data.get('attachments', []), file_manager)
             parent_message_id = data.get('parent_message_id')
             security = data.get('security')
+            from ..core.source_layout import normalize_source_layout
+            source_layout = normalize_source_layout(data.get('source_layout'))
             ttl_mode = data.get('ttl_mode')
             ttl_seconds = data.get('ttl_seconds')
             expires_at = data.get('expires_at')
@@ -8666,6 +8711,7 @@ def create_api_blueprint() -> Blueprint:
                 parent_message_id=parent_message_id,
                 attachments=attachments,
                 security=security_clean,
+                source_layout=source_layout,
                 expires_at=expires_at,
                 ttl_seconds=ttl_seconds,
                 ttl_mode=ttl_mode,
@@ -9011,6 +9057,7 @@ def create_api_blueprint() -> Blueprint:
                             message_id=message.id,
                             timestamp=message.created_at.isoformat() if hasattr(message.created_at, 'isoformat') else str(message.created_at),
                             attachments=message.attachments if hasattr(message, 'attachments') and message.attachments else None,
+                            source_layout=getattr(message, 'source_layout', None),
                             expires_at=message.expires_at.isoformat() if getattr(message, 'expires_at', None) else None,
                             ttl_seconds=ttl_seconds,
                             ttl_mode=ttl_mode,

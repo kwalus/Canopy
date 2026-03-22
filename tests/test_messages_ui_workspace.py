@@ -254,6 +254,52 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertIn('grid-template-rows: auto minmax(0, 1fr);', body)
         self.assertIn('position: sticky;', body)
 
+    def test_messages_page_renders_source_layout_metadata_for_structured_dm_sources(self) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO messages (
+                id, sender_id, recipient_id, content, message_type, status,
+                created_at, delivered_at, read_at, edited_at, metadata
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                'DM-layout',
+                'peer-a',
+                'owner',
+                'Structured lesson brief',
+                'text',
+                'delivered',
+                '2026-03-07T10:08:00+00:00',
+                '2026-03-07T10:08:01+00:00',
+                None,
+                None,
+                json.dumps(
+                    {
+                        'source_layout': {
+                            'version': 1,
+                            'hero': {'ref': 'attachment:F-module'},
+                            'lede': {'kind': 'rich_text', 'ref': 'content:lede'},
+                            'deck': {'default_ref': 'attachment:F-module'},
+                        },
+                        'attachments': [
+                            {
+                                'id': 'F-module',
+                                'name': 'lesson.canopy-module.html',
+                                'type': 'text/html',
+                            }
+                        ],
+                    }
+                ),
+            ),
+        )
+        self.conn.commit()
+
+        response = self.client.get('/messages?with=peer-a')
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn('data-canopy-source-layout=', body)
+        self.assertIn('data-canopy-source-ref="content:lede"', body)
+
     def test_messages_search_renders_matching_results(self) -> None:
         response = self.client.get('/messages?search=relay')
         self.assertEqual(response.status_code, 200)

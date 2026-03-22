@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" fill="none">
+  <defs>
+    <linearGradient id="bg2" x1="160" y1="40" x2="1260" y2="860" gradientUnits="userSpaceOnUse"><stop stop-color="#08110D"/><stop offset="1" stop-color="#0A1411"/></linearGradient>
+    <linearGradient id="shed" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#F6C453"/><stop offset="1" stop-color="#A16207"/></linearGradient>
+    <linearGradient id="bike" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#7DD3A7"/><stop offset="1" stop-color="#4ADE80"/></linearGradient>
+  </defs>
+  <rect width="1440" height="900" rx="42" fill="url(#bg2)"/>
+  <rect x="72" y="72" width="1296" height="756" rx="34" fill="#0C1512" stroke="#24342E"/>
+  <text x="116" y="164" fill="#F4F4EE" font-size="58" font-weight="800" font-family="Avenir Next, Segoe UI, sans-serif">Backyard fit + access</text>
+  <text x="116" y="206" fill="#A6B3A5" font-size="28" font-family="Avenir Next, Segoe UI, sans-serif">The real difference is not just price. It is whether bikes, shelves, and day-to-day access fit without becoming annoying.</text>
+  <rect x="116" y="276" width="550" height="450" rx="30" fill="#112019" stroke="#274236"/>
+  <text x="150" y="320" fill="#F6C453" font-size="28" font-weight="800" font-family="Avenir Next, Segoe UI, sans-serif">Typical 7 x 7 shed</text>
+  <rect x="168" y="368" width="330" height="220" rx="24" fill="rgba(246,196,83,.14)" stroke="url(#shed)" stroke-width="2"/>
+  <rect x="414" y="402" width="56" height="124" rx="12" fill="rgba(103,232,249,.16)" stroke="#67E8F9"/>
+  <text x="442" y="394" fill="#67E8F9" font-size="15" font-weight="800" font-family="Avenir Next, Segoe UI, sans-serif" text-anchor="middle">tools</text>
+  <g transform="translate(212 474)"><circle cx="0" cy="0" r="22" fill="none" stroke="url(#bike)" stroke-width="5"/><circle cx="42" cy="0" r="22" fill="none" stroke="url(#bike)" stroke-width="5"/><path d="M0 0 L18 -34 L42 0 L14 0 Z" fill="none" stroke="url(#bike)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></g>
+  <g transform="translate(212 548)"><circle cx="0" cy="0" r="22" fill="none" stroke="url(#bike)" stroke-width="5"/><circle cx="42" cy="0" r="22" fill="none" stroke="url(#bike)" stroke-width="5"/><path d="M0 0 L18 -34 L42 0 L14 0 Z" fill="none" stroke="url(#bike)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></g>
+  <text x="150" y="644" fill="#A6B3A5" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">Works, but the circulation lane tightens fast once two adult bikes and a tool wall share the space.</text>
+
+  <rect x="774" y="276" width="550" height="450" rx="30" fill="#112019" stroke="#274236"/>
+  <text x="808" y="320" fill="#7DD3A7" font-size="28" font-weight="800" font-family="Avenir Next, Segoe UI, sans-serif">11 x 7 option</text>
+  <rect x="826" y="368" width="408" height="220" rx="24" fill="rgba(125,211,167,.14)" stroke="#7DD3A7" stroke-width="2"/>
+  <rect x="1132" y="396" width="74" height="134" rx="12" fill="rgba(103,232,249,.16)" stroke="#67E8F9"/>
+  <text x="1169" y="388" fill="#67E8F9" font-size="15" font-weight="800" font-family="Avenir Next, Segoe UI, sans-serif" text-anchor="middle">tool wall</text>
+  <g transform="translate(900 474)"><circle cx="0" cy="0" r="22" fill="none" stroke="url(#bike)" stroke-width="5"/><circle cx="42" cy="0" r="22" fill="none" stroke="url(#bike)" stroke-width="5"/><path d="M0 0 L18 -34 L42 0 L14 0 Z" fill="none" stroke="url(#bike)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></g>
+  <g transform="translate(900 548)"><circle cx="0" cy="0" r="22" fill="none" stroke="url(#bike)" stroke-width="5"/><circle cx="42" cy="0" r="22" fill="none" stroke="url(#bike)" stroke-width="5"/><path d="M0 0 L18 -34 L42 0 L14 0 Z" fill="none" stroke="url(#bike)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></g>
+  <rect x="986" y="446" width="86" height="104" rx="14" fill="#0C1512" stroke="#30463B"/>
+  <text x="1029" y="506" fill="#F4F4EE" font-size="17" font-weight="800" font-family="Avenir Next, Segoe UI, sans-serif" text-anchor="middle">clear lane</text>
+  <text x="808" y="644" fill="#A6B3A5" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">The larger envelope is what makes two bikes, bins, and actual access feel easy instead of theoretical.</text>
+</svg>

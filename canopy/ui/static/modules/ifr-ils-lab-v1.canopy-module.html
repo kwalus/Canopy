@@ -1,0 +1,870 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IFR Arrival Trainer</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #06101b;
+      --panel: rgba(8, 20, 36, 0.94);
+      --panel-2: rgba(10, 28, 46, 0.96);
+      --panel-3: rgba(7, 15, 27, 0.96);
+      --edge: rgba(125, 211, 252, 0.16);
+      --edge-strong: rgba(110, 231, 183, 0.28);
+      --text: #edf6ff;
+      --muted: #97adc2;
+      --accent: #3b82f6;
+      --accent-2: #34d399;
+      --warn: #f59e0b;
+      --danger: #fb7185;
+      --good: #6ee7b7;
+      --shadow: 0 22px 54px rgba(0, 0, 0, 0.34);
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background:
+        radial-gradient(circle at top right, rgba(59, 130, 246, 0.16), transparent 28%),
+        radial-gradient(circle at bottom left, rgba(52, 211, 153, 0.12), transparent 24%),
+        linear-gradient(180deg, #02060d, #081321 55%, #091523);
+      color: var(--text);
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+    }
+    body { padding: 18px; }
+
+    .shell {
+      display: grid;
+      gap: 16px;
+      min-height: calc(100vh - 36px);
+      align-content: start;
+    }
+
+    .hero,
+    .panel,
+    .trainer,
+    .checklist,
+    .callouts,
+    .decision,
+    .brief-card {
+      border: 1px solid var(--edge);
+      border-radius: 22px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .hero {
+      padding: 18px;
+      background:
+        radial-gradient(circle at top right, rgba(96, 165, 250, 0.18), transparent 26%),
+        radial-gradient(circle at bottom left, rgba(52, 211, 153, 0.12), transparent 22%),
+        linear-gradient(180deg, rgba(7, 16, 28, 0.98), rgba(8, 20, 36, 0.96));
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-weight: 800;
+      color: var(--accent-2);
+      background: rgba(15, 23, 42, 0.54);
+      border: 1px solid rgba(110, 231, 183, 0.18);
+    }
+
+    .hero-grid {
+      margin-top: 14px;
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.95fr);
+      gap: 16px;
+    }
+
+    h1, h2, h3, p { margin: 0; }
+    h1 {
+      font-size: clamp(1.7rem, 3vw, 2.35rem);
+      line-height: 1.02;
+      letter-spacing: -0.035em;
+      margin-bottom: 10px;
+    }
+
+    .hero-copy,
+    .muted-copy {
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .chip-row,
+    .capability-row,
+    .brief-flags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .chip,
+    .flag,
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(125, 211, 252, 0.12);
+      background: rgba(15, 23, 42, 0.56);
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .chip.highlight,
+    .status-pill.good {
+      color: #042116;
+      background: linear-gradient(135deg, #6ee7b7, #34d399);
+      border-color: transparent;
+    }
+
+    .status-pill.warn {
+      color: #422006;
+      background: linear-gradient(135deg, #fcd34d, #f59e0b);
+      border-color: transparent;
+    }
+
+    .status-pill.bad {
+      color: #450a0a;
+      background: linear-gradient(135deg, #fda4af, #fb7185);
+      border-color: transparent;
+    }
+
+    .summary-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .panel {
+      padding: 16px;
+      background: var(--panel-2);
+    }
+
+    .panel-title {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 8px;
+      font-weight: 800;
+    }
+
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .metric {
+      padding: 12px;
+      border-radius: 16px;
+      border: 1px solid rgba(125, 211, 252, 0.1);
+      background: rgba(7, 15, 27, 0.9);
+    }
+
+    .metric-value {
+      font-size: 1.18rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      margin-top: 4px;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.9fr);
+      gap: 16px;
+    }
+
+    .trainer {
+      padding: 16px;
+      background:
+        radial-gradient(circle at top left, rgba(96, 165, 250, 0.14), transparent 26%),
+        linear-gradient(180deg, rgba(8, 20, 36, 0.98), rgba(8, 20, 36, 0.92));
+      display: grid;
+      gap: 16px;
+    }
+
+    .trainer-top,
+    .decision-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .btn {
+      appearance: none;
+      border: 1px solid rgba(125, 211, 252, 0.16);
+      background: var(--panel-2);
+      color: var(--text);
+      border-radius: 14px;
+      padding: 10px 14px;
+      font-weight: 800;
+      cursor: pointer;
+      transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+    }
+
+    .btn:hover,
+    .btn:focus-visible,
+    .check-btn:hover,
+    .check-btn:focus-visible,
+    .callout-btn:hover,
+    .callout-btn:focus-visible {
+      transform: translateY(-1px);
+      border-color: rgba(96, 165, 250, 0.4);
+      outline: none;
+    }
+
+    .btn.primary {
+      background: linear-gradient(135deg, rgba(59, 130, 246, 0.28), rgba(52, 211, 153, 0.22));
+      border-color: rgba(110, 231, 183, 0.35);
+    }
+
+    .instrument-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(220px, 0.9fr);
+      gap: 14px;
+    }
+
+    .instrument-card,
+    .slider-card {
+      border-radius: 18px;
+      border: 1px solid rgba(125, 211, 252, 0.12);
+      background: rgba(7, 15, 27, 0.9);
+      padding: 14px;
+    }
+
+    .crosshair-shell {
+      aspect-ratio: 1 / 1;
+      width: min(100%, 360px);
+      margin-inline: auto;
+      position: relative;
+      border-radius: 22px;
+      border: 1px solid rgba(125, 211, 252, 0.14);
+      background:
+        radial-gradient(circle at center, rgba(59, 130, 246, 0.08), transparent 48%),
+        linear-gradient(180deg, rgba(9, 21, 36, 0.98), rgba(4, 10, 18, 0.98));
+      overflow: hidden;
+    }
+
+    .crosshair-shell::before,
+    .crosshair-shell::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      background: rgba(148, 163, 184, 0.24);
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }
+
+    .crosshair-shell::before { width: 88%; height: 2px; }
+    .crosshair-shell::after { width: 2px; height: 88%; }
+
+    .dot {
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #6ee7b7, #3b82f6);
+      box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.12), 0 12px 24px rgba(0, 0, 0, 0.34);
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      transition: left 160ms ease, top 160ms ease, background 160ms ease;
+    }
+
+    .instrument-scale {
+      display: grid;
+      gap: 10px;
+    }
+
+    .slider-group { display: grid; gap: 6px; }
+    .slider-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: #34d399;
+    }
+
+    .sidebar-stack {
+      display: grid;
+      gap: 16px;
+    }
+
+    .checklist,
+    .callouts,
+    .decision,
+    .brief-card {
+      padding: 16px;
+      background: var(--panel-3);
+    }
+
+    .check-grid,
+    .callout-grid {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .check-btn,
+    .callout-btn {
+      appearance: none;
+      width: 100%;
+      text-align: left;
+      border: 1px solid rgba(125, 211, 252, 0.12);
+      border-radius: 16px;
+      background: rgba(15, 23, 42, 0.46);
+      color: var(--text);
+      padding: 12px 14px;
+      cursor: pointer;
+      transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-weight: 700;
+    }
+
+    .check-btn.is-on,
+    .callout-btn.is-done {
+      background: linear-gradient(135deg, rgba(110, 231, 183, 0.2), rgba(59, 130, 246, 0.18));
+      border-color: rgba(110, 231, 183, 0.28);
+    }
+
+    .callout-btn.is-current {
+      border-color: rgba(96, 165, 250, 0.44);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.14);
+    }
+
+    .decision {
+      display: grid;
+      gap: 12px;
+      border-color: var(--edge-strong);
+    }
+
+    .decision-banner {
+      padding: 14px 16px;
+      border-radius: 18px;
+      font-size: 1.1rem;
+      font-weight: 900;
+      letter-spacing: -0.02em;
+      background: rgba(15, 23, 42, 0.56);
+      border: 1px solid rgba(125, 211, 252, 0.12);
+    }
+
+    .decision-banner.good {
+      color: #032616;
+      background: linear-gradient(135deg, #6ee7b7, #34d399);
+      border-color: transparent;
+    }
+
+    .decision-banner.warn {
+      color: #422006;
+      background: linear-gradient(135deg, #fcd34d, #f59e0b);
+      border-color: transparent;
+    }
+
+    .decision-banner.bad {
+      color: #450a0a;
+      background: linear-gradient(135deg, #fda4af, #fb7185);
+      border-color: transparent;
+    }
+
+    .decision-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .decision-metric {
+      padding: 12px;
+      border-radius: 16px;
+      border: 1px solid rgba(125, 211, 252, 0.1);
+      background: rgba(7, 15, 27, 0.78);
+    }
+
+    .decision-metric .label {
+      display: block;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .decision-metric .value {
+      font-size: 1.08rem;
+      font-weight: 800;
+    }
+
+    .brief-card ul {
+      margin: 10px 0 0;
+      padding-left: 18px;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .small-note {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    @media (max-width: 980px) {
+      body { padding: 14px; }
+      .shell { min-height: calc(100vh - 28px); }
+      .hero-grid,
+      .workspace,
+      .instrument-grid {
+        grid-template-columns: 1fr;
+      }
+      .metrics-grid,
+      .decision-grid {
+        grid-template-columns: 1fr;
+      }
+      .crosshair-shell {
+        width: min(100%, 320px);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <div class="eyebrow">Canopy Module · IFR Flight School</div>
+      <div class="hero-grid">
+        <div>
+          <h1 id="lesson-title">ILS arrival in IMC</h1>
+          <p class="hero-copy" id="lesson-copy">Use this source-bound module to brief a generic ILS, tighten the localizer and glideslope scan, and decide continue versus missed based on a disciplined stability gate instead of wishful thinking.</p>
+          <div class="chip-row" style="margin-top:14px;" id="capability-row"></div>
+        </div>
+        <div class="summary-grid">
+          <div class="panel">
+            <div class="panel-title">Scenario</div>
+            <p class="muted-copy" id="context-subtitle">Training source loading...</p>
+            <div class="metrics-grid">
+              <div class="metric">
+                <div class="panel-title">Target speed</div>
+                <div class="metric-value">90 KIAS</div>
+              </div>
+              <div class="metric">
+                <div class="panel-title">Glideslope</div>
+                <div class="metric-value">3.0 deg</div>
+              </div>
+              <div class="metric">
+                <div class="panel-title">Decision gate</div>
+                <div class="metric-value">Stable or missed</div>
+              </div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-title">Lesson focus</div>
+            <p class="muted-copy" id="module-tip">The point of this source is not memorizing one plate. It is building the habit chain: brief, intercept, configure, call, decide.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="workspace">
+      <section class="trainer">
+        <div class="trainer-top">
+          <div>
+            <h2>Approach stability trainer</h2>
+            <p class="muted-copy">Center the glideslope/localizer presentation, finish the brief, and keep the airplane inside the stable envelope before minimums.</p>
+          </div>
+          <div class="controls">
+            <button class="btn primary" id="copy-brief">Copy brief</button>
+            <button class="btn" id="reset-run">Reset run</button>
+            <button class="btn" id="return-source">Return to source</button>
+          </div>
+        </div>
+
+        <div class="instrument-grid">
+          <div class="instrument-card">
+            <div class="panel-title">Localizer / glideslope picture</div>
+            <div class="crosshair-shell">
+              <div class="dot" id="crosshair-dot"></div>
+            </div>
+            <div class="brief-flags" style="margin-top:12px;" id="stable-flags"></div>
+          </div>
+          <div class="slider-card instrument-scale">
+            <div class="slider-group">
+              <div class="slider-row"><span>Localizer error</span><strong id="loc-value">0.7 dot</strong></div>
+              <input id="loc-slider" type="range" min="-2" max="2" step="0.1" value="0.7">
+            </div>
+            <div class="slider-group">
+              <div class="slider-row"><span>Glideslope error</span><strong id="gs-value">0.6 dot</strong></div>
+              <input id="gs-slider" type="range" min="-2" max="2" step="0.1" value="0.6">
+            </div>
+            <div class="slider-group">
+              <div class="slider-row"><span>Speed delta</span><strong id="spd-value">+8 kt</strong></div>
+              <input id="spd-slider" type="range" min="-20" max="20" step="1" value="8">
+            </div>
+            <div class="slider-group">
+              <div class="slider-row"><span>Sink rate</span><strong id="sink-value">860 fpm</strong></div>
+              <input id="sink-slider" type="range" min="400" max="1600" step="20" value="860">
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="sidebar-stack">
+        <section class="checklist">
+          <div class="trainer-top">
+            <div>
+              <h3>Approach brief</h3>
+              <p class="muted-copy">Treat this like a kneeboard challenge-response. Nothing fancy. Just complete the gates that matter.</p>
+            </div>
+            <span class="status-pill warn" id="brief-status">2 / 5 complete</span>
+          </div>
+          <div class="check-grid" id="check-grid"></div>
+        </section>
+
+        <section class="callouts">
+          <div class="trainer-top">
+            <div>
+              <h3>Approach callouts</h3>
+              <p class="muted-copy">Run the sequence in order. The module tracks where you are in the approach scan.</p>
+            </div>
+            <span class="status-pill" id="callout-status">Ready</span>
+          </div>
+          <div class="callout-grid" id="callout-grid"></div>
+        </section>
+
+        <section class="decision">
+          <div class="decision-top">
+            <div>
+              <h3>Decision gate</h3>
+              <p class="muted-copy">The module is intentionally conservative. If the brief is incomplete or the airplane is unstable, the answer is missed approach.</p>
+            </div>
+            <span class="status-pill" id="session-count">0 runs</span>
+          </div>
+          <div class="decision-banner bad" id="decision-banner">Go missed - not stabilized yet</div>
+          <div class="decision-grid">
+            <div class="decision-metric"><span class="label">Tracking</span><div class="value" id="tracking-status">Needs correction</div></div>
+            <div class="decision-metric"><span class="label">Configuration</span><div class="value" id="config-status">Incomplete</div></div>
+            <div class="decision-metric"><span class="label">Recommended action</span><div class="value" id="action-status">Re-brief</div></div>
+          </div>
+          <p class="small-note" id="decision-note">Standard demo gate: localizer and glideslope within 1 dot, speed within +/-10 knots, sink rate under 1000 fpm, and the brief complete.</p>
+        </section>
+      </div>
+    </section>
+
+    <section class="brief-card">
+      <div class="panel-title">Pilot takeaway</div>
+      <p class="muted-copy">An ILS is not won at minimums. It is won by building a clean intercept, configuring early, and being willing to go missed before the approach starts to unravel.</p>
+      <ul>
+        <li>Track the needles with small, boring corrections.</li>
+        <li>Brief the missed approach before you need it.</li>
+        <li>Do not negotiate with an unstable gate.</li>
+      </ul>
+    </section>
+  </div>
+
+  <script>
+    (() => {
+      const BRIEF_ITEMS = [
+        'NAV 1 tuned and identified',
+        'Inbound course set',
+        'Missed approach briefed',
+        'Minimums set',
+        'Landing configuration complete'
+      ];
+      const CALLOUTS = [
+        'LOC alive',
+        'GS alive',
+        'Capture',
+        '500 above',
+        'Minimums'
+      ];
+
+      const capabilityRow = document.getElementById('capability-row');
+      const contextSubtitle = document.getElementById('context-subtitle');
+      const lessonTitle = document.getElementById('lesson-title');
+      const lessonCopy = document.getElementById('lesson-copy');
+      const moduleTip = document.getElementById('module-tip');
+      const locSlider = document.getElementById('loc-slider');
+      const gsSlider = document.getElementById('gs-slider');
+      const spdSlider = document.getElementById('spd-slider');
+      const sinkSlider = document.getElementById('sink-slider');
+      const locValue = document.getElementById('loc-value');
+      const gsValue = document.getElementById('gs-value');
+      const spdValue = document.getElementById('spd-value');
+      const sinkValue = document.getElementById('sink-value');
+      const crosshairDot = document.getElementById('crosshair-dot');
+      const stableFlags = document.getElementById('stable-flags');
+      const briefStatus = document.getElementById('brief-status');
+      const calloutStatus = document.getElementById('callout-status');
+      const decisionBanner = document.getElementById('decision-banner');
+      const trackingStatus = document.getElementById('tracking-status');
+      const configStatus = document.getElementById('config-status');
+      const actionStatus = document.getElementById('action-status');
+      const decisionNote = document.getElementById('decision-note');
+      const sessionCount = document.getElementById('session-count');
+      const checkGrid = document.getElementById('check-grid');
+      const calloutGrid = document.getElementById('callout-grid');
+      const copyBriefBtn = document.getElementById('copy-brief');
+      const resetRunBtn = document.getElementById('reset-run');
+      const returnBtn = document.getElementById('return-source');
+
+      let checks = new Set([0, 1]);
+      let calloutIndex = 0;
+      let completedRuns = 0;
+      let contextDeckItems = [];
+
+      function hasCapability(name) {
+        return !!(window.CanopyModule && Array.isArray(window.CanopyModule.capabilities) && window.CanopyModule.capabilities.includes(name));
+      }
+
+      function renderCapabilities(caps) {
+        capabilityRow.innerHTML = '';
+        (caps || []).forEach((cap) => {
+          const chip = document.createElement('span');
+          chip.className = 'chip' + (cap === 'deck.return' ? ' highlight' : '');
+          chip.textContent = cap;
+          capabilityRow.appendChild(chip);
+        });
+      }
+
+      function sliderNumber(input) {
+        return Number(input.value || 0);
+      }
+
+      function updateCrosshair() {
+        const loc = sliderNumber(locSlider);
+        const gs = sliderNumber(gsSlider);
+        const clampX = Math.max(-2, Math.min(2, loc));
+        const clampY = Math.max(-2, Math.min(2, gs));
+        const left = 50 + (clampX * 18);
+        const top = 50 + (clampY * 18);
+        crosshairDot.style.left = left + '%';
+        crosshairDot.style.top = top + '%';
+        crosshairDot.style.background = Math.abs(clampX) <= 1 && Math.abs(clampY) <= 1
+          ? 'linear-gradient(135deg, #6ee7b7, #34d399)'
+          : 'linear-gradient(135deg, #fda4af, #fb7185)';
+      }
+
+      function currentStatus() {
+        const loc = Math.abs(sliderNumber(locSlider));
+        const gs = Math.abs(sliderNumber(gsSlider));
+        const speed = Math.abs(sliderNumber(spdSlider));
+        const sink = sliderNumber(sinkSlider);
+        const trackingGood = loc <= 1 && gs <= 1;
+        const energyGood = speed <= 10 && sink <= 1000;
+        const briefDone = checks.size === BRIEF_ITEMS.length;
+        const calloutsReady = calloutIndex >= 3;
+        const stable = trackingGood && energyGood && briefDone && calloutsReady;
+        return { loc, gs, speed, sink, trackingGood, energyGood, briefDone, calloutsReady, stable };
+      }
+
+      function renderStableFlags(status) {
+        stableFlags.innerHTML = '';
+        [
+          { label: status.trackingGood ? 'Needles inside 1 dot' : 'Needles not stabilized', good: status.trackingGood },
+          { label: status.energyGood ? 'Energy under control' : 'Speed or sink out of gate', good: status.energyGood },
+          { label: status.briefDone ? 'Brief complete' : 'Brief incomplete', good: status.briefDone },
+          { label: status.calloutsReady ? 'Callouts established' : 'Callouts behind', good: status.calloutsReady }
+        ].forEach((entry) => {
+          const pill = document.createElement('span');
+          pill.className = 'status-pill ' + (entry.good ? 'good' : 'bad');
+          pill.textContent = entry.label;
+          stableFlags.appendChild(pill);
+        });
+      }
+
+      function renderChecklist() {
+        briefStatus.textContent = checks.size + ' / ' + BRIEF_ITEMS.length + ' complete';
+        briefStatus.className = 'status-pill ' + (checks.size === BRIEF_ITEMS.length ? 'good' : 'warn');
+        checkGrid.innerHTML = '';
+        BRIEF_ITEMS.forEach((label, index) => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'check-btn' + (checks.has(index) ? ' is-on' : '');
+          btn.innerHTML = '<span>' + label + '</span><strong>' + (checks.has(index) ? 'Ready' : 'Set') + '</strong>';
+          btn.addEventListener('click', () => {
+            if (checks.has(index)) checks.delete(index); else checks.add(index);
+            renderChecklist();
+            renderDecision();
+          });
+          checkGrid.appendChild(btn);
+        });
+      }
+
+      function renderCallouts() {
+        calloutGrid.innerHTML = '';
+        CALLOUTS.forEach((label, index) => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          let cls = 'callout-btn';
+          if (index < calloutIndex) cls += ' is-done';
+          if (index === calloutIndex) cls += ' is-current';
+          btn.className = cls;
+          btn.innerHTML = '<span>' + label + '</span><strong>' + (index < calloutIndex ? 'Done' : (index === calloutIndex ? 'Next' : 'Hold')) + '</strong>';
+          btn.disabled = index > calloutIndex;
+          btn.addEventListener('click', () => {
+            if (index === calloutIndex && calloutIndex < CALLOUTS.length) {
+              calloutIndex += 1;
+              renderCallouts();
+              renderDecision();
+            }
+          });
+          calloutGrid.appendChild(btn);
+        });
+        calloutStatus.textContent = calloutIndex >= CALLOUTS.length ? 'All callouts complete' : CALLOUTS[Math.min(calloutIndex, CALLOUTS.length - 1)];
+        calloutStatus.className = 'status-pill ' + (calloutIndex >= 3 ? 'good' : 'warn');
+      }
+
+      function renderSliderLabels() {
+        locValue.textContent = sliderNumber(locSlider).toFixed(1) + ' dot';
+        gsValue.textContent = sliderNumber(gsSlider).toFixed(1) + ' dot';
+        const spd = sliderNumber(spdSlider);
+        spdValue.textContent = (spd >= 0 ? '+' : '') + spd + ' kt';
+        sinkValue.textContent = sliderNumber(sinkSlider) + ' fpm';
+      }
+
+      function renderDecision() {
+        renderSliderLabels();
+        updateCrosshair();
+        const status = currentStatus();
+        renderStableFlags(status);
+        trackingStatus.textContent = status.trackingGood ? 'Inside 1 dot' : 'Correct now';
+        configStatus.textContent = status.briefDone ? 'Brief complete' : 'Finish the brief';
+
+        if (status.stable) {
+          decisionBanner.textContent = 'Continue - stable for the gate';
+          decisionBanner.className = 'decision-banner good';
+          actionStatus.textContent = 'Continue';
+          decisionNote.textContent = 'Good demonstration run. This is the condition you want before you commit below minimums.';
+        } else if (status.trackingGood && status.energyGood) {
+          decisionBanner.textContent = 'Almost there - finish the brief and callouts';
+          decisionBanner.className = 'decision-banner warn';
+          actionStatus.textContent = 'Brief / call';
+          decisionNote.textContent = 'The airplane is close, but the crew gate is still open. Treat that as unstable until the setup is complete.';
+        } else {
+          decisionBanner.textContent = 'Go missed - not stabilized yet';
+          decisionBanner.className = 'decision-banner bad';
+          actionStatus.textContent = 'Re-brief';
+          decisionNote.textContent = 'If the needles or energy are outside gate, the right answer is to leave the approach and set it up again.';
+        }
+      }
+
+      async function persistRuns() {
+        sessionCount.textContent = completedRuns + ' runs';
+        if (!hasCapability('module.storage.local')) return;
+        try {
+          await window.CanopyModule.perform('module.storage.set', { key: 'ifr-ils-runs', value: String(completedRuns) });
+        } catch (_) {}
+      }
+
+      async function restoreRuns() {
+        if (!hasCapability('module.storage.local')) return;
+        try {
+          const result = await window.CanopyModule.perform('module.storage.get', { key: 'ifr-ils-runs' });
+          const next = Number(result && result.value);
+          if (Number.isFinite(next) && next >= 0) completedRuns = next;
+        } catch (_) {}
+        sessionCount.textContent = completedRuns + ' runs';
+      }
+
+      function resetRun(countAsCompleted) {
+        if (countAsCompleted) {
+          completedRuns += 1;
+          persistRuns();
+        } else {
+          sessionCount.textContent = completedRuns + ' runs';
+        }
+        checks = new Set([0, 1]);
+        calloutIndex = 0;
+        locSlider.value = '0.7';
+        gsSlider.value = '0.6';
+        spdSlider.value = '8';
+        sinkSlider.value = '860';
+        renderChecklist();
+        renderCallouts();
+        renderDecision();
+      }
+
+      function applyContext(context) {
+        if (!context) return;
+        if (context.title) lessonTitle.textContent = context.title;
+        if (context.subtitle) lessonCopy.textContent = context.subtitle;
+        if (context.source && context.source.subtitle) {
+          contextSubtitle.textContent = context.source.subtitle + ' · Generic 3 deg ILS training setup';
+        }
+        if (Array.isArray(context.capabilities)) {
+          renderCapabilities(context.capabilities);
+        }
+        if (context.source && Array.isArray(context.source.deck_items)) {
+          contextDeckItems = context.source.deck_items.slice();
+          moduleTip.textContent = 'This source currently carries ' + contextDeckItems.length + ' deck surface(s). Work the module first, then return to the source narrative and reference video.';
+        }
+      }
+
+      function copyBrief() {
+        const brief = [
+          'IFR Arrival Trainer',
+          'Generic ILS setup',
+          'Target 90 KIAS, 3 degree glideslope',
+          'Stable gate: LOC/GS within 1 dot, speed within +/-10 kt, sink <= 1000 fpm, brief complete',
+          'Missed approach if unstable at the gate'
+        ].join('\n');
+        if (hasCapability('clipboard.write')) {
+          window.CanopyModule.perform('clipboard.write', { text: brief }).then(() => {
+            copyBriefBtn.textContent = 'Brief copied';
+            setTimeout(() => { copyBriefBtn.textContent = 'Copy brief'; }, 1200);
+          }).catch(() => {});
+        }
+      }
+
+      [locSlider, gsSlider, spdSlider, sinkSlider].forEach((el) => {
+        el.addEventListener('input', () => renderDecision());
+      });
+
+      copyBriefBtn.addEventListener('click', copyBrief);
+      resetRunBtn.addEventListener('click', () => resetRun(currentStatus().stable));
+      returnBtn.addEventListener('click', async () => {
+        if (!hasCapability('deck.return')) return;
+        try { await window.CanopyModule.perform('deck.return', {}); } catch (_) {}
+      });
+
+      renderChecklist();
+      renderCallouts();
+      renderDecision();
+      restoreRuns();
+
+      if (window.CanopyModule) {
+        window.CanopyModule.onContext((context) => applyContext(context));
+        window.CanopyModule.getContext().then(applyContext).catch(() => {});
+      }
+    })();
+  </script>
+</body>
+</html>

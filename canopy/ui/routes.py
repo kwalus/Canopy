@@ -3432,6 +3432,7 @@ def create_ui_blueprint() -> Blueprint:
                 'outbound': message.sender_id == user_id,
                 'content': getattr(message, 'content', '') or '',
                 'attachments': attachments,
+                'source_layout': meta.get('source_layout') if isinstance(meta.get('source_layout'), dict) else None,
                 'message_type': getattr(getattr(message, 'message_type', None), 'value', None) or str(getattr(message, 'message_type', '') or ''),
                 'created_at': message.created_at.isoformat(),
                 'edited_at': message.edited_at.isoformat() if getattr(message, 'edited_at', None) else None,
@@ -5607,6 +5608,10 @@ def create_ui_blueprint() -> Blueprint:
 
             # Create message metadata
             metadata: dict[str, Any] = {'attachments': processed_attachments} if processed_attachments else {}
+            from ..core.source_layout import normalize_source_layout
+            normalized_source_layout = normalize_source_layout(data.get('source_layout'))
+            if normalized_source_layout:
+                metadata['source_layout'] = normalized_source_layout
             if reply_to:
                 metadata['reply_to'] = reply_to
 
@@ -8559,6 +8564,7 @@ def create_ui_blueprint() -> Blueprint:
             expires_at = data.get('expires_at')
             ttl_seconds = data.get('ttl_seconds')
             ttl_mode = data.get('ttl_mode')
+            from ..core.source_layout import normalize_source_layout
             
             if not content and not file_attachments:
                 return jsonify({'error': 'Post content or attachments required'}), 400
@@ -8621,7 +8627,12 @@ def create_ui_blueprint() -> Blueprint:
                 return jsonify({'error': f'Invalid visibility: {e}'}), 400
             
             # For media posts, add the first attachment URL to metadata for proper display
-            final_metadata = metadata or {}
+            final_metadata = dict(metadata or {})
+            normalized_source_layout = normalize_source_layout(data.get('source_layout', final_metadata.get('source_layout')))
+            if normalized_source_layout:
+                final_metadata['source_layout'] = normalized_source_layout
+            else:
+                final_metadata.pop('source_layout', None)
             try:
                 origin_peer = p2p_manager.get_peer_id() if p2p_manager else None
                 if origin_peer and not final_metadata.get('origin_peer'):
@@ -9166,6 +9177,7 @@ def create_ui_blueprint() -> Blueprint:
             permissions = data.get('permissions')
             metadata = data.get('metadata', {})
             new_attachments = data.get('new_attachments', [])
+            from ..core.source_layout import normalize_source_layout
             
             if not post_id:
                 return jsonify({'error': 'Post ID required'}), 400
@@ -9220,6 +9232,11 @@ def create_ui_blueprint() -> Blueprint:
             final_metadata = dict(base_metadata)
             if metadata:
                 final_metadata.update(metadata)
+            normalized_source_layout = normalize_source_layout(data.get('source_layout', final_metadata.get('source_layout')))
+            if normalized_source_layout:
+                final_metadata['source_layout'] = normalized_source_layout
+            else:
+                final_metadata.pop('source_layout', None)
             existing_attachments = final_metadata.get('attachments', [])
             all_attachments = existing_attachments + processed_new_attachments
             
@@ -10105,6 +10122,7 @@ def create_ui_blueprint() -> Blueprint:
             content = (data.get('content') or '').strip()
             attachments = data.get('attachments')
             new_attachments = data.get('new_attachments') or []
+            from ..core.source_layout import normalize_source_layout
 
             if not message_id:
                 return jsonify({'error': 'Message ID required'}), 400
@@ -10164,6 +10182,11 @@ def create_ui_blueprint() -> Blueprint:
                 final_metadata['attachments'] = final_attachments
             else:
                 final_metadata.pop('attachments', None)
+            normalized_source_layout = normalize_source_layout(data.get('source_layout', final_metadata.get('source_layout')))
+            if normalized_source_layout:
+                final_metadata['source_layout'] = normalized_source_layout
+            else:
+                final_metadata.pop('source_layout', None)
 
             group_members_for_security = []
             if isinstance(final_metadata, dict):
@@ -10628,6 +10651,41 @@ def create_ui_blueprint() -> Blueprint:
                         focus_context_mode = 'missing'
             
             logger.debug(f"Retrieved {len(messages)} messages for channel {channel_id}")
+
+            # Authoritative source_layout blobs from DB for compositor (ORM row can lag rare paths;
+            # P2P/replication should persist this column — batch read avoids per-row drift).
+            layout_by_id: dict[str, Any] = {}
+            if messages and db_manager:
+                try:
+                    all_ids = [m.id for m in messages if getattr(m, 'id', None)]
+                    if all_ids:
+                        chunk_size = 120
+                        with db_manager.get_connection() as conn:
+                            for i in range(0, len(all_ids), chunk_size):
+                                chunk = all_ids[i : i + chunk_size]
+                                placeholders = ','.join('?' * len(chunk))
+                                rows = conn.execute(
+                                    f"""
+                                    SELECT id, source_layout FROM channel_messages
+                                    WHERE channel_id = ? AND id IN ({placeholders})
+                                    """,
+                                    [channel_id] + chunk,
+                                ).fetchall()
+                                for row in rows:
+                                    raw_sl = row['source_layout'] if 'source_layout' in row.keys() else None
+                                    if not raw_sl:
+                                        continue
+                                    try:
+                                        layout_by_id[str(row['id'])] = json.loads(raw_sl)
+                                    except Exception:
+                                        pass
+                except Exception as layout_batch_err:
+                    logger.debug(
+                        "Batch source_layout read for channel messages skipped: %s",
+                        layout_batch_err,
+                    )
+
+            from ..core.source_layout import normalize_source_layout as _normalize_sl_for_channel_ajax
             
             # Batch-check which messages the current user has liked
             msg_ids = [m.id for m in messages]
@@ -10642,6 +10700,13 @@ def create_ui_blueprint() -> Blueprint:
             for message in messages:
                 try:
                     msg_dict = message.to_dict()
+                    blob = layout_by_id.get(str(message.id))
+                    if blob is not None:
+                        msg_dict['source_layout'] = _normalize_sl_for_channel_ajax(blob)
+                    else:
+                        msg_dict['source_layout'] = _normalize_sl_for_channel_ajax(
+                            msg_dict.get('source_layout')
+                        )
                     # Ensure attachments have url only when file exists on this instance; flag when not yet synced
                     for att in (msg_dict.get('attachments') or []):
                         if not isinstance(att, dict):
@@ -11963,6 +12028,8 @@ def create_ui_blueprint() -> Blueprint:
             file_attachments = data.get('attachments', [])
             parent_message_id = data.get('parent_message_id')
             security = data.get('security')
+            from ..core.source_layout import normalize_source_layout
+            source_layout = normalize_source_layout(data.get('source_layout'))
             ttl_mode = data.get('ttl_mode')
             ttl_seconds = data.get('ttl_seconds')
             expires_at = data.get('expires_at')
@@ -12062,6 +12129,7 @@ def create_ui_blueprint() -> Blueprint:
                 parent_message_id=parent_message_id,
                 attachments=processed_attachments,
                 security=security_clean,
+                source_layout=source_layout,
                 expires_at=expires_at,
                 ttl_seconds=ttl_seconds,
                 ttl_mode=ttl_mode,
@@ -12600,6 +12668,7 @@ def create_ui_blueprint() -> Blueprint:
                             message_id=message.id,
                             timestamp=message.created_at.isoformat() if hasattr(message.created_at, 'isoformat') else str(message.created_at),
                             attachments=message.attachments if hasattr(message, 'attachments') and message.attachments else None,
+                            source_layout=getattr(message, 'source_layout', None),
                             display_name=sender_display,
                             expires_at=message.expires_at.isoformat() if getattr(message, 'expires_at', None) else None,
                             ttl_seconds=ttl_seconds,
@@ -13136,6 +13205,7 @@ def create_ui_blueprint() -> Blueprint:
             db_manager, _, _, _, channel_manager, file_manager, _, interaction_manager, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
             user_id = get_current_user()
             from ..core.polls import parse_poll, poll_edit_lock_reason
+            from ..core.source_layout import normalize_source_layout
 
             data = request.get_json() or {}
             message_id = data.get('message_id')
@@ -13151,7 +13221,7 @@ def create_ui_blueprint() -> Blueprint:
             # Fetch existing message for ownership + channel info
             with db_manager.get_connection() as conn:
                 row = conn.execute(
-                    "SELECT id, channel_id, user_id, content, created_at, attachments, expires_at, ttl_seconds, ttl_mode, parent_message_id "
+                    "SELECT id, channel_id, user_id, content, created_at, attachments, source_layout, expires_at, ttl_seconds, ttl_mode, parent_message_id "
                     "FROM channel_messages WHERE id = ?",
                     (message_id,)
                 ).fetchone()
@@ -13208,12 +13278,19 @@ def create_ui_blueprint() -> Blueprint:
             else:
                 final_attachments = list(attachments) if isinstance(attachments, list) else []
             final_attachments.extend(processed_new_attachments)
+            final_source_layout = normalize_source_layout(data.get('source_layout'))
+            if final_source_layout is None and row['source_layout']:
+                try:
+                    final_source_layout = normalize_source_layout(json.loads(row['source_layout']))
+                except Exception:
+                    final_source_layout = None
 
             success = channel_manager.update_message(
                 message_id=message_id,
                 user_id=user_id,
                 content=content,
                 attachments=final_attachments if final_attachments else None,
+                source_layout=final_source_layout,
                 allow_admin=False,
             )
 
@@ -13540,6 +13617,7 @@ def create_ui_blueprint() -> Blueprint:
                             message_id=message_id,
                             timestamp=str(row['created_at']),
                             attachments=final_attachments if final_attachments else None,
+                            source_layout=final_source_layout,
                             display_name=display_name,
                             expires_at=row['expires_at'],
                             ttl_seconds=row['ttl_seconds'],

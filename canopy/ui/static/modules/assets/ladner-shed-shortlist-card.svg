@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="120" y1="40" x2="1280" y2="860" gradientUnits="userSpaceOnUse"><stop stop-color="#08110D"/><stop offset="1" stop-color="#0D1714"/></linearGradient>
+    <linearGradient id="mint" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#7DD3A7"/><stop offset="1" stop-color="#4ADE80"/></linearGradient>
+    <linearGradient id="amber" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#F6C453"/><stop offset="1" stop-color="#F59E0B"/></linearGradient>
+  </defs>
+  <rect width="1440" height="900" rx="42" fill="url(#bg)"/>
+  <rect x="72" y="72" width="1296" height="756" rx="34" fill="#0D1714" stroke="#24342E"/>
+  <rect x="116" y="116" width="242" height="42" rx="21" fill="#122019" stroke="#284236"/>
+  <text x="237" y="143" fill="#7DD3A7" font-size="20" font-weight="800" font-family="Avenir Next, Segoe UI, sans-serif" text-anchor="middle" letter-spacing="2.2">CANOPY SHOPPING</text>
+  <text x="116" y="226" fill="#F4F4EE" font-size="58" font-weight="800" font-family="Avenir Next, Segoe UI, sans-serif">Ladner shed shortlist</text>
+  <text x="116" y="266" fill="#A6B3A5" font-size="28" font-family="Avenir Next, Segoe UI, sans-serif">Real nearby chains, real current products, and enough decision structure to act without leaving context.</text>
+  <g>
+    <rect x="116" y="320" width="1208" height="98" rx="24" fill="#122019" stroke="#284236"/>
+    <text x="152" y="364" fill="#F4F4EE" font-size="30" font-weight="800" font-family="Avenir Next, Segoe UI, sans-serif">Rubbermaid Big Max Ultra 11 x 7</text>
+    <text x="152" y="397" fill="#7DD3A7" font-size="20" font-weight="700" font-family="Avenir Next, Segoe UI, sans-serif">Home Depot Richmond · 467 cu ft · best for 2 bikes + tools</text>
+    <text x="1210" y="378" fill="#F6C453" font-size="34" font-weight="900" font-family="Avenir Next, Segoe UI, sans-serif" text-anchor="end">$1,898</text>
+  </g>
+  <g>
+    <rect x="116" y="442" width="580" height="108" rx="24" fill="#101B17" stroke="#24342E"/>
+    <text x="148" y="486" fill="#F4F4EE" font-size="28" font-weight="800" font-family="Avenir Next, Segoe UI, sans-serif">Keter Artisan 7 x 7</text>
+    <text x="148" y="518" fill="#A6B3A5" font-size="20" font-family="Avenir Next, Segoe UI, sans-serif">RONA Tsawwassen Commons · DUOTECH walls · premium 7x7</text>
+    <text x="662" y="505" fill="#F6C453" font-size="30" font-weight="900" font-family="Avenir Next, Segoe UI, sans-serif" text-anchor="end">$1,599</text>
+  </g>
+  <g>
+    <rect x="744" y="442" width="580" height="108" rx="24" fill="#101B17" stroke="#24342E"/>
+    <text x="776" y="486" fill="#F4F4EE" font-size="28" font-weight="800" font-family="Avenir Next, Segoe UI, sans-serif">Suncast 7 x 7 Storage Building</text>
+    <text x="776" y="518" fill="#A6B3A5" font-size="20" font-family="Avenir Next, Segoe UI, sans-serif">Home Depot Richmond · 311 cu ft · balanced midrange</text>
+    <text x="1290" y="505" fill="#F6C453" font-size="30" font-weight="900" font-family="Avenir Next, Segoe UI, sans-serif" text-anchor="end">$1,318.90</text>
+  </g>
+  <g>
+    <rect x="116" y="574" width="1208" height="108" rx="24" fill="#101B17" stroke="#24342E"/>
+    <text x="148" y="618" fill="#F4F4EE" font-size="28" font-weight="800" font-family="Avenir Next, Segoe UI, sans-serif">Duramax StoreMax 7 x 7</text>
+    <text x="148" y="650" fill="#A6B3A5" font-size="20" font-family="Avenir Next, Segoe UI, sans-serif">Canadian Tire Tsawwassen Commons · 210 cu ft · cheapest local chain option</text>
+    <text x="1210" y="637" fill="#F6C453" font-size="30" font-weight="900" font-family="Avenir Next, Segoe UI, sans-serif" text-anchor="end">$899.99</text>
+  </g>
+  <rect x="116" y="720" width="380" height="62" rx="20" fill="rgba(125,211,167,.12)" stroke="#7DD3A7"/>
+  <text x="306" y="758" fill="#7DD3A7" font-size="24" font-weight="800" font-family="Avenir Next, Segoe UI, sans-serif" text-anchor="middle">Budget lane</text>
+  <rect x="530" y="720" width="380" height="62" rx="20" fill="rgba(246,196,83,.12)" stroke="#F6C453"/>
+  <text x="720" y="758" fill="#F6C453" font-size="24" font-weight="800" font-family="Avenir Next, Segoe UI, sans-serif" text-anchor="middle">Balanced lane</text>
+  <rect x="944" y="720" width="380" height="62" rx="20" fill="rgba(103,232,249,.12)" stroke="#67E8F9"/>
+  <text x="1134" y="758" fill="#67E8F9" font-size="24" font-weight="800" font-family="Avenir Next, Segoe UI, sans-serif" text-anchor="middle">Premium 7x7 lane</text>
+</svg>

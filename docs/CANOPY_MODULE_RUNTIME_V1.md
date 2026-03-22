@@ -118,6 +118,27 @@ New stack after v1:
 
 The module runtime extends the deck model. It does not replace it.
 
+## Relationship to Source Layout v1
+
+`Canopy Module` gives a source item a safe executable surface.
+
+`source_layout` gives that same source item a way to compose the module cleanly inside the post, feed item, or DM itself.
+
+Use them together:
+
+- `Canopy Module` for interactivity
+- `source_layout` for presentation and deck intent
+
+Recommended source pattern:
+
+- hero: module
+- lede: short narrative or operator brief
+- supporting right: one high-value video/map/embed
+- supporting strip: compact cards
+- deck default: module
+
+Reference: [CANOPY_SOURCE_LAYOUT_V1.md](CANOPY_SOURCE_LAYOUT_V1.md)
+
 ---
 
 ## User Experience Model

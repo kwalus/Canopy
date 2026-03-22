@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ladner Shed Buyer Studio</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg:#08110d;
+      --panel:#0d1714;
+      --panel-2:#101d18;
+      --panel-3:#0b1512;
+      --edge:rgba(117,149,111,.18);
+      --text:#f4f4ee;
+      --muted:#a6b3a5;
+      --sage:#7dd3a7;
+      --mint:#4ade80;
+      --amber:#f6c453;
+      --rose:#fb7185;
+      --sky:#67e8f9;
+      --shadow:0 22px 44px rgba(0,0,0,.34);
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;min-height:100%;background:radial-gradient(circle at top right, rgba(74,222,128,.14), transparent 24%),radial-gradient(circle at bottom left, rgba(246,196,83,.10), transparent 28%),linear-gradient(180deg,#06100d,#0a1511 52%,#08110d);color:var(--text);font-family:"Avenir Next","Segoe UI",sans-serif}
+    body{padding:16px}
+    .shell{display:grid;gap:14px;min-height:calc(100vh - 32px)}
+    .hero,.panel,.toolbar{border:1px solid var(--edge);border-radius:24px;background:rgba(10,18,15,.96);box-shadow:var(--shadow)}
+    .hero{padding:16px;background:radial-gradient(circle at top right, rgba(74,222,128,.12), transparent 26%),linear-gradient(180deg, rgba(13,23,20,.98), rgba(10,17,14,.98))}
+    .eyebrow{display:inline-flex;align-items:center;gap:8px;padding:7px 12px;border-radius:999px;background:rgba(16,29,24,.82);border:1px solid rgba(125,211,167,.22);color:var(--sage);font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+    h1,h2,h3,p{margin:0}.hero h1{font-size:clamp(1.8rem,3vw,2.5rem);line-height:1.02;letter-spacing:-.05em;margin:10px 0 8px}.copy,.subtle{color:var(--muted);line-height:1.5}
+    .hero-grid{margin-top:12px;display:grid;grid-template-columns:minmax(0,1.04fr) minmax(320px,.96fr);gap:14px}
+    .metric-row,.chip-row,.toolbar-group,.seg-row,.stat-row{display:flex;flex-wrap:wrap;gap:8px}
+    .metric,.chip,.seg-btn,.btn,.flag{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:999px;border:1px solid rgba(148,163,184,.14);background:rgba(15,23,20,.62);font-size:12px;font-weight:800}
+    .metric.highlight,.seg-btn.is-active,.btn.primary{color:#072215;background:linear-gradient(135deg,#7dd3a7,#4ade80);border-color:transparent}
+    .grid{display:grid;grid-template-columns:minmax(300px,.78fr) minmax(0,1.22fr);gap:14px}
+    .panel{padding:14px;display:grid;gap:12px;background:var(--panel-2)}
+    .label{font-size:.74rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:800}
+    .control{border-radius:18px;border:1px solid rgba(148,163,184,.14);background:rgba(8,15,12,.92);padding:12px;display:grid;gap:8px}
+    .control-head{display:flex;justify-content:space-between;gap:12px;align-items:center}.control-label{font-size:.9rem;font-weight:800}.control-value{color:var(--sage);font-weight:800;font-variant-numeric:tabular-nums}
+    input[type="range"]{width:100%;appearance:none;height:6px;border-radius:999px;background:linear-gradient(90deg, rgba(125,211,167,.86), rgba(246,196,83,.86));outline:none}
+    input[type="range"]::-webkit-slider-thumb{appearance:none;width:16px;height:16px;border-radius:50%;background:#f8fafc;border:2px solid rgba(125,211,167,.9);cursor:pointer}
+    .seg-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.seg-btn,.btn{appearance:none;cursor:pointer;justify-content:center;border-radius:14px;font-weight:800;transition:transform 120ms ease,border-color 120ms ease}.seg-btn:hover,.btn:hover,.seg-btn:focus-visible,.btn:focus-visible{transform:translateY(-1px);border-color:rgba(125,211,167,.36);outline:none}
+    .result-shell{display:grid;gap:12px}
+    .winner{border-radius:24px;padding:16px;border:1px solid rgba(125,211,167,.22);background:radial-gradient(circle at top right, rgba(125,211,167,.14), transparent 30%),linear-gradient(180deg, rgba(12,22,18,.98), rgba(9,17,14,.98));display:grid;gap:12px}
+    .winner-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}
+    .winner-title{font-size:1.55rem;font-weight:900;letter-spacing:-.04em}
+    .winner-price{font-size:1.45rem;font-weight:900;color:var(--amber)}
+    .stat-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+    .stat{border-radius:18px;padding:10px;border:1px solid rgba(148,163,184,.12);background:rgba(15,23,20,.56);display:grid;gap:4px}
+    .stat .k{font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:800}.stat .v{font-size:1rem;font-weight:800}
+    .layout{border-radius:22px;border:1px solid rgba(148,163,184,.12);background:rgba(8,15,12,.92);padding:12px;display:grid;gap:12px}
+    .yard{width:100%;height:220px;border-radius:18px;background:linear-gradient(180deg,#12231b,#0b1812)}
+    .cards{display:grid;gap:10px}
+    .option{border-radius:18px;padding:12px;border:1px solid rgba(148,163,184,.12);background:rgba(15,23,20,.46);display:grid;gap:8px}
+    .option.is-top{border-color:rgba(125,211,167,.38);background:rgba(17,34,24,.62)}
+    .option-top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.option h3{font-size:1rem}.option p{font-size:.84rem;color:var(--muted);line-height:1.42}
+    .scorebar{height:10px;border-radius:999px;background:#122019;overflow:hidden;border:1px solid rgba(148,163,184,.10)}.scorefill{height:100%;border-radius:999px;background:linear-gradient(90deg,#7dd3a7,#f6c453)}
+    .toolbar{padding:12px 14px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;background:rgba(8,14,12,.96)}
+    .status{min-height:18px;font-size:.8rem;color:var(--muted)}
+    @media (max-width: 980px){.hero-grid,.grid{grid-template-columns:1fr}.stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    @media (max-width: 680px){body{padding:12px}.shell{min-height:calc(100vh - 24px)}.seg-row{grid-template-columns:1fr}.stat-grid{grid-template-columns:1fr 1fr}}
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <div class="eyebrow">Canopy Shopping</div>
+      <h1>Ladner Shed Buyer Studio</h1>
+      <p class="copy">A current-model Canopy shopping surface: real local store options around Ladner, compact decision cards in the source, and a module that turns the post into a buying cockpit instead of a link pile.</p>
+      <div class="hero-grid">
+        <div>
+          <div class="metric-row">
+            <span class="metric highlight" id="heroPick">Best fit: Rubbermaid Big Max</span>
+            <span class="metric" id="heroBudget">Budget cap $1,900</span>
+            <span class="metric" id="heroBikes">2 bikes + tools</span>
+          </div>
+          <div class="chip-row" style="margin-top:12px">
+            <span class="chip">Local-first shortlist</span>
+            <span class="chip">Source-bound</span>
+            <span class="chip">Bounded shopping logic</span>
+          </div>
+        </div>
+        <div class="panel" style="gap:8px">
+          <div class="label">How this convinces</div>
+          <p class="subtle">Today the module can compare, rank, and hand the user a precise buy brief. Tomorrow the same surface can hold a local-first payment vault, retailer handoff, and a bounded purchase authorization inside Canopy.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <section class="panel">
+        <div class="label">Shopping controls</div>
+        <div class="control">
+          <div class="control-head"><span class="control-label">Budget ceiling</span><span class="control-value" id="budgetLabel">$1,900</span></div>
+          <input id="budgetRange" type="range" min="900" max="2200" step="50" value="1900">
+        </div>
+        <div class="control">
+          <div class="control-head"><span class="control-label">How many bikes?</span><span class="control-value" id="bikeLabel">2 bikes</span></div>
+          <div class="seg-row" id="bikeRow"></div>
+        </div>
+        <div class="control">
+          <div class="control-head"><span class="control-label">Decision mode</span><span class="control-value" id="modeLabel">balanced</span></div>
+          <div class="seg-row" id="modeRow"></div>
+        </div>
+        <div class="control">
+          <div class="control-head"><span class="control-label">DIY tolerance</span><span class="control-value" id="diyLabel">medium</span></div>
+          <input id="diyRange" type="range" min="0" max="2" step="1" value="1">
+        </div>
+        <div class="control">
+          <div class="control-head"><span class="control-label">Weather / durability priority</span><span class="control-value" id="durabilityLabel">74</span></div>
+          <input id="durabilityRange" type="range" min="35" max="95" step="1" value="74">
+        </div>
+      </section>
+
+      <section class="result-shell">
+        <section class="winner">
+          <div class="winner-head">
+            <div>
+              <div class="label">Recommended buy</div>
+              <div class="winner-title" id="winnerTitle">Rubbermaid Big Max Ultra 11 x 7</div>
+              <p class="copy" id="winnerWhy">Best overall fit when you actually need room for two bikes, tool wall space, and less compromise on access.</p>
+            </div>
+            <div class="winner-price" id="winnerPrice">$1,898</div>
+          </div>
+          <div class="stat-grid">
+            <div class="stat"><div class="k">Store</div><div class="v" id="winnerStore">Home Depot Richmond</div></div>
+            <div class="stat"><div class="k">Footprint</div><div class="v" id="winnerFootprint">11 x 7</div></div>
+            <div class="stat"><div class="k">Storage</div><div class="v" id="winnerStorage">467 cu ft</div></div>
+            <div class="stat"><div class="k">Fit score</div><div class="v" id="winnerScore">92 / 100</div></div>
+          </div>
+          <div class="layout">
+            <div class="label">Backyard fit planner</div>
+            <svg id="yard" class="yard" viewBox="0 0 620 260" preserveAspectRatio="none" aria-label="Yard shed fit planner"></svg>
+            <div class="stat-row">
+              <span class="flag" id="fitCallout">Two bikes + tool wall is realistic</span>
+              <span class="flag" id="assemblyCallout">Assembly service available on some chains</span>
+              <span class="flag" id="styleCallout">Resin / vinyl low-maintenance lane</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel cards">
+          <div class="label">Shortlist</div>
+          <div id="optionList"></div>
+        </section>
+      </section>
+    </section>
+
+    <section class="toolbar">
+      <div class="toolbar-group">
+        <button class="btn primary" id="copyShortlist" type="button">Copy shortlist</button>
+        <button class="btn" id="copyBuyBrief" type="button">Copy buy brief</button>
+      </div>
+      <div class="toolbar-group">
+        <button class="btn" id="returnBtn" type="button">Return to source</button>
+      </div>
+      <div class="status" id="status">Local buying cockpit ready.</div>
+    </section>
+  </div>
+  <script>
+  (function(){
+    const options=[
+      {id:'duramax',name:'Duramax StoreMax',store:'Canadian Tire Tsawwassen Commons',price:899.99,size:'7 x 7',sqft:49,storage:210,material:'vinyl',fit:1,assembly:2,durability:58,style:48,url:'https://www.canadiantire.ca/en/pdp/duramax-storemax-vinyl-garden-shed-brown-7-ft-x-7-ft-0600168p.html',storeUrl:'https://www.canadiantire.ca/en/store-details/bc/tsawwassen-bc-910.html',summary:'Lowest price in the local set. Good if budget wins and you can tolerate less headroom and less margin for two bikes.',why:['Budget leader','Tsawwassen pickup chain','49 sq ft / 210 cu ft']},
+      {id:'suncast',name:'Suncast 7 x 7 Storage Building',store:'Home Depot Richmond',price:1318.90,size:'7 x 7',sqft:49,storage:311,material:'resin',fit:2,assembly:3,durability:66,style:55,url:'https://www.homedepot.ca/product/suncast-7-ft-x-7-ft-storage-building/1000702573',storeUrl:'https://stores.homedepot.ca/bc/richmond/',summary:'Strong middle lane: more storage volume than the cheapest option, resin floor included, and simple assembly claims.',why:['311 cu ft','Assembly approx. 3 hours','Richmond chain nearby']},
+      {id:'artisan',name:'Keter Artisan 7 x 7',store:'RONA Tsawwassen Commons',price:1599.00,size:'7 x 7',sqft:49,storage:292,material:'DUOTECH resin + steel',fit:2,assembly:2,durability:86,style:88,url:'https://www.rona.ca/en/product/keter-artisan-7-ft-x-7-ft-grey-and-black-resin-storage-garden-shed-237082-16525030',storeUrl:'https://www.rona.ca/en/store/british-columbia/tsawwassen/rona-tsawwassen-commons-08880',summary:'Best premium 7x7. Stronger envelope, better look, and more confidence if you care about finish and weather resilience.',why:['DUOTECH walls','Steel reinforcement','Snow load support']},
+      {id:'bigmax',name:'Rubbermaid Big Max Ultra 11 x 7',store:'Home Depot Richmond',price:1898.00,size:'11 x 7',sqft:73.5,storage:467,material:'resin',fit:4,assembly:2,durability:78,style:72,url:'https://www.homedepot.ca/product/rubbermaid-big-max-ultra-10-5-ft-x-7-ft-weather-resistant-resin-garden-outdoor-storage-shed/1000737653',storeUrl:'https://stores.homedepot.ca/bc/richmond/',summary:'If the real job is bikes plus tools, this is the low-friction answer. The extra depth changes the usability more than the price jump suggests.',why:['467 cu ft','73.5 sq ft','Skylights and windows']}
+    ];
+    const bikeChoices=[{id:'1',label:'1 bike',value:1},{id:'2',label:'2 bikes',value:2},{id:'3',label:'3+ bikes',value:3}];
+    const modeChoices=[{id:'budget',label:'budget',value:'budget'},{id:'balanced',label:'balanced',value:'balanced'},{id:'premium',label:'premium',value:'premium'}];
+    const els={
+      budgetRange:document.getElementById('budgetRange'),budgetLabel:document.getElementById('budgetLabel'),bikeRow:document.getElementById('bikeRow'),bikeLabel:document.getElementById('bikeLabel'),modeRow:document.getElementById('modeRow'),modeLabel:document.getElementById('modeLabel'),diyRange:document.getElementById('diyRange'),diyLabel:document.getElementById('diyLabel'),durabilityRange:document.getElementById('durabilityRange'),durabilityLabel:document.getElementById('durabilityLabel'),heroPick:document.getElementById('heroPick'),heroBudget:document.getElementById('heroBudget'),heroBikes:document.getElementById('heroBikes'),winnerTitle:document.getElementById('winnerTitle'),winnerWhy:document.getElementById('winnerWhy'),winnerPrice:document.getElementById('winnerPrice'),winnerStore:document.getElementById('winnerStore'),winnerFootprint:document.getElementById('winnerFootprint'),winnerStorage:document.getElementById('winnerStorage'),winnerScore:document.getElementById('winnerScore'),fitCallout:document.getElementById('fitCallout'),assemblyCallout:document.getElementById('assemblyCallout'),styleCallout:document.getElementById('styleCallout'),optionList:document.getElementById('optionList'),yard:document.getElementById('yard'),status:document.getElementById('status'),copyShortlist:document.getElementById('copyShortlist'),copyBuyBrief:document.getElementById('copyBuyBrief'),returnBtn:document.getElementById('returnBtn')};
+    const state={budget:1900,bikes:2,mode:'balanced',diy:1,durability:74};
+    function hasCap(name){return !!(window.CanopyModule&&Array.isArray(window.CanopyModule.capabilities)&&window.CanopyModule.capabilities.includes(name));}
+    async function persist(key,val){if(!hasCap('module.storage.local'))return;try{await window.CanopyModule.perform('module.storage.set',{key,value:String(val)});}catch(_){}}
+    async function restore(key){if(!hasCap('module.storage.local'))return null;try{const r=await window.CanopyModule.perform('module.storage.get',{key});return r&&Object.prototype.hasOwnProperty.call(r,'value')?r.value:null;}catch(_){return null;}}
+    async function copyText(text,msg){try{if(hasCap('clipboard.write'))await window.CanopyModule.perform('clipboard.write',{text});else if(navigator.clipboard&&navigator.clipboard.writeText)await navigator.clipboard.writeText(text);else throw new Error('clipboard');els.status.textContent=msg;}catch(_){els.status.textContent='Clipboard unavailable.';}}
+    async function goBack(){if(!hasCap('deck.return'))return;try{await window.CanopyModule.perform('deck.return',{});}catch(_){}}
+    function renderSegmentRow(host, items, active, onPick){host.innerHTML='';items.forEach((item)=>{const b=document.createElement('button');b.type='button';b.className='seg-btn'+(item.value===active?' is-active':'');b.textContent=item.label;b.addEventListener('click',()=>onPick(item.value));host.appendChild(b);});}
+    function fmtPrice(v){return new Intl.NumberFormat('en-CA',{style:'currency',currency:'CAD',maximumFractionDigits:2}).format(v);}
+    function diyLabel(v){return ['low','medium','high'][Number(v)||0]||'medium';}
+    function computeScore(opt){
+      let s=70;
+      const overBudget=Math.max(0,opt.price-state.budget);
+      s-= overBudget/18;
+      if(state.mode==='budget') s += (2200-opt.price)/16;
+      if(state.mode==='premium') s += opt.style*0.42 + opt.durability*0.34;
+      if(state.mode==='balanced') s += opt.fit*7 + opt.durability*0.22;
+      const neededFit = state.bikes>=3 ? 4 : state.bikes===2 ? 3 : 2;
+      s += (opt.fit-neededFit)*10;
+      s += (opt.durability - state.durability)*0.14;
+      s += opt.assembly * (state.diy===2 ? 4 : state.diy===1 ? 1.5 : -3.5);
+      if(opt.id==='bigmax' && state.bikes>=2) s += 10;
+      if(opt.id==='duramax' && state.mode==='budget') s += 8;
+      if(opt.id==='artisan' && state.mode==='premium') s += 10;
+      if(opt.id==='suncast' && state.mode==='balanced') s += 4;
+      return Math.max(1, Math.min(99, Math.round(s)));
+    }
+    function ranked(){return options.map((o)=>({...o,score:computeScore(o)})).sort((a,b)=>b.score-a.score);}
+    function currentBest(){return ranked()[0];}
+    function bestWhy(opt){
+      if(opt.id==='bigmax') return 'Best overall fit when you actually need room for two bikes, tool wall space, and easier day-to-day access.';
+      if(opt.id==='duramax') return 'Best if you want the cheapest local chain option and can accept a tighter 7x7 storage envelope.';
+      if(opt.id==='artisan') return 'Best premium 7x7 if finish quality, stronger shell, and better long-term weather posture matter more than price.';
+      return 'Best middle-ground option with better storage volume than the budget pick and less spend than the premium 7x7.';
+    }
+    function renderYard(opt){
+      const isLarge=opt.id==='bigmax';
+      const shedW=isLarge?280:220, shedH=155; const bikes=state.bikes>=3?3:state.bikes;
+      const bikeXs=bikes===1?[120]:bikes===2?[110,170]:[92,148,204];
+      const toolWall=isLarge?92:70;
+      els.yard.innerHTML=`
+        <rect width="620" height="260" rx="18" fill="#102018"/>
+        <rect x="42" y="34" width="536" height="192" rx="24" fill="#183022" stroke="#2b4b37"/>
+        <text x="62" y="62" fill="#a6b3a5" font-size="13" font-weight="800" letter-spacing="1.8">BACKYARD FIT</text>
+        <rect x="84" y="84" width="${shedW}" height="${shedH}" rx="18" fill="rgba(246,196,83,.14)" stroke="#f6c453" stroke-width="2"/>
+        <text x="104" y="110" fill="#f4f4ee" font-size="20" font-weight="800">${opt.size} shed footprint</text>
+        <rect x="${84+shedW-toolWall}" y="112" width="${toolWall}" height="88" rx="10" fill="rgba(103,232,249,.16)" stroke="#67e8f9"/>
+        <text x="${84+shedW-toolWall+12}" y="136" fill="#67e8f9" font-size="13" font-weight="800">tool wall</text>
+        ${bikeXs.map((x)=>`<g><circle cx="${84+x}" cy="188" r="18" fill="none" stroke="#7dd3a7" stroke-width="4"/><circle cx="${84+x+32}" cy="188" r="18" fill="none" stroke="#7dd3a7" stroke-width="4"/><path d="M${84+x} 188 L${84+x+15} 160 L${84+x+32} 188 L${84+x+13} 188 Z" stroke="#7dd3a7" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g>`).join('')}
+        <text x="392" y="106" fill="#f4f4ee" font-size="22" font-weight="800">Local run</text>
+        <text x="392" y="138" fill="#a6b3a5" font-size="17">Home Depot Richmond</text>
+        <text x="392" y="162" fill="#a6b3a5" font-size="17">RONA / Canadian Tire Tsawwassen Commons</text>
+        <rect x="392" y="184" width="154" height="30" rx="15" fill="rgba(125,211,167,.12)" stroke="#7dd3a7"/>
+        <text x="469" y="204" text-anchor="middle" fill="#7dd3a7" font-size="14" font-weight="800">${bikes} bike lane + tools</text>
+      `;
+    }
+    function render(){
+      const best=currentBest();
+      els.budgetLabel.textContent=`${fmtPrice(state.budget)}`;
+      els.bikeLabel.textContent=state.bikes>=3?'3+ bikes':`${state.bikes} bike${state.bikes>1?'s':''}`;
+      els.modeLabel.textContent=state.mode;
+      els.diyLabel.textContent=diyLabel(state.diy);
+      els.durabilityLabel.textContent=String(state.durability);
+      els.heroPick.textContent=`Best fit: ${best.name}`;
+      els.heroBudget.textContent=`Budget cap ${fmtPrice(state.budget)}`;
+      els.heroBikes.textContent=state.bikes>=3?'3+ bikes + tools':`${state.bikes} bike${state.bikes>1?'s':''} + tools`;
+      els.winnerTitle.textContent=best.name;
+      els.winnerWhy.textContent=bestWhy(best);
+      els.winnerPrice.textContent=fmtPrice(best.price);
+      els.winnerStore.textContent=best.store;
+      els.winnerFootprint.textContent=best.size;
+      els.winnerStorage.textContent=`${best.storage} cu ft`;
+      els.winnerScore.textContent=`${best.score} / 100`;
+      els.fitCallout.textContent=best.id==='bigmax'?'Two bikes + tool wall is realistic':'Expect a tighter 7x7 storage envelope';
+      els.assemblyCallout.textContent=best.id==='suncast'?'Assembly is pitched as simple on the product page':'Installation or careful DIY planning advised';
+      els.styleCallout.textContent=best.id==='artisan'?'Best if finish quality matters':'Low-maintenance resin / vinyl lane';
+      renderYard(best);
+      const list=ranked();
+      els.optionList.innerHTML='';
+      list.forEach((opt, idx)=>{
+        const row=document.createElement('div');
+        row.className='option'+(idx===0?' is-top':'');
+        row.innerHTML=`
+          <div class="option-top">
+            <div>
+              <h3>${opt.name}</h3>
+              <p>${opt.store} · ${opt.size} · ${opt.material}</p>
+            </div>
+            <div style="text-align:right">
+              <div style="font-weight:900;color:var(--amber)">${fmtPrice(opt.price)}</div>
+              <div class="subtle" style="font-size:.78rem">${opt.storage} cu ft</div>
+            </div>
+          </div>
+          <div class="scorebar"><div class="scorefill" style="width:${opt.score}%"></div></div>
+          <p>${opt.summary}</p>
+        `;
+        els.optionList.appendChild(row);
+      });
+    }
+    function copyShortlist(){
+      const lines=ranked().map((o,i)=>`${i+1}. ${o.name} — ${fmtPrice(o.price)} — ${o.store} — ${o.size} — ${o.storage} cu ft — ${o.url}`);
+      copyText(`Ladner shed shortlist\nBudget: ${fmtPrice(state.budget)}\nNeed: ${state.bikes>=3?'3+ bikes':'${state.bikes} bikes'} + tools\n\n${lines.join('\n')}`,'Shortlist copied.');
+    }
+    function copyBuyBrief(){
+      const o=currentBest();
+      const txt=`Best shed candidate for Ladner, BC\n\nPick: ${o.name}\nPrice: ${fmtPrice(o.price)}\nStore: ${o.store}\nStore page: ${o.storeUrl}\nProduct: ${o.url}\nWhy now: ${bestWhy(o)}\nNeed profile: ${state.bikes>=3?'3+ bikes':'${state.bikes} bikes'} + tools, budget ${fmtPrice(state.budget)}, mode ${state.mode}, DIY ${diyLabel(state.diy)}.`;
+      copyText(txt,'Buy brief copied.');
+    }
+    function bind(){
+      renderSegmentRow(els.bikeRow,bikeChoices,state.bikes,(v)=>{state.bikes=v;persist('shed-bikes',v);render();});
+      renderSegmentRow(els.modeRow,modeChoices,state.mode,(v)=>{state.mode=v;persist('shed-mode',v);render();});
+      els.budgetRange.addEventListener('input',()=>{state.budget=Number(els.budgetRange.value||1900);persist('shed-budget',state.budget);render();});
+      els.diyRange.addEventListener('input',()=>{state.diy=Number(els.diyRange.value||1);persist('shed-diy',state.diy);render();});
+      els.durabilityRange.addEventListener('input',()=>{state.durability=Number(els.durabilityRange.value||74);persist('shed-durability',state.durability);render();});
+      els.copyShortlist.addEventListener('click',copyShortlist);
+      els.copyBuyBrief.addEventListener('click',copyBuyBrief);
+      els.returnBtn.addEventListener('click',goBack);
+    }
+    async function init(){
+      const [bikes,mode,budget,diy,durability]=await Promise.all([restore('shed-bikes'),restore('shed-mode'),restore('shed-budget'),restore('shed-diy'),restore('shed-durability')]);
+      if(bikes&&['1','2','3'].includes(String(bikes))) state.bikes=Number(bikes);
+      if(mode&&['budget','balanced','premium'].includes(String(mode))) state.mode=String(mode);
+      if(budget&&!Number.isNaN(Number(budget))) state.budget=Number(budget);
+      if(diy!==null&&!Number.isNaN(Number(diy))) state.diy=Number(diy);
+      if(durability!==null&&!Number.isNaN(Number(durability))) state.durability=Number(durability);
+      els.budgetRange.value=String(state.budget); els.diyRange.value=String(state.diy); els.durabilityRange.value=String(state.durability);
+      bind(); render();
+    }
+    init();
+  })();
+  </script>
+</body>
+</html>

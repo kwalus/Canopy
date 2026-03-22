@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="860" viewBox="0 0 1400 860" role="img" aria-labelledby="title desc">
+  <title id="title">Titration kneeboard</title>
+  <desc id="desc">Compact acid-base titration reference card.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#08111a"/>
+      <stop offset="100%" stop-color="#0d1724"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#22d3ee"/>
+      <stop offset="100%" stop-color="#818cf8"/>
+    </linearGradient>
+  </defs>
+  <rect width="1400" height="860" rx="40" fill="url(#bg)"/>
+  <text x="76" y="104" fill="#22d3ee" font-size="28" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800" letter-spacing="3">CANOPY CHEM</text>
+  <text x="76" y="148" fill="#f8fafc" font-size="58" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="900">Titration Kneeboard</text>
+
+  <g transform="translate(76 210)">
+    <rect width="1248" height="162" rx="28" fill="#101b29" stroke="#24374b"/>
+    <text x="36" y="56" fill="#f8fafc" font-size="30" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Core equations</text>
+    <text x="36" y="104" fill="#9fb0c2" font-size="28" font-family="Avenir Next, Segoe UI, sans-serif">n = M × V(L)</text>
+    <text x="366" y="104" fill="#9fb0c2" font-size="28" font-family="Avenir Next, Segoe UI, sans-serif">Ve = na / Mb</text>
+    <text x="700" y="104" fill="#9fb0c2" font-size="28" font-family="Avenir Next, Segoe UI, sans-serif">Before eq: pH from excess H⁺</text>
+    <text x="700" y="142" fill="#9fb0c2" font-size="28" font-family="Avenir Next, Segoe UI, sans-serif">After eq: pOH from excess OH⁻</text>
+  </g>
+
+  <g transform="translate(76 410)">
+    <rect width="596" height="332" rx="28" fill="#101b29" stroke="#24374b"/>
+    <text x="32" y="58" fill="#f8fafc" font-size="32" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Endpoint cues</text>
+    <text x="32" y="108" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">1. Phenolphthalein stays colorless well before the jump.</text>
+    <text x="32" y="152" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">2. Within 1 mL of Ve, switch to dropwise additions.</text>
+    <text x="32" y="196" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">3. A faint pink lasting 30 s is your practical endpoint.</text>
+    <text x="32" y="240" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">4. Overshoot = basic region, not “better endpoint”.</text>
+  </g>
+
+  <g transform="translate(728 410)">
+    <rect width="596" height="332" rx="28" fill="#101b29" stroke="#24374b"/>
+    <text x="32" y="58" fill="#f8fafc" font-size="32" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">One-screen lesson</text>
+    <text x="32" y="108" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">Use the module to move titrant volume and read:</text>
+    <text x="32" y="152" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">• current pH</text>
+    <text x="32" y="188" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">• equivalence volume</text>
+    <text x="32" y="224" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">• excess species</text>
+    <text x="32" y="260" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">• observation + technique cues</text>
+    <rect x="32" y="286" width="216" height="44" rx="22" fill="url(#accent)"/>
+    <text x="60" y="316" fill="#05253c" font-size="20" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="900" letter-spacing="1">COMPACT LAB STATION</text>
+  </g>
+</svg>
