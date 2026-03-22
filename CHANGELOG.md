@@ -8,6 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.134] - 2026-02-27
+
+### Security
+- **Source layout action URLs** — Reject **protocol-relative** URLs (`//host/...`) in `normalize_source_layout` (they were incorrectly allowed as “paths” because they start with `/`). Client compositor mirrors the same rule before emitting `<a href>`.
+
+### Fixed
+- **Source layout compositor** — If layout JSON changes while a shell already exists, **unwrap** the old shell and **rebuild** instead of leaving a stale layout.
+
+### Tests
+- **`tests/test_source_layout.py`** — Assert `//…` action URLs are stripped alongside `javascript:`.
+
+### Notes
+- **Local:** Restart the Canopy web process and **hard-refresh** so **`canopy-main.js`** and any template changes load at **v0.4.134**.
+
 ## [0.4.133] - 2026-03-21
 
 ### Changed

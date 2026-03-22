@@ -1976,7 +1976,8 @@
             return (
                 ' data-canopy-widget-manifest="' + json + '"' +
                 ' data-canopy-widget-type="' + escapeEmbedAttr(manifest.widget_type) + '"' +
-                ' data-canopy-widget-key="' + escapeEmbedAttr(manifest.key) + '"'
+                ' data-canopy-widget-key="' + escapeEmbedAttr(manifest.key) + '"' +
+                ' data-canopy-source-ref="widget:' + escapeEmbedAttr(manifest.key) + '"'
             );
         }
 
@@ -6031,6 +6032,221 @@
                 return postOrMessage || el.closest('.card');
             }
 
+            function parseSourceLayoutConfig(rootEl) {
+                if (!(rootEl instanceof Element)) return null;
+                const raw = String(rootEl.getAttribute('data-canopy-source-layout') || '').trim();
+                if (!raw) return null;
+                try {
+                    const parsed = JSON.parse(raw);
+                    if (!parsed || typeof parsed !== 'object') return null;
+                    return parsed;
+                } catch (_) {
+                    return null;
+                }
+            }
+
+            function getSourceLayoutSignature(layout) {
+                try {
+                    return JSON.stringify(layout || {});
+                } catch (_) {
+                    return '';
+                }
+            }
+
+            function getSourceLayoutRoot(sourceEl) {
+                if (!(sourceEl instanceof Element)) return null;
+                return sourceEl.querySelector('[data-canopy-source-layout]');
+            }
+
+            function getSourceLayoutDefaultRef(sourceEl) {
+                const layoutRoot = getSourceLayoutRoot(sourceEl);
+                if (!(layoutRoot instanceof Element)) return '';
+                const layout = parseSourceLayoutConfig(layoutRoot);
+                const ref = layout && layout.deck ? String(layout.deck.default_ref || '').trim() : '';
+                return ref || '';
+            }
+
+            function findSourceRefNode(rootEl, ref) {
+                if (!(rootEl instanceof Element)) return null;
+                const cleanRef = String(ref || '').trim();
+                if (!cleanRef) return null;
+                const nodes = rootEl.querySelectorAll('[data-canopy-source-ref]');
+                for (const node of nodes) {
+                    if (String(node.getAttribute('data-canopy-source-ref') || '').trim() === cleanRef) {
+                        return node;
+                    }
+                }
+                return null;
+            }
+
+            function hasMeaningfulSourceChildren(node) {
+                if (!(node instanceof Element)) return false;
+                if (node.querySelector('[data-canopy-source-ref], .attachment-item, .dm-attachment, .mg-cell, .embed-preview, .provider-card-embed')) {
+                    return true;
+                }
+                return !!String(node.textContent || '').trim();
+            }
+
+            function pruneEmptySourceLayoutWrappers(rootEl) {
+                if (!(rootEl instanceof Element)) return;
+                rootEl.querySelectorAll('.media-grid, .post-attachments, .attachments, .dm-attachment-list').forEach((node) => {
+                    if (!hasMeaningfulSourceChildren(node)) {
+                        node.remove();
+                    }
+                });
+            }
+
+            function createSourceLayoutActions(actions) {
+                if (!Array.isArray(actions) || !actions.length) return null;
+                const row = document.createElement('div');
+                row.className = 'canopy-source-layout-actions';
+                actions.forEach((action) => {
+                    if (!action || String(action.kind || '').trim() !== 'link') return;
+                    const label = String(action.label || '').trim();
+                    const url = String(action.url || '').trim();
+                    if (!label || !url) return;
+                    const isHttp = url.startsWith('http://') || url.startsWith('https://');
+                    const isPath = url.startsWith('/') && !url.startsWith('//');
+                    if (!isHttp && !isPath) return;
+                    const link = document.createElement('a');
+                    link.className = 'btn btn-sm btn-outline-secondary';
+                    link.href = url;
+                    if (url.startsWith('http://') || url.startsWith('https://')) {
+                        link.target = '_blank';
+                        link.rel = 'noopener noreferrer';
+                    }
+                    link.textContent = label;
+                    row.appendChild(link);
+                });
+                return row.childElementCount ? row : null;
+            }
+
+            function moveSourceNode(node, slot, claimed) {
+                if (!(node instanceof Element) || !(slot instanceof Element)) return;
+                if (claimed.has(node)) return;
+                claimed.add(node);
+                slot.appendChild(node);
+            }
+
+            function applySourceLayout(rootEl) {
+                if (!(rootEl instanceof Element)) return;
+                const layout = parseSourceLayoutConfig(rootEl);
+                if (!layout) return;
+                const signature = getSourceLayoutSignature(layout);
+                const existingShell = Array.from(rootEl.children || []).find((child) => child.classList && child.classList.contains('canopy-source-layout-shell')) || null;
+                if (existingShell && existingShell.getAttribute('data-layout-signature') === signature) {
+                    if (layout.deck && layout.deck.default_ref) {
+                        rootEl.setAttribute('data-canopy-default-deck-ref', String(layout.deck.default_ref || '').trim());
+                    }
+                    return;
+                }
+                /* Layout JSON changed (e.g. live edit): rebuild. Removing the shell returns moved
+                   nodes to rootEl so findSourceRefNode / moveSourceNode can run again. */
+                if (existingShell) {
+                    while (existingShell.firstChild) {
+                        rootEl.insertBefore(existingShell.firstChild, existingShell);
+                    }
+                    existingShell.remove();
+                }
+
+                const shell = document.createElement('div');
+                shell.className = 'canopy-source-layout-shell';
+                shell.setAttribute('data-layout-signature', signature);
+
+                const top = document.createElement('div');
+                top.className = 'canopy-source-layout-top';
+                const main = document.createElement('div');
+                main.className = 'canopy-source-layout-main';
+                const side = document.createElement('aside');
+                side.className = 'canopy-source-layout-side';
+                top.appendChild(main);
+                top.appendChild(side);
+
+                const hero = document.createElement('div');
+                hero.className = 'canopy-source-layout-hero';
+                const lede = document.createElement('div');
+                lede.className = 'canopy-source-layout-lede';
+                const actions = document.createElement('div');
+                actions.className = 'canopy-source-layout-actions-wrap';
+                const strip = document.createElement('div');
+                strip.className = 'canopy-source-layout-strip';
+                const below = document.createElement('div');
+                below.className = 'canopy-source-layout-below';
+
+                main.appendChild(hero);
+                main.appendChild(lede);
+                main.appendChild(actions);
+                shell.appendChild(top);
+                shell.appendChild(strip);
+                shell.appendChild(below);
+
+                const claimed = new Set();
+                const heroRef = layout.hero && layout.hero.ref ? String(layout.hero.ref).trim() : '';
+                const ledeRef = layout.lede && layout.lede.ref ? String(layout.lede.ref).trim() : 'content:lede';
+                if (heroRef) {
+                    moveSourceNode(findSourceRefNode(rootEl, heroRef), hero, claimed);
+                }
+                if (ledeRef) {
+                    const ledeNode = findSourceRefNode(rootEl, ledeRef);
+                    if (ledeNode && !claimed.has(ledeNode)) {
+                        moveSourceNode(ledeNode, lede, claimed);
+                    }
+                }
+                if (Array.isArray(layout.supporting)) {
+                    layout.supporting.forEach((entry) => {
+                        const node = findSourceRefNode(rootEl, entry && entry.ref);
+                        if (!(node instanceof Element) || claimed.has(node)) return;
+                        const placement = String(entry.placement || '').trim();
+                        if (placement === 'right') moveSourceNode(node, side, claimed);
+                        else if (placement === 'strip') moveSourceNode(node, strip, claimed);
+                        else moveSourceNode(node, below, claimed);
+                    });
+                }
+
+                pruneEmptySourceLayoutWrappers(rootEl);
+                Array.from(rootEl.childNodes).forEach((child) => {
+                    if (child === shell) return;
+                    if (child instanceof Element && claimed.has(child)) return;
+                    if (child instanceof Text && !String(child.textContent || '').trim()) {
+                        child.remove();
+                        return;
+                    }
+                    below.appendChild(child);
+                });
+
+                const actionRow = createSourceLayoutActions(layout.actions);
+                if (actionRow) {
+                    actions.appendChild(actionRow);
+                }
+                [hero, lede, actions, side, strip, below].forEach((slot) => {
+                    if (!slot.childNodes.length) slot.remove();
+                });
+                if (!top.childNodes.length) top.remove();
+                rootEl.appendChild(shell);
+                if (layout.deck && layout.deck.default_ref) {
+                    rootEl.setAttribute('data-canopy-default-deck-ref', String(layout.deck.default_ref || '').trim());
+                }
+            }
+
+            function applySourceLayoutsInScope(scope) {
+                const seen = new Set();
+                const maybeApply = (node) => {
+                    if (!(node instanceof Element)) return;
+                    const root = node.matches('[data-canopy-source-layout]')
+                        ? node
+                        : (node.closest ? node.closest('[data-canopy-source-layout]') : null);
+                    if (!root || seen.has(root)) return;
+                    seen.add(root);
+                    applySourceLayout(root);
+                };
+                maybeApply(scope instanceof Element ? scope : null);
+                if (scope && scope.querySelectorAll) {
+                    scope.querySelectorAll('[data-canopy-source-layout]').forEach(maybeApply);
+                } else {
+                    document.querySelectorAll('[data-canopy-source-layout]').forEach(maybeApply);
+                }
+            }
+
             function sourceSubtitle(el) {
                 const post = el.closest('.post-card[data-post-id]');
                 if (post) {
@@ -6739,6 +6955,18 @@
                         item
                     ));
                     if (currentMatch) return currentMatch;
+                }
+                const defaultRef = getSourceLayoutDefaultRef(sourceEl);
+                if (defaultRef) {
+                    const defaultMatch = deckItems.find((item) => {
+                        const manifestKey = item && item.manifest && item.manifest.key
+                            ? `widget:${String(item.manifest.key || '').trim()}`
+                            : '';
+                        if (manifestKey && manifestKey === defaultRef) return true;
+                        const host = item && item.el && item.el.closest ? item.el.closest('[data-canopy-source-ref]') : null;
+                        return !!(host && String(host.getAttribute('data-canopy-source-ref') || '').trim() === defaultRef);
+                    });
+                    if (defaultMatch) return defaultMatch;
                 }
                 const playingMatch = deckItems.find((item) => isDeckMediaItem(item) && isElementPlaying(item.el, item.type));
                 if (playingMatch) return playingMatch;
@@ -9150,6 +9378,7 @@
             });
 
             scanForMedia(document);
+            applySourceLayoutsInScope(document);
 
             const mutationRoot = mainScroller || document.body;
             state.mutationObserver = new MutationObserver((mutations) => {
@@ -9180,6 +9409,7 @@
                 });
                 dirtySources.forEach((source) => {
                     if (state.deckOpen && state.current && state.current.sourceEl === source) return;
+                    applySourceLayoutsInScope(source);
                     syncSourceMediaDeckLauncher(source);
                 });
                 updateSourceDeckLauncherActiveStates();
