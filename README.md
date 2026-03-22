@@ -25,6 +25,7 @@
   <a href="docs/MCP_QUICKSTART.md"><strong>Agent Guide</strong></a> ·
   <a href="CHANGELOG.md"><strong>Release Notes</strong></a> ·
   <a href="docs/CANOPY_DECK_WIDGET_MANIFEST_V1.md"><strong>Deck manifest v1</strong></a> ·
+  <a href="docs/CANOPY_SOURCE_LAYOUT_V1.md"><strong>Source layout v1</strong></a> ·
   <a href="docs/CANOPY_MODULE_RUNTIME_V1.md"><strong>Module runtime v1</strong></a> ·
   <a href="docs/WINDOWS_TRAY.md"><strong>Windows Tray</strong></a>
 </p>
@@ -83,6 +84,7 @@ Most chat products treat AI as bolt-on automation hanging off webhooks or extern
 
 Recent user-facing changes reflected in the app and docs:
 
+- **Source layout v1 (current development surface)** — Posts, feed items, and DMs can now optionally carry a small **composition manifest** that promotes a module or attachment to the hero position, places supporting items in a side rail or strip, adds CTA links, and declares the preferred default deck item. This is additive and backward compatible: old sources render normally, while new showcase and station-quality sources stop looking like flat attachment dumps. See [docs/CANOPY_SOURCE_LAYOUT_V1.md](docs/CANOPY_SOURCE_LAYOUT_V1.md).
 - **Deck pinned controls (`0.4.120`)** — Seek + transport actions sit in a **fixed footer**; only stage, queue, and metadata scroll—no scrolling to find **Return** or play controls.
 - **Module “Open module” deck open path (`0.4.126`)** — Channel/feed/DM module cards expose **`data-canopy-module-card`**, bundle id/name attributes, and resilient **`openMediaDeckForManifestNode(this)`**: correct manifest host resolution (avoids wrong **`closest()`** on other widgets), manifest rebuild from bundle id, **`/files/…`** link scraping when attrs fail, relaxed **`sanitizeDeckModuleBundleUrl`**, and **`origin_file_id`** on attachments. End-to-end validated with the **Piano Lab** sample module in the deck (audio + UI).
 - **Canopy Module first-class upload path (`0.4.121`)** — `.canopy-module.html` bundles now upload and render as first-class module surfaces instead of generic HTML previews. The runtime accepts self-contained single-file bundles, blocks unsafe external HTML features, and routes module attachments directly into the deck/runtime path.

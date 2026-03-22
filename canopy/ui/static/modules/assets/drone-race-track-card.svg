@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="860" viewBox="0 0 1400 860" role="img" aria-labelledby="title desc">
+  <title id="title">Drone race track card</title>
+  <desc id="desc">Track and gate cue card for drone race control.</desc>
+  <defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#09111b"/><stop offset="100%" stop-color="#0c1522"/></linearGradient></defs>
+  <rect width="1400" height="860" rx="40" fill="url(#bg)"/>
+  <text x="76" y="110" fill="#f8fafc" font-size="58" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="900">Track Cue Card</text>
+  <g transform="translate(76 204)">
+    <rect width="1248" height="552" rx="28" fill="#101b29" stroke="#24374b"/>
+    <path d="M210 118 C396 40, 838 36, 984 148 C1112 246, 1078 434, 850 504 C622 572, 318 548, 184 452 C68 370, 72 198, 210 118 Z" fill="none" stroke="#19283a" stroke-width="34" stroke-linecap="round"/>
+    <path d="M210 118 C396 40, 838 36, 984 148 C1112 246, 1078 434, 850 504 C622 572, 318 548, 184 452 C68 370, 72 198, 210 118 Z" fill="none" stroke="#8b5cf6" stroke-width="12" stroke-linecap="round"/>
+    <text x="182" y="188" fill="#9fb0c2" font-size="24" font-family="Avenir Next, Segoe UI, sans-serif">Launch arc</text>
+    <text x="578" y="86" fill="#9fb0c2" font-size="24" font-family="Avenir Next, Segoe UI, sans-serif">Split ridge</text>
+    <text x="882" y="432" fill="#9fb0c2" font-size="24" font-family="Avenir Next, Segoe UI, sans-serif">Final dive</text>
+  </g>
+</svg>

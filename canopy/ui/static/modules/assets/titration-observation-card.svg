@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="860" viewBox="0 0 1400 860" role="img" aria-labelledby="title desc">
+  <title id="title">Titration observation card</title>
+  <desc id="desc">Observation map for the titration lesson.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#09111b"/>
+      <stop offset="100%" stop-color="#0c1522"/>
+    </linearGradient>
+    <linearGradient id="acid" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#22d3ee"/>
+    </linearGradient>
+    <linearGradient id="base" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#818cf8"/>
+      <stop offset="100%" stop-color="#c084fc"/>
+    </linearGradient>
+  </defs>
+  <rect width="1400" height="860" rx="40" fill="url(#bg)"/>
+  <text x="76" y="110" fill="#f8fafc" font-size="58" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="900">Observation Map</text>
+  <text x="76" y="152" fill="#9fb0c2" font-size="24" font-family="Avenir Next, Segoe UI, sans-serif">Read the region, then decide how slowly to add titrant.</text>
+
+  <g transform="translate(76 228)">
+    <rect width="1248" height="140" rx="30" fill="#101a28" stroke="#24374b"/>
+    <rect x="32" y="62" width="1184" height="24" rx="12" fill="#1f2d40"/>
+    <rect x="32" y="62" width="700" height="24" rx="12" fill="url(#acid)"/>
+    <rect x="732" y="62" width="188" height="24" rx="12" fill="#fbbf24"/>
+    <rect x="920" y="62" width="296" height="24" rx="12" fill="url(#base)"/>
+    <text x="48" y="122" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">acid excess</text>
+    <text x="776" y="122" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">jump</text>
+    <text x="1030" y="122" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">base excess</text>
+  </g>
+
+  <g transform="translate(76 420)">
+    <rect width="392" height="298" rx="28" fill="#101a28" stroke="#24374b"/>
+    <text x="28" y="56" fill="#f8fafc" font-size="30" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Before equivalence</text>
+    <text x="28" y="110" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">• pH from leftover H⁺</text>
+    <text x="28" y="150" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">• colorless indicator</text>
+    <text x="28" y="190" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">• faster additions are okay</text>
+  </g>
+
+  <g transform="translate(504 420)">
+    <rect width="392" height="298" rx="28" fill="#101a28" stroke="#24374b"/>
+    <text x="28" y="56" fill="#f8fafc" font-size="30" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">At equivalence</text>
+    <text x="28" y="110" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">• moles acid = moles base</text>
+    <text x="28" y="150" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">• steepest curve region</text>
+    <text x="28" y="190" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">• add titrant dropwise</text>
+  </g>
+
+  <g transform="translate(932 420)">
+    <rect width="392" height="298" rx="28" fill="#101a28" stroke="#24374b"/>
+    <text x="28" y="56" fill="#f8fafc" font-size="30" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">After equivalence</text>
+    <text x="28" y="110" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">• pH from leftover OH⁻</text>
+    <text x="28" y="150" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">• faint pink persists</text>
+    <text x="28" y="190" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">• you may have overshot</text>
+  </g>
+</svg>

@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="860" viewBox="0 0 1400 860" role="img" aria-labelledby="title desc">
+  <title id="title">Shakshuka cook flow card</title>
+  <desc id="desc">Timeline and pan-state reference for a shakshuka lesson.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#09111b"/>
+      <stop offset="100%" stop-color="#0e1925"/>
+    </linearGradient>
+    <linearGradient id="warm" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#fbbf24"/>
+      <stop offset="100%" stop-color="#fb7185"/>
+    </linearGradient>
+    <linearGradient id="good" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#6ee7b7"/>
+      <stop offset="100%" stop-color="#34d399"/>
+    </linearGradient>
+  </defs>
+  <rect width="1400" height="860" rx="40" fill="url(#bg)"/>
+  <text x="76" y="106" fill="#f8fafc" font-size="58" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="900">Shakshuka Flow</text>
+  <text x="76" y="148" fill="#9fb0c2" font-size="24" font-family="Avenir Next, Segoe UI, sans-serif">Heat cues and expected timing for one skillet lesson.</text>
+
+  <g transform="translate(76 214)">
+    <rect width="1248" height="136" rx="28" fill="#111b28" stroke="#26384d"/>
+    <rect x="28" y="56" width="1192" height="18" rx="9" fill="#1e293b"/>
+    <rect x="28" y="56" width="1080" height="18" rx="9" fill="url(#warm)"/>
+    <circle cx="88" cy="65" r="34" fill="#0f1722" stroke="#31455c"/>
+    <circle cx="336" cy="65" r="34" fill="#0f1722" stroke="#31455c"/>
+    <circle cx="584" cy="65" r="34" fill="#0f1722" stroke="#31455c"/>
+    <circle cx="832" cy="65" r="34" fill="#0f1722" stroke="#31455c"/>
+    <circle cx="1080" cy="65" r="34" fill="#0f1722" stroke="#31455c"/>
+    <text x="66" y="72" fill="#f8fafc" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="900">4m</text>
+    <text x="309" y="72" fill="#f8fafc" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="900">1m</text>
+    <text x="556" y="72" fill="#f8fafc" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="900">8m</text>
+    <text x="807" y="72" fill="#f8fafc" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="900">5m</text>
+    <text x="1052" y="72" fill="#f8fafc" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="900">4m</text>
+    <text x="42" y="116" fill="#9fb0c2" font-size="20" font-family="Avenir Next, Segoe UI, sans-serif">sweat</text>
+    <text x="290" y="116" fill="#9fb0c2" font-size="20" font-family="Avenir Next, Segoe UI, sans-serif">bloom</text>
+    <text x="528" y="116" fill="#9fb0c2" font-size="20" font-family="Avenir Next, Segoe UI, sans-serif">reduce</text>
+    <text x="782" y="116" fill="#9fb0c2" font-size="20" font-family="Avenir Next, Segoe UI, sans-serif">set eggs</text>
+    <text x="1038" y="116" fill="#9fb0c2" font-size="20" font-family="Avenir Next, Segoe UI, sans-serif">finish</text>
+  </g>
+
+  <g transform="translate(76 392)">
+    <rect width="604" height="360" rx="28" fill="#111b28" stroke="#26384d"/>
+    <text x="32" y="56" fill="#f8fafc" font-size="36" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Pan state</text>
+    <text x="32" y="96" fill="#9fb0c2" font-size="21" font-family="Avenir Next, Segoe UI, sans-serif">You should be able to read the skillet at a glance.</text>
+    <rect x="32" y="140" width="540" height="56" rx="28" fill="#0f1722" stroke="#26384d"/>
+    <rect x="32" y="140" width="290" height="56" rx="28" fill="url(#good)"/>
+    <text x="54" y="176" fill="#073726" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="900">Medium / gentle</text>
+    <text x="352" y="176" fill="#9fb0c2" font-size="20" font-family="Avenir Next, Segoe UI, sans-serif">too aggressive here</text>
+    <text x="32" y="238" fill="#f8fafc" font-size="26" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Texture check</text>
+    <text x="32" y="278" fill="#9fb0c2" font-size="20" font-family="Avenir Next, Segoe UI, sans-serif">The spoon trail should stay visible for a moment before folding shut.</text>
+    <text x="32" y="320" fill="#9fb0c2" font-size="20" font-family="Avenir Next, Segoe UI, sans-serif">If it closes instantly, keep reducing. If it clumps, add a tablespoon of water.</text>
+  </g>
+
+  <g transform="translate(720 392)">
+    <rect width="604" height="360" rx="28" fill="#111b28" stroke="#26384d"/>
+    <text x="32" y="56" fill="#f8fafc" font-size="36" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Service finish</text>
+    <text x="32" y="96" fill="#9fb0c2" font-size="21" font-family="Avenir Next, Segoe UI, sans-serif">What the lesson is aiming for when the module says you are done.</text>
+    <rect x="32" y="138" width="540" height="72" rx="24" fill="#0f1722" stroke="#26384d"/>
+    <text x="58" y="180" fill="#fcd34d" font-size="23" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Whites just set, yolks still moving</text>
+    <rect x="32" y="232" width="540" height="72" rx="24" fill="#0f1722" stroke="#26384d"/>
+    <text x="58" y="274" fill="#fcd34d" font-size="23" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Feta and herbs added off heat</text>
+    <rect x="32" y="326" width="540" height="72" rx="24" fill="#0f1722" stroke="#26384d"/>
+    <text x="58" y="368" fill="#fcd34d" font-size="23" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Toast ready before the eggs come out</text>
+  </g>
+</svg>

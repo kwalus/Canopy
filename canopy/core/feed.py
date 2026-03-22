@@ -28,6 +28,7 @@ from .events import (
 from ..security.api_keys import ApiKeyManager, Permission
 from ..security.encryption import RecipientEncryptor, RECIPIENT_ENCRYPTED_PREFIX
 from .logging_config import log_performance, LogOperation
+from .source_layout import normalize_source_layout
 
 logger = logging.getLogger('canopy.feed')
 
@@ -406,6 +407,11 @@ class FeedManager:
         logger.debug(f"Content length: {len(content)}, permissions: {permissions}")
         
         try:
+            if isinstance(metadata, dict):
+                metadata = dict(metadata)
+                metadata["source_layout"] = normalize_source_layout(metadata.get("source_layout"))
+                if metadata.get("source_layout") is None:
+                    metadata.pop("source_layout", None)
             # Validate content length
             if len(content) > self.max_content_length:
                 logger.error(f"Post content too long: {len(content)} > {self.max_content_length}")
@@ -768,6 +774,11 @@ class FeedManager:
                 final_post_type = post_type or PostType(row['content_type'])
                 final_visibility = visibility or PostVisibility(row['visibility'])
                 final_metadata = metadata if metadata is not None else (json.loads(row['metadata']) if row['metadata'] else None)
+                if isinstance(final_metadata, dict):
+                    final_metadata = dict(final_metadata)
+                    final_metadata["source_layout"] = normalize_source_layout(final_metadata.get("source_layout"))
+                    if final_metadata.get("source_layout") is None:
+                        final_metadata.pop("source_layout", None)
                 
                 # Update the post
                 cursor = conn.execute("""

@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" role="img" aria-labelledby="title desc">
+  <title id="title">Generic ILS profile card</title>
+  <desc id="desc">A simplified approach profile showing intercept, glideslope capture, FAF, and decision altitude.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#06111d"/>
+      <stop offset="100%" stop-color="#11263d"/>
+    </linearGradient>
+    <linearGradient id="line" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#60a5fa"/>
+      <stop offset="100%" stop-color="#34d399"/>
+    </linearGradient>
+    <style>
+      .h1 { font: 700 54px 'Avenir Next', 'Segoe UI', sans-serif; fill: #edf6ff; }
+      .h2 { font: 700 22px 'Avenir Next', 'Segoe UI', sans-serif; letter-spacing: 1.6px; text-transform: uppercase; fill: #9fb7cf; }
+      .body { font: 600 24px 'Avenir Next', 'Segoe UI', sans-serif; fill: #edf6ff; }
+      .muted { font: 500 20px 'Avenir Next', 'Segoe UI', sans-serif; fill: #8ea4ba; }
+    </style>
+  </defs>
+  <rect width="1200" height="720" rx="40" fill="url(#bg)"/>
+  <text x="68" y="112" class="h2">Generic 3 degree ILS profile</text>
+  <text x="68" y="172" class="h1">Intercept, capture, decide</text>
+
+  <line x1="88" y1="580" x2="1112" y2="580" stroke="#39566e" stroke-width="4"/>
+  <line x1="88" y1="580" x2="88" y2="220" stroke="#39566e" stroke-width="4"/>
+
+  <line x1="170" y1="300" x2="980" y2="540" stroke="url(#line)" stroke-width="8" stroke-linecap="round"/>
+  <line x1="170" y1="300" x2="170" y2="580" stroke="#4a6780" stroke-dasharray="8 10" stroke-width="3"/>
+  <line x1="470" y1="390" x2="470" y2="580" stroke="#4a6780" stroke-dasharray="8 10" stroke-width="3"/>
+  <line x1="840" y1="500" x2="840" y2="580" stroke="#4a6780" stroke-dasharray="8 10" stroke-width="3"/>
+  <line x1="980" y1="540" x2="980" y2="580" stroke="#4a6780" stroke-dasharray="8 10" stroke-width="3"/>
+
+  <circle cx="170" cy="300" r="12" fill="#6ee7b7"/>
+  <circle cx="470" cy="390" r="12" fill="#60a5fa"/>
+  <circle cx="840" cy="500" r="12" fill="#fcd34d"/>
+  <circle cx="980" cy="540" r="12" fill="#fb7185"/>
+
+  <text x="136" y="276" class="body">Intercept</text>
+  <text x="118" y="608" class="muted">7 NM</text>
+  <text x="432" y="366" class="body">FAF</text>
+  <text x="414" y="608" class="muted">5.2 DME</text>
+  <text x="776" y="476" class="body">500 above</text>
+  <text x="810" y="608" class="muted">1.0 NM</text>
+  <text x="942" y="516" class="body">DA</text>
+  <text x="946" y="608" class="muted">0.3 NM</text>
+
+  <text x="110" y="266" class="muted">1600 MSL</text>
+  <text x="410" y="356" class="muted">Capture and configure</text>
+  <text x="752" y="466" class="muted">Stable or missed</text>
+  <text x="914" y="506" class="muted">Decision point</text>
+
+  <rect x="74" y="618" width="1052" height="60" rx="18" fill="#0b1826" stroke="#1d425a"/>
+  <text x="104" y="655" class="body">Teach the sequence, not just the plate: brief, intercept, configure, call, decide.</text>
+</svg>

@@ -554,7 +554,7 @@
                             </div>
                             
                             <!-- Post Content (shown once per type in the if/elif/else below) -->
-                            <div class="post-content mb-3" data-post-content="1">
+                            <div class="post-content mb-3" data-post-content="1"{% if post.metadata and post.metadata.source_layout %} data-canopy-source-layout="{{ post.metadata.source_layout|tojson|forceescape }}"{% endif %}>
                                 <!-- Display attachments from metadata -->
                                 {% if post.metadata and post.metadata.attachments %}
                                     {% set images = [] %}
@@ -592,7 +592,7 @@
                                                 'large_attachment': true,
                                                 'storage_mode': attachment.storage_mode or 'remote_large'
                                             } %}
-                                            <div class="attachment-item mb-2 p-2 border rounded">
+                                            <div class="attachment-item mb-2 p-2 border rounded"{% if attachment.id or attachment.file_id or attachment.origin_file_id %} data-canopy-source-ref="attachment:{{ attachment.id or attachment.file_id or attachment.origin_file_id }}"{% endif %}>
                                                 <div class="d-flex align-items-center flex-wrap">
                                                     <i class="bi bi-music-note me-2"></i>
                                                     <div class="flex-grow-1">
@@ -685,7 +685,7 @@
                                                 }
                                             } %}
                                             {% if is_module %}
-                                            <div class="attachment-item mb-2 p-3 border rounded" data-canopy-module-card="1" data-canopy-widget-manifest="{{ module_manifest|tojson|forceescape }}" data-canopy-widget-key="{{ module_manifest.key|e }}"{% if attachment_file_id %} data-canopy-module-bundle-id="{{ attachment_file_id|e }}" data-canopy-module-bundle-name="{{ (attachment.name or '')|e }}"{% endif %}>
+                                            <div class="attachment-item mb-2 p-3 border rounded" data-canopy-module-card="1" data-canopy-widget-manifest="{{ module_manifest|tojson|forceescape }}" data-canopy-widget-key="{{ module_manifest.key|e }}"{% if attachment_file_id %} data-canopy-module-bundle-id="{{ attachment_file_id|e }}" data-canopy-module-bundle-name="{{ (attachment.name or '')|e }}" data-canopy-source-ref="attachment:{{ attachment_file_id }}"{% endif %}>
                                                 <div class="d-flex align-items-start justify-content-between gap-3 flex-wrap">
                                                     <div>
                                                         <div class="fw-semibold"><i class="bi bi-box-fill me-2"></i>{{ module_title }}</div>
@@ -715,7 +715,7 @@
                                                 </div>
                                             </div>
                                             {% else %}
-                                            <div class="attachment-item mb-2 p-2 border rounded">
+                                            <div class="attachment-item mb-2 p-2 border rounded"{% if attachment_file_id %} data-canopy-source-ref="attachment:{{ attachment_file_id }}"{% endif %}>
                                                 <div class="d-flex align-items-center">
                                                     <i class="bi bi-{% if attachment.type.startswith('video/') %}camera-video{% elif 'pdf' in (attachment.type or '') %}file-pdf{% elif lower_name.endswith('.csv') or lower_name.endswith('.tsv') or lower_name.endswith('.xlsx') or lower_name.endswith('.xlsm') %}file-earmark-spreadsheet{% else %}file-earmark{% endif %} me-2"></i>
                                                     <div class="flex-grow-1">
@@ -1323,7 +1323,7 @@
                                         </div>
                                     </div>
                                 {% elif post.post_type == 'link' %}
-                                    {% if post.display_content %}<p class="mb-2 post-text mentionable">{{ post.display_content }}</p>{% endif %}
+                                    {% if post.display_content %}<div data-canopy-source-ref="content:lede"><p class="mb-2 post-text mentionable">{{ post.display_content }}</p></div>{% endif %}
                                     {% if post.metadata and post.metadata.url %}
                                         <div class="card border-0" style="background: var(--canopy-bg-tertiary);">
                                             <div class="card-body py-2">
@@ -1334,7 +1334,7 @@
                                         </div>
                                     {% endif %}
                                 {% elif post.post_type == 'image' %}
-                                    {% if post.display_content %}<p class="mb-2 post-text mentionable">{{ post.display_content }}</p>{% endif %}
+                                    {% if post.display_content %}<div data-canopy-source-ref="content:lede"><p class="mb-2 post-text mentionable">{{ post.display_content }}</p></div>{% endif %}
                                     {% if post.metadata and post.metadata.image_url %}
                                         <div class="text-center">
                                             <img src="{{ post.metadata.image_url }}" class="img-fluid rounded" 
@@ -1342,7 +1342,7 @@
                                         </div>
                                     {% endif %}
                                 {% elif post.post_type == 'video' %}
-                                    {% if post.display_content %}<p class="mb-2 post-text mentionable">{{ post.display_content }}</p>{% endif %}
+                                    {% if post.display_content %}<div data-canopy-source-ref="content:lede"><p class="mb-2 post-text mentionable">{{ post.display_content }}</p></div>{% endif %}
                                     {% if post.metadata and post.metadata.video_url %}
                                         <div class="text-center">
                                             <video controls class="img-fluid rounded" style="max-height: 400px;">
@@ -1352,7 +1352,7 @@
                                         </div>
                                     {% endif %}
                                 {% else %}
-                                    {% if post.display_content %}<p class="mb-0 post-text mentionable">{{ post.display_content }}</p>{% endif %}
+                                    {% if post.display_content %}<div data-canopy-source-ref="content:lede"><p class="mb-0 post-text mentionable">{{ post.display_content }}</p></div>{% endif %}
                                 {% endif %}
                             </div>
                             

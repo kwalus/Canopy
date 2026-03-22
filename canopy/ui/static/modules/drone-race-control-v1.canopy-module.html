@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Drone Race Control</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --panel: rgba(9, 16, 28, 0.96);
+      --panel-2: rgba(12, 25, 42, 0.96);
+      --panel-3: rgba(8, 14, 24, 0.96);
+      --edge: rgba(168, 85, 247, 0.16);
+      --text: #f5f7fb;
+      --muted: #a6b5c9;
+      --violet: #a855f7;
+      --cyan: #22d3ee;
+      --pink: #fb7185;
+      --good: #34d399;
+      --amber: #fbbf24;
+      --shadow: 0 24px 60px rgba(0,0,0,.34);
+    }
+    *{box-sizing:border-box} html,body{margin:0;min-height:100%;background:radial-gradient(circle at top right,rgba(168,85,247,.18),transparent 28%),radial-gradient(circle at bottom left,rgba(34,211,238,.16),transparent 26%),linear-gradient(180deg,#03070d,#08111b 52%,#0a1420);color:var(--text);font-family:"Avenir Next","Segoe UI",sans-serif} body{padding:16px}
+    .shell{min-height:calc(100vh - 32px);display:grid;gap:14px;align-content:start}
+    .hero,.card,.track-card,.leaderboard,.toolbar{border:1px solid var(--edge);border-radius:22px;background:var(--panel);box-shadow:var(--shadow)}
+    .hero{padding:16px;background:radial-gradient(circle at top right,rgba(168,85,247,.18),transparent 26%),radial-gradient(circle at bottom left,rgba(34,211,238,.12),transparent 22%),linear-gradient(180deg,rgba(8,16,28,.98),rgba(9,18,31,.98))}
+    .eyebrow{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:rgba(15,23,42,.52);border:1px solid rgba(168,85,247,.18);color:var(--violet);font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+    h1,h2,h3,p{margin:0} h1{font-size:clamp(1.72rem,3vw,2.3rem);line-height:1.02;letter-spacing:-.04em;margin-bottom:8px}.copy,.subtle{color:var(--muted);line-height:1.5}
+    .hero-grid{margin-top:12px;display:grid;grid-template-columns:minmax(0,1.12fr) minmax(300px,.9fr);gap:14px}
+    .metric-row,.chip-row,.capability-row,.toolbar-group,.split-row{display:flex;flex-wrap:wrap;gap:8px}
+    .metric,.chip,.flag,.split-chip{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;border:1px solid rgba(148,163,184,.16);background:rgba(15,23,42,.56);font-size:12px;font-weight:800}.metric.highlight,.chip.highlight{color:#240433;background:linear-gradient(135deg,#c084fc,#60a5fa);border-color:transparent}
+    .metric-row{margin-top:14px}.metric strong{font-size:1rem;letter-spacing:-.03em}
+    .grid{display:grid;grid-template-columns:minmax(320px,.82fr) minmax(0,1.18fr);gap:14px}
+    .card,.track-card,.leaderboard{padding:14px;display:grid;gap:12px;background:var(--panel-2)}
+    .card-title{font-size:.74rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:800}
+    .control{border-radius:16px;border:1px solid rgba(148,163,184,.14);background:rgba(8,15,27,.92);padding:12px;display:grid;gap:8px}.control-head{display:flex;justify-content:space-between;gap:10px;align-items:center}.control-label{font-size:.86rem;font-weight:800}.control-value{color:var(--violet);font-weight:800;font-variant-numeric:tabular-nums}
+    input[type="range"]{width:100%;appearance:none;height:6px;border-radius:999px;background:linear-gradient(90deg,rgba(168,85,247,.85),rgba(34,211,238,.9));outline:none} input[type="range"]::-webkit-slider-thumb{appearance:none;width:16px;height:16px;border-radius:50%;background:#f8fafc;border:2px solid rgba(168,85,247,.8);cursor:pointer}
+    .track-card{background:radial-gradient(circle at top left,rgba(168,85,247,.14),transparent 28%),linear-gradient(180deg,rgba(8,16,28,.98),rgba(9,18,31,.96))}
+    .track-stage{width:100%;height:280px;border-radius:18px;border:1px solid rgba(148,163,184,.14);background:linear-gradient(180deg,rgba(10,18,31,.98),rgba(8,15,27,.96));overflow:hidden}
+    .leaderboard-list{display:grid;gap:10px}.pilot{border-radius:16px;border:1px solid rgba(148,163,184,.14);background:rgba(8,15,27,.92);padding:12px;display:grid;gap:8px}.pilot-top{display:flex;justify-content:space-between;gap:10px;align-items:center}.pilot-name{font-size:.92rem;font-weight:800}.pilot-time{font-size:.82rem;color:var(--cyan);font-weight:800;font-variant-numeric:tabular-nums}.bar{height:8px;border-radius:999px;background:#172436;overflow:hidden}.bar > span{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#a855f7,#22d3ee)}
+    .toolbar{padding:12px 14px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;background:rgba(8,15,27,.96)}.btn{appearance:none;border:1px solid rgba(148,163,184,.18);background:rgba(15,23,42,.62);color:var(--text);border-radius:14px;padding:10px 14px;font-weight:800;cursor:pointer;transition:transform 120ms ease,border-color 120ms ease,background 120ms ease}.btn:hover,.btn:focus-visible{transform:translateY(-1px);border-color:rgba(168,85,247,.38);outline:none}.btn.primary{background:linear-gradient(135deg,rgba(168,85,247,.24),rgba(34,211,238,.22));border-color:rgba(168,85,247,.3)}.status-text{min-height:20px;color:var(--muted);font-size:.8rem}
+    @media (max-width:980px){.hero-grid,.grid{grid-template-columns:1fr}.track-stage{height:240px}}
+    @media (max-width:700px){body{padding:12px}.shell{min-height:calc(100vh - 24px)}.hero,.card,.track-card,.leaderboard,.toolbar{border-radius:18px}.btn{width:100%;justify-content:center}.toolbar-group{width:100%}}
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <div class="eyebrow">Canopy Race Control</div>
+      <div class="hero-grid">
+        <div>
+          <h1>Drone Grand Prix Control</h1>
+          <p class="copy">A live event station for heats, splits, penalties, and race posture. This is what a channel looks like when agents and humans are running an event, not just discussing one.</p>
+          <div class="metric-row">
+            <div class="metric highlight"><strong id="metric-heat">Heat 2</strong></div>
+            <div class="metric"><strong id="metric-remaining">02:48</strong></div>
+            <div class="metric"><strong id="metric-penalties">1</strong> penalty</div>
+          </div>
+          <div class="chip-row" style="margin-top:14px;">
+            <span class="chip highlight">Live event station</span>
+            <span class="chip">Scoreboard + control</span>
+            <span class="chip">Curated race ops</span>
+          </div>
+        </div>
+        <div class="card" style="gap:10px;">
+          <div class="card-title">Capabilities</div>
+          <div class="capability-row" id="capability-row"></div>
+          <div class="card-title" style="margin-top:4px;">Race desk principle</div>
+          <p class="subtle">The module makes state legible: who leads, where they lost time, and whether the heat is clean. It should feel like a production surface, not a toy HUD.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <section class="card">
+        <div class="card-title">Heat controls</div>
+        <div class="control"><div class="control-head"><span class="control-label">Heat selection</span><span class="control-value" id="heat-label">Heat 2</span></div><input id="heat-range" type="range" min="1" max="4" step="1" value="2"></div>
+        <div class="control"><div class="control-head"><span class="control-label">Wind factor</span><span class="control-value" id="wind-label">12 km/h</span></div><input id="wind-range" type="range" min="0" max="28" step="1" value="12"></div>
+        <div class="control"><div class="control-head"><span class="control-label">Caution level</span><span class="control-value" id="caution-label">yellow</span></div><input id="caution-range" type="range" min="0" max="2" step="1" value="1"></div>
+        <div class="split-row" id="split-row"></div>
+      </section>
+      <section class="track-card">
+        <div class="card-title">Track world</div>
+        <svg id="track-stage" class="track-stage" viewBox="0 0 640 320" preserveAspectRatio="none" aria-label="Drone race track">
+          <rect width="640" height="320" fill="#09121e"></rect>
+          <path d="M120 70 C220 20, 420 22, 506 78 C594 132, 582 250, 458 274 C338 296, 196 286, 122 236 C54 190, 46 110, 120 70 Z" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="32" stroke-linecap="round"/>
+          <path d="M120 70 C220 20, 420 22, 506 78 C594 132, 582 250, 458 274 C338 296, 196 286, 122 236 C54 190, 46 110, 120 70 Z" fill="none" stroke="url(#trackGrad)" stroke-width="12" stroke-linecap="round"/>
+          <defs><linearGradient id="trackGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#a855f7"/><stop offset="100%" stop-color="#22d3ee"/></linearGradient></defs>
+          <circle id="pilot-a" cx="162" cy="74" r="10" fill="#a855f7"></circle>
+          <circle id="pilot-b" cx="262" cy="46" r="10" fill="#22d3ee"></circle>
+          <circle id="pilot-c" cx="422" cy="52" r="10" fill="#fb7185"></circle>
+          <circle id="pilot-d" cx="522" cy="114" r="10" fill="#34d399"></circle>
+          <text x="154" y="64" fill="#f8fafc" font-size="13" font-weight="800">A</text>
+          <text x="254" y="36" fill="#f8fafc" font-size="13" font-weight="800">B</text>
+          <text x="414" y="42" fill="#f8fafc" font-size="13" font-weight="800">C</text>
+          <text x="514" y="104" fill="#f8fafc" font-size="13" font-weight="800">D</text>
+          <text x="88" y="150" fill="#dbeafe" font-size="16" font-weight="800">Gate 1</text>
+          <text x="268" y="38" fill="#dbeafe" font-size="16" font-weight="800">Split ridge</text>
+          <text x="472" y="248" fill="#dbeafe" font-size="16" font-weight="800">Final dive</text>
+        </svg>
+      </section>
+    </section>
+
+    <section class="leaderboard">
+      <div class="card-title">Leaderboard</div>
+      <div class="leaderboard-list" id="leaderboard-list"></div>
+    </section>
+
+    <section class="toolbar">
+      <div class="toolbar-group">
+        <button class="btn primary" id="copy-race-brief" type="button">Copy race brief</button>
+        <button class="btn" id="copy-grid" type="button">Copy leaderboard</button>
+      </div>
+      <div class="toolbar-group">
+        <button class="btn" id="return-btn" type="button">Return to source</button>
+      </div>
+      <div class="status-text" id="status-text">Race desk live.</div>
+    </section>
+  </div>
+  <script>
+    const pilots=[{name:'Astra',base:58.2,color:'#a855f7'},{name:'Bolt',base:58.9,color:'#22d3ee'},{name:'Comet',base:59.4,color:'#fb7185'},{name:'Drift',base:60.1,color:'#34d399'}];
+    const cautionLabels=['green','yellow','red'];
+    const els={heatRange:document.getElementById('heat-range'),windRange:document.getElementById('wind-range'),cautionRange:document.getElementById('caution-range'),heatLabel:document.getElementById('heat-label'),windLabel:document.getElementById('wind-label'),cautionLabel:document.getElementById('caution-label'),metricHeat:document.getElementById('metric-heat'),metricRemaining:document.getElementById('metric-remaining'),metricPenalties:document.getElementById('metric-penalties'),splitRow:document.getElementById('split-row'),leaderboardList:document.getElementById('leaderboard-list'),capabilityRow:document.getElementById('capability-row'),statusText:document.getElementById('status-text'),copyRaceBrief:document.getElementById('copy-race-brief'),copyGrid:document.getElementById('copy-grid'),returnBtn:document.getElementById('return-btn')};
+    const state={heat:2,wind:12,caution:1};
+    function hasCapability(name){return !!(window.CanopyModule&&Array.isArray(window.CanopyModule.capabilities)&&window.CanopyModule.capabilities.includes(name));}
+    function renderCapabilities(){const caps=(window.CanopyModule&&Array.isArray(window.CanopyModule.capabilities))?window.CanopyModule.capabilities:[];els.capabilityRow.innerHTML='';if(!caps.length){const s=document.createElement('span');s.className='flag';s.textContent='Local demo mode';els.capabilityRow.appendChild(s);return;}caps.forEach((cap)=>{const s=document.createElement('span');s.className='flag'+(cap==='deck.return'?' highlight':'');s.textContent=cap;els.capabilityRow.appendChild(s);});}
+    function compute(){const remainingSec=Math.max(58,225 - (state.heat*18) - (state.caution*17));const penalties=state.caution===2?3:state.caution===1?1:0;const standings=pilots.map((pilot,idx)=>{const windPenalty=state.wind*0.05*(idx%2===0?1.1:0.8);const cautionPenalty=state.caution*0.28*(idx===0?1.2:1);const heatBias=(state.heat-1)*0.18*idx;const lap=pilot.base+windPenalty+cautionPenalty+heatBias;return {...pilot,lap:lap.toFixed(2),gap:(lap - (pilots[0].base+state.wind*0.05*1.1+state.caution*0.28*1.2)).toFixed(2)};}).sort((a,b)=>Number(a.lap)-Number(b.lap));return {remainingSec,penalties,standings};}
+    function formatClock(sec){const s=Math.max(0,Math.floor(sec));const m=Math.floor(s/60);const r=s%60;return `${String(m).padStart(2,'0')}:${String(r).padStart(2,'0')}`;}
+    function render(){const result=compute();els.heatLabel.textContent=`Heat ${state.heat}`;els.windLabel.textContent=`${state.wind} km/h`;els.cautionLabel.textContent=cautionLabels[state.caution];els.metricHeat.textContent=`Heat ${state.heat}`;els.metricRemaining.textContent=formatClock(result.remainingSec);els.metricPenalties.textContent=String(result.penalties);els.splitRow.innerHTML='';['Sector 1 open','Gate stack clear','Finish gate stable'].forEach((label,idx)=>{const span=document.createElement('span');span.className='split-chip'+(idx===state.caution?' highlight':'');span.textContent=idx===state.caution?`${label} · attention`:label;els.splitRow.appendChild(span);});els.leaderboardList.innerHTML='';const lead=Number(result.standings[0].lap);result.standings.forEach((pilot,idx)=>{const row=document.createElement('div');row.className='pilot';const width=Math.max(12,100-((Number(pilot.lap)-lead)*28));row.innerHTML=`<div class="pilot-top"><span class="pilot-name">${idx+1}. ${pilot.name}</span><span class="pilot-time">${pilot.lap}s</span></div><div class="bar"><span style="width:${width}%;background:linear-gradient(90deg,${pilot.color},#22d3ee)"></span></div><div class="split-row"><span class="split-chip">gap ${idx===0?'+0.00':'+'+pilot.gap}s</span><span class="split-chip">wind ${state.wind} km/h</span></div>`;els.leaderboardList.appendChild(row);});}
+    async function persist(k,v){if(!(window.CanopyModule&&Array.isArray(window.CanopyModule.capabilities)&&window.CanopyModule.capabilities.includes('module.storage.local')))return;try{await window.CanopyModule.perform('module.storage.set',{key:k,value:v});}catch(_){}}
+    async function restore(k){if(!(window.CanopyModule&&Array.isArray(window.CanopyModule.capabilities)&&window.CanopyModule.capabilities.includes('module.storage.local')))return null;try{const r=await window.CanopyModule.perform('module.storage.get',{key:k});return r&&Object.prototype.hasOwnProperty.call(r,'value')?r.value:null;}catch(_){return null;}}
+    async function writeClipboard(text,msg){try{if(hasCapability('clipboard.write'))await window.CanopyModule.perform('clipboard.write',{text});else if(navigator.clipboard&&navigator.clipboard.writeText)await navigator.clipboard.writeText(text);else throw new Error('clipboard');els.statusText.textContent=msg;}catch(_){els.statusText.textContent='Clipboard write unavailable.';}}
+    async function returnToSource(){if(!hasCapability('deck.return'))return;try{await window.CanopyModule.perform('deck.return',{});}catch(_){}}
+    function bindRange(el,key,cast){el.addEventListener('input',async()=>{state[key]=cast(el.value);render();await persist('race-'+key,String(state[key]));});}
+    bindRange(els.heatRange,'heat',Number);bindRange(els.windRange,'wind',Number);bindRange(els.cautionRange,'caution',Number);
+    els.copyRaceBrief.addEventListener('click',()=>{const r=compute();writeClipboard(['Drone Grand Prix Control',`Heat ${state.heat}`,`Wind ${state.wind} km/h`,`Caution ${cautionLabels[state.caution]}`,`Leader ${r.standings[0].name} ${r.standings[0].lap}s`,`Penalties ${r.penalties}`].join('\n'),'Race brief copied.');});
+    els.copyGrid.addEventListener('click',()=>{const r=compute();writeClipboard(['Leaderboard',...r.standings.map((p,i)=>`${i+1}. ${p.name} ${p.lap}s (gap ${i===0?'+0.00':'+'+p.gap})`)].join('\n'),'Leaderboard copied.');});
+    els.returnBtn.addEventListener('click',returnToSource);
+    async function hydrate(){renderCapabilities();const h=await restore('race-heat');const w=await restore('race-wind');const c=await restore('race-caution');if(h)state.heat=Number(h)||state.heat;if(w)state.wind=Number(w)||state.wind;if(c)state.caution=Number(c)||state.caution;els.heatRange.value=String(state.heat);els.windRange.value=String(state.wind);els.cautionRange.value=String(state.caution);render();}
+    hydrate();
+  </script>
+</body>
+</html>

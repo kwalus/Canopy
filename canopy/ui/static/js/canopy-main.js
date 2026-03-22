@@ -6128,6 +6128,26 @@
                 slot.appendChild(node);
             }
 
+            /**
+             * Channel images use a single `.mg-cell` inside `.media-grid` with max-width caps.
+             * Moving only the cell leaves an empty grid and keeps thumbnail sizing — promote the
+             * whole grid when this attachment is the only cell in that grid.
+             */
+            function promoteAttachmentHostNode(node) {
+                if (!(node instanceof Element) || !node.classList || !node.classList.contains('mg-cell')) {
+                    return node;
+                }
+                const grid = node.closest('.media-grid');
+                if (!(grid instanceof Element)) return node;
+                try {
+                    const cells = grid.querySelectorAll('.mg-cell');
+                    if (cells.length === 1) return grid;
+                } catch (_) {
+                    return node;
+                }
+                return node;
+            }
+
             function applySourceLayout(rootEl) {
                 if (!(rootEl instanceof Element)) return;
                 const layout = parseSourceLayoutConfig(rootEl);
@@ -6184,7 +6204,9 @@
                 const heroRef = layout.hero && layout.hero.ref ? String(layout.hero.ref).trim() : '';
                 const ledeRef = layout.lede && layout.lede.ref ? String(layout.lede.ref).trim() : 'content:lede';
                 if (heroRef) {
-                    moveSourceNode(findSourceRefNode(rootEl, heroRef), hero, claimed);
+                    let heroNode = findSourceRefNode(rootEl, heroRef);
+                    heroNode = promoteAttachmentHostNode(heroNode);
+                    moveSourceNode(heroNode, hero, claimed);
                 }
                 if (ledeRef) {
                     const ledeNode = findSourceRefNode(rootEl, ledeRef);
@@ -6194,12 +6216,24 @@
                 }
                 if (Array.isArray(layout.supporting)) {
                     layout.supporting.forEach((entry) => {
-                        const node = findSourceRefNode(rootEl, entry && entry.ref);
+                        let node = findSourceRefNode(rootEl, entry && entry.ref);
+                        node = promoteAttachmentHostNode(node);
                         if (!(node instanceof Element) || claimed.has(node)) return;
                         const placement = String(entry.placement || '').trim();
-                        if (placement === 'right') moveSourceNode(node, side, claimed);
-                        else if (placement === 'strip') moveSourceNode(node, strip, claimed);
-                        else moveSourceNode(node, below, claimed);
+                        const targetSlot = placement === 'right' ? side : placement === 'strip' ? strip : below;
+                        const labelText = entry && entry.label ? String(entry.label).trim() : '';
+                        if (labelText) {
+                            const wrap = document.createElement('div');
+                            wrap.className = 'canopy-source-layout-supporting-block';
+                            const lab = document.createElement('div');
+                            lab.className = 'canopy-source-layout-slot-label';
+                            lab.textContent = labelText;
+                            wrap.appendChild(lab);
+                            moveSourceNode(node, wrap, claimed);
+                            moveSourceNode(wrap, targetSlot, claimed);
+                        } else {
+                            moveSourceNode(node, targetSlot, claimed);
+                        }
                     });
                 }
 
@@ -6214,17 +6248,42 @@
                     below.appendChild(child);
                 });
 
-                const actionRow = createSourceLayoutActions(layout.actions);
-                if (actionRow) {
-                    actions.appendChild(actionRow);
+                const deckRef = layout.deck && layout.deck.default_ref ? String(layout.deck.default_ref).trim() : '';
+                let toolbar = createSourceLayoutActions(layout.actions);
+                if (!toolbar && deckRef) {
+                    toolbar = document.createElement('div');
+                    toolbar.className = 'canopy-source-layout-actions canopy-source-layout-actions--deck-only';
+                }
+                if (toolbar && deckRef) {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'btn btn-sm btn-outline-primary canopy-source-layout-deck-launch';
+                    btn.setAttribute('aria-label', 'Open Canopy media deck for this source');
+                    btn.innerHTML = '<i class="bi bi-grid-1x2-fill me-1" aria-hidden="true"></i>Open deck';
+                    btn.addEventListener('click', () => {
+                        try {
+                            const src = sourceContainer(rootEl);
+                            if (src) openMediaDeckForSource(src, {});
+                        } catch (_) {}
+                    });
+                    toolbar.appendChild(btn);
+                }
+                if (toolbar) {
+                    actions.appendChild(toolbar);
+                }
+                if (layout.hero && layout.hero.label && String(layout.hero.label).trim() && hero.childNodes.length) {
+                    const hl = document.createElement('div');
+                    hl.className = 'canopy-source-layout-hero-label';
+                    hl.textContent = String(layout.hero.label).trim();
+                    hero.insertBefore(hl, hero.firstChild);
                 }
                 [hero, lede, actions, side, strip, below].forEach((slot) => {
                     if (!slot.childNodes.length) slot.remove();
                 });
                 if (!top.childNodes.length) top.remove();
                 rootEl.appendChild(shell);
-                if (layout.deck && layout.deck.default_ref) {
-                    rootEl.setAttribute('data-canopy-default-deck-ref', String(layout.deck.default_ref || '').trim());
+                if (deckRef) {
+                    rootEl.setAttribute('data-canopy-default-deck-ref', deckRef);
                 }
             }
 
@@ -6245,6 +6304,10 @@
                 } else {
                     document.querySelectorAll('[data-canopy-source-layout]').forEach(maybeApply);
                 }
+            }
+
+            if (typeof window !== 'undefined') {
+                window.canopyApplySourceLayoutsInScope = applySourceLayoutsInScope;
             }
 
             function sourceSubtitle(el) {

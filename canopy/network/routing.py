@@ -971,6 +971,7 @@ class MessageRouter:
                     timestamp=meta.get('timestamp'),
                     from_peer=message.from_peer,
                     attachments=meta.get('attachments'),
+                    source_layout=meta.get('source_layout'),
                     security=meta.get('security'),
                     message_type=meta.get('message_type', 'text'),
                     display_name=meta.get('display_name'),

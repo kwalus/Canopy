@@ -1,0 +1,1122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shakshuka Studio</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #070d14;
+      --panel: rgba(11, 20, 32, 0.96);
+      --panel-2: rgba(14, 28, 44, 0.96);
+      --panel-3: rgba(9, 16, 27, 0.96);
+      --edge: rgba(125, 211, 252, 0.16);
+      --edge-strong: rgba(251, 191, 36, 0.22);
+      --text: #f5f7fb;
+      --muted: #a4b4c8;
+      --accent: #f97316;
+      --accent-2: #fbbf24;
+      --accent-3: #34d399;
+      --good: #6ee7b7;
+      --warn: #fcd34d;
+      --danger: #fb7185;
+      --shadow: 0 24px 60px rgba(0, 0, 0, 0.34);
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background:
+        radial-gradient(circle at top right, rgba(249, 115, 22, 0.16), transparent 28%),
+        radial-gradient(circle at bottom left, rgba(251, 191, 36, 0.14), transparent 26%),
+        linear-gradient(180deg, #03070d, #08101a 52%, #0b1520);
+      color: var(--text);
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+    }
+    body { padding: 18px; }
+
+    .shell {
+      display: grid;
+      gap: 16px;
+      min-height: calc(100vh - 36px);
+      align-content: start;
+    }
+
+    .hero,
+    .panel,
+    .planner,
+    .ingredients,
+    .rescue,
+    .notes {
+      border: 1px solid var(--edge);
+      border-radius: 22px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .hero {
+      padding: 18px;
+      background:
+        radial-gradient(circle at top right, rgba(251, 191, 36, 0.18), transparent 26%),
+        radial-gradient(circle at bottom left, rgba(249, 115, 22, 0.14), transparent 22%),
+        linear-gradient(180deg, rgba(10, 17, 28, 0.98), rgba(12, 20, 32, 0.98));
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.52);
+      color: var(--accent-2);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-weight: 800;
+      border: 1px solid rgba(251, 191, 36, 0.18);
+    }
+
+    .hero-grid {
+      margin-top: 14px;
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.92fr);
+      gap: 16px;
+    }
+
+    h1, h2, h3, p { margin: 0; }
+    h1 {
+      font-size: clamp(1.8rem, 3vw, 2.4rem);
+      line-height: 1.02;
+      letter-spacing: -0.04em;
+      margin-bottom: 10px;
+    }
+
+    .hero-copy,
+    .subtle,
+    .ingredient-copy,
+    .rescue-copy,
+    .notes-copy {
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .chip-row,
+    .capability-row,
+    .metric-row,
+    .step-header,
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .chip,
+    .metric,
+    .flag,
+    .status-pill,
+    .phase-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      background: rgba(15, 23, 42, 0.54);
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .chip.highlight,
+    .status-pill.good,
+    .metric.highlight {
+      color: #2b1302;
+      background: linear-gradient(135deg, #fcd34d, #f97316);
+      border-color: transparent;
+    }
+
+    .metric-row {
+      margin-top: 16px;
+    }
+
+    .metric {
+      background: rgba(8, 17, 29, 0.92);
+      min-width: 108px;
+      justify-content: center;
+    }
+
+    .metric strong {
+      font-size: 1rem;
+      letter-spacing: -0.03em;
+    }
+
+    .context-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .panel {
+      padding: 16px;
+      background: var(--panel-2);
+    }
+
+    .panel-title {
+      font-size: 0.76rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 800;
+      margin-bottom: 8px;
+    }
+
+    .planner-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.18fr) minmax(320px, 0.92fr);
+      gap: 16px;
+    }
+
+    .planner {
+      padding: 16px;
+      display: grid;
+      gap: 16px;
+      background:
+        radial-gradient(circle at top left, rgba(249, 115, 22, 0.16), transparent 28%),
+        linear-gradient(180deg, rgba(12, 20, 32, 0.98), rgba(12, 20, 32, 0.92));
+    }
+
+    .planner-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .btn,
+    .seg-btn,
+    .step-btn,
+    .issue-btn {
+      appearance: none;
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      background: rgba(15, 23, 42, 0.62);
+      color: var(--text);
+      border-radius: 14px;
+      padding: 10px 14px;
+      font-weight: 800;
+      cursor: pointer;
+      transition: transform 120ms ease, border-color 120ms ease, background 120ms ease, color 120ms ease;
+    }
+
+    .btn:hover,
+    .btn:focus-visible,
+    .seg-btn:hover,
+    .seg-btn:focus-visible,
+    .step-btn:hover,
+    .step-btn:focus-visible,
+    .issue-btn:hover,
+    .issue-btn:focus-visible {
+      transform: translateY(-1px);
+      border-color: rgba(251, 191, 36, 0.42);
+      outline: none;
+    }
+
+    .btn.primary {
+      background: linear-gradient(135deg, rgba(249, 115, 22, 0.26), rgba(251, 191, 36, 0.18));
+      border-color: rgba(251, 191, 36, 0.34);
+    }
+
+    .segment-block {
+      display: grid;
+      gap: 10px;
+    }
+
+    .segment-label {
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 800;
+    }
+
+    .segment-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .seg-btn.is-active,
+    .step-btn.is-active,
+    .issue-btn.is-active {
+      color: #341204;
+      background: linear-gradient(135deg, #fde68a, #fb923c);
+      border-color: transparent;
+    }
+
+    .seg-btn.is-subtle {
+      color: var(--muted);
+    }
+
+    .timeline {
+      display: grid;
+      gap: 12px;
+    }
+
+    .timeline-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .timeline-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .timer-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(8, 17, 29, 0.92);
+      border: 1px solid rgba(249, 115, 22, 0.18);
+      color: var(--text);
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .timeline-track {
+      display: grid;
+      gap: 10px;
+    }
+
+    .step-card {
+      border-radius: 18px;
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      background: rgba(8, 17, 29, 0.92);
+      padding: 14px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .step-card.is-current {
+      border-color: rgba(251, 191, 36, 0.3);
+      box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.1);
+      background:
+        radial-gradient(circle at top right, rgba(251, 191, 36, 0.12), transparent 34%),
+        rgba(8, 17, 29, 0.96);
+    }
+
+    .step-card.is-done {
+      border-color: rgba(52, 211, 153, 0.24);
+      background: rgba(6, 18, 21, 0.92);
+    }
+
+    .step-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .step-title {
+      font-size: 1rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .step-subtitle {
+      font-size: 0.84rem;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .step-notes {
+      display: grid;
+      gap: 8px;
+    }
+
+    .note-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 0.84rem;
+      line-height: 1.5;
+    }
+
+    .ingredients,
+    .rescue,
+    .notes {
+      padding: 16px;
+      background: var(--panel-3);
+      display: grid;
+      gap: 14px;
+    }
+
+    .ingredients-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .ingredient-group {
+      border-radius: 18px;
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      background: rgba(8, 17, 29, 0.84);
+      padding: 14px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .ingredient-group h3,
+    .rescue h3,
+    .notes h3 {
+      font-size: 0.92rem;
+      letter-spacing: -0.01em;
+    }
+
+    .ingredient-list,
+    .rescue-list,
+    .notes-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .ingredient-item,
+    .rescue-item,
+    .notes-item {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--text);
+      font-size: 0.84rem;
+      line-height: 1.45;
+    }
+
+    .ingredient-qty,
+    .rescue-tag {
+      color: var(--accent-2);
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .issue-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .rescue-detail {
+      border-radius: 16px;
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      background: rgba(8, 17, 29, 0.9);
+      padding: 14px;
+      display: grid;
+      gap: 8px;
+      min-height: 116px;
+    }
+
+    .rescue-detail-title {
+      font-size: 0.92rem;
+      font-weight: 800;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .toolbar-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .small-btn {
+      appearance: none;
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      background: rgba(15, 23, 42, 0.58);
+      color: var(--text);
+      border-radius: 12px;
+      padding: 9px 12px;
+      font-size: 0.78rem;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .small-btn:hover,
+    .small-btn:focus-visible {
+      outline: none;
+      border-color: rgba(251, 191, 36, 0.38);
+      transform: translateY(-1px);
+    }
+
+    .capability-row .flag.highlight {
+      color: #0d251c;
+      background: linear-gradient(135deg, #6ee7b7, #34d399);
+      border-color: transparent;
+    }
+
+    .module-status {
+      min-height: 20px;
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+
+    @media (max-width: 980px) {
+      .hero-grid,
+      .planner-grid,
+      .ingredients-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 700px) {
+      body { padding: 12px; }
+      .shell { min-height: calc(100vh - 24px); }
+      .hero, .panel, .planner, .ingredients, .rescue, .notes { border-radius: 18px; }
+      .controls, .toolbar, .toolbar-group { width: 100%; }
+      .btn, .small-btn { width: 100%; justify-content: center; }
+      .segment-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .seg-btn, .issue-btn { width: 100%; justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <div class="eyebrow">Canopy Kitchen Station</div>
+      <div class="hero-grid">
+        <div>
+          <h1>Shakshuka Studio</h1>
+          <p class="hero-copy">One-pan breakfast lesson with serving scale, heat-aware step guidance, egg doneness control, and rescue prompts you can actually use while cooking.</p>
+          <div class="metric-row">
+            <div class="metric highlight"><strong id="metric-servings">4</strong> servings</div>
+            <div class="metric"><strong>22m</strong> total flow</div>
+            <div class="metric"><strong id="metric-yolk">jammy</strong> finish</div>
+          </div>
+          <div class="chip-row" style="margin-top:14px;">
+            <span class="chip highlight">Weeknight lesson</span>
+            <span class="chip">Skillet-based</span>
+            <span class="chip">Source-bound module</span>
+          </div>
+        </div>
+        <div class="context-grid">
+          <div class="panel">
+            <div class="panel-title">Cook target</div>
+            <p class="subtle">Build a thick, spoonable pepper-tomato base, carve clear wells, and set the whites without losing the yolk. The module keeps the pan on pace.</p>
+          </div>
+          <div class="panel">
+            <div class="panel-title">Capabilities</div>
+            <div class="capability-row" id="capability-row"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="planner-grid">
+      <section class="planner">
+        <div class="planner-top">
+          <div>
+            <div class="panel-title">Live cook planner</div>
+            <h2 style="margin-bottom:6px;">Stage the pan, then walk the sauce</h2>
+            <p class="subtle">Use the phase selectors and step timer to keep your onions sweet, spices fragrant, and eggs set exactly where you want them.</p>
+          </div>
+          <div class="controls">
+            <button class="btn primary" id="start-step-btn" type="button">Start step timer</button>
+            <button class="btn" id="next-step-btn" type="button">Next step</button>
+          </div>
+        </div>
+
+        <div class="segment-block">
+          <div class="segment-label">Servings</div>
+          <div class="segment-row" id="serving-buttons"></div>
+        </div>
+
+        <div class="segment-block">
+          <div class="segment-label">Egg finish</div>
+          <div class="segment-row" id="doneness-buttons"></div>
+        </div>
+
+        <div class="timeline">
+          <div class="timeline-head">
+            <div>
+              <div class="panel-title">Current step</div>
+              <div class="step-title" id="current-step-title">Sweat onions and peppers</div>
+            </div>
+            <div class="timeline-meta">
+              <div class="timer-pill"><span>Step</span><strong id="step-timer">04:00</strong></div>
+              <div class="timer-pill"><span>Cook</span><strong id="total-timer">22:00</strong></div>
+            </div>
+          </div>
+          <div class="timeline-track" id="step-list"></div>
+        </div>
+      </section>
+
+      <section class="ingredients">
+        <div>
+          <div class="panel-title">Ingredient board</div>
+          <h3 style="margin-bottom:6px;">Scale once, cook with confidence</h3>
+          <p class="ingredient-copy">The base scales cleanly. The only thing that should stay gentle is the pan heat.</p>
+        </div>
+        <div class="ingredients-grid" id="ingredient-grid"></div>
+      </section>
+    </section>
+
+    <section class="planner-grid">
+      <section class="rescue">
+        <div>
+          <div class="panel-title">Rescue prompts</div>
+          <h3 style="margin-bottom:6px;">Use these if the pan drifts</h3>
+          <p class="rescue-copy">Shakshuka is forgiving when you correct early. Pick the issue you see and the module will give the shortest path back to target.</p>
+        </div>
+        <div class="issue-grid" id="issue-grid"></div>
+        <div class="rescue-detail" id="rescue-detail">
+          <div class="rescue-detail-title">Too thin</div>
+          <div class="notes-copy">Leave the lid off, raise heat slightly for 60 to 90 seconds, and drag the spoon across the pan. The line should close slowly, not immediately.</div>
+        </div>
+      </section>
+
+      <section class="notes">
+        <div>
+          <div class="panel-title">Finish and handoff</div>
+          <h3 style="margin-bottom:6px;">Service notes</h3>
+          <p class="notes-copy">Treat this like a station card: cook, plate, then hand the next person a clean summary.</p>
+        </div>
+        <div class="notes-list">
+          <div class="notes-item"><span>Use a wide spoon to carve the egg wells before the eggs go in.</span><span class="rescue-tag">layout</span></div>
+          <div class="notes-item"><span>If the sauce tastes sharp, finish with a pinch of sugar or a small knob of butter.</span><span class="rescue-tag">balance</span></div>
+          <div class="notes-item"><span>Scatter herbs and feta after heat so the top stays bright.</span><span class="rescue-tag">finish</span></div>
+        </div>
+        <div class="toolbar">
+          <div class="toolbar-group">
+            <button class="small-btn" id="copy-shopping-btn" type="button">Copy shopping list</button>
+            <button class="small-btn" id="copy-cook-btn" type="button">Copy cook plan</button>
+          </div>
+          <div class="toolbar-group">
+            <button class="small-btn" id="return-btn" type="button">Return to source</button>
+          </div>
+        </div>
+        <div class="module-status" id="module-status">Ready to cook.</div>
+      </section>
+    </section>
+  </div>
+
+  <script>
+    const BASE_INGREDIENTS = {
+      produce: [
+        { name: 'Yellow onion', qty: 1, unit: '' },
+        { name: 'Red bell pepper', qty: 1, unit: '' },
+        { name: 'Garlic cloves', qty: 3, unit: '' },
+        { name: 'Parsley or cilantro', qty: 0.25, unit: 'cup' },
+      ],
+      pantry: [
+        { name: 'Olive oil', qty: 2, unit: 'tbsp' },
+        { name: 'Tomato paste', qty: 1, unit: 'tbsp' },
+        { name: 'Crushed tomatoes', qty: 28, unit: 'oz' },
+        { name: 'Ground cumin', qty: 1.5, unit: 'tsp' },
+        { name: 'Smoked paprika', qty: 1, unit: 'tsp' },
+        { name: 'Chili flakes', qty: 0.5, unit: 'tsp' },
+      ],
+      finish: [
+        { name: 'Large eggs', qty: 4, unit: '' },
+        { name: 'Feta', qty: 0.33, unit: 'cup' },
+        { name: 'Kosher salt', qty: 1, unit: 'tsp' },
+        { name: 'Black pepper', qty: 0.5, unit: 'tsp' },
+        { name: 'Toast or pita', qty: 4, unit: 'pieces' },
+      ],
+    };
+
+    const STEP_TEMPLATES = [
+      {
+        title: 'Sweat onions and peppers',
+        minutes: 4,
+        subtitle: 'Medium heat, no color yet',
+        notes: [
+          'Oil first, then onions and peppers with a pinch of salt.',
+          'You want softness and moisture release, not browning.'
+        ]
+      },
+      {
+        title: 'Bloom garlic and spices',
+        minutes: 1,
+        subtitle: 'Briefly toast before the tomatoes',
+        notes: [
+          'Stir in garlic, cumin, paprika, and chili flakes.',
+          'If it smells sharp or dry, drop the heat immediately.'
+        ]
+      },
+      {
+        title: 'Reduce the tomato base',
+        minutes: 8,
+        subtitle: 'Thick enough to hold a spoon trail',
+        notes: [
+          'Tomato paste first, then crushed tomatoes.',
+          'Simmer uncovered until the base looks glossy and jammy.'
+        ]
+      },
+      {
+        title: 'Set the eggs',
+        minutes: 5,
+        subtitle: 'Low heat, lid only if needed',
+        notes: [
+          'Carve the wells, crack eggs gently, season the tops.',
+          'Use the yolk target below to decide when to pull the pan.'
+        ]
+      },
+      {
+        title: 'Finish and serve',
+        minutes: 4,
+        subtitle: 'Herbs, feta, toast, handoff',
+        notes: [
+          'Finish with herbs and feta after the pan comes off heat.',
+          'Serve while the sauce is still loose enough to spoon.'
+        ]
+      }
+    ];
+
+    const RESCUE_GUIDES = {
+      thin: {
+        title: 'Too thin',
+        body: 'Leave the pan uncovered and raise heat one notch for 60 to 90 seconds. Stir only once, then drag the spoon through the sauce. If the line closes instantly, keep reducing.'
+      },
+      sharp: {
+        title: 'Too acidic',
+        body: 'Add a small pinch of sugar or a small knob of butter, then simmer 30 seconds. Taste again before salting further.'
+      },
+      scorched: {
+        title: 'Bottom catching',
+        body: 'Kill the heat for 20 seconds, stir the center only, and add one tablespoon of water or tomatoes to loosen the hot spot before continuing.'
+      },
+      overcooking: {
+        title: 'Eggs setting too fast',
+        body: 'Move the skillet half off the burner, cover loosely for 20 to 30 seconds, then check. Residual heat will finish the whites.'
+      }
+    };
+
+    const SERVINGS = [2, 4, 6];
+    const DONENESS = [
+      { id: 'runny', label: 'Runny yolks', eggMinutes: 4, note: 'Whites just set; pull early.' },
+      { id: 'jammy', label: 'Jammy center', eggMinutes: 5, note: 'Best all-around finish.' },
+      { id: 'firm', label: 'Firm set', eggMinutes: 6, note: 'Use low heat to avoid a rubbery white.' },
+    ];
+
+    const state = {
+      servings: 4,
+      doneness: 'jammy',
+      currentStep: 0,
+      completedSteps: new Set(),
+      stepEndsAt: 0,
+      totalEndsAt: 0,
+      intervalHandle: null,
+      context: null,
+    };
+
+    const els = {
+      capabilityRow: document.getElementById('capability-row'),
+      servingButtons: document.getElementById('serving-buttons'),
+      donenessButtons: document.getElementById('doneness-buttons'),
+      ingredientGrid: document.getElementById('ingredient-grid'),
+      stepList: document.getElementById('step-list'),
+      currentStepTitle: document.getElementById('current-step-title'),
+      stepTimer: document.getElementById('step-timer'),
+      totalTimer: document.getElementById('total-timer'),
+      metricServings: document.getElementById('metric-servings'),
+      metricYolk: document.getElementById('metric-yolk'),
+      issueGrid: document.getElementById('issue-grid'),
+      rescueDetail: document.getElementById('rescue-detail'),
+      status: document.getElementById('module-status'),
+      startStepBtn: document.getElementById('start-step-btn'),
+      nextStepBtn: document.getElementById('next-step-btn'),
+      copyShoppingBtn: document.getElementById('copy-shopping-btn'),
+      copyCookBtn: document.getElementById('copy-cook-btn'),
+      returnBtn: document.getElementById('return-btn'),
+    };
+
+    function hasCapability(name) {
+      return !!(window.CanopyModule && Array.isArray(window.CanopyModule.capabilities) && window.CanopyModule.capabilities.includes(name));
+    }
+
+    function renderCapabilities() {
+      const caps = (window.CanopyModule && Array.isArray(window.CanopyModule.capabilities)) ? window.CanopyModule.capabilities : [];
+      els.capabilityRow.innerHTML = '';
+      if (!caps.length) {
+        const chip = document.createElement('span');
+        chip.className = 'flag';
+        chip.textContent = 'Local demo mode';
+        els.capabilityRow.appendChild(chip);
+        return;
+      }
+      caps.forEach((cap) => {
+        const chip = document.createElement('span');
+        chip.className = 'flag' + (cap === 'deck.return' ? ' highlight' : '');
+        chip.textContent = cap;
+        els.capabilityRow.appendChild(chip);
+      });
+    }
+
+    function formatQty(value, unit) {
+      if (!Number.isFinite(value)) return String(value);
+      const rounded = Math.round(value * 100) / 100;
+      const text = Number.isInteger(rounded) ? String(rounded) : String(rounded).replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1');
+      return unit ? `${text} ${unit}` : text;
+    }
+
+    function scaleQty(qty) {
+      return qty * (state.servings / 4);
+    }
+
+    function ingredientGroups() {
+      return [
+        { key: 'produce', title: 'Produce', items: BASE_INGREDIENTS.produce },
+        { key: 'pantry', title: 'Pantry', items: BASE_INGREDIENTS.pantry },
+        { key: 'finish', title: 'Finish', items: BASE_INGREDIENTS.finish },
+      ];
+    }
+
+    function renderIngredients() {
+      els.ingredientGrid.innerHTML = '';
+      ingredientGroups().forEach((group) => {
+        const card = document.createElement('section');
+        card.className = 'ingredient-group';
+        const title = document.createElement('h3');
+        title.textContent = group.title;
+        const list = document.createElement('div');
+        list.className = 'ingredient-list';
+        group.items.forEach((item) => {
+          const row = document.createElement('div');
+          row.className = 'ingredient-item';
+          row.innerHTML = `<span>${item.name}</span><span class="ingredient-qty">${formatQty(scaleQty(item.qty), item.unit)}</span>`;
+          list.appendChild(row);
+        });
+        card.appendChild(title);
+        card.appendChild(list);
+        els.ingredientGrid.appendChild(card);
+      });
+    }
+
+    function stepTemplatesForState() {
+      const doneness = DONENESS.find((entry) => entry.id === state.doneness) || DONENESS[1];
+      return STEP_TEMPLATES.map((step, index) => {
+        if (index !== 3) return { ...step };
+        return {
+          ...step,
+          minutes: doneness.eggMinutes,
+          notes: [
+            step.notes[0],
+            `${step.notes[1]} ${doneness.note}`
+          ]
+        };
+      });
+    }
+
+    function totalMinutes() {
+      return stepTemplatesForState().reduce((sum, step) => sum + step.minutes, 0);
+    }
+
+    function formatClock(seconds) {
+      const safe = Math.max(0, Math.floor(seconds));
+      const mins = Math.floor(safe / 60);
+      const secs = safe % 60;
+      return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+
+    function ensureInterval() {
+      if (state.intervalHandle) return;
+      state.intervalHandle = window.setInterval(updateTimers, 250);
+    }
+
+    function updateTimers() {
+      const now = Date.now();
+      const stepRemaining = state.stepEndsAt ? Math.max(0, Math.ceil((state.stepEndsAt - now) / 1000)) : stepTemplatesForState()[state.currentStep].minutes * 60;
+      const totalRemaining = state.totalEndsAt ? Math.max(0, Math.ceil((state.totalEndsAt - now) / 1000)) : totalMinutes() * 60;
+      els.stepTimer.textContent = formatClock(stepRemaining);
+      els.totalTimer.textContent = formatClock(totalRemaining);
+      if (state.stepEndsAt && stepRemaining <= 0) {
+        state.stepEndsAt = 0;
+        setStatus('Step timer finished. Advance or hold the pan if the texture is not ready yet.');
+      }
+      if (state.totalEndsAt && totalRemaining <= 0) {
+        state.totalEndsAt = 0;
+      }
+    }
+
+    function setStatus(text) {
+      els.status.textContent = text;
+    }
+
+    function renderServingButtons() {
+      els.servingButtons.innerHTML = '';
+      SERVINGS.forEach((serving) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'seg-btn' + (state.servings === serving ? ' is-active' : '');
+        btn.textContent = `${serving} servings`;
+        btn.addEventListener('click', async () => {
+          state.servings = serving;
+          renderServingButtons();
+          renderIngredients();
+          updateMetrics();
+          setStatus(`Scaled recipe for ${serving} servings.`);
+          await persistPreference('cook-servings', String(serving));
+        });
+        els.servingButtons.appendChild(btn);
+      });
+    }
+
+    function renderDonenessButtons() {
+      els.donenessButtons.innerHTML = '';
+      DONENESS.forEach((entry) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'seg-btn' + (state.doneness === entry.id ? ' is-active' : '');
+        btn.textContent = entry.label;
+        btn.addEventListener('click', async () => {
+          state.doneness = entry.id;
+          renderDonenessButtons();
+          renderSteps();
+          updateMetrics();
+          updateTimers();
+          setStatus(`Egg target set to ${entry.label.toLowerCase()}.`);
+          await persistPreference('cook-doneness', entry.id);
+        });
+        els.donenessButtons.appendChild(btn);
+      });
+    }
+
+    function renderSteps() {
+      const steps = stepTemplatesForState();
+      els.stepList.innerHTML = '';
+      const current = steps[state.currentStep] || steps[0];
+      els.currentStepTitle.textContent = current.title;
+      steps.forEach((step, index) => {
+        const card = document.createElement('section');
+        const done = state.completedSteps.has(index);
+        card.className = 'step-card' + (index === state.currentStep ? ' is-current' : '') + (done ? ' is-done' : '');
+        const top = document.createElement('div');
+        top.className = 'step-top';
+        top.innerHTML = `<div><div class="step-title">${index + 1}. ${step.title}</div><div class="step-subtitle">${step.subtitle}</div></div>`;
+        const pill = document.createElement('span');
+        pill.className = 'phase-pill' + (index === state.currentStep ? ' is-active' : '');
+        pill.textContent = `${step.minutes} min`;
+        top.appendChild(pill);
+
+        const noteWrap = document.createElement('div');
+        noteWrap.className = 'step-notes';
+        step.notes.forEach((note) => {
+          const row = document.createElement('div');
+          row.className = 'note-row';
+          row.innerHTML = `<span>+</span><span>${note}</span>`;
+          noteWrap.appendChild(row);
+        });
+
+        const actionRow = document.createElement('div');
+        actionRow.className = 'step-header';
+        const focusBtn = document.createElement('button');
+        focusBtn.type = 'button';
+        focusBtn.className = 'step-btn' + (index === state.currentStep ? ' is-active' : '');
+        focusBtn.textContent = index === state.currentStep ? 'Active step' : 'Focus this step';
+        focusBtn.addEventListener('click', () => {
+          state.currentStep = index;
+          renderSteps();
+          updateTimers();
+          setStatus(`Focused ${step.title.toLowerCase()}.`);
+        });
+        const doneBtn = document.createElement('button');
+        doneBtn.type = 'button';
+        doneBtn.className = 'step-btn' + (done ? ' is-active' : '');
+        doneBtn.textContent = done ? 'Marked done' : 'Mark done';
+        doneBtn.addEventListener('click', async () => {
+          if (state.completedSteps.has(index)) state.completedSteps.delete(index);
+          else state.completedSteps.add(index);
+          renderSteps();
+          setStatus(`${step.title} ${state.completedSteps.has(index) ? 'marked complete' : 'returned to active queue'}.`);
+          await persistPreference('cook-completed-count', String(state.completedSteps.size));
+        });
+        actionRow.appendChild(focusBtn);
+        actionRow.appendChild(doneBtn);
+
+        card.appendChild(top);
+        card.appendChild(noteWrap);
+        card.appendChild(actionRow);
+        els.stepList.appendChild(card);
+      });
+    }
+
+    function renderRescue() {
+      els.issueGrid.innerHTML = '';
+      Object.entries(RESCUE_GUIDES).forEach(([key, guide], index) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'issue-btn' + (index === 0 ? ' is-active' : '');
+        btn.textContent = guide.title;
+        btn.addEventListener('click', () => {
+          Array.from(els.issueGrid.children).forEach((child) => child.classList.remove('is-active'));
+          btn.classList.add('is-active');
+          els.rescueDetail.innerHTML = `<div class="rescue-detail-title">${guide.title}</div><div class="notes-copy">${guide.body}</div>`;
+          setStatus(`${guide.title} guidance loaded.`);
+        });
+        els.issueGrid.appendChild(btn);
+      });
+    }
+
+    function updateMetrics() {
+      els.metricServings.textContent = String(state.servings);
+      const selected = DONENESS.find((entry) => entry.id === state.doneness) || DONENESS[1];
+      els.metricYolk.textContent = selected.id;
+    }
+
+    function shoppingListText() {
+      const lines = [];
+      ingredientGroups().forEach((group) => {
+        lines.push(group.title.toUpperCase());
+        group.items.forEach((item) => {
+          lines.push(`- ${item.name}: ${formatQty(scaleQty(item.qty), item.unit)}`);
+        });
+        lines.push('');
+      });
+      return lines.join('\n').trim();
+    }
+
+    function cookPlanText() {
+      const lines = [];
+      lines.push(`Shakshuka Studio :: ${state.servings} servings :: ${state.doneness} yolks`);
+      stepTemplatesForState().forEach((step, index) => {
+        lines.push(`${index + 1}. ${step.title} (${step.minutes} min)`);
+        step.notes.forEach((note) => lines.push(`   - ${note}`));
+      });
+      return lines.join('\n');
+    }
+
+    async function writeClipboard(text, successMsg) {
+      try {
+        if (hasCapability('clipboard.write')) {
+          await window.CanopyModule.perform('clipboard.write', { text });
+        } else if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          throw new Error('Clipboard unavailable');
+        }
+        setStatus(successMsg);
+      } catch (_) {
+        setStatus('Clipboard write failed in this environment.');
+      }
+    }
+
+    async function persistPreference(key, value) {
+      if (!hasCapability('module.storage.local')) return;
+      try {
+        await window.CanopyModule.perform('module.storage.set', { key, value });
+      } catch (_) {}
+    }
+
+    async function loadPreference(key) {
+      if (!hasCapability('module.storage.local')) return null;
+      try {
+        const result = await window.CanopyModule.perform('module.storage.get', { key });
+        return result && Object.prototype.hasOwnProperty.call(result, 'value') ? result.value : null;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    async function startStepTimer() {
+      const steps = stepTemplatesForState();
+      const current = steps[state.currentStep];
+      state.stepEndsAt = Date.now() + current.minutes * 60 * 1000;
+      state.totalEndsAt = Date.now() + totalMinutes() * 60 * 1000;
+      ensureInterval();
+      updateTimers();
+      setStatus(`Timer started for ${current.title.toLowerCase()}.`);
+    }
+
+    function nextStep() {
+      if (state.currentStep < STEP_TEMPLATES.length - 1) {
+        state.completedSteps.add(state.currentStep);
+        state.currentStep += 1;
+        state.stepEndsAt = 0;
+        renderSteps();
+        updateTimers();
+        setStatus(`Advanced to ${stepTemplatesForState()[state.currentStep].title.toLowerCase()}.`);
+      } else {
+        state.completedSteps.add(state.currentStep);
+        renderSteps();
+        setStatus('Cook complete. Garnish and serve immediately.');
+      }
+    }
+
+    async function returnToSource() {
+      if (!hasCapability('deck.return')) return;
+      try {
+        await window.CanopyModule.perform('deck.return', {});
+      } catch (_) {}
+    }
+
+    function applyContext(context) {
+      state.context = context || null;
+      if (!context) return;
+      if (context.title) {
+        document.title = `${context.title} :: Shakshuka Studio`;
+      }
+    }
+
+    async function hydrate() {
+      renderCapabilities();
+      renderServingButtons();
+      renderDonenessButtons();
+      renderIngredients();
+      renderSteps();
+      renderRescue();
+      updateMetrics();
+      updateTimers();
+
+      const storedServings = await loadPreference('cook-servings');
+      if (storedServings && SERVINGS.includes(Number(storedServings))) {
+        state.servings = Number(storedServings);
+      }
+      const storedDoneness = await loadPreference('cook-doneness');
+      if (storedDoneness && DONENESS.some((entry) => entry.id === storedDoneness)) {
+        state.doneness = storedDoneness;
+      }
+      renderServingButtons();
+      renderDonenessButtons();
+      renderIngredients();
+      renderSteps();
+      updateMetrics();
+      updateTimers();
+    }
+
+    els.startStepBtn.addEventListener('click', startStepTimer);
+    els.nextStepBtn.addEventListener('click', nextStep);
+    els.copyShoppingBtn.addEventListener('click', () => writeClipboard(shoppingListText(), 'Shopping list copied.'));
+    els.copyCookBtn.addEventListener('click', () => writeClipboard(cookPlanText(), 'Cook plan copied.'));
+    els.returnBtn.addEventListener('click', returnToSource);
+
+    if (window.CanopyModule) {
+      window.CanopyModule.onContext((context) => applyContext(context));
+      window.CanopyModule.getContext().then(applyContext).catch(() => {});
+    }
+
+    hydrate();
+  </script>
+</body>
+</html>

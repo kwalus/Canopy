@@ -7047,6 +7047,195 @@
                 font-size: 0.88rem;
             }
         }
+
+        .canopy-source-layout-shell {
+            display: grid;
+            gap: 1rem;
+            margin-top: 0.35rem;
+            padding: 1rem 1.1rem 1.05rem;
+            border-radius: 16px;
+            border: 1px solid var(--canopy-border, rgba(51, 65, 85, 0.65));
+            background: var(--canopy-bg-secondary, rgba(23, 23, 40, 0.55));
+            box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+        }
+
+        .message-content > .canopy-source-layout-shell,
+        .post-content > .canopy-source-layout-shell {
+            max-width: min(100%, 920px);
+        }
+
+        .canopy-source-layout-top {
+            display: grid;
+            grid-template-columns: minmax(0, 1.8fr) minmax(260px, 0.95fr);
+            gap: 0.95rem;
+            align-items: start;
+        }
+
+        /* No aside: use full width for main column (avoid empty grid track). */
+        .canopy-source-layout-top:not(:has(> .canopy-source-layout-side)) {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .canopy-source-layout-main,
+        .canopy-source-layout-side,
+        .canopy-source-layout-strip,
+        .canopy-source-layout-below {
+            display: grid;
+            gap: 0.85rem;
+            min-width: 0;
+        }
+
+        .canopy-source-layout-hero,
+        .canopy-source-layout-lede,
+        .canopy-source-layout-side,
+        .canopy-source-layout-strip,
+        .canopy-source-layout-below,
+        .canopy-source-layout-actions-wrap {
+            min-width: 0;
+        }
+
+        .canopy-source-layout-hero > *,
+        .canopy-source-layout-side > *,
+        .canopy-source-layout-strip > *,
+        .canopy-source-layout-below > * {
+            min-width: 0;
+        }
+
+        .canopy-source-layout-strip {
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        }
+
+        .canopy-source-layout-actions {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.55rem;
+            width: 100%;
+        }
+
+        .canopy-source-layout-actions .btn {
+            border-radius: 999px;
+            min-height: 2rem;
+        }
+
+        .canopy-source-layout-hero-label {
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: var(--canopy-text-muted, #64748b);
+            margin-bottom: 0.55rem;
+            padding-bottom: 0.45rem;
+            border-bottom: 1px solid var(--canopy-border, rgba(51, 65, 85, 0.45));
+        }
+
+        .canopy-source-layout-slot-label {
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: var(--canopy-text-secondary, #cbd5e1);
+            margin-bottom: 0.45rem;
+        }
+
+        .canopy-source-layout-supporting-block {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+
+        .canopy-source-layout-actions.canopy-source-layout-actions--deck-only {
+            justify-content: flex-end;
+        }
+
+        .canopy-source-layout-deck-launch {
+            margin-inline-start: auto;
+            border-radius: 10px !important;
+            font-weight: 600 !important;
+        }
+
+        .canopy-source-layout-actions:has(.btn:not(.canopy-source-layout-deck-launch)) .canopy-source-layout-deck-launch {
+            margin-inline-start: auto;
+        }
+
+        /* Hero: full column width; breakout of default 520px media-grid cap */
+        .canopy-source-layout-hero .media-grid {
+            max-width: 100% !important;
+            width: 100%;
+            border-radius: 14px;
+        }
+
+        .canopy-source-layout-hero .media-grid[data-count="1"] .mg-cell {
+            min-height: min(42vw, 280px);
+            max-height: min(52vh, 440px) !important;
+        }
+
+        .canopy-source-layout-hero .media-grid[data-count="1"] .mg-cell img {
+            min-height: min(42vw, 280px);
+        }
+
+        .canopy-source-layout-lede {
+            color: var(--canopy-text-primary, #f8fafc);
+            font-size: 1.05rem;
+            line-height: 1.58;
+        }
+
+        .canopy-source-layout-lede .mentionable a,
+        .canopy-source-layout-lede a {
+            font-weight: 600;
+        }
+
+        .canopy-source-layout-side {
+            align-self: stretch;
+        }
+
+        .canopy-source-layout-side:not(:empty) {
+            padding: 0.65rem 0.75rem;
+            border-radius: 12px;
+            background: var(--canopy-bg-tertiary, #1e1e32);
+            border: 1px solid var(--canopy-border, rgba(51, 65, 85, 0.45));
+        }
+
+        .canopy-source-layout-strip:not(:empty) {
+            padding: 0.5rem 0;
+            overflow-x: auto;
+            overscroll-behavior-x: contain;
+            scrollbar-width: thin;
+        }
+
+        .canopy-source-layout-below:not(:empty) {
+            padding-top: 0.35rem;
+            border-top: 1px solid var(--canopy-border, rgba(51, 65, 85, 0.35));
+        }
+
+        .canopy-source-layout-actions-wrap:not(:empty) {
+            margin-top: 0.15rem;
+        }
+
+        .canopy-source-layout-hero .stream-card,
+        .canopy-source-layout-hero .attachment-item,
+        .canopy-source-layout-hero .dm-attachment,
+        .canopy-source-layout-hero .embed-preview,
+        .canopy-source-layout-hero .provider-card-embed {
+            margin-bottom: 0 !important;
+        }
+
+        .canopy-source-layout-side .stream-card,
+        .canopy-source-layout-side .attachment-item,
+        .canopy-source-layout-side .dm-attachment {
+            margin-bottom: 0 !important;
+        }
+
+        .canopy-source-layout-strip .stream-card,
+        .canopy-source-layout-strip .attachment-item,
+        .canopy-source-layout-strip .dm-attachment {
+            margin-bottom: 0 !important;
+            height: 100%;
+        }
+
+        @media (max-width: 1024px) {
+            .canopy-source-layout-top {
+                grid-template-columns: minmax(0, 1fr);
+            }
+        }
     </style>
     
     {% block extra_css %}{% endblock %}

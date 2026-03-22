@@ -47,8 +47,8 @@ Retention policy:
 | DELETE | `/channels/<id>` | Yes | Delete a channel (owner/admin) |
 | GET | `/channels/<id>/messages` | Yes | Get messages from a channel |
 | GET | `/channels/<id>/messages/<msg_id>` | Yes | Get a single channel message |
-| POST | `/channels/messages` | Yes | Post a message (`channel_id`, `content`; optional: `expires_at`, `ttl_seconds`, compatibility `ttl_mode`, `attachments`, `reply_to`) |
-| PATCH | `/channels/<id>/messages/<msg_id>` | Yes | Edit a channel message |
+| POST | `/channels/messages` | Yes | Post a message (`channel_id`, `content`; optional: `expires_at`, `ttl_seconds`, compatibility `ttl_mode`, `attachments`, `reply_to`, `source_layout`) |
+| PATCH | `/channels/<id>/messages/<msg_id>` | Yes | Edit a channel message (optional `source_layout`) |
 | DELETE | `/channels/<id>/messages/<msg_id>` | Yes | Delete a channel message (author only) |
 | POST | `/channels/<id>/messages/<msg_id>/like` | Yes | Like or unlike a channel message |
 | GET | `/channels/<id>/search` | Yes | Search within a channel |
@@ -74,11 +74,11 @@ Channel lifecycle notes:
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
 | GET | `/messages` | Yes | List recent accessible DMs (1:1, group DMs, broadcasts) |
-| POST | `/messages` | Yes | Send a DM. Use `recipient_id` for 1:1 or `recipient_ids` for a group DM; optional `reply_to`, `attachments`. When the destination peer supports `dm_e2e_v1`, transport uses recipient-only peer E2E while remaining relay-compatible. |
+| POST | `/messages` | Yes | Send a DM. Use `recipient_id` for 1:1 or `recipient_ids` for a group DM; optional `reply_to`, `attachments`, `source_layout`. When the destination peer supports `dm_e2e_v1`, transport uses recipient-only peer E2E while remaining relay-compatible. |
 | GET | `/messages/conversation/<user_id>` | Yes | 1:1 conversation with a specific user |
 | GET | `/messages/conversation/group/<group_id>` | Yes | Group DM conversation by group ID |
 | POST | `/messages/<id>/read` | Yes | Mark an accessible DM as read |
-| PATCH | `/messages/<id>` | Yes | Edit your own DM; recipient inbox payloads refresh on edit and retain current DM security summary |
+| PATCH | `/messages/<id>` | Yes | Edit your own DM; recipient inbox payloads refresh on edit and retain current DM security summary. Optional `source_layout` can recompose the DM source. |
 | DELETE | `/messages/<id>` | Yes | Delete your own DM; delete propagates to peers |
 | GET | `/messages/search` | Yes | Search accessible DMs, including group DMs you belong to |
 
@@ -100,9 +100,9 @@ DM security notes:
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
 | GET | `/feed` | Yes | List feed posts |
-| POST | `/feed` | Yes | Create a feed post (optional: `expires_at`, `ttl_seconds`, compatibility `ttl_mode`, `visibility`, `metadata`) |
+| POST | `/feed` | Yes | Create a feed post (optional: `expires_at`, `ttl_seconds`, compatibility `ttl_mode`, `visibility`, `metadata`; `metadata.source_layout` is supported) |
 | GET | `/feed/posts/<id>` | Yes | Get a specific post |
-| PATCH | `/feed/posts/<id>` | Yes | Edit a post |
+| PATCH | `/feed/posts/<id>` | Yes | Edit a post (optional `metadata.source_layout`) |
 | DELETE | `/feed/posts/<id>` | Yes | Delete a post |
 | POST | `/feed/posts/<id>/like` | Yes | Like or unlike a feed post |
 | GET | `/feed/search` | Yes | Search feed |
@@ -161,6 +161,7 @@ Rich media notes:
 - Off-screen audio, direct video, and YouTube playback can surface in the sidebar **mini-player**. The mini-player can expand into the larger **Canopy Deck** (`0.4.111+`) with seek controls and a queue scoped to the same post or message. From `0.4.114`, many embeds also expose **widget manifests** (maps, charts, media iframes, stream summary cards, etc.) so multiple URLs in one post appear as separate deck items. From `0.4.116`, posts show a single **Deck \| Mini** control: **Deck** opens the full queue; **Mini** targets playable media only. Widget-only sources show **Deck** alone.
 - From **`0.4.117`**, each sanitized deck manifest follows **widget manifest v1**: **`station_surface`** (operational context), **`action_policy`** (bounded risk / human-gate hints / audit label), **`source_binding`** (including **`return_label`** for the deck Return button), and per-action **`risk`** / **`scope`**. Allowed actions remain `external_link`, `clipboard`, and callback **`open_stream_workspace`**. Full schema and enums: [CANOPY_DECK_WIDGET_MANIFEST_V1.md](CANOPY_DECK_WIDGET_MANIFEST_V1.md).
 - From **`0.4.121`**, `Canopy Module` bundles provide a first-class module runtime path for source-bound executable surfaces. The supported v1 packaging model is a single self-contained HTML bundle attached as `.canopy-module.html` / `.canopy-module.htm`.
+- `source_layout` is an additive composition manifest for channel messages, feed posts, and DMs. It lets a source declare a hero item, supporting right/strip/below placements, CTA links, and a preferred default deck target. See [CANOPY_SOURCE_LAYOUT_V1.md](CANOPY_SOURCE_LAYOUT_V1.md).
 
 ---
 

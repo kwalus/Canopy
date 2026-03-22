@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="860" viewBox="0 0 1400 860" role="img" aria-labelledby="title desc">
+  <title id="title">Dockwatch zones card</title>
+  <desc id="desc">Zone posture card for the Dockwatch security station.</desc>
+  <defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#09111b"/><stop offset="100%" stop-color="#0d1724"/></linearGradient></defs>
+  <rect width="1400" height="860" rx="40" fill="url(#bg)"/>
+  <text x="76" y="110" fill="#f8fafc" font-size="58" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="900">Zone Posture</text>
+  <g transform="translate(76 214)">
+    <rect width="1248" height="542" rx="28" fill="#101b29" stroke="#24374b"/>
+    <rect x="48" y="54" width="270" height="180" rx="24" fill="#0f1722" stroke="#26384d"/>
+    <text x="80" y="104" fill="#f8fafc" font-size="28" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Gate apron</text>
+    <text x="80" y="146" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">vehicle dwell anomalies</text>
+    <rect x="348" y="54" width="270" height="180" rx="24" fill="#0f1722" stroke="#26384d"/>
+    <text x="380" y="104" fill="#f8fafc" font-size="28" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Loading bay</text>
+    <text x="380" y="146" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">door dwell + badge mismatch</text>
+    <rect x="648" y="54" width="270" height="180" rx="24" fill="#0f1722" stroke="#26384d"/>
+    <text x="680" y="104" fill="#f8fafc" font-size="28" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Perimeter</text>
+    <text x="680" y="146" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">paired motion tracks</text>
+    <rect x="948" y="54" width="252" height="180" rx="24" fill="#0f1722" stroke="#26384d"/>
+    <text x="980" y="104" fill="#f8fafc" font-size="28" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Badge lobby</text>
+    <text x="980" y="146" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">identity friction</text>
+    <text x="48" y="318" fill="#9fb0c2" font-size="24" font-family="Avenir Next, Segoe UI, sans-serif">The desk should let operators shift posture without losing the queue narrative.</text>
+  </g>
+</svg>

@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="860" viewBox="0 0 1400 860" role="img" aria-labelledby="title desc">
+  <title id="title">Shakshuka ingredient board</title>
+  <desc id="desc">Compact recipe card for a four-serving shakshuka lesson.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#08111a"/>
+      <stop offset="100%" stop-color="#0c1724"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#fbbf24"/>
+      <stop offset="100%" stop-color="#f97316"/>
+    </linearGradient>
+  </defs>
+  <rect width="1400" height="860" rx="40" fill="url(#bg)"/>
+  <rect x="40" y="40" width="1320" height="110" rx="28" fill="#111f30" stroke="#233448"/>
+  <text x="84" y="96" fill="#fbbf24" font-size="28" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800" letter-spacing="3">CANOPY KITCHEN</text>
+  <text x="84" y="128" fill="#f7fafc" font-size="56" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Shakshuka Ingredient Board</text>
+
+  <g transform="translate(56 190)">
+    <rect width="404" height="610" rx="28" fill="#111b28" stroke="#26384d"/>
+    <text x="32" y="58" fill="#f8fafc" font-size="34" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Produce</text>
+    <text x="32" y="100" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">1 onion</text>
+    <text x="32" y="140" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">1 red bell pepper</text>
+    <text x="32" y="180" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">3 garlic cloves</text>
+    <text x="32" y="220" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">1/4 cup parsley or cilantro</text>
+
+    <rect x="32" y="286" width="340" height="2" fill="#24364b"/>
+    <text x="32" y="344" fill="#f8fafc" font-size="34" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Pantry</text>
+    <text x="32" y="386" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">2 tbsp olive oil</text>
+    <text x="32" y="426" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">1 tbsp tomato paste</text>
+    <text x="32" y="466" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">28 oz crushed tomatoes</text>
+    <text x="32" y="506" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">1 1/2 tsp cumin</text>
+    <text x="32" y="546" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">1 tsp smoked paprika</text>
+    <text x="32" y="586" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">1/2 tsp chili flakes</text>
+  </g>
+
+  <g transform="translate(486 190)">
+    <rect width="404" height="610" rx="28" fill="#111b28" stroke="#26384d"/>
+    <text x="32" y="58" fill="#f8fafc" font-size="34" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Finish</text>
+    <text x="32" y="100" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">4 large eggs</text>
+    <text x="32" y="140" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">1/3 cup feta</text>
+    <text x="32" y="180" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">1 tsp kosher salt</text>
+    <text x="32" y="220" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">1/2 tsp black pepper</text>
+    <text x="32" y="260" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">4 pieces toast or pita</text>
+
+    <rect x="32" y="322" width="340" height="2" fill="#24364b"/>
+    <text x="32" y="382" fill="#f8fafc" font-size="34" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Target texture</text>
+    <text x="32" y="426" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">Sauce should be glossy and thick</text>
+    <text x="32" y="462" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">The spoon trail should close slowly</text>
+    <text x="32" y="498" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">Egg whites set, yolks still soft</text>
+
+    <rect x="32" y="544" width="208" height="44" rx="22" fill="url(#accent)"/>
+    <text x="58" y="574" fill="#351302" font-size="20" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="900" letter-spacing="1">DEFAULT: 4 SERVINGS</text>
+  </g>
+
+  <g transform="translate(916 190)">
+    <rect width="428" height="610" rx="28" fill="#111b28" stroke="#26384d"/>
+    <text x="32" y="58" fill="#f8fafc" font-size="34" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Rescue cues</text>
+    <rect x="32" y="98" width="364" height="112" rx="22" fill="#0f1722" stroke="#223345"/>
+    <text x="56" y="138" fill="#fcd34d" font-size="24" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Too thin</text>
+    <text x="56" y="172" fill="#a7b8ca" font-size="20" font-family="Avenir Next, Segoe UI, sans-serif">Reduce uncovered for 60 to 90 sec.</text>
+
+    <rect x="32" y="232" width="364" height="112" rx="22" fill="#0f1722" stroke="#223345"/>
+    <text x="56" y="272" fill="#fcd34d" font-size="24" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Too sharp</text>
+    <text x="56" y="306" fill="#a7b8ca" font-size="20" font-family="Avenir Next, Segoe UI, sans-serif">Add a pinch of sugar or a knob of butter.</text>
+
+    <rect x="32" y="366" width="364" height="112" rx="22" fill="#0f1722" stroke="#223345"/>
+    <text x="56" y="406" fill="#fcd34d" font-size="24" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Eggs racing</text>
+    <text x="56" y="440" fill="#a7b8ca" font-size="20" font-family="Avenir Next, Segoe UI, sans-serif">Pull pan half off heat and cover loosely.</text>
+
+    <text x="32" y="556" fill="#f8fafc" font-size="30" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Station idea</text>
+    <text x="32" y="598" fill="#9fb0c2" font-size="20" font-family="Avenir Next, Segoe UI, sans-serif">Use the module for scaling, timing, and handoff. Keep the post itself readable when the deck is closed.</text>
+  </g>
+</svg>

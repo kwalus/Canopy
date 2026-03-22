@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" fill="none">
+  <defs>
+    <linearGradient id="bg2" x1="120" y1="40" x2="1280" y2="860" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#08111C"/>
+      <stop offset="0.6" stop-color="#0B1626"/>
+      <stop offset="1" stop-color="#060D17"/>
+    </linearGradient>
+    <radialGradient id="violetGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(300 150) rotate(51) scale(400 320)">
+      <stop stop-color="#A855F7" stop-opacity="0.26"/>
+      <stop offset="1" stop-color="#A855F7" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="cyan2" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#67E8F9"/>
+      <stop offset="1" stop-color="#60A5FA"/>
+    </linearGradient>
+  </defs>
+  <rect width="1440" height="900" rx="44" fill="url(#bg2)"/>
+  <rect width="1440" height="900" rx="44" fill="url(#violetGlow)"/>
+  <rect x="76" y="76" width="1288" height="748" rx="36" fill="#0B1422" stroke="#223346"/>
+  <text x="118" y="150" fill="#F8FAFC" font-size="58" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Human-Robot Safety Loop</text>
+  <text x="118" y="192" fill="#97ABC1" font-size="28" font-family="Avenir Next, Segoe UI, sans-serif">The deck is the place where embodied feed, mission intent, and human approval converge.</text>
+
+  <g>
+    <circle cx="264" cy="422" r="112" fill="#0F1C2B" stroke="#264157" stroke-width="2"/>
+    <circle cx="264" cy="422" r="80" fill="#11263A" stroke="#2D526B" stroke-width="2"/>
+    <text x="264" y="396" fill="#9AB0C5" font-size="18" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="700" text-anchor="middle">EMBODIED</text>
+    <text x="264" y="434" fill="#F8FAFC" font-size="36" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800" text-anchor="middle">Robot eyes</text>
+    <text x="264" y="468" fill="#67E8F9" font-size="20" font-family="Avenir Next, Segoe UI, sans-serif" text-anchor="middle">Pose · object lock · latency</text>
+  </g>
+  <g>
+    <circle cx="720" cy="422" r="128" fill="#101C2D" stroke="#29445A" stroke-width="2"/>
+    <circle cx="720" cy="422" r="94" fill="#102338" stroke="#335E7C" stroke-width="2"/>
+    <text x="720" y="396" fill="#9AB0C5" font-size="18" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="700" text-anchor="middle">CANOPY DECK</text>
+    <text x="720" y="434" fill="#F8FAFC" font-size="40" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800" text-anchor="middle">Mission layer</text>
+    <text x="720" y="470" fill="#A78BFA" font-size="20" font-family="Avenir Next, Segoe UI, sans-serif" text-anchor="middle">Task stack · module logic · approval gates</text>
+  </g>
+  <g>
+    <circle cx="1174" cy="422" r="112" fill="#0F1C2B" stroke="#264157" stroke-width="2"/>
+    <circle cx="1174" cy="422" r="80" fill="#11263A" stroke="#2D526B" stroke-width="2"/>
+    <text x="1174" y="396" fill="#9AB0C5" font-size="18" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="700" text-anchor="middle">SUPERVISORY</text>
+    <text x="1174" y="434" fill="#F8FAFC" font-size="36" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800" text-anchor="middle">Human intent</text>
+    <text x="1174" y="468" fill="#67E8F9" font-size="20" font-family="Avenir Next, Segoe UI, sans-serif" text-anchor="middle">Authorize · redirect · handoff</text>
+  </g>
+
+  <path d="M376 422H568" stroke="url(#cyan2)" stroke-width="10" stroke-linecap="round"/>
+  <path d="M872 422H1064" stroke="url(#cyan2)" stroke-width="10" stroke-linecap="round"/>
+  <path d="M720 550V664" stroke="#A855F7" stroke-width="10" stroke-linecap="round"/>
+  <path d="M720 664C720 710 684 746 638 746H324" stroke="#A855F7" stroke-width="10" stroke-linecap="round"/>
+  <path d="M720 664C720 710 756 746 802 746H1118" stroke="#A855F7" stroke-width="10" stroke-linecap="round"/>
+
+  <g>
+    <rect x="186" y="706" width="312" height="82" rx="24" fill="#0E1A2A" stroke="#25394D"/>
+    <text x="214" y="742" fill="#93A7BD" font-size="16" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="700">Robot cannot silently escalate</text>
+    <text x="214" y="772" fill="#F8FAFC" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">Bounded actions only</text>
+  </g>
+  <g>
+    <rect x="562" y="706" width="316" height="82" rx="24" fill="#0E1A2A" stroke="#25394D"/>
+    <text x="590" y="742" fill="#93A7BD" font-size="16" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="700">Approval gate</text>
+    <text x="590" y="772" fill="#F8FAFC" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">Human confirm on handoff</text>
+  </g>
+  <g>
+    <rect x="942" y="706" width="314" height="82" rx="24" fill="#0E1A2A" stroke="#25394D"/>
+    <text x="970" y="742" fill="#93A7BD" font-size="16" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="700">Audit trail</text>
+    <text x="970" y="772" fill="#F8FAFC" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">Operator interventions persist</text>
+  </g>
+</svg>

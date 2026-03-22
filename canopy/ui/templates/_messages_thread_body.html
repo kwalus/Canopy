@@ -60,7 +60,7 @@
                         </ul>
                     </div>
                     <div class="dm-bubble">
-                        <div class="message-content" data-message-content="1">
+                        <div class="message-content" data-message-content="1"{% if message.source_layout %} data-canopy-source-layout="{{ message.source_layout|tojson|forceescape }}"{% endif %}>
                             {% if message.reply_preview %}
                                 <button type="button" class="dm-bubble-reply-preview" onclick="jumpToMessage('{{ message.reply_preview.id }}')">
                                     <strong>{{ message.reply_preview.sender_name }}</strong>
@@ -68,7 +68,7 @@
                                 </button>
                             {% endif %}
                             {% if message.content %}
-                                <div class="dm-bubble-copy dm-message-text">{{ message.content }}</div>
+                                <div class="dm-bubble-copy dm-message-text" data-canopy-source-ref="content:lede">{{ message.content }}</div>
                             {% endif %}
                             {% if message.attachments %}
                                 <div class="dm-attachment-list">

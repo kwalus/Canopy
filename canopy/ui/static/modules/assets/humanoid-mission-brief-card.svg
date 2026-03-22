@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="160" y1="60" x2="1280" y2="840" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#08111d"/>
+      <stop offset="0.55" stop-color="#0d1728"/>
+      <stop offset="1" stop-color="#08101a"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1180 170) rotate(146) scale(520 300)">
+      <stop stop-color="#22D3EE" stop-opacity="0.34"/>
+      <stop offset="1" stop-color="#22D3EE" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="panel" x1="260" y1="210" x2="1180" y2="730" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0E1B2E"/>
+      <stop offset="1" stop-color="#0A1321"/>
+    </linearGradient>
+    <linearGradient id="cyan" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#67E8F9"/>
+      <stop offset="1" stop-color="#60A5FA"/>
+    </linearGradient>
+    <linearGradient id="violet" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#A855F7"/>
+      <stop offset="1" stop-color="#60A5FA"/>
+    </linearGradient>
+    <filter id="shadow" x="0" y="0" width="1440" height="900" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#000814" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+  <rect width="1440" height="900" rx="44" fill="url(#bg)"/>
+  <rect width="1440" height="900" rx="44" fill="url(#glow)"/>
+  <g filter="url(#shadow)">
+    <rect x="74" y="74" width="1292" height="752" rx="36" fill="url(#panel)" stroke="#24344A"/>
+  </g>
+  <rect x="118" y="116" width="230" height="42" rx="21" fill="#101B2A" stroke="#26445F"/>
+  <text x="233" y="143" fill="#67E8F9" font-size="20" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800" text-anchor="middle" letter-spacing="2.6">CANOPY ROBOTICS</text>
+  <text x="118" y="226" fill="#F8FAFC" font-size="60" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Humanoid Mission Brief</text>
+  <text x="118" y="266" fill="#93A7BD" font-size="28" font-family="Avenir Next, Segoe UI, sans-serif">One source becomes a coordination world spanning robot eyes, task stack, and human intervention.</text>
+
+  <rect x="118" y="316" width="520" height="434" rx="28" fill="#0A1421" stroke="#223346"/>
+  <text x="156" y="362" fill="#9DB4C9" font-size="18" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="700" letter-spacing="2">MISSION GEOMETRY</text>
+  <rect x="156" y="390" width="440" height="300" rx="24" fill="#0D1A2A" stroke="#20364B"/>
+  <rect x="204" y="442" width="312" height="158" rx="22" fill="#132437" stroke="#274156"/>
+  <rect x="438" y="492" width="74" height="72" rx="12" fill="#22D3EE" opacity="0.86"/>
+  <rect x="533" y="474" width="44" height="96" rx="10" fill="#A855F7" opacity="0.52"/>
+  <path d="M296 650C314 560 342 510 394 470" stroke="#F8FAFC" stroke-width="18" stroke-linecap="round"/>
+  <path d="M462 650C444 560 416 510 364 470" stroke="#F8FAFC" stroke-width="18" stroke-linecap="round"/>
+  <circle cx="378" cy="430" r="16" fill="url(#cyan)"/>
+  <rect x="184" y="410" width="176" height="34" rx="17" fill="#08111D" stroke="#234058"/>
+  <text x="272" y="433" fill="#67E8F9" font-size="17" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800" text-anchor="middle">ego + assist corridor</text>
+  <text x="156" y="722" fill="#8EA4BA" font-size="20" font-family="Avenir Next, Segoe UI, sans-serif">Camera layer, arm corridor, object confidence, and safe handoff posture all remain visible.</text>
+
+  <rect x="676" y="316" width="648" height="434" rx="28" fill="#0A1421" stroke="#223346"/>
+  <text x="714" y="362" fill="#9DB4C9" font-size="18" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="700" letter-spacing="2">COORDINATION STACK</text>
+  <g>
+    <rect x="714" y="394" width="272" height="130" rx="24" fill="#101B2A" stroke="#25384D"/>
+    <text x="742" y="430" fill="#93A7BD" font-size="16" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="700">Primary task</text>
+    <text x="742" y="470" fill="#F8FAFC" font-size="28" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Approach pallet A</text>
+    <text x="742" y="503" fill="#67E8F9" font-size="18" font-family="Avenir Next, Segoe UI, sans-serif">Visual corridor locked · grasp align pending</text>
+  </g>
+  <g>
+    <rect x="1014" y="394" width="272" height="130" rx="24" fill="#101B2A" stroke="#25384D"/>
+    <text x="1042" y="430" fill="#93A7BD" font-size="16" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="700">Human altitude</text>
+    <text x="1042" y="470" fill="#F8FAFC" font-size="28" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Supervisory</text>
+    <text x="1042" y="503" fill="#A78BFA" font-size="18" font-family="Avenir Next, Segoe UI, sans-serif">Intervene on uncertainty, handoff, or path anomalies</text>
+  </g>
+  <g>
+    <rect x="714" y="548" width="572" height="166" rx="24" fill="#101B2A" stroke="#25384D"/>
+    <text x="742" y="586" fill="#93A7BD" font-size="16" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="700">Bounded autonomy ladder</text>
+    <rect x="742" y="612" width="160" height="36" rx="18" fill="#0B1724" stroke="#244157"/>
+    <text x="822" y="636" fill="#F8FAFC" font-size="17" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800" text-anchor="middle">supervised</text>
+    <rect x="916" y="612" width="160" height="36" rx="18" fill="url(#cyan)"/>
+    <text x="996" y="636" fill="#082138" font-size="17" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800" text-anchor="middle">copilot</text>
+    <rect x="1090" y="612" width="160" height="36" rx="18" fill="#0B1724" stroke="#244157"/>
+    <text x="1170" y="636" fill="#F8FAFC" font-size="17" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800" text-anchor="middle">bounded execute</text>
+    <text x="742" y="682" fill="#8EA4BA" font-size="20" font-family="Avenir Next, Segoe UI, sans-serif">Canopy does not dump raw control. It gives operators a clear supervisory surface with bounded actions and explicit human gates.</text>
+  </g>
+
+  <rect x="118" y="782" width="406" height="26" rx="13" fill="#0D1825" stroke="#22374B"/>
+  <rect x="121" y="785" width="274" height="20" rx="10" fill="url(#cyan)"/>
+  <text x="547" y="801" fill="#9DB4C9" font-size="18" font-family="Avenir Next, Segoe UI, sans-serif">Battery 82% · uplink 74 ms · confidence 0.88</text>
+</svg>
