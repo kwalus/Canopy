@@ -213,6 +213,7 @@ class TestFrontendRegressions(unittest.TestCase):
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
         self.assertIn('id="sidebar-media-mini-expand"', base_template)
         self.assertIn('id="sidebar-media-deck"', base_template)
+        self.assertIn("wheel/scroll reaches the channel/feed", base_template)
         self.assertIn('id="sidebar-media-deck-stage"', base_template)
         self.assertIn('id="sidebar-media-deck-queue"', base_template)
         self.assertIn('id="sidebar-media-deck-seek"', base_template)

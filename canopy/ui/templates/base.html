@@ -1740,6 +1740,14 @@
             display: block;
         }
 
+        /* Fine-pointer desktops: dimmer stays visual-only so wheel/scroll reaches the channel/feed
+           under the deck. Coarse (touch) keeps default hit-testing so tap-outside still closes. */
+        @media (hover: hover) and (pointer: fine) {
+            .sidebar-media-deck-backdrop.is-visible {
+                pointer-events: none;
+            }
+        }
+
         .canopy-media-deck-source-slot {
             display: flex;
             justify-content: flex-end;

@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.133] - 2026-03-21
+
+### Changed
+- **Media deck: scroll channel/feed behind dimmer (desktop)** — On **`(hover: hover)`** and **`pointer: fine`**, the deck backdrop uses **`pointer-events: none`** so **wheel scroll** reaches the channel/feed while the deck stays open. Touch/coarse pointers unchanged (tap-outside on dimmer still closes).
+
+### Tests
+- **`tests/test_frontend_regressions.py`** — backdrop pass-through comment substring.
+
+### Notes
+- **Local testing:** Restart the Canopy web process and **hard-refresh** the browser (or open a fresh tab) so inlined **`base.html`** styles and bumped **`?v={{ canopy_version }}`** script URLs pick up **v0.4.133**.
+
 ## [0.4.132] - 2026-03-21
 
 ### Fixed
