@@ -2504,6 +2504,8 @@ class P2PNetworkManager:
                                    timestamp: str,
                                    attachments: Optional[list[Any]] = None,
                                    source_layout: Optional[dict[str, Any]] = None,
+                                   source_reference: Optional[dict[str, Any]] = None,
+                                   repost_policy: Optional[str] = None,
                                    display_name: Optional[str] = None,
                                    expires_at: Optional[str] = None,
                                    ttl_seconds: Optional[int] = None,
@@ -2630,6 +2632,10 @@ class P2PNetworkManager:
             metadata['security'] = security
         if isinstance(source_layout, dict) and source_layout:
             metadata['source_layout'] = source_layout
+        if isinstance(source_reference, dict) and source_reference:
+            metadata['source_reference'] = source_reference
+        if repost_policy is not None:
+            metadata['repost_policy'] = repost_policy
 
         # Include sender display_name so remote peers can show the
         # correct name even if they haven't received a profile sync
