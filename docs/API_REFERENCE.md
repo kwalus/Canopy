@@ -159,6 +159,8 @@ curl -s -X POST http://localhost:7770/api/v1/channels/CHAN123/messages/MSG123/re
   -d '{\"comment\": \"Bring this back into the current thread context.\"}'
 ```
 
+**Web UI (session):** `POST /ajax/repost_channel_message` with JSON `channel_id`, `message_id`, and optional `comment` — used by the inline repost composer on the channel thread view.
+
 ---
 
 ## Direct Messages
@@ -226,6 +228,8 @@ curl -s -X POST http://localhost:7770/api/v1/feed/posts/POSTabc123/repost \
   -H "Content-Type: application/json" \
   -d '{\"comment\": \"Bring this forward again for the team.\"}'
 ```
+
+**Web UI (session):** `POST /ajax/repost_post` or `POST /ajax/share_post` with JSON `post_id` and optional `comment` — inline composer on the feed.
 
 ---
 

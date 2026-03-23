@@ -352,7 +352,7 @@ Possible endpoints:
 Add a same-channel repost endpoint:
 
 - `POST /api/v1/channels/<channel_id>/messages/<message_id>/repost`
-- `POST /ajax/channel_messages/<channel_id>/<message_id>/repost`
+- `POST /ajax/repost_channel_message` (session auth) with JSON body: `channel_id`, `message_id`, optional `comment`
 
 The created channel repost should always land in the same channel as a new top-level source.
 

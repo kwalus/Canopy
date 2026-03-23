@@ -8,6 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.141] - 2026-03-23
+
+### Docs
+- **README** — Version badge `0.4.141`, nav link to **Repost v1** plan, **Documentation Map** entries for `REPOST_V1_DESIGN_REVIEW.md`, `REPOST_V1_IMPLEMENTATION_PLAN.md`, `BOOKMARKS_V1_PLAN.md`.
+- **`docs/API_REFERENCE.md`** — Web UI AJAX notes for feed (`/ajax/repost_post`, `/ajax/share_post`) and channels (`/ajax/repost_channel_message`).
+- **`docs/AGENT_ONBOARDING.md`** — Channel repost: UI uses session AJAX path.
+- **`docs/MCP_QUICKSTART.md`** — Version alignment + repost v1 endpoint reminder for MCP agents.
+- **`docs/REPOST_V1_DESIGN_REVIEW.md`** — Correct channel UI path to `POST /ajax/repost_channel_message` + JSON body shape.
+- **`docs/REPOST_V1_IMPLEMENTATION_PLAN.md`** — Read/render contract (`body_text`, `embed`, `channel_id`); API/UI/P2P shipped summary.
+
+### Notes
+- Prepares repo docs for upcoming **public** push curation; **Canopy-Dev** should carry the same doc set as the primary dev tree.
+
 ## [0.4.140] - 2026-03-23
 
 ### Added
