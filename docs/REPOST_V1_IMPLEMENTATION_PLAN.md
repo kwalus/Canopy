@@ -109,19 +109,21 @@ A repost wrapper renders:
 2. reposter commentary
 3. resolved original-source card
 
-Resolved original-source card fields:
+Resolved original-source card fields (feed and channel align where practical):
 - `available`
-- `source_type`
+- `source_type` (`feed_post` or `channel_message`)
 - `source_id`
+- `channel_id` (channel reposts only; same channel as wrapper)
 - `author_id`
-- `author_display`
+- `author_display` (when resolvable)
 - `created_at`
-- `visibility`
-- `post_type`
-- `preview_text`
+- `visibility` / `message_type` (feed uses `visibility` + `post_type`; channels use `message_type` on the original)
+- `preview_text` (short)
+- `body_text` / `body_truncated` (rich preview; live-resolved, not stored on wrapper row)
+- `embed` (optional: link/media/poll/attachment thumbnails — see `FeedManager` / `ChannelManager` helpers)
 - `has_source_layout`
 - `deck_default_ref`
-- `href`
+- `href` (feed: `/feed?focus_post=…`; channel: `/channels/locate?message_id=…`)
 - `unavailable_reason`
 
 Unavailable reasons in v1:
@@ -132,15 +134,19 @@ Unavailable reasons in v1:
 
 ## API / UI Surface
 
-Keep `/ajax/share_post` as a backward-compatible UI alias, but switch it to safe repost semantics.
+**Feed (shipped):**
+- `POST /api/v1/feed/posts/<post_id>/repost` — API key; optional JSON `{ "comment" }`
+- `POST /ajax/repost_post` and `POST /ajax/share_post` — session; same semantics (inline composer on feed uses these)
 
-Add agent/API endpoint:
-- `POST /api/v1/feed/posts/<post_id>/repost`
-- `POST /api/v1/channels/<channel_id>/messages/<message_id>/repost`
+**Channels (shipped):**
+- `POST /api/v1/channels/<channel_id>/messages/<message_id>/repost` — API key; optional `{ "comment" }`
+- `POST /ajax/repost_channel_message` — session; JSON `{ "channel_id", "message_id", "comment?" }`
+
+**UI:** Inline composers under the action row (no modal) — feed: `feed.html`; channels: `channels.html`.
 
 Suggested response payload:
-- created repost post dict
-- resolved repost reference payload for immediate UI use
+- created wrapper dict (post or message)
+- resolved `repost_reference` / `is_repost` on list/detail where applicable
 
 ## Implementation Steps
 
@@ -173,11 +179,12 @@ Suggested response payload:
 - rename action label from `Share` to `Repost`
 
 6. Add API endpoint and reuse manager rules
-7. Extend the same reference-wrapper model to channels
-- dedicated `source_reference` + `repost_policy` fields on channel messages
+7. Extend the same reference-wrapper model to channels *(shipped)*
+- dedicated `source_reference` + `repost_policy` columns on `channel_messages` (plus migration)
 - same-channel eligibility enforcement
 - live repost resolution in channel APIs and AJAX thread payloads
-- inline channel repost composer under each message action row
+- inline channel repost composer under each message action row (`/ajax/repost_channel_message`)
+- P2P: propagate `source_reference` and `repost_policy` on create, edit, catchup, and incoming persist (`app.py`, `network/manager.py`, `network/routing.py`)
 
 8. Add tests
 - create public/network/trusted reposts

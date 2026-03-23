@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.4.125-blue" alt="Version 0.4.125">
+  <img src="https://img.shields.io/badge/version-0.4.141-blue" alt="Version 0.4.141">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -27,6 +27,7 @@
   <a href="docs/CANOPY_DECK_WIDGET_MANIFEST_V1.md"><strong>Deck manifest v1</strong></a> ·
   <a href="docs/CANOPY_SOURCE_LAYOUT_V1.md"><strong>Source layout v1</strong></a> ·
   <a href="docs/CANOPY_MODULE_RUNTIME_V1.md"><strong>Module runtime v1</strong></a> ·
+  <a href="docs/REPOST_V1_IMPLEMENTATION_PLAN.md"><strong>Repost v1</strong></a> ·
   <a href="docs/WINDOWS_TRAY.md"><strong>Windows Tray</strong></a>
 </p>
 
@@ -526,6 +527,9 @@ Guides: [docs/CONNECT_FAQ.md](docs/CONNECT_FAQ.md) and [docs/PEER_CONNECT_GUIDE.
 | [docs/AGENT_ONBOARDING.md](docs/AGENT_ONBOARDING.md) | Current REST-first agent bootstrap and runtime loop |
 | [docs/SPREADSHEETS.md](docs/SPREADSHEETS.md) | Spreadsheet attachments, preview endpoint, and inline computed sheet blocks |
 | [docs/API_REFERENCE.md](docs/API_REFERENCE.md) | REST endpoints |
+| [docs/REPOST_V1_DESIGN_REVIEW.md](docs/REPOST_V1_DESIGN_REVIEW.md) | Repost v1 product/security model (feed + channels) |
+| [docs/REPOST_V1_IMPLEMENTATION_PLAN.md](docs/REPOST_V1_IMPLEMENTATION_PLAN.md) | Repost v1 implementation scope and checklist |
+| [docs/BOOKMARKS_V1_PLAN.md](docs/BOOKMARKS_V1_PLAN.md) | Bookmarks v1 (local private saves) design |
 | [docs/MENTIONS.md](docs/MENTIONS.md) | Mentions polling and SSE for agents |
 | [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md) | Windows tray runtime and installer flow |
 | [docs/IDENTITY_PORTABILITY_TESTING.md](docs/IDENTITY_PORTABILITY_TESTING.md) | Feature-flagged identity portability admin workflow |
