@@ -1291,7 +1291,112 @@
                                     </div>
                                 {% endif %}
                                 
-                                {% if post.poll %}
+                                {% if post.repost_reference %}
+                                    {% set ref = post.repost_reference %}
+                                    <div class="post-repost-shell" data-repost-wrapper="1">
+                                        {% if post.display_content %}
+                                            <div data-canopy-source-ref="content:lede">
+                                                <p class="mb-3 post-text mentionable">{{ post.display_content }}</p>
+                                            </div>
+                                        {% endif %}
+                                        <div class="post-repost-card{% if not ref.available %} is-unavailable{% endif %}">
+                                            <div class="post-repost-head">
+                                                <span class="post-repost-eyebrow">
+                                                    <i class="bi bi-repeat"></i> Original source
+                                                </span>
+                                                {% if ref.available and ref.has_source_layout %}
+                                                    <span class="post-repost-badge">Deck-ready</span>
+                                                {% endif %}
+                                            </div>
+                                            {% if ref.available %}
+                                                <div class="post-repost-meta">
+                                                    <strong>{{ ref.author_display or ref.author_id or 'Unknown author' }}</strong>
+                                                    <span>•</span>
+                                                    <span>{{ (ref.post_type or 'post')|replace('_', ' ')|title }}</span>
+                                                    <span>•</span>
+                                                    <span>{{ (ref.visibility or 'network')|replace('_', ' ')|title }}</span>
+                                                    <span>•</span>
+                                                    <span class="text-muted" data-timestamp="{{ ref.created_at }}">{{ ref.created_at }}</span>
+                                                </div>
+                                                {% set em = ref.embed if ref.embed is defined and ref.embed else {} %}
+                                                <div class="post-repost-quote">
+                                                    {% if ref.body_text is defined and ref.body_text %}
+                                                        <div class="post-repost-body">{{ ref.body_text }}</div>
+                                                        {% if ref.body_truncated %}
+                                                            <div class="post-repost-truncated-hint small text-muted mt-1">
+                                                                <i class="bi bi-scissors"></i> Truncated for the card &mdash; open original for the full post.
+                                                            </div>
+                                                        {% endif %}
+                                                    {% elif ref.preview_text %}
+                                                        <div class="post-repost-preview">{{ ref.preview_text }}</div>
+                                                    {% endif %}
+                                                    {% if em.get('link_url') %}
+                                                        <div class="post-repost-embed-link mt-2">
+                                                            <a href="{{ em.link_url }}" target="_blank" rel="noopener noreferrer" class="text-decoration-none d-inline-flex align-items-start gap-2">
+                                                                <i class="bi bi-link-45deg flex-shrink-0 mt-1"></i>
+                                                                <span>{{ em.get('link_title') or em.link_url }}</span>
+                                                            </a>
+                                                        </div>
+                                                    {% endif %}
+                                                    {% if em.get('image_url') %}
+                                                        <div class="post-repost-embed-media mt-2 text-center">
+                                                            <img src="{{ em.image_url }}" class="img-fluid rounded post-repost-embed-img" alt="">
+                                                        </div>
+                                                    {% endif %}
+                                                    {% if em.get('video_url') %}
+                                                        <div class="post-repost-embed-media mt-2 text-center">
+                                                            <video controls class="img-fluid rounded post-repost-embed-video" preload="metadata">
+                                                                <source src="{{ em.video_url }}" type="video/mp4">
+                                                            </video>
+                                                        </div>
+                                                    {% endif %}
+                                                    {% if em.get('audio_url') %}
+                                                        <div class="post-repost-embed-media mt-2">
+                                                            <audio controls preload="metadata" class="w-100">
+                                                                <source src="{{ em.audio_url }}" type="{{ em.get('audio_type') or 'audio/mpeg' }}">
+                                                            </audio>
+                                                        </div>
+                                                    {% endif %}
+                                                    {% if em.get('poll_question') %}
+                                                        <div class="post-repost-poll-preview mt-2 p-2 rounded" style="background: var(--canopy-bg-tertiary, rgba(255,255,255,0.04));">
+                                                            <div class="small text-uppercase text-muted mb-1 fw-semibold" style="letter-spacing:0.06em;">Poll</div>
+                                                            <div class="fw-semibold">{{ em.poll_question }}</div>
+                                                            {% if em.get('poll_option_previews') %}
+                                                                <ul class="small mb-0 mt-2 ps-3 text-muted">
+                                                                    {% for opt in em.poll_option_previews %}
+                                                                        <li>{{ opt }}</li>
+                                                                    {% endfor %}
+                                                                </ul>
+                                                            {% endif %}
+                                                        </div>
+                                                    {% endif %}
+                                                    {% if em.get('attachment_images') %}
+                                                        <div class="post-repost-thumb-grid mt-2">
+                                                            {% for img in em.attachment_images %}
+                                                                <a href="{{ ref.href }}" class="post-repost-thumb-link" title="View original post">
+                                                                    <img src="{{ img.url }}" alt="{{ img.name }}" loading="lazy" width="120" height="120">
+                                                                </a>
+                                                            {% endfor %}
+                                                        </div>
+                                                    {% endif %}
+                                                </div>
+                                                <div class="post-repost-actions">
+                                                    <a class="btn btn-sm btn-outline-primary" href="{{ ref.href }}">
+                                                        <i class="bi bi-box-arrow-up-right me-1"></i>Open original
+                                                    </a>
+                                                    {% if ref.has_source_layout %}
+                                                        <span class="text-muted small">Open original to launch its deck surface.</span>
+                                                    {% endif %}
+                                                </div>
+                                            {% else %}
+                                                <div class="post-repost-unavailable">{{ ref.unavailable_label or 'Original source unavailable' }}</div>
+                                                <div class="post-repost-unavailable-meta">
+                                                    This repost keeps attribution to the original source, but the source no longer renders here.
+                                                </div>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                {% elif post.poll %}
                                     <div class="poll-card" data-poll-id="{{ post.id }}" data-poll-kind="feed" data-poll-ends="{{ post.poll.ends_at or '' }}" data-poll-closed="{{ 'true' if post.poll.is_closed else 'false' }}">
                                         <div class="poll-header">
                                             <span class="poll-label">Poll</span>
@@ -1377,8 +1482,14 @@
                                         <span class="action-label">Comment</span>
                                         <span class="comment-count action-count">{{ post.comments or 0 }}</span>
                                     </button>
-                                    <button class="btn btn-sm btn-outline-info icon-action-btn" onclick="sharePost('{{ post.id }}')" title="Share post" aria-label="Share post">
-                                        <i class="bi bi-share"></i><span class="action-label">Share</span>
+                                    <button type="button" class="btn btn-sm btn-outline-info icon-action-btn repost-trigger-btn"
+                                            id="repost-trigger-{{ post.id }}"
+                                            onclick="toggleRepostComposer('{{ post.id }}')"
+                                            title="Repost — add optional note below"
+                                            aria-expanded="false"
+                                            aria-controls="repost-compose-{{ post.id }}"
+                                            aria-label="Repost source">
+                                        <i class="bi bi-repeat"></i><span class="action-label">Repost</span>
                                     </button>
                                     <button class="btn btn-sm icon-action-btn bookmark-action-btn{% if post.is_bookmarked %} is-saved{% endif %}"
                                             data-bookmark-button="1"
@@ -1416,6 +1527,32 @@
                                     <i class="bi bi-{% if post.post_type == 'text' %}type{% elif post.post_type == 'link' %}link{% elif post.post_type == 'image' %}image{% elif post.post_type == 'video' %}play{% elif post.post_type == 'poll' %}bar-chart{% else %}file{% endif %}"></i>
                                     {{ post.post_type.title() }}
                                 </small>
+                            </div>
+
+                            <!-- Repost inline composer (expands under actions — no modal) -->
+                            <div class="repost-inline-composer" id="repost-compose-{{ post.id }}" data-repost-compose="1" style="display: none;" hidden>
+                                <div class="repost-inline-inner">
+                                    <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                                        <i class="bi bi-repeat text-info" aria-hidden="true"></i>
+                                        <span class="small fw-semibold">Repost to your feed</span>
+                                        <span class="text-muted small ms-md-auto">Optional note · <kbd class="small px-1">Esc</kbd> close · <kbd class="small px-1">⌘</kbd>/<kbd class="small px-1">Ctrl</kbd>+<kbd class="small px-1">Enter</kbd> send</span>
+                                    </div>
+                                    <label class="visually-hidden" for="repost-text-{{ post.id }}">Optional repost note</label>
+                                    <textarea class="form-control form-control-sm repost-inline-text"
+                                              id="repost-text-{{ post.id }}"
+                                              rows="3"
+                                              maxlength="5000"
+                                              placeholder="Add a short note (optional)…"></textarea>
+                                    <div class="d-flex justify-content-between align-items-center mt-2 gap-2 flex-wrap">
+                                        <small class="text-muted repost-inline-counter">0 / 5000</small>
+                                        <div class="d-flex gap-2">
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="closeRepostComposer('{{ post.id }}')">Cancel</button>
+                                            <button type="button" class="btn btn-sm btn-primary" id="repost-submit-{{ post.id }}" onclick="submitRepostInline('{{ post.id }}')">
+                                                <i class="bi bi-repeat me-1"></i>Repost
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                             
                             <!-- Comments Section (hidden by default) -->
@@ -1541,6 +1678,167 @@
     font-size: 0.74rem;
     font-weight: 600;
     line-height: 1;
+}
+
+.post-repost-shell {
+    display: grid;
+    gap: 0.85rem;
+}
+
+.post-repost-card {
+    border: 1px solid rgba(56, 189, 248, 0.24);
+    border-radius: 1rem;
+    padding: 0.95rem 1rem;
+    background:
+        linear-gradient(180deg, rgba(8, 15, 28, 0.92), rgba(11, 19, 34, 0.96)),
+        radial-gradient(circle at top right, rgba(56, 189, 248, 0.18), transparent 44%);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+.post-repost-card.is-unavailable {
+    border-color: rgba(148, 163, 184, 0.28);
+    background:
+        linear-gradient(180deg, rgba(13, 18, 29, 0.92), rgba(14, 19, 30, 0.96));
+}
+
+.post-repost-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+
+.post-repost-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(186, 230, 253, 0.92);
+}
+
+.post-repost-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.18rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #d7fff2;
+    border: 1px solid rgba(34, 197, 94, 0.42);
+    background: rgba(34, 197, 94, 0.12);
+}
+
+.post-repost-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    align-items: center;
+    color: rgba(226, 232, 240, 0.86);
+    font-size: 0.9rem;
+}
+
+.post-repost-preview {
+    margin-top: 0.65rem;
+    color: rgba(241, 245, 249, 0.96);
+    font-size: 0.98rem;
+    line-height: 1.5;
+}
+
+.post-repost-quote {
+    margin-top: 0.65rem;
+    padding: 0.65rem 0.5rem 0.55rem 0.85rem;
+    border-left: 3px solid rgba(56, 189, 248, 0.55);
+    border-radius: 0 0.65rem 0.65rem 0;
+    background: rgba(0, 0, 0, 0.12);
+}
+
+.post-repost-body {
+    margin-top: 0.15rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 0.98rem;
+    line-height: 1.55;
+    color: rgba(241, 245, 249, 0.98);
+}
+
+.post-repost-embed-link a {
+    color: var(--canopy-text-primary, rgba(241, 245, 249, 0.96));
+}
+
+.post-repost-embed-img,
+.post-repost-embed-video {
+    max-height: 360px;
+}
+
+.post-repost-thumb-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+    gap: 0.4rem;
+    max-width: 100%;
+}
+
+.post-repost-thumb-link {
+    display: block;
+    border-radius: 0.45rem;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    aspect-ratio: 1;
+}
+
+.post-repost-thumb-link img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    vertical-align: middle;
+}
+
+.post-repost-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 0.8rem;
+}
+
+/* Inline repost composer (under post actions — no overlay) */
+.repost-inline-composer {
+    margin-top: 0.5rem;
+    padding-top: 0.65rem;
+    border-top: 1px dashed rgba(56, 189, 248, 0.35);
+}
+
+.repost-inline-composer .repost-inline-inner {
+    padding: 0.65rem 0.75rem 0.75rem;
+    border-radius: 0.65rem;
+    background: var(--canopy-bg-tertiary, rgba(0, 0, 0, 0.18));
+    border: 1px solid rgba(56, 189, 248, 0.2);
+}
+
+.repost-inline-composer .repost-inline-text {
+    resize: vertical;
+    min-height: 4.5rem;
+    max-height: 12rem;
+}
+
+.repost-trigger-btn.is-repost-open {
+    background-color: var(--bs-info) !important;
+    border-color: var(--bs-info) !important;
+    color: #fff !important;
+}
+
+.post-repost-unavailable {
+    font-weight: 700;
+    color: rgba(226, 232, 240, 0.92);
+}
+
+.post-repost-unavailable-meta {
+    margin-top: 0.35rem;
+    color: rgba(148, 163, 184, 0.96);
+    font-size: 0.9rem;
 }
 
 .task-inline-toggle {
@@ -6125,27 +6423,133 @@
         toggleComments(postId);
     }
     
-    function sharePost(postId) {
-        const comment = prompt('Add a comment to your share (optional):') || '';
+    let _openRepostComposePostId = null;
 
-        apiCall('/ajax/share_post', {
+    function _updateRepostInlineCounter(textareaEl) {
+        if (!textareaEl) return;
+        const panel = textareaEl.closest('[data-repost-compose="1"]');
+        const counter = panel ? panel.querySelector('.repost-inline-counter') : null;
+        if (counter) counter.textContent = `${(textareaEl.value || '').length} / 5000`;
+    }
+
+    function _setRepostTriggerOpen(postId, open) {
+        const trig = document.getElementById('repost-trigger-' + postId);
+        if (!trig) return;
+        trig.classList.toggle('is-repost-open', !!open);
+        trig.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+
+    function closeAllRepostComposers() {
+        document.querySelectorAll('[data-repost-compose="1"]').forEach((panel) => {
+            panel.style.display = 'none';
+            panel.setAttribute('hidden', 'hidden');
+            const pid = (panel.id || '').replace(/^repost-compose-/, '');
+            if (pid) _setRepostTriggerOpen(pid, false);
+        });
+        _openRepostComposePostId = null;
+    }
+
+    function closeRepostComposer(postId) {
+        const panel = document.getElementById('repost-compose-' + postId);
+        if (panel) {
+            panel.style.display = 'none';
+            panel.setAttribute('hidden', 'hidden');
+        }
+        _setRepostTriggerOpen(postId, false);
+        if (_openRepostComposePostId === postId) _openRepostComposePostId = null;
+    }
+
+    /** Toggle inline repost composer under the post (same post again = close). */
+    function toggleRepostComposer(postId) {
+        const panel = document.getElementById('repost-compose-' + postId);
+        if (!panel) return;
+        const ta = document.getElementById('repost-text-' + postId);
+        const isVisible = panel.style.display !== 'none' && !panel.hasAttribute('hidden');
+        if (isVisible) {
+            closeRepostComposer(postId);
+            return;
+        }
+        closeAllRepostComposers();
+        panel.style.display = 'block';
+        panel.removeAttribute('hidden');
+        _setRepostTriggerOpen(postId, true);
+        _openRepostComposePostId = postId;
+        if (ta) {
+            ta.value = '';
+            _updateRepostInlineCounter(ta);
+            setTimeout(() => {
+                ta.focus();
+                try { panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) { /* ignore */ }
+            }, 0);
+        }
+    }
+
+    function submitRepostInline(postId) {
+        const ta = document.getElementById('repost-text-' + postId);
+        const submitBtn = document.getElementById('repost-submit-' + postId);
+        const comment = (ta && ta.value) ? ta.value.trim() : '';
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> …';
+        }
+        apiCall('/ajax/repost_post', {
             method: 'POST',
             body: JSON.stringify({ post_id: postId, comment: comment })
         })
         .then(data => {
             if (data.success) {
-                showAlert('Post shared!', 'success');
-                // Update share count in the UI
-                const shareBtn = document.querySelector(`#share-count-${postId}`);
-                if (shareBtn) {
-                    const cur = parseInt(shareBtn.textContent) || 0;
-                    shareBtn.textContent = cur + 1;
-                }
+                closeRepostComposer(postId);
+                showAlert('Repost created.', 'success');
+                window.location.reload();
             } else {
-                showAlert(data.error || 'Failed to share', 'danger');
+                showAlert(data.error || 'Failed to repost', 'danger');
             }
         })
-        .catch(err => showAlert('Share failed: ' + (err.message || err), 'danger'));
+        .catch(err => showAlert('Repost failed: ' + (err.message || err), 'danger'))
+        .finally(() => {
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="bi bi-repeat me-1"></i>Repost';
+            }
+        });
+    }
+
+    function _wireRepostComposerGlobalsOnce() {
+        if (document.body.dataset.repostComposerWired === '1') return;
+        document.body.dataset.repostComposerWired = '1';
+        document.addEventListener('input', (e) => {
+            const t = e.target;
+            if (t && t.classList && t.classList.contains('repost-inline-text')) {
+                _updateRepostInlineCounter(t);
+            }
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape' || !_openRepostComposePostId) return;
+            const panel = document.getElementById('repost-compose-' + _openRepostComposePostId);
+            const active = document.activeElement;
+            if (panel && active && typeof active.closest === 'function' && panel.contains(active)) {
+                e.preventDefault();
+                closeRepostComposer(_openRepostComposePostId);
+            }
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter' || (!e.ctrlKey && !e.metaKey)) return;
+            const ta = document.activeElement;
+            if (!ta || !ta.classList || !ta.classList.contains('repost-inline-text')) return;
+            const m = /^repost-text-(.+)$/.exec(ta.id || '');
+            if (!m) return;
+            e.preventDefault();
+            submitRepostInline(m[1]);
+        }, true);
+    }
+
+    /** @deprecated Use toggleRepostComposer — kept for any legacy callers */
+    function repostPost(postId) {
+        toggleRepostComposer(postId);
+    }
+
+    function sharePost(postId) {
+        toggleRepostComposer(postId);
     }
     
     // Legacy comment loading function (kept for compatibility)
@@ -6407,6 +6811,7 @@
 	        setupPostFileUpload();
 	        setupPasteHandler();
 	        setupCommentPasteHandlers(); // Initialize comment paste handlers
+            _wireRepostComposerGlobalsOnce();
             refreshFeedMentionListOptions();
             renderFeedMentionMacroButtons();
 	        formatTimestamps();

@@ -1045,6 +1045,31 @@ def create_ui_blueprint() -> Blueprint:
             'snapshot': snapshot,
         }
 
+    def _decorate_feed_repost_reference_ui(
+        repost_reference: Any,
+        db_manager: Any,
+        profile_manager: Any,
+    ) -> Optional[dict[str, Any]]:
+        if not isinstance(repost_reference, dict):
+            return None
+        payload = dict(repost_reference)
+        source_id = str(payload.get('source_id') or '').strip()
+        if source_id:
+            payload['href'] = f"{url_for('ui.feed')}?focus_post={quote_plus(source_id)}"
+        author_id = str(payload.get('author_id') or '').strip()
+        if payload.get('available') and author_id:
+            payload['author_display'] = _bookmark_author_label(author_id, db_manager, profile_manager)
+        reason = str(payload.get('unavailable_reason') or '').strip().lower()
+        if reason == 'expired':
+            payload['unavailable_label'] = 'Original source expired'
+        elif reason == 'policy_denied':
+            payload['unavailable_label'] = 'Original source repost disabled'
+        elif reason == 'access_changed':
+            payload['unavailable_label'] = 'Original source access changed'
+        else:
+            payload['unavailable_label'] = 'Original source unavailable'
+        return payload
+
     def _build_dm_message_bookmark_payload(
         user_id: str,
         source_id: str,
@@ -4221,6 +4246,18 @@ def create_ui_blueprint() -> Blueprint:
                     'source_url': post.source_url,
                     'tags': post.tags_list,
                 }
+                repost_reference = None
+                try:
+                    repost_reference = feed_manager.resolve_repost_reference(post, user_id) if feed_manager else None
+                except Exception:
+                    repost_reference = None
+                post_dict['is_repost'] = bool(repost_reference)
+                if repost_reference:
+                    post_dict['repost_reference'] = _decorate_feed_repost_reference_ui(
+                        repost_reference,
+                        db_manager,
+                        profile_manager,
+                    )
 
                 # Inline circle blocks (for [circle]...[/circle] posts)
                 display_content = post.content
@@ -10452,9 +10489,10 @@ def create_ui_blueprint() -> Blueprint:
             return jsonify({'error': 'Internal server error'}), 500
     
     @ui.route('/ajax/share_post', methods=['POST'])
+    @ui.route('/ajax/repost_post', methods=['POST'])
     @require_login
     def ajax_share_post():
-        """AJAX endpoint to share (repost) a feed post."""
+        """AJAX endpoint to create a secure repost wrapper for a feed post."""
         try:
             _, _, _, _, _, _, feed_manager, _, _, _, _ = _get_app_components_any(current_app)
             user_id = get_current_user()
@@ -10466,12 +10504,16 @@ def create_ui_blueprint() -> Blueprint:
             if not post_id:
                 return jsonify({'error': 'Post ID required'}), 400
 
-            shared = feed_manager.share_post(post_id, user_id, comment)
+            eligibility = feed_manager.get_repost_eligibility(post_id, user_id)
+            if not eligibility.get('allowed'):
+                return jsonify({'error': eligibility.get('reason') or 'Repost not allowed'}), int(eligibility.get('status_code') or 400)
+
+            shared = feed_manager.create_repost(post_id, user_id, comment)
             if shared:
                 return jsonify({'success': True, 'post': shared.to_dict()})
-            return jsonify({'error': 'Failed to share post'}), 500
+            return jsonify({'error': 'Failed to create repost'}), 500
         except Exception as e:
-            logger.error(f"Share post error: {e}")
+            logger.error(f"Repost post error: {e}")
             return jsonify({'error': 'Internal server error'}), 500
 
     # ------------------------------------------------------------------

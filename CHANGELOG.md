@@ -8,6 +8,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.139] - 2026-03-23
+
+### Changed
+- **Feed repost UI** — Repost no longer uses a Bootstrap modal (avoids overlay/focus issues). **Repost** toggles an **inline composer** directly under that post’s action row (optional note, Cancel / Repost, character count). **Esc** closes when focus is inside the composer; **Ctrl/Cmd+Enter** submits. Active **Repost** button is highlighted while open.
+
+### Notes
+- Restart the web process and **hard-refresh** the feed.
+
+## [0.4.138] - 2026-03-23
+
+### Changed
+- **Feed repost UX** — Embedded original shows **full card-style preview**: long `body_text` (with truncation hint), link/image/video/audio embeds, poll question + option previews, and image **attachment thumbnails** (live-resolved; not copied into the repost row). Repost action uses a **Bootstrap modal** with optional commentary, character counter, and **Ctrl/Cmd+Enter** to publish (replaces `window.prompt`).
+
+### Docs
+- **`docs/API_REFERENCE.md`** — `repost_reference` rich fields documented.
+
+### Notes
+- Restart the web process and **hard-refresh** for **`?v=0.4.138`** and template/JS updates.
+
+## [0.4.137] - 2026-03-23
+
+### Added
+- **Feed repost v1 (secure reference wrappers)** — Reposts are **reference wrappers**, not copied posts: no copy of original body, attachments, or full metadata; visibility matches the source (**public** / **network** / **trusted** only; **private** / **custom** rejected). **Repost chains** and **`repost_policy: deny`** blocked. Generic **`POST/PATCH` feed** strips caller-forged **`source_reference`** / legacy share keys. **`FeedManager.create_repost`**, **`resolve_repost_reference`**, **`get_repost_eligibility`**; **`share_post`** aliases **`create_repost`**. Legacy **`shared_post_id`** rows still render/filter as reposts.
+
+### API / UI
+- **`POST /api/v1/feed/posts/<id>/repost`** (optional JSON **`comment`**). Feed payloads include **`repost_reference`** / **`is_repost`** when applicable.
+- **UI:** Feed template repost shell + **`/ajax/repost_post`** and **`/ajax/share_post`** (same handler, secure semantics); action label **Repost**.
+
+### Tests / docs
+- **`tests/test_repost_v1.py`**, **`docs/REPOST_V1_DESIGN_REVIEW.md`**, **`docs/REPOST_V1_IMPLEMENTATION_PLAN.md`**, **`docs/API_REFERENCE.md`**, **`docs/AGENT_ONBOARDING.md`**, **`README.md`**.
+
+### Notes
+- Restart the web process and **hard-refresh** so static assets use **`?v=0.4.137`**.
+
 ## [0.4.136] - 2026-03-23
 
 ### Added

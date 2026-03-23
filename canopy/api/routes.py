@@ -259,6 +259,58 @@ def _normalize_channel_attachments(raw_attachments: Any, file_manager: Any) -> l
     return normalized
 
 
+def _feed_author_display(db_manager: Any, profile_manager: Any, author_id: str) -> str:
+    clean_author_id = str(author_id or '').strip()
+    if not clean_author_id:
+        return ''
+    try:
+        if profile_manager:
+            profile = profile_manager.get_profile(clean_author_id)
+            if profile:
+                return str(
+                    getattr(profile, 'display_name', None)
+                    or getattr(profile, 'username', None)
+                    or clean_author_id
+                ).strip()
+    except Exception:
+        pass
+    try:
+        if db_manager:
+            row = db_manager.get_user(clean_author_id)
+            if row:
+                return str(row.get('display_name') or row.get('username') or clean_author_id).strip()
+    except Exception:
+        pass
+    return clean_author_id
+
+
+def _serialize_feed_post_for_response(
+    post: Any,
+    *,
+    viewer_id: str,
+    db_manager: Any,
+    feed_manager: Any,
+    profile_manager: Any,
+) -> dict[str, Any]:
+    payload = dict(post.to_dict())
+    repost_reference = None
+    try:
+        repost_reference = feed_manager.resolve_repost_reference(post, viewer_id) if feed_manager else None
+    except Exception:
+        repost_reference = None
+    payload['is_repost'] = bool(repost_reference)
+    if repost_reference:
+        source_id = str(repost_reference.get('source_id') or '').strip()
+        ref_payload = dict(repost_reference)
+        if source_id:
+            ref_payload['href'] = f"/feed?focus_post={quote_plus(source_id)}"
+        author_id = str(ref_payload.get('author_id') or '').strip()
+        if ref_payload.get('available') and author_id:
+            ref_payload['author_display'] = _feed_author_display(db_manager, profile_manager, author_id)
+        payload['repost_reference'] = ref_payload
+    return payload
+
+
 def create_api_blueprint() -> Blueprint:
     """Create and configure the API blueprint."""
     api = Blueprint('api', __name__)
@@ -4565,7 +4617,7 @@ def create_api_blueprint() -> Blueprint:
     @require_auth(Permission.READ_FEED)
     def get_feed():
         """Get user's personalized feed."""
-        _, _, _, _, _, _, feed_manager, _, _, _, _ = _get_app_components_any(current_app)
+        db_manager, _, _, _, _, _, feed_manager, _, profile_manager, _, _ = _get_app_components_any(current_app)
         
         try:
             feed_manager.purge_expired_posts()
@@ -4576,7 +4628,16 @@ def create_api_blueprint() -> Blueprint:
                 g.api_key_info.user_id, limit=limit, algorithm=algorithm)
             
             return jsonify({
-                'posts': [post.to_dict() for post in posts],
+                'posts': [
+                    _serialize_feed_post_for_response(
+                        post,
+                        viewer_id=g.api_key_info.user_id,
+                        db_manager=db_manager,
+                        feed_manager=feed_manager,
+                        profile_manager=profile_manager,
+                    )
+                    for post in posts
+                ],
                 'count': len(posts)
             })
             
@@ -4588,7 +4649,7 @@ def create_api_blueprint() -> Blueprint:
     @require_auth(Permission.READ_FEED)
     def get_feed_post(post_id):
         """Get a specific feed post."""
-        _, _, _, _, _, _, feed_manager, _, _, _, _ = _get_app_components_any(current_app)
+        db_manager, _, _, _, _, _, feed_manager, _, profile_manager, _, _ = _get_app_components_any(current_app)
 
         try:
             post = feed_manager.get_post(post_id)
@@ -4599,11 +4660,52 @@ def create_api_blueprint() -> Blueprint:
             if not post.can_view(g.api_key_info.user_id):
                 return jsonify({'error': 'Access denied'}), 403
             
-            return jsonify({'post': post.to_dict()})
+            return jsonify({
+                'post': _serialize_feed_post_for_response(
+                    post,
+                    viewer_id=g.api_key_info.user_id,
+                    db_manager=db_manager,
+                    feed_manager=feed_manager,
+                    profile_manager=profile_manager,
+                )
+            })
 
         except Exception as e:
             logger.error(f"Failed to get post: {e}")
             return jsonify({'error': 'Failed to get post'}), 500
+
+    @api.route('/feed/posts/<post_id>/repost', methods=['POST'])
+    @require_auth(Permission.WRITE_FEED)
+    def repost_feed_post(post_id):
+        """Create a secure repost wrapper for an eligible feed post."""
+        db_manager, _, _, _, _, _, feed_manager, _, profile_manager, _, _ = _get_app_components_any(current_app)
+
+        try:
+            if not g.api_key_info.has_permission(Permission.READ_FEED):
+                return jsonify({'error': 'READ_FEED permission required'}), 403
+            data = request.get_json(silent=True) or {}
+            comment = str(data.get('comment') or '').strip()
+            eligibility = feed_manager.get_repost_eligibility(post_id, g.api_key_info.user_id)
+            if not eligibility.get('allowed'):
+                return jsonify({'error': eligibility.get('reason') or 'Repost not allowed'}), int(eligibility.get('status_code') or 400)
+
+            repost = feed_manager.create_repost(post_id, g.api_key_info.user_id, comment)
+            if not repost:
+                return jsonify({'error': 'Failed to create repost'}), 500
+
+            return jsonify({
+                'success': True,
+                'post': _serialize_feed_post_for_response(
+                    repost,
+                    viewer_id=g.api_key_info.user_id,
+                    db_manager=db_manager,
+                    feed_manager=feed_manager,
+                    profile_manager=profile_manager,
+                ),
+            }), 201
+        except Exception as e:
+            logger.error(f"Failed to repost post {post_id}: {e}", exc_info=True)
+            return jsonify({'error': 'Failed to create repost'}), 500
 
     @api.route('/content-contexts/extract', methods=['POST'])
     @require_auth(Permission.READ_FEED)
@@ -7165,7 +7267,7 @@ def create_api_blueprint() -> Blueprint:
     @require_auth(Permission.READ_FEED)
     def search_feed():
         """Search feed posts."""
-        _, _, _, _, _, _, feed_manager, _, _, _, _ = _get_app_components_any(current_app)
+        db_manager, _, _, _, _, _, feed_manager, _, profile_manager, _, _ = _get_app_components_any(current_app)
         
         try:
             feed_manager.purge_expired_posts()
@@ -7179,7 +7281,16 @@ def create_api_blueprint() -> Blueprint:
                 query, g.api_key_info.user_id, limit=limit)
             
             return jsonify({
-                'posts': [post.to_dict() for post in posts],
+                'posts': [
+                    _serialize_feed_post_for_response(
+                        post,
+                        viewer_id=g.api_key_info.user_id,
+                        db_manager=db_manager,
+                        feed_manager=feed_manager,
+                        profile_manager=profile_manager,
+                    )
+                    for post in posts
+                ],
                 'query': query,
                 'count': len(posts),
             })

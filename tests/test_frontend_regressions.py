@@ -199,6 +199,16 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('data-source-type="channel_message"', channels_template)
         self.assertIn('data-source-type="dm_message"', dm_template)
 
+    def test_feed_repost_ui_uses_reference_wrapper_language(self) -> None:
+        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        self.assertIn('data-repost-wrapper="1"', feed_template)
+        self.assertIn('post-repost-card', feed_template)
+        self.assertIn('function repostPost(postId)', feed_template)
+        self.assertIn("apiCall('/ajax/repost_post'", feed_template)
+        self.assertIn('Open original', feed_template)
+        self.assertIn('Original source unavailable', feed_template)
+        self.assertIn('bi bi-repeat', feed_template)
+
     def test_sidebar_cards_support_three_states_and_mini_player_placement(self) -> None:
         base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
