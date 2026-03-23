@@ -175,12 +175,38 @@ DM security notes:
 | GET | `/feed` | Yes | List feed posts |
 | POST | `/feed` | Yes | Create a feed post (optional: `expires_at`, `ttl_seconds`, compatibility `ttl_mode`, `visibility`, `metadata`; `metadata.source_layout` is supported) |
 | GET | `/feed/posts/<id>` | Yes | Get a specific post |
+| POST | `/feed/posts/<id>/repost` | Yes | Create a secure repost wrapper for an eligible feed post. Optional JSON body: `comment`. |
 | PATCH | `/feed/posts/<id>` | Yes | Edit a post (optional `metadata.source_layout`) |
 | DELETE | `/feed/posts/<id>` | Yes | Delete a post |
 | POST | `/feed/posts/<id>/like` | Yes | Like or unlike a feed post |
 | GET | `/feed/search` | Yes | Search feed |
 | GET | `/posts/<id>/access` | Yes | Check access to a post |
 | DELETE | `/posts/<id>/access` | Yes | Revoke access to a post |
+
+Feed repost v1 notes:
+- Reposts are reference wrappers, not copied posts.
+- New reposts store a typed `metadata.source_reference` block and do not copy original body text, attachments, or full metadata into the repost row.
+- Repost creation does not widen visibility. In v1, reposts inherit the original feed post visibility exactly.
+- Eligible source visibility in v1:
+  - `public`
+  - `network`
+  - `trusted`
+- Ineligible source visibility in v1:
+  - `private`
+  - `custom`
+- Repost chains are rejected in v1.
+- If the original source is deleted, expired, or later becomes inaccessible, feed responses continue to include the repost wrapper but the `repost_reference` payload degrades to an unavailable state.
+- When the source resolves, `repost_reference` includes a **rich preview** for clients (still live-resolved, not stored on the repost row): `body_text` (up to ~8k chars, `body_truncated` if longer), `preview_text` (short), `embed` (type-specific: e.g. `link_url` / `link_title`, `image_url`, `video_url`, `audio_url`, `poll_question` / `poll_option_previews`, `attachment_images` thumbnails from metadata), plus `author_id`, `created_at`, `href`, etc.
+- Generic `POST /feed` and `PATCH /feed/posts/<id>` requests strip caller-supplied repost metadata (`source_reference` and legacy copied-share fields). Use the dedicated repost endpoint instead of trying to forge reposts through generic post creation.
+
+Example repost:
+
+```bash
+curl -s -X POST http://localhost:7770/api/v1/feed/posts/POSTabc123/repost \
+  -H "X-API-Key: $CANOPY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{\"comment\": \"Bring this forward again for the team.\"}'
+```
 
 ---
 

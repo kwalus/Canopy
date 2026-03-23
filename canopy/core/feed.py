@@ -10,6 +10,8 @@ License: Apache 2.0
 Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
+from __future__ import annotations
+
 import logging
 import math
 import secrets
@@ -29,6 +31,7 @@ from ..security.api_keys import ApiKeyManager, Permission
 from ..security.encryption import RecipientEncryptor, RECIPIENT_ENCRYPTED_PREFIX
 from .logging_config import log_performance, LogOperation
 from .source_layout import normalize_source_layout
+from .polls import parse_poll
 
 logger = logging.getLogger('canopy.feed')
 
@@ -58,6 +61,186 @@ class SourceType(Enum):
     AGENT = "agent"                # Written by an AI agent on this node
     AGENT_CURATED = "agent_curated"  # Agent-fetched content from the internet
     SYSTEM = "system"              # System-generated (milestones, alerts)
+
+
+_REPOST_POLICY_VALUES = {'same_scope', 'deny'}
+_REPOST_ELIGIBLE_VISIBILITIES = {
+    PostVisibility.PUBLIC,
+    PostVisibility.NETWORK,
+    PostVisibility.TRUSTED,
+}
+_LEGACY_REPOST_METADATA_KEYS = {
+    'shared_post_id',
+    'original_author_id',
+    'original_content',
+    'original_type',
+    'original_metadata',
+}
+
+
+def _normalize_repost_policy(value: Any) -> Optional[str]:
+    policy = str(value or '').strip().lower()
+    if policy in _REPOST_POLICY_VALUES:
+        return policy
+    return None
+
+
+def _normalize_source_reference(value: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(value, dict):
+        return None
+    kind = str(value.get('kind') or '').strip().lower()
+    source_type = str(value.get('source_type') or '').strip().lower()
+    source_id = str(value.get('source_id') or '').strip()
+    if kind != 'repost_v1' or source_type != 'feed_post' or not source_id:
+        return None
+
+    normalized: Dict[str, Any] = {
+        'kind': 'repost_v1',
+        'source_type': 'feed_post',
+        'source_id': source_id,
+    }
+    source_visibility = str(value.get('source_visibility') or '').strip().lower()
+    if source_visibility in {member.value for member in PostVisibility}:
+        normalized['source_visibility'] = source_visibility
+    created_by = str(value.get('created_by_user_id') or '').strip()
+    if created_by:
+        normalized['created_by_user_id'] = created_by
+    return normalized
+
+
+def _extract_source_reference(metadata: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(metadata, dict):
+        return None
+
+    source_reference = _normalize_source_reference(metadata.get('source_reference'))
+    if source_reference:
+        return source_reference
+
+    legacy_source_id = str(metadata.get('shared_post_id') or '').strip()
+    if legacy_source_id:
+        return {
+            'kind': 'legacy_share',
+            'source_type': 'feed_post',
+            'source_id': legacy_source_id,
+            'legacy': True,
+        }
+    return None
+
+
+def _is_repost_metadata(metadata: Any) -> bool:
+    return _extract_source_reference(metadata) is not None
+
+
+def _normalize_post_metadata(
+    metadata: Any,
+    *,
+    allow_source_reference: bool = False,
+    preserve_legacy_repost_keys: bool = False,
+) -> Optional[Dict[str, Any]]:
+    if not isinstance(metadata, dict):
+        return None
+
+    normalized = dict(metadata)
+    normalized["source_layout"] = normalize_source_layout(normalized.get("source_layout"))
+    if normalized.get("source_layout") is None:
+        normalized.pop("source_layout", None)
+
+    repost_policy = _normalize_repost_policy(normalized.get('repost_policy'))
+    if repost_policy:
+        normalized['repost_policy'] = repost_policy
+    else:
+        normalized.pop('repost_policy', None)
+
+    if allow_source_reference:
+        source_reference = _normalize_source_reference(normalized.get('source_reference'))
+        if source_reference:
+            normalized['source_reference'] = source_reference
+        else:
+            normalized.pop('source_reference', None)
+    else:
+        normalized.pop('source_reference', None)
+
+    if not preserve_legacy_repost_keys:
+        for key in _LEGACY_REPOST_METADATA_KEYS:
+            normalized.pop(key, None)
+
+    return normalized or None
+
+
+def _build_preview_text(content: str, limit: int = 220) -> str:
+    preview = ' '.join(str(content or '').split()).strip()
+    if len(preview) <= limit:
+        return preview
+    return preview[: max(0, limit - 3)].rstrip() + '...'
+
+
+# Rich repost card: show substantial original text without copying into the repost row (live resolve).
+_REPOST_REFERENCE_BODY_MAX_CHARS = 8000
+_REPOST_REFERENCE_ATTACHMENT_IMAGE_CAP = 6
+
+
+def _truncate_repost_reference_body(text: str, max_chars: int = _REPOST_REFERENCE_BODY_MAX_CHARS) -> tuple[str, bool]:
+    """Return (body, truncated) preserving newlines for UI pre-wrap."""
+    raw = str(text or '')
+    if len(raw) <= max_chars:
+        return raw, False
+    cut = raw[: max(0, max_chars - 1)].rstrip()
+    return cut + '…', True
+
+
+def _repost_embed_from_original(original: Post) -> Dict[str, Any]:
+    """Structured preview for repost cards (same visibility as viewing the source post)."""
+    meta = original.metadata if isinstance(original.metadata, dict) else {}
+    embed: Dict[str, Any] = {}
+    pt = original.post_type
+
+    if pt == PostType.LINK:
+        url = str(meta.get('url') or '').strip()
+        if url:
+            embed['link_url'] = url
+            embed['link_title'] = str(meta.get('title') or url).strip() or url
+    elif pt == PostType.IMAGE:
+        image_url = str(meta.get('image_url') or '').strip()
+        if image_url:
+            embed['image_url'] = image_url
+    elif pt == PostType.VIDEO:
+        video_url = str(meta.get('video_url') or '').strip()
+        if video_url:
+            embed['video_url'] = video_url
+    elif pt == PostType.AUDIO:
+        audio_url = str(meta.get('audio_url') or '').strip()
+        if audio_url:
+            embed['audio_url'] = audio_url
+            embed['audio_type'] = str(meta.get('audio_type') or 'audio/mpeg').strip() or 'audio/mpeg'
+    attachments = meta.get('attachments')
+    if isinstance(attachments, list):
+        images: List[Dict[str, str]] = []
+        for item in attachments:
+            if not isinstance(item, dict):
+                continue
+            url = str(item.get('url') or '').strip()
+            typ = str(item.get('type') or '')
+            if typ.startswith('image/') and url:
+                images.append({
+                    'url': url,
+                    'name': str(item.get('name') or 'Image'),
+                    'type': typ,
+                })
+            if len(images) >= _REPOST_REFERENCE_ATTACHMENT_IMAGE_CAP:
+                break
+        if images:
+            embed['attachment_images'] = images
+
+    try:
+        poll_spec = parse_poll(original.content or '')
+        if poll_spec and str(poll_spec.question or '').strip():
+            embed['poll_question'] = str(poll_spec.question).strip()
+            if poll_spec.options:
+                embed['poll_option_previews'] = [str(label) for label in poll_spec.options[:6]]
+    except Exception:
+        pass
+
+    return embed
 
 
 @dataclass
@@ -152,7 +335,7 @@ class FeedAlgorithm:
             source_w *= max(0, self.agent_trust[post.source_agent_id])
 
         # Repost filter
-        if not self.show_reposts and post.metadata and post.metadata.get('shared_post_id'):
+        if not self.show_reposts and _is_repost_metadata(post.metadata):
             return -1.0
 
         return source_w * engagement * recency * topic_factor * author_factor
@@ -401,17 +584,14 @@ class FeedManager:
                    tags: Optional[List[str]] = None,
                    expires_at: Optional[Any] = None,
                    ttl_seconds: Optional[int] = None,
-                   ttl_mode: Optional[str] = None) -> Optional[Post]:
+                   ttl_mode: Optional[str] = None,
+                   allow_source_reference: bool = False) -> Optional[Post]:
         """Create a new social media post."""
         logger.info(f"Creating post by author_id={author_id}, type={post_type.value}, visibility={visibility.value}, source={source_type}")
         logger.debug(f"Content length: {len(content)}, permissions: {permissions}")
         
         try:
-            if isinstance(metadata, dict):
-                metadata = dict(metadata)
-                metadata["source_layout"] = normalize_source_layout(metadata.get("source_layout"))
-                if metadata.get("source_layout") is None:
-                    metadata.pop("source_layout", None)
+            metadata = _normalize_post_metadata(metadata, allow_source_reference=allow_source_reference)
             # Validate content length
             if len(content) > self.max_content_length:
                 logger.error(f"Post content too long: {len(content)} > {self.max_content_length}")
@@ -531,7 +711,11 @@ class FeedManager:
             visibility=PostVisibility(row['visibility']),
             created_at=datetime.fromisoformat(row['created_at']),
             expires_at=expires_dt,
-            metadata=json.loads(row['metadata']) if row['metadata'] else None,
+            metadata=_normalize_post_metadata(
+                json.loads(row['metadata']) if row['metadata'] else None,
+                allow_source_reference=True,
+                preserve_legacy_repost_keys=True,
+            ),
             permissions=permissions,
             likes=row['likes'] if 'likes' in row.keys() else 0,
             comments=row['comments'] if 'comments' in row.keys() else 0,
@@ -774,11 +958,7 @@ class FeedManager:
                 final_post_type = post_type or PostType(row['content_type'])
                 final_visibility = visibility or PostVisibility(row['visibility'])
                 final_metadata = metadata if metadata is not None else (json.loads(row['metadata']) if row['metadata'] else None)
-                if isinstance(final_metadata, dict):
-                    final_metadata = dict(final_metadata)
-                    final_metadata["source_layout"] = normalize_source_layout(final_metadata.get("source_layout"))
-                    if final_metadata.get("source_layout") is None:
-                        final_metadata.pop("source_layout", None)
+                final_metadata = _normalize_post_metadata(final_metadata, allow_source_reference=False)
                 
                 # Update the post
                 cursor = conn.execute("""
@@ -979,50 +1159,199 @@ class FeedManager:
             logger.error(f"Failed to purge expired posts: {e}", exc_info=True)
 
         return purged
-    
-    def share_post(self, post_id: str, user_id: str, comment: str = '') -> Optional[Post]:
-        """Share (repost) an existing post. Creates a new post that references
-        the original and increments the original's share count."""
+
+    def get_repost_policy(self, metadata: Any) -> str:
+        """Resolve repost policy from metadata; default to same-scope reposts."""
+        return _normalize_repost_policy(
+            metadata.get('repost_policy') if isinstance(metadata, dict) else None
+        ) or 'same_scope'
+
+    def is_repost_post(self, post: Optional[Post]) -> bool:
+        """Return True when a post is a repost wrapper (new or legacy)."""
+        if not post:
+            return False
+        return _is_repost_metadata(post.metadata)
+
+    def _get_post_for_reference(
+        self,
+        post_id: str,
+        viewer_id: Optional[str] = None,
+    ) -> tuple[str, Optional[Post]]:
+        """Resolve a feed post for repost rendering without leaking unavailable content."""
         try:
-            original = self.get_post(post_id)
-            if not original:
-                logger.warning(f"Cannot share: post {post_id} not found")
-                return None
-            
-            # Build share metadata
-            share_meta: Dict[str, Any] = {
-                'shared_post_id': post_id,
-                'original_author_id': original.author_id,
-                'original_content': original.content[:200],
-                'original_type': original.post_type.value,
+            with self.db.get_connection() as conn:
+                cursor = conn.execute(
+                    """
+                    SELECT p.*, u.username as author_username
+                    FROM feed_posts p
+                    LEFT JOIN users u ON p.author_id = u.id
+                    WHERE p.id = ?
+                    """,
+                    (post_id,),
+                )
+                row = cursor.fetchone()
+                if not row:
+                    return ('missing', None)
+
+                post = self._row_to_post(row, conn)
+                if post.is_expired:
+                    return ('expired', None)
+                if self.get_repost_policy(post.metadata) == 'deny':
+                    return ('policy_denied', None)
+                if viewer_id and not post.can_view(viewer_id, 50):
+                    return ('access_changed', None)
+                return ('available', post)
+        except Exception as e:
+            logger.error(f"Failed to resolve repost source {post_id}: {e}", exc_info=True)
+            return ('missing', None)
+
+    def get_repost_eligibility(self, post_id: str, viewer_id: str) -> Dict[str, Any]:
+        """Evaluate whether a user can create a repost wrapper for a feed post."""
+        state, original = self._get_post_for_reference(post_id, viewer_id)
+        if state != 'available' or not original:
+            if state == 'policy_denied':
+                return {
+                    'allowed': False,
+                    'status_code': 403,
+                    'reason': 'This post cannot be reposted',
+                }
+            return {
+                'allowed': False,
+                'status_code': 404 if state in {'missing', 'expired'} else 403,
+                'reason': 'Post not found' if state in {'missing', 'expired'} else 'Access denied',
             }
-            if original.metadata:
-                share_meta['original_metadata'] = original.metadata
-            
-            content = comment if comment else f"Shared a post"
-            
+
+        if self.is_repost_post(original):
+            return {
+                'allowed': False,
+                'status_code': 400,
+                'reason': 'Repost chains are not supported',
+            }
+
+        if original.visibility not in _REPOST_ELIGIBLE_VISIBILITIES:
+            return {
+                'allowed': False,
+                'status_code': 403,
+                'reason': 'Only public, network, or trusted posts can be reposted in v1',
+            }
+
+        if self.get_repost_policy(original.metadata) == 'deny':
+            return {
+                'allowed': False,
+                'status_code': 403,
+                'reason': 'This post cannot be reposted',
+            }
+
+        return {
+            'allowed': True,
+            'status_code': 200,
+            'reason': 'ok',
+            'post': original,
+        }
+
+    def resolve_repost_reference(self, post: Post, viewer_id: str) -> Optional[Dict[str, Any]]:
+        """Resolve a repost wrapper into a live original-source preview contract."""
+        source_reference = _extract_source_reference(post.metadata)
+        if not source_reference:
+            return None
+
+        source_id = str(source_reference.get('source_id') or '').strip()
+        result: Dict[str, Any] = {
+            'kind': str(source_reference.get('kind') or '').strip() or 'repost_v1',
+            'source_type': 'feed_post',
+            'source_id': source_id,
+            'available': False,
+            'unavailable_reason': 'missing',
+            'legacy': bool(source_reference.get('legacy')),
+        }
+        if not source_id:
+            return result
+
+        state, original = self._get_post_for_reference(source_id, viewer_id)
+        if state != 'available' or not original:
+            result['unavailable_reason'] = state
+            return result
+
+        source_layout = (
+            original.metadata.get('source_layout')
+            if isinstance(original.metadata, dict) and isinstance(original.metadata.get('source_layout'), dict)
+            else None
+        )
+        deck_default_ref = (
+            str(source_layout.get('deck', {}).get('default_ref') or '').strip()
+            if isinstance(source_layout, dict) and isinstance(source_layout.get('deck'), dict)
+            else ''
+        )
+        body_text, body_truncated = _truncate_repost_reference_body(original.content)
+        embed = _repost_embed_from_original(original)
+        result.update({
+            'available': True,
+            'unavailable_reason': None,
+            'author_id': original.author_id,
+            'created_at': original.created_at.isoformat(),
+            'visibility': original.visibility.value,
+            'post_type': original.post_type.value,
+            'preview_text': _build_preview_text(original.content),
+            'body_text': body_text,
+            'body_truncated': body_truncated,
+            'embed': embed,
+            'has_source_layout': bool(source_layout),
+            'deck_default_ref': deck_default_ref or None,
+        })
+        return result
+
+    def create_repost(self, post_id: str, user_id: str, comment: str = '') -> Optional[Post]:
+        """Create a secure repost wrapper for an eligible feed post."""
+        try:
+            eligibility = self.get_repost_eligibility(post_id, user_id)
+            if not eligibility.get('allowed'):
+                logger.warning(
+                    "Cannot repost post %s for user %s: %s",
+                    post_id,
+                    user_id,
+                    eligibility.get('reason'),
+                )
+                return None
+
+            original = cast(Post, eligibility['post'])
+            repost_meta = _normalize_post_metadata(
+                {
+                    'source_reference': {
+                        'kind': 'repost_v1',
+                        'source_type': 'feed_post',
+                        'source_id': original.id,
+                        'source_visibility': original.visibility.value,
+                        'created_by_user_id': user_id,
+                    }
+                },
+                allow_source_reference=True,
+            )
             shared = self.create_post(
                 author_id=user_id,
-                content=content,
-                post_type=original.post_type,
-                visibility=PostVisibility.NETWORK,
-                metadata=share_meta,
+                content=str(comment or '').strip(),
+                post_type=PostType.TEXT,
+                visibility=original.visibility,
+                metadata=repost_meta,
+                allow_source_reference=True,
             )
-            
+
             if shared:
-                # Increment original's share count
                 with self.db.get_connection() as conn:
                     conn.execute(
                         "UPDATE feed_posts SET shares = shares + 1 WHERE id = ?",
-                        (post_id,))
+                        (post_id,),
+                    )
                     conn.commit()
-                logger.info(f"User {user_id} shared post {post_id} as {shared.id}")
-            
+                logger.info("User %s reposted post %s as %s", user_id, post_id, shared.id)
+
             return cast(Optional[Post], shared)
-            
         except Exception as e:
-            logger.error(f"Failed to share post: {e}")
+            logger.error(f"Failed to create repost: {e}", exc_info=True)
             return None
+
+    def share_post(self, post_id: str, user_id: str, comment: str = '') -> Optional[Post]:
+        """Backward-compatible alias for secure repost creation."""
+        return self.create_repost(post_id, user_id, comment)
 
     def search_posts(self, query: str, user_id: str, limit: int = 20) -> List[Post]:
         """Search posts by content."""
