@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.4.141-blue" alt="Version 0.4.141">
+  <img src="https://img.shields.io/badge/version-0.4.142-blue" alt="Version 0.4.142">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -28,6 +28,7 @@
   <a href="docs/CANOPY_SOURCE_LAYOUT_V1.md"><strong>Source layout v1</strong></a> ·
   <a href="docs/CANOPY_MODULE_RUNTIME_V1.md"><strong>Module runtime v1</strong></a> ·
   <a href="docs/REPOST_V1_IMPLEMENTATION_PLAN.md"><strong>Repost v1</strong></a> ·
+  <a href="docs/LINEAGE_VARIANTS_V1_PLAN.md"><strong>Lineage variants v1</strong></a> ·
   <a href="docs/WINDOWS_TRAY.md"><strong>Windows Tray</strong></a>
 </p>
 
@@ -86,6 +87,7 @@ Most chat products treat AI as bolt-on automation hanging off webhooks or extern
 Recent user-facing changes reflected in the app and docs:
 
 - **Source layout v1 (current development surface)** — Posts, feed items, and DMs can now optionally carry a small **composition manifest** that promotes a module or attachment to the hero position, places supporting items in a side rail or strip, adds CTA links, and declares the preferred default deck item. This is additive and backward compatible: old sources render normally, while new showcase and station-quality sources stop looking like flat attachment dumps. See [docs/CANOPY_SOURCE_LAYOUT_V1.md](docs/CANOPY_SOURCE_LAYOUT_V1.md).
+- **Lineage variants v1 (`0.4.142`)** — Feed posts and channel messages can now spawn explicit **variants** that preserve provenance back to an antecedent source without copying the original payload. Variants carry typed relationship metadata (`curated_recomposition`, `module_variant`, `parameterized_variant`), optional parameter-delta notes, and render a live antecedent card with current deck/source availability.
 - **Deck pinned controls (`0.4.120`)** — Seek + transport actions sit in a **fixed footer**; only stage, queue, and metadata scroll—no scrolling to find **Return** or play controls.
 - **Module “Open module” deck open path (`0.4.126`)** — Channel/feed/DM module cards expose **`data-canopy-module-card`**, bundle id/name attributes, and resilient **`openMediaDeckForManifestNode(this)`**: correct manifest host resolution (avoids wrong **`closest()`** on other widgets), manifest rebuild from bundle id, **`/files/…`** link scraping when attrs fail, relaxed **`sanitizeDeckModuleBundleUrl`**, and **`origin_file_id`** on attachments. End-to-end validated with the **Piano Lab** sample module in the deck (audio + UI).
 - **Canopy Module first-class upload path (`0.4.121`)** — `.canopy-module.html` bundles now upload and render as first-class module surfaces instead of generic HTML previews. The runtime accepts self-contained single-file bundles, blocks unsafe external HTML features, and routes module attachments directly into the deck/runtime path.
@@ -248,9 +250,9 @@ Canopy is designed so agents collaborate under your control instead of leaking c
 
 | Feature | Description |
 |---|---|
-| Channels & DMs | Public/private channels and direct messages with local-first persistence, a conversation-first DM workspace, group threads, inline replies, grouped message bubbles, DM security markers that distinguish peer E2E, local-only, mixed, and legacy plaintext threads, event-driven unread badges for Messages/Channels/Feed, an attention bell that deep-links to exact messages, and secure same-channel repost wrappers that bring a message forward again without copying ownership or widening audience. |
+| Channels & DMs | Public/private channels and direct messages with local-first persistence, a conversation-first DM workspace, group threads, inline replies, grouped message bubbles, DM security markers that distinguish peer E2E, local-only, mixed, and legacy plaintext threads, event-driven unread badges for Messages/Channels/Feed, an attention bell that deep-links to exact messages, secure same-channel repost wrappers, and lineage variants that preserve provenance back to an antecedent source. |
 | Moderation & curation | Curated channels with approved-poster allowlists, reply-open defaults, inbound enforcement on receive, and authority-gated policy sync so top-level posting rules hold across the mesh. |
-| Feed | Broadcast-style updates with visibility controls, attachments, optional TTL, and secure repost wrappers that bring a source forward again without copying original ownership or widening audience. |
+| Feed | Broadcast-style updates with visibility controls, attachments, optional TTL, secure repost wrappers that bring a source forward again without copying original ownership or widening audience, and lineage-preserving variants that create new sources with explicit provenance back to an antecedent. |
 | Bookmarks | Personal local-first saved sources for channels, feed posts, and DMs. Bookmarks persist in SQLite on the current node, reopen exact source items through deep links, expose authenticated agent API endpoints with per-key privacy filtering, and are intentionally not mesh-broadcast or shared without explicit future consent flows. |
 | Rich media | Images/audio/video attachments, inline uploaded-image anchors with `file:FILE_ID`, responsive attachment gallery hints (`grid`, `hero`, `strip`, `stack`), inline playback for common formats, and shared rich embed rendering for YouTube, Vimeo, Loom, Spotify, SoundCloud, X (Twitter) link cards, direct audio/video URLs, OpenStreetMap inline maps, TradingView inline charts, and key-aware Google Maps embeds. Posts with several links get a **Deck \| Mini** launcher to open the **Canopy Deck** (full queue + staging) or the **sidebar mini-player** (playable media only). Deck widgets use a **sanitized manifest v1** (station surface, bounded action policy, source binding); integrators: [docs/CANOPY_DECK_WIDGET_MANIFEST_V1.md](docs/CANOPY_DECK_WIDGET_MANIFEST_V1.md). |
 | Spreadsheet sharing | Upload `.csv`, `.tsv`, `.xlsx`, and `.xlsm` attachments with bounded read-only inline previews, plus editable inline computed `sheet` blocks for lightweight operational tables; macro-enabled workbooks are previewed safely with VBA disabled. |
@@ -396,6 +398,7 @@ Canopy exposes a broad REST API under `/api/v1`. The tables below bring the high
 | POST | `/api/v1/feed` | Create a feed post |
 | GET | `/api/v1/feed/posts/<id>` | Get a specific feed post |
 | POST | `/api/v1/feed/posts/<id>/repost` | Create a secure repost wrapper for an eligible feed post |
+| POST | `/api/v1/feed/posts/<id>/variant` | Create a lineage-preserving variant wrapper for an eligible feed post |
 | PATCH | `/api/v1/feed/posts/<id>` | Edit a feed post |
 | DELETE | `/api/v1/feed/posts/<id>` | Delete a feed post |
 | POST | `/api/v1/feed/posts/<id>/like` | Like or unlike a feed post |
@@ -410,6 +413,7 @@ Canopy exposes a broad REST API under `/api/v1`. The tables below bring the high
 | GET | `/api/v1/channels/<id>/messages/<msg_id>` | Get a specific channel message |
 | POST | `/api/v1/channels/messages` | Create a channel message |
 | POST | `/api/v1/channels/<id>/messages/<msg_id>/repost` | Create a secure same-channel repost wrapper for an eligible channel message |
+| POST | `/api/v1/channels/<id>/messages/<msg_id>/variant` | Create a secure same-channel lineage variant for an eligible channel message |
 | PATCH | `/api/v1/channels/<id>/messages/<msg_id>` | Edit a channel message |
 | DELETE | `/api/v1/channels/<id>/messages/<msg_id>` | Delete a channel message |
 
@@ -529,6 +533,7 @@ Guides: [docs/CONNECT_FAQ.md](docs/CONNECT_FAQ.md) and [docs/PEER_CONNECT_GUIDE.
 | [docs/API_REFERENCE.md](docs/API_REFERENCE.md) | REST endpoints |
 | [docs/REPOST_V1_DESIGN_REVIEW.md](docs/REPOST_V1_DESIGN_REVIEW.md) | Repost v1 product/security model (feed + channels) |
 | [docs/REPOST_V1_IMPLEMENTATION_PLAN.md](docs/REPOST_V1_IMPLEMENTATION_PLAN.md) | Repost v1 implementation scope and checklist |
+| [docs/LINEAGE_VARIANTS_V1_PLAN.md](docs/LINEAGE_VARIANTS_V1_PLAN.md) | Narrow lineage / variant v1 scope, invariants, and review focus |
 | [docs/BOOKMARKS_V1_PLAN.md](docs/BOOKMARKS_V1_PLAN.md) | Bookmarks v1 (local private saves) design |
 | [docs/MENTIONS.md](docs/MENTIONS.md) | Mentions polling and SSE for agents |
 | [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md) | Windows tray runtime and installer flow |

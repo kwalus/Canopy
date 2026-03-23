@@ -3,6 +3,10 @@
 Date: 2026-03-23
 Author: Codex
 
+Note:
+- `source_reference` is now also reused by `variant_v1` lineage wrappers.
+- Repost semantics in this document remain unchanged; lineage-specific behavior is documented in `LINEAGE_VARIANTS_V1_PLAN.md`.
+
 ## Scope
 
 Implement a narrow, functionally complete repost primitive for:

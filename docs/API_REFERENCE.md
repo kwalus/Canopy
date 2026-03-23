@@ -122,6 +122,7 @@ curl -s -X DELETE http://localhost:7770/api/v1/bookmarks/BKabc123... \
 | GET | `/channels/<id>/messages/<msg_id>` | Yes | Get a single channel message |
 | POST | `/channels/messages` | Yes | Post a message (`channel_id`, `content`; optional: `expires_at`, `ttl_seconds`, compatibility `ttl_mode`, `attachments`, `reply_to`, `source_layout`) |
 | POST | `/channels/<id>/messages/<msg_id>/repost` | Yes | Create a secure same-channel repost wrapper for an eligible channel message. Optional JSON body: `comment`. |
+| POST | `/channels/<id>/messages/<msg_id>/variant` | Yes | Create a secure same-channel lineage variant for an eligible channel message. Optional JSON body: `comment`, `relationship_kind`, `module_param_delta`. |
 | PATCH | `/channels/<id>/messages/<msg_id>` | Yes | Edit a channel message (optional `source_layout`) |
 | DELETE | `/channels/<id>/messages/<msg_id>` | Yes | Delete a channel message (author only) |
 | POST | `/channels/<id>/messages/<msg_id>/like` | Yes | Like or unlike a channel message |
@@ -149,6 +150,25 @@ Channel repost v1 notes:
 - If the original message is deleted, expires, or later becomes inaccessible to the viewer, channel responses continue to include the repost wrapper but the `repost_reference` payload degrades to an unavailable state.
 - When the source resolves, `repost_reference` includes a live preview contract for clients: `body_text`, `body_truncated`, `preview_text`, `embed`, `author_id`, `created_at`, `href`, `has_source_layout`, and `deck_default_ref`.
 - Generic `POST /channels/messages` and `PATCH /channels/<id>/messages/<msg_id>` requests strip caller-supplied `source_reference` unless an internal repost path explicitly enables it. Use the dedicated repost endpoint instead of trying to forge repost wrappers through generic message creation.
+
+Channel variant v1 notes:
+- Channel variants are lineage-preserving reference wrappers, not copied messages.
+- New channel variants store `source_reference.kind = variant_v1` on the new message and keep the antecedent authoritative.
+- Channel variants are limited to the exact same channel in v1. Cross-channel variants are rejected.
+- Repost wrappers cannot be used as antecedents for variants in v1.
+- Variant responses include `is_variant` plus a live `variant_reference` payload with `relationship_kind`, `relationship_label`, optional `module_param_delta`, and the same antecedent preview contract used for repost cards.
+- Generic `POST /channels/messages` and `PATCH /channels/<id>/messages/<msg_id>` requests continue to strip caller-supplied `source_reference`. Use the dedicated variant endpoint instead of trying to forge lineage through generic message creation.
+
+Example channel variant:
+
+```bash
+curl -s -X POST http://localhost:7770/api/v1/channels/CHAN123/messages/MSG123/variant \
+  -H "X-API-Key: $CANOPY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{\"comment\": \"Faster drill version.\", \"relationship_kind\": \"module_variant\", \"module_param_delta\": \"tempo=138; loop=bars 5-8\"}'
+```
+
+**Web UI (session):** `POST /ajax/variant_channel_message` with JSON `channel_id`, `message_id`, optional `comment`, `relationship_kind`, and `module_param_delta`.
 
 Example channel repost:
 
@@ -197,6 +217,7 @@ DM security notes:
 | POST | `/feed` | Yes | Create a feed post (optional: `expires_at`, `ttl_seconds`, compatibility `ttl_mode`, `visibility`, `metadata`; `metadata.source_layout` is supported) |
 | GET | `/feed/posts/<id>` | Yes | Get a specific post |
 | POST | `/feed/posts/<id>/repost` | Yes | Create a secure repost wrapper for an eligible feed post. Optional JSON body: `comment`. |
+| POST | `/feed/posts/<id>/variant` | Yes | Create a lineage-preserving variant wrapper for an eligible feed post. Optional JSON body: `comment`, `relationship_kind`, `module_param_delta`. |
 | PATCH | `/feed/posts/<id>` | Yes | Edit a post (optional `metadata.source_layout`) |
 | DELETE | `/feed/posts/<id>` | Yes | Delete a post |
 | POST | `/feed/posts/<id>/like` | Yes | Like or unlike a feed post |
@@ -219,6 +240,25 @@ Feed repost v1 notes:
 - If the original source is deleted, expired, or later becomes inaccessible, feed responses continue to include the repost wrapper but the `repost_reference` payload degrades to an unavailable state.
 - When the source resolves, `repost_reference` includes a **rich preview** for clients (still live-resolved, not stored on the repost row): `body_text` (up to ~8k chars, `body_truncated` if longer), `preview_text` (short), `embed` (type-specific: e.g. `link_url` / `link_title`, `image_url`, `video_url`, `audio_url`, `poll_question` / `poll_option_previews`, `attachment_images` thumbnails from metadata), plus `author_id`, `created_at`, `href`, etc.
 - Generic `POST /feed` and `PATCH /feed/posts/<id>` requests strip caller-supplied repost metadata (`source_reference` and legacy copied-share fields). Use the dedicated repost endpoint instead of trying to forge reposts through generic post creation.
+
+Feed variant v1 notes:
+- Feed variants are lineage-preserving reference wrappers, not copied posts.
+- New variants store `metadata.source_reference.kind = variant_v1` and keep the antecedent post authoritative.
+- Feed variants inherit the original feed post visibility exactly and are only eligible for original visibility in `public`, `network`, or `trusted`.
+- Repost wrappers cannot be used as antecedents for variants in v1.
+- Feed responses include `is_variant` plus a live `variant_reference` payload with `relationship_kind`, `relationship_label`, optional `module_param_delta`, and the same antecedent preview contract used for repost cards.
+- Generic `POST /feed` and `PATCH /feed/posts/<id>` requests continue to strip caller-supplied lineage metadata. Use the dedicated variant endpoint instead of trying to forge lineage through generic post creation.
+
+Example variant:
+
+```bash
+curl -s -X POST http://localhost:7770/api/v1/feed/posts/POSTabc123/variant \
+  -H "X-API-Key: $CANOPY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{\"comment\": \"Faster neon ladder.\", \"relationship_kind\": \"parameterized_variant\", \"module_param_delta\": \"tempo=144; density=high\"}'
+```
+
+**Web UI (session):** `POST /ajax/variant_post` with JSON `post_id`, optional `comment`, `relationship_kind`, and `module_param_delta` — inline composer on the feed.
 
 Example repost:
 

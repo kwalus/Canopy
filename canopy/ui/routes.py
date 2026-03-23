@@ -1070,6 +1070,40 @@ def create_ui_blueprint() -> Blueprint:
             payload['unavailable_label'] = 'Original source unavailable'
         return payload
 
+    def _variant_relationship_label(value: Any) -> str:
+        normalized = str(value or '').strip().lower()
+        if normalized == 'module_variant':
+            return 'Module variant'
+        if normalized == 'parameterized_variant':
+            return 'Parameterized variant'
+        return 'Curated recomposition'
+
+    def _decorate_feed_variant_reference_ui(
+        variant_reference: Any,
+        db_manager: Any,
+        profile_manager: Any,
+    ) -> Optional[dict[str, Any]]:
+        if not isinstance(variant_reference, dict):
+            return None
+        payload = dict(variant_reference)
+        source_id = str(payload.get('source_id') or '').strip()
+        if source_id:
+            payload['href'] = f"{url_for('ui.feed')}?focus_post={quote_plus(source_id)}"
+        payload['relationship_label'] = _variant_relationship_label(payload.get('relationship_kind'))
+        author_id = str(payload.get('author_id') or '').strip()
+        if payload.get('available') and author_id:
+            payload['author_display'] = _bookmark_author_label(author_id, db_manager, profile_manager)
+        reason = str(payload.get('unavailable_reason') or '').strip().lower()
+        if reason == 'expired':
+            payload['unavailable_label'] = 'Antecedent source expired'
+        elif reason == 'policy_denied':
+            payload['unavailable_label'] = 'Antecedent source variants disabled'
+        elif reason == 'access_changed':
+            payload['unavailable_label'] = 'Antecedent source access changed'
+        else:
+            payload['unavailable_label'] = 'Antecedent source unavailable'
+        return payload
+
     def _decorate_channel_repost_reference_ui(
         repost_reference: Any,
         db_manager: Any,
@@ -1093,6 +1127,32 @@ def create_ui_blueprint() -> Blueprint:
             payload['unavailable_label'] = 'Original source access changed'
         else:
             payload['unavailable_label'] = 'Original source unavailable'
+        return payload
+
+    def _decorate_channel_variant_reference_ui(
+        variant_reference: Any,
+        db_manager: Any,
+        profile_manager: Any,
+    ) -> Optional[dict[str, Any]]:
+        if not isinstance(variant_reference, dict):
+            return None
+        payload = dict(variant_reference)
+        source_id = str(payload.get('source_id') or '').strip()
+        if source_id:
+            payload['href'] = f"{url_for('ui.locate_channel_message')}?message_id={quote_plus(source_id)}"
+        payload['relationship_label'] = _variant_relationship_label(payload.get('relationship_kind'))
+        author_id = str(payload.get('author_id') or '').strip()
+        if payload.get('available') and author_id:
+            payload['author_display'] = _bookmark_author_label(author_id, db_manager, profile_manager)
+        reason = str(payload.get('unavailable_reason') or '').strip().lower()
+        if reason == 'expired':
+            payload['unavailable_label'] = 'Antecedent source expired'
+        elif reason == 'policy_denied':
+            payload['unavailable_label'] = 'Antecedent source variants disabled'
+        elif reason == 'access_changed':
+            payload['unavailable_label'] = 'Antecedent source access changed'
+        else:
+            payload['unavailable_label'] = 'Antecedent source unavailable'
         return payload
 
     def _build_dm_message_bookmark_payload(
@@ -4272,14 +4332,26 @@ def create_ui_blueprint() -> Blueprint:
                     'tags': post.tags_list,
                 }
                 repost_reference = None
+                variant_reference = None
                 try:
                     repost_reference = feed_manager.resolve_repost_reference(post, user_id) if feed_manager else None
                 except Exception:
                     repost_reference = None
+                try:
+                    variant_reference = feed_manager.resolve_variant_reference(post, user_id) if feed_manager else None
+                except Exception:
+                    variant_reference = None
                 post_dict['is_repost'] = bool(repost_reference)
                 if repost_reference:
                     post_dict['repost_reference'] = _decorate_feed_repost_reference_ui(
                         repost_reference,
+                        db_manager,
+                        profile_manager,
+                    )
+                post_dict['is_variant'] = bool(variant_reference)
+                if variant_reference:
+                    post_dict['variant_reference'] = _decorate_feed_variant_reference_ui(
+                        variant_reference,
                         db_manager,
                         profile_manager,
                     )
@@ -10541,6 +10613,41 @@ def create_ui_blueprint() -> Blueprint:
             logger.error(f"Repost post error: {e}")
             return jsonify({'error': 'Internal server error'}), 500
 
+    @ui.route('/ajax/variant_post', methods=['POST'])
+    @require_login
+    def ajax_variant_post():
+        """AJAX endpoint to create a lineage-preserving variant for a feed post."""
+        try:
+            _, _, _, _, _, _, feed_manager, _, _, _, _ = _get_app_components_any(current_app)
+            user_id = get_current_user()
+
+            data = request.get_json() or {}
+            post_id = str(data.get('post_id') or '').strip()
+            comment = str(data.get('comment') or '').strip()
+            relationship_kind = str(data.get('relationship_kind') or '').strip()
+            module_param_delta = str(data.get('module_param_delta') or '').strip()
+
+            if not post_id:
+                return jsonify({'error': 'Post ID required'}), 400
+
+            eligibility = feed_manager.get_variant_eligibility(post_id, user_id)
+            if not eligibility.get('allowed'):
+                return jsonify({'error': eligibility.get('reason') or 'Variant not allowed'}), int(eligibility.get('status_code') or 400)
+
+            variant = feed_manager.create_variant(
+                post_id,
+                user_id,
+                comment,
+                relationship_kind=relationship_kind,
+                module_param_delta=module_param_delta,
+            )
+            if variant:
+                return jsonify({'success': True, 'post': variant.to_dict()})
+            return jsonify({'error': 'Failed to create variant'}), 500
+        except Exception as e:
+            logger.error(f"Variant post error: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @ui.route('/ajax/repost_channel_message', methods=['POST'])
     @require_login
     def ajax_repost_channel_message():
@@ -10629,6 +10736,100 @@ def create_ui_blueprint() -> Blueprint:
             return jsonify({'success': True, 'message': repost.to_dict()})
         except Exception as e:
             logger.error(f"Channel repost error: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/variant_channel_message', methods=['POST'])
+    @require_login
+    def ajax_variant_channel_message():
+        """AJAX endpoint to create a same-channel lineage variant wrapper."""
+        try:
+            db_manager, _, _, _, channel_manager, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+            user_id = get_current_user()
+            data = request.get_json() or {}
+            channel_id = str(data.get('channel_id') or '').strip()
+            message_id = str(data.get('message_id') or '').strip()
+            comment = str(data.get('comment') or '').strip()
+            relationship_kind = str(data.get('relationship_kind') or '').strip()
+            module_param_delta = str(data.get('module_param_delta') or '').strip()
+
+            if not channel_id:
+                return jsonify({'error': 'Channel ID required'}), 400
+            if not message_id:
+                return jsonify({'error': 'Message ID required'}), 400
+
+            access = channel_manager.get_channel_access_decision(
+                channel_id=channel_id,
+                user_id=user_id,
+                require_membership=True,
+            )
+            if not access.get('allowed'):
+                if str(access.get('reason') or '').startswith('governance_'):
+                    return jsonify({
+                        'error': 'Channel access blocked by admin governance policy',
+                        'reason': access.get('reason'),
+                    }), 403
+                return jsonify({'error': 'You are not a member of this channel'}), 403
+
+            eligibility = channel_manager.get_variant_eligibility(message_id, user_id, channel_id)
+            if not eligibility.get('allowed'):
+                return jsonify({'error': eligibility.get('reason') or 'Variant not allowed'}), int(eligibility.get('status_code') or 400)
+
+            variant = channel_manager.create_variant(
+                source_message_id=message_id,
+                user_id=user_id,
+                channel_id=channel_id,
+                comment=comment,
+                relationship_kind=relationship_kind,
+                module_param_delta=module_param_delta,
+                origin_peer=p2p_manager.get_peer_id() if p2p_manager else None,
+            )
+            if not variant:
+                return jsonify({'error': 'Failed to create variant'}), 500
+
+            if p2p_manager and p2p_manager.is_running():
+                try:
+                    sender_display = None
+                    channel_mode = 'open'
+                    target_peer_ids = None
+                    try:
+                        with db_manager.get_connection() as conn:
+                            mode_row = conn.execute(
+                                "SELECT privacy_mode FROM channels WHERE id = ?",
+                                (channel_id,),
+                            ).fetchone()
+                        if mode_row:
+                            channel_mode = (mode_row['privacy_mode'] or 'open').lower()
+                        if channel_mode in {'private', 'confidential'}:
+                            local_peer = p2p_manager.get_peer_id() if p2p_manager else None
+                            target_peer_ids = channel_manager.get_member_peer_ids(channel_id, local_peer)
+                    except Exception:
+                        target_peer_ids = None
+                    if profile_manager:
+                        profile = profile_manager.get_profile(user_id)
+                        if profile:
+                            sender_display = profile.display_name or profile.username
+                    p2p_manager.broadcast_channel_message(
+                        channel_id=channel_id,
+                        user_id=user_id,
+                        content=variant.content,
+                        message_id=variant.id,
+                        timestamp=variant.created_at.isoformat() if getattr(variant, 'created_at', None) else datetime.now(timezone.utc).isoformat(),
+                        attachments=variant.attachments if getattr(variant, 'attachments', None) else None,
+                        source_layout=getattr(variant, 'source_layout', None),
+                        source_reference=getattr(variant, 'source_reference', None),
+                        repost_policy=getattr(variant, 'repost_policy', None),
+                        display_name=sender_display,
+                        expires_at=variant.expires_at.isoformat() if getattr(variant, 'expires_at', None) else None,
+                        parent_message_id=getattr(variant, 'parent_message_id', None),
+                        security={'privacy_mode': channel_mode},
+                        target_peer_ids=target_peer_ids,
+                    )
+                except Exception as p2p_err:
+                    logger.warning(f"Failed to broadcast channel variant via P2P: {p2p_err}")
+
+            return jsonify({'success': True, 'message': variant.to_dict()})
+        except Exception as e:
+            logger.error(f"Channel variant error: {e}", exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
     # ------------------------------------------------------------------
@@ -11355,14 +11556,26 @@ def create_ui_blueprint() -> Blueprint:
                 try:
                     msg_dict = message.to_dict()
                     repost_reference = None
+                    variant_reference = None
                     try:
                         repost_reference = channel_manager.resolve_repost_reference(message, user_id)
                     except Exception:
                         repost_reference = None
+                    try:
+                        variant_reference = channel_manager.resolve_variant_reference(message, user_id)
+                    except Exception:
+                        variant_reference = None
                     msg_dict['is_repost'] = bool(repost_reference)
                     if repost_reference:
                         msg_dict['repost_reference'] = _decorate_channel_repost_reference_ui(
                             repost_reference,
+                            db_manager,
+                            profile_manager,
+                        )
+                    msg_dict['is_variant'] = bool(variant_reference)
+                    if variant_reference:
+                        msg_dict['variant_reference'] = _decorate_channel_variant_reference_ui(
+                            variant_reference,
                             db_manager,
                             profile_manager,
                         )
