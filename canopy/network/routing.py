@@ -972,6 +972,8 @@ class MessageRouter:
                     from_peer=message.from_peer,
                     attachments=meta.get('attachments'),
                     source_layout=meta.get('source_layout'),
+                    source_reference=meta.get('source_reference'),
+                    repost_policy=meta.get('repost_policy'),
                     security=meta.get('security'),
                     message_type=meta.get('message_type', 'text'),
                     display_name=meta.get('display_name'),

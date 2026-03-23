@@ -1070,6 +1070,31 @@ def create_ui_blueprint() -> Blueprint:
             payload['unavailable_label'] = 'Original source unavailable'
         return payload
 
+    def _decorate_channel_repost_reference_ui(
+        repost_reference: Any,
+        db_manager: Any,
+        profile_manager: Any,
+    ) -> Optional[dict[str, Any]]:
+        if not isinstance(repost_reference, dict):
+            return None
+        payload = dict(repost_reference)
+        source_id = str(payload.get('source_id') or '').strip()
+        if source_id:
+            payload['href'] = f"{url_for('ui.locate_channel_message')}?message_id={quote_plus(source_id)}"
+        author_id = str(payload.get('author_id') or '').strip()
+        if payload.get('available') and author_id:
+            payload['author_display'] = _bookmark_author_label(author_id, db_manager, profile_manager)
+        reason = str(payload.get('unavailable_reason') or '').strip().lower()
+        if reason == 'expired':
+            payload['unavailable_label'] = 'Original source expired'
+        elif reason == 'policy_denied':
+            payload['unavailable_label'] = 'Original source repost disabled'
+        elif reason == 'access_changed':
+            payload['unavailable_label'] = 'Original source access changed'
+        else:
+            payload['unavailable_label'] = 'Original source unavailable'
+        return payload
+
     def _build_dm_message_bookmark_payload(
         user_id: str,
         source_id: str,
@@ -10516,6 +10541,96 @@ def create_ui_blueprint() -> Blueprint:
             logger.error(f"Repost post error: {e}")
             return jsonify({'error': 'Internal server error'}), 500
 
+    @ui.route('/ajax/repost_channel_message', methods=['POST'])
+    @require_login
+    def ajax_repost_channel_message():
+        """AJAX endpoint to create a secure same-channel repost wrapper."""
+        try:
+            db_manager, _, _, _, channel_manager, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+            user_id = get_current_user()
+            data = request.get_json() or {}
+            channel_id = str(data.get('channel_id') or '').strip()
+            message_id = str(data.get('message_id') or '').strip()
+            comment = str(data.get('comment') or '').strip()
+
+            if not channel_id:
+                return jsonify({'error': 'Channel ID required'}), 400
+            if not message_id:
+                return jsonify({'error': 'Message ID required'}), 400
+
+            access = channel_manager.get_channel_access_decision(
+                channel_id=channel_id,
+                user_id=user_id,
+                require_membership=True,
+            )
+            if not access.get('allowed'):
+                if str(access.get('reason') or '').startswith('governance_'):
+                    return jsonify({
+                        'error': 'Channel access blocked by admin governance policy',
+                        'reason': access.get('reason'),
+                    }), 403
+                return jsonify({'error': 'You are not a member of this channel'}), 403
+
+            eligibility = channel_manager.get_repost_eligibility(message_id, user_id, channel_id)
+            if not eligibility.get('allowed'):
+                return jsonify({'error': eligibility.get('reason') or 'Repost not allowed'}), int(eligibility.get('status_code') or 400)
+
+            repost = channel_manager.create_repost(
+                source_message_id=message_id,
+                user_id=user_id,
+                channel_id=channel_id,
+                comment=comment,
+                origin_peer=p2p_manager.get_peer_id() if p2p_manager else None,
+            )
+            if not repost:
+                return jsonify({'error': 'Failed to create repost'}), 500
+
+            if p2p_manager and p2p_manager.is_running():
+                try:
+                    sender_display = None
+                    channel_mode = 'open'
+                    target_peer_ids = None
+                    try:
+                        with db_manager.get_connection() as conn:
+                            mode_row = conn.execute(
+                                "SELECT privacy_mode FROM channels WHERE id = ?",
+                                (channel_id,),
+                            ).fetchone()
+                        if mode_row:
+                            channel_mode = (mode_row['privacy_mode'] or 'open').lower()
+                        if channel_mode in {'private', 'confidential'}:
+                            local_peer = p2p_manager.get_peer_id() if p2p_manager else None
+                            target_peer_ids = channel_manager.get_member_peer_ids(channel_id, local_peer)
+                    except Exception:
+                        target_peer_ids = None
+                    if profile_manager:
+                        profile = profile_manager.get_profile(user_id)
+                        if profile:
+                            sender_display = profile.display_name or profile.username
+                    p2p_manager.broadcast_channel_message(
+                        channel_id=channel_id,
+                        user_id=user_id,
+                        content=repost.content,
+                        message_id=repost.id,
+                        timestamp=repost.created_at.isoformat() if getattr(repost, 'created_at', None) else datetime.now(timezone.utc).isoformat(),
+                        attachments=repost.attachments if getattr(repost, 'attachments', None) else None,
+                        source_layout=getattr(repost, 'source_layout', None),
+                        source_reference=getattr(repost, 'source_reference', None),
+                        repost_policy=getattr(repost, 'repost_policy', None),
+                        display_name=sender_display,
+                        expires_at=repost.expires_at.isoformat() if getattr(repost, 'expires_at', None) else None,
+                        parent_message_id=getattr(repost, 'parent_message_id', None),
+                        security={'privacy_mode': channel_mode},
+                        target_peer_ids=target_peer_ids,
+                    )
+                except Exception as p2p_err:
+                    logger.warning(f"Failed to broadcast channel repost via P2P: {p2p_err}")
+
+            return jsonify({'success': True, 'message': repost.to_dict()})
+        except Exception as e:
+            logger.error(f"Channel repost error: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     # ------------------------------------------------------------------
     #  Feed algorithm preferences
     # ------------------------------------------------------------------
@@ -11239,6 +11354,18 @@ def create_ui_blueprint() -> Blueprint:
             for message in messages:
                 try:
                     msg_dict = message.to_dict()
+                    repost_reference = None
+                    try:
+                        repost_reference = channel_manager.resolve_repost_reference(message, user_id)
+                    except Exception:
+                        repost_reference = None
+                    msg_dict['is_repost'] = bool(repost_reference)
+                    if repost_reference:
+                        msg_dict['repost_reference'] = _decorate_channel_repost_reference_ui(
+                            repost_reference,
+                            db_manager,
+                            profile_manager,
+                        )
                     blob = layout_by_id.get(str(message.id))
                     if blob is not None:
                         msg_dict['source_layout'] = _normalize_sl_for_channel_ajax(blob)
@@ -12570,6 +12697,7 @@ def create_ui_blueprint() -> Blueprint:
             security = data.get('security')
             from ..core.source_layout import normalize_source_layout
             source_layout = normalize_source_layout(data.get('source_layout'))
+            repost_policy = data.get('repost_policy')
             ttl_mode = data.get('ttl_mode')
             ttl_seconds = data.get('ttl_seconds')
             expires_at = data.get('expires_at')
@@ -12670,6 +12798,7 @@ def create_ui_blueprint() -> Blueprint:
                 attachments=processed_attachments,
                 security=security_clean,
                 source_layout=source_layout,
+                repost_policy=repost_policy,
                 expires_at=expires_at,
                 ttl_seconds=ttl_seconds,
                 ttl_mode=ttl_mode,
@@ -13209,6 +13338,8 @@ def create_ui_blueprint() -> Blueprint:
                             timestamp=message.created_at.isoformat() if hasattr(message.created_at, 'isoformat') else str(message.created_at),
                             attachments=message.attachments if hasattr(message, 'attachments') and message.attachments else None,
                             source_layout=getattr(message, 'source_layout', None),
+                            source_reference=getattr(message, 'source_reference', None),
+                            repost_policy=getattr(message, 'repost_policy', None),
                             display_name=sender_display,
                             expires_at=message.expires_at.isoformat() if getattr(message, 'expires_at', None) else None,
                             ttl_seconds=ttl_seconds,
@@ -13761,7 +13892,7 @@ def create_ui_blueprint() -> Blueprint:
             # Fetch existing message for ownership + channel info
             with db_manager.get_connection() as conn:
                 row = conn.execute(
-                    "SELECT id, channel_id, user_id, content, created_at, attachments, source_layout, expires_at, ttl_seconds, ttl_mode, parent_message_id "
+                    "SELECT id, channel_id, user_id, content, created_at, attachments, source_layout, source_reference, repost_policy, expires_at, ttl_seconds, ttl_mode, parent_message_id "
                     "FROM channel_messages WHERE id = ?",
                     (message_id,)
                 ).fetchone()
@@ -13824,6 +13955,7 @@ def create_ui_blueprint() -> Blueprint:
                     final_source_layout = normalize_source_layout(json.loads(row['source_layout']))
                 except Exception:
                     final_source_layout = None
+            final_repost_policy = data.get('repost_policy')
 
             success = channel_manager.update_message(
                 message_id=message_id,
@@ -13831,6 +13963,7 @@ def create_ui_blueprint() -> Blueprint:
                 content=content,
                 attachments=final_attachments if final_attachments else None,
                 source_layout=final_source_layout,
+                repost_policy=final_repost_policy,
                 allow_admin=False,
             )
 
@@ -14158,6 +14291,8 @@ def create_ui_blueprint() -> Blueprint:
                             timestamp=str(row['created_at']),
                             attachments=final_attachments if final_attachments else None,
                             source_layout=final_source_layout,
+                            source_reference=json.loads(row['source_reference']) if row['source_reference'] else None,
+                            repost_policy=final_repost_policy if final_repost_policy is not None else row['repost_policy'],
                             display_name=display_name,
                             expires_at=row['expires_at'],
                             ttl_seconds=row['ttl_seconds'],

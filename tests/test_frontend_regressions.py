@@ -209,6 +209,15 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('Original source unavailable', feed_template)
         self.assertIn('bi bi-repeat', feed_template)
 
+    def test_channel_repost_ui_uses_reference_wrapper_language(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        self.assertIn('data-repost-wrapper="1"', channels_template)
+        self.assertIn('function renderChannelRepostCard(message)', channels_template)
+        self.assertIn('function toggleChannelRepostComposer(messageId)', channels_template)
+        self.assertIn("apiCall('/ajax/repost_channel_message'", channels_template)
+        self.assertIn('Original source unavailable', channels_template)
+        self.assertIn('channel-repost-compose-', channels_template)
+
     def test_sidebar_cards_support_three_states_and_mini_player_placement(self) -> None:
         base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')

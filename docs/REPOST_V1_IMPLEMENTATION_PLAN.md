@@ -5,21 +5,23 @@ Author: Codex
 
 ## Scope
 
-Implement a narrow, functionally complete repost primitive for feed posts only.
+Implement a narrow, functionally complete repost primitive for:
+- feed post -> feed repost
+- channel message -> same-channel repost
 
 Included in v1:
-- feed post -> feed repost
 - local UI repost action
 - agent API repost action
 - live read/render resolution of the original source
 - bounded unavailable state when the original can no longer be rendered
 - backward-compatible reading of legacy copied shares
+- same-channel repost wrappers for channel messages
 
 Explicitly excluded from v1:
-- channel reposts
 - DM reposts
 - cross-channel reposts
 - channel -> feed reposts
+- feed -> channel reposts
 - repost chains
 - audience widening on repost
 - copied original payloads
@@ -40,6 +42,8 @@ Explicitly excluded from v1:
 - v1 disallows repost of:
   - `private`
   - `custom`
+- channel reposts are limited to the exact same channel in v1
+- channel reposts never cross channel membership or governance boundaries
 
 3. Owner control is preserved.
 - original source remains authoritative
@@ -64,6 +68,20 @@ New repost metadata block for feed posts:
     "source_type": "feed_post",
     "source_id": "POST123",
     "source_visibility": "network",
+    "created_by_user_id": "user_xyz"
+  }
+}
+```
+
+New repost metadata block for channel messages:
+
+```json
+{
+  "source_reference": {
+    "kind": "repost_v1",
+    "source_type": "channel_message",
+    "source_id": "MSG123",
+    "channel_id": "CHAN123",
     "created_by_user_id": "user_xyz"
   }
 }
@@ -118,6 +136,7 @@ Keep `/ajax/share_post` as a backward-compatible UI alias, but switch it to safe
 
 Add agent/API endpoint:
 - `POST /api/v1/feed/posts/<post_id>/repost`
+- `POST /api/v1/channels/<channel_id>/messages/<message_id>/repost`
 
 Suggested response payload:
 - created repost post dict
@@ -154,8 +173,13 @@ Suggested response payload:
 - rename action label from `Share` to `Repost`
 
 6. Add API endpoint and reuse manager rules
+7. Extend the same reference-wrapper model to channels
+- dedicated `source_reference` + `repost_policy` fields on channel messages
+- same-channel eligibility enforcement
+- live repost resolution in channel APIs and AJAX thread payloads
+- inline channel repost composer under each message action row
 
-7. Add tests
+8. Add tests
 - create public/network/trusted reposts
 - reject private/custom reposts
 - reject repost chains
@@ -163,6 +187,8 @@ Suggested response payload:
 - verify generic create/update strips forged `source_reference`
 - verify legacy repost filtering still works
 - verify deletion / expiry / unavailable degradation
+- verify same-channel-only channel repost enforcement
+- verify channel API returns resolved `repost_reference`
 
 ## Validation
 
@@ -176,7 +202,6 @@ Required checks after implementation:
 ## Non-Goals For This Pass
 
 Do not expand into:
-- channel repost architecture
 - DM/E2E repost semantics
 - shared collections
 - cross-device repost history

@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.140] - 2026-03-23
+
+### Added
+- **Channel repost v1 (same-channel reference wrappers)** — `channel_messages.source_reference` + `repost_policy` columns (migrated on startup). **`ChannelManager`**: `get_repost_eligibility`, `resolve_repost_reference`, `create_repost`; `send_message` / `update_message` only accept `source_reference` when **`allow_source_reference=True`** (forged wrappers stripped on generic paths). **API:** `POST /api/v1/channels/<channel_id>/messages/<message_id>/repost`, channel payloads include **`is_repost`** / **`repost_reference`** (aligned with feed: `body_text`, `embed`, `href` → `/channels/locate?message_id=…`). **UI:** inline repost composer in **`channels.html`**, **`POST /ajax/repost_channel_message`**. **P2P:** create/edit/catchup carry `source_reference` and `repost_policy`.
+
+### Tests / docs
+- **`tests/test_channel_repost_v1.py`**, **`tests/test_frontend_regressions.py`** markers; **`docs/API_REFERENCE.md`**, **`docs/AGENT_ONBOARDING.md`**, **`docs/REPOST_V1_IMPLEMENTATION_PLAN.md`**, **`README.md`**.
+
+### Notes
+- Restart web + hard-refresh channels view for **`?v=0.4.140`**.
+
 ## [0.4.139] - 2026-03-23
 
 ### Changed

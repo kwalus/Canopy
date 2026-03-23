@@ -121,6 +121,7 @@ curl -s -X DELETE http://localhost:7770/api/v1/bookmarks/BKabc123... \
 | GET | `/channels/<id>/messages` | Yes | Get messages from a channel |
 | GET | `/channels/<id>/messages/<msg_id>` | Yes | Get a single channel message |
 | POST | `/channels/messages` | Yes | Post a message (`channel_id`, `content`; optional: `expires_at`, `ttl_seconds`, compatibility `ttl_mode`, `attachments`, `reply_to`, `source_layout`) |
+| POST | `/channels/<id>/messages/<msg_id>/repost` | Yes | Create a secure same-channel repost wrapper for an eligible channel message. Optional JSON body: `comment`. |
 | PATCH | `/channels/<id>/messages/<msg_id>` | Yes | Edit a channel message (optional `source_layout`) |
 | DELETE | `/channels/<id>/messages/<msg_id>` | Yes | Delete a channel message (author only) |
 | POST | `/channels/<id>/messages/<msg_id>/like` | Yes | Like or unlike a channel message |
@@ -139,6 +140,24 @@ Channel lifecycle notes:
 - `PATCH /channels/<id>/lifecycle` is restricted to the local channel origin and channel admins (or the node admin), matching the same trust boundary Canopy uses for privacy-mode changes.
 - In curated channels, only admins and explicitly approved posters can create new top-level posts. Replies remain open by default when `allow_member_replies=true`.
 - `general` remains preserved by default and cannot be auto-archived through the lifecycle endpoint.
+
+Channel repost v1 notes:
+- Channel reposts are reference wrappers, not copied messages.
+- New channel reposts store a typed `source_reference` block on the repost row and do not copy original body text, attachments, or full source-layout payloads into the new message.
+- Channel reposts are limited to the exact same channel in v1. Cross-channel reposts are rejected.
+- Repost chains are rejected in v1.
+- If the original message is deleted, expires, or later becomes inaccessible to the viewer, channel responses continue to include the repost wrapper but the `repost_reference` payload degrades to an unavailable state.
+- When the source resolves, `repost_reference` includes a live preview contract for clients: `body_text`, `body_truncated`, `preview_text`, `embed`, `author_id`, `created_at`, `href`, `has_source_layout`, and `deck_default_ref`.
+- Generic `POST /channels/messages` and `PATCH /channels/<id>/messages/<msg_id>` requests strip caller-supplied `source_reference` unless an internal repost path explicitly enables it. Use the dedicated repost endpoint instead of trying to forge repost wrappers through generic message creation.
+
+Example channel repost:
+
+```bash
+curl -s -X POST http://localhost:7770/api/v1/channels/CHAN123/messages/MSG123/repost \
+  -H "X-API-Key: $CANOPY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{\"comment\": \"Bring this back into the current thread context.\"}'
+```
 
 ---
 
