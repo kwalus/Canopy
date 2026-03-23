@@ -58,12 +58,14 @@
         line-height: 1;
     }
 
-    .post-repost-shell {
+    .post-repost-shell,
+    .post-variant-shell {
         display: grid;
         gap: 0.85rem;
     }
 
-    .post-repost-card {
+    .post-repost-card,
+    .post-variant-card {
         border: 1px solid rgba(56, 189, 248, 0.24);
         border-radius: 1rem;
         padding: 0.95rem 1rem;
@@ -73,7 +75,15 @@
         box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
     }
 
-    .post-repost-card.is-unavailable {
+    .post-variant-card {
+        border-color: rgba(245, 158, 11, 0.28);
+        background:
+            linear-gradient(180deg, rgba(26, 18, 8, 0.94), rgba(23, 17, 9, 0.96)),
+            radial-gradient(circle at top right, rgba(245, 158, 11, 0.18), transparent 42%);
+    }
+
+    .post-repost-card.is-unavailable,
+    .post-variant-card.is-unavailable {
         border-color: rgba(148, 163, 184, 0.28);
         background: linear-gradient(180deg, rgba(13, 18, 29, 0.92), rgba(14, 19, 30, 0.96));
     }
@@ -107,6 +117,49 @@
         color: rgba(224, 242, 254, 0.96);
         font-size: 0.72rem;
         font-weight: 600;
+    }
+
+    .post-variant-card .post-repost-eyebrow {
+        color: rgba(254, 243, 199, 0.96);
+    }
+
+    .post-variant-card .post-repost-quote {
+        border-color: rgba(245, 158, 11, 0.22);
+        background: rgba(41, 28, 10, 0.78);
+    }
+
+    .post-variant-relationship {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.2rem 0.55rem;
+        border-radius: 999px;
+        border: 1px solid rgba(245, 158, 11, 0.3);
+        background: rgba(245, 158, 11, 0.12);
+        color: rgba(254, 243, 199, 0.96);
+        font-size: 0.72rem;
+        font-weight: 600;
+    }
+
+    .post-variant-delta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+        align-items: center;
+        margin-bottom: 0.65rem;
+        padding: 0.65rem 0.8rem;
+        border-radius: 0.8rem;
+        border: 1px solid rgba(245, 158, 11, 0.22);
+        background: rgba(245, 158, 11, 0.08);
+        color: rgba(254, 243, 199, 0.96);
+        font-size: 0.84rem;
+    }
+
+    .post-variant-delta-label {
+        font-size: 0.68rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: rgba(253, 230, 138, 0.88);
     }
 
     .post-repost-meta {
@@ -187,10 +240,31 @@
         min-height: 92px;
     }
 
+    .variant-inline-composer {
+        margin-top: 0.7rem;
+        padding: 0.8rem 0.95rem;
+        border-radius: 1rem;
+        border: 1px solid rgba(245, 158, 11, 0.22);
+        background:
+            linear-gradient(180deg, rgba(34, 24, 10, 0.94), rgba(23, 17, 9, 0.96)),
+            radial-gradient(circle at top right, rgba(245, 158, 11, 0.14), transparent 42%);
+    }
+
+    .variant-inline-text {
+        resize: vertical;
+        min-height: 92px;
+    }
+
     .repost-trigger-btn.is-repost-open {
         border-color: rgba(56, 189, 248, 0.45);
         color: rgba(186, 230, 253, 0.96);
         background: rgba(56, 189, 248, 0.12);
+    }
+
+    .variant-trigger-btn.is-variant-open {
+        border-color: rgba(245, 158, 11, 0.45);
+        color: rgba(254, 243, 199, 0.96);
+        background: rgba(245, 158, 11, 0.14);
     }
     
     .file-dropzone {
@@ -6488,6 +6562,85 @@ function renderChannelRepostCard(message) {
         </div>`;
 }
 
+function renderChannelVariantCard(message) {
+    const ref = (message && message.variant_reference && typeof message.variant_reference === 'object') ? message.variant_reference : null;
+    if (!ref) return '';
+    const hrefRaw = String(ref.href || (ref.source_id ? `/channels/locate?message_id=${encodeURIComponent(ref.source_id)}` : '#'));
+    const href = escapeHtml(hrefRaw);
+    const available = !!ref.available;
+    const authorLabel = escapeHtml(String(ref.author_display || ref.author_id || 'Unknown author'));
+    const relationshipLabel = escapeHtml(String(ref.relationship_label || 'Curated recomposition'));
+    const messageType = escapeHtml(String(ref.message_type || 'message').replace(/_/g, ' '));
+    const createdAt = escapeHtml(String(ref.created_at || ''));
+    const bodyHtml = ref.body_text
+        ? `<div class="post-repost-body">${escapeHtml(String(ref.body_text)).replace(/\n/g, '<br>')}</div>`
+        : (ref.preview_text ? `<div class="post-repost-preview">${escapeHtml(String(ref.preview_text))}</div>` : '');
+    const embed = (ref.embed && typeof ref.embed === 'object') ? ref.embed : {};
+    const deltaHtml = ref.module_param_delta
+        ? `<div class="post-variant-delta"><span class="post-variant-delta-label">Parameter delta</span><span>${escapeHtml(String(ref.module_param_delta))}</span></div>`
+        : '';
+    let thumbGrid = '';
+    if (Array.isArray(embed.attachment_images) && embed.attachment_images.length) {
+        thumbGrid = `
+            <div class="post-repost-thumb-grid mt-2">
+                ${embed.attachment_images.map((img) => `
+                    <a href="${href}" class="post-repost-thumb-link" title="View antecedent message">
+                        <img src="${escapeHtml(String(img.url || ''))}" alt="${escapeHtml(String(img.name || 'Image'))}" loading="lazy">
+                    </a>
+                `).join('')}
+            </div>`;
+    }
+    if (!available) {
+        return `
+            <div class="post-variant-shell" data-variant-wrapper="1">
+                <div class="post-variant-card is-unavailable">
+                    <div class="post-repost-head">
+                        <span class="post-repost-eyebrow"><i class="bi bi-bezier2"></i> Derived from</span>
+                        <span class="post-variant-relationship">${relationshipLabel}</span>
+                    </div>
+                    <div class="post-repost-unavailable">${escapeHtml(String(ref.unavailable_label || 'Antecedent source unavailable'))}</div>
+                    <div class="post-repost-unavailable-meta">
+                        This variant preserves provenance to its antecedent source, but the antecedent no longer renders here.
+                    </div>
+                </div>
+            </div>`;
+    }
+    return `
+        <div class="post-variant-shell" data-variant-wrapper="1">
+            <div class="post-variant-card">
+                <div class="post-repost-head">
+                    <span class="post-repost-eyebrow"><i class="bi bi-bezier2"></i> Derived from</span>
+                    <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
+                        <span class="post-variant-relationship">${relationshipLabel}</span>
+                        ${ref.has_source_layout ? '<span class="post-repost-badge">Deck-ready</span>' : ''}
+                    </div>
+                </div>
+                <div class="post-repost-meta">
+                    <strong>${authorLabel}</strong>
+                    <span>•</span>
+                    <span>${messageType}</span>
+                    <span>•</span>
+                    <span class="text-muted" data-timestamp="${createdAt}">${createdAt}</span>
+                </div>
+                ${deltaHtml}
+                <div class="post-repost-quote">
+                    ${bodyHtml}
+                    ${ref.body_truncated ? `
+                        <div class="small text-muted mt-1">
+                            <i class="bi bi-scissors"></i> Truncated for the card — open antecedent for the full message.
+                        </div>` : ''}
+                    ${thumbGrid}
+                </div>
+                <div class="post-repost-actions">
+                    <a class="btn btn-sm btn-outline-primary" href="${href}">
+                        <i class="bi bi-box-arrow-up-right me-1"></i>Open antecedent
+                    </a>
+                    ${ref.has_source_layout ? '<span class="text-muted small">Open the antecedent to launch its deck surface.</span>' : ''}
+                </div>
+            </div>
+        </div>`;
+}
+
 function renderMessage(message, userInfo, isReply) {
     const user = userInfo[message.user_id] || { display_name: message.user_id, avatar_url: null };
     const replyClass = isReply ? 'thread-reply' : '';
@@ -6543,6 +6696,7 @@ function renderMessage(message, userInfo, isReply) {
     const skillHtml = message.skills ? renderSkillCards(message) : '';
     const notesHtml = renderCommunityNotesBlock('channel_message', message.id, message.community_notes || []);
     const repostHtml = message.is_repost ? renderChannelRepostCard(message) : '';
+    const variantHtml = message.is_variant ? renderChannelVariantCard(message) : '';
     const displayContent = (message.display_content !== undefined && message.display_content !== null) ? message.display_content : (message.content || '');
     const replyPreview = escapeHtml(String(message.content || '').replace(/\s+/g, ' ').trim().slice(0, 80) || '(attachment)');
     const replyAuthor = escapeHtml(user.display_name || user.username || message.user_id || 'Unknown');
@@ -6604,6 +6758,7 @@ function renderMessage(message, userInfo, isReply) {
                     ${circleHtml}
                     ${skillHtml}
                     ${(message.poll || displayContent) ? `<div data-canopy-source-ref="content:lede">${message.poll ? pollHtml : renderRichContent(displayContent)}</div>` : ''}
+                    ${variantHtml}
                     ${repostHtml}
                     ${message.attachments ? displayAttachments(message.attachments, message.source_layout) : ''}
                     ${notesHtml}
@@ -6645,6 +6800,15 @@ function renderMessage(message, userInfo, isReply) {
                                 aria-controls="channel-repost-compose-${message.id}"
                                 aria-label="Repost source in this channel">
                             <i class="bi bi-repeat"></i><span class="action-label">Repost</span>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-warning icon-action-btn variant-trigger-btn"
+                                id="channel-variant-trigger-${message.id}"
+                                onclick="toggleChannelVariantComposer('${message.id}')"
+                                title="Create a derived variant in this channel"
+                                aria-expanded="false"
+                                aria-controls="channel-variant-compose-${message.id}"
+                                aria-label="Create source variant in this channel">
+                            <i class="bi bi-bezier2"></i><span class="action-label">Variant</span>
                         </button>
                         <button class="btn btn-sm icon-action-btn bookmark-action-btn${message.is_bookmarked ? ' is-saved' : ''}"
                                 data-bookmark-button="1"
@@ -6734,12 +6898,55 @@ function renderMessage(message, userInfo, isReply) {
                         </div>
                     </div>
                 </div>
+                <div class="variant-inline-composer" id="channel-variant-compose-${message.id}" data-channel-variant-compose="1" style="display: none;" hidden>
+                    <div class="repost-inline-inner">
+                        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                            <i class="bi bi-bezier2 text-warning" aria-hidden="true"></i>
+                            <span class="small fw-semibold">Create a lineage variant in #${escapeHtml(String(currentChannelName || 'channel'))}</span>
+                            <span class="text-muted small ms-md-auto">Optional note + explicit relationship metadata</span>
+                        </div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-md-4">
+                                <label class="form-label form-label-sm mb-1" for="channel-variant-relationship-${message.id}">Relationship</label>
+                                <select class="form-select form-select-sm variant-inline-relationship" id="channel-variant-relationship-${message.id}">
+                                    <option value="curated_recomposition">Curated recomposition</option>
+                                    <option value="module_variant">Module variant</option>
+                                    <option value="parameterized_variant">Parameterized variant</option>
+                                </select>
+                            </div>
+                            <div class="col-md-8">
+                                <label class="form-label form-label-sm mb-1" for="channel-variant-delta-${message.id}">Parameter delta</label>
+                                <input type="text"
+                                       class="form-control form-control-sm variant-inline-delta"
+                                       id="channel-variant-delta-${message.id}"
+                                       maxlength="500"
+                                       placeholder="Optional: new chart, higher tempo, compact practice loop…">
+                            </div>
+                        </div>
+                        <label class="visually-hidden" for="channel-variant-text-${message.id}">Optional variant note</label>
+                        <textarea class="form-control form-control-sm variant-inline-text"
+                                  id="channel-variant-text-${message.id}"
+                                  rows="3"
+                                  maxlength="5000"
+                                  placeholder="Add a short note about how this variant changes the source…"></textarea>
+                        <div class="d-flex justify-content-between align-items-center mt-2 gap-2 flex-wrap">
+                            <small class="text-muted variant-inline-counter">0 / 5000</small>
+                            <div class="d-flex gap-2">
+                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="closeChannelVariantComposer('${message.id}')">Cancel</button>
+                                <button type="button" class="btn btn-sm btn-warning" id="channel-variant-submit-${message.id}" onclick="submitChannelVariantInline('${message.id}')">
+                                    <i class="bi bi-bezier2 me-1"></i>Create variant
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>`;
 }
 
 let _openChannelRepostComposeMessageId = null;
+let _openChannelVariantComposeMessageId = null;
 
 function _updateChannelRepostInlineCounter(textareaEl) {
     if (!textareaEl) return;
@@ -6785,6 +6992,7 @@ function toggleChannelRepostComposer(messageId) {
         return;
     }
     closeAllChannelRepostComposers();
+    if (typeof closeAllChannelVariantComposers === 'function') closeAllChannelVariantComposers();
     panel.style.display = 'block';
     panel.removeAttribute('hidden');
     _setChannelRepostTriggerOpen(messageId, true);
@@ -6867,6 +7075,148 @@ function _wireChannelRepostComposerGlobalsOnce() {
 }
 
 _wireChannelRepostComposerGlobalsOnce();
+
+function _updateChannelVariantInlineCounter(textareaEl) {
+    if (!textareaEl) return;
+    const panel = textareaEl.closest('[data-channel-variant-compose="1"]');
+    const counter = panel ? panel.querySelector('.variant-inline-counter') : null;
+    if (counter) counter.textContent = `${(textareaEl.value || '').length} / 5000`;
+}
+
+function _setChannelVariantTriggerOpen(messageId, open) {
+    const trig = document.getElementById('channel-variant-trigger-' + messageId);
+    if (!trig) return;
+    trig.classList.toggle('is-variant-open', !!open);
+    trig.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function closeAllChannelVariantComposers() {
+    document.querySelectorAll('[data-channel-variant-compose="1"]').forEach((panel) => {
+        panel.style.display = 'none';
+        panel.setAttribute('hidden', 'hidden');
+        const mid = (panel.id || '').replace(/^channel-variant-compose-/, '');
+        if (mid) _setChannelVariantTriggerOpen(mid, false);
+    });
+    _openChannelVariantComposeMessageId = null;
+}
+
+function closeChannelVariantComposer(messageId) {
+    const panel = document.getElementById('channel-variant-compose-' + messageId);
+    if (panel) {
+        panel.style.display = 'none';
+        panel.setAttribute('hidden', 'hidden');
+    }
+    _setChannelVariantTriggerOpen(messageId, false);
+    if (_openChannelVariantComposeMessageId === messageId) _openChannelVariantComposeMessageId = null;
+}
+
+function toggleChannelVariantComposer(messageId) {
+    const panel = document.getElementById('channel-variant-compose-' + messageId);
+    if (!panel) return;
+    const textarea = document.getElementById('channel-variant-text-' + messageId);
+    const relationship = document.getElementById('channel-variant-relationship-' + messageId);
+    const delta = document.getElementById('channel-variant-delta-' + messageId);
+    const isVisible = panel.style.display !== 'none' && !panel.hasAttribute('hidden');
+    if (isVisible) {
+        closeChannelVariantComposer(messageId);
+        return;
+    }
+    closeAllChannelRepostComposers();
+    closeAllChannelVariantComposers();
+    panel.style.display = 'block';
+    panel.removeAttribute('hidden');
+    _setChannelVariantTriggerOpen(messageId, true);
+    _openChannelVariantComposeMessageId = messageId;
+    if (relationship) relationship.value = 'curated_recomposition';
+    if (delta) delta.value = '';
+    if (textarea) {
+        textarea.value = '';
+        _updateChannelVariantInlineCounter(textarea);
+        setTimeout(() => {
+            textarea.focus();
+            try { panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) {}
+        }, 0);
+    }
+}
+
+function submitChannelVariantInline(messageId) {
+    if (!currentChannelId) {
+        showAlert('Select a channel before creating a variant.', 'warning');
+        return;
+    }
+    const textarea = document.getElementById('channel-variant-text-' + messageId);
+    const relationship = document.getElementById('channel-variant-relationship-' + messageId);
+    const delta = document.getElementById('channel-variant-delta-' + messageId);
+    const submitBtn = document.getElementById('channel-variant-submit-' + messageId);
+    const comment = (textarea && textarea.value) ? textarea.value.trim() : '';
+    const relationshipKind = (relationship && relationship.value) ? relationship.value : 'curated_recomposition';
+    const moduleParamDelta = (delta && delta.value) ? delta.value.trim() : '';
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> …';
+    }
+    apiCall('/ajax/variant_channel_message', {
+        method: 'POST',
+        body: JSON.stringify({
+            channel_id: currentChannelId,
+            message_id: messageId,
+            comment,
+            relationship_kind: relationshipKind,
+            module_param_delta: moduleParamDelta
+        })
+    })
+    .then((data) => {
+        if (data && data.success) {
+            closeChannelVariantComposer(messageId);
+            showAlert('Variant created.', 'success');
+            if (typeof requestChannelThreadRefresh === 'function') {
+                requestChannelThreadRefresh();
+            }
+        } else {
+            showAlert((data && data.error) || 'Failed to create variant', 'danger');
+        }
+    })
+    .catch((err) => {
+        showAlert('Variant failed: ' + (err.message || err), 'danger');
+    })
+    .finally(() => {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="bi bi-bezier2 me-1"></i>Create variant';
+        }
+    });
+}
+
+function _wireChannelVariantComposerGlobalsOnce() {
+    if (document.body.dataset.channelVariantComposerWired === '1') return;
+    document.body.dataset.channelVariantComposerWired = '1';
+    document.addEventListener('input', (e) => {
+        const target = e.target;
+        if (target && target.classList && target.classList.contains('variant-inline-text')) {
+            _updateChannelVariantInlineCounter(target);
+        }
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape' || !_openChannelVariantComposeMessageId) return;
+        const panel = document.getElementById('channel-variant-compose-' + _openChannelVariantComposeMessageId);
+        const active = document.activeElement;
+        if (panel && active && typeof active.closest === 'function' && panel.contains(active)) {
+            e.preventDefault();
+            closeChannelVariantComposer(_openChannelVariantComposeMessageId);
+        }
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' || (!e.ctrlKey && !e.metaKey)) return;
+        const textarea = document.activeElement;
+        if (!textarea || !textarea.classList || !textarea.classList.contains('variant-inline-text')) return;
+        const match = /^channel-variant-text-(.+)$/.exec(textarea.id || '');
+        if (!match) return;
+        e.preventDefault();
+        submitChannelVariantInline(match[1]);
+    }, true);
+}
+
+_wireChannelVariantComposerGlobalsOnce();
 
 function renderCircleCards(message) {
     const circles = message.circles || [];

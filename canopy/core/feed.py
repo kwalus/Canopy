@@ -64,6 +64,12 @@ class SourceType(Enum):
 
 
 _REPOST_POLICY_VALUES = {'same_scope', 'deny'}
+_SOURCE_REFERENCE_KIND_VALUES = {'repost_v1', 'variant_v1'}
+_VARIANT_RELATIONSHIP_VALUES = {
+    'curated_recomposition',
+    'module_variant',
+    'parameterized_variant',
+}
 _REPOST_ELIGIBLE_VISIBILITIES = {
     PostVisibility.PUBLIC,
     PostVisibility.NETWORK,
@@ -85,17 +91,24 @@ def _normalize_repost_policy(value: Any) -> Optional[str]:
     return None
 
 
+def _normalize_variant_relationship(value: Any) -> str:
+    relationship = str(value or '').strip().lower()
+    if relationship in _VARIANT_RELATIONSHIP_VALUES:
+        return relationship
+    return 'curated_recomposition'
+
+
 def _normalize_source_reference(value: Any) -> Optional[Dict[str, Any]]:
     if not isinstance(value, dict):
         return None
     kind = str(value.get('kind') or '').strip().lower()
     source_type = str(value.get('source_type') or '').strip().lower()
     source_id = str(value.get('source_id') or '').strip()
-    if kind != 'repost_v1' or source_type != 'feed_post' or not source_id:
+    if kind not in _SOURCE_REFERENCE_KIND_VALUES or source_type != 'feed_post' or not source_id:
         return None
 
     normalized: Dict[str, Any] = {
-        'kind': 'repost_v1',
+        'kind': kind,
         'source_type': 'feed_post',
         'source_id': source_id,
     }
@@ -105,6 +118,11 @@ def _normalize_source_reference(value: Any) -> Optional[Dict[str, Any]]:
     created_by = str(value.get('created_by_user_id') or '').strip()
     if created_by:
         normalized['created_by_user_id'] = created_by
+    if kind == 'variant_v1':
+        normalized['relationship_kind'] = _normalize_variant_relationship(value.get('relationship_kind'))
+        module_param_delta = str(value.get('module_param_delta') or '').strip()
+        if module_param_delta:
+            normalized['module_param_delta'] = module_param_delta[:500]
     return normalized
 
 
@@ -128,7 +146,17 @@ def _extract_source_reference(metadata: Any) -> Optional[Dict[str, Any]]:
 
 
 def _is_repost_metadata(metadata: Any) -> bool:
-    return _extract_source_reference(metadata) is not None
+    source_reference = _extract_source_reference(metadata)
+    if not source_reference:
+        return False
+    return str(source_reference.get('kind') or '').strip().lower() in {'repost_v1', 'legacy_share'}
+
+
+def _is_variant_metadata(metadata: Any) -> bool:
+    source_reference = _extract_source_reference(metadata)
+    if not source_reference:
+        return False
+    return str(source_reference.get('kind') or '').strip().lower() == 'variant_v1'
 
 
 def _normalize_post_metadata(
@@ -957,8 +985,14 @@ class FeedManager:
                 # Use existing values if not provided
                 final_post_type = post_type or PostType(row['content_type'])
                 final_visibility = visibility or PostVisibility(row['visibility'])
-                final_metadata = metadata if metadata is not None else (json.loads(row['metadata']) if row['metadata'] else None)
+                existing_metadata = json.loads(row['metadata']) if row['metadata'] else None
+                existing_source_reference = _extract_source_reference(existing_metadata)
+                final_metadata = metadata if metadata is not None else existing_metadata
                 final_metadata = _normalize_post_metadata(final_metadata, allow_source_reference=False)
+                if existing_source_reference:
+                    if not final_metadata:
+                        final_metadata = {}
+                    final_metadata['source_reference'] = existing_source_reference
                 
                 # Update the post
                 cursor = conn.execute("""
@@ -1172,6 +1206,12 @@ class FeedManager:
             return False
         return _is_repost_metadata(post.metadata)
 
+    def is_variant_post(self, post: Optional[Post]) -> bool:
+        """Return True when a post is a lineage variant wrapper."""
+        if not post:
+            return False
+        return _is_variant_metadata(post.metadata)
+
     def _get_post_for_reference(
         self,
         post_id: str,
@@ -1254,6 +1294,8 @@ class FeedManager:
         source_reference = _extract_source_reference(post.metadata)
         if not source_reference:
             return None
+        if str(source_reference.get('kind') or '').strip().lower() not in {'repost_v1', 'legacy_share'}:
+            return None
 
         source_id = str(source_reference.get('source_id') or '').strip()
         result: Dict[str, Any] = {
@@ -1295,6 +1337,104 @@ class FeedManager:
             'body_text': body_text,
             'body_truncated': body_truncated,
             'embed': embed,
+            'has_source_layout': bool(source_layout),
+            'deck_default_ref': deck_default_ref or None,
+        })
+        return result
+
+    def get_variant_eligibility(self, post_id: str, viewer_id: str) -> Dict[str, Any]:
+        """Evaluate whether a user can create a lineage variant for a feed post."""
+        state, original = self._get_post_for_reference(post_id, viewer_id)
+        if state != 'available' or not original:
+            if state == 'policy_denied':
+                return {
+                    'allowed': False,
+                    'status_code': 403,
+                    'reason': 'This post cannot be used as a variant source',
+                }
+            return {
+                'allowed': False,
+                'status_code': 404 if state in {'missing', 'expired'} else 403,
+                'reason': 'Post not found' if state in {'missing', 'expired'} else 'Access denied',
+            }
+
+        if self.is_repost_post(original):
+            return {
+                'allowed': False,
+                'status_code': 400,
+                'reason': 'Repost wrappers cannot be used as variant sources',
+            }
+
+        if original.visibility not in _REPOST_ELIGIBLE_VISIBILITIES:
+            return {
+                'allowed': False,
+                'status_code': 403,
+                'reason': 'Only public, network, or trusted posts can be variant sources in v1',
+            }
+
+        if self.get_repost_policy(original.metadata) == 'deny':
+            return {
+                'allowed': False,
+                'status_code': 403,
+                'reason': 'This post does not allow variants',
+            }
+
+        return {
+            'allowed': True,
+            'status_code': 200,
+            'reason': 'ok',
+            'post': original,
+        }
+
+    def resolve_variant_reference(self, post: Post, viewer_id: str) -> Optional[Dict[str, Any]]:
+        """Resolve a lineage variant into a live antecedent-source preview contract."""
+        source_reference = _extract_source_reference(post.metadata)
+        if not source_reference:
+            return None
+        if str(source_reference.get('kind') or '').strip().lower() != 'variant_v1':
+            return None
+
+        source_id = str(source_reference.get('source_id') or '').strip()
+        relationship_kind = _normalize_variant_relationship(source_reference.get('relationship_kind'))
+        result: Dict[str, Any] = {
+            'kind': 'variant_v1',
+            'source_type': 'feed_post',
+            'source_id': source_id,
+            'available': False,
+            'unavailable_reason': 'missing',
+            'relationship_kind': relationship_kind,
+            'module_param_delta': str(source_reference.get('module_param_delta') or '').strip() or None,
+        }
+        if not source_id:
+            return result
+
+        state, original = self._get_post_for_reference(source_id, viewer_id)
+        if state != 'available' or not original:
+            result['unavailable_reason'] = state
+            return result
+
+        source_layout = (
+            original.metadata.get('source_layout')
+            if isinstance(original.metadata, dict) and isinstance(original.metadata.get('source_layout'), dict)
+            else None
+        )
+        deck_default_ref = (
+            str(source_layout.get('deck', {}).get('default_ref') or '').strip()
+            if isinstance(source_layout, dict) and isinstance(source_layout.get('deck'), dict)
+            else ''
+        )
+        body_text, body_truncated = _truncate_repost_reference_body(original.content)
+        result.update({
+            'available': True,
+            'unavailable_reason': None,
+            'author_id': original.author_id,
+            'created_at': original.created_at.isoformat(),
+            'visibility': original.visibility.value,
+            'post_type': original.post_type.value,
+            'preview_text': _build_preview_text(original.content),
+            'body_text': body_text,
+            'body_truncated': body_truncated,
+            'embed': _repost_embed_from_original(original),
             'has_source_layout': bool(source_layout),
             'deck_default_ref': deck_default_ref or None,
         })
@@ -1347,6 +1487,62 @@ class FeedManager:
             return cast(Optional[Post], shared)
         except Exception as e:
             logger.error(f"Failed to create repost: {e}", exc_info=True)
+            return None
+
+    def create_variant(
+        self,
+        post_id: str,
+        user_id: str,
+        comment: str = '',
+        *,
+        relationship_kind: str = 'curated_recomposition',
+        module_param_delta: str = '',
+    ) -> Optional[Post]:
+        """Create a lineage-preserving variant wrapper for an eligible feed post."""
+        try:
+            eligibility = self.get_variant_eligibility(post_id, user_id)
+            if not eligibility.get('allowed'):
+                logger.warning(
+                    "Cannot create variant from post %s for user %s: %s",
+                    post_id,
+                    user_id,
+                    eligibility.get('reason'),
+                )
+                return None
+
+            original = cast(Post, eligibility['post'])
+            variant_meta = _normalize_post_metadata(
+                {
+                    'source_reference': {
+                        'kind': 'variant_v1',
+                        'source_type': 'feed_post',
+                        'source_id': original.id,
+                        'source_visibility': original.visibility.value,
+                        'created_by_user_id': user_id,
+                        'relationship_kind': relationship_kind,
+                        'module_param_delta': module_param_delta,
+                    }
+                },
+                allow_source_reference=True,
+            )
+            variant = self.create_post(
+                author_id=user_id,
+                content=str(comment or '').strip(),
+                post_type=PostType.TEXT,
+                visibility=original.visibility,
+                metadata=variant_meta,
+                allow_source_reference=True,
+            )
+            if variant:
+                logger.info(
+                    "User %s created variant %s from post %s",
+                    user_id,
+                    variant.id,
+                    post_id,
+                )
+            return cast(Optional[Post], variant)
+        except Exception as e:
+            logger.error(f"Failed to create variant: {e}", exc_info=True)
             return None
 
     def share_post(self, post_id: str, user_id: str, comment: str = '') -> Optional[Post]:

@@ -218,6 +218,21 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('Original source unavailable', channels_template)
         self.assertIn('channel-repost-compose-', channels_template)
 
+    def test_feed_and_channel_variant_ui_use_lineage_language(self) -> None:
+        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        self.assertIn('data-variant-wrapper="1"', feed_template)
+        self.assertIn('toggleVariantComposer', feed_template)
+        self.assertIn("apiCall('/ajax/variant_post'", feed_template)
+        self.assertIn('Create a lineage variant', feed_template)
+        self.assertIn('Open antecedent', feed_template)
+        self.assertIn('post-variant-relationship', feed_template)
+        self.assertIn('function renderChannelVariantCard(message)', channels_template)
+        self.assertIn('toggleChannelVariantComposer', channels_template)
+        self.assertIn("apiCall('/ajax/variant_channel_message'", channels_template)
+        self.assertIn('Antecedent source unavailable', channels_template)
+        self.assertIn('channel-variant-compose-', channels_template)
+
     def test_sidebar_cards_support_three_states_and_mini_player_placement(self) -> None:
         base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')

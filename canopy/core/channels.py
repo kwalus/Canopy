@@ -42,6 +42,12 @@ logger = logging.getLogger('canopy.channels')
 
 
 _CHANNEL_REPOST_POLICY_VALUES = {'same_scope', 'deny'}
+_CHANNEL_SOURCE_REFERENCE_KIND_VALUES = {'repost_v1', 'variant_v1'}
+_CHANNEL_VARIANT_RELATIONSHIP_VALUES = {
+    'curated_recomposition',
+    'module_variant',
+    'parameterized_variant',
+}
 _CHANNEL_REPOST_REFERENCE_BODY_MAX_CHARS = 8000
 _CHANNEL_REPOST_REFERENCE_ATTACHMENT_IMAGE_CAP = 6
 
@@ -58,6 +64,13 @@ def _normalize_channel_repost_policy(value: Any) -> Optional[str]:
     return None
 
 
+def _normalize_channel_variant_relationship(value: Any) -> str:
+    relationship = str(value or '').strip().lower()
+    if relationship in _CHANNEL_VARIANT_RELATIONSHIP_VALUES:
+        return relationship
+    return 'curated_recomposition'
+
+
 def _normalize_channel_source_reference(value: Any) -> Optional[Dict[str, Any]]:
     if not isinstance(value, dict):
         return None
@@ -65,11 +78,11 @@ def _normalize_channel_source_reference(value: Any) -> Optional[Dict[str, Any]]:
     source_type = str(value.get('source_type') or '').strip().lower()
     source_id = str(value.get('source_id') or '').strip()
     channel_id = str(value.get('channel_id') or '').strip()
-    if kind != 'repost_v1' or source_type != 'channel_message' or not source_id or not channel_id:
+    if kind not in _CHANNEL_SOURCE_REFERENCE_KIND_VALUES or source_type != 'channel_message' or not source_id or not channel_id:
         return None
 
     normalized: Dict[str, Any] = {
-        'kind': 'repost_v1',
+        'kind': kind,
         'source_type': 'channel_message',
         'source_id': source_id,
         'channel_id': channel_id,
@@ -77,6 +90,11 @@ def _normalize_channel_source_reference(value: Any) -> Optional[Dict[str, Any]]:
     created_by_user_id = str(value.get('created_by_user_id') or '').strip()
     if created_by_user_id:
         normalized['created_by_user_id'] = created_by_user_id
+    if kind == 'variant_v1':
+        normalized['relationship_kind'] = _normalize_channel_variant_relationship(value.get('relationship_kind'))
+        module_param_delta = str(value.get('module_param_delta') or '').strip()
+        if module_param_delta:
+            normalized['module_param_delta'] = module_param_delta[:500]
     return normalized
 
 
@@ -85,7 +103,17 @@ def _extract_channel_source_reference(value: Any) -> Optional[Dict[str, Any]]:
 
 
 def _is_channel_repost_reference(value: Any) -> bool:
-    return _extract_channel_source_reference(value) is not None
+    reference = _extract_channel_source_reference(value)
+    if not reference:
+        return False
+    return str(reference.get('kind') or '').strip().lower() == 'repost_v1'
+
+
+def _is_channel_variant_reference(value: Any) -> bool:
+    reference = _extract_channel_source_reference(value)
+    if not reference:
+        return False
+    return str(reference.get('kind') or '').strip().lower() == 'variant_v1'
 
 
 def _build_channel_repost_preview_text(content: str, limit: int = 220) -> str:
@@ -5865,6 +5893,12 @@ class ChannelManager:
             return False
         return _is_channel_repost_reference(getattr(message, 'source_reference', None))
 
+    def is_variant_message(self, message: Optional[Message]) -> bool:
+        """Return True when a channel message is a lineage variant wrapper."""
+        if not message:
+            return False
+        return _is_channel_variant_reference(getattr(message, 'source_reference', None))
+
     def _get_message_for_reference(
         self,
         channel_id: str,
@@ -6007,6 +6041,8 @@ class ChannelManager:
         source_reference = _extract_channel_source_reference(message.source_reference)
         if not source_reference:
             return None
+        if str(source_reference.get('kind') or '').strip().lower() != 'repost_v1':
+            return None
 
         source_id = str(source_reference.get('source_id') or '').strip()
         source_channel_id = str(source_reference.get('channel_id') or message.channel_id or '').strip()
@@ -6017,6 +6053,151 @@ class ChannelManager:
             'channel_id': source_channel_id,
             'available': False,
             'unavailable_reason': 'missing',
+        }
+        if not source_id or not source_channel_id:
+            return result
+
+        state, original = self._get_message_for_reference(source_channel_id, source_id, viewer_id)
+        if state != 'available' or not original:
+            result['unavailable_reason'] = state
+            return result
+
+        source_layout = original.source_layout if isinstance(original.source_layout, dict) else None
+        deck_default_ref = (
+            str(source_layout.get('deck', {}).get('default_ref') or '').strip()
+            if isinstance(source_layout, dict) and isinstance(source_layout.get('deck'), dict)
+            else ''
+        )
+        body_text, body_truncated = _truncate_channel_repost_reference_body(original.content)
+        result.update({
+            'available': True,
+            'unavailable_reason': None,
+            'author_id': original.user_id,
+            'created_at': original.created_at.isoformat(),
+            'message_type': original.message_type.value,
+            'preview_text': _build_channel_repost_preview_text(original.content),
+            'body_text': body_text,
+            'body_truncated': body_truncated,
+            'embed': _channel_repost_embed_from_original(original),
+            'has_source_layout': bool(source_layout),
+            'deck_default_ref': deck_default_ref or None,
+        })
+        return result
+
+    def get_variant_eligibility(
+        self,
+        message_id: str,
+        user_id: str,
+        channel_id: str,
+    ) -> Dict[str, Any]:
+        """Evaluate whether a user can create a lineage variant for a channel message."""
+        source_channel_id = ''
+        try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT channel_id FROM channel_messages WHERE id = ?",
+                    (message_id,),
+                ).fetchone()
+            if row:
+                source_channel_id = str(row['channel_id'] or '').strip()
+        except Exception as lookup_err:
+            logger.debug(f"Channel variant source lookup failed for {message_id}: {lookup_err}")
+
+        if not source_channel_id:
+            return {
+                'allowed': False,
+                'status_code': 404,
+                'reason': 'Message not found',
+            }
+
+        if source_channel_id != str(channel_id or '').strip():
+            source_access = self.get_channel_access_decision(
+                channel_id=source_channel_id,
+                user_id=user_id,
+                require_membership=True,
+            )
+            if source_access.get('allowed'):
+                return {
+                    'allowed': False,
+                    'status_code': 403,
+                    'reason': 'Variants are limited to the same channel in v1',
+                }
+            return {
+                'allowed': False,
+                'status_code': 403,
+                'reason': 'Access denied',
+            }
+
+        state, original = self._get_message_for_reference(source_channel_id, message_id, user_id)
+        if state != 'available' or not original:
+            if state == 'policy_denied':
+                return {
+                    'allowed': False,
+                    'status_code': 403,
+                    'reason': 'This message cannot be used as a variant source',
+                }
+            return {
+                'allowed': False,
+                'status_code': 404 if state in {'missing', 'expired'} else 403,
+                'reason': 'Message not found' if state in {'missing', 'expired'} else 'Access denied',
+            }
+
+        if self.is_repost_message(original):
+            return {
+                'allowed': False,
+                'status_code': 400,
+                'reason': 'Repost wrappers cannot be used as variant sources',
+            }
+
+        if self.get_repost_policy(original) == 'deny':
+            return {
+                'allowed': False,
+                'status_code': 403,
+                'reason': 'This message does not allow variants',
+            }
+
+        post_decision = self.can_user_post_message(
+            channel_id=channel_id,
+            user_id=user_id,
+            parent_message_id=None,
+            allow_admin=False,
+        )
+        if not post_decision.get('allowed'):
+            return {
+                'allowed': False,
+                'status_code': 403,
+                'reason': str(post_decision.get('reason') or 'posting_denied'),
+                'post_policy': post_decision.get('post_policy'),
+                'can_reply': post_decision.get('can_reply'),
+            }
+
+        return {
+            'allowed': True,
+            'status_code': 200,
+            'reason': 'ok',
+            'message': original,
+        }
+
+    def resolve_variant_reference(self, message: Message, viewer_id: str) -> Optional[Dict[str, Any]]:
+        """Resolve a lineage variant into a live antecedent-source preview contract."""
+        source_reference = _extract_channel_source_reference(message.source_reference)
+        if not source_reference:
+            return None
+        if str(source_reference.get('kind') or '').strip().lower() != 'variant_v1':
+            return None
+
+        source_id = str(source_reference.get('source_id') or '').strip()
+        source_channel_id = str(source_reference.get('channel_id') or message.channel_id or '').strip()
+        relationship_kind = _normalize_channel_variant_relationship(source_reference.get('relationship_kind'))
+        result: Dict[str, Any] = {
+            'kind': 'variant_v1',
+            'source_type': 'channel_message',
+            'source_id': source_id,
+            'channel_id': source_channel_id,
+            'available': False,
+            'unavailable_reason': 'missing',
+            'relationship_kind': relationship_kind,
+            'module_param_delta': str(source_reference.get('module_param_delta') or '').strip() or None,
         }
         if not source_id or not source_channel_id:
             return result
@@ -6087,6 +6268,52 @@ class ChannelManager:
             )
         except Exception as e:
             logger.error(f"Failed to create channel repost: {e}", exc_info=True)
+            return None
+
+    def create_variant(
+        self,
+        source_message_id: str,
+        user_id: str,
+        channel_id: str,
+        comment: str = '',
+        *,
+        relationship_kind: str = 'curated_recomposition',
+        module_param_delta: str = '',
+        origin_peer: Optional[str] = None,
+    ) -> Optional[Message]:
+        """Create a secure same-channel lineage variant wrapper."""
+        try:
+            eligibility = self.get_variant_eligibility(source_message_id, user_id, channel_id)
+            if not eligibility.get('allowed'):
+                logger.warning(
+                    "Cannot create variant from channel message %s for user %s in %s: %s",
+                    source_message_id,
+                    user_id,
+                    channel_id,
+                    eligibility.get('reason'),
+                )
+                return None
+
+            original = cast(Message, eligibility['message'])
+            return self.send_message(
+                channel_id=channel_id,
+                user_id=user_id,
+                content=str(comment or '').strip(),
+                message_type=MessageType.TEXT,
+                source_reference={
+                    'kind': 'variant_v1',
+                    'source_type': 'channel_message',
+                    'source_id': original.id,
+                    'channel_id': channel_id,
+                    'created_by_user_id': user_id,
+                    'relationship_kind': relationship_kind,
+                    'module_param_delta': module_param_delta,
+                },
+                allow_source_reference=True,
+                origin_peer=origin_peer,
+            )
+        except Exception as e:
+            logger.error(f"Failed to create channel variant: {e}", exc_info=True)
             return None
 
     def get_channel_activity_since(self, user_id: str, since: datetime, limit: int = 50) -> List[Dict[str, Any]]:

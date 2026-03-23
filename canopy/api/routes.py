@@ -294,10 +294,15 @@ def _serialize_feed_post_for_response(
 ) -> dict[str, Any]:
     payload = dict(post.to_dict())
     repost_reference = None
+    variant_reference = None
     try:
         repost_reference = feed_manager.resolve_repost_reference(post, viewer_id) if feed_manager else None
     except Exception:
         repost_reference = None
+    try:
+        variant_reference = feed_manager.resolve_variant_reference(post, viewer_id) if feed_manager else None
+    except Exception:
+        variant_reference = None
     payload['is_repost'] = bool(repost_reference)
     if repost_reference:
         source_id = str(repost_reference.get('source_id') or '').strip()
@@ -308,6 +313,23 @@ def _serialize_feed_post_for_response(
         if ref_payload.get('available') and author_id:
             ref_payload['author_display'] = _feed_author_display(db_manager, profile_manager, author_id)
         payload['repost_reference'] = ref_payload
+    payload['is_variant'] = bool(variant_reference)
+    if variant_reference:
+        source_id = str(variant_reference.get('source_id') or '').strip()
+        ref_payload = dict(variant_reference)
+        if source_id:
+            ref_payload['href'] = f"/feed?focus_post={quote_plus(source_id)}"
+        author_id = str(ref_payload.get('author_id') or '').strip()
+        if ref_payload.get('available') and author_id:
+            ref_payload['author_display'] = _feed_author_display(db_manager, profile_manager, author_id)
+        relationship_kind = str(ref_payload.get('relationship_kind') or '').strip().lower()
+        if relationship_kind == 'module_variant':
+            ref_payload['relationship_label'] = 'Module variant'
+        elif relationship_kind == 'parameterized_variant':
+            ref_payload['relationship_label'] = 'Parameterized variant'
+        else:
+            ref_payload['relationship_label'] = 'Curated recomposition'
+        payload['variant_reference'] = ref_payload
     return payload
 
 
@@ -321,10 +343,15 @@ def _serialize_channel_message_for_response(
 ) -> dict[str, Any]:
     payload = dict(message.to_dict())
     repost_reference = None
+    variant_reference = None
     try:
         repost_reference = channel_manager.resolve_repost_reference(message, viewer_id) if channel_manager else None
     except Exception:
         repost_reference = None
+    try:
+        variant_reference = channel_manager.resolve_variant_reference(message, viewer_id) if channel_manager else None
+    except Exception:
+        variant_reference = None
     payload['is_repost'] = bool(repost_reference)
     if repost_reference:
         source_id = str(repost_reference.get('source_id') or '').strip()
@@ -335,6 +362,23 @@ def _serialize_channel_message_for_response(
         if ref_payload.get('available') and author_id:
             ref_payload['author_display'] = _feed_author_display(db_manager, profile_manager, author_id)
         payload['repost_reference'] = ref_payload
+    payload['is_variant'] = bool(variant_reference)
+    if variant_reference:
+        source_id = str(variant_reference.get('source_id') or '').strip()
+        ref_payload = dict(variant_reference)
+        if source_id:
+            ref_payload['href'] = f"/channels/locate?message_id={quote_plus(source_id)}"
+        author_id = str(ref_payload.get('author_id') or '').strip()
+        if ref_payload.get('available') and author_id:
+            ref_payload['author_display'] = _feed_author_display(db_manager, profile_manager, author_id)
+        relationship_kind = str(ref_payload.get('relationship_kind') or '').strip().lower()
+        if relationship_kind == 'module_variant':
+            ref_payload['relationship_label'] = 'Module variant'
+        elif relationship_kind == 'parameterized_variant':
+            ref_payload['relationship_label'] = 'Parameterized variant'
+        else:
+            ref_payload['relationship_label'] = 'Curated recomposition'
+        payload['variant_reference'] = ref_payload
     return payload
 
 
@@ -4733,6 +4777,47 @@ def create_api_blueprint() -> Blueprint:
         except Exception as e:
             logger.error(f"Failed to repost post {post_id}: {e}", exc_info=True)
             return jsonify({'error': 'Failed to create repost'}), 500
+
+    @api.route('/feed/posts/<post_id>/variant', methods=['POST'])
+    @require_auth(Permission.WRITE_FEED)
+    def variant_feed_post(post_id):
+        """Create a lineage-preserving variant wrapper for an eligible feed post."""
+        db_manager, _, _, _, _, _, feed_manager, _, profile_manager, _, _ = _get_app_components_any(current_app)
+
+        try:
+            if not g.api_key_info.has_permission(Permission.READ_FEED):
+                return jsonify({'error': 'READ_FEED permission required'}), 403
+            data = request.get_json(silent=True) or {}
+            comment = str(data.get('comment') or '').strip()
+            relationship_kind = str(data.get('relationship_kind') or '').strip()
+            module_param_delta = str(data.get('module_param_delta') or '').strip()
+            eligibility = feed_manager.get_variant_eligibility(post_id, g.api_key_info.user_id)
+            if not eligibility.get('allowed'):
+                return jsonify({'error': eligibility.get('reason') or 'Variant not allowed'}), int(eligibility.get('status_code') or 400)
+
+            variant = feed_manager.create_variant(
+                post_id,
+                g.api_key_info.user_id,
+                comment,
+                relationship_kind=relationship_kind,
+                module_param_delta=module_param_delta,
+            )
+            if not variant:
+                return jsonify({'error': 'Failed to create variant'}), 500
+
+            return jsonify({
+                'success': True,
+                'post': _serialize_feed_post_for_response(
+                    variant,
+                    viewer_id=g.api_key_info.user_id,
+                    db_manager=db_manager,
+                    feed_manager=feed_manager,
+                    profile_manager=profile_manager,
+                ),
+            }), 201
+        except Exception as e:
+            logger.error(f"Failed to create variant for post {post_id}: {e}", exc_info=True)
+            return jsonify({'error': 'Failed to create variant'}), 500
 
     @api.route('/content-contexts/extract', methods=['POST'])
     @require_auth(Permission.READ_FEED)
@@ -9902,6 +9987,102 @@ def create_api_blueprint() -> Blueprint:
             }), 201
         except Exception as e:
             logger.error(f"Failed to repost channel message: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/channels/<channel_id>/messages/<message_id>/variant', methods=['POST'])
+    @require_auth(Permission.WRITE_FEED)
+    def variant_channel_message_api(channel_id, message_id):
+        """Create a secure same-channel lineage variant wrapper for a channel message."""
+        try:
+            db_manager, _, _, _, channel_manager, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+            data = request.get_json() or {}
+            comment = str(data.get('comment') or '').strip()
+            relationship_kind = str(data.get('relationship_kind') or '').strip()
+            module_param_delta = str(data.get('module_param_delta') or '').strip()
+            user_id = g.api_key_info.user_id
+
+            access = channel_manager.get_channel_access_decision(
+                channel_id=channel_id,
+                user_id=user_id,
+                require_membership=True,
+            )
+            if not access.get('allowed'):
+                if str(access.get('reason') or '').startswith('governance_'):
+                    return jsonify({
+                        'error': 'Channel access blocked by admin governance policy',
+                        'reason': access.get('reason'),
+                    }), 403
+                return _channel_not_found_response()
+
+            eligibility = channel_manager.get_variant_eligibility(message_id, user_id, channel_id)
+            if not eligibility.get('allowed'):
+                return jsonify({'error': eligibility.get('reason') or 'Cannot create variant from this message'}), int(eligibility.get('status_code') or 400)
+
+            variant = channel_manager.create_variant(
+                source_message_id=message_id,
+                user_id=user_id,
+                channel_id=channel_id,
+                comment=comment,
+                relationship_kind=relationship_kind,
+                module_param_delta=module_param_delta,
+                origin_peer=p2p_manager.get_peer_id() if p2p_manager else None,
+            )
+            if not variant:
+                return jsonify({'error': 'Failed to create variant'}), 500
+
+            if p2p_manager and p2p_manager.is_running():
+                try:
+                    sender_display = None
+                    channel_mode = 'open'
+                    target_peer_ids = None
+                    try:
+                        with db_manager.get_connection() as conn:
+                            mode_row = conn.execute(
+                                "SELECT privacy_mode FROM channels WHERE id = ?",
+                                (channel_id,),
+                            ).fetchone()
+                        if mode_row:
+                            channel_mode = str(mode_row['privacy_mode'] or 'open').lower()
+                        if channel_mode in {'private', 'confidential'}:
+                            local_peer = p2p_manager.get_peer_id() if p2p_manager else None
+                            target_peer_ids = channel_manager.get_member_peer_ids(channel_id, local_peer)
+                    except Exception:
+                        target_peer_ids = None
+                    if profile_manager:
+                        profile = profile_manager.get_profile(user_id)
+                        if profile:
+                            sender_display = profile.display_name or profile.username
+                    p2p_manager.broadcast_channel_message(
+                        channel_id=channel_id,
+                        user_id=user_id,
+                        content=variant.content,
+                        message_id=variant.id,
+                        timestamp=variant.created_at.isoformat() if getattr(variant, 'created_at', None) else datetime.now(timezone.utc).isoformat(),
+                        attachments=variant.attachments if getattr(variant, 'attachments', None) else None,
+                        source_layout=getattr(variant, 'source_layout', None),
+                        source_reference=getattr(variant, 'source_reference', None),
+                        repost_policy=getattr(variant, 'repost_policy', None),
+                        display_name=sender_display,
+                        expires_at=variant.expires_at.isoformat() if getattr(variant, 'expires_at', None) else None,
+                        parent_message_id=getattr(variant, 'parent_message_id', None),
+                        security={'privacy_mode': channel_mode},
+                        target_peer_ids=target_peer_ids,
+                    )
+                except Exception as p2p_err:
+                    logger.warning(f"Failed to broadcast channel variant via P2P: {p2p_err}")
+
+            return jsonify({
+                'success': True,
+                'message': _serialize_channel_message_for_response(
+                    variant,
+                    viewer_id=user_id,
+                    db_manager=db_manager,
+                    channel_manager=channel_manager,
+                    profile_manager=profile_manager,
+                ),
+            }), 201
+        except Exception as e:
+            logger.error(f"Failed to create channel variant: {e}", exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
     @api.route('/channels/threads/subscription', methods=['GET'])

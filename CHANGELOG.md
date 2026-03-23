@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.142] - 2026-03-23
+
+### Added
+- **Lineage variants v1** — Narrow provenance wrappers using **`source_reference.kind = variant_v1`** alongside **`repost_v1`**. Feed **post → feed variant** (visibility same as antecedent; `public` / `network` / `trusted` only); channel **message → same-channel variant**. Optional **`relationship_kind`** (`curated_recomposition`, `module_variant`, `parameterized_variant`) and **`module_param_delta`**. No copied antecedent body/attachments/layout; **repost wrappers cannot be antecedents**; generic create/update strips forged `source_reference`; feed **PATCH** preserves legitimate existing provenance. **API:** `POST /api/v1/feed/posts/<id>/variant`, `POST /api/v1/channels/<id>/messages/<msg_id>/variant`. **UI:** inline amber-styled variant composer; **`variant_reference`** / **`is_variant`** on responses. **P2P:** variant metadata propagates with channel messages where applicable.
+
+### Tests / docs
+- **`tests/test_variant_v1.py`**, **`tests/test_channel_variant_v1.py`**, **`docs/LINEAGE_VARIANTS_V1_PLAN.md`**, updates to **`docs/API_REFERENCE.md`**, **`docs/AGENT_ONBOARDING.md`**, **`docs/REPOST_V1_IMPLEMENTATION_PLAN.md`**, **`README.md`**.
+
+### Notes
+- Restart web + hard-refresh feed and channels for **`?v=0.4.142`**.
+
 ## [0.4.141] - 2026-03-23
 
 ### Docs
