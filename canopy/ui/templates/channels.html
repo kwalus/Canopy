@@ -4909,6 +4909,7 @@ window.addEventListener('error', function(e) {
 });
 
 let currentChannelId = {% if channels %}{{ channels[0].id|tojson }}{% else %}null{% endif %};
+let currentChannelName = {% if channels %}{{ channels[0].name|tojson }}{% else %}''{% endif %};
 const currentUserId = {{ user_id|tojson }};
 const isAdmin = {{ (is_admin if is_admin is defined else False)|tojson }};
 const localPeerId = {{ (local_peer_id if local_peer_id else '')|tojson }};
@@ -5389,6 +5390,7 @@ function selectChannel(channelId, channelName, options = {}) {
         if (backdrop) backdrop.classList.remove('show');
     }
     currentChannelId = channelId;
+    currentChannelName = String(channelName || '');
     currentChannelMemberIds = new Set();
     pendingChannelMessages = null;
     oldestLoadedMessageId = null;
@@ -6225,20 +6227,36 @@ function loadChannelMessages(channelId, options = {}) {
                 console.warn('Channel messages warning:', data.warning);
             }
             if (data.messages && data.messages.length > 0) {
-                displayMessages(data.messages, { forceScroll: !!options.forceScroll });
-            } else {
-                const hint = data.warning ? ` <small class="d-block mt-2 text-muted">${escapeHtml(String(data.warning).slice(0, 120))}</small>` : '';
-                messagesContainer.innerHTML = '<div class="text-center text-muted p-4">No messages yet' + hint + '</div>';
+                // Keep render failures separate from API failures — outer .catch is only for fetch/auth errors.
+                return displayMessages(data.messages, { forceScroll: !!options.forceScroll })
+                    .then(() => {
+                        if (loadToken !== activeChannelLoadToken || String(currentChannelId) !== requestedChannelId) {
+                            return;
+                        }
+                        if (data && data.marked_read && typeof window.requestCanopySidebarAttentionRefresh === 'function') {
+                            window.requestCanopySidebarAttentionRefresh({ force: true }).catch(() => {});
+                        }
+                    })
+                    .catch((renderErr) => {
+                        if (loadToken !== activeChannelLoadToken || String(currentChannelId) !== requestedChannelId) {
+                            return;
+                        }
+                        console.error('Channel message render failed:', renderErr);
+                        messagesContainer.innerHTML = '<div class="text-center text-danger p-4">Could not render messages. Check the browser console for details.</div>';
+                    });
             }
+            const hint = data.warning ? ` <small class="d-block mt-2 text-muted">${escapeHtml(String(data.warning).slice(0, 120))}</small>` : '';
+            messagesContainer.innerHTML = '<div class="text-center text-muted p-4">No messages yet' + hint + '</div>';
             if (data && data.marked_read && typeof window.requestCanopySidebarAttentionRefresh === 'function') {
                 window.requestCanopySidebarAttentionRefresh({ force: true }).catch(() => {});
             }
+            return undefined;
         })
         .catch(error => {
             if (loadToken !== activeChannelLoadToken || String(currentChannelId) !== requestedChannelId) {
                 return;
             }
-            console.error('Error loading messages:', error);
+            console.error('Error loading messages (network or server):', error);
             messagesContainer.innerHTML = '<div class="text-center text-danger p-4">Error loading messages</div>';
         })
         .finally(() => {
@@ -6403,93 +6421,104 @@ function displayMessages(messages, options = {}) {
         fetchUserDisplayInfo(userIds),
         fetchChannelMentionCandidates(currentChannelId)
     ]).then(([userInfo, candidates]) => {
-        const map = {};
-        (candidates || []).forEach(u => {
-            const dn = u.display_name || u.username || u.user_id;
-            map[u.user_id] = dn;
-            if (u.username && u.username !== u.user_id) map[u.username] = dn;
-        });
-        window.mentionDisplayMap = map;
-        let html = '';
+        try {
+            if (!messagesContainer) {
+                throw new Error('messages-list container missing');
+            }
+            const map = {};
+            (candidates || []).forEach(u => {
+                const dn = u.display_name || u.username || u.user_id;
+                map[u.user_id] = dn;
+                if (u.username && u.username !== u.user_id) map[u.username] = dn;
+            });
+            window.mentionDisplayMap = map;
+            let html = '';
 
-        rootMessages.forEach(message => {
-            html += renderMessage(message, userInfo, false);
+            rootMessages.forEach(message => {
+                html += renderMessage(message, userInfo, false);
 
-            // Render all threaded replies (including reply-to-reply) under the root
-            const replies = repliesByRoot[message.id];
-            if (replies && replies.length > 0) {
-                const showCount = 3;
-                const hidden = replies.length > showCount ? replies.length - showCount : 0;
-                if (hidden > 0) {
-                    html += `<div class="thread-toggle ms-5 mb-1" onclick="expandThread(this)" data-expanded="false">
+                // Render all threaded replies (including reply-to-reply) under the root
+                const replies = repliesByRoot[message.id];
+                if (replies && replies.length > 0) {
+                    const showCount = 3;
+                    const hidden = replies.length > showCount ? replies.length - showCount : 0;
+                    if (hidden > 0) {
+                        html += `<div class="thread-toggle ms-5 mb-1" onclick="expandThread(this)" data-expanded="false">
                         <i class="bi bi-chat-dots me-1"></i>${replies.length} replies &mdash; click to expand
                     </div>`;
-                    html += `<div class="thread-replies-hidden" style="display:none;">`;
-                    replies.slice(0, hidden).forEach(r => { html += renderMessage(r, userInfo, true); });
-                    html += `</div>`;
-                    replies.slice(hidden).forEach(r => { html += renderMessage(r, userInfo, true); });
-                } else {
-                    replies.forEach(r => { html += renderMessage(r, userInfo, true); });
+                        html += `<div class="thread-replies-hidden" style="display:none;">`;
+                        replies.slice(0, hidden).forEach(r => { html += renderMessage(r, userInfo, true); });
+                        html += `</div>`;
+                        replies.slice(hidden).forEach(r => { html += renderMessage(r, userInfo, true); });
+                    } else {
+                        replies.forEach(r => { html += renderMessage(r, userInfo, true); });
+                    }
                 }
-            }
-        });
+            });
 
-        // Render orphan replies whose thread root isn't in view (O(n) via Set)
-        const rootIdSet = new Set(rootMessages.map(m => m.id));
-        Object.keys(repliesByRoot).forEach(rid => {
-            if (!rootIdSet.has(rid)) {
-                repliesByRoot[rid].forEach(r => { html += renderMessage(r, userInfo, true); });
-            }
-        });
+            // Render orphan replies whose thread root isn't in view (O(n) via Set)
+            const rootIdSet = new Set(rootMessages.map(m => m.id));
+            Object.keys(repliesByRoot).forEach(rid => {
+                if (!rootIdSet.has(rid)) {
+                    repliesByRoot[rid].forEach(r => { html += renderMessage(r, userInfo, true); });
+                }
+            });
 
-		        // Prepend "Load older" banner if there may be more messages
-		        const olderBanner = noMoreOlderMessages ? '' :
-		            `<div id="load-older-banner" class="text-center py-2 mb-2">
+            // Prepend "Load older" banner if there may be more messages
+            const olderBanner = noMoreOlderMessages ? '' :
+                `<div id="load-older-banner" class="text-center py-2 mb-2">
 		                <button class="btn btn-sm btn-outline-secondary" onclick="loadOlderMessages()">
 		                    <i class="bi bi-arrow-up me-1"></i>Load older messages
 		                </button>
 		            </div>`;
-		        messagesContainer.innerHTML = olderBanner + html;
-		        
-		        formatTimestamps();
-                if (window.applyInlineTaskAvatars) {
-                    window.applyInlineTaskAvatars(messagesContainer);
-                }
-		        updateChannelExpiryBadges();
-		        clearNewMessagesBanner();
-		        
-		        // Hydrate X/Twitter embeds after injecting message HTML
-		        if (typeof hydrateXEmbeds === 'function') {
-		            hydrateXEmbeds(messagesContainer);
-		        }
-		        // Source layout compositor (feed uses full-page scan; channels inject HTML async — run explicitly)
-		        scheduleChannelSourceLayouts(messagesContainer);
+            messagesContainer.innerHTML = olderBanner + html;
+
+            formatTimestamps();
+            if (window.applyInlineTaskAvatars) {
+                window.applyInlineTaskAvatars(messagesContainer);
+            }
+            updateChannelExpiryBadges();
+            clearNewMessagesBanner();
+
+            // Hydrate X/Twitter embeds after injecting message HTML
+            if (typeof hydrateXEmbeds === 'function') {
+                hydrateXEmbeds(messagesContainer);
+            }
+            // Source layout compositor (feed uses full-page scan; channels inject HTML async — run explicitly)
+            scheduleChannelSourceLayouts(messagesContainer);
 
             const container = document.getElementById('messages-container');
             applyUserAvatarStacks(userInfo, messagesContainer);
             if (initialFocusMessageId) {
-		            const focused = focusMessageById(initialFocusMessageId);
-                    if (focused) {
-                        clearInitialChannelFocusFromUrl();
-                    }
-		            initialFocusMessageId = null;
-		            if (!focused && container) {
-		                container.scrollTop = container.scrollHeight;
-		            }
-		        } else if (container && options.scrollToTop) {
-		            container.scrollTop = 0;
-		        } else if (container) {
-		            if (options.forceScroll || wasNearBottom) {
-		                container.scrollTop = container.scrollHeight;
-		            } else if (scrollContainer) {
-		                scrollContainer.scrollTop = prevScrollTop;
-		            }
-		        }
-
-                if (!options.ignoreSignature && currentChannelId) {
-                    channelMessageSignature[currentChannelId] = getMessagesSignature(messages);
+                const focused = focusMessageById(initialFocusMessageId);
+                if (focused) {
+                    clearInitialChannelFocusFromUrl();
                 }
-		    });
+                initialFocusMessageId = null;
+                if (!focused && container) {
+                    container.scrollTop = container.scrollHeight;
+                }
+            } else if (container && options.scrollToTop) {
+                container.scrollTop = 0;
+            } else if (container) {
+                if (options.forceScroll || wasNearBottom) {
+                    container.scrollTop = container.scrollHeight;
+                } else if (scrollContainer) {
+                    scrollContainer.scrollTop = prevScrollTop;
+                }
+            }
+
+            if (!options.ignoreSignature && currentChannelId) {
+                channelMessageSignature[currentChannelId] = getMessagesSignature(messages);
+            }
+        } catch (renderBlockErr) {
+            console.error('displayMessages render block failed:', renderBlockErr);
+            if (messagesContainer) {
+                messagesContainer.innerHTML = '<div class="text-center text-danger p-4">Could not render one or more messages (see console).</div>';
+            }
+            // Do not rethrow — avoids double error banners; loadChannelMessages inner .catch also handles rejects.
+        }
+    });
 }
 
 function renderChannelRepostCard(message) {

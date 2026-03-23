@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.4.142-blue" alt="Version 0.4.142">
+  <img src="https://img.shields.io/badge/version-0.4.147-blue" alt="Version 0.4.147">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -88,6 +88,11 @@ Recent user-facing changes reflected in the app and docs:
 
 - **Source layout v1 (current development surface)** — Posts, feed items, and DMs can now optionally carry a small **composition manifest** that promotes a module or attachment to the hero position, places supporting items in a side rail or strip, adds CTA links, and declares the preferred default deck item. This is additive and backward compatible: old sources render normally, while new showcase and station-quality sources stop looking like flat attachment dumps. See [docs/CANOPY_SOURCE_LAYOUT_V1.md](docs/CANOPY_SOURCE_LAYOUT_V1.md).
 - **Lineage variants v1 (`0.4.142`)** — Feed posts and channel messages can now spawn explicit **variants** that preserve provenance back to an antecedent source without copying the original payload. Variants carry typed relationship metadata (`curated_recomposition`, `module_variant`, `parameterized_variant`), optional parameter-delta notes, and render a live antecedent card with current deck/source availability.
+- **Channels load vs render errors (`0.4.146`)** — **`loadChannelMessages`** no longer treats **`displayMessages`** rejections as failed **fetch**; render failures get their own **`.catch`** and in-function **try/catch** (see console for stack).
+- **Repost/variant UI label (`0.4.147`)** — **`renderMessage`** referenced **`currentChannelName`** without defining it; **`currentChannelName`** is now initialized with the first channel and updated in **`selectChannel`** so lineage actions can show **“in #…”** without throwing.
+- **Channels lineage resilience (`0.4.145`)** — Repost/variant **preview** fields use safe `message_type` / `created_at` extraction; preview build errors degrade to **unavailable** instead of skipping the whole message. UI route **decorators** wrapped so decorate failures strip lineage flags. **`loadChannelMessages`** chains **`displayMessages`** for **`marked_read`** refresh after paint.
+- **Channels UI lineage hotfix (`0.4.144`)** — Channel repost/variant decorators use **`ui.channels_locate`** (not a bogus endpoint); `url_for` failure falls back to **`/channels/locate`**. Sidebar snapshot uses **`_sidebar_archived_at_iso`** so `archived_at` cannot break JSON. Fixes empty/broken channel threads when lineage messages were skipped in AJAX.
+- **Channel repost / variant API permissions (`0.4.143`)** — REST endpoints for same-channel **repost** and **variant** require **`READ_MESSAGES` + `WRITE_MESSAGES`**; feed-only API keys no longer satisfy auth for those channel lineage calls.
 - **Deck pinned controls (`0.4.120`)** — Seek + transport actions sit in a **fixed footer**; only stage, queue, and metadata scroll—no scrolling to find **Return** or play controls.
 - **Module “Open module” deck open path (`0.4.126`)** — Channel/feed/DM module cards expose **`data-canopy-module-card`**, bundle id/name attributes, and resilient **`openMediaDeckForManifestNode(this)`**: correct manifest host resolution (avoids wrong **`closest()`** on other widgets), manifest rebuild from bundle id, **`/files/…`** link scraping when attrs fail, relaxed **`sanitizeDeckModuleBundleUrl`**, and **`origin_file_id`** on attachments. End-to-end validated with the **Piano Lab** sample module in the deck (audio + UI).
 - **Canopy Module first-class upload path (`0.4.121`)** — `.canopy-module.html` bundles now upload and render as first-class module surfaces instead of generic HTML previews. The runtime accepts self-contained single-file bundles, blocks unsafe external HTML features, and routes module attachments directly into the deck/runtime path.

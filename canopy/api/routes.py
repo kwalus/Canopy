@@ -9898,11 +9898,13 @@ def create_api_blueprint() -> Blueprint:
             return jsonify({'error': 'Internal server error'}), 500
 
     @api.route('/channels/<channel_id>/messages/<message_id>/repost', methods=['POST'])
-    @require_auth(Permission.WRITE_FEED)
+    @require_auth(Permission.WRITE_MESSAGES)
     def repost_channel_message_api(channel_id, message_id):
         """Create a secure same-channel repost wrapper for a channel message."""
         try:
             db_manager, _, _, _, channel_manager, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+            if not g.api_key_info.has_permission(Permission.READ_MESSAGES):
+                return jsonify({'error': 'READ_MESSAGES permission required'}), 403
             data = request.get_json() or {}
             comment = str(data.get('comment') or '').strip()
             user_id = g.api_key_info.user_id
@@ -9990,11 +9992,13 @@ def create_api_blueprint() -> Blueprint:
             return jsonify({'error': 'Internal server error'}), 500
 
     @api.route('/channels/<channel_id>/messages/<message_id>/variant', methods=['POST'])
-    @require_auth(Permission.WRITE_FEED)
+    @require_auth(Permission.WRITE_MESSAGES)
     def variant_channel_message_api(channel_id, message_id):
         """Create a secure same-channel lineage variant wrapper for a channel message."""
         try:
             db_manager, _, _, _, channel_manager, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+            if not g.api_key_info.has_permission(Permission.READ_MESSAGES):
+                return jsonify({'error': 'READ_MESSAGES permission required'}), 403
             data = request.get_json() or {}
             comment = str(data.get('comment') or '').strip()
             relationship_kind = str(data.get('relationship_kind') or '').strip()

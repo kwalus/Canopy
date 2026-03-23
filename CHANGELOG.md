@@ -8,6 +8,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.147] - 2026-03-23
+
+### Fixed
+- **Channels page `ReferenceError: currentChannelName is not defined`** — Repost/variant UI in **`renderMessage`** used **`currentChannelName`** in template strings without a global. Added **`currentChannelName`** (initial value from first channel) and **`selectChannel`** keeps it in sync with **`channelName`**.
+
+## [0.4.146] - 2026-03-23
+
+### Fixed
+- **Channels “Error loading messages” after lineage work** — `displayMessages` failures were chained to the same `.catch` as `fetch`, so a **render** exception looked like a **load** failure. Render errors now use a **dedicated inner `.catch`** plus a **try/catch** around the render block (with console logging). API errors still show “Error loading messages”; render errors show a distinct message.
+
+## [0.4.145] - 2026-03-23
+
+### Fixed
+- **Channel lineage (repost/variant) breaking message load** — Building the reference preview could raise on odd `message_type` / `created_at` values on the resolved original, which caused **`ajax_get_channel_messages`** to **skip the entire wrapper message**. Previews now use safe serializers and catch preview build errors (mark reference unavailable). UI decoration failures clear **`is_repost` / `is_variant`** instead of aborting the message row.
+- **Channels spinner** — **`loadChannelMessages`** now **chains on `displayMessages`’s promise** so failures in the render path hit **`catch`** and **`finally`** (sidebar attention refresh still runs only when **`marked_read`**).
+
+## [0.4.144] - 2026-03-23
+
+### Fixed
+- **Channels not loading / empty threads** — Channel message AJAX decorated repost/variant links with `url_for('ui.locate_channel_message')`, which **does not exist**, causing **`BuildError`** and **skipped messages** in the response (data remained in DB). Now uses **`ui.channels_locate`** with **`/channels/locate?...`** fallback if `url_for` fails.
+- **Channel sidebar snapshot** — **`archived_at`** serialized via **`_sidebar_archived_at_iso`** so non-datetime values cannot break **`/ajax/channel_sidebar_state`**.
+
+### Notes
+- Restart web + hard-refresh for **`?v=0.4.144`**. After restart, ensure **one** process owns **7770** and **7771** (avoid duplicate instances).
+
+## [0.4.143] - 2026-03-23
+
+### Security
+- **Channel repost & lineage variant API** — `POST .../channels/<id>/messages/<msg_id>/repost` and `.../variant` now require **`WRITE_MESSAGES`** (decorator) **and** **`READ_MESSAGES`** (explicit handler check). Keys with **only** `READ_FEED` + `WRITE_FEED` no longer pass the auth gate; `WRITE_MESSAGES` without `READ_MESSAGES` returns **`READ_MESSAGES permission required`**. Aligns channel lineage mutations with the message surface and least-privilege agent keys.
+
+### Tests / docs
+- **`tests/test_channel_repost_v1.py`**, **`tests/test_channel_variant_v1.py`** — permission regression cases; **`docs/API_REFERENCE.md`**, **`docs/AGENT_ONBOARDING.md`**.
+
+### Notes
+- Restart web + hard-refresh for **`?v=0.4.143`**.
+
 ## [0.4.142] - 2026-03-23
 
 ### Added

@@ -312,6 +312,20 @@ class TestChannelVariantApi(unittest.TestCase):
                 id='key-writer',
                 user_id='variant-user',
                 key_hash='hash-writer',
+                permissions={Permission.READ_MESSAGES, Permission.WRITE_MESSAGES, Permission.READ_FEED},
+                created_at=self.original.created_at,
+            ),
+            'write-only-key': ApiKeyInfo(
+                id='key-write-only',
+                user_id='variant-user',
+                key_hash='hash-write-only',
+                permissions={Permission.WRITE_MESSAGES},
+                created_at=self.original.created_at,
+            ),
+            'feed-key': ApiKeyInfo(
+                id='key-feed',
+                user_id='variant-user',
+                key_hash='hash-feed',
                 permissions={Permission.READ_FEED, Permission.WRITE_FEED},
                 created_at=self.original.created_at,
             ),
@@ -395,6 +409,23 @@ class TestChannelVariantApi(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
         payload = response.get_json() or {}
         self.assertIn('same channel', payload.get('error', ''))
+
+    def test_channel_variant_endpoint_requires_message_permissions(self) -> None:
+        write_only = self.client.post(
+            f'/api/v1/channels/{self.channel.id}/messages/{self.original.id}/variant',
+            json={'comment': 'Needs read permission too'},
+            headers={'X-API-Key': 'write-only-key'},
+        )
+        self.assertEqual(write_only.status_code, 403)
+        self.assertEqual((write_only.get_json() or {}).get('error'), 'READ_MESSAGES permission required')
+
+        wrong_surface = self.client.post(
+            f'/api/v1/channels/{self.channel.id}/messages/{self.original.id}/variant',
+            json={'comment': 'Feed permissions should not work here'},
+            headers={'X-API-Key': 'feed-key'},
+        )
+        self.assertEqual(wrong_surface.status_code, 403)
+        self.assertEqual((wrong_surface.get_json() or {}).get('error'), 'Invalid or insufficient permissions')
 
 
 if __name__ == '__main__':

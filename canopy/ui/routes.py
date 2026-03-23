@@ -1114,7 +1114,10 @@ def create_ui_blueprint() -> Blueprint:
         payload = dict(repost_reference)
         source_id = str(payload.get('source_id') or '').strip()
         if source_id:
-            payload['href'] = f"{url_for('ui.locate_channel_message')}?message_id={quote_plus(source_id)}"
+            try:
+                payload['href'] = f"{url_for('ui.channels_locate')}?message_id={quote_plus(source_id)}"
+            except Exception:
+                payload['href'] = f"/channels/locate?message_id={quote_plus(source_id)}"
         author_id = str(payload.get('author_id') or '').strip()
         if payload.get('available') and author_id:
             payload['author_display'] = _bookmark_author_label(author_id, db_manager, profile_manager)
@@ -1139,7 +1142,10 @@ def create_ui_blueprint() -> Blueprint:
         payload = dict(variant_reference)
         source_id = str(payload.get('source_id') or '').strip()
         if source_id:
-            payload['href'] = f"{url_for('ui.locate_channel_message')}?message_id={quote_plus(source_id)}"
+            try:
+                payload['href'] = f"{url_for('ui.channels_locate')}?message_id={quote_plus(source_id)}"
+            except Exception:
+                payload['href'] = f"/channels/locate?message_id={quote_plus(source_id)}"
         payload['relationship_label'] = _variant_relationship_label(payload.get('relationship_kind'))
         author_id = str(payload.get('author_id') or '').strip()
         if payload.get('available') and author_id:
@@ -2073,6 +2079,19 @@ def create_ui_blueprint() -> Blueprint:
         except Exception:
             return 0
 
+    def _sidebar_archived_at_iso(value: Any) -> Optional[str]:
+        """JSON-safe archived_at for sidebar payloads (datetime or legacy string)."""
+        if value is None:
+            return None
+        iso_fn = getattr(value, 'isoformat', None)
+        if callable(iso_fn):
+            try:
+                return str(iso_fn())
+            except Exception:
+                pass
+        text = str(value).strip()
+        return text or None
+
     def _build_channel_sidebar_snapshot(
         channel_manager: Any,
         p2p_manager: Any,
@@ -2106,10 +2125,7 @@ def create_ui_blueprint() -> Blueprint:
                 'lifecycle_status': getattr(ch, 'lifecycle_status', 'active') or 'active',
                 'lifecycle_ttl_days': int(getattr(ch, 'lifecycle_ttl_days', default_ttl) or default_ttl),
                 'lifecycle_preserved': bool(getattr(ch, 'lifecycle_preserved', False)),
-                'archived_at': (
-                    getattr(ch, 'archived_at', None).isoformat()
-                    if getattr(ch, 'archived_at', None) else None
-                ),
+                'archived_at': _sidebar_archived_at_iso(getattr(ch, 'archived_at', None)),
                 'archive_reason': getattr(ch, 'archive_reason', None),
                 'days_until_archive': getattr(ch, 'days_until_archive', None),
                 'owner_peer_state': getattr(ch, 'owner_peer_state', None),
@@ -11566,19 +11582,38 @@ def create_ui_blueprint() -> Blueprint:
                     except Exception:
                         variant_reference = None
                     msg_dict['is_repost'] = bool(repost_reference)
-                    if repost_reference:
-                        msg_dict['repost_reference'] = _decorate_channel_repost_reference_ui(
-                            repost_reference,
-                            db_manager,
-                            profile_manager,
-                        )
                     msg_dict['is_variant'] = bool(variant_reference)
-                    if variant_reference:
-                        msg_dict['variant_reference'] = _decorate_channel_variant_reference_ui(
-                            variant_reference,
-                            db_manager,
-                            profile_manager,
+                    try:
+                        if repost_reference:
+                            decorated_r = _decorate_channel_repost_reference_ui(
+                                repost_reference,
+                                db_manager,
+                                profile_manager,
+                            )
+                            if decorated_r is not None:
+                                msg_dict['repost_reference'] = decorated_r
+                            else:
+                                msg_dict['is_repost'] = False
+                        if variant_reference:
+                            decorated_v = _decorate_channel_variant_reference_ui(
+                                variant_reference,
+                                db_manager,
+                                profile_manager,
+                            )
+                            if decorated_v is not None:
+                                msg_dict['variant_reference'] = decorated_v
+                            else:
+                                msg_dict['is_variant'] = False
+                    except Exception as lineage_ui_err:
+                        logger.warning(
+                            "Lineage UI decorate failed for channel message %s: %s",
+                            getattr(message, 'id', '?'),
+                            lineage_ui_err,
                         )
+                        msg_dict['is_repost'] = False
+                        msg_dict['is_variant'] = False
+                        msg_dict.pop('repost_reference', None)
+                        msg_dict.pop('variant_reference', None)
                     blob = layout_by_id.get(str(message.id))
                     if blob is not None:
                         msg_dict['source_layout'] = _normalize_sl_for_channel_ajax(blob)

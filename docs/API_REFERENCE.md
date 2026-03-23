@@ -121,8 +121,8 @@ curl -s -X DELETE http://localhost:7770/api/v1/bookmarks/BKabc123... \
 | GET | `/channels/<id>/messages` | Yes | Get messages from a channel |
 | GET | `/channels/<id>/messages/<msg_id>` | Yes | Get a single channel message |
 | POST | `/channels/messages` | Yes | Post a message (`channel_id`, `content`; optional: `expires_at`, `ttl_seconds`, compatibility `ttl_mode`, `attachments`, `reply_to`, `source_layout`) |
-| POST | `/channels/<id>/messages/<msg_id>/repost` | Yes | Create a secure same-channel repost wrapper for an eligible channel message. Optional JSON body: `comment`. |
-| POST | `/channels/<id>/messages/<msg_id>/variant` | Yes | Create a secure same-channel lineage variant for an eligible channel message. Optional JSON body: `comment`, `relationship_kind`, `module_param_delta`. |
+| POST | `/channels/<id>/messages/<msg_id>/repost` | Yes | Create a secure same-channel repost wrapper for an eligible channel message. **Auth:** `@require_auth(WRITE_MESSAGES)` plus explicit `READ_MESSAGES` check inside the handler. `READ_FEED`/`WRITE_FEED` only is rejected. Optional JSON body: `comment`. |
+| POST | `/channels/<id>/messages/<msg_id>/variant` | Yes | Create a secure same-channel lineage variant for an eligible channel message. **Auth:** same as channel repost (`WRITE_MESSAGES` + `READ_MESSAGES`). Optional JSON body: `comment`, `relationship_kind`, `module_param_delta`. |
 | PATCH | `/channels/<id>/messages/<msg_id>` | Yes | Edit a channel message (optional `source_layout`) |
 | DELETE | `/channels/<id>/messages/<msg_id>` | Yes | Delete a channel message (author only) |
 | POST | `/channels/<id>/messages/<msg_id>/like` | Yes | Like or unlike a channel message |
@@ -144,6 +144,7 @@ Channel lifecycle notes:
 
 Channel repost v1 notes:
 - Channel reposts are reference wrappers, not copied messages.
+- API keys calling channel repost routes must include both `WRITE_MESSAGES` and `READ_MESSAGES`.
 - New channel reposts store a typed `source_reference` block on the repost row and do not copy original body text, attachments, or full source-layout payloads into the new message.
 - Channel reposts are limited to the exact same channel in v1. Cross-channel reposts are rejected.
 - Repost chains are rejected in v1.
@@ -153,6 +154,7 @@ Channel repost v1 notes:
 
 Channel variant v1 notes:
 - Channel variants are lineage-preserving reference wrappers, not copied messages.
+- API keys calling channel variant routes must include both `WRITE_MESSAGES` and `READ_MESSAGES`.
 - New channel variants store `source_reference.kind = variant_v1` on the new message and keep the antecedent authoritative.
 - Channel variants are limited to the exact same channel in v1. Cross-channel variants are rejected.
 - Repost wrappers cannot be used as antecedents for variants in v1.
@@ -180,6 +182,8 @@ curl -s -X POST http://localhost:7770/api/v1/channels/CHAN123/messages/MSG123/re
 ```
 
 **Web UI (session):** `POST /ajax/repost_channel_message` with JSON `channel_id`, `message_id`, and optional `comment` — used by the inline repost composer on the channel thread view.
+
+**Web UI thread load (AJAX, `/channels`):** `GET /ajax/channel_messages/<channel_id>` returns the thread snapshot for the channel page. Repost/variant rows include decorated preview metadata; deep links to the antecedent use the registered Flask route **`ui.channels_locate`** (with a safe `/channels/locate?...` fallback if URL generation fails). If preview or decoration fails for a single row, the server degrades that row (e.g. clears `is_repost` / `is_variant` for the payload) rather than omitting the whole message. **`GET /ajax/channel_sidebar_state`** serializes channel `archived_at` through a safe ISO helper so malformed stored values cannot break the sidebar snapshot.
 
 ---
 

@@ -134,6 +134,34 @@ def _truncate_channel_repost_reference_body(
     return cut + '…', True
 
 
+def _safe_channel_message_type_label(message: Any) -> str:
+    """JSON/UI-safe message type string for lineage preview payloads."""
+    mt = getattr(message, 'message_type', None)
+    if mt is None:
+        return 'text'
+    try:
+        val = getattr(mt, 'value', None)
+        if val is not None:
+            return str(val)
+    except Exception:
+        pass
+    return str(mt)
+
+
+def _safe_channel_created_at_iso(message: Any) -> str:
+    """ISO timestamp for lineage previews; never raises."""
+    dt = getattr(message, 'created_at', None)
+    if dt is None:
+        return ''
+    iso_fn = getattr(dt, 'isoformat', None)
+    if callable(iso_fn):
+        try:
+            return str(iso_fn())
+        except Exception:
+            return ''
+    return str(dt)
+
+
 def _channel_repost_embed_from_original(message: Any) -> Dict[str, Any]:
     embed: Dict[str, Any] = {}
     attachments = getattr(message, 'attachments', None)
@@ -6069,19 +6097,28 @@ class ChannelManager:
             else ''
         )
         body_text, body_truncated = _truncate_channel_repost_reference_body(original.content)
-        result.update({
-            'available': True,
-            'unavailable_reason': None,
-            'author_id': original.user_id,
-            'created_at': original.created_at.isoformat(),
-            'message_type': original.message_type.value,
-            'preview_text': _build_channel_repost_preview_text(original.content),
-            'body_text': body_text,
-            'body_truncated': body_truncated,
-            'embed': _channel_repost_embed_from_original(original),
-            'has_source_layout': bool(source_layout),
-            'deck_default_ref': deck_default_ref or None,
-        })
+        try:
+            result.update({
+                'available': True,
+                'unavailable_reason': None,
+                'author_id': original.user_id,
+                'created_at': _safe_channel_created_at_iso(original),
+                'message_type': _safe_channel_message_type_label(original),
+                'preview_text': _build_channel_repost_preview_text(original.content),
+                'body_text': body_text,
+                'body_truncated': body_truncated,
+                'embed': _channel_repost_embed_from_original(original),
+                'has_source_layout': bool(source_layout),
+                'deck_default_ref': deck_default_ref or None,
+            })
+        except Exception as preview_err:
+            logger.warning(
+                "Repost reference preview build failed for source %s: %s",
+                source_id,
+                preview_err,
+            )
+            result['available'] = False
+            result['unavailable_reason'] = 'missing'
         return result
 
     def get_variant_eligibility(
@@ -6214,19 +6251,28 @@ class ChannelManager:
             else ''
         )
         body_text, body_truncated = _truncate_channel_repost_reference_body(original.content)
-        result.update({
-            'available': True,
-            'unavailable_reason': None,
-            'author_id': original.user_id,
-            'created_at': original.created_at.isoformat(),
-            'message_type': original.message_type.value,
-            'preview_text': _build_channel_repost_preview_text(original.content),
-            'body_text': body_text,
-            'body_truncated': body_truncated,
-            'embed': _channel_repost_embed_from_original(original),
-            'has_source_layout': bool(source_layout),
-            'deck_default_ref': deck_default_ref or None,
-        })
+        try:
+            result.update({
+                'available': True,
+                'unavailable_reason': None,
+                'author_id': original.user_id,
+                'created_at': _safe_channel_created_at_iso(original),
+                'message_type': _safe_channel_message_type_label(original),
+                'preview_text': _build_channel_repost_preview_text(original.content),
+                'body_text': body_text,
+                'body_truncated': body_truncated,
+                'embed': _channel_repost_embed_from_original(original),
+                'has_source_layout': bool(source_layout),
+                'deck_default_ref': deck_default_ref or None,
+            })
+        except Exception as preview_err:
+            logger.warning(
+                "Variant reference preview build failed for source %s: %s",
+                source_id,
+                preview_err,
+            )
+            result['available'] = False
+            result['unavailable_reason'] = 'missing'
         return result
 
     def create_repost(
