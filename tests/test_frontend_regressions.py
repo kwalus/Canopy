@@ -115,6 +115,19 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("query.set('focus_message', focusMessageId);", channels_template)
         self.assertIn("selectChannel(focusChannelId, channelName, { focusMessageId: initialFocusMessageId || '', forceScroll: false });", channels_template)
 
+    def test_antecedent_deck_open_path_uses_short_retry_chain(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        self.assertIn("requestAnimationFrame(function () {", channels_template)
+        self.assertNotIn("runDeckRetryIfClosed", channels_template)
+        self.assertNotIn("setTimeout(runDeck, 120);", channels_template)
+        self.assertNotIn("setTimeout(runDeck, 450);", channels_template)
+        self.assertNotIn("setTimeout(runDeck, 1500);", channels_template)
+        self.assertNotIn("setTimeout(runDeck, 2800);", channels_template)
+        self.assertIn("requestAnimationFrame(() => {", main_js)
+        self.assertNotIn("window.setTimeout(() => {\n                            tryOpenFromRow();\n                        }, 120);", main_js)
+        self.assertNotIn("window.setTimeout(() => {\n                            tryOpenFromRow();\n                        }, 450);", main_js)
+
     def test_stream_owner_controls_drive_real_lifecycle_endpoints(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         self.assertIn("function _setStreamLifecycle(streamId, action, slotId)", channels_template)
@@ -215,6 +228,8 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('function renderChannelRepostCard(message)', channels_template)
         self.assertIn('function toggleChannelRepostComposer(messageId)', channels_template)
         self.assertIn("apiCall('/ajax/repost_channel_message'", channels_template)
+        self.assertIn("function canopyOpenChannelAntecedentDeck(sourceMessageId)", channels_template)
+        self.assertIn("onclick=\"canopyOpenChannelAntecedentDeck(", channels_template)
         self.assertIn('Original source unavailable', channels_template)
         self.assertIn('channel-repost-compose-', channels_template)
 
@@ -225,12 +240,15 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('toggleVariantComposer', feed_template)
         self.assertIn("apiCall('/ajax/variant_post'", feed_template)
         self.assertIn('Create a lineage variant', feed_template)
-        self.assertIn('Open antecedent', feed_template)
-        self.assertIn('post-variant-relationship', feed_template)
+        # Variants render like normal posts; provenance is a slim bar (not a nested “antecedent card”).
+        self.assertIn('post-variant-shell--minimal', feed_template)
+        self.assertIn('post-lineage-bar', feed_template)
+        self.assertIn('Antecedent{% if ref.author_display', feed_template)
         self.assertIn('function renderChannelVariantCard(message)', channels_template)
         self.assertIn('toggleChannelVariantComposer', channels_template)
         self.assertIn("apiCall('/ajax/variant_channel_message'", channels_template)
-        self.assertIn('Antecedent source unavailable', channels_template)
+        self.assertIn('post-lineage-bar', channels_template)
+        self.assertIn('Antecedent unavailable', channels_template)
         self.assertIn('channel-variant-compose-', channels_template)
 
     def test_sidebar_cards_support_three_states_and_mini_player_placement(self) -> None:

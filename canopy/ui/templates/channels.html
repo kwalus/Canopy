@@ -64,6 +64,64 @@
         gap: 0.85rem;
     }
 
+    /* Lighter repost block — less “nested card” chrome, same information */
+    .post-repost-shell--streamlined {
+        gap: 0.45rem;
+    }
+    .post-repost-shell--streamlined .post-repost-card {
+        border-radius: 0.65rem;
+        padding: 0.55rem 0.75rem;
+        box-shadow: none;
+        background: rgba(15, 23, 42, 0.58);
+        border: 1px solid rgba(148, 163, 184, 0.16);
+    }
+    .post-repost-shell--streamlined .post-repost-head {
+        margin-bottom: 0.35rem;
+    }
+    .post-repost-shell--streamlined .post-repost-meta {
+        margin-bottom: 0.45rem;
+    }
+    .post-repost-shell--streamlined .post-repost-quote {
+        padding: 0.55rem 0.65rem;
+        border-radius: 0.55rem;
+    }
+    .post-repost-shell--streamlined .post-repost-actions {
+        margin-top: 0.5rem;
+    }
+
+    .post-variant-shell--minimal {
+        gap: 0.35rem;
+    }
+    .post-lineage-bar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.45rem 0.65rem;
+        margin-top: 0.2rem;
+        padding-top: 0.5rem;
+        border-top: 1px solid rgba(148, 163, 184, 0.2);
+        font-size: 0.82rem;
+        color: rgba(226, 232, 240, 0.82);
+    }
+    .post-lineage-bar .post-lineage-badge {
+        font-size: 0.72rem;
+        font-weight: 600;
+    }
+    .post-lineage-bar .btn-sm {
+        padding: 0.1rem 0.45rem;
+        font-size: 0.76rem;
+        line-height: 1.25;
+    }
+    .post-variant-param-delta {
+        font-size: 0.86rem;
+        color: rgba(226, 232, 240, 0.88);
+    }
+    .post-variant-param-delta .delta-label {
+        font-weight: 600;
+        color: rgba(253, 230, 138, 0.85);
+        margin-right: 0.35rem;
+    }
+
     .post-repost-card,
     .post-variant-card {
         border: 1px solid rgba(56, 189, 248, 0.24);
@@ -94,6 +152,12 @@
         justify-content: space-between;
         gap: 0.75rem;
         margin-bottom: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    .post-repost-head .post-repost-badge {
+        white-space: nowrap;
+        flex-shrink: 0;
     }
 
     .post-repost-eyebrow {
@@ -4945,6 +5009,35 @@ let replyToAuthor = '';
 let isSearchActive = false;
 let currentChannelSearchQuery = '';
 let initialFocusMessageId = null;
+/** When true with focus_message, open antecedent deck after scroll (deep link / repost card). */
+let channelDeepLinkOpenDeck = false;
+
+/**
+ * Open antecedent deck via server redirect — does not require that message to be in the current DOM
+ * (fixes repost/variant Deck when the source is off-screen or not in the loaded page).
+ */
+function canopyNavigateChannelDeckForMessageId(sourceMessageId) {
+    const mid = String(sourceMessageId || '').trim();
+    if (!mid) return;
+    window.location.href = '/channels/locate?message_id=' + encodeURIComponent(mid) + '&open_deck=1';
+}
+function canopyOpenChannelAntecedentDeck(sourceMessageId) {
+    const mid = String(sourceMessageId || '').trim();
+    if (!mid) return false;
+    if (typeof window.openDeckForChannelAntecedentMessage === 'function') {
+        try {
+            return !!window.openDeckForChannelAntecedentMessage(mid);
+        } catch (_) {
+            /* ignore */
+        }
+    }
+    canopyNavigateChannelDeckForMessageId(mid);
+    return false;
+}
+if (typeof window !== 'undefined') {
+    window.canopyNavigateChannelDeckForMessageId = canopyNavigateChannelDeckForMessageId;
+    window.canopyOpenChannelAntecedentDeck = canopyOpenChannelAntecedentDeck;
+}
 let channelRefreshInFlight = false;
 let pendingChannelMessages = null;
 let activeChannelLoadToken = 0;
@@ -6288,6 +6381,10 @@ function clearInitialChannelFocusFromUrl() {
             url.searchParams.delete('channel');
             changed = true;
         }
+        if (url.searchParams.has('open_deck')) {
+            url.searchParams.delete('open_deck');
+            changed = true;
+        }
         if (changed) {
             window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
         }
@@ -6315,7 +6412,10 @@ function scrollMessageIntoContainer(msgEl, options = {}) {
 
 function focusMessageById(messageId, options = {}) {
     if (!messageId) return false;
-    const msgEl = document.querySelector(`.message-item[data-message-id="${messageId}"]`);
+    const esc = window.CSS && typeof window.CSS.escape === 'function'
+        ? window.CSS.escape(String(messageId))
+        : String(messageId).replace(/["\\]/g, '\\$&');
+    const msgEl = document.querySelector(`.message-item[data-message-id="${esc}"]`);
     if (!msgEl) return false;
     msgEl.classList.add('focus-flash');
     scrollMessageIntoContainer(msgEl, { align: 'center', behavior: options.behavior || 'smooth' });
@@ -6489,15 +6589,47 @@ function displayMessages(messages, options = {}) {
 
             const container = document.getElementById('messages-container');
             applyUserAvatarStacks(userInfo, messagesContainer);
+            /* Defer focus + deck until after compositor/layout frames — avoids empty deck queue and
+               reduces bogus DevTools 404s attributed to scroll (lazy images in the focused row). */
             if (initialFocusMessageId) {
-                const focused = focusMessageById(initialFocusMessageId);
-                if (focused) {
-                    clearInitialChannelFocusFromUrl();
-                }
+                const focusId = String(initialFocusMessageId);
+                const openDeckAfterFocus = !!channelDeepLinkOpenDeck;
                 initialFocusMessageId = null;
-                if (!focused && container) {
-                    container.scrollTop = container.scrollHeight;
-                }
+                const runFocusAndMaybeDeck = function () {
+                    const focused = focusMessageById(focusId);
+                    if (focused) {
+                        clearInitialChannelFocusFromUrl();
+                    }
+                    if (openDeckAfterFocus) {
+                        channelDeepLinkOpenDeck = false;
+                        if (typeof window.openDeckForChannelAntecedentMessage !== 'function') {
+                            try {
+                                window.location.href = '/channels/locate?message_id=' + encodeURIComponent(focusId) + '&open_deck=1';
+                            } catch (_) { /* ignore */ }
+                        } else if (typeof window.openDeckForChannelAntecedentMessage === 'function') {
+                            const runDeck = function () {
+                                try {
+                                    if (typeof window.openDeckForChannelAntecedentMessage === 'function') {
+                                        window.openDeckForChannelAntecedentMessage(focusId);
+                                    }
+                                } catch (_) { /* ignore */ }
+                            };
+                            if (focused) {
+                                requestAnimationFrame(function () {
+                                    requestAnimationFrame(runDeck);
+                                });
+                            } else {
+                                requestAnimationFrame(runDeck);
+                            }
+                        }
+                    }
+                    if (!focused && container) {
+                        container.scrollTop = container.scrollHeight;
+                    }
+                };
+                requestAnimationFrame(function () {
+                    requestAnimationFrame(runFocusAndMaybeDeck);
+                });
             } else if (container && options.scrollToTop) {
                 container.scrollTop = 0;
             } else if (container) {
@@ -6545,9 +6677,45 @@ function renderChannelRepostCard(message) {
                 `).join('')}
             </div>`;
     }
+    let embedLinkOrVideo = '';
+    let ytIds = [];
+    if (Array.isArray(embed.youtube_video_ids) && embed.youtube_video_ids.length) {
+        ytIds = embed.youtube_video_ids.map((id) => String(id || '').replace(/[^0-9A-Za-z_-]/g, '')).filter((id) => id.length === 11);
+    } else if (embed.youtube_video_id) {
+        const single = String(embed.youtube_video_id).replace(/[^0-9A-Za-z_-]/g, '');
+        if (single.length === 11) ytIds = [single];
+    }
+    if (ytIds.length) {
+        embedLinkOrVideo = `
+            <div class="post-repost-thumb-grid mt-2">
+                ${ytIds.map((ytId) => `
+                    <a href="${href}" class="post-repost-thumb-link" title="View original message">
+                        <img src="https://img.youtube.com/vi/${ytId}/hqdefault.jpg" alt="" class="img-fluid rounded post-repost-embed-img" loading="lazy">
+                    </a>
+                `).join('')}
+            </div>`;
+    } else if (embed.link_url) {
+        const linkUrl = escapeHtml(String(embed.link_url));
+        const linkTitle = escapeHtml(String(embed.link_title || embed.link_url));
+        embedLinkOrVideo = `
+            <div class="post-repost-embed-link mt-2">
+                <a href="${linkUrl}" target="_blank" rel="noopener noreferrer" class="text-decoration-none d-inline-flex align-items-start gap-2">
+                    <i class="bi bi-link-45deg flex-shrink-0" aria-hidden="true"></i>
+                    <span>${linkTitle}</span>
+                </a>
+            </div>`;
+    } else if (embed.video_url) {
+        const vSrc = escapeHtml(String(embed.video_url));
+        embedLinkOrVideo = `
+            <div class="post-repost-embed-media mt-2 text-center">
+                <video controls class="img-fluid rounded post-repost-embed-video" preload="metadata">
+                    <source src="${vSrc}" type="video/mp4">
+                </video>
+            </div>`;
+    }
     if (!available) {
         return `
-            <div class="post-repost-shell" data-repost-wrapper="1">
+            <div class="post-repost-shell post-repost-shell--streamlined" data-repost-wrapper="1">
                 <div class="post-repost-card is-unavailable">
                     <div class="post-repost-head">
                         <span class="post-repost-eyebrow"><i class="bi bi-repeat"></i> Original source</span>
@@ -6560,11 +6728,10 @@ function renderChannelRepostCard(message) {
             </div>`;
     }
     return `
-        <div class="post-repost-shell" data-repost-wrapper="1">
+        <div class="post-repost-shell post-repost-shell--streamlined" data-repost-wrapper="1">
             <div class="post-repost-card">
                 <div class="post-repost-head">
                     <span class="post-repost-eyebrow"><i class="bi bi-repeat"></i> Original source</span>
-                    ${ref.has_source_layout ? '<span class="post-repost-badge">Deck-ready</span>' : ''}
                 </div>
                 <div class="post-repost-meta">
                     <strong>${authorLabel}</strong>
@@ -6580,12 +6747,18 @@ function renderChannelRepostCard(message) {
                             <i class="bi bi-scissors"></i> Truncated for the card — open original for the full message.
                         </div>` : ''}
                     ${thumbGrid}
+                    ${embedLinkOrVideo}
                 </div>
-                <div class="post-repost-actions">
+                <div class="post-repost-actions d-flex flex-wrap gap-2 align-items-center">
                     <a class="btn btn-sm btn-outline-primary" href="${href}">
-                        <i class="bi bi-box-arrow-up-right me-1"></i>Open original
+                        <i class="bi bi-box-arrow-up-right me-1" aria-hidden="true"></i>Open original
                     </a>
-                    ${ref.has_source_layout ? '<span class="text-muted small">Open original to launch its deck surface.</span>' : ''}
+                    ${ref.source_id && ref.available !== false && ref.has_source_layout !== false ? `
+                    <button type="button" class="btn btn-sm btn-outline-primary"
+                        onclick="canopyOpenChannelAntecedentDeck('${escapeHtml(String(ref.source_id)).replace(/'/g, '\\&#39;')}'); return false;"
+                        title="Open the original source deck here">
+                        <i class="bi bi-grid-1x2 me-1" aria-hidden="true"></i>Deck
+                    </button>` : ''}
                 </div>
             </div>
         </div>`;
@@ -6597,75 +6770,42 @@ function renderChannelVariantCard(message) {
     const hrefRaw = String(ref.href || (ref.source_id ? `/channels/locate?message_id=${encodeURIComponent(ref.source_id)}` : '#'));
     const href = escapeHtml(hrefRaw);
     const available = !!ref.available;
-    const authorLabel = escapeHtml(String(ref.author_display || ref.author_id || 'Unknown author'));
-    const relationshipLabel = escapeHtml(String(ref.relationship_label || 'Curated recomposition'));
-    const messageType = escapeHtml(String(ref.message_type || 'message').replace(/_/g, ' '));
+    const authorLabel = escapeHtml(String(ref.author_display || ref.author_id || ''));
+    const relationshipLabel = escapeHtml(String(ref.relationship_label || 'Variant'));
     const createdAt = escapeHtml(String(ref.created_at || ''));
-    const bodyHtml = ref.body_text
-        ? `<div class="post-repost-body">${escapeHtml(String(ref.body_text)).replace(/\n/g, '<br>')}</div>`
-        : (ref.preview_text ? `<div class="post-repost-preview">${escapeHtml(String(ref.preview_text))}</div>` : '');
-    const embed = (ref.embed && typeof ref.embed === 'object') ? ref.embed : {};
     const deltaHtml = ref.module_param_delta
-        ? `<div class="post-variant-delta"><span class="post-variant-delta-label">Parameter delta</span><span>${escapeHtml(String(ref.module_param_delta))}</span></div>`
+        ? `<div class="post-variant-param-delta"><span class="delta-label">Δ</span>${escapeHtml(String(ref.module_param_delta))}</div>`
         : '';
-    let thumbGrid = '';
-    if (Array.isArray(embed.attachment_images) && embed.attachment_images.length) {
-        thumbGrid = `
-            <div class="post-repost-thumb-grid mt-2">
-                ${embed.attachment_images.map((img) => `
-                    <a href="${href}" class="post-repost-thumb-link" title="View antecedent message">
-                        <img src="${escapeHtml(String(img.url || ''))}" alt="${escapeHtml(String(img.name || 'Image'))}" loading="lazy">
-                    </a>
-                `).join('')}
-            </div>`;
-    }
+    const antecedentAuthor = authorLabel
+        ? ` <span class="text-muted">(${authorLabel})</span>`
+        : '';
     if (!available) {
         return `
-            <div class="post-variant-shell" data-variant-wrapper="1">
-                <div class="post-variant-card is-unavailable">
-                    <div class="post-repost-head">
-                        <span class="post-repost-eyebrow"><i class="bi bi-bezier2"></i> Derived from</span>
-                        <span class="post-variant-relationship">${relationshipLabel}</span>
-                    </div>
-                    <div class="post-repost-unavailable">${escapeHtml(String(ref.unavailable_label || 'Antecedent source unavailable'))}</div>
-                    <div class="post-repost-unavailable-meta">
-                        This variant preserves provenance to its antecedent source, but the antecedent no longer renders here.
-                    </div>
+            <div class="post-variant-shell post-variant-shell--minimal" data-variant-wrapper="1">
+                ${deltaHtml}
+                <div class="post-lineage-bar" role="note" aria-label="Lineage provenance">
+                    <span class="badge rounded-pill text-bg-secondary post-lineage-badge">
+                        <i class="bi bi-bezier2 me-1" aria-hidden="true"></i>${relationshipLabel}
+                    </span>
+                    <span class="text-warning">${escapeHtml(String(ref.unavailable_label || 'Antecedent unavailable'))}</span>
                 </div>
             </div>`;
     }
     return `
-        <div class="post-variant-shell" data-variant-wrapper="1">
-            <div class="post-variant-card">
-                <div class="post-repost-head">
-                    <span class="post-repost-eyebrow"><i class="bi bi-bezier2"></i> Derived from</span>
-                    <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
-                        <span class="post-variant-relationship">${relationshipLabel}</span>
-                        ${ref.has_source_layout ? '<span class="post-repost-badge">Deck-ready</span>' : ''}
-                    </div>
-                </div>
-                <div class="post-repost-meta">
-                    <strong>${authorLabel}</strong>
-                    <span>•</span>
-                    <span>${messageType}</span>
-                    <span>•</span>
-                    <span class="text-muted" data-timestamp="${createdAt}">${createdAt}</span>
-                </div>
-                ${deltaHtml}
-                <div class="post-repost-quote">
-                    ${bodyHtml}
-                    ${ref.body_truncated ? `
-                        <div class="small text-muted mt-1">
-                            <i class="bi bi-scissors"></i> Truncated for the card — open antecedent for the full message.
-                        </div>` : ''}
-                    ${thumbGrid}
-                </div>
-                <div class="post-repost-actions">
-                    <a class="btn btn-sm btn-outline-primary" href="${href}">
-                        <i class="bi bi-box-arrow-up-right me-1"></i>Open antecedent
-                    </a>
-                    ${ref.has_source_layout ? '<span class="text-muted small">Open the antecedent to launch its deck surface.</span>' : ''}
-                </div>
+        <div class="post-variant-shell post-variant-shell--minimal" data-variant-wrapper="1">
+            ${deltaHtml}
+            <div class="post-lineage-bar" role="note" aria-label="Lineage provenance">
+                <span class="badge rounded-pill text-bg-secondary post-lineage-badge" title="Derivative with preserved lineage">
+                    <i class="bi bi-bezier2 me-1" aria-hidden="true"></i>${relationshipLabel}
+                </span>
+                <a class="link-light link-underline-opacity-50 link-underline-opacity-100-hover" href="${href}" title="Open the antecedent message">Antecedent${antecedentAuthor}</a>
+                ${createdAt ? `<span class="text-muted" data-timestamp="${createdAt}">${createdAt}</span>` : ''}
+                ${ref.source_id && ref.has_source_layout !== false ? `
+                <button type="button" class="btn btn-sm btn-outline-primary"
+                    onclick="canopyOpenChannelAntecedentDeck('${escapeHtml(String(ref.source_id)).replace(/'/g, '\\&#39;')}'); return false;"
+                    title="Open the antecedent deck here">
+                    <i class="bi bi-grid-1x2 me-1" aria-hidden="true"></i>Deck
+                </button>` : ''}
             </div>
         </div>`;
 }
@@ -6839,6 +6979,13 @@ function renderMessage(message, userInfo, isReply) {
                                 aria-label="Create source variant in this channel">
                             <i class="bi bi-bezier2"></i><span class="action-label">Variant</span>
                         </button>
+                        ${message.is_repost && message.repost_reference && message.repost_reference.source_id && message.repost_reference.available !== false && message.repost_reference.has_source_layout !== false ? `
+                        <button type="button" class="btn btn-sm btn-outline-secondary icon-action-btn"
+                                onclick="canopyOpenChannelAntecedentDeck('${escapeHtml(String(message.repost_reference.source_id))}'); return false;"
+                                title="Open the original source deck here"
+                                aria-label="Open deck for original source">
+                            <i class="bi bi-grid-1x2"></i><span class="action-label">Deck</span>
+                        </button>` : ''}
                         <button class="btn btn-sm icon-action-btn bookmark-action-btn${message.is_bookmarked ? ' is-saved' : ''}"
                                 data-bookmark-button="1"
                                 data-source-type="channel_message"
@@ -9458,6 +9605,21 @@ function applyChannelSidebarEventItems(items) {
     }
 }
 
+/** Parse JSON body safely (empty or non-JSON → {}) to avoid SyntaxError from res.json() on 200 + empty. */
+function canopyParseEventsPollJson(res) {
+    return res.text().then(function (text) {
+        const t = String(text || '').trim();
+        if (!t) {
+            return {};
+        }
+        try {
+            return JSON.parse(t);
+        } catch (_) {
+            return {};
+        }
+    });
+}
+
 function pollChannelSidebarEvents() {
     if (channelSidebarEventPollInFlight) {
         return;
@@ -9481,7 +9643,7 @@ function pollChannelSidebarEvents() {
             if (!res.ok) {
                 throw new Error(`Channel sidebar event poll failed (${res.status})`);
             }
-            return res.json();
+            return canopyParseEventsPollJson(res);
         })
         .then((data) => {
             if (!data || typeof data !== 'object') return;
@@ -9624,7 +9786,7 @@ function pollChannelThreadEvents() {
             if (!res.ok) {
                 throw new Error(`Channel thread event poll failed (${res.status})`);
             }
-            return res.json();
+            return canopyParseEventsPollJson(res);
         })
         .then((data) => {
             if (!data || typeof data !== 'object') return;
@@ -10074,14 +10236,24 @@ function displayAttachments(attachments, sourceLayout) {
         return (parts.pop() || '').toLowerCase();
     };
 
-    const isCanopyModuleAttachment = (att) => {
+    /** HTML attachments that should get a deck-capable module surface (matches feed parity). */
+    const isChannelHtmlDeckAttachment = (att) => {
         const mime = String((att && att.type) || '').toLowerCase();
-        const name = String((att && att.name) || '').toLowerCase();
-        return mime === 'text/html' && (name.endsWith('.canopy-module.html') || name.endsWith('.canopy-module.htm'));
+        const nameLc = String((att && att.name) || '').toLowerCase();
+        const ext = extOf((att && att.name) || (att && att.url) || '');
+        if (mime === 'text/html' && (nameLc.endsWith('.canopy-module.html') || nameLc.endsWith('.canopy-module.htm'))) {
+            return true;
+        }
+        if (mime.startsWith('text/html') || mime === 'application/xhtml+xml') return true;
+        if (ext === 'html' || ext === 'htm') return true;
+        if (nameLc.endsWith('.html') || nameLc.endsWith('.htm')) return true;
+        return false;
     };
 
     const humanizeModuleTitle = (att) => {
-        const raw = String((att && att.name) || 'canopy-module').replace(/\.canopy-module\.html?$/i, '');
+        const raw = String((att && att.name) || 'canopy-module')
+            .replace(/\.canopy-module\.html?$/i, '')
+            .replace(/\.html?$/i, '');
         return raw
             .replace(/[-_]+/g, ' ')
             .replace(/\s+/g, ' ')
@@ -10180,7 +10352,7 @@ function displayAttachments(attachments, sourceLayout) {
 
         if (isStream) {
             streamCards.push(att);
-        } else if (isCanopyModuleAttachment(att)) {
+        } else if (isChannelHtmlDeckAttachment(att)) {
             moduleBundles.push(att);
         } else if (isImage) {
             images.push(att);
@@ -14144,6 +14316,8 @@ document.addEventListener('DOMContentLoaded', function() {
 	        const focusChannelId = params.get('channel') || params.get('focus_channel');
             const pendingChannelId = localStorage.getItem('pendingChannelId');
 	        initialFocusMessageId = params.get('focus_message');
+	        const _od = (params.get('open_deck') || '').trim().toLowerCase();
+	        channelDeepLinkOpenDeck = (_od === '1' || _od === 'true' || _od === 'yes');
 	        let didSelectFocus = false;
 
 	        if (pendingChannelId) {

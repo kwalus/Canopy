@@ -8,6 +8,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.153] - 2026-03-23
+
+### Fixed
+- **Channel antecedent deck retry ladders** — The `open_deck=1` handoff on the channels page now delegates to the shared antecedent-deck helper with a short `requestAnimationFrame` retry path instead of a long sequence of timeout retries. The shared channel helper also drops its extra `120ms` / `450ms` retries, keeping the deck-open flow aligned with the intended “focus, apply layouts, retry briefly” behavior.
+
+## [0.4.151] - 2026-03-23
+
+### Fixed
+- **Antecedent deck open** — Removed **forced `/feed?focus_post` / locate redirect** after 420ms when the original post was **already** in the DOM (it could reload or race the deck). **Layout compositor** now runs **after** the first open attempt, not before every attempt (avoids redundant shell churn). One **rAF** retry only.
+
+## [0.4.150] - 2026-03-23
+
+### Fixed
+- **Deck from repost/variant “Open deck”** — Opening the antecedent’s deck now **runs `canopyApplySourceLayoutsInScope` on that post/message first**, retries on animation frames, tries **module/widget manifest** hosts if the generic scan is empty, then falls back to **`/feed?focus_post=…&open_deck=1`** or **`/channels/locate?…&open_deck=1`**. Fixes silent no-op when layout compositor had not yet run on the original card.
+- **Feed/channel repost chrome** — **Deck** control is in the **Original source** header next to **Deck-ready** (with `white-space: nowrap` on the badge) so it is not buried below the quote; duplicate bottom deck button removed.
+
+### Added
+- **Deck helpers without sidebar mini host** — If `#sidebar-media-mini` is missing, **`openDeckForFeedAntecedentPost` / `openDeckForChannelAntecedentMessage`** still exist and **navigate** via the deep-link URLs.
+
+## [0.4.149] - 2026-03-23
+
+### Changed
+- **Feed & channel variant UI** — Lineage variants are no longer shown as a large nested “antecedent card” (duplicate body, embeds, and framing). The **author’s variant text** reads like a normal post; **parameter delta** (if any) stays as a light note; provenance is a **compact bar** (relationship badge, link to antecedent, optional deck). **Reposts** are unchanged.
+
+## [0.4.148] - 2026-03-23
+
+### Fixed
+- **Deck on feed/channel repost & variant cards** — Wrappers never had **`data-canopy-source-layout`** (only the antecedent does), so the deck launcher did not appear. Added **Open deck** on repost/variant cards (when **`has_source_layout`**) via **`openDeckForFeedAntecedentPost`** / **`openDeckForChannelAntecedentMessage`**: opens the deck from the antecedent row if it is already in the DOM, otherwise navigates with **`focus_post`/`focus_message` + `open_deck=1`**. **`/channels/locate`** forwards **`open_deck`** to the channel view.
+
 ## [0.4.147] - 2026-03-23
 
 ### Fixed

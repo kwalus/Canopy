@@ -5626,7 +5626,32 @@
         // --- Sidebar media mini player (audio/video/youtube off-screen helper) ---
         function initSidebarMediaMiniPlayer() {
             const mini = document.getElementById('sidebar-media-mini');
-            if (!mini) return;
+            if (!mini) {
+                /* Deck helpers are normally defined below; without the sidebar host, only deep-link fallbacks work. */
+                if (typeof window !== 'undefined') {
+                    window.openDeckForFeedAntecedentPost = function (sourcePostId) {
+                        const pid = String(sourcePostId || '').trim();
+                        if (!pid) return false;
+                        try {
+                            window.location.href = `/feed?focus_post=${encodeURIComponent(pid)}&open_deck=1`;
+                        } catch (_) {
+                            /* ignore */
+                        }
+                        return false;
+                    };
+                    window.openDeckForChannelAntecedentMessage = function (sourceMessageId) {
+                        const mid = String(sourceMessageId || '').trim();
+                        if (!mid) return false;
+                        try {
+                            window.location.href = `/channels/locate?message_id=${encodeURIComponent(mid)}&open_deck=1`;
+                        } catch (_) {
+                            /* ignore */
+                        }
+                        return false;
+                    };
+                }
+                return;
+            }
 
             const icon = document.getElementById('sidebar-media-mini-icon');
             const titleEl = document.getElementById('sidebar-media-mini-title');
@@ -7090,7 +7115,7 @@
                 state.returnUrl = null;
                 state.dockedSubtitle = null;
                 state.deckOpen = true;
-                selectDeckItem(preferred, { play: false });
+                selectDeckItem(preferred, { play: options.play === true });
                 updateSourceDeckLauncherActiveStates();
                 scheduleMiniUpdate(20);
             }
@@ -9169,8 +9194,225 @@
                 hideMini();
             }
 
+            /**
+             * Open the Canopy media deck for a feed post by id (e.g. antecedent of a repost/variant).
+             * Open first (same as inline posts). If empty queue, run layout compositor and retry once + rAF.
+             * No full-page navigation when the card is already in the DOM.
+             */
+            function openDeckForFeedAntecedentPost(sourcePostId) {
+                const pid = String(sourcePostId || '').trim();
+                if (!pid) return false;
+                const esc = window.CSS && typeof window.CSS.escape === 'function'
+                    ? window.CSS.escape(pid)
+                    : pid.replace(/["\\]/g, '\\$&');
+                const card = document.querySelector(`.post-card[data-post-id="${esc}"]`);
+                if (!card || !card.isConnected) {
+                    try {
+                        window.location.href = `/feed?focus_post=${encodeURIComponent(pid)}&open_deck=1`;
+                    } catch (_) {
+                        /* ignore */
+                    }
+                    return false;
+                }
+
+                function tryOpenFromCard() {
+                    try {
+                        openMediaDeckForSource(card, {});
+                    } catch (_) {
+                        /* ignore */
+                    }
+                    if (state.deckOpen) return true;
+                    const modHost = card.querySelector('[data-canopy-module-card="1"], [data-canopy-widget-manifest]');
+                    if (modHost) {
+                        try {
+                            openMediaDeckForManifestNode(modHost);
+                        } catch (_) {
+                            /* ignore */
+                        }
+                    }
+                    if (state.deckOpen) return true;
+                    const bundleHost = card.querySelector('[data-canopy-module-bundle-id]');
+                    if (bundleHost) {
+                        try {
+                            openMediaDeckForManifestNode(bundleHost);
+                        } catch (_) {
+                            /* ignore */
+                        }
+                    }
+                    return !!state.deckOpen;
+                }
+
+                if (tryOpenFromCard()) return true;
+
+                if (typeof window.canopyApplySourceLayoutsInScope === 'function') {
+                    try {
+                        window.canopyApplySourceLayoutsInScope(card);
+                    } catch (_) {
+                        /* ignore */
+                    }
+                }
+                if (tryOpenFromCard()) return true;
+
+                requestAnimationFrame(() => {
+                    if (typeof window.canopyApplySourceLayoutsInScope === 'function') {
+                        try {
+                            window.canopyApplySourceLayoutsInScope(card);
+                        } catch (_) {
+                            /* ignore */
+                        }
+                    }
+                    if (tryOpenFromCard()) return;
+                    requestAnimationFrame(() => {
+                        tryOpenFromCard();
+                    });
+                });
+                return true;
+            }
+
+            /**
+             * Open the Canopy deck for a channel message by id (e.g. antecedent of repost/variant).
+             * Same strategy as openDeckForFeedAntecedentPost (no forced navigate when row is in DOM).
+             *
+             * Channel messages often carry `data-canopy-source-layout` on `.message-content`; the compositor
+             * moves attachments into a shell. Opening the deck *before* `canopyApplySourceLayoutsInScope` runs
+             * yields an empty item list — so we always sync layout + media launchers first, then try the same
+             * controls users click (layout "Open deck" + playback launcher).
+             */
+            function openDeckForChannelAntecedentMessage(sourceMessageId) {
+                const mid = String(sourceMessageId || '').trim();
+                if (!mid) return false;
+                const esc = window.CSS && typeof window.CSS.escape === 'function'
+                    ? window.CSS.escape(mid)
+                    : mid.replace(/["\\]/g, '\\$&');
+                const row = document.querySelector(`.message-item[data-message-id="${esc}"]`);
+                if (!row || !row.isConnected) {
+                    try {
+                        window.location.href = `/channels/locate?message_id=${encodeURIComponent(mid)}&open_deck=1`;
+                    } catch (_) {
+                        /* ignore */
+                    }
+                    return false;
+                }
+
+                function syncRowForDeck() {
+                    if (typeof window.canopyApplySourceLayoutsInScope === 'function') {
+                        try {
+                            window.canopyApplySourceLayoutsInScope(row);
+                        } catch (_) {
+                            /* ignore */
+                        }
+                    }
+                    /* Facades have no iframe until click — deck scan/queue needs real iframes to dock reliably. */
+                    try {
+                        row.querySelectorAll('.youtube-embed .yt-facade').forEach((facade) => {
+                            try {
+                                materializeYouTubeFacade(facade, { autoplay: false });
+                            } catch (_) {
+                                /* ignore */
+                            }
+                        });
+                    } catch (_) {
+                        /* ignore */
+                    }
+                    try {
+                        scanForMedia(row);
+                    } catch (_) {
+                        /* ignore */
+                    }
+                    try {
+                        syncSourceMediaDeckLaunchersInScope(row);
+                    } catch (_) {
+                        /* ignore */
+                    }
+                }
+
+                /** Prefer the same code paths as inline UI (layout toolbar + injected launcher). */
+                function tryOpenViaChannelDeckControls() {
+                    try {
+                        const layoutBtn = row.querySelector('.canopy-source-layout-deck-launch');
+                        if (layoutBtn && typeof layoutBtn.click === 'function') {
+                            layoutBtn.click();
+                            if (state.deckOpen) return true;
+                        }
+                    } catch (_) {
+                        /* ignore */
+                    }
+                    try {
+                        const deckBtn = row.querySelector('[data-canopy-playback-launcher] [data-open-media-deck]');
+                        if (deckBtn && typeof deckBtn.click === 'function') {
+                            deckBtn.click();
+                            if (state.deckOpen) return true;
+                        }
+                    } catch (_) {
+                        /* ignore */
+                    }
+                    return false;
+                }
+
+                function tryOpenFromRow() {
+                    syncRowForDeck();
+                    if (tryOpenViaChannelDeckControls()) return true;
+                    const roots = [
+                        row,
+                        row.querySelector('.message-content'),
+                        row.querySelector('[data-canopy-source-ref="content:lede"]'),
+                    ].filter((n) => n && n.nodeType === 1);
+                    const uniqRoots = [];
+                    roots.forEach((el) => {
+                        if (uniqRoots.indexOf(el) < 0) uniqRoots.push(el);
+                    });
+                    for (let i = 0; i < uniqRoots.length; i += 1) {
+                        try {
+                            openMediaDeckForSource(uniqRoots[i], { play: true });
+                        } catch (_) {
+                            /* ignore */
+                        }
+                        if (state.deckOpen) return true;
+                    }
+                    const modHost = row.querySelector('[data-canopy-module-card="1"], [data-canopy-widget-manifest]');
+                    if (modHost) {
+                        try {
+                            openMediaDeckForManifestNode(modHost);
+                        } catch (_) {
+                            /* ignore */
+                        }
+                    }
+                    if (state.deckOpen) return true;
+                    const bundleHost = row.querySelector('[data-canopy-module-bundle-id]');
+                    if (bundleHost) {
+                        try {
+                            openMediaDeckForManifestNode(bundleHost);
+                        } catch (_) {
+                            /* ignore */
+                        }
+                    }
+                    return !!state.deckOpen;
+                }
+
+                if (tryOpenFromRow()) return true;
+
+                if (typeof window.canopyApplySourceLayoutsInScope === 'function') {
+                    try {
+                        window.canopyApplySourceLayoutsInScope(row);
+                    } catch (_) {
+                        /* ignore */
+                    }
+                }
+                if (tryOpenFromRow()) return true;
+
+                requestAnimationFrame(() => {
+                    if (tryOpenFromRow()) return;
+                    requestAnimationFrame(() => {
+                        tryOpenFromRow();
+                    });
+                });
+                return true;
+            }
+
             if (typeof window !== 'undefined') {
                 window.openMediaDeckForManifestNode = openMediaDeckForManifestNode;
+                window.openDeckForFeedAntecedentPost = openDeckForFeedAntecedentPost;
+                window.openDeckForChannelAntecedentMessage = openDeckForChannelAntecedentMessage;
             }
 
             if (playBtn) {
