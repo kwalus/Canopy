@@ -29,6 +29,7 @@ from .files import FileManager
 from .interactions import InteractionManager
 from .profile import ProfileManager
 from .feed import FeedManager
+from .bookmarks import BookmarkManager
 from .tasks import TaskManager
 from .search import SearchManager
 from .streams import StreamManager
@@ -336,6 +337,11 @@ def create_app(config: Optional[Config] = None) -> Flask:
         feed_manager.workspace_events = workspace_event_manager
         app.config['FEED_MANAGER'] = feed_manager
         logger.info("Feed manager initialized successfully")
+
+        logger.info("Initializing bookmark manager...")
+        bookmark_manager = BookmarkManager(db_manager)
+        app.config['BOOKMARK_MANAGER'] = bookmark_manager
+        logger.info("Bookmark manager initialized successfully")
 
         logger.info("Initializing task manager...")
         task_manager = TaskManager(db_manager)

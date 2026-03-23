@@ -49,6 +49,16 @@
                             <li><a class="dropdown-item" href="#" onclick="replyToMessage('{{ message.id }}', {{ message.sender_label|tojson }}, {{ (message.reply_preview.preview if message.reply_preview else message.content[:140])|tojson }}); return false;">
                                 <i class="bi bi-reply"></i> Reply
                             </a></li>
+                            <li><a class="dropdown-item{% if message.is_bookmarked %} active{% endif %}"
+                                   href="#"
+                                   data-bookmark-button="1"
+                                   data-source-type="dm_message"
+                                   data-source-id="{{ message.id }}"
+                                   data-bookmarked="{{ 'true' if message.is_bookmarked else 'false' }}"
+                                   onclick="event.preventDefault();">
+                                <i class="bi bi-bookmark{% if message.is_bookmarked %}-fill{% endif %}"></i>
+                                <span data-bookmark-label>{% if message.is_bookmarked %}Saved{% else %}Save{% endif %}</span>
+                            </a></li>
                             {% if message.outbound %}
                                 <li><a class="dropdown-item" href="#" onclick="editMessage('{{ message.id }}'); return false;">
                                     <i class="bi bi-pencil"></i> Edit

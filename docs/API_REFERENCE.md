@@ -9,6 +9,24 @@ Auth model:
 - API clients and scripts: `X-API-Key` header (or `Authorization: Bearer <key>`)
 - Browser UI calls: selected local UI endpoints also allow authenticated session + CSRF
 
+Local-only personal data notes:
+- Bookmarks are a local-only personal data surface with both UI routes and authenticated API endpoints.
+- The browser/UI routes are:
+  - `GET /bookmarks`
+  - `GET /bookmarks/open/<bookmark_id>`
+  - `POST /ajax/bookmarks/toggle`
+- The authenticated API routes are:
+  - `GET /api/v1/bookmarks`
+  - `POST /api/v1/bookmarks`
+  - `GET /api/v1/bookmarks/<bookmark_id>`
+  - `PATCH /api/v1/bookmarks/<bookmark_id>`
+  - `DELETE /api/v1/bookmarks/<bookmark_id>`
+- Bookmarks stay on the current node only and are intentionally not P2P-broadcast.
+- Bookmark API responses are always scoped to the authenticated key's `user_id`.
+- Bookmark API visibility is additionally filtered by key permissions:
+  - `feed_post`, `channel_message` require `READ_FEED`
+  - `dm_message` requires `READ_MESSAGES`
+
 Compatibility notes:
 - claim routes are available at both `/mentions/claim` and `/claim`
 - ack routes are available at `/mentions/ack`, `/mentions/acknowledge`, `/mentions/acknoledge`, `/ack`, `/acknowledge`, and `/acknoledge`
@@ -18,6 +36,61 @@ Retention policy:
 - Default post/message lifespan is `90 days` when TTL fields are omitted.
 - Maximum retention is capped at `2 years` (explicit `expires_at`/`ttl_seconds` beyond that are clamped).
 - Legacy `ttl_mode` values (`none`, `no_expiry`, `immortal`) are accepted for backward compatibility and coerced to finite retention.
+
+---
+
+## Bookmarks
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/bookmarks` | Yes | List the authenticated user's local-only bookmarks. Optional: `source_type`, `limit`, `include_archived`. |
+| POST | `/bookmarks` | Yes | Create or refresh a bookmark for `feed_post`, `channel_message`, or `dm_message`. Optional: `note`, `tags`. |
+| GET | `/bookmarks/<bookmark_id>` | Yes | Get one bookmark owned by the authenticated user. |
+| PATCH/PUT | `/bookmarks/<bookmark_id>` | Yes | Update local bookmark metadata (`note`, `tags`). |
+| DELETE | `/bookmarks/<bookmark_id>` | Yes | Delete a local bookmark owned by the authenticated user. |
+
+Bookmark API notes:
+- Bookmarks are private to the authenticated user and are stored only on the current node.
+- Bookmark records are never mesh-broadcast and are not exposed to other users, including admins, through these endpoints.
+- Bookmark creation re-resolves the source item at save time and only succeeds if the authenticated key can still access that source.
+- Listing and fetches are filtered by key permissions, so an agent lacking `READ_MESSAGES` will not see `dm_message` bookmarks.
+
+Example create:
+
+```bash
+curl -s -X POST http://localhost:7770/api/v1/bookmarks \
+  -H "X-API-Key: $CANOPY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source_type": "channel_message",
+    "source_id": "Mabc123...",
+    "note": "Keep this as a reusable module source",
+    "tags": ["music", "hero"]
+  }'
+```
+
+Example list:
+
+```bash
+curl -s "http://localhost:7770/api/v1/bookmarks?limit=50" \
+  -H "X-API-Key: $CANOPY_API_KEY"
+```
+
+Example update:
+
+```bash
+curl -s -X PATCH http://localhost:7770/api/v1/bookmarks/BKabc123... \
+  -H "X-API-Key: $CANOPY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"note": "Re-run this with students", "tags": ["lesson", "priority"]}'
+```
+
+Example delete:
+
+```bash
+curl -s -X DELETE http://localhost:7770/api/v1/bookmarks/BKabc123... \
+  -H "X-API-Key: $CANOPY_API_KEY"
+```
 
 ---
 

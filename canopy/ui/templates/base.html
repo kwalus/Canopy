@@ -4682,6 +4682,33 @@
             box-shadow: 0 0 0 0.18rem rgba(14, 165, 233, 0.2);
         }
 
+        .bookmark-action-btn {
+            border-color: rgba(250, 204, 21, 0.32);
+            color: #fde68a;
+            background: linear-gradient(145deg, rgba(97, 76, 0, 0.24), rgba(120, 53, 15, 0.14));
+            backdrop-filter: blur(10px);
+        }
+
+        .bookmark-action-btn:hover,
+        .bookmark-action-btn:focus {
+            border-color: rgba(250, 204, 21, 0.68);
+            color: #fff6d8;
+            box-shadow: 0 0 0 0.18rem rgba(250, 204, 21, 0.16);
+        }
+
+        .bookmark-action-btn.is-saved {
+            border-color: rgba(250, 204, 21, 0.82);
+            color: #1f2937;
+            background: linear-gradient(135deg, rgba(250, 204, 21, 0.96), rgba(245, 158, 11, 0.9));
+            box-shadow: 0 10px 24px rgba(250, 204, 21, 0.2);
+        }
+
+        .bookmark-action-btn.is-saved:hover,
+        .bookmark-action-btn.is-saved:focus {
+            color: #111827;
+            border-color: rgba(251, 191, 36, 0.95);
+        }
+
         #contentContextModal .modal-dialog {
             max-width: min(1220px, 96vw);
         }
@@ -7387,6 +7414,10 @@
                            href="{{ url_for('ui.tasks_page') }}" data-title="Tasks">
                             <i class="bi bi-check2-square"></i> <span>Tasks</span>
                         </a>
+                        <a class="nav-link {% if request.endpoint == 'ui.bookmarks_page' %}active{% endif %}"
+                           href="{{ url_for('ui.bookmarks_page') }}" data-title="Bookmarks">
+                            <i class="bi bi-bookmarks"></i> <span>Bookmarks</span>
+                        </a>
                         <a class="nav-link {% if request.endpoint == 'ui.api_keys' %}active{% endif %}" 
                            href="{{ url_for('ui.api_keys') }}" data-title="API Keys">
                             <i class="bi bi-key"></i> <span>API Keys</span>
@@ -8040,6 +8071,82 @@
             </div>
         </div>
     </div>
+
+    <script>
+        (function () {
+            function setBookmarkButtonState(button, isBookmarked) {
+                if (!button) return;
+                const active = Boolean(isBookmarked);
+                button.dataset.bookmarked = active ? 'true' : 'false';
+                button.classList.toggle('is-saved', active);
+                if (button.classList.contains('dropdown-item')) {
+                    button.classList.toggle('active', active);
+                }
+                const icon = button.querySelector('i');
+                if (icon) {
+                    icon.className = active ? 'bi bi-bookmark-fill' : 'bi bi-bookmark';
+                }
+                const label = button.querySelector('[data-bookmark-label]');
+                if (label) {
+                    label.textContent = active ? 'Saved' : 'Save';
+                }
+                const title = active ? 'Remove bookmark' : 'Save bookmark';
+                button.setAttribute('title', title);
+                button.setAttribute('aria-label', title);
+            }
+
+            async function toggleBookmark(button) {
+                if (!button || button.dataset.busy === 'true') return;
+                const sourceType = String(button.dataset.sourceType || '').trim();
+                const sourceId = String(button.dataset.sourceId || '').trim();
+                if (!sourceType || !sourceId) return;
+                button.dataset.busy = 'true';
+                button.disabled = true;
+                try {
+                    const result = await apiCall('/ajax/bookmarks/toggle', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            source_type: sourceType,
+                            source_id: sourceId,
+                        }),
+                    });
+                    const nextState = Boolean(result && result.bookmarked);
+                    document.querySelectorAll('[data-bookmark-button="1"]').forEach((candidate) => {
+                        if (
+                            String(candidate.dataset.sourceType || '').trim() === sourceType &&
+                            String(candidate.dataset.sourceId || '').trim() === sourceId
+                        ) {
+                            setBookmarkButtonState(candidate, nextState);
+                        }
+                    });
+                    showAlert(nextState ? 'Saved to bookmarks' : 'Removed from bookmarks', 'success');
+                } catch (error) {
+                    showAlert((error && error.error) || 'Failed to update bookmark', 'danger');
+                } finally {
+                    button.dataset.busy = 'false';
+                    button.disabled = false;
+                }
+            }
+
+            window.setCanopyBookmarkButtonState = setBookmarkButtonState;
+            window.toggleCanopyBookmark = toggleBookmark;
+
+            document.addEventListener('click', function (event) {
+                const button = event.target && event.target.closest
+                    ? event.target.closest('[data-bookmark-button="1"]')
+                    : null;
+                if (!button) return;
+                event.preventDefault();
+                toggleBookmark(button);
+            });
+
+            document.addEventListener('DOMContentLoaded', function () {
+                document.querySelectorAll('[data-bookmark-button="1"]').forEach((button) => {
+                    setBookmarkButtonState(button, button.dataset.bookmarked === 'true');
+                });
+            });
+        })();
+    </script>
     
     {% block extra_js %}{% endblock %}
 </body>

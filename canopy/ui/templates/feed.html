@@ -1380,6 +1380,16 @@
                                     <button class="btn btn-sm btn-outline-info icon-action-btn" onclick="sharePost('{{ post.id }}')" title="Share post" aria-label="Share post">
                                         <i class="bi bi-share"></i><span class="action-label">Share</span>
                                     </button>
+                                    <button class="btn btn-sm icon-action-btn bookmark-action-btn{% if post.is_bookmarked %} is-saved{% endif %}"
+                                            data-bookmark-button="1"
+                                            data-source-type="feed_post"
+                                            data-source-id="{{ post.id }}"
+                                            data-bookmarked="{{ 'true' if post.is_bookmarked else 'false' }}"
+                                            title="{% if post.is_bookmarked %}Remove bookmark{% else %}Save bookmark{% endif %}"
+                                            aria-label="{% if post.is_bookmarked %}Remove bookmark{% else %}Save bookmark{% endif %}">
+                                        <i class="bi bi-bookmark{% if post.is_bookmarked %}-fill{% endif %}"></i>
+                                        <span class="action-label" data-bookmark-label>{% if post.is_bookmarked %}Saved{% else %}Save{% endif %}</span>
+                                    </button>
                                     <button class="btn btn-sm btn-outline-secondary copy-btn icon-action-btn"
                                             onclick="copyToClipboard(this, '{{ post.id }}')"
                                             title="Copy post text"

@@ -6430,6 +6430,15 @@ function renderMessage(message, userInfo, isReply) {
                                 aria-label="Toggle thread inbox notifications">
                             <i class="bi bi-bell-slash"></i><span class="action-label">Thread inbox</span>
                         </button>
+                        <button class="btn btn-sm icon-action-btn bookmark-action-btn${message.is_bookmarked ? ' is-saved' : ''}"
+                                data-bookmark-button="1"
+                                data-source-type="channel_message"
+                                data-source-id="${message.id}"
+                                data-bookmarked="${message.is_bookmarked ? 'true' : 'false'}"
+                                title="${message.is_bookmarked ? 'Remove bookmark' : 'Save bookmark'}"
+                                aria-label="${message.is_bookmarked ? 'Remove bookmark' : 'Save bookmark'}">
+                            <i class="bi bi-bookmark${message.is_bookmarked ? '-fill' : ''}"></i><span class="action-label" data-bookmark-label>${message.is_bookmarked ? 'Saved' : 'Save'}</span>
+                        </button>
                         ${(message.content || '').trim() ? `
                         <div class="btn-group">
                             <button class="btn btn-sm btn-outline-secondary dropdown-toggle icon-action-btn"

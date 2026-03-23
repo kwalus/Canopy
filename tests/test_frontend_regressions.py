@@ -188,6 +188,17 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('function pollCanopyWorkspaceAttentionEvents()', main_js)
         self.assertIn("requestCanopySidebarDmRefresh({ force: false }).catch(() => {});", main_js)
 
+    def test_bookmarks_navigation_and_save_controls_exist(self) -> None:
+        base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        dm_template = (ROOT / 'canopy' / 'ui' / 'templates' / '_messages_thread_body.html').read_text(encoding='utf-8')
+        self.assertIn("href=\"{{ url_for('ui.bookmarks_page') }}\"", base_template)
+        self.assertIn('window.toggleCanopyBookmark = toggleBookmark;', base_template)
+        self.assertIn('data-source-type="feed_post"', feed_template)
+        self.assertIn('data-source-type="channel_message"', channels_template)
+        self.assertIn('data-source-type="dm_message"', dm_template)
+
     def test_sidebar_cards_support_three_states_and_mini_player_placement(self) -> None:
         base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')

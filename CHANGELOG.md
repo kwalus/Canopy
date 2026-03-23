@@ -8,6 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.136] - 2026-03-23
+
+### Added
+- **Bookmarks v1** — Local private saves for **`feed_post`**, **`channel_message`**, and **`dm_message`**: SQLite **`user_bookmarks`**, **`/bookmarks`** page, **`POST /ajax/bookmarks/toggle`** (CSRF), **`GET /bookmarks/open/<id>`**, REST **`/api/v1/bookmarks`** with permission-filtered list/detail ( **`READ_FEED`** for feed + channel sources, **`READ_MESSAGES`** for DMs). Server-derived snapshots; no P2P replication of bookmarks.
+
+### Tests
+- **`tests/test_bookmarks.py`** and related frontend/workspace/API session tests.
+
+### Docs
+- **`docs/BOOKMARKS_V1_PLAN.md`**, **`README.md`**, **`docs/API_REFERENCE.md`**, **`docs/AGENT_ONBOARDING.md`**.
+
+### Notes
+- Restart the web process and **hard-refresh** so static assets use **`?v=0.4.136`**.
+
 ## [0.4.135] - 2026-03-22
 
 ### Added

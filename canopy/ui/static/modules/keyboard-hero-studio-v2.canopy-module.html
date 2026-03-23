@@ -1,0 +1,1093 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Keyboard Hero Studio</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg-1: #040714;
+      --bg-2: #081021;
+      --panel: rgba(9, 17, 31, 0.95);
+      --panel-2: rgba(12, 24, 42, 0.94);
+      --panel-3: rgba(7, 15, 27, 0.96);
+      --edge: rgba(103, 232, 249, 0.18);
+      --edge-strong: rgba(250, 204, 21, 0.28);
+      --text: #f7fbff;
+      --muted: #9bb2ca;
+      --cyan: #67e8f9;
+      --blue: #60a5fa;
+      --lime: #86efac;
+      --gold: #facc15;
+      --rose: #fb7185;
+      --violet: #a78bfa;
+      --shadow: 0 28px 60px rgba(0, 0, 0, 0.34);
+      --lane-glow: linear-gradient(180deg, rgba(103, 232, 249, 0.08), rgba(96, 165, 250, 0.04));
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background:
+        radial-gradient(circle at top right, rgba(250, 204, 21, 0.16), transparent 26%),
+        radial-gradient(circle at bottom left, rgba(103, 232, 249, 0.16), transparent 28%),
+        linear-gradient(180deg, var(--bg-1), var(--bg-2) 58%, #091428);
+      color: var(--text);
+      font-family: "Avenir Next", "Trebuchet MS", "Segoe UI", sans-serif;
+    }
+    body { padding: 14px; }
+    .shell {
+      min-height: calc(100vh - 28px);
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
+    .hero,
+    .stage-card,
+    .side-card,
+    .toolbar,
+    .coach-card {
+      border-radius: 22px;
+      border: 1px solid var(--edge);
+      box-shadow: var(--shadow);
+    }
+    .hero {
+      padding: 16px;
+      background:
+        radial-gradient(circle at top right, rgba(103, 232, 249, 0.14), transparent 30%),
+        radial-gradient(circle at bottom left, rgba(250, 204, 21, 0.14), transparent 28%),
+        linear-gradient(180deg, rgba(10, 18, 32, 0.98), rgba(9, 17, 31, 0.98));
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 999px;
+      padding: 6px 12px;
+      border: 1px solid rgba(103, 232, 249, 0.2);
+      background: rgba(15, 23, 42, 0.55);
+      color: var(--cyan);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .hero-grid {
+      margin-top: 12px;
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(260px, 0.82fr);
+      gap: 12px;
+      align-items: start;
+    }
+    h1, h2, h3, p { margin: 0; }
+    h1 {
+      font-size: clamp(1.7rem, 3.2vw, 2.5rem);
+      line-height: 0.98;
+      letter-spacing: -0.05em;
+      margin-bottom: 8px;
+    }
+    .copy { color: var(--muted); line-height: 1.5; }
+    .hero-metrics,
+    .meta-row,
+    .capability-row,
+    .pill-row,
+    .toolbar-row,
+    .routine-list,
+    .coach-list { display: flex; flex-wrap: wrap; gap: 8px; }
+    .metric,
+    .chip,
+    .pill,
+    .lane-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 7px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      background: rgba(15, 23, 42, 0.56);
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 800;
+      min-width: 88px;
+    }
+    .metric strong { font-size: 1rem; letter-spacing: -0.04em; }
+    .metric.highlight,
+    .pill.highlight {
+      background: linear-gradient(135deg, rgba(250, 204, 21, 0.92), rgba(103, 232, 249, 0.92));
+      color: #03111d;
+      border-color: transparent;
+    }
+    .meta-card,
+    .coach-card,
+    .side-card,
+    .stage-card,
+    .toolbar {
+      background: var(--panel);
+    }
+    .meta-card {
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+      border-radius: 18px;
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      background: rgba(8, 15, 27, 0.9);
+    }
+    .meta-title {
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 800;
+    }
+    .main-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.76fr);
+      gap: 12px;
+      align-items: start;
+    }
+    .stage-card {
+      padding: 12px;
+      display: grid;
+      gap: 12px;
+      background:
+        radial-gradient(circle at top left, rgba(103, 232, 249, 0.1), transparent 30%),
+        linear-gradient(180deg, rgba(10, 18, 32, 0.98), rgba(9, 17, 31, 0.98));
+    }
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: start;
+      gap: 10px;
+    }
+    .section-head p,
+    .coach-card p,
+    .side-card p { color: var(--muted); line-height: 1.45; }
+    .stage-wrap {
+      position: relative;
+      height: 332px;
+      border-radius: 20px;
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      overflow: hidden;
+      background:
+        radial-gradient(circle at top, rgba(167, 139, 250, 0.12), transparent 30%),
+        linear-gradient(180deg, rgba(7, 13, 25, 0.98), rgba(6, 11, 20, 0.98));
+    }
+    .lane-grid {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      gap: 0;
+      pointer-events: none;
+    }
+    .lane {
+      position: relative;
+      border-right: 1px solid rgba(148, 163, 184, 0.08);
+      background: var(--lane-glow);
+    }
+    .lane:first-child { border-left: 1px solid rgba(148, 163, 184, 0.08); }
+    .lane-label {
+      position: absolute;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: 0.12em;
+      color: rgba(226, 232, 240, 0.66);
+      text-transform: uppercase;
+    }
+    .lane-note {
+      position: absolute;
+      left: 10%;
+      width: 80%;
+      min-height: 20px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: 0.08em;
+      color: #05131f;
+      box-shadow: 0 10px 18px rgba(0, 0, 0, 0.22);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+    .lane-note.prelude { background: linear-gradient(135deg, #facc15, #67e8f9); }
+    .lane-note.neon { background: linear-gradient(135deg, #a78bfa, #60a5fa); }
+    .lane-note.ladder { background: linear-gradient(135deg, #86efac, #67e8f9); }
+    .hit-line {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 78px;
+      height: 4px;
+      background: linear-gradient(90deg, rgba(250, 204, 21, 0.4), rgba(103, 232, 249, 0.9), rgba(250, 204, 21, 0.4));
+      box-shadow: 0 0 20px rgba(103, 232, 249, 0.34);
+      pointer-events: none;
+    }
+    .beat-grid {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+    .beat-line {
+      position: absolute;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: rgba(148, 163, 184, 0.08);
+    }
+    .keyboard {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .pad {
+      appearance: none;
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      border-radius: 16px;
+      min-height: 84px;
+      background: linear-gradient(180deg, rgba(18, 29, 48, 0.96), rgba(9, 16, 28, 0.98));
+      color: var(--text);
+      display: grid;
+      align-content: center;
+      justify-items: center;
+      gap: 4px;
+      cursor: pointer;
+      transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+    }
+    .pad:hover,
+    .pad:focus-visible {
+      transform: translateY(-1px);
+      border-color: rgba(103, 232, 249, 0.34);
+      outline: none;
+    }
+    .pad.is-target {
+      border-color: rgba(250, 204, 21, 0.5);
+      box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.12);
+    }
+    .pad.is-hit {
+      background: linear-gradient(180deg, rgba(16, 185, 129, 0.98), rgba(6, 78, 59, 0.98));
+      color: #ecfeff;
+    }
+    .pad.is-miss {
+      background: linear-gradient(180deg, rgba(251, 113, 133, 0.98), rgba(136, 19, 55, 0.98));
+      color: #fff1f2;
+    }
+    .pad-key {
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 0.14em;
+      color: var(--gold);
+    }
+    .pad-note {
+      font-size: 1rem;
+      font-weight: 900;
+      letter-spacing: -0.03em;
+    }
+    .toolbar {
+      padding: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      background: var(--panel-2);
+    }
+    .toolbar-row { align-items: center; }
+    .btn {
+      appearance: none;
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      background: rgba(15, 23, 42, 0.62);
+      color: var(--text);
+      border-radius: 14px;
+      padding: 10px 14px;
+      font-weight: 800;
+      cursor: pointer;
+      transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+    }
+    .btn:hover,
+    .btn:focus-visible {
+      transform: translateY(-1px);
+      border-color: rgba(103, 232, 249, 0.34);
+      outline: none;
+    }
+    .btn.primary {
+      background: linear-gradient(135deg, rgba(250, 204, 21, 0.28), rgba(103, 232, 249, 0.22));
+      border-color: rgba(250, 204, 21, 0.34);
+      color: var(--text);
+    }
+    .btn.compact { padding: 8px 12px; font-size: 12px; }
+    .side-column {
+      display: grid;
+      gap: 12px;
+    }
+    .side-card,
+    .coach-card {
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+      background: rgba(8, 15, 27, 0.95);
+    }
+    .side-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: start;
+      gap: 10px;
+    }
+    .routine-btn {
+      appearance: none;
+      width: 100%;
+      text-align: left;
+      border-radius: 16px;
+      padding: 11px 12px;
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      background: rgba(15, 23, 42, 0.54);
+      color: var(--text);
+      cursor: pointer;
+      display: grid;
+      gap: 3px;
+      transition: border-color 120ms ease, transform 120ms ease, background 120ms ease;
+    }
+    .routine-btn:hover,
+    .routine-btn:focus-visible {
+      transform: translateY(-1px);
+      border-color: rgba(103, 232, 249, 0.32);
+      outline: none;
+    }
+    .routine-btn.is-active {
+      background: linear-gradient(135deg, rgba(250, 204, 21, 0.2), rgba(103, 232, 249, 0.18));
+      border-color: rgba(250, 204, 21, 0.36);
+    }
+    .routine-btn strong { font-size: 0.95rem; letter-spacing: -0.02em; }
+    .routine-btn span { color: var(--muted); font-size: 0.8rem; line-height: 1.35; }
+    .coach-card strong,
+    .side-card strong { font-size: 1rem; letter-spacing: -0.03em; }
+    .coach-list,
+    .routine-list {
+      display: grid;
+      gap: 8px;
+    }
+    .coach-item,
+    .list-item {
+      border-radius: 16px;
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      background: rgba(15, 23, 42, 0.48);
+      padding: 11px 12px;
+      display: grid;
+      gap: 4px;
+    }
+    .coach-item small,
+    .list-item small {
+      color: var(--muted);
+      font-size: 0.78rem;
+      line-height: 1.4;
+    }
+    .mini-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .mini-stat {
+      border-radius: 16px;
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      background: rgba(15, 23, 42, 0.5);
+      padding: 10px 12px;
+      display: grid;
+      gap: 4px;
+    }
+    .mini-stat-label {
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 800;
+    }
+    .mini-stat-value {
+      font-size: 1.05rem;
+      font-weight: 900;
+      letter-spacing: -0.03em;
+    }
+    @media (max-width: 980px) {
+      .hero-grid,
+      .main-grid { grid-template-columns: 1fr; }
+      .stage-wrap { height: 300px; }
+    }
+    @media (max-width: 760px) {
+      body { padding: 10px; }
+      .shell { min-height: calc(100vh - 20px); }
+      .stage-wrap { height: 270px; }
+      .keyboard { gap: 6px; }
+      .pad { min-height: 74px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <span class="eyebrow">Canopy Module · Keyboard Hero Studio</span>
+      <div class="hero-grid">
+        <div>
+          <h1 id="title">Keyboard Hero // Prelude Grid</h1>
+          <p class="copy" id="hero-copy">A dense, source-bound practice stage: timing lanes, live score, combo tracking, and local bests in one deck surface. Open the module first, use the guide loop and run-through from the same source, then return without losing context.</p>
+          <div class="hero-metrics" id="hero-metrics" style="margin-top:14px;"></div>
+        </div>
+        <div class="meta-card">
+          <div>
+            <div class="meta-title">Source context</div>
+            <p class="copy" id="context-copy">Reading source context…</p>
+          </div>
+          <div>
+            <div class="meta-title">Capabilities</div>
+            <div class="capability-row" id="capability-row"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="main-grid">
+      <div style="display:grid; gap:12px;">
+        <section class="stage-card">
+          <div class="section-head">
+            <div>
+              <h2>Practice stage</h2>
+              <p id="stage-copy">Hit the falling notes at the line. Use <strong>A S D F J K L ;</strong> or the pads below.</p>
+            </div>
+            <div class="pill-row" id="mode-pills"></div>
+          </div>
+
+          <div class="stage-wrap" id="stage-wrap">
+            <div class="beat-grid" id="beat-grid"></div>
+            <div class="lane-grid" id="lane-grid"></div>
+            <div class="hit-line"></div>
+          </div>
+
+          <div class="keyboard" id="keyboard"></div>
+        </section>
+
+        <section class="toolbar">
+          <div class="toolbar-row">
+            <button class="btn primary" id="start-btn">Start run</button>
+            <button class="btn compact" id="restart-btn">Restart</button>
+            <button class="btn compact" id="guide-btn">Play guide</button>
+            <button class="btn compact" id="copy-btn">Copy run brief</button>
+            <button class="btn compact" id="return-btn">Return to source</button>
+          </div>
+          <div class="toolbar-row" id="status-row"></div>
+        </section>
+      </div>
+
+      <aside class="side-column">
+        <section class="side-card">
+          <div class="side-title">
+            <div>
+              <h3>Routines</h3>
+              <p>Switch the pattern without leaving the source container.</p>
+            </div>
+            <span class="pill highlight" id="routine-bpm">92 BPM</span>
+          </div>
+          <div class="routine-list" id="routine-list"></div>
+        </section>
+
+        <section class="coach-card">
+          <div class="side-title">
+            <div>
+              <h3>Coach rail</h3>
+              <p id="coach-copy">Build a clean streak before you chase speed.</p>
+            </div>
+            <span class="pill" id="timing-window">Window ±0.40</span>
+          </div>
+          <div class="mini-grid">
+            <div class="mini-stat"><span class="mini-stat-label">Score</span><div class="mini-stat-value" id="score-value">0</div></div>
+            <div class="mini-stat"><span class="mini-stat-label">Accuracy</span><div class="mini-stat-value" id="accuracy-value">100%</div></div>
+            <div class="mini-stat"><span class="mini-stat-label">Streak</span><div class="mini-stat-value" id="streak-value">0</div></div>
+            <div class="mini-stat"><span class="mini-stat-label">Best local</span><div class="mini-stat-value" id="best-value">0</div></div>
+          </div>
+          <div class="coach-list" id="coach-list"></div>
+        </section>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      const NOTE_LABELS = ['C', 'D', 'E', 'F', 'G', 'A', 'B', 'C'];
+      const NOTE_KEYS = ['A', 'S', 'D', 'F', 'J', 'K', 'L', ';'];
+      const NOTE_FREQS = [261.63, 293.66, 329.63, 349.23, 392.0, 440.0, 493.88, 523.25];
+      const HIT_WINDOW = 0.4;
+      const LOOKAHEAD_BEATS = 8;
+      const HIT_LINE_Y = 250;
+      const TRACK_HEIGHT = 250;
+      const ROUTINES = [
+        {
+          id: 'prelude',
+          name: 'Prelude Grid',
+          bpm: 92,
+          accent: 'prelude',
+          copy: 'Bach-like rolling arpeggios. Right hand first, then hold the combo through the turn.',
+          goal: 'Target: 24-note streak with 88%+ accuracy.',
+          pattern: [
+            0, 2, 4, 7, 4, 2, 0, 2,
+            1, 3, 5, 7, 5, 3, 1, 3,
+            0, 2, 4, 6, 4, 2, 0, 2,
+            1, 4, 6, 7, 6, 4, 2, 0
+          ]
+        },
+        {
+          id: 'neon',
+          name: 'Neon Pulse',
+          bpm: 110,
+          accent: 'neon',
+          copy: 'Game-first syncopation. Start slower, then lock the off-beat repeats.',
+          goal: 'Target: 16 clean hits in a row before pushing tempo.',
+          pattern: [
+            0, 0, 4, 4, 2, 2, 6, 6,
+            1, 1, 5, 5, 3, 3, 7, 7,
+            0, 4, 2, 6, 1, 5, 3, 7,
+            7, 3, 5, 1, 6, 2, 4, 0
+          ]
+        },
+        {
+          id: 'ladder',
+          name: 'Octave Ladder',
+          bpm: 126,
+          accent: 'ladder',
+          copy: 'Hand-to-hand transfer. Use the outer keys to stabilize your timing line.',
+          goal: 'Target: finish one loop with fewer than 4 misses.',
+          pattern: [
+            0, 7, 1, 6, 2, 5, 3, 4,
+            4, 3, 5, 2, 6, 1, 7, 0,
+            0, 3, 1, 4, 2, 5, 3, 6,
+            4, 7, 3, 6, 2, 5, 1, 4
+          ]
+        }
+      ];
+
+      const laneGrid = document.getElementById('lane-grid');
+      const beatGrid = document.getElementById('beat-grid');
+      const keyboard = document.getElementById('keyboard');
+      const heroMetrics = document.getElementById('hero-metrics');
+      const capabilityRow = document.getElementById('capability-row');
+      const titleEl = document.getElementById('title');
+      const heroCopyEl = document.getElementById('hero-copy');
+      const contextCopyEl = document.getElementById('context-copy');
+      const modePills = document.getElementById('mode-pills');
+      const statusRow = document.getElementById('status-row');
+      const routineList = document.getElementById('routine-list');
+      const routineBpm = document.getElementById('routine-bpm');
+      const coachCopy = document.getElementById('coach-copy');
+      const coachList = document.getElementById('coach-list');
+      const scoreValue = document.getElementById('score-value');
+      const accuracyValue = document.getElementById('accuracy-value');
+      const streakValue = document.getElementById('streak-value');
+      const bestValue = document.getElementById('best-value');
+      const startBtn = document.getElementById('start-btn');
+      const restartBtn = document.getElementById('restart-btn');
+      const guideBtn = document.getElementById('guide-btn');
+      const copyBtn = document.getElementById('copy-btn');
+      const returnBtn = document.getElementById('return-btn');
+
+      let audioContext = null;
+      let activeRoutine = ROUTINES[0];
+      let events = [];
+      let running = false;
+      let startTime = 0;
+      let pausedBeat = 0;
+      let rafId = 0;
+      let score = 0;
+      let hits = 0;
+      let misses = 0;
+      let streak = 0;
+      let best = 0;
+      let lastStatus = 'Ready';
+      let sourceContext = null;
+      let guideTimer = null;
+      const pressedKeyEffects = new Map();
+
+      function ensureAudio() {
+        if (!audioContext) {
+          audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        return audioContext;
+      }
+
+      function playTone(laneIndex, duration = 0.18, accent = 0) {
+        const ctx = ensureAudio();
+        const now = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const filter = ctx.createBiquadFilter();
+        osc.type = accent ? 'sawtooth' : 'triangle';
+        osc.frequency.value = NOTE_FREQS[laneIndex] || 261.63;
+        filter.type = 'lowpass';
+        filter.frequency.value = accent ? 1800 : 1200;
+        gain.gain.setValueAtTime(0.001, now);
+        gain.gain.linearRampToValueAtTime(accent ? 0.18 : 0.12, now + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + duration + 0.02);
+      }
+
+      function bpmMs() {
+        return 60000 / activeRoutine.bpm;
+      }
+
+      function currentBeat() {
+        if (!running) return pausedBeat;
+        return Math.max(0, (performance.now() - startTime) / bpmMs());
+      }
+
+      function cloneEvents() {
+        return activeRoutine.pattern.map((laneIndex, idx) => ({
+          laneIndex,
+          beat: idx,
+          hit: false,
+          missed: false
+        }));
+      }
+
+      function resetRun(keepBest) {
+        clearGuide();
+        events = cloneEvents();
+        running = false;
+        pausedBeat = 0;
+        score = 0;
+        hits = 0;
+        misses = 0;
+        streak = 0;
+        lastStatus = 'Ready';
+        if (!keepBest) best = 0;
+        renderAll();
+      }
+
+      function formatAccuracy() {
+        const total = hits + misses;
+        const accuracy = total ? Math.round((hits / total) * 100) : 100;
+        return `${accuracy}%`;
+      }
+
+      function persistBest() {
+        if (!(window.CanopyModule && window.CanopyModule.capabilities.includes('module.storage.local'))) return;
+        const payload = {};
+        payload[`keyboard-hero-best:${activeRoutine.id}`] = String(best);
+        Promise.all(Object.entries(payload).map(([key, value]) => window.CanopyModule.perform('module.storage.set', { key, value }))).catch(() => {});
+      }
+
+      function restoreBest() {
+        if (!(window.CanopyModule && window.CanopyModule.capabilities.includes('module.storage.local'))) return Promise.resolve();
+        return window.CanopyModule.perform('module.storage.get', { key: `keyboard-hero-best:${activeRoutine.id}` })
+          .then((result) => {
+            const next = Number(result && result.value);
+            best = Number.isFinite(next) && next > 0 ? next : 0;
+            renderStats();
+          })
+          .catch(() => {});
+      }
+
+      function setStatus(text) {
+        lastStatus = text;
+        renderStatusRow();
+      }
+
+      function renderHero() {
+        titleEl.textContent = `Keyboard Hero // ${activeRoutine.name}`;
+        heroCopyEl.textContent = activeRoutine.copy + ' ' + activeRoutine.goal;
+        heroMetrics.innerHTML = '';
+        [
+          ['Mode', activeRoutine.name],
+          ['BPM', String(activeRoutine.bpm)],
+          ['Window', `±${HIT_WINDOW.toFixed(2)}`],
+          ['Goal', activeRoutine.goal.replace('Target: ', '')]
+        ].forEach(([label, value], idx) => {
+          const metric = document.createElement('div');
+          metric.className = 'metric' + (idx === 1 ? ' highlight' : '');
+          metric.innerHTML = `<span>${label}</span><strong>${value}</strong>`;
+          heroMetrics.appendChild(metric);
+        });
+      }
+
+      function renderCapabilities() {
+        capabilityRow.innerHTML = '';
+        const caps = (window.CanopyModule && Array.isArray(window.CanopyModule.capabilities)) ? window.CanopyModule.capabilities : [];
+        const shortlist = caps.length ? caps : ['deck.return', 'clipboard.write', 'module.storage.local'];
+        shortlist.slice(0, 5).forEach((cap) => {
+          const chip = document.createElement('div');
+          chip.className = 'chip' + (cap === 'deck.return' ? ' highlight' : '');
+          chip.textContent = cap;
+          capabilityRow.appendChild(chip);
+        });
+      }
+
+      function renderContext(context) {
+        sourceContext = context || null;
+        const subtitle = context && context.source && context.source.subtitle ? context.source.subtitle : 'Channel lesson surface';
+        const items = context && context.source && Array.isArray(context.source.deck_items) ? context.source.deck_items.length : 0;
+        contextCopyEl.textContent = `${subtitle}. Source currently exposes ${items || 0} deck item(s). Keep the guide loop and video in this source while you train.`;
+      }
+
+      function renderModePills() {
+        modePills.innerHTML = '';
+        [
+          ['Deck-first', true],
+          ['Source-bound', false],
+          [`${activeRoutine.pattern.length} notes`, false]
+        ].forEach(([label, highlight]) => {
+          const pill = document.createElement('span');
+          pill.className = 'pill' + (highlight ? ' highlight' : '');
+          pill.textContent = label;
+          modePills.appendChild(pill);
+        });
+      }
+
+      function renderStatusRow() {
+        statusRow.innerHTML = '';
+        [
+          [`Status: ${lastStatus}`, true],
+          [`Loop: ${events.length} notes`, false],
+          [running ? 'Live' : 'Paused', false]
+        ].forEach(([label, highlight]) => {
+          const pill = document.createElement('span');
+          pill.className = 'pill' + (highlight ? ' highlight' : '');
+          pill.textContent = label;
+          statusRow.appendChild(pill);
+        });
+        startBtn.textContent = running ? 'Pause run' : (pausedBeat > 0 ? 'Resume run' : 'Start run');
+      }
+
+      function renderRoutines() {
+        routineBpm.textContent = `${activeRoutine.bpm} BPM`;
+        routineList.innerHTML = '';
+        ROUTINES.forEach((routine) => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'routine-btn' + (routine.id === activeRoutine.id ? ' is-active' : '');
+          btn.innerHTML = `<strong>${routine.name}</strong><span>${routine.copy}</span>`;
+          btn.addEventListener('click', () => {
+            if (guideTimer) clearGuide();
+            activeRoutine = routine;
+            pausedBeat = 0;
+            score = 0;
+            hits = 0;
+            misses = 0;
+            streak = 0;
+            running = false;
+            events = cloneEvents();
+            setStatus(`Loaded ${routine.name}`);
+            restoreBest().finally(renderAll);
+          });
+          routineList.appendChild(btn);
+        });
+      }
+
+      function renderCoach() {
+        coachCopy.textContent = activeRoutine.goal;
+        coachList.innerHTML = '';
+        const beat = currentBeat();
+        const nextNotes = events.filter((event) => !event.hit && !event.missed && event.beat >= beat).slice(0, 3);
+        const coachItems = [
+          {
+            title: 'Immediate target',
+            body: nextNotes.length ? nextNotes.map((event) => `${NOTE_KEYS[event.laneIndex]} · ${NOTE_LABELS[event.laneIndex]}`).join('  →  ') : 'Loop clean. Restart or change routine.'
+          },
+          {
+            title: 'Timing line',
+            body: `Stay within ±${HIT_WINDOW.toFixed(2)} beats. Late hits are cheaper than wild misses.`
+          },
+          {
+            title: 'Current read',
+            body: hits + misses ? `${formatAccuracy()} accuracy across ${hits + misses} judged notes.` : 'No judged notes yet. Start the run and hold the line.'
+          }
+        ];
+        coachItems.forEach((item) => {
+          const card = document.createElement('div');
+          card.className = 'coach-item';
+          card.innerHTML = `<strong>${item.title}</strong><small>${item.body}</small>`;
+          coachList.appendChild(card);
+        });
+      }
+
+      function renderStats() {
+        scoreValue.textContent = String(score);
+        accuracyValue.textContent = formatAccuracy();
+        streakValue.textContent = String(streak);
+        bestValue.textContent = String(best);
+      }
+
+      function renderBeatGrid() {
+        beatGrid.innerHTML = '';
+        for (let i = 0; i < 8; i += 1) {
+          const line = document.createElement('div');
+          line.className = 'beat-line';
+          line.style.top = `${20 + i * 30}px`;
+          beatGrid.appendChild(line);
+        }
+      }
+
+      function renderLanes() {
+        laneGrid.innerHTML = '';
+        const beat = currentBeat();
+        const padTargetLane = nextTargetLane();
+        for (let i = 0; i < 8; i += 1) {
+          const lane = document.createElement('div');
+          lane.className = 'lane';
+          const label = document.createElement('div');
+          label.className = 'lane-label';
+          label.textContent = NOTE_KEYS[i];
+          lane.appendChild(label);
+
+          events.forEach((event) => {
+            if (event.laneIndex !== i || event.hit || event.missed) return;
+            const delta = event.beat - beat;
+            if (delta < -HIT_WINDOW || delta > LOOKAHEAD_BEATS) return;
+            const note = document.createElement('div');
+            note.className = `lane-note ${activeRoutine.accent}`;
+            note.textContent = NOTE_LABELS[i];
+            const progress = (LOOKAHEAD_BEATS - delta) / LOOKAHEAD_BEATS;
+            const y = 18 + Math.max(0, Math.min(1, progress)) * (TRACK_HEIGHT - 18);
+            note.style.top = `${Math.min(TRACK_HEIGHT, y)}px`;
+            lane.appendChild(note);
+          });
+
+          laneGrid.appendChild(lane);
+        }
+        renderPads(padTargetLane);
+      }
+
+      function renderPads(targetLane) {
+        keyboard.innerHTML = '';
+        for (let i = 0; i < 8; i += 1) {
+          const pad = document.createElement('button');
+          pad.type = 'button';
+          pad.className = 'pad';
+          if (targetLane === i) pad.classList.add('is-target');
+          const effect = pressedKeyEffects.get(i);
+          if (effect && performance.now() - effect.time < 180) {
+            pad.classList.add(effect.kind === 'hit' ? 'is-hit' : 'is-miss');
+          }
+          pad.innerHTML = `<span class="pad-key">${NOTE_KEYS[i]}</span><span class="pad-note">${NOTE_LABELS[i]}</span>`;
+          pad.addEventListener('click', () => handleInput(i));
+          keyboard.appendChild(pad);
+        }
+      }
+
+      function nextTargetLane() {
+        const beat = currentBeat();
+        const next = events.find((event) => !event.hit && !event.missed && event.beat >= beat - HIT_WINDOW);
+        return next ? next.laneIndex : null;
+      }
+
+      function judgeExpiredNotes() {
+        const beat = currentBeat();
+        let changed = false;
+        events.forEach((event) => {
+          if (event.hit || event.missed) return;
+          if (beat > event.beat + HIT_WINDOW) {
+            event.missed = true;
+            misses += 1;
+            streak = 0;
+            changed = true;
+          }
+        });
+        if (changed) {
+          setStatus('Missed note');
+          renderStats();
+        }
+      }
+
+      function handleHit(event) {
+        event.hit = true;
+        hits += 1;
+        streak += 1;
+        score += Math.max(60, 120 - Math.round(Math.abs(event.beat - currentBeat()) * 120));
+        if (score > best) {
+          best = score;
+          persistBest();
+        }
+        setStatus(`Locked ${NOTE_LABELS[event.laneIndex]} clean`);
+        renderStats();
+      }
+
+      function handleMiss(laneIndex, reason) {
+        misses += 1;
+        streak = 0;
+        score = Math.max(0, score - 25);
+        setStatus(reason || `Missed ${NOTE_LABELS[laneIndex]}`);
+        renderStats();
+      }
+
+      function flashPad(laneIndex, kind) {
+        pressedKeyEffects.set(laneIndex, { kind, time: performance.now() });
+      }
+
+      function findMatchingEvent(laneIndex) {
+        const beat = currentBeat();
+        let bestCandidate = null;
+        let bestDelta = Infinity;
+        events.forEach((event) => {
+          if (event.hit || event.missed || event.laneIndex !== laneIndex) return;
+          const delta = Math.abs(event.beat - beat);
+          if (delta <= HIT_WINDOW && delta < bestDelta) {
+            bestDelta = delta;
+            bestCandidate = event;
+          }
+        });
+        return bestCandidate;
+      }
+
+      function handleInput(laneIndex) {
+        try { playTone(laneIndex, 0.16, laneIndex % 2 === 0 ? 1 : 0); } catch (_) {}
+        const match = findMatchingEvent(laneIndex);
+        if (match) {
+          flashPad(laneIndex, 'hit');
+          handleHit(match);
+        } else {
+          flashPad(laneIndex, 'miss');
+          handleMiss(laneIndex, `Pressed ${NOTE_KEYS[laneIndex]} off-grid`);
+        }
+        renderAll();
+      }
+
+      function clearGuide() {
+        if (guideTimer) {
+          clearInterval(guideTimer);
+          guideTimer = null;
+        }
+      }
+
+      function playGuide() {
+        clearGuide();
+        const slice = activeRoutine.pattern.slice(0, 12);
+        let idx = 0;
+        setStatus('Guide playback');
+        guideTimer = setInterval(() => {
+          const laneIndex = slice[idx];
+          if (typeof laneIndex === 'number') {
+            try { playTone(laneIndex, 0.2, 1); } catch (_) {}
+            flashPad(laneIndex, 'hit');
+            renderPads(nextTargetLane());
+          }
+          idx += 1;
+          if (idx >= slice.length) clearGuide();
+        }, Math.max(140, bpmMs() * 0.6));
+      }
+
+      function toggleRun() {
+        if (!running) {
+          startTime = performance.now() - pausedBeat * bpmMs();
+          running = true;
+          setStatus(pausedBeat > 0 ? 'Run resumed' : 'Run live');
+          loop();
+        } else {
+          pausedBeat = currentBeat();
+          running = false;
+          cancelAnimationFrame(rafId);
+          setStatus('Run paused');
+          renderAll();
+        }
+      }
+
+      function restartRun() {
+        clearGuide();
+        running = false;
+        cancelAnimationFrame(rafId);
+        pausedBeat = 0;
+        events = cloneEvents();
+        score = 0;
+        hits = 0;
+        misses = 0;
+        streak = 0;
+        setStatus('Run reset');
+        renderAll();
+      }
+
+      function maybeLoopRoutine() {
+        const beat = currentBeat();
+        const lastBeat = activeRoutine.pattern.length - 1;
+        if (beat <= lastBeat + 1.2) return;
+        startTime = performance.now();
+        pausedBeat = 0;
+        events = cloneEvents();
+        setStatus('Loop restarted');
+      }
+
+      function copyBrief() {
+        const text = [
+          `Keyboard Hero // ${activeRoutine.name}`,
+          `BPM: ${activeRoutine.bpm}`,
+          `Score: ${score}`,
+          `Accuracy: ${formatAccuracy()}`,
+          `Best local: ${best}`,
+          `Goal: ${activeRoutine.goal}`
+        ].join('\n');
+        if (window.CanopyModule && window.CanopyModule.capabilities.includes('clipboard.write')) {
+          window.CanopyModule.perform('clipboard.write', { text }).then(() => setStatus('Run brief copied')).catch(() => setStatus('Copy failed'));
+        } else {
+          setStatus('Clipboard unavailable');
+        }
+      }
+
+      function returnToSource() {
+        if (!(window.CanopyModule && window.CanopyModule.capabilities.includes('deck.return'))) return;
+        window.CanopyModule.perform('deck.return', {}).catch(() => {});
+      }
+
+      function loop() {
+        if (!running) return;
+        judgeExpiredNotes();
+        maybeLoopRoutine();
+        renderLanes();
+        renderCoach();
+        renderStatusRow();
+        rafId = requestAnimationFrame(loop);
+      }
+
+      function renderAll() {
+        renderHero();
+        renderCapabilities();
+        renderModePills();
+        renderStatusRow();
+        renderRoutines();
+        renderCoach();
+        renderStats();
+        renderBeatGrid();
+        renderLanes();
+      }
+
+      function handleKeydown(event) {
+        if (!event || event.repeat) return;
+        const key = String(event.key || '').toUpperCase();
+        const laneIndex = NOTE_KEYS.indexOf(key);
+        if (laneIndex === -1) return;
+        event.preventDefault();
+        handleInput(laneIndex);
+      }
+
+      function applyContext(context) {
+        renderContext(context || null);
+      }
+
+      startBtn.addEventListener('click', toggleRun);
+      restartBtn.addEventListener('click', restartRun);
+      guideBtn.addEventListener('click', playGuide);
+      copyBtn.addEventListener('click', copyBrief);
+      returnBtn.addEventListener('click', returnToSource);
+      window.addEventListener('keydown', handleKeydown);
+
+      renderAll();
+      restoreBest();
+      if (window.CanopyModule) {
+        window.CanopyModule.onContext((context) => applyContext(context));
+        window.CanopyModule.getContext().then(applyContext).catch(() => {});
+      } else {
+        renderContext(null);
+      }
+    })();
+  </script>
+</body>
+</html>
