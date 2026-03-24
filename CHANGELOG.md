@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.159] - 2026-03-24
+
+### Fixed
+- **Deck queue YouTube selection** — Queue clicks now stay bound to the clicked item instead of drifting across hidden facade/iframe transitions, and YouTube facade activation reuses the shared media registration hook so first-click playback in the deck no longer dies with a `registerMediaNode` reference error.
+
+### Changed
+- **Quieter deck launchers** — The `Deck` / `Mini` launcher controls at the bottom of posts and messages now use the same height, calmer chrome, and lower-contrast emphasis as the other action buttons so they no longer stretch or visually dominate the action row.
+- **Theme debug cleanup** — Removed the temporary theme/light-element debug helpers and automatic console spam that had accumulated during UI debugging.
+
 ## [0.4.158] - 2026-03-24
 
 ### Changed

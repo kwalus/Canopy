@@ -2420,7 +2420,11 @@
             iframe.style.background = '#000';
             iframe.style.display = 'block';
             facade.replaceWith(iframe);
-            registerMediaNode(iframe);
+            if (typeof window !== 'undefined' && typeof window.canopyRegisterMediaNode === 'function') {
+                window.canopyRegisterMediaNode(iframe);
+            } else if (typeof registerMediaNode === 'function') {
+                registerMediaNode(iframe);
+            }
             return iframe;
         }
 
@@ -5230,30 +5234,8 @@
         function applyTheme(theme) {
             document.documentElement.setAttribute('data-theme', theme);
             localStorage.setItem('canopy-theme', theme);
-            
-            // Enhanced logging
-            console.log('Applied theme:', theme);
-            console.log('Document data-theme attribute:', document.documentElement.getAttribute('data-theme'));
-            console.log('All CSS classes on document:', document.documentElement.className);
-            
-            // Force a style recalculation
+
             document.documentElement.offsetHeight;
-            
-            // Log some test elements to see if styling is applied
-            setTimeout(() => {
-                const testCard = document.querySelector('.card');
-                const testBtn = document.querySelector('.btn');
-                if (testCard) {
-                    const cardStyles = window.getComputedStyle(testCard);
-                    console.log('🃏 Card background:', cardStyles.backgroundColor);
-                    console.log('🃏 Card color:', cardStyles.color);
-                }
-                if (testBtn) {
-                    const btnStyles = window.getComputedStyle(testBtn);
-                    console.log('Button background:', btnStyles.backgroundColor);
-                    console.log('Button color:', btnStyles.color);
-                }
-            }, 100);
         }
 
         function loadSavedTheme() {
@@ -5285,129 +5267,10 @@
         // Apply theme immediately (before DOM content loaded)
         (function() {
             const savedTheme = localStorage.getItem('canopy-theme') || 'dark';
-            console.log('Early theme application:', savedTheme);
             if (savedTheme !== 'auto') {
                 document.documentElement.setAttribute('data-theme', savedTheme);
-                console.log('Set data-theme attribute to:', savedTheme);
             }
         })();
-        
-        // Debug function to find elements with light backgrounds
-        function debugLightElements() {
-            const lightElements = [];
-            const allElements = document.querySelectorAll('*');
-            
-            allElements.forEach(el => {
-                const styles = window.getComputedStyle(el);
-                const bgColor = styles.backgroundColor;
-                const color = styles.color;
-                
-                // Check for light backgrounds (white, light gray, etc.)
-                if (bgColor && (
-                    bgColor.includes('rgb(255, 255, 255)') || 
-                    bgColor.includes('rgba(255, 255, 255') ||
-                    bgColor.includes('#fff') ||
-                    bgColor.includes('#ffffff') ||
-                    bgColor.includes('white') ||
-                    (bgColor.includes('rgb(') && 
-                     bgColor.split(',').every(part => {
-                        const num = parseInt(part.replace(/[^\d]/g, ''));
-                        return num > 200; // Light colors
-                     }))
-                )) {
-                    lightElements.push({
-                        element: el,
-                        tagName: el.tagName,
-                        className: el.className,
-                        backgroundColor: bgColor,
-                        color: color,
-                        id: el.id || 'no-id'
-                    });
-                }
-            });
-            
-            console.log('Found', lightElements.length, 'elements with light backgrounds:');
-            lightElements.forEach((item, index) => {
-                console.log(`${index + 1}. ${item.tagName}.${item.className} (${item.id})`, 
-                    `bg: ${item.backgroundColor}`, item.element);
-            });
-            
-            return lightElements;
-        }
-        
-        // Add debug function to window for manual testing
-        window.debugLightElements = debugLightElements;
-        
-        // Quick theme switching for testing
-        window.testTheme = function(theme) {
-            console.log('Testing theme:', theme);
-            applyTheme(theme);
-            setTimeout(() => {
-                console.log('Checking for light elements after theme change...');
-                debugLightElements();
-            }, 500);
-        };
-        
-        // Quick test all themes
-        window.testAllThemes = function() {
-            const themes = ['dark', 'light', 'liquid-glass', 'auto'];
-            let index = 0;
-            
-            function nextTheme() {
-                if (index < themes.length) {
-                    console.log(`Testing theme ${index + 1}/${themes.length}: ${themes[index]}`);
-                    testTheme(themes[index]);
-                    index++;
-                    setTimeout(nextTheme, 3000); // Wait 3 seconds between themes
-                } else {
-                    console.log('All themes tested.');
-                }
-            }
-            
-            nextTheme();
-        };
-        
-        // Test responsive image sizing
-        window.testResponsiveImages = function() {
-            const images = document.querySelectorAll('.message-image, .post-image, .channel-image, .comment-image img');
-            console.log(`Found ${images.length} responsive images`);
-            
-            images.forEach((img, index) => {
-                const computedStyle = window.getComputedStyle(img);
-                const maxWidth = computedStyle.maxWidth;
-                const maxHeight = computedStyle.maxHeight;
-                const actualWidth = img.offsetWidth;
-                const actualHeight = img.offsetHeight;
-                
-                console.log(`${index + 1}. ${img.className}:`, {
-                    maxWidth,
-                    maxHeight,
-                    actualSize: `${actualWidth}x${actualHeight}px`,
-                    element: img
-                });
-            });
-            
-            // Test different screen sizes simulation
-            const viewportWidth = window.innerWidth;
-            console.log(`Current viewport: ${viewportWidth}px`);
-            if (viewportWidth <= 375) {
-                console.log('Small phone mode active');
-            } else if (viewportWidth <= 576) {
-                console.log('Mobile phone mode active');
-            } else if (viewportWidth <= 768) {
-                console.log('Tablet mode active');
-            } else {
-                console.log('Desktop mode active');
-            }
-        };
-        
-        // Auto-run debug after theme is loaded
-        document.addEventListener('DOMContentLoaded', function() {
-            setTimeout(() => {
-                console.log('Running automatic light element detection...');
-                debugLightElements();
-            }, 1000);
-        });
 
         // Auto-refresh timestamps
         setInterval(() => {
@@ -5736,6 +5599,7 @@
                 deckOriginMessageId: '',
                 deckOriginPostId: '',
                 deckQueueSignature: '',
+                deckQueueNeedsRefresh: false,
                 deckSeeking: false,
                 mediaCounter: 0,
                 miniUpdateFrame: 0,
@@ -6796,22 +6660,58 @@
                 return key !== undefined && key !== null && key !== '';
             }
 
+            function deckItemBelongsToOrigin(item, origin) {
+                if (!item) return false;
+                const itemSource = item.sourceEl instanceof Element ? item.sourceEl : null;
+                if (origin && origin.isConnected && itemSource && itemSource === origin) {
+                    return true;
+                }
+                const originMessageId = String((origin && origin.getAttribute && origin.getAttribute('data-message-id')) || state.deckOriginMessageId || '').trim();
+                const originPostId = String((origin && origin.getAttribute && origin.getAttribute('data-post-id')) || state.deckOriginPostId || '').trim();
+                const itemMessageId = String((itemSource && itemSource.getAttribute && itemSource.getAttribute('data-message-id')) || '').trim();
+                const itemPostId = String((itemSource && itemSource.getAttribute && itemSource.getAttribute('data-post-id')) || '').trim();
+                if (originMessageId && itemMessageId && originMessageId === itemMessageId) return true;
+                if (originPostId && itemPostId && originPostId === itemPostId) return true;
+                return false;
+            }
+
+            function canPreserveDeckItemFromPrevious(item, origin) {
+                if (!item || !deckItemKeyUsable(item.key)) return false;
+                if (isDeckMediaItem(item)) {
+                    const wrapper = getMediaDockWrapper(item.el, item.type);
+                    const stillConnected = !!((wrapper && wrapper.isConnected) || (item.el instanceof Element && item.el.isConnected));
+                    return stillConnected && deckItemBelongsToOrigin(item, origin);
+                }
+                if (!item.manifest) return false;
+                if (!(item.el instanceof Element) || !item.el.isConnected) return false;
+                return widgetDeckOriginContainsEl(origin, item.el) || deckItemBelongsToOrigin(item, origin);
+            }
+
             function reconcileDeckQueueItemsBuilt(built, previousItems, origin) {
                 const merged = [];
                 const keys = new Set();
                 const builtArr = Array.isArray(built) ? built : [];
+                const prevArr = Array.isArray(previousItems) ? previousItems : [];
+                const builtByKey = new Map();
                 builtArr.forEach((item) => {
                     if (!item || !deckItemKeyUsable(item.key)) return;
+                    builtByKey.set(item.key, item);
+                });
+                prevArr.forEach((item) => {
+                    if (!item || !deckItemKeyUsable(item.key) || keys.has(item.key)) return;
+                    const replacement = builtByKey.get(item.key);
+                    if (replacement) {
+                        merged.push(replacement);
+                        keys.add(item.key);
+                        builtByKey.delete(item.key);
+                        return;
+                    }
+                    if (!canPreserveDeckItemFromPrevious(item, origin)) return;
                     merged.push(item);
                     keys.add(item.key);
                 });
-                const prevArr = Array.isArray(previousItems) ? previousItems : [];
-                prevArr.forEach((item) => {
+                builtArr.forEach((item) => {
                     if (!item || !deckItemKeyUsable(item.key) || keys.has(item.key)) return;
-                    if (isDeckMediaItem(item)) return;
-                    if (!item.manifest) return;
-                    if (!(item.el instanceof Element) || !item.el.isConnected) return;
-                    if (!widgetDeckOriginContainsEl(origin, item.el)) return;
                     merged.push(item);
                     keys.add(item.key);
                 });
@@ -6924,7 +6824,7 @@
                         sourceEl: cur.sourceEl,
                         activatedAt: Date.now(),
                     };
-                    state.deckSelectedKey = ensureMediaIdentity(pref.el);
+                    state.deckSelectedKey = pref.key || '';
                 } else {
                     state.current = null;
                     state.deckSelectedKey = pref.key || '';
@@ -6969,9 +6869,7 @@
                 if (isDeckMediaItem(item)) {
                     const deferYt = !shouldPlay && item.type === 'youtube';
                     setCurrent(item.el, item.type, deferYt ? { deferYouTubeMaterialize: true } : undefined);
-                    state.deckSelectedKey = (state.current && state.current.el)
-                        ? ensureMediaIdentity(state.current.el)
-                        : (item.key || '');
+                    state.deckSelectedKey = item.key || '';
                     if (state.current && state.current.el) {
                         if (shouldPlay) {
                             playMediaElement(state.current.el, state.current.type);
@@ -7108,6 +7006,7 @@
                 }
                 state.deckItems = items;
                 state.deckQueueSignature = '';
+                state.deckQueueNeedsRefresh = false;
                 state.deckSourceEl = sourceEl;
                 state.deckOriginSourceEl = sourceEl;
                 pinDeckOriginIdsFromSourceEl(sourceEl);
@@ -7182,6 +7081,7 @@
                 }
                 state.deckItems = fullDeckItems;
                 state.deckQueueSignature = '';
+                state.deckQueueNeedsRefresh = false;
                 state.deckSelectedKey = preferred.key;
                 state.dismissedEl = null;
                 state.returnUrl = null;
@@ -8172,35 +8072,38 @@
             function renderDeckQueue() {
                 if (!deckQueue || !deckQueueCount || !deckCount || !deckCountChip || !deckSource) return;
                 refreshDeckOriginSourceElIfStale();
-                const current = state.current;
-                const selectedNow = getDeckSelectedItem();
-                const sourceEl = firstConnectedDeckAnchor(
-                    state.deckOriginSourceEl,
-                    selectedNow && deckItemSourceEl(selectedNow),
-                    state.deckSourceEl,
-                    current && current.sourceEl
-                );
-                state.deckSourceEl = sourceEl || (state.deckSourceEl && state.deckSourceEl.isConnected ? state.deckSourceEl : null);
-                const anchorForExplicit = sourceEl || state.deckOriginSourceEl || state.deckSourceEl;
-                const explicitSelectedWidget = (
-                    selectedNow
-                    && !isDeckMediaItem(selectedNow)
-                    && selectedNow.manifest
-                    && selectedNow.el
-                    && selectedNow.el.isConnected
-                    && widgetDeckOriginContainsEl(anchorForExplicit, selectedNow.el)
-                ) ? buildDeckWidgetItem(selectedNow.el, selectedNow.manifest, anchorForExplicit) : null;
-                const built = mergeExplicitDeckItem(
-                    buildSourceDeckItems(sourceEl, current ? current.el : null),
-                    explicitSelectedWidget
-                );
-                const originForReconcile = firstConnectedDeckAnchor(
-                    state.deckOriginSourceEl,
-                    sourceEl,
-                    state.deckSourceEl
-                );
                 const previousDeckItems = Array.isArray(state.deckItems) ? state.deckItems : [];
-                state.deckItems = reconcileDeckQueueItemsBuilt(built, previousDeckItems, originForReconcile);
+                if (!previousDeckItems.length || state.deckQueueNeedsRefresh) {
+                    const current = state.current;
+                    const selectedNow = getDeckSelectedItem();
+                    const sourceEl = firstConnectedDeckAnchor(
+                        state.deckOriginSourceEl,
+                        selectedNow && deckItemSourceEl(selectedNow),
+                        state.deckSourceEl,
+                        current && current.sourceEl
+                    );
+                    state.deckSourceEl = sourceEl || (state.deckSourceEl && state.deckSourceEl.isConnected ? state.deckSourceEl : null);
+                    const anchorForExplicit = sourceEl || state.deckOriginSourceEl || state.deckSourceEl;
+                    const explicitSelectedWidget = (
+                        selectedNow
+                        && !isDeckMediaItem(selectedNow)
+                        && selectedNow.manifest
+                        && selectedNow.el
+                        && selectedNow.el.isConnected
+                        && widgetDeckOriginContainsEl(anchorForExplicit, selectedNow.el)
+                    ) ? buildDeckWidgetItem(selectedNow.el, selectedNow.manifest, anchorForExplicit) : null;
+                    const built = mergeExplicitDeckItem(
+                        buildSourceDeckItems(sourceEl, current ? current.el : null),
+                        explicitSelectedWidget
+                    );
+                    const originForReconcile = firstConnectedDeckAnchor(
+                        state.deckOriginSourceEl,
+                        sourceEl,
+                        state.deckSourceEl
+                    );
+                    state.deckItems = reconcileDeckQueueItemsBuilt(built, previousDeckItems, originForReconcile);
+                    state.deckQueueNeedsRefresh = false;
+                }
                 const items = state.deckItems;
                 const selectedItem = getDeckSelectedItem();
                 const total = items.length;
@@ -8510,6 +8413,7 @@
                 state.deckOriginSourceEl = null;
                 state.deckOriginMessageId = '';
                 state.deckOriginPostId = '';
+                state.deckQueueNeedsRefresh = false;
                 if (expandBtn) {
                     expandBtn.innerHTML = '<i class="bi bi-arrows-angle-expand"></i>';
                     expandBtn.title = 'Open Canopy deck';
@@ -8561,6 +8465,7 @@
                 state.deckOriginSourceEl = null;
                 state.deckOriginMessageId = '';
                 state.deckOriginPostId = '';
+                state.deckQueueNeedsRefresh = false;
                 state.deckOpen = false;
 
                 if (miniVideoHost) {
@@ -9163,6 +9068,10 @@
                 }
             }
 
+            if (typeof window !== 'undefined') {
+                window.canopyRegisterMediaNode = registerMediaNode;
+            }
+
             function scanForMedia(scope) {
                 const root = scope || document;
                 root.querySelectorAll('audio, video, .youtube-embed iframe').forEach(registerMediaNode);
@@ -9669,9 +9578,15 @@
                 deckQueue.addEventListener('click', (event) => {
                     const btn = event.target && event.target.closest ? event.target.closest('.sidebar-media-deck-item[data-media-index]') : null;
                     if (!btn) return;
-                    const index = Number(btn.getAttribute('data-media-index') || -1);
-                    if (!Number.isFinite(index) || index < 0 || index >= state.deckItems.length) return;
-                    const nextItem = state.deckItems[index];
+                    const key = String(btn.getAttribute('data-media-key') || '').trim();
+                    let nextItem = key
+                        ? state.deckItems.find((item) => String(item && item.key || '').trim() === key)
+                        : null;
+                    if (!nextItem) {
+                        const index = Number(btn.getAttribute('data-media-index') || -1);
+                        if (!Number.isFinite(index) || index < 0 || index >= state.deckItems.length) return;
+                        nextItem = state.deckItems[index];
+                    }
                     if (!nextItem) return;
                     selectDeckItem(nextItem, { play: true });
                     scrollDeckStageIntoView();
