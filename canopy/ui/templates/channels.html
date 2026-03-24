@@ -57,6 +57,32 @@
         font-weight: 600;
         line-height: 1;
     }
+    .message-actions .icon-action-btn,
+    .post-lineage-bar .btn.btn-sm,
+    .post-repost-actions .btn.btn-sm {
+        border-color: color-mix(in srgb, var(--canopy-border) 76%, var(--canopy-primary) 24%) !important;
+        background: color-mix(in srgb, var(--canopy-bg-card) 84%, var(--canopy-primary) 16%) !important;
+        color: var(--canopy-text-secondary) !important;
+        box-shadow: none !important;
+    }
+    .message-actions .icon-action-btn:hover,
+    .message-actions .icon-action-btn:focus-visible,
+    .post-lineage-bar .btn.btn-sm:hover,
+    .post-lineage-bar .btn.btn-sm:focus-visible,
+    .post-repost-actions .btn.btn-sm:hover,
+    .post-repost-actions .btn.btn-sm:focus-visible {
+        border-color: color-mix(in srgb, var(--canopy-primary) 46%, var(--canopy-border) 54%) !important;
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 68%, var(--canopy-primary) 32%) !important;
+        color: var(--canopy-text-primary) !important;
+    }
+    .like-btn.is-liked,
+    .bookmark-action-btn.is-saved,
+    .repost-trigger-btn.is-repost-open,
+    .variant-trigger-btn.is-variant-open {
+        border-color: color-mix(in srgb, var(--canopy-primary) 52%, var(--canopy-border) 48%) !important;
+        background: color-mix(in srgb, var(--canopy-primary) 28%, var(--canopy-bg-card) 72%) !important;
+        color: var(--canopy-text-primary) !important;
+    }
 
     .post-repost-shell,
     .post-variant-shell {
@@ -319,18 +345,6 @@
         min-height: 92px;
     }
 
-    .repost-trigger-btn.is-repost-open {
-        border-color: rgba(56, 189, 248, 0.45);
-        color: rgba(186, 230, 253, 0.96);
-        background: rgba(56, 189, 248, 0.12);
-    }
-
-    .variant-trigger-btn.is-variant-open {
-        border-color: rgba(245, 158, 11, 0.45);
-        color: rgba(254, 243, 199, 0.96);
-        background: rgba(245, 158, 11, 0.14);
-    }
-    
     .file-dropzone {
         border: 2px dashed var(--canopy-border);
         border-radius: 8px;
@@ -1502,29 +1516,59 @@
     .channel-header-right {
         display: flex;
         align-items: center;
-        gap: 0.25rem;
-        flex-wrap: nowrap;
+        gap: 0.32rem;
+        flex-wrap: wrap;
         justify-content: flex-end;
         min-width: 0;
-        flex: 0 1 auto;
+        flex: 1 1 420px;
     }
     .channel-header-actions,
     .channel-header-controls {
         display: flex;
         align-items: center;
-        gap: 0.22rem;
+        gap: 0.28rem;
         flex-wrap: nowrap;
         flex: 0 0 auto;
     }
     .channel-header-search {
         display: flex;
         align-items: center;
-        flex: 0 1 210px;
-        min-width: 110px;
-        max-width: 235px;
+        flex: 1 1 190px;
+        min-width: 130px;
+        max-width: 280px;
     }
     .channel-header .btn.btn-sm {
         padding: 0.2rem 0.44rem;
+    }
+    .channel-header-tool-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.32rem;
+        min-height: 2rem;
+        min-width: 2rem;
+        border-color: color-mix(in srgb, var(--canopy-border) 78%, var(--canopy-primary) 22%) !important;
+        background: color-mix(in srgb, var(--canopy-bg-card) 86%, var(--canopy-primary) 14%) !important;
+        color: var(--canopy-text-secondary) !important;
+        box-shadow: none !important;
+    }
+    .channel-header-tool-btn:hover,
+    .channel-header-tool-btn:focus-visible,
+    .channel-header .dropdown.show > .channel-header-tool-btn {
+        border-color: color-mix(in srgb, var(--canopy-primary) 42%, var(--canopy-border) 58%) !important;
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 70%, var(--canopy-primary) 30%) !important;
+        color: var(--canopy-text-primary) !important;
+    }
+    .channel-header-tool-btn .privacy-label,
+    .channel-header-tool-btn .channel-lifecycle-label,
+    .channel-header-tool-btn .channel-header-tool-label {
+        display: none !important;
+    }
+    .channel-header-tool-btn.dropdown-toggle::after {
+        display: none;
+    }
+    .channel-header-overflow-menu .dropdown-item i {
+        width: 1rem;
     }
     .channel-header .channel-toggle-btn {
         flex: 0 0 auto;
@@ -1599,6 +1643,9 @@
             flex: 1 1 auto;
             flex-wrap: wrap;
             min-width: 0;
+        }
+        .channel-header-controls {
+            margin-left: auto;
         }
         .channel-header-search {
             order: 3;
@@ -1965,8 +2012,8 @@
             flex: 1;
             min-width: 0;
             display: flex;
-            flex-wrap: nowrap;
-            gap: 0.18rem;
+            flex-wrap: wrap;
+            gap: 0.24rem;
             align-items: center;
         }
         .channel-header-actions,
@@ -1975,12 +2022,10 @@
             flex: 0 0 auto;
         }
         .channel-header-search {
-            flex: 1 1 auto;
-            min-width: 74px;
+            order: 3;
+            flex: 1 1 100%;
+            min-width: 0;
             max-width: none;
-        }
-        .channel-post-policy-btn .privacy-label {
-            display: none;
         }
         #channel-search-bar {
             width: 100% !important;
@@ -2001,15 +2046,6 @@
             max-width: none;
             padding-left: 0.35rem;
             padding-right: 0.35rem;
-        }
-        .channel-privacy-btn .privacy-label {
-            display: none;
-        }
-        .channel-members-label {
-            display: none;
-        }
-        .copy-channel-id-label {
-            display: none;
         }
         #messages-container {
             padding: 0.6rem !important;
@@ -2475,8 +2511,9 @@
         }
 
         .channel-header-search {
-            flex: 1 1 auto;
-            min-width: 70px;
+            order: 3;
+            flex: 1 1 100%;
+            min-width: 0;
         }
 
         .channel-header .btn.btn-sm {
@@ -2755,7 +2792,7 @@
                     <div class="channel-header-right">
                         <div class="channel-header-actions">
                             <div class="dropdown">
-                                <button class="btn btn-outline-secondary btn-sm dropdown-toggle channel-post-policy-btn"
+                                <button class="btn btn-outline-secondary btn-sm dropdown-toggle channel-post-policy-btn channel-header-tool-btn"
                                         id="channel-post-policy-toggle" data-bs-toggle="dropdown" aria-expanded="false">
                                     <i class="bi bi-megaphone" id="channel-post-policy-icon"></i>
                                     <span class="privacy-label" id="channel-post-policy-label">Open</span>
@@ -2780,7 +2817,7 @@
                                 </div>
                             </div>
                             <div class="dropdown">
-                                <button class="btn btn-outline-secondary btn-sm dropdown-toggle channel-privacy-btn"
+                                <button class="btn btn-outline-secondary btn-sm dropdown-toggle channel-privacy-btn channel-header-tool-btn"
                                         id="channel-privacy-toggle" data-bs-toggle="dropdown" aria-expanded="false">
                                     <i class="bi bi-shield-check" id="channel-privacy-icon"></i>
                                     <span class="privacy-label" id="channel-privacy-label">Open</span>
@@ -2805,7 +2842,7 @@
                                 </ul>
                             </div>
                             <div class="dropdown">
-                                <button class="btn btn-outline-secondary btn-sm dropdown-toggle channel-lifecycle-btn"
+                                <button class="btn btn-outline-secondary btn-sm dropdown-toggle channel-lifecycle-btn channel-header-tool-btn"
                                         id="channel-lifecycle-toggle" data-bs-toggle="dropdown" aria-expanded="false">
                                     <i class="bi bi-clock-history" id="channel-lifecycle-icon"></i>
                                     <span class="channel-lifecycle-label" id="channel-lifecycle-label">Lifecycle</span>
@@ -2839,7 +2876,7 @@
                                     </div>
                                 </div>
                             </div>
-                            <button class="btn btn-outline-secondary btn-sm" id="channel-mute-toggle"
+                            <button class="btn btn-outline-secondary btn-sm channel-header-tool-btn" id="channel-mute-toggle"
                                     onclick="toggleChannelNotifications()" title="Mute notifications">
                                 <i class="bi bi-bell" id="channel-mute-icon"></i>
                             </button>
@@ -2849,23 +2886,44 @@
                                 <input type="text" class="form-control" id="search-input"
                                        placeholder="Search messages..."
                                        onkeydown="if(event.key==='Enter'){event.preventDefault();searchChannelMessages();}">
-                                <button class="btn btn-outline-secondary" onclick="searchChannelMessages()" title="Search">
+                                <button class="btn btn-outline-secondary channel-header-tool-btn" onclick="searchChannelMessages()" title="Search">
                                     <i class="bi bi-search"></i>
                                 </button>
-                                <button class="btn btn-outline-secondary" onclick="clearSearch()" title="Clear search" id="search-clear-btn" style="display:none;">
+                                <button class="btn btn-outline-secondary channel-header-tool-btn" onclick="clearSearch()" title="Clear search" id="search-clear-btn" style="display:none;">
                                     <i class="bi bi-x"></i>
                                 </button>
                             </div>
                         </div>
                         <div class="channel-header-controls">
-                            <button class="btn btn-outline-secondary btn-sm" id="channel-refresh-btn" onclick="refreshMessages()">
-                                <i class="bi bi-arrow-clockwise"></i>
-                            </button>
-                            <button class="btn btn-outline-secondary btn-sm" id="channel-members-btn" onclick="openChannelMembersModal()">
-                                <i class="bi bi-people"></i>
-                                <span class="channel-members-label">Members</span>
-                                <span class="channel-members-count">({{ channels[0].member_count if channels else 0 }})</span>
-                            </button>
+                            <div class="dropdown">
+                                <button class="btn btn-outline-secondary btn-sm channel-header-tool-btn channel-header-overflow-toggle"
+                                        id="channel-header-more-toggle"
+                                        data-bs-toggle="dropdown"
+                                        aria-expanded="false"
+                                        title="More channel tools"
+                                        aria-label="More channel tools">
+                                    <i class="bi bi-three-dots"></i>
+                                    <span class="channel-header-tool-label">More</span>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end channel-header-overflow-menu" aria-labelledby="channel-header-more-toggle">
+                                    <li>
+                                        <button type="button" class="dropdown-item" id="channel-refresh-btn" onclick="refreshMessages()">
+                                            <i class="bi bi-arrow-clockwise me-2"></i>Refresh messages
+                                        </button>
+                                    </li>
+                                    <li>
+                                        <button type="button" class="dropdown-item" id="channel-members-btn" onclick="openChannelMembersModal()">
+                                            <i class="bi bi-people me-2"></i>Members
+                                            <span class="text-muted ms-1 channel-members-count">({{ channels[0].member_count if channels else 0 }})</span>
+                                        </button>
+                                    </li>
+                                    <li>
+                                        <button type="button" class="dropdown-item" id="copy-channel-id-btn" data-channel-id="" onclick="copyCurrentChannelId(this)">
+                                            <i class="bi bi-clipboard me-2"></i>Copy channel ID
+                                        </button>
+                                    </li>
+                                </ul>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -5596,17 +5654,15 @@ function setChannelPrivacyUI(mode, canEdit, reason) {
 
     const normalized = (mode || 'open').toLowerCase();
     const configs = {
-        open: { text: 'Open', icon: 'bi-wifi', cls: 'btn-outline-secondary' },
-        guarded: { text: 'Guarded', icon: 'bi-shield-check', cls: 'btn-outline-warning' },
-        private: { text: 'Private', icon: 'bi-lock-fill', cls: 'btn-outline-success' },
-        confidential: { text: 'Confidential', icon: 'bi-shield-lock', cls: 'btn-outline-info' },
+        open: { text: 'Open', icon: 'bi-wifi' },
+        guarded: { text: 'Guarded', icon: 'bi-shield-check' },
+        private: { text: 'Private', icon: 'bi-lock-fill' },
+        confidential: { text: 'Confidential', icon: 'bi-shield-lock' },
     };
     const cfg = configs[normalized] || configs.open;
     label.textContent = cfg.text;
     icon.className = `bi ${cfg.icon}`;
-
-    btn.classList.remove('btn-outline-secondary', 'btn-outline-warning', 'btn-outline-success', 'btn-outline-info');
-    btn.classList.add(cfg.cls);
+    btn.dataset.privacyMode = normalized;
 
     if (canEdit) {
         btn.removeAttribute('disabled');
@@ -5688,8 +5744,7 @@ function applyChannelPostPolicyFromSelection(channelId) {
     const curated = currentChannelPostPolicy === 'curated';
     label.textContent = curated ? 'Curated' : 'Open';
     icon.className = `bi ${curated ? 'bi-person-check' : 'bi-megaphone'}`;
-    btn.classList.remove('btn-outline-secondary', 'btn-outline-warning');
-    btn.classList.add(curated ? 'btn-outline-warning' : 'btn-outline-secondary');
+    btn.dataset.postPolicy = curated ? 'curated' : 'open';
 
     badge.classList.remove('d-none', 'curated', 'open');
     badge.classList.add(curated ? 'curated' : 'open');
@@ -5959,10 +6014,9 @@ function setChannelLifecycleUI(lifecycle, permissions) {
     }
 
     const visual = getChannelLifecycleVisualState(lifecycle);
-    toggle.classList.remove('btn-outline-secondary', 'btn-outline-warning', 'btn-outline-info');
-    toggle.classList.add(visual.buttonClass);
     icon.className = `bi ${visual.buttonIcon}`;
     label.textContent = visual.buttonLabel;
+    toggle.dataset.lifecycleState = visual.badgeText ? visual.badgeText.toLowerCase() : 'default';
 
     const badgeVisible = !!visual.badgeText;
     badge.className = 'badge rounded-pill';
@@ -6124,10 +6178,9 @@ function updateChannelE2EBadge() {
 }
 
 function updateChannelMembersCount(count) {
-    const countEl = document.querySelector('.channel-members-count');
-    if (countEl) {
+    document.querySelectorAll('.channel-members-count').forEach((countEl) => {
         countEl.textContent = `(${count || 0})`;
-    }
+    });
     const selectedItem = currentChannelId ? document.querySelector(`[data-channel-id="${currentChannelId}"]`) : null;
     if (selectedItem) {
         selectedItem.setAttribute('data-member-count', String(count || 0));
@@ -6249,13 +6302,9 @@ function setChannelNotificationsUI(enabled, disabled) {
     btn.classList.remove('disabled');
     if (enabled) {
         icon.className = 'bi bi-bell';
-        btn.classList.remove('btn-outline-warning');
-        btn.classList.add('btn-outline-secondary');
         btn.setAttribute('title', 'Mute notifications');
     } else {
         icon.className = 'bi bi-bell-slash';
-        btn.classList.remove('btn-outline-secondary');
-        btn.classList.add('btn-outline-warning');
         btn.setAttribute('title', 'Unmute notifications');
     }
 }
@@ -6936,16 +6985,6 @@ function renderMessage(message, userInfo, isReply) {
                 <!-- Message Actions -->
                 <div class="message-actions mt-1" style="font-size: 0.85rem;">
                     <div class="d-flex gap-2 flex-wrap">
-                        <button class="btn btn-sm icon-action-btn ${message.user_has_liked ? 'btn-primary' : 'btn-outline-primary'} like-btn" 
-                                onclick="toggleLike('${message.id}')"
-                                data-item-id="${message.id}"
-                                data-liked="${message.user_has_liked ? 'true' : 'false'}"
-                                title="${message.user_has_liked ? 'Unlike message' : 'Like message'}"
-                                aria-label="${message.user_has_liked ? 'Unlike message' : 'Like message'}">
-                            <i class="bi bi-heart${message.user_has_liked ? '-fill' : ''}"></i> 
-                            <span class="like-text action-label">${message.user_has_liked ? 'Liked' : 'Like'}</span> 
-                            <span class="like-count action-count">${message.like_count || 0}</span>
-                        </button>
                         <button class="btn btn-sm btn-outline-secondary icon-action-btn"
                                 onclick="setReplyFromButton(this)"
                                 data-reply-message-id="${message.id}"
@@ -6955,11 +6994,15 @@ function renderMessage(message, userInfo, isReply) {
                                 aria-label="Reply in thread">
                             <i class="bi bi-reply"></i><span class="action-label">Reply</span>
                         </button>
-                        <button class="btn btn-sm btn-outline-secondary icon-action-btn"
-                                onclick="toggleThreadInboxSubscription('${message.id}')"
-                                title="Toggle thread inbox notifications"
-                                aria-label="Toggle thread inbox notifications">
-                            <i class="bi bi-bell-slash"></i><span class="action-label">Thread inbox</span>
+                        <button class="btn btn-sm btn-outline-secondary icon-action-btn like-btn${message.user_has_liked ? ' is-liked' : ''}"
+                                onclick="toggleLike('${message.id}')"
+                                data-item-id="${message.id}"
+                                data-liked="${message.user_has_liked ? 'true' : 'false'}"
+                                title="${message.user_has_liked ? 'Unlike message' : 'Like message'}"
+                                aria-label="${message.user_has_liked ? 'Unlike message' : 'Like message'}">
+                            <i class="bi bi-heart${message.user_has_liked ? '-fill' : ''}"></i>
+                            <span class="action-label like-text">${message.user_has_liked ? 'Liked' : 'Like'}</span>
+                            <span class="action-count like-count">${message.like_count || 0}</span>
                         </button>
                         <button type="button" class="btn btn-sm btn-outline-info icon-action-btn repost-trigger-btn"
                                 id="channel-repost-trigger-${message.id}"
@@ -6969,15 +7012,6 @@ function renderMessage(message, userInfo, isReply) {
                                 aria-controls="channel-repost-compose-${message.id}"
                                 aria-label="Repost source in this channel">
                             <i class="bi bi-repeat"></i><span class="action-label">Repost</span>
-                        </button>
-                        <button type="button" class="btn btn-sm btn-outline-warning icon-action-btn variant-trigger-btn"
-                                id="channel-variant-trigger-${message.id}"
-                                onclick="toggleChannelVariantComposer('${message.id}')"
-                                title="Create a derived variant in this channel"
-                                aria-expanded="false"
-                                aria-controls="channel-variant-compose-${message.id}"
-                                aria-label="Create source variant in this channel">
-                            <i class="bi bi-bezier2"></i><span class="action-label">Variant</span>
                         </button>
                         ${message.is_repost && message.repost_reference && message.repost_reference.source_id && message.repost_reference.available !== false && message.repost_reference.has_source_layout !== false ? `
                         <button type="button" class="btn btn-sm btn-outline-secondary icon-action-btn"
@@ -6995,59 +7029,64 @@ function renderMessage(message, userInfo, isReply) {
                                 aria-label="${message.is_bookmarked ? 'Remove bookmark' : 'Save bookmark'}">
                             <i class="bi bi-bookmark${message.is_bookmarked ? '-fill' : ''}"></i><span class="action-label" data-bookmark-label>${message.is_bookmarked ? 'Saved' : 'Save'}</span>
                         </button>
-                        ${(message.content || '').trim() ? `
-                        <div class="btn-group">
-                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle icon-action-btn"
+                        <div class="dropdown">
+                            <button class="btn btn-sm btn-outline-secondary icon-action-btn"
                                     type="button"
                                     data-bs-toggle="dropdown"
                                     aria-expanded="false"
-                                    title="Promote into structured tool"
-                                    aria-label="Promote into structured tool">
-                                <i class="bi bi-magic"></i><span class="action-label">Promote</span>
+                                    title="More message actions"
+                                    aria-label="More message actions">
+                                <i class="bi bi-three-dots"></i><span class="action-label">More</span>
                             </button>
                             <ul class="dropdown-menu dropdown-menu-end">
+                                <li>
+                                    <a class="dropdown-item" href="#" onclick="toggleThreadInboxSubscription('${message.id}'); return false;">
+                                        <i class="bi bi-bell-slash me-2"></i>Thread inbox
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item" href="#" onclick="toggleChannelVariantComposer('${message.id}'); return false;">
+                                        <i class="bi bi-bezier2 me-2"></i>Variant
+                                    </a>
+                                </li>
+                                ${(message.content || '').trim() ? `
+                                <li><hr class="dropdown-divider"></li>
                                 <li><h6 class="dropdown-header">Promote to tool</h6></li>
                                 <li><a class="dropdown-item" href="#" onclick="promoteMessageToTool('${message.id}', 'task'); return false;">Task</a></li>
                                 <li><a class="dropdown-item" href="#" onclick="promoteMessageToTool('${message.id}', 'request'); return false;">Request</a></li>
                                 <li><a class="dropdown-item" href="#" onclick="promoteMessageToTool('${message.id}', 'objective'); return false;">Objective</a></li>
                                 <li><a class="dropdown-item" href="#" onclick="promoteMessageToTool('${message.id}', 'handoff'); return false;">Handoff</a></li>
-                                <li><a class="dropdown-item" href="#" onclick="promoteMessageToTool('${message.id}', 'signal'); return false;">Signal</a></li>
+                                <li><a class="dropdown-item" href="#" onclick="promoteMessageToTool('${message.id}', 'signal'); return false;">Signal</a></li>` : ''}
+                                <li><hr class="dropdown-divider"></li>
+                                ${message.user_id === currentUserId ? `
+                                <li>
+                                    <a class="dropdown-item" href="#" onclick="editChannelMessage('${message.id}'); return false;">
+                                        <i class="bi bi-pencil me-2"></i>Edit
+                                    </a>
+                                </li>` : ''}
+                                <li>
+                                    <a class="dropdown-item" href="#" onclick="copyToClipboard(this, \`${escapeHtml(message.content || '').replace(/`/g, "'")}\`); return false;">
+                                        <i class="bi bi-clipboard me-2"></i>Copy
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item" href="#" onclick="openContentContextModalFromAction('channel_message', '${message.id}'); return false;">
+                                        <i class="bi bi-file-earmark-text me-2"></i>Context
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item" href="#" onclick="openCommunityNoteModal('channel_message', '${message.id}'); return false;">
+                                        <i class="bi bi-journal-check me-2"></i>Notes <span class="text-muted">(${message.community_notes_count || 0})</span>
+                                    </a>
+                                </li>
+                                ${message.user_id === currentUserId ? `
+                                <li>
+                                    <a class="dropdown-item text-danger" href="#" onclick="deleteChannelMessage('${message.id}'); return false;">
+                                        <i class="bi bi-trash me-2"></i>Delete
+                                    </a>
+                                </li>` : ''}
                             </ul>
-                        </div>` : ''}
-                        ${message.user_id === currentUserId ? `
-                        <button class="btn btn-sm btn-outline-secondary icon-action-btn"
-                                onclick="editChannelMessage('${message.id}')"
-                                title="Edit message"
-                                aria-label="Edit message">
-                            <i class="bi bi-pencil"></i><span class="action-label">Edit</span>
-                        </button>` : ''}
-                        <button class="btn btn-sm btn-outline-secondary copy-btn icon-action-btn"
-                                onclick="copyToClipboard(this, \`${escapeHtml(message.content || '').replace(/`/g, "'")}\`)"
-                                title="Copy message"
-                                aria-label="Copy message">
-                            <i class="bi bi-clipboard"></i>
-                        </button>
-                        <button class="btn btn-sm btn-outline-secondary context-insight-trigger icon-action-btn"
-                                onclick="openContentContextModalFromAction('channel_message', '${message.id}'); return false;"
-                                title="Open context insights"
-                                aria-label="Open context insights">
-                            <i class="bi bi-file-earmark-text"></i><span class="action-label">Context</span>
-                        </button>
-                        <button class="btn btn-sm btn-outline-info community-note-trigger icon-action-btn"
-                                onclick="openCommunityNoteModal('channel_message', '${message.id}')"
-                                title="Open community notes"
-                                aria-label="Open community notes">
-                            <i class="bi bi-journal-check"></i>
-                            <span class="action-label">Notes</span>
-                            <span class="action-count">${message.community_notes_count || 0}</span>
-                        </button>
-                        ${message.user_id === currentUserId ? `
-                        <button class="btn btn-sm btn-outline-danger delete-btn icon-action-btn"
-                                onclick="deleteChannelMessage('${message.id}')"
-                                title="Delete message"
-                                aria-label="Delete message">
-                            <i class="bi bi-trash"></i>
-                        </button>` : ''}
+                        </div>
                     </div>
                 </div>
                 <div class="repost-inline-composer" id="channel-repost-compose-${message.id}" data-channel-repost-compose="1" style="display: none;" hidden>
@@ -14024,18 +14063,15 @@ function updateLikeButton(messageId, liked, interactions) {
     const icon = button.querySelector('i');
     
     button.dataset.liked = liked ? 'true' : 'false';
+    button.classList.toggle('is-liked', !!liked);
     
     if (liked) {
-        button.classList.remove('btn-outline-primary');
-        button.classList.add('btn-primary');
         if (likeText) likeText.textContent = 'Liked';
         button.setAttribute('title', 'Unlike message');
         button.setAttribute('aria-label', 'Unlike message');
         icon.classList.remove('bi-heart');
         icon.classList.add('bi-heart-fill');
     } else {
-        button.classList.remove('btn-primary');
-        button.classList.add('btn-outline-primary');
         if (likeText) likeText.textContent = 'Like';
         button.setAttribute('title', 'Like message');
             button.setAttribute('aria-label', 'Like message');

@@ -8,6 +8,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.156] - 2026-03-24
+
+### Changed
+- **More consistent post actions** — Feed posts and channel messages now keep `Like` visible with the primary actions instead of burying it in overflow, while lower-frequency controls such as thread inbox stay behind `More`.
+- **Theme-matched action styling** — Primary post/message controls now use a shared Canopy-themed treatment and active states, replacing the noisier mix of Bootstrap accent colors.
+- **Tighter channel header controls** — The channels header now shifts to icon-first controls, moves secondary utilities into a single `More` menu, and wraps more cleanly on smaller widths to avoid cramped overlaps.
+
+## [0.4.155] - 2026-03-24
+
+### Changed
+- **Simpler post action toolbars** — Channel message and feed post action rows now keep the most-used controls front and center: `Reply`, `Bookmark`, and `Repost`, with `Deck` still shown when relevant. Lower-frequency actions move behind a single `More` menu to reduce visual clutter.
+
+### Added
+- **Toolbar regression coverage** — Expanded `tests/test_ui_polish_regressions.py` so the primary-vs-overflow action layout is guarded against accidental drift.
+
 ## [0.4.154] - 2026-03-24
 
 ### Added

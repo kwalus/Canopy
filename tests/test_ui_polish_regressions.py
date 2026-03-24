@@ -33,6 +33,14 @@ class TestUiPolishRegressions(unittest.TestCase):
         self.assertIn('bi bi-search fs-1 mb-3 d-block" aria-hidden="true"', feed)
         self.assertIn('bi bi-newspaper fs-1 mb-3 d-block" aria-hidden="true"', feed)
 
+    def test_feed_primary_actions_keep_reply_bookmark_repost_visible(self) -> None:
+        feed = (ROOT / "canopy" / "ui" / "templates" / "feed.html").read_text(encoding="utf-8")
+        self.assertIn("Reply</span>", feed)
+        self.assertIn("Like{% endif %}</span>", feed)
+        self.assertIn('data-bookmark-label', feed)
+        self.assertIn("Repost</span>", feed)
+        self.assertIn('aria-label="More post actions"', feed)
+
     def test_dm_sidebar_empty_states_have_icons(self) -> None:
         sidebar = (ROOT / "canopy" / "ui" / "templates" / "_messages_sidebar_sections.html").read_text(encoding="utf-8")
         self.assertIn("bi bi-chat-dots", sidebar)
@@ -50,6 +58,21 @@ class TestUiPolishRegressions(unittest.TestCase):
     def test_channels_cancel_reply_button_has_aria_label(self) -> None:
         channels = (ROOT / "canopy" / "ui" / "templates" / "channels.html").read_text(encoding="utf-8")
         self.assertIn('aria-label="Cancel reply"', channels)
+
+    def test_channel_primary_actions_keep_reply_bookmark_repost_visible(self) -> None:
+        channels = (ROOT / "canopy" / "ui" / "templates" / "channels.html").read_text(encoding="utf-8")
+        self.assertIn("Reply</span>", channels)
+        self.assertIn("Like'}</span>", channels)
+        self.assertIn("Repost</span>", channels)
+        self.assertIn('data-bookmark-label', channels)
+        self.assertIn('aria-label="More message actions"', channels)
+
+    def test_channel_header_uses_more_menu_for_secondary_tools(self) -> None:
+        channels = (ROOT / "canopy" / "ui" / "templates" / "channels.html").read_text(encoding="utf-8")
+        self.assertIn('id="channel-header-more-toggle"', channels)
+        self.assertIn('id="copy-channel-id-btn"', channels)
+        self.assertIn("Refresh messages", channels)
+        self.assertIn(">Members", channels)
 
     def test_profile_avatar_container_has_role_button(self) -> None:
         profile = (ROOT / "canopy" / "ui" / "templates" / "profile.html").read_text(encoding="utf-8")

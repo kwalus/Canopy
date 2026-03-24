@@ -1502,41 +1502,23 @@
                             <!-- Post Actions -->
                             <div class="d-flex justify-content-between align-items-center pt-2 border-top" data-post-actions="1">
                                 <div class="d-flex gap-2 flex-wrap">
-                                    <button class="btn btn-sm icon-action-btn {% if post.user_has_liked %}btn-primary{% else %}btn-outline-primary{% endif %} like-btn" 
+                                    <button class="btn btn-sm btn-outline-secondary icon-action-btn" 
+                                            onclick="toggleComments('{{ post.id }}')"
+                                            title="Reply to this post"
+                                            aria-label="Reply to this post">
+                                        <i class="bi bi-reply"></i>
+                                        <span class="action-label">Reply</span>
+                                        <span class="comment-count action-count">{{ post.comments or 0 }}</span>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-secondary icon-action-btn like-btn{% if post.user_has_liked %} is-liked{% endif %}"
                                             onclick="toggleLike('{{ post.id }}')"
                                             data-item-id="{{ post.id }}"
                                             data-liked="{{ 'true' if post.user_has_liked else 'false' }}"
                                             title="{% if post.user_has_liked %}Unlike post{% else %}Like post{% endif %}"
                                             aria-label="{% if post.user_has_liked %}Unlike post{% else %}Like post{% endif %}">
-                                        <i class="bi bi-heart{% if post.user_has_liked %}-fill{% endif %}"></i> 
-                                        <span class="like-text action-label">{% if post.user_has_liked %}Liked{% else %}Like{% endif %}</span> 
-                                        <span class="like-count action-count">{{ post.likes or 0 }}</span>
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-secondary icon-action-btn" 
-                                            onclick="toggleComments('{{ post.id }}')"
-                                            title="Toggle comments"
-                                            aria-label="Toggle comments">
-                                        <i class="bi bi-chat"></i>
-                                        <span class="action-label">Comment</span>
-                                        <span class="comment-count action-count">{{ post.comments or 0 }}</span>
-                                    </button>
-                                    <button type="button" class="btn btn-sm btn-outline-info icon-action-btn repost-trigger-btn"
-                                            id="repost-trigger-{{ post.id }}"
-                                            onclick="toggleRepostComposer('{{ post.id }}')"
-                                            title="Repost — add optional note below"
-                                            aria-expanded="false"
-                                            aria-controls="repost-compose-{{ post.id }}"
-                                            aria-label="Repost source">
-                                        <i class="bi bi-repeat"></i><span class="action-label">Repost</span>
-                                    </button>
-                                    <button type="button" class="btn btn-sm btn-outline-warning icon-action-btn variant-trigger-btn"
-                                            id="variant-trigger-{{ post.id }}"
-                                            onclick="toggleVariantComposer('{{ post.id }}')"
-                                            title="Create a derived variant — add note and delta below"
-                                            aria-expanded="false"
-                                            aria-controls="variant-compose-{{ post.id }}"
-                                            aria-label="Create source variant">
-                                        <i class="bi bi-bezier2"></i><span class="action-label">Variant</span>
+                                        <i class="bi bi-heart{% if post.user_has_liked %}-fill{% endif %}"></i>
+                                        <span class="action-label like-text">{% if post.user_has_liked %}Liked{% else %}Like{% endif %}</span>
+                                        <span class="action-count like-count">{{ post.likes or 0 }}</span>
                                     </button>
                                     <button class="btn btn-sm icon-action-btn bookmark-action-btn{% if post.is_bookmarked %} is-saved{% endif %}"
                                             data-bookmark-button="1"
@@ -1548,26 +1530,47 @@
                                         <i class="bi bi-bookmark{% if post.is_bookmarked %}-fill{% endif %}"></i>
                                         <span class="action-label" data-bookmark-label>{% if post.is_bookmarked %}Saved{% else %}Save{% endif %}</span>
                                     </button>
-                                    <button class="btn btn-sm btn-outline-secondary copy-btn icon-action-btn"
-                                            onclick="copyToClipboard(this, '{{ post.id }}')"
-                                            title="Copy post text"
-                                            aria-label="Copy post text">
-                                        <i class="bi bi-clipboard"></i>
+                                    <button type="button" class="btn btn-sm btn-outline-info icon-action-btn repost-trigger-btn"
+                                            id="repost-trigger-{{ post.id }}"
+                                            onclick="toggleRepostComposer('{{ post.id }}')"
+                                            title="Repost — add optional note below"
+                                            aria-expanded="false"
+                                            aria-controls="repost-compose-{{ post.id }}"
+                                            aria-label="Repost source">
+                                        <i class="bi bi-repeat"></i><span class="action-label">Repost</span>
                                     </button>
-                                    <button class="btn btn-sm btn-outline-secondary context-insight-trigger icon-action-btn"
-                                            onclick="openContentContextModalFromAction('feed_post', '{{ post.id }}'); return false;"
-                                            title="Open context insights"
-                                            aria-label="Open context insights">
-                                        <i class="bi bi-file-earmark-text"></i><span class="action-label">Context</span>
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-info community-note-trigger icon-action-btn"
-                                            onclick="openCommunityNoteModal('feed_post', '{{ post.id }}')"
-                                            title="Open community notes"
-                                            aria-label="Open community notes">
-                                        <i class="bi bi-journal-check"></i>
-                                        <span class="action-label">Notes</span>
-                                        <span class="action-count">{{ post.community_notes_count or 0 }}</span>
-                                    </button>
+                                    <div class="dropdown">
+                                        <button class="btn btn-sm btn-outline-secondary icon-action-btn"
+                                                type="button"
+                                                data-bs-toggle="dropdown"
+                                                aria-expanded="false"
+                                                title="More post actions"
+                                                aria-label="More post actions">
+                                            <i class="bi bi-three-dots"></i><span class="action-label">More</span>
+                                        </button>
+                                        <ul class="dropdown-menu dropdown-menu-end">
+                                            <li>
+                                                <a class="dropdown-item" href="#" onclick="toggleVariantComposer('{{ post.id }}'); return false;">
+                                                    <i class="bi bi-bezier2 me-2"></i>Variant
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="dropdown-item" href="#" onclick="copyToClipboard(this, '{{ post.id }}'); return false;">
+                                                    <i class="bi bi-clipboard me-2"></i>Copy
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="dropdown-item" href="#" onclick="openContentContextModalFromAction('feed_post', '{{ post.id }}'); return false;">
+                                                    <i class="bi bi-file-earmark-text me-2"></i>Context
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="dropdown-item" href="#" onclick="openCommunityNoteModal('feed_post', '{{ post.id }}'); return false;">
+                                                    <i class="bi bi-journal-check me-2"></i>Notes <span class="text-muted">({{ post.community_notes_count or 0 }})</span>
+                                                </a>
+                                            </li>
+                                        </ul>
+                                    </div>
                                 </div>
                                 
                                 <small class="text-muted">
@@ -1775,6 +1778,35 @@
     font-size: 0.74rem;
     font-weight: 600;
     line-height: 1;
+}
+
+[data-post-actions] .icon-action-btn,
+.post-lineage-bar .btn.btn-sm,
+.post-repost-actions .btn.btn-sm {
+    border-color: color-mix(in srgb, var(--canopy-border) 76%, var(--canopy-primary) 24%) !important;
+    background: color-mix(in srgb, var(--canopy-bg-card) 84%, var(--canopy-primary) 16%) !important;
+    color: var(--canopy-text-secondary) !important;
+    box-shadow: none !important;
+}
+
+[data-post-actions] .icon-action-btn:hover,
+[data-post-actions] .icon-action-btn:focus-visible,
+.post-lineage-bar .btn.btn-sm:hover,
+.post-lineage-bar .btn.btn-sm:focus-visible,
+.post-repost-actions .btn.btn-sm:hover,
+.post-repost-actions .btn.btn-sm:focus-visible {
+    border-color: color-mix(in srgb, var(--canopy-primary) 46%, var(--canopy-border) 54%) !important;
+    background: color-mix(in srgb, var(--canopy-bg-tertiary) 68%, var(--canopy-primary) 32%) !important;
+    color: var(--canopy-text-primary) !important;
+}
+
+.like-btn.is-liked,
+.bookmark-action-btn.is-saved,
+.repost-trigger-btn.is-repost-open,
+.variant-trigger-btn.is-variant-open {
+    border-color: color-mix(in srgb, var(--canopy-primary) 52%, var(--canopy-border) 48%) !important;
+    background: color-mix(in srgb, var(--canopy-primary) 28%, var(--canopy-bg-card) 72%) !important;
+    color: var(--canopy-text-primary) !important;
 }
 
 .post-repost-shell,
@@ -2059,18 +2091,6 @@
     resize: vertical;
     min-height: 4.5rem;
     max-height: 12rem;
-}
-
-.repost-trigger-btn.is-repost-open {
-    background-color: var(--bs-info) !important;
-    border-color: var(--bs-info) !important;
-    color: #fff !important;
-}
-
-.variant-trigger-btn.is-variant-open {
-    background-color: var(--bs-warning) !important;
-    border-color: var(--bs-warning) !important;
-    color: #1f2937 !important;
 }
 
 .post-repost-unavailable {
@@ -6341,18 +6361,15 @@
         const icon = button.querySelector('i');
         
         button.dataset.liked = liked ? 'true' : 'false';
+        button.classList.toggle('is-liked', !!liked);
         
         if (liked) {
-            button.classList.remove('btn-outline-primary');
-            button.classList.add('btn-primary');
             if (likeText) likeText.textContent = 'Liked';
             button.setAttribute('title', 'Unlike post');
             button.setAttribute('aria-label', 'Unlike post');
             icon.classList.remove('bi-heart');
             icon.classList.add('bi-heart-fill');
         } else {
-            button.classList.remove('btn-primary');
-            button.classList.add('btn-outline-primary');
             if (likeText) likeText.textContent = 'Like';
             button.setAttribute('title', 'Like post');
             button.setAttribute('aria-label', 'Like post');
