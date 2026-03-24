@@ -5673,6 +5673,7 @@
             const deckShell = deck ? deck.querySelector('.sidebar-media-deck-shell') : null;
             const deckBackdrop = document.getElementById('sidebar-media-deck-backdrop');
             const deckStage = document.getElementById('sidebar-media-deck-stage');
+            const deckStageShell = deckStage ? deckStage.closest('.sidebar-media-deck-stage-shell') : null;
             const deckVisual = document.getElementById('sidebar-media-deck-visual');
             const deckVisualCover = document.getElementById('sidebar-media-deck-visual-cover');
             const deckVisualIcon = document.getElementById('sidebar-media-deck-visual-icon');
@@ -8286,7 +8287,7 @@
             function updateDeckVisibility() {
                 if (!deck || !deckBackdrop) return;
                 const visible = state.deckOpen && !!(state.current || getDeckSelectedItem());
-                const mobileDeckMode = window.matchMedia('(max-width: 640px), (max-height: 540px) and (orientation: landscape)').matches;
+                const mobileDeckMode = isMobileDeckModalMode();
                 deck.hidden = !visible;
                 deck.setAttribute('aria-hidden', visible ? 'false' : 'true');
                 deck.classList.toggle('is-visible', visible);
@@ -8296,6 +8297,17 @@
                 document.body.classList.toggle('canopy-media-deck-modal', visible && mobileDeckMode);
                 if (deckShell) {
                     deckShell.setAttribute('aria-modal', visible && mobileDeckMode ? 'true' : 'false');
+                }
+            }
+
+            function isMobileDeckModalMode() {
+                return window.matchMedia('(max-width: 640px), (max-height: 540px) and (orientation: landscape)').matches;
+            }
+
+            function scrollDeckStageIntoView(behavior = 'smooth') {
+                if (!state.deckOpen || !deckStageShell || !isMobileDeckModalMode()) return;
+                if (typeof deckStageShell.scrollIntoView === 'function') {
+                    deckStageShell.scrollIntoView({ behavior, block: 'start', inline: 'nearest' });
                 }
             }
 
@@ -8474,10 +8486,16 @@
                         state.deckOriginPostId = String(state.deckOriginSourceEl.getAttribute('data-post-id') || '').trim();
                     }
                 }
+                const mobileDeckMode = isMobileDeckModalMode();
+                setDeckQueueCollapsed(mobileDeckMode);
+                setDeckDetailCollapsed(mobileDeckMode);
                 state.deckOpen = true;
                 if (state.current || getDeckSelectedItem()) updateDeckPanel();
                 else updateDeckVisibility();
                 updateSourceDeckLauncherActiveStates();
+                if (mobileDeckMode) {
+                    scrollDeckStageIntoView('auto');
+                }
                 if (expandBtn) {
                     expandBtn.innerHTML = '<i class="bi bi-arrows-angle-contract"></i>';
                     expandBtn.title = 'Collapse Canopy deck';
@@ -8568,7 +8586,8 @@
                 const nextIndex = (currentIndex + delta + state.deckItems.length) % state.deckItems.length;
                 const nextItem = state.deckItems[nextIndex];
                 if (!nextItem) return;
-                selectDeckItem(nextItem, { play: false });
+                selectDeckItem(nextItem, { play: true });
+                scrollDeckStageIntoView();
                 scheduleMiniUpdate(20);
             }
 
@@ -9569,6 +9588,7 @@
                             }
                         } catch (_) {}
                     }
+                    scrollDeckStageIntoView();
                     scheduleMiniUpdate(50);
                 });
             }
@@ -9653,7 +9673,8 @@
                     if (!Number.isFinite(index) || index < 0 || index >= state.deckItems.length) return;
                     const nextItem = state.deckItems[index];
                     if (!nextItem) return;
-                    selectDeckItem(nextItem, { play: false });
+                    selectDeckItem(nextItem, { play: true });
+                    scrollDeckStageIntoView();
                     scheduleMiniUpdate(20);
                 });
             }

@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.158] - 2026-03-24
+
+### Changed
+- **Mobile deck prioritizes playback** — On small screens the expanded deck now defaults to a playback-first layout by collapsing secondary queue/detail panels, shrinking the deck header chrome, and giving the stage more vertical room.
+- **Deck item changes play in place** — Selecting an item from the mobile deck queue or using `Prev` / `Next` now starts playback directly in the deck and recenters the stage, making it clearer that media is playing there instead of pushing attention back to the source.
+
 ## [0.4.157] - 2026-03-24
 
 ### Changed

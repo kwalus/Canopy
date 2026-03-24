@@ -2086,34 +2086,39 @@
                 position: sticky;
                 top: 0;
                 z-index: 5;
-                padding-top: calc(env(safe-area-inset-top) + 20px);
-                padding-bottom: 10px;
+                padding-top: calc(env(safe-area-inset-top) + 12px);
+                padding-bottom: 8px;
                 background:
                     linear-gradient(180deg, rgba(10, 16, 29, 0.98), rgba(10, 16, 29, 0.92));
                 backdrop-filter: blur(20px) saturate(130%);
+                gap: 8px;
+                align-items: center;
+                flex-wrap: nowrap;
             }
 
             .sidebar-media-deck-source {
-                white-space: normal;
-                overflow: visible;
-                text-overflow: unset;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                font-size: 0.7rem;
             }
 
             .sidebar-media-deck-action-btn {
                 width: auto;
-                min-width: 42px;
-                min-height: 40px;
-                padding: 0 12px;
+                min-width: 38px;
+                min-height: 38px;
+                padding: 0 10px;
                 border-radius: 12px;
                 gap: 6px;
             }
 
             .sidebar-media-deck-action-label {
-                display: inline;
+                display: none;
             }
 
             .sidebar-media-deck-stage {
-                max-height: min(34dvh, 280px);
+                max-height: min(42dvh, 320px);
+                min-height: 180px;
                 border-radius: 18px;
             }
 
@@ -2161,8 +2166,8 @@
             }
 
             .sidebar-media-deck-stage-shell {
-                padding-top: 10px;
-                padding-bottom: 8px;
+                padding-top: 8px;
+                padding-bottom: 6px;
             }
 
             .sidebar-media-deck-visual {
@@ -2179,13 +2184,13 @@
             }
 
             .sidebar-media-deck-queue-shell {
-                padding-bottom: 10px;
+                padding-bottom: 8px;
             }
 
             .sidebar-media-deck-footer {
-                padding-top: 12px;
+                padding-top: 10px;
                 padding-bottom: calc(env(safe-area-inset-bottom) + 14px);
-                gap: 10px;
+                gap: 8px;
                 z-index: 5;
                 background:
                     linear-gradient(180deg, rgba(9, 15, 30, 0.82), rgba(9, 15, 30, 0.98) 40%);
@@ -2193,7 +2198,7 @@
             }
 
             .sidebar-media-deck-detail {
-                padding-bottom: 10px;
+                padding-bottom: 8px;
             }
 
             .sidebar-media-deck-controls {

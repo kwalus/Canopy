@@ -484,7 +484,8 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("function selectDeckItem(item, options = {}) {", main_js)
         self.assertIn("ensureMediaIdentity(state.current.el)", main_js)
         self.assertIn("pauseMediaElement(state.current.el, state.current.type);", main_js)
-        self.assertIn("selectDeckItem(nextItem, { play: false });", main_js)
+        self.assertIn("selectDeckItem(nextItem, { play: true });", main_js)
+        self.assertIn("function scrollDeckStageIntoView(behavior = 'smooth') {", main_js)
         self.assertIn("scrollDeckSelectionIntoView();", main_js)
 
     def test_media_deck_first_click_hardening(self) -> None:
@@ -651,6 +652,18 @@ class TestFrontendRegressions(unittest.TestCase):
             base_html.find('<!-- Main Content -->'),
             'Deck portal should render after main layout (outside scroll/overflow sidebar stack)',
         )
+
+    def test_mobile_deck_defaults_collapse_secondary_panels_and_refocus_stage(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        base_html = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+        self.assertIn("function isMobileDeckModalMode() {", main_js)
+        self.assertIn("function scrollDeckStageIntoView(behavior = 'smooth') {", main_js)
+        self.assertIn("setDeckQueueCollapsed(mobileDeckMode);", main_js)
+        self.assertIn("setDeckDetailCollapsed(mobileDeckMode);", main_js)
+        self.assertIn("selectDeckItem(nextItem, { play: true });", main_js)
+        self.assertIn("scrollDeckStageIntoView();", main_js)
+        self.assertIn(".sidebar-media-deck-action-label {", base_html)
+        self.assertIn("display: none;", base_html)
 
     def test_dm_search_uses_explicit_search_state_to_suspend_live_refresh(self) -> None:
         messages_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
