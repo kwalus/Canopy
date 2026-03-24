@@ -74,6 +74,17 @@ class TestUiPolishRegressions(unittest.TestCase):
         self.assertIn("Refresh messages", channels)
         self.assertIn(">Members", channels)
 
+    def test_channel_mobile_header_and_composer_use_overflow_menus(self) -> None:
+        channels = (ROOT / "canopy" / "ui" / "templates" / "channels.html").read_text(encoding="utf-8")
+        self.assertIn(".channel-header-mobile-only", channels)
+        self.assertIn("Open privacy", channels)
+        self.assertIn('id="channel-header-search-toggle"', channels)
+        self.assertIn(".channel-header-search.mobile-open", channels)
+        self.assertIn("function toggleChannelHeaderSearch(forceOpen)", channels)
+        self.assertIn('id="channel-composer-more-toggle"', channels)
+        self.assertIn("More compose tools", channels)
+        self.assertIn(".channel-composer-advanced-tool", channels)
+
     def test_profile_avatar_container_has_role_button(self) -> None:
         profile = (ROOT / "canopy" / "ui" / "templates" / "profile.html").read_text(encoding="utf-8")
         self.assertIn('role="button"', profile)

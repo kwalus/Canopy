@@ -1570,6 +1570,11 @@
     .channel-header-overflow-menu .dropdown-item i {
         width: 1rem;
     }
+    .channel-header-mobile-only,
+    .channel-header-search-toggle,
+    .channel-composer-more-mobile {
+        display: none;
+    }
     .channel-header .channel-toggle-btn {
         flex: 0 0 auto;
     }
@@ -2078,13 +2083,16 @@
         #message-form .input-group {
             align-items: stretch;
             gap: 0.24rem;
+            flex-wrap: nowrap;
         }
         #message-form .input-group-append {
-            display: grid !important;
-            grid-template-columns: repeat(5, minmax(0, 1fr));
+            display: flex !important;
+            flex: 0 0 auto;
+            flex-wrap: nowrap;
+            align-items: stretch;
             gap: 0.2rem;
-            width: 100%;
-            margin-top: 0.24rem;
+            width: auto;
+            margin-top: 0;
         }
         #message-form .input-group .btn,
         #message-form .input-group-append .btn-group .btn {
@@ -2253,6 +2261,58 @@
         .channel-header-actions,
         .channel-header-controls {
             gap: 0.22rem;
+        }
+        .channel-header-actions {
+            display: none;
+        }
+        .channel-header-mobile-only {
+            display: list-item;
+        }
+        .channel-header-right {
+            gap: 0.18rem;
+        }
+        .channel-header-controls {
+            margin-left: auto;
+        }
+        .channel-header-search-toggle {
+            display: inline-flex !important;
+        }
+        .channel-header-search {
+            order: 2;
+            display: none;
+        }
+        .channel-header-search.mobile-open {
+            display: flex;
+        }
+        #message-form .input-group {
+            flex-wrap: nowrap;
+            gap: 0.16rem;
+        }
+        #message-form .input-group > .position-relative.flex-grow-1 {
+            min-width: 0;
+        }
+        #message-form .input-group-append {
+            display: flex !important;
+            flex: 0 0 auto;
+            width: auto;
+            margin-top: 0;
+            gap: 0.12rem;
+            align-items: stretch;
+            flex-wrap: nowrap;
+        }
+        .channel-composer-advanced-tool {
+            display: none !important;
+        }
+        .channel-composer-more-mobile {
+            display: inline-flex !important;
+        }
+        #message-form .input-group .btn,
+        #message-form .input-group-append .btn-group .btn,
+        #message-form .input-group-append > .btn {
+            min-width: 2rem;
+        }
+        #message-form button[type="submit"] {
+            min-width: 2.5rem;
         }
     }
 
@@ -2529,8 +2589,10 @@
         }
 
         #message-form .input-group-append {
-            gap: 0.16rem;
-            margin-top: 0.18rem;
+            display: flex !important;
+            gap: 0.12rem;
+            margin-top: 0;
+            width: auto;
         }
 
         #message-form .input-group .btn,
@@ -2895,6 +2957,16 @@
                             </div>
                         </div>
                         <div class="channel-header-controls">
+                            <button type="button"
+                                    class="btn btn-outline-secondary btn-sm channel-header-tool-btn channel-header-search-toggle"
+                                    id="channel-header-search-toggle"
+                                    onclick="toggleChannelHeaderSearch()"
+                                    aria-expanded="false"
+                                    aria-controls="channel-search-bar"
+                                    title="Search messages"
+                                    aria-label="Search messages">
+                                <i class="bi bi-search"></i>
+                            </button>
                             <div class="dropdown">
                                 <button class="btn btn-outline-secondary btn-sm channel-header-tool-btn channel-header-overflow-toggle"
                                         id="channel-header-more-toggle"
@@ -2906,6 +2978,72 @@
                                     <span class="channel-header-tool-label">More</span>
                                 </button>
                                 <ul class="dropdown-menu dropdown-menu-end channel-header-overflow-menu" aria-labelledby="channel-header-more-toggle">
+                                    <li class="channel-header-mobile-only"><h6 class="dropdown-header">Posting</h6></li>
+                                    <li class="channel-header-mobile-only">
+                                        <button type="button" class="dropdown-item" onclick="setChannelPostPolicy('open')">
+                                            <i class="bi bi-unlock me-2"></i>Open posting
+                                        </button>
+                                    </li>
+                                    <li class="channel-header-mobile-only">
+                                        <button type="button" class="dropdown-item" onclick="setChannelPostPolicy('curated')">
+                                            <i class="bi bi-person-check me-2"></i>Curated posting
+                                        </button>
+                                    </li>
+                                    <li class="channel-header-mobile-only"><hr class="dropdown-divider"></li>
+                                    <li class="channel-header-mobile-only"><h6 class="dropdown-header">Privacy</h6></li>
+                                    <li class="channel-header-mobile-only">
+                                        <button type="button" class="dropdown-item" onclick="setChannelPrivacy('open')">
+                                            <i class="bi bi-wifi me-2"></i>Open privacy
+                                        </button>
+                                    </li>
+                                    <li class="channel-header-mobile-only">
+                                        <button type="button" class="dropdown-item" onclick="setChannelPrivacy('guarded')">
+                                            <i class="bi bi-shield-check me-2"></i>Guarded privacy
+                                        </button>
+                                    </li>
+                                    <li class="channel-header-mobile-only">
+                                        <button type="button" class="dropdown-item" onclick="setChannelPrivacy('private')">
+                                            <i class="bi bi-lock-fill me-2"></i>Private privacy
+                                        </button>
+                                    </li>
+                                    <li class="channel-header-mobile-only">
+                                        <button type="button" class="dropdown-item" onclick="setChannelPrivacy('confidential')">
+                                            <i class="bi bi-shield-lock me-2"></i>Confidential privacy
+                                        </button>
+                                    </li>
+                                    <li class="channel-header-mobile-only"><hr class="dropdown-divider"></li>
+                                    <li class="channel-header-mobile-only"><h6 class="dropdown-header">Lifecycle</h6></li>
+                                    <li class="channel-header-mobile-only">
+                                        <button type="button" class="dropdown-item" onclick="toggleChannelPreserve()">
+                                            <i class="bi bi-pin-angle me-2"></i>Toggle preserve
+                                        </button>
+                                    </li>
+                                    <li class="channel-header-mobile-only">
+                                        <button type="button" class="dropdown-item" onclick="setChannelLifecycleTtl(30)">
+                                            <i class="bi bi-clock-history me-2"></i>Auto-archive after 30d
+                                        </button>
+                                    </li>
+                                    <li class="channel-header-mobile-only">
+                                        <button type="button" class="dropdown-item" onclick="setChannelLifecycleTtl(90)">
+                                            <i class="bi bi-clock-history me-2"></i>Auto-archive after 90d
+                                        </button>
+                                    </li>
+                                    <li class="channel-header-mobile-only">
+                                        <button type="button" class="dropdown-item" onclick="setChannelLifecycleTtl(180)">
+                                            <i class="bi bi-clock-history me-2"></i>Auto-archive after 180d
+                                        </button>
+                                    </li>
+                                    <li class="channel-header-mobile-only">
+                                        <button type="button" class="dropdown-item" onclick="archiveCurrentChannel()">
+                                            <i class="bi bi-archive me-2"></i>Archive now
+                                        </button>
+                                    </li>
+                                    <li class="channel-header-mobile-only">
+                                        <button type="button" class="dropdown-item" onclick="restoreCurrentChannel()">
+                                            <i class="bi bi-arrow-counterclockwise me-2"></i>Restore channel
+                                        </button>
+                                    </li>
+                                    <li class="channel-header-mobile-only"><hr class="dropdown-divider"></li>
                                     <li>
                                         <button type="button" class="dropdown-item" id="channel-refresh-btn" onclick="refreshMessages()">
                                             <i class="bi bi-arrow-clockwise me-2"></i>Refresh messages
@@ -3062,11 +3200,51 @@
                             <button type="button" class="btn btn-outline-secondary" id="emoji-toggle-btn" onclick="insertEmoji()">
                                 <i class="bi bi-emoji-smile"></i>
                             </button>
-                            <button type="button" class="btn btn-outline-secondary" id="channel-mention-builder-toggle"
+                            <div class="dropdown channel-composer-more-mobile">
+                                <button type="button"
+                                        class="btn btn-outline-secondary dropdown-toggle"
+                                        id="channel-composer-more-toggle"
+                                        data-bs-toggle="dropdown"
+                                        aria-expanded="false"
+                                        aria-label="More compose tools"
+                                        title="More compose tools">
+                                    <i class="bi bi-three-dots"></i>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="channel-composer-more-toggle">
+                                    <li>
+                                        <button type="button" class="dropdown-item" onclick="toggleChannelMentionBuilder()">
+                                            <i class="bi bi-people me-2"></i>Team mention builder
+                                        </button>
+                                    </li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('task')"><i class="bi bi-check2-square me-2"></i>Task block</button></li>
+                                    <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('request')"><i class="bi bi-question-circle me-2"></i>Request block</button></li>
+                                    <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('objective')"><i class="bi bi-bullseye me-2"></i>Objective block</button></li>
+                                    <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('handoff')"><i class="bi bi-arrow-left-right me-2"></i>Handoff block</button></li>
+                                    <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('signal')"><i class="bi bi-broadcast-pin me-2"></i>Signal block</button></li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li>
+                                        <button type="button" class="dropdown-item" onclick="openStreamCreateModal('audio_ops')">
+                                            <i class="bi bi-mic-fill me-2"></i>Start audio stream card
+                                        </button>
+                                    </li>
+                                    <li>
+                                        <button type="button" class="dropdown-item" onclick="openStreamCreateModal('video_ops')">
+                                            <i class="bi bi-camera-video-fill me-2"></i>Start video stream card
+                                        </button>
+                                    </li>
+                                    <li>
+                                        <button type="button" class="dropdown-item" onclick="openStreamCreateModal('telemetry_sensor')">
+                                            <i class="bi bi-cpu-fill me-2"></i>Prepare telemetry feed card
+                                        </button>
+                                    </li>
+                                </ul>
+                            </div>
+                            <button type="button" class="btn btn-outline-secondary channel-composer-advanced-tool" id="channel-mention-builder-toggle"
                                     title="Team mention builder" onclick="toggleChannelMentionBuilder()">
                                 <i class="bi bi-people"></i>
                             </button>
-                            <div class="btn-group structured-tool-trigger-group">
+                            <div class="btn-group structured-tool-trigger-group channel-composer-advanced-tool">
                                 <button type="button"
                                         class="btn btn-outline-secondary dropdown-toggle structured-tool-trigger"
                                         id="channel-structured-tools-toggle"
@@ -3086,7 +3264,7 @@
                                 </ul>
                             </div>
                             <div id="channel-mention-macro-buttons" class="mention-macro-buttons" style="display: none;"></div>
-                            <div class="btn-group">
+                            <div class="btn-group channel-composer-advanced-tool">
                                 <button type="button"
                                         class="btn btn-outline-danger dropdown-toggle"
                                         id="channel-stream-quick-toggle"
@@ -14152,6 +14330,7 @@ function searchChannelMessages(options = {}) {
     isSearchActive = true;
     currentChannelSearchQuery = query;
     document.getElementById('search-clear-btn').style.display = '';
+    syncChannelHeaderSearchUI(true);
 
     if (!Object.prototype.hasOwnProperty.call(opts, 'query')) {
         const searchInput = document.getElementById('search-input');
@@ -14209,11 +14388,49 @@ function rerunActiveChannelSearch(options = {}) {
     return true;
 }
 
+function isNarrowMobileChannelLayout() {
+    return window.innerWidth <= 575;
+}
+
+function syncChannelHeaderSearchUI(forceOpen) {
+    const searchWrap = document.querySelector('.channel-header-search');
+    const toggleBtn = document.getElementById('channel-header-search-toggle');
+    if (!searchWrap || !toggleBtn) return;
+
+    const explicitOpen = typeof forceOpen === 'boolean'
+        ? forceOpen
+        : (searchWrap.dataset.mobileOpen === 'true');
+    const hasQuery = String(currentChannelSearchQuery || '').trim().length > 0;
+    const shouldOpen = !isNarrowMobileChannelLayout() || explicitOpen || isSearchActive || hasQuery;
+
+    searchWrap.dataset.mobileOpen = shouldOpen ? 'true' : 'false';
+    searchWrap.classList.toggle('mobile-open', shouldOpen);
+    toggleBtn.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+    toggleBtn.classList.toggle('active', shouldOpen && isNarrowMobileChannelLayout());
+
+    if (shouldOpen && isNarrowMobileChannelLayout()) {
+        const searchInput = document.getElementById('search-input');
+        if (searchInput && document.activeElement !== searchInput) {
+            requestAnimationFrame(() => searchInput.focus());
+        }
+    }
+}
+
+function toggleChannelHeaderSearch(forceOpen) {
+    const searchWrap = document.querySelector('.channel-header-search');
+    if (!searchWrap) return;
+    const nextOpen = typeof forceOpen === 'boolean'
+        ? forceOpen
+        : !(searchWrap.dataset.mobileOpen === 'true');
+    syncChannelHeaderSearchUI(nextOpen);
+}
+
 function clearSearch() {
     isSearchActive = false;
     currentChannelSearchQuery = '';
     document.getElementById('search-input').value = '';
     document.getElementById('search-clear-btn').style.display = 'none';
+    syncChannelHeaderSearchUI(false);
     if (currentChannelId) loadChannelMessages(currentChannelId, { forceScroll: true });
 }
 
@@ -14225,18 +14442,22 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('Selected files array:', selectedFiles);
         updateCurrentChannelIdUI(currentChannelId);
         syncChannelViewportMetrics();
+        syncChannelHeaderSearchUI(false);
         window.addEventListener('resize', () => {
             syncChannelViewportMetrics();
             scheduleChannelNameOverflowSync();
+            syncChannelHeaderSearchUI();
         });
         window.addEventListener('orientationchange', () => setTimeout(() => {
             syncChannelViewportMetrics();
             scheduleChannelNameOverflowSync();
+            syncChannelHeaderSearchUI();
         }, 120));
         if (window.visualViewport) {
             window.visualViewport.addEventListener('resize', () => {
                 syncChannelViewportMetrics();
                 scheduleChannelNameOverflowSync();
+                syncChannelHeaderSearchUI();
             });
         }
         const navbarCollapse = document.getElementById('navbarNav');

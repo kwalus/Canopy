@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.157] - 2026-03-24
+
+### Changed
+- **Mobile channel header cleanup** — On narrow screens the channel header now keeps search one tap away behind a dedicated icon instead of permanently consuming a full header row, while lower-frequency policy controls stay under `More`.
+- **Mobile composer prioritization** — The channel composer now keeps `attach`, `emoji`, `more`, and `send` on the main row, moving mention-builder, structured blocks, and stream tools behind a compact compose overflow menu.
+
 ## [0.4.156] - 2026-03-24
 
 ### Changed
