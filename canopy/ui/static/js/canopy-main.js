@@ -5623,6 +5623,7 @@
                 mediaCounter: 0,
                 miniUpdateFrame: 0,
                 miniUpdateTimer: null,
+                persistMediaRetryHandle: null,
                 moduleBundleCache: new Map(),
                 moduleSessions: new Map(),
                 moduleSessionCounter: 0,
@@ -6400,7 +6401,13 @@
 
             function ensureMediaPlaceholder(el, type) {
                 if (!el) return null;
-                if (type === 'youtube' && el.__canopyAutoDockPlaceholder) return el.__canopyAutoDockPlaceholder;
+                if (type === 'youtube') {
+                    if (el.__canopyAutoDockPlaceholder) return el.__canopyAutoDockPlaceholder;
+                    const existingWrapper = getMediaDockWrapper(el, type);
+                    if (existingWrapper && existingWrapper !== el && existingWrapper.__canopyAutoDockPlaceholder) {
+                        return existingWrapper.__canopyAutoDockPlaceholder;
+                    }
+                }
                 if (type === 'video' && el.__canopyMiniVideoPlaceholder) return el.__canopyMiniVideoPlaceholder;
                 const wrapper = getMediaDockWrapper(el, type);
                 if (!wrapper || !wrapper.parentNode) return null;
@@ -6412,7 +6419,9 @@
                 populateMediaPlaceholderPreview(placeholder, el, type);
                 wrapper.parentNode.insertBefore(placeholder, wrapper);
                 if (type === 'youtube') {
-                    el.__canopyAutoDockPlaceholder = placeholder;
+                    const storeTarget = wrapper !== el ? wrapper : el;
+                    storeTarget.__canopyAutoDockPlaceholder = placeholder;
+                    if (el !== storeTarget) el.__canopyAutoDockPlaceholder = placeholder;
                 } else if (type === 'video') {
                     el.__canopyMiniVideoPlaceholder = placeholder;
                 }
@@ -6442,8 +6451,9 @@
                         }
                         return;
                     }
-                    const ph = el.__canopyAutoDockPlaceholder;
                     const wrapper = getMediaDockWrapper(el, type);
+                    const ph = el.__canopyAutoDockPlaceholder
+                        || (wrapper && wrapper !== el ? wrapper.__canopyAutoDockPlaceholder : null);
                     if (ph && ph.isConnected && ph.parentNode && wrapper) {
                         prepareYouTubeEmbedForHostMove(el, {
                             skipResumeUrlRewrite: true,
@@ -6467,6 +6477,7 @@
                         }
                     }
                     delete el.__canopyAutoDockPlaceholder;
+                    if (wrapper && wrapper !== el) delete wrapper.__canopyAutoDockPlaceholder;
                 } else if (type === 'video') {
                     const ph = el.__canopyMiniVideoPlaceholder;
                     if (ph && ph.isConnected && ph.parentNode) {
@@ -6805,21 +6816,18 @@
                     if (!item || !deckItemKeyUsable(item.key)) return;
                     builtByKey.set(item.key, item);
                 });
+                builtArr.forEach((item) => {
+                    if (!item || !deckItemKeyUsable(item.key) || keys.has(item.key)) return;
+                    merged.push(item);
+                    keys.add(item.key);
+                });
                 prevArr.forEach((item) => {
                     if (!item || !deckItemKeyUsable(item.key) || keys.has(item.key)) return;
                     const replacement = builtByKey.get(item.key);
                     if (replacement) {
-                        merged.push(replacement);
-                        keys.add(item.key);
-                        builtByKey.delete(item.key);
                         return;
                     }
                     if (!canPreserveDeckItemFromPrevious(item, origin)) return;
-                    merged.push(item);
-                    keys.add(item.key);
-                });
-                builtArr.forEach((item) => {
-                    if (!item || !deckItemKeyUsable(item.key) || keys.has(item.key)) return;
                     merged.push(item);
                     keys.add(item.key);
                 });
@@ -7082,18 +7090,13 @@
                     )
                     : ((state.current && state.current.sourceEl && state.dismissedEl !== state.current.el) ? state.current.sourceEl : null);
                 const activeSource = activeSourceEl ? ensureMediaIdentity(activeSourceEl) : '';
-                document.querySelectorAll('[data-open-media-deck]').forEach((btn) => {
+                document.querySelectorAll('[data-open-media-deck], [data-open-mini-player]').forEach((btn) => {
+                    const isDeck = btn.hasAttribute('data-open-media-deck');
                     const sourceId = String(btn.getAttribute('data-source-media-id') || '');
-                    const isActive = !!sourceId && !!activeSource && sourceId === activeSource && state.deckOpen;
+                    const isActive = !!sourceId && !!activeSource && sourceId === activeSource && (isDeck ? state.deckOpen : !state.deckOpen);
                     btn.classList.toggle('is-active', isActive);
                     btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
-                    btn.setAttribute('aria-expanded', isActive ? 'true' : 'false');
-                });
-                document.querySelectorAll('[data-open-mini-player]').forEach((btn) => {
-                    const sourceId = String(btn.getAttribute('data-source-media-id') || '');
-                    const isActive = !!sourceId && !!activeSource && sourceId === activeSource && !state.deckOpen;
-                    btn.classList.toggle('is-active', isActive);
-                    btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+                    if (isDeck) btn.setAttribute('aria-expanded', isActive ? 'true' : 'false');
                 });
             }
 
@@ -8226,6 +8229,9 @@
                 }
                 const items = state.deckItems;
                 const selectedItem = getDeckSelectedItem();
+                if (selectedItem && state.deckSelectedKey && selectedItem.key !== state.deckSelectedKey) {
+                    state.deckSelectedKey = selectedItem.key;
+                }
                 const total = items.length;
                 const label = total === 1 ? '1 item' : `${total} items`;
                 const activeKey = selectedItem ? selectedItem.key : '';
@@ -8252,7 +8258,7 @@
                     const idx = items.findIndex((row) => selectedItem && row.key === selectedItem.key);
                     deckCount.textContent = idx >= 0 ? `Item ${idx + 1} of ${total}` : `${total} in queue`;
                 }
-                deckSource.textContent = selectedItem ? sourceSubtitle(selectedItem.el) : 'Now playing from Canopy';
+                deckSource.textContent = selectedItem ? deckItemContextSubtitle(selectedItem) : 'Now playing from Canopy';
 
                 const renderedQueueItems = deckQueue.querySelectorAll('.sidebar-media-deck-item').length;
                 if (state.deckQueueSignature === nextSignature && deckQueue.childElementCount && renderedQueueItems === items.length) {
@@ -8940,6 +8946,16 @@
                 if (state.current && state.current.el === el && state.current.type === type) {
                     scheduleMiniUpdate();
                     return;
+                }
+
+                if (type === 'youtube' && state.current && state.current.type === 'youtube') {
+                    const curWrapper = getMediaDockWrapper(state.current.el, 'youtube');
+                    const newWrapper = getMediaDockWrapper(el, 'youtube');
+                    if (curWrapper && newWrapper && curWrapper === newWrapper) {
+                        state.current.el = el;
+                        scheduleMiniUpdate();
+                        return;
+                    }
                 }
 
                 if (state.current && state.current.el && state.current.el !== el) {
@@ -9737,14 +9753,9 @@
                     const btn = event.target && event.target.closest ? event.target.closest('.sidebar-media-deck-item[data-media-index]') : null;
                     if (!btn) return;
                     const key = String(btn.getAttribute('data-media-key') || '').trim();
-                    let nextItem = key
+                    const nextItem = key
                         ? state.deckItems.find((item) => String(item && item.key || '').trim() === key)
                         : null;
-                    if (!nextItem) {
-                        const index = Number(btn.getAttribute('data-media-index') || -1);
-                        if (!Number.isFinite(index) || index < 0 || index >= state.deckItems.length) return;
-                        nextItem = state.deckItems[index];
-                    }
                     if (!nextItem) return;
                     selectDeckItem(nextItem, { play: true });
                     scrollDeckStageIntoView();
@@ -9856,6 +9867,12 @@
                     if (ph.isConnected) ph.remove();
                     delete el.__canopyAutoDockPlaceholder;
                 }
+                var ytWrapperForPlaceholder = el.closest ? el.closest('.youtube-embed') : null;
+                if (ytWrapperForPlaceholder && ytWrapperForPlaceholder !== el && ytWrapperForPlaceholder.__canopyAutoDockPlaceholder) {
+                    var wrapperPlaceholder = ytWrapperForPlaceholder.__canopyAutoDockPlaceholder;
+                    if (wrapperPlaceholder.isConnected) wrapperPlaceholder.remove();
+                    delete ytWrapperForPlaceholder.__canopyAutoDockPlaceholder;
+                }
 
                 if (!isDockedInMiniHost(el)) {
                     var wrapper = el.closest('.youtube-embed');
@@ -9873,18 +9890,26 @@
                     }
                 } catch (_) {}
 
+                if (state.persistMediaRetryHandle) {
+                    clearInterval(state.persistMediaRetryHandle);
+                    state.persistMediaRetryHandle = null;
+                }
+                function clearPersistRetry() {
+                    clearInterval(state.persistMediaRetryHandle);
+                    state.persistMediaRetryHandle = null;
+                }
                 var retries = 0;
-                var retryId = setInterval(function() {
+                state.persistMediaRetryHandle = setInterval(function() {
                     retries++;
-                    if (retries > 6) { clearInterval(retryId); return; }
+                    if (retries > 6) { clearPersistRetry(); return; }
                     try {
                         var p = el.__canopyMiniYTPlayer;
                         if (p && typeof p.getPlayerState === 'function') {
                             var s = p.getPlayerState();
-                            if (s === 1 || s === 3) { clearInterval(retryId); return; }
+                            if (s === 1 || s === 3) { clearPersistRetry(); return; }
                             p.playVideo();
                         }
-                    } catch (_) { clearInterval(retryId); }
+                    } catch (_) { clearPersistRetry(); }
                 }, 800);
             };
         }

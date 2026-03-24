@@ -449,6 +449,7 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("deckSelectedKey: ''", main_js)
         self.assertIn("miniUpdateFrame: 0", main_js)
         self.assertIn("miniUpdateTimer: null", main_js)
+        self.assertIn("persistMediaRetryHandle: null", main_js)
         self.assertIn("function scheduleMiniUpdate(delay = 0) {", main_js)
         self.assertIn("state.miniUpdateFrame = window.requestAnimationFrame(() => {", main_js)
         self.assertIn("const nextSignature = `${activeKey}::${items.map((item) => `${item.key}:${item.type}`).join('|')}`;", main_js)
@@ -472,6 +473,11 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("<span>Show source</span>", base_html)
         self.assertIn("<span>Return to source</span>", base_html)
         self.assertIn("state.deckQueueNeedsRefresh = true;", main_js)
+        self.assertIn("const existingWrapper = getMediaDockWrapper(el, type);", main_js)
+        self.assertIn("const storeTarget = wrapper !== el ? wrapper : el;", main_js)
+        self.assertIn("|| (wrapper && wrapper !== el ? wrapper.__canopyAutoDockPlaceholder : null);", main_js)
+        self.assertIn("if (wrapper && wrapper !== el) delete wrapper.__canopyAutoDockPlaceholder;", main_js)
+        self.assertIn("var ytWrapperForPlaceholder = el.closest ? el.closest('.youtube-embed') : null;", main_js)
 
     def test_header_navigation_hard_stops_active_media_instead_of_spawning_miniplayer(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
@@ -498,10 +504,25 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("state.deckSelectedKey = item.key || '';", main_js)
         self.assertIn("const key = String(btn.getAttribute('data-media-key') || '').trim();", main_js)
         self.assertIn("state.deckItems.find((item) => String(item && item.key || '').trim() === key)", main_js)
+        self.assertNotIn("nextItem = state.deckItems[index];", main_js)
         self.assertIn("pauseMediaElement(state.current.el, state.current.type);", main_js)
         self.assertIn("selectDeckItem(nextItem, { play: true });", main_js)
         self.assertIn("function scrollDeckStageIntoView(behavior = 'smooth') {", main_js)
         self.assertIn("scrollDeckSelectionIntoView();", main_js)
+
+    def test_media_deck_youtube_wrapper_iframe_transitions_do_not_count_as_switches(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        self.assertIn("const curWrapper = getMediaDockWrapper(state.current.el, 'youtube');", main_js)
+        self.assertIn("const newWrapper = getMediaDockWrapper(el, 'youtube');", main_js)
+        self.assertIn("if (curWrapper && newWrapper && curWrapper === newWrapper) {", main_js)
+        self.assertIn("state.current.el = el;", main_js)
+
+    def test_deck_queue_reconciliation_prefers_current_scan_order_and_resyncs_selected_key(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        self.assertIn("builtArr.forEach((item) => {", main_js)
+        self.assertIn("if (replacement) {", main_js)
+        self.assertIn("if (selectedItem && state.deckSelectedKey && selectedItem.key !== state.deckSelectedKey) {", main_js)
+        self.assertIn("deckSource.textContent = selectedItem ? deckItemContextSubtitle(selectedItem) : 'Now playing from Canopy';", main_js)
 
     def test_media_deck_first_click_hardening(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
