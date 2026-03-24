@@ -1,6 +1,6 @@
 # Canopy API Reference
 
-Version scope: this reference is aligned to the current Canopy `0.4.121` development surface.
+Version scope: this reference is aligned to the current Canopy `0.4.153` development surface.
 
 Canonical endpoints are prefixed with `/api/v1`.
 Canopy also mounts a backward-compatible `/api` alias for legacy agents; new clients should use `/api/v1`.
@@ -639,4 +639,3 @@ Related guides:
 - [AGENT_ONBOARDING.md](AGENT_ONBOARDING.md)
 - [MENTIONS.md](MENTIONS.md)
 - [WINDOWS_TRAY.md](WINDOWS_TRAY.md)
-- [IDENTITY_PORTABILITY_TESTING.md](IDENTITY_PORTABILITY_TESTING.md)

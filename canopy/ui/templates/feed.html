@@ -69,8 +69,8 @@
                             </div>
                             <div class="mention-builder-subtitle" id="feed-mention-builder-count">0 selected</div>
                         </div>
-                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleFeedMentionBuilder(false)">
-                            <i class="bi bi-x-lg"></i>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleFeedMentionBuilder(false)" aria-label="Close Team Mention Builder">
+                            <i class="bi bi-x-lg" aria-hidden="true"></i>
                         </button>
                     </div>
                     <div class="mention-builder-toolbar">
@@ -289,8 +289,8 @@
             </div>
             <div class="d-flex align-items-center gap-2 composer-submit-row">
                 <div id="feed-mention-macro-buttons" class="mention-macro-buttons" style="display: none;"></div>
-                <button type="button" class="btn btn-primary" onclick="createPost()">
-                    <i class="bi bi-send"></i> Share Post
+                <button type="button" class="btn btn-primary" id="share-post-btn" onclick="createPost()">
+                    <i class="bi bi-send" aria-hidden="true"></i> Share Post
                 </button>
             </div>
         </div>
@@ -1292,122 +1292,45 @@
                                 {% endif %}
                                 
                                 {% if post.variant_reference %}
+                                    {# Variant = first-class post body; lineage is a slim provenance bar (no duplicate “antecedent card”). #}
                                     {% set ref = post.variant_reference %}
-                                    <div class="post-variant-shell" data-variant-wrapper="1">
+                                    <div class="post-variant-shell post-variant-shell--minimal" data-variant-wrapper="1">
                                         {% if post.display_content %}
                                             <div data-canopy-source-ref="content:lede">
-                                                <p class="mb-3 post-text mentionable">{{ post.display_content }}</p>
+                                                <p class="mb-0 post-text mentionable">{{ post.display_content }}</p>
                                             </div>
                                         {% endif %}
-                                        <div class="post-variant-card{% if not ref.available %} is-unavailable{% endif %}">
-                                            <div class="post-repost-head">
-                                                <span class="post-repost-eyebrow">
-                                                    <i class="bi bi-bezier2"></i> Derived from
-                                                </span>
-                                                <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
-                                                    <span class="post-variant-relationship">{{ ref.relationship_label or 'Curated recomposition' }}</span>
-                                                    {% if ref.available and ref.has_source_layout %}
-                                                        <span class="post-repost-badge">Deck-ready</span>
-                                                    {% endif %}
-                                                </div>
+                                        {% if ref.module_param_delta %}
+                                            <div class="post-variant-param-delta">
+                                                <span class="delta-label">Δ</span>{{ ref.module_param_delta }}
                                             </div>
+                                        {% endif %}
+                                        <div class="post-lineage-bar" role="note" aria-label="Lineage provenance">
+                                            <span class="badge rounded-pill text-bg-secondary post-lineage-badge" title="This post is a derivative with preserved lineage">
+                                                <i class="bi bi-bezier2 me-1" aria-hidden="true"></i>{{ ref.relationship_label or 'Variant' }}
+                                            </span>
                                             {% if ref.available %}
-                                                <div class="post-repost-meta">
-                                                    <strong>{{ ref.author_display or ref.author_id or 'Unknown author' }}</strong>
-                                                    <span>•</span>
-                                                    <span>{{ (ref.post_type or 'post')|replace('_', ' ')|title }}</span>
-                                                    <span>•</span>
-                                                    <span>{{ (ref.visibility or 'network')|replace('_', ' ')|title }}</span>
-                                                    <span>•</span>
+                                                <a class="link-light link-underline-opacity-50 link-underline-opacity-100-hover" href="{{ ref.href }}" title="Open the antecedent post">
+                                                    Antecedent{% if ref.author_display or ref.author_id %} <span class="text-muted">({{ ref.author_display or ref.author_id }})</span>{% endif %}
+                                                </a>
+                                                {% if ref.created_at %}
                                                     <span class="text-muted" data-timestamp="{{ ref.created_at }}">{{ ref.created_at }}</span>
-                                                </div>
-                                                {% if ref.module_param_delta %}
-                                                    <div class="post-variant-delta">
-                                                        <span class="post-variant-delta-label">Parameter delta</span>
-                                                        <span>{{ ref.module_param_delta }}</span>
-                                                    </div>
                                                 {% endif %}
-                                                {% set em = ref.embed if ref.embed is defined and ref.embed else {} %}
-                                                <div class="post-repost-quote">
-                                                    {% if ref.body_text is defined and ref.body_text %}
-                                                        <div class="post-repost-body">{{ ref.body_text }}</div>
-                                                        {% if ref.body_truncated %}
-                                                            <div class="post-repost-truncated-hint small text-muted mt-1">
-                                                                <i class="bi bi-scissors"></i> Truncated for the card &mdash; open antecedent for the full post.
-                                                            </div>
-                                                        {% endif %}
-                                                    {% elif ref.preview_text %}
-                                                        <div class="post-repost-preview">{{ ref.preview_text }}</div>
-                                                    {% endif %}
-                                                    {% if em.get('link_url') %}
-                                                        <div class="post-repost-embed-link mt-2">
-                                                            <a href="{{ em.link_url }}" target="_blank" rel="noopener noreferrer" class="text-decoration-none d-inline-flex align-items-start gap-2">
-                                                                <i class="bi bi-link-45deg flex-shrink-0 mt-1"></i>
-                                                                <span>{{ em.get('link_title') or em.link_url }}</span>
-                                                            </a>
-                                                        </div>
-                                                    {% endif %}
-                                                    {% if em.get('image_url') %}
-                                                        <div class="post-repost-embed-media mt-2 text-center">
-                                                            <img src="{{ em.image_url }}" class="img-fluid rounded post-repost-embed-img" alt="">
-                                                        </div>
-                                                    {% endif %}
-                                                    {% if em.get('video_url') %}
-                                                        <div class="post-repost-embed-media mt-2 text-center">
-                                                            <video controls class="img-fluid rounded post-repost-embed-video" preload="metadata">
-                                                                <source src="{{ em.video_url }}" type="video/mp4">
-                                                            </video>
-                                                        </div>
-                                                    {% endif %}
-                                                    {% if em.get('audio_url') %}
-                                                        <div class="post-repost-embed-media mt-2">
-                                                            <audio controls preload="metadata" class="w-100">
-                                                                <source src="{{ em.audio_url }}" type="{{ em.get('audio_type') or 'audio/mpeg' }}">
-                                                            </audio>
-                                                        </div>
-                                                    {% endif %}
-                                                    {% if em.get('poll_question') %}
-                                                        <div class="post-repost-poll-preview mt-2 p-2 rounded" style="background: var(--canopy-bg-tertiary, rgba(255,255,255,0.04));">
-                                                            <div class="small text-uppercase text-muted mb-1 fw-semibold" style="letter-spacing:0.06em;">Poll</div>
-                                                            <div class="fw-semibold">{{ em.poll_question }}</div>
-                                                            {% if em.get('poll_option_previews') %}
-                                                                <ul class="small mb-0 mt-2 ps-3 text-muted">
-                                                                    {% for opt in em.poll_option_previews %}
-                                                                        <li>{{ opt }}</li>
-                                                                    {% endfor %}
-                                                                </ul>
-                                                            {% endif %}
-                                                        </div>
-                                                    {% endif %}
-                                                    {% if em.get('attachment_images') %}
-                                                        <div class="post-repost-thumb-grid mt-2">
-                                                            {% for img in em.attachment_images %}
-                                                                <a href="{{ ref.href }}" class="post-repost-thumb-link" title="View antecedent post">
-                                                                    <img src="{{ img.url }}" alt="{{ img.name }}" loading="lazy" width="120" height="120">
-                                                                </a>
-                                                            {% endfor %}
-                                                        </div>
-                                                    {% endif %}
-                                                </div>
-                                                <div class="post-repost-actions">
-                                                    <a class="btn btn-sm btn-outline-primary" href="{{ ref.href }}">
-                                                        <i class="bi bi-box-arrow-up-right me-1"></i>Open antecedent
-                                                    </a>
-                                                    {% if ref.has_source_layout %}
-                                                        <span class="text-muted small">Open the antecedent to launch its deck surface.</span>
-                                                    {% endif %}
-                                                </div>
+                                                {% if ref.source_id and (ref.has_source_layout|default(true)) %}
+                                                <button type="button" class="btn btn-sm btn-outline-primary"
+                                                        onclick="canopyNavigateFeedDeckForPostId({{ ref.source_id|tojson }})"
+                                                        title="Jump to the antecedent post and open its deck">
+                                                    <i class="bi bi-grid-1x2 me-1" aria-hidden="true"></i>Deck
+                                                </button>
+                                                {% endif %}
                                             {% else %}
-                                                <div class="post-repost-unavailable">{{ ref.unavailable_label or 'Antecedent source unavailable' }}</div>
-                                                <div class="post-repost-unavailable-meta">
-                                                    This variant preserves provenance to its antecedent source, but the antecedent no longer renders here.
-                                                </div>
+                                                <span class="text-warning">{{ ref.unavailable_label or 'Antecedent unavailable' }}</span>
                                             {% endif %}
                                         </div>
                                     </div>
                                 {% elif post.repost_reference %}
                                     {% set ref = post.repost_reference %}
-                                    <div class="post-repost-shell" data-repost-wrapper="1">
+                                    <div class="post-repost-shell post-repost-shell--streamlined" data-repost-wrapper="1">
                                         {% if post.display_content %}
                                             <div data-canopy-source-ref="content:lede">
                                                 <p class="mb-3 post-text mentionable">{{ post.display_content }}</p>
@@ -1418,9 +1341,6 @@
                                                 <span class="post-repost-eyebrow">
                                                     <i class="bi bi-repeat"></i> Original source
                                                 </span>
-                                                {% if ref.available and ref.has_source_layout %}
-                                                    <span class="post-repost-badge">Deck-ready</span>
-                                                {% endif %}
                                             </div>
                                             {% if ref.available %}
                                                 <div class="post-repost-meta">
@@ -1494,12 +1414,16 @@
                                                         </div>
                                                     {% endif %}
                                                 </div>
-                                                <div class="post-repost-actions">
+                                                <div class="post-repost-actions d-flex flex-wrap gap-2 align-items-center">
                                                     <a class="btn btn-sm btn-outline-primary" href="{{ ref.href }}">
-                                                        <i class="bi bi-box-arrow-up-right me-1"></i>Open original
+                                                        <i class="bi bi-box-arrow-up-right me-1" aria-hidden="true"></i>Open original
                                                     </a>
-                                                    {% if ref.has_source_layout %}
-                                                        <span class="text-muted small">Open original to launch its deck surface.</span>
+                                                    {% if ref.source_id and (ref.has_source_layout|default(true)) %}
+                                                    <button type="button" class="btn btn-sm btn-outline-primary"
+                                                            onclick="canopyNavigateFeedDeckForPostId({{ ref.source_id|tojson }})"
+                                                            title="Jump to the original post and open its deck">
+                                                        <i class="bi bi-grid-1x2 me-1" aria-hidden="true"></i>Deck
+                                                    </button>
                                                     {% endif %}
                                                 </div>
                                             {% else %}
@@ -1761,17 +1685,25 @@
         {% else %}
 	            <div class="text-center text-muted py-5">
                 {% if search_query %}
-                    <i class="bi bi-search fs-1 mb-3"></i>
+                    <i class="bi bi-search fs-1 mb-3 d-block" aria-hidden="true"></i>
                     <h5>No posts found</h5>
                     <p class="mb-3">No posts match your search criteria.</p>
+                    <div class="d-flex gap-2 justify-content-center">
+                        <a href="{{ url_for('ui.feed') }}" class="btn btn-outline-secondary">
+                            <i class="bi bi-x-circle" aria-hidden="true"></i> Clear search
+                        </a>
+                        <button class="btn btn-primary" type="button" onclick="openComposer()">
+                            <i class="bi bi-plus-circle" aria-hidden="true"></i> Create Post
+                        </button>
+                    </div>
                 {% else %}
-                    <i class="bi bi-newspaper fs-1 mb-3"></i>
+                    <i class="bi bi-newspaper fs-1 mb-3 d-block" aria-hidden="true"></i>
                     <h5>Your feed is empty</h5>
                     <p class="mb-3">Start following other users or create your first post!</p>
+                    <button class="btn btn-primary" type="button" onclick="openComposer()">
+                        <i class="bi bi-plus-circle" aria-hidden="true"></i> Create Post
+                    </button>
                 {% endif %}
-	                <button class="btn btn-primary" type="button" onclick="openComposer()">
-	                    <i class="bi bi-plus-circle"></i> Create Post
-	                </button>
 	            </div>
 	        {% endif %}
 	    </div>
@@ -1851,6 +1783,67 @@
     gap: 0.85rem;
 }
 
+/* Lighter repost block — less nested-card chrome */
+.post-repost-shell--streamlined {
+    gap: 0.45rem;
+}
+.post-repost-shell--streamlined .post-repost-card {
+    border-radius: 0.65rem;
+    padding: 0.55rem 0.75rem;
+    box-shadow: none;
+    background: rgba(15, 23, 42, 0.58);
+    border: 1px solid rgba(148, 163, 184, 0.16);
+}
+.post-repost-shell--streamlined .post-repost-head {
+    margin-bottom: 0.35rem;
+}
+.post-repost-shell--streamlined .post-repost-meta {
+    margin-bottom: 0.45rem;
+}
+.post-repost-shell--streamlined .post-repost-quote {
+    padding: 0.55rem 0.65rem;
+    border-radius: 0.55rem;
+}
+.post-repost-shell--streamlined .post-repost-actions {
+    margin-top: 0.5rem;
+}
+
+/* Lineage variants: read like a normal post; provenance is a slim bar (not a second “card”). */
+.post-variant-shell--minimal {
+    gap: 0.4rem;
+}
+.post-lineage-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.45rem 0.65rem;
+    margin-top: 0.15rem;
+    padding-top: 0.55rem;
+    border-top: 1px solid rgba(148, 163, 184, 0.2);
+    font-size: 0.82rem;
+    color: rgba(226, 232, 240, 0.82);
+}
+.post-lineage-bar .post-lineage-badge {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+}
+.post-lineage-bar .btn-sm {
+    padding: 0.12rem 0.5rem;
+    font-size: 0.78rem;
+    line-height: 1.25;
+}
+.post-variant-param-delta {
+    font-size: 0.88rem;
+    color: rgba(226, 232, 240, 0.88);
+    margin-bottom: 0.15rem;
+}
+.post-variant-param-delta .delta-label {
+    font-weight: 600;
+    color: rgba(253, 230, 138, 0.85);
+    margin-right: 0.35rem;
+}
+
 .post-repost-card,
 .post-variant-card {
     border: 1px solid rgba(56, 189, 248, 0.24);
@@ -1882,6 +1875,12 @@
     justify-content: space-between;
     gap: 0.75rem;
     margin-bottom: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.post-repost-head .post-repost-badge {
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .post-repost-eyebrow {
@@ -5481,17 +5480,48 @@
             });
         }
 
+	    /** Full navigation to feed post + deck — reliable when the source row is not in the current DOM. */
+	    function canopyNavigateFeedDeckForPostId(postId) {
+	        const pid = String(postId || '').trim();
+	        if (!pid) return;
+	        window.location.href = '/feed?focus_post=' + encodeURIComponent(pid) + '&open_deck=1';
+	    }
+
 	    function focusPostFromQuery() {
 	        const params = new URLSearchParams(window.location.search);
 	        const focusPostId = params.get('focus_post') || params.get('post');
 	        if (!focusPostId) return;
 
-	        const el = document.querySelector(`[data-post-id="${focusPostId}"]`);
+	        const esc = window.CSS && typeof window.CSS.escape === 'function'
+	            ? window.CSS.escape(focusPostId)
+	            : focusPostId.replace(/["\\]/g, '\\$&');
+	        const el = document.querySelector(`[data-post-id="${esc}"]`);
 	        if (!el) return;
 
 	        el.classList.add('focus-flash');
 	        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
 	        setTimeout(() => el.classList.remove('focus-flash'), 3200);
+
+	        const openDeck = (params.get('open_deck') || '').trim().toLowerCase();
+	        if (openDeck === '1' || openDeck === 'true' || openDeck === 'yes') {
+	            const tryDeck = function () {
+	                if (typeof window.openDeckForFeedAntecedentPost === 'function') {
+	                    window.openDeckForFeedAntecedentPost(focusPostId);
+	                }
+	            };
+	            if (typeof window.canopyApplySourceLayoutsInScope === 'function') {
+	                try {
+	                    window.canopyApplySourceLayoutsInScope(el);
+	                } catch (_) { /* ignore */ }
+	            }
+	            requestAnimationFrame(function () {
+	                requestAnimationFrame(tryDeck);
+	            });
+	            setTimeout(tryDeck, 120);
+	            setTimeout(tryDeck, 400);
+	            setTimeout(tryDeck, 1400);
+	            setTimeout(tryDeck, 2800);
+	        }
 	    }
 
 	    function loadTagSuggestionsOnce() {
@@ -5728,6 +5758,15 @@
             list.appendChild(item);
         });
     }
+
+    function setShareButtonState(loading) {
+        const btn = document.getElementById('share-post-btn');
+        if (!btn) return;
+        btn.disabled = loading;
+        btn.innerHTML = loading
+            ? '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span> Sharing...'
+            : '<i class="bi bi-send" aria-hidden="true"></i> Share Post';
+    }
     
 	    function createPost() {
 	        const textarea = document.getElementById('postContent');
@@ -5763,6 +5802,8 @@
                 showAlert('Fix the structured block issues before sharing this post.', 'warning');
                 return;
             }
+
+            setShareButtonState(true);
         
         let metadata = {};
         let permissions = visibility === 'custom' ? customPermissions : null;
@@ -5806,6 +5847,7 @@
 	            resetComposer();
                 renderFeedStructuredResult(response.structured_objects || []);
 	            setTimeout(refreshFeed, 900);
+                setShareButtonState(false);
 	        })
 	        .catch(error => {
                 if (error && error.structured_validation) {
@@ -5814,6 +5856,7 @@
                     renderFeedStructuredResult([]);
                 }
 	            showAlert(error.error || 'Failed to create post', error && error.structured_validation ? 'warning' : 'danger');
+                setShareButtonState(false);
 	        });
 	    }
     

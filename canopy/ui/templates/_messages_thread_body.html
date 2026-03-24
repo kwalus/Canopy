@@ -123,8 +123,10 @@
     <div class="dm-empty-state">
         <div class="dm-empty-card">
             {% if active_thread %}
-                No messages in this conversation yet.
+                <i class="bi bi-chat-square-text" aria-hidden="true"></i>
+                No messages in this conversation yet. Say hello!
             {% else %}
+                <i class="bi bi-send" aria-hidden="true"></i>
                 No direct messages yet. Start by selecting recipients below.
             {% endif %}
         </div>

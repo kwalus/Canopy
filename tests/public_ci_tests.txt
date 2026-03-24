@@ -10,3 +10,4 @@ tests/test_messages_ui_workspace.py
 tests/test_dm_group_message_access.py
 tests/test_sidebar_recent_dm_contacts.py
 tests/test_spreadsheet_preview_support.py
+tests/test_ui_polish_regressions.py

@@ -10,20 +10,20 @@ The current codebase already has a feed-side "share" primitive, but it is not sa
 Current problems:
 
 1. Existing feed share copies original content and metadata into the new post.
-- `/Users/konradwalus/Library/CloudStorage/Dropbox/Python Toolbox/Canopy/canopy/core/feed.py:993`
-- `/Users/konradwalus/Library/CloudStorage/Dropbox/Python Toolbox/Canopy/canopy/core/feed.py:1000`
+- `canopy/core/feed.py:993`
+- `canopy/core/feed.py:1000`
 
 2. Existing feed share forces the new shared post to `network` visibility instead of preserving or constraining the original audience.
-- `/Users/konradwalus/Library/CloudStorage/Dropbox/Python Toolbox/Canopy/canopy/core/feed.py:1008`
+- `canopy/core/feed.py:1008`
 
 3. The UI route simply calls that share path without adding any extra authorization or audience check.
-- `/Users/konradwalus/Library/CloudStorage/Dropbox/Python Toolbox/Canopy/canopy/ui/routes.py:10454`
+- `canopy/ui/routes.py:10454`
 
 4. Channel messages do not currently have a generic metadata/reference field.
 - message dataclass:
-  - `/Users/konradwalus/Library/CloudStorage/Dropbox/Python Toolbox/Canopy/canopy/core/channels.py:128`
+  - `canopy/core/channels.py:128`
 - schema:
-  - `/Users/konradwalus/Library/CloudStorage/Dropbox/Python Toolbox/Canopy/canopy/core/channels.py:720`
+  - `canopy/core/channels.py:720`
 
 That means the safest v1 is not "copy the source again." It is:
 

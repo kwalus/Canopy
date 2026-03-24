@@ -8,6 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.154] - 2026-03-24
+
+### Added
+- **Public release audit note** — Added `docs/PUBLIC_RELEASE_AUDIT.md` to summarize the latest low-risk repo exposure review and record the path-scrub hardening that came out of it.
+- **UI polish regression coverage** — Added `tests/test_ui_polish_regressions.py` and included it in the public CI list to guard the latest accessibility and empty-state tweaks.
+
+### Changed
+- **README highlights** — Rewrote the `Recent Highlights` section to focus on user-facing capabilities such as bookmarks, reposts, variants, richer deck flows, and Windows tray usability instead of debug-oriented release notes.
+- **Doc version alignment** — Updated the remaining version-scope notes in `API_REFERENCE`, `QUICKSTART`, `MENTIONS`, and `WINDOWS_TRAY`, and removed stale links to a non-existent identity-portability doc.
+
+### Fixed
+- **Small UI/UX rough edges** — Feed post sharing now shows a loading state, feed empty-search results offer a clear reset path, message/channel empty states are friendlier, the channel reply cancel button is labeled for assistive tech, and profile avatar upload is keyboard accessible.
+- **Path disclosure cleanup** — Replaced absolute local-machine file citations in `docs/REPOST_V1_DESIGN_REVIEW.md` with project-relative paths.
+
 ## [0.4.153] - 2026-03-23
 
 ### Fixed

@@ -28,7 +28,10 @@
                 </a>
             {% endfor %}
         {% else %}
-            <div class="dm-empty-card">No direct conversations yet.</div>
+            <div class="dm-empty-card">
+                <i class="bi bi-chat-dots" aria-hidden="true"></i>
+                No direct conversations yet.
+            </div>
         {% endif %}
     </div>
 </section>
@@ -57,7 +60,10 @@
                 </a>
             {% endfor %}
         {% else %}
-            <div class="dm-empty-card">No group conversations yet.</div>
+            <div class="dm-empty-card">
+                <i class="bi bi-people" aria-hidden="true"></i>
+                No group conversations yet.
+            </div>
         {% endif %}
     </div>
 </section>

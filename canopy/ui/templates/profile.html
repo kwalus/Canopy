@@ -287,15 +287,17 @@
     <!-- Profile Header -->
     <div class="profile-header">
         <div class="profile-content">
-            <div class="avatar-container" onclick="triggerAvatarUpload()">
-                <div class="avatar" id="user-avatar" title="Click to change your profile picture">
+            <div class="avatar-container" onclick="triggerAvatarUpload()" role="button" tabindex="0"
+                 aria-label="Change profile picture"
+                 onkeydown="avatarContainerKeydown(event)">
+                <div class="avatar" id="user-avatar">
                     {% if profile.avatar_url %}
-                        <img src="{{ profile.avatar_url }}" alt="Avatar">
+                        <img src="{{ profile.avatar_url }}" alt="Profile picture of {{ profile.display_name or profile.username }}">
                     {% else %}
-                        <i class="bi bi-person-circle"></i>
+                        <i class="bi bi-person-circle" aria-hidden="true"></i>
                     {% endif %}
                 </div>
-                <div class="avatar-upload-overlay">
+                <div class="avatar-upload-overlay" aria-hidden="true">
                     <i class="bi bi-camera fs-2"></i>
                     <div class="small mt-1">Click to change</div>
                 </div>
@@ -599,6 +601,13 @@ function setupAvatarUpload() {
 
 function triggerAvatarUpload() {
     document.getElementById('avatar-input').click();
+}
+
+function avatarContainerKeydown(event) {
+    if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        triggerAvatarUpload();
+    }
 }
 
 function uploadAvatar(file) {
