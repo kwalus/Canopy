@@ -2380,17 +2380,36 @@
             return 'https://s.tradingview.com/widgetembed/?' + params.toString();
         }
 
-        function buildYouTubeFacade(videoId) {
+        function buildYouTubeEmbedSrc(videoId, autoplay = true) {
+            const safeId = escapeEmbedAttr(videoId);
+            return 'https://www.youtube-nocookie.com/embed/' + safeId +
+                '?enablejsapi=1&autoplay=' + (autoplay ? '1' : '0') +
+                '&playsinline=1&rel=0&origin=' + encodeURIComponent(window.location.origin);
+        }
+
+        function createYouTubeFacadeElement(videoId, iframeSrc) {
             const safeId = escapeEmbedAttr(videoId);
             const thumbUrl = 'https://img.youtube.com/vi/' + safeId + '/hqdefault.jpg';
-            const iframeSrc = 'https://www.youtube-nocookie.com/embed/' + safeId + '?enablejsapi=1&autoplay=1&playsinline=1&rel=0&origin=' + encodeURIComponent(window.location.origin);
+            const facade = document.createElement('div');
+            facade.className = 'yt-facade';
+            facade.setAttribute('data-iframe-src', iframeSrc);
+            facade.setAttribute('title', 'Click to play');
+            facade.style.cssText = "position:relative;cursor:pointer;aspect-ratio:16/9;background:#000 url('" +
+                escapeEmbedAttr(thumbUrl) +
+                "') center/cover no-repeat;border-radius:10px;overflow:hidden;";
+            facade.innerHTML =
+                '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.25);transition:background 0.15s;">' +
+                '<svg width="68" height="48" viewBox="0 0 68 48" style="filter:drop-shadow(0 2px 8px rgba(0,0,0,0.4));"><path d="M66.52 7.74c-.78-2.93-2.49-5.41-5.42-6.19C55.79.13 34 0 34 0S12.21.13 6.9 1.55C3.97 2.33 2.27 4.81 1.48 7.74.06 13.05 0 24 0 24s.06 10.95 1.48 16.26c.78 2.93 2.49 5.41 5.42 6.19C12.21 47.87 34 48 34 48s21.79-.13 27.1-1.55c2.93-.78 4.64-3.26 5.42-6.19C67.94 34.95 68 24 68 24s-.06-10.95-1.48-16.26z" fill="#FF0000"/><path d="M45 24L27 14v20" fill="#fff"/></svg>' +
+                '</div>';
+            return facade;
+        }
+
+        function buildYouTubeFacade(videoId) {
+            const safeId = escapeEmbedAttr(videoId);
             const caption = buildEmbedCaption('YouTube');
             return (
                 '<div class="embed-preview iframe-embed youtube-embed" data-video-id="' + safeId + '">' +
-                '<div class="yt-facade" data-iframe-src="' + escapeEmbedAttr(iframeSrc) + '" style="position:relative;cursor:pointer;aspect-ratio:16/9;background:#000 url(\'' + escapeEmbedAttr(thumbUrl) + '\') center/cover no-repeat;border-radius:10px;overflow:hidden;" title="Click to play">' +
-                '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.25);transition:background 0.15s;">' +
-                '<svg width="68" height="48" viewBox="0 0 68 48" style="filter:drop-shadow(0 2px 8px rgba(0,0,0,0.4));"><path d="M66.52 7.74c-.78-2.93-2.49-5.41-5.42-6.19C55.79.13 34 0 34 0S12.21.13 6.9 1.55C3.97 2.33 2.27 4.81 1.48 7.74.06 13.05 0 24 0 24s.06 10.95 1.48 16.26c.78 2.93 2.49 5.41 5.42 6.19C12.21 47.87 34 48 34 48s21.79-.13 27.1-1.55c2.93-.78 4.64-3.26 5.42-6.19C67.94 34.95 68 24 68 24s-.06-10.95-1.48-16.26z" fill="#FF0000"/><path d="M45 24L27 14v20" fill="#fff"/></svg>' +
-                '</div></div>' +
+                createYouTubeFacadeElement(videoId, buildYouTubeEmbedSrc(videoId, true)).outerHTML +
                 caption +
                 '</div>'
             );
@@ -5781,6 +5800,25 @@
 
             function ensureMediaIdentity(el) {
                 if (!el) return '';
+                const type = mediaTypeFor(el);
+                if (type === 'youtube') {
+                    const wrapper = (el.matches && el.matches('.youtube-embed'))
+                        ? el
+                        : (el.closest ? el.closest('.youtube-embed') : null);
+                    const holder = wrapper || el;
+                    if (!holder.__canopyMiniMediaId) {
+                        state.mediaCounter += 1;
+                        holder.__canopyMiniMediaId = `canopy-media-${state.mediaCounter}`;
+                    }
+                    if (el !== holder) {
+                        el.__canopyMiniMediaId = holder.__canopyMiniMediaId;
+                    }
+                    const iframe = holder.querySelector ? holder.querySelector('iframe') : null;
+                    if (iframe) {
+                        iframe.__canopyMiniMediaId = holder.__canopyMiniMediaId;
+                    }
+                    return String(holder.__canopyMiniMediaId || '');
+                }
                 if (!el.__canopyMiniMediaId) {
                     state.mediaCounter += 1;
                     el.__canopyMiniMediaId = `canopy-media-${state.mediaCounter}`;
@@ -5793,16 +5831,6 @@
                     return _safeImageSrc(value || '');
                 }
                 return value || '';
-            }
-
-            function clearDeckStageDockedNodes() {
-                if (!deckStage) return;
-                Array.from(deckStage.children).forEach((child) => {
-                    if (child !== deckVisual) {
-                        teardownDeckModuleSessionsInNode(child);
-                        child.remove();
-                    }
-                });
             }
 
             function isYouTubePlayingState(ytState) {
@@ -6265,11 +6293,33 @@
 
             function getYouTubeVideoId(el) {
                 if (!el) return '';
-                return String(
+                const wrapper = el.closest ? el.closest('.youtube-embed') : null;
+                const direct = String(
                     el.getAttribute('data-video-id') ||
-                    (el.closest('.youtube-embed') && el.closest('.youtube-embed').getAttribute('data-video-id')) ||
+                    (wrapper && wrapper.getAttribute('data-video-id')) ||
                     ''
                 ).trim();
+                if (direct) return direct;
+                const src = String(
+                    el.getAttribute('src') ||
+                    el.getAttribute('data-iframe-src') ||
+                    (wrapper && wrapper.getAttribute('data-iframe-src')) ||
+                    (wrapper && wrapper.querySelector && wrapper.querySelector('.yt-facade')
+                        && wrapper.querySelector('.yt-facade').getAttribute('data-iframe-src')) ||
+                    ''
+                ).trim();
+                if (!src) return '';
+                try {
+                    const url = new URL(src, window.location.origin);
+                    const embedMatch = url.pathname.match(/\/embed\/([^/?#&]+)/);
+                    if (embedMatch && embedMatch[1]) return String(embedMatch[1]).trim();
+                    if ((url.hostname === 'youtu.be' || url.hostname.endsWith('.youtu.be')) && url.pathname) {
+                        return String(url.pathname.split('/').filter(Boolean)[0] || '').trim();
+                    }
+                    const watchId = String(url.searchParams.get('v') || '').trim();
+                    if (watchId) return watchId;
+                } catch (_) {}
+                return '';
             }
 
             function resolveMediaThumbnail(el, type) {
@@ -6331,6 +6381,23 @@
                 };
             }
 
+            function populateMediaPlaceholderPreview(placeholder, el, type) {
+                if (!(placeholder instanceof Element) || !el) return;
+                const thumb = resolveMediaThumbnail(el, type);
+                const label = type === 'youtube' ? 'Playing in deck' : 'Open in deck';
+                placeholder.setAttribute('aria-label', label);
+                placeholder.setAttribute('title', label);
+                if (thumb) {
+                    placeholder.style.backgroundImage = `linear-gradient(rgba(15, 23, 42, 0.18), rgba(15, 23, 42, 0.5)), url("${String(thumb).replace(/"/g, '%22')}")`;
+                    placeholder.style.backgroundSize = 'cover';
+                    placeholder.style.backgroundPosition = 'center';
+                }
+                const badge = document.createElement('div');
+                badge.className = 'canopy-media-placeholder-badge';
+                badge.innerHTML = `<i class="bi ${mediaIcon(type)}"></i><span>${label}</span>`;
+                placeholder.appendChild(badge);
+            }
+
             function ensureMediaPlaceholder(el, type) {
                 if (!el) return null;
                 if (type === 'youtube' && el.__canopyAutoDockPlaceholder) return el.__canopyAutoDockPlaceholder;
@@ -6342,6 +6409,7 @@
                 const placeholder = document.createElement('div');
                 placeholder.className = type === 'youtube' ? 'canopy-yt-mini-placeholder' : 'canopy-video-mini-placeholder';
                 placeholder.style.cssText = `width:${size.width}px;height:${size.height}px;`;
+                populateMediaPlaceholderPreview(placeholder, el, type);
                 wrapper.parentNode.insertBefore(placeholder, wrapper);
                 if (type === 'youtube') {
                     el.__canopyAutoDockPlaceholder = placeholder;
@@ -6377,12 +6445,25 @@
                     const ph = el.__canopyAutoDockPlaceholder;
                     const wrapper = getMediaDockWrapper(el, type);
                     if (ph && ph.isConnected && ph.parentNode && wrapper) {
-                        prepareYouTubeEmbedForHostMove(el);
+                        prepareYouTubeEmbedForHostMove(el, {
+                            skipResumeUrlRewrite: true,
+                        });
                         ph.parentNode.insertBefore(wrapper, ph);
                         ph.remove();
-                        const ytIframe = resolveYouTubeMediaElement(el, { activate: false });
-                        if (ytIframe && ytIframe.tagName.toLowerCase() === 'iframe') {
-                            maybeRestoreYouTubeDockState(ytIframe);
+                        const videoId = getYouTubeVideoId(wrapper || el);
+                        if (videoId) {
+                            const existingCaption = wrapper.querySelector('.embed-provider-caption');
+                            const iframe = resolveYouTubeMediaElement(wrapper, { activate: false });
+                            if (iframe && iframe.tagName && iframe.tagName.toLowerCase() === 'iframe') {
+                                resetYouTubePlayerBridge(iframe);
+                            }
+                            wrapper.innerHTML = '';
+                            wrapper.appendChild(createYouTubeFacadeElement(videoId, buildYouTubeEmbedSrc(videoId, true)));
+                            if (existingCaption) {
+                                wrapper.appendChild(existingCaption);
+                            } else {
+                                wrapper.insertAdjacentHTML('beforeend', buildEmbedCaption('YouTube'));
+                            }
                         }
                     }
                     delete el.__canopyAutoDockPlaceholder;
@@ -6394,6 +6475,33 @@
                     }
                     delete el.__canopyMiniVideoPlaceholder;
                 }
+            }
+
+            function restoreDeckStageChildToSource(node) {
+                if (!(node instanceof Element)) return false;
+                let mediaEl = null;
+                if (node.matches && node.matches('video, .youtube-embed')) {
+                    mediaEl = node;
+                } else if (node.querySelector) {
+                    mediaEl = node.querySelector('video, .youtube-embed');
+                }
+                if (!mediaEl) return false;
+                const type = mediaTypeFor(mediaEl);
+                if (type !== 'youtube' && type !== 'video') return false;
+                restoreDockedMedia(mediaEl, { preferMini: false });
+                return true;
+            }
+
+            function clearDeckStageDockedNodes() {
+                if (!deckStage) return;
+                Array.from(deckStage.children).forEach((child) => {
+                    if (child === deckVisual) return;
+                    teardownDeckModuleSessionsInNode(child);
+                    restoreDeckStageChildToSource(child);
+                    if (child.parentNode === deckStage) {
+                        child.remove();
+                    }
+                });
             }
 
             function moveDockedMediaToHost(el, host) {
@@ -6747,14 +6855,19 @@
                 return mediaItems.concat(widgetItems);
             }
 
+            function getActiveMediaForSource(sourceEl) {
+                if (!sourceEl || !sourceEl.isConnected || !state.current || !state.current.el) return null;
+                return state.current.sourceEl === sourceEl ? state.current.el : null;
+            }
+
             function getSourceMediaDeckItems(sourceEl) {
                 if (!sourceEl || !sourceEl.isConnected) return [];
-                return buildRelatedMediaList(sourceEl, null);
+                return buildRelatedMediaList(sourceEl, getActiveMediaForSource(sourceEl));
             }
 
             function getSourceDeckItems(sourceEl) {
                 if (!sourceEl || !sourceEl.isConnected) return [];
-                return buildSourceDeckItems(sourceEl, null);
+                return buildSourceDeckItems(sourceEl, getActiveMediaForSource(sourceEl));
             }
 
             function getDeckSelectedItem() {
@@ -6987,7 +7100,9 @@
             function openMediaDeckForSource(sourceEl, options = {}) {
                 if (!sourceEl || !sourceEl.isConnected) return;
                 const explicitItem = options.explicitItem || null;
-                const items = mergeExplicitDeckItem(getSourceDeckItems(sourceEl), explicitItem);
+                let items = mergeExplicitDeckItem(getSourceDeckItems(sourceEl), explicitItem);
+                const previousDeckItems = Array.isArray(state.deckItems) ? state.deckItems : [];
+                items = reconcileDeckQueueItemsBuilt(items, previousDeckItems, sourceEl);
                 const preferredKey = String(options.preferredKey || '').trim();
                 let preferred = preferredKey
                     ? items.find((item) => String(item.key || '').trim() === preferredKey)
@@ -7067,7 +7182,12 @@
             /** Open the sidebar mini player for this post/message (no deck); keeps YouTube as facade until Play. */
             function openMiniPlayerForSource(sourceEl) {
                 if (!sourceEl || !sourceEl.isConnected || !miniVideoHost) return;
-                const fullDeckItems = mergeDeckWidgetUnionIntoDeckItems(sourceEl, getSourceDeckItems(sourceEl));
+                const previousDeckItems = Array.isArray(state.deckItems) ? state.deckItems : [];
+                const fullDeckItems = reconcileDeckQueueItemsBuilt(
+                    mergeDeckWidgetUnionIntoDeckItems(sourceEl, getSourceDeckItems(sourceEl)),
+                    previousDeckItems,
+                    sourceEl
+                );
                 const items = getSourceMediaDeckItems(sourceEl);
                 const preferred = getPreferredDeckItemForSource(sourceEl, items);
                 if (!preferred) return;
@@ -8134,7 +8254,8 @@
                 }
                 deckSource.textContent = selectedItem ? sourceSubtitle(selectedItem.el) : 'Now playing from Canopy';
 
-                if (state.deckQueueSignature === nextSignature && deckQueue.childElementCount) {
+                const renderedQueueItems = deckQueue.querySelectorAll('.sidebar-media-deck-item').length;
+                if (state.deckQueueSignature === nextSignature && deckQueue.childElementCount && renderedQueueItems === items.length) {
                     return;
                 }
                 state.deckQueueSignature = nextSignature;
@@ -8193,8 +8314,10 @@
                 const mobileDeckMode = isMobileDeckModalMode();
                 deck.hidden = !visible;
                 deck.setAttribute('aria-hidden', visible ? 'false' : 'true');
+                deck.inert = !visible;
                 deck.classList.toggle('is-visible', visible);
                 deckBackdrop.hidden = !visible;
+                deckBackdrop.inert = !visible;
                 deckBackdrop.classList.toggle('is-visible', visible);
                 document.body.classList.toggle('canopy-media-deck-open', visible);
                 document.body.classList.toggle('canopy-media-deck-modal', visible && mobileDeckMode);
@@ -8392,6 +8515,7 @@
                 const mobileDeckMode = isMobileDeckModalMode();
                 setDeckQueueCollapsed(mobileDeckMode);
                 setDeckDetailCollapsed(mobileDeckMode);
+                state.deckQueueNeedsRefresh = true;
                 state.deckOpen = true;
                 if (state.current || getDeckSelectedItem()) updateDeckPanel();
                 else updateDeckVisibility();
@@ -8407,6 +8531,10 @@
 
             function closeMediaDeck(options = {}) {
                 const preserveMini = !(options && options.forceClose === true);
+                moveFocusOutOfDeck();
+                if (state.current && state.current.type === 'youtube') {
+                    releaseFocusedYouTubeFrame(state.current.el);
+                }
                 state.deckOpen = false;
                 state.deckSelectedKey = '';
                 state.deckSourceEl = null;
@@ -8684,6 +8812,7 @@
                 const options = opts && typeof opts === 'object' ? opts : {};
                 const iframe = resolveYouTubeMediaElement(el, { activate: false });
                 if (!iframe || iframe.tagName.toLowerCase() !== 'iframe') return;
+                releaseFocusedYouTubeFrame(iframe);
                 const t = getYouTubeCurrentTimeSafe(iframe);
                 let playing = isYouTubePlayingState(Number(iframe.__canopyMiniYTState));
                 try {
@@ -8755,6 +8884,35 @@
                         }
                     }
                 }, 350);
+            }
+
+            function releaseFocusedYouTubeFrame(el) {
+                const iframe = resolveYouTubeMediaElement(el, { activate: false });
+                if (!iframe || iframe.tagName.toLowerCase() !== 'iframe') return;
+                try {
+                    if (document.activeElement === iframe && typeof iframe.blur === 'function') {
+                        iframe.blur();
+                    }
+                } catch (_) {}
+            }
+
+            function moveFocusOutOfDeck() {
+                if (!deck || !document || !document.activeElement) return;
+                const active = document.activeElement;
+                if (!deck.contains(active)) return;
+                const sourceEl = firstConnectedDeckAnchor(state.deckSourceEl, state.deckOriginSourceEl);
+                const sourceLauncher = sourceEl && sourceEl.querySelector
+                    ? sourceEl.querySelector('[data-open-media-deck], [data-open-mini-player]')
+                    : null;
+                const focusTarget = sourceLauncher || expandBtn || document.body;
+                try {
+                    if (typeof active.blur === 'function') active.blur();
+                } catch (_) {}
+                try {
+                    if (focusTarget && typeof focusTarget.focus === 'function') {
+                        focusTarget.focus({ preventScroll: true });
+                    }
+                } catch (_) {}
             }
 
             function updatePiPButton(el, type) {
