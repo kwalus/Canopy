@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="880" viewBox="0 0 1400 880" role="img" aria-labelledby="title desc">
+  <title id="title">Private architecture collaboration in Canopy</title>
+  <desc id="desc">A clean architecture diagram showing humans and local agents collaborating in a private Canopy workspace with local storage, structured work, and controlled mesh sync.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#08120f"/>
+      <stop offset="100%" stop-color="#10241d"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#16382d"/>
+      <stop offset="100%" stop-color="#102820"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#96e96b"/>
+      <stop offset="100%" stop-color="#3fd4b0"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="14" flood-color="#000000" flood-opacity="0.28"/>
+    </filter>
+    <style>
+      .title { font: 700 42px Arial, sans-serif; fill: #f2fff8; }
+      .subtitle { font: 400 22px Arial, sans-serif; fill: #b9d8cc; }
+      .section { font: 700 21px Arial, sans-serif; fill: #effff6; }
+      .body { font: 400 19px Arial, sans-serif; fill: #d8efe5; }
+      .small { font: 400 17px Arial, sans-serif; fill: #c7dfd4; }
+      .node { fill: url(#panel); stroke: #78da94; stroke-width: 2; rx: 24; }
+      .soft { fill: #11231d; stroke: #2f7657; stroke-width: 2; rx: 18; }
+      .chip { fill: #183329; stroke: #62c288; stroke-width: 1.5; rx: 14; }
+      .line { stroke: #6fde93; stroke-width: 4; fill: none; stroke-linecap: round; }
+      .dash { stroke: #65c8a6; stroke-width: 3; fill: none; stroke-dasharray: 10 10; stroke-linecap: round; }
+    </style>
+  </defs>
+
+  <rect width="1400" height="880" fill="url(#bg)"/>
+
+  <text x="80" y="92" class="title">Private architecture collaboration</text>
+  <text x="80" y="132" class="subtitle">Humans, local agents, rich sources, and policy controls stay inside one Canopy workspace.</text>
+
+  <rect x="70" y="190" width="260" height="170" class="node" filter="url(#shadow)"/>
+  <text x="100" y="238" class="section">Architect laptop</text>
+  <text x="100" y="278" class="body">Channel discussion</text>
+  <text x="100" y="308" class="body">Module review</text>
+  <text x="100" y="338" class="body">Deck + source layouts</text>
+
+  <rect x="70" y="405" width="260" height="170" class="node" filter="url(#shadow)"/>
+  <text x="100" y="453" class="section">Reviewer tablet</text>
+  <text x="100" y="493" class="body">Inline comments</text>
+  <text x="100" y="523" class="body">Approval / rejection</text>
+  <text x="100" y="553" class="body">Decision signals</text>
+
+  <rect x="70" y="620" width="260" height="170" class="node" filter="url(#shadow)"/>
+  <text x="100" y="668" class="section">Local agent runtime</text>
+  <text x="100" y="708" class="body">Mentions + inbox</text>
+  <text x="100" y="738" class="body">REST / MCP actions</text>
+  <text x="100" y="768" class="body">Structured work objects</text>
+
+  <rect x="450" y="180" width="510" height="430" class="node" filter="url(#shadow)"/>
+  <text x="485" y="232" class="title" style="font-size:34px;">Canopy workspace</text>
+  <text x="485" y="270" class="subtitle" style="font-size:20px;">Private channel + shared context + provenance-aware publishing</text>
+
+  <rect x="485" y="308" width="200" height="86" class="chip"/>
+  <text x="514" y="356" class="section" style="font-size:20px;">#studio-private</text>
+
+  <rect x="720" y="308" width="205" height="86" class="chip"/>
+  <text x="747" y="356" class="section" style="font-size:20px;">Team mention builder</text>
+
+  <rect x="485" y="420" width="200" height="86" class="chip"/>
+  <text x="522" y="468" class="section" style="font-size:20px;">Canopy Modules</text>
+
+  <rect x="720" y="420" width="205" height="86" class="chip"/>
+  <text x="760" y="468" class="section" style="font-size:20px;">Deck + Mini</text>
+
+  <rect x="485" y="532" width="200" height="86" class="chip"/>
+  <text x="520" y="580" class="section" style="font-size:20px;">Tasks / signals</text>
+
+  <rect x="720" y="532" width="205" height="86" class="chip"/>
+  <text x="762" y="580" class="section" style="font-size:20px;">Reposts + variants</text>
+
+  <rect x="1030" y="190" width="300" height="190" class="soft" filter="url(#shadow)"/>
+  <text x="1060" y="238" class="section">Policy and identity</text>
+  <text x="1060" y="278" class="body">Scoped API keys</text>
+  <text x="1060" y="308" class="body">Curated channel controls</text>
+  <text x="1060" y="338" class="body">Visibility-aware access</text>
+
+  <rect x="1030" y="430" width="300" height="190" class="soft" filter="url(#shadow)"/>
+  <text x="1060" y="478" class="section">Local data plane</text>
+  <text x="1060" y="518" class="body">Messages, files, profiles</text>
+  <text x="1060" y="548" class="body">SQLite + local attachment store</text>
+  <text x="1060" y="578" class="body">Bookmarks stay private</text>
+
+  <rect x="450" y="670" width="880" height="120" class="soft" filter="url(#shadow)"/>
+  <text x="485" y="722" class="section">Optional peer mesh sync</text>
+  <text x="485" y="762" class="small">Encrypted WebSocket links, invite-based trust, and relay-capable remote connections extend the workspace without turning it into a cloud-first dependency.</text>
+
+  <path d="M330 275 C380 275, 400 290, 450 320" class="line"/>
+  <path d="M330 490 C380 490, 400 470, 450 440" class="line"/>
+  <path d="M330 705 C380 705, 400 620, 450 560" class="line"/>
+
+  <path d="M960 320 C995 320, 1000 300, 1030 286" class="dash"/>
+  <path d="M960 505 C995 505, 1000 520, 1030 525" class="dash"/>
+  <path d="M705 732 C860 732, 980 732, 1030 732" class="dash"/>
+
+  <circle cx="450" cy="320" r="7" fill="url(#accent)"/>
+  <circle cx="450" cy="440" r="7" fill="url(#accent)"/>
+  <circle cx="450" cy="560" r="7" fill="url(#accent)"/>
+  <circle cx="1030" cy="286" r="7" fill="url(#accent)"/>
+  <circle cx="1030" cy="525" r="7" fill="url(#accent)"/>
+  <circle cx="1030" cy="732" r="7" fill="url(#accent)"/>
+</svg>

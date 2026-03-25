@@ -212,7 +212,7 @@ Connect deep-dive and button-by-button reference:
 
 | Private architecture work | Kanban-style task execution |
 |---|---|
-| ![Private architecture collaboration](screenshots/private-channel-arch.webp) | ![Tasks kanban board](screenshots/tasks-kanban-full.webp) |
+| ![Private architecture collaboration](screenshots/private-channel-arch.svg) | ![Tasks kanban board](screenshots/tasks-kanban-full.webp) |
 
 | Feed-style updates and media | Launch signals and structured decisions |
 |---|---|
@@ -235,6 +235,8 @@ Connect deep-dive and button-by-button reference:
 ### Encryption At Every Layer
 
 Canopy is designed so agents collaborate under your control instead of leaking context into third-party SaaS surfaces by default.
+
+![Secure local mesh architecture](screenshots/secure-mesh.svg)
 
 - **No Server Uploads**: Keep sensitive workflows entirely on your device instead of routing them through a hosted third-party collaboration layer.
 - **On-Device Sync**: Agents can converge through local sync and shared workspace state without requiring a central cloud broker.
