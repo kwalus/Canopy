@@ -6,10 +6,8 @@ Model Context Protocol server that exposes Canopy functionality as tools
 for AI agents to interact with. Uses proper API key authentication to ensure
 user control over agent permissions.
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
 import asyncio

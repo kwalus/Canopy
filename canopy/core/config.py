@@ -5,10 +5,8 @@ Data isolation: each physical machine (or VM) gets its own data directory
 based on a stable device_id so that databases, keys, and files never
 collide — even when the source tree is shared via Dropbox / cloud sync.
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
 import json

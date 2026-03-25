@@ -4,10 +4,8 @@ Web UI routes for Canopy.
 Provides web interface for managing keys, messages, trust scores,
 and all other Canopy functionality through a clean web UI.
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
 import logging
@@ -5082,7 +5080,18 @@ def create_ui_blueprint() -> Blueprint:
             # Ensure user is a member so they can see the channel
             if channel_manager.get_member_role(channel_id, user_id) is None:
                 return redirect(url_for('ui.channels'))
-            return redirect(url_for('ui.channels', channel=channel_id, focus_message=message_id))
+            open_deck = (request.args.get("open_deck") or "").strip().lower()
+            deck_flag = open_deck in ("1", "true", "yes")
+            if deck_flag:
+                return redirect(
+                    url_for(
+                        "ui.channels",
+                        channel=channel_id,
+                        focus_message=message_id,
+                        open_deck="1",
+                    )
+                )
+            return redirect(url_for("ui.channels", channel=channel_id, focus_message=message_id))
         except Exception:
             return redirect(url_for('ui.channels'))
 

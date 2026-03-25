@@ -5,10 +5,8 @@ Runs in a background thread and fires callbacks when:
 - Peer list changes (connect/disconnect)
 - New channel messages arrive
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 from __future__ import annotations
 

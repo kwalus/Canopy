@@ -13,10 +13,8 @@ Invite payload (JSON, then base64url-encoded):
     "ep": ["ws://<ip>:<port>"]     # list of endpoints to try
 }
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
 import base64

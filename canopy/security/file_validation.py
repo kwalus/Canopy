@@ -3,11 +3,11 @@ File upload validation and security checks for Canopy.
 
 Validates file types, sizes, and content to prevent malicious uploads.
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
+
+from __future__ import annotations
 
 import io
 import logging

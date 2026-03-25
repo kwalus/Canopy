@@ -4,10 +4,8 @@ P2P Network Manager for Canopy.
 Coordinates all P2P networking components and provides a unified interface
 for the application layer.
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
 import asyncio

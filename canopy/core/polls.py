@@ -19,10 +19,8 @@ poll: What should we ship next?
 - New UI polish
 duration: 3d
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
 from __future__ import annotations

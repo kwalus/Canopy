@@ -4,21 +4,20 @@ Slack-style channel system for Canopy.
 Implements channel-based organization similar to Slack, with real-time
 messaging, threading, and work-focused communication.
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
 import logging
 import math
+import re
 import secrets
 import json
 import hashlib
 import sqlite3
 import threading
 from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Optional, Any, Union, Tuple, cast
+from typing import Dict, List, Optional, Any, Union, Tuple, cast, Set
 from dataclasses import dataclass
 from enum import Enum
 
@@ -50,6 +49,44 @@ _CHANNEL_VARIANT_RELATIONSHIP_VALUES = {
 }
 _CHANNEL_REPOST_REFERENCE_BODY_MAX_CHARS = 8000
 _CHANNEL_REPOST_REFERENCE_ATTACHMENT_IMAGE_CAP = 6
+_CHANNEL_REPOST_REFERENCE_YOUTUBE_CAP = 6
+
+# YouTube video ids in message body (aligns with client rich-text embed patterns).
+_CHANNEL_YOUTUBE_ID_IN_CONTENT_RE = re.compile(
+    r"(?:https?://)?(?:www\.)?(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/(?:shorts|live)/)([\w-]{11})\b",
+    re.IGNORECASE,
+)
+
+
+def _channel_youtube_embeds_from_content(content: str) -> Dict[str, Any]:
+    """Structured link hints when the original is plain text with YouTube URL(s) (no attachments).
+
+    Matches the common case where the channel row shows inline YouTube embeds from ``content``
+    but ``message_type`` is TEXT and ``attachments`` is empty — repost cards must still get
+    ``has_source_layout`` (Deck) and preview thumbnails for each distinct video (capped).
+    """
+    text = str(content or "")
+    ids_ordered: List[str] = []
+    seen: Set[str] = set()
+    for match in _CHANNEL_YOUTUBE_ID_IN_CONTENT_RE.finditer(text):
+        video_id = str(match.group(1) or "").strip()
+        if len(video_id) != 11 or video_id in seen:
+            continue
+        seen.add(video_id)
+        ids_ordered.append(video_id)
+        if len(ids_ordered) >= _CHANNEL_REPOST_REFERENCE_YOUTUBE_CAP:
+            break
+    if not ids_ordered:
+        return {}
+    first = ids_ordered[0]
+    canonical = f"https://www.youtube.com/watch?v={first}"
+    out: Dict[str, Any] = {
+        "link_url": canonical,
+        "link_title": canonical,
+        "youtube_video_id": first,
+        "youtube_video_ids": ids_ordered,
+    }
+    return out
 
 
 def _normalize_origin_peer_id(value: Any) -> Optional[str]:
@@ -165,30 +202,126 @@ def _safe_channel_created_at_iso(message: Any) -> str:
 def _channel_repost_embed_from_original(message: Any) -> Dict[str, Any]:
     embed: Dict[str, Any] = {}
     attachments = getattr(message, 'attachments', None)
-    if not isinstance(attachments, list):
-        return embed
-
     images: List[Dict[str, str]] = []
+    if isinstance(attachments, list):
+        for item in attachments:
+            if not isinstance(item, dict):
+                continue
+            typ = str(item.get('type') or '')
+            file_id = str(item.get('id') or item.get('file_id') or '').strip()
+            url = str(item.get('url') or '').strip()
+            if not url and file_id:
+                url = f"/files/{file_id}"
+            if not url or not typ.startswith('image/'):
+                continue
+            images.append({
+                'url': url,
+                'name': str(item.get('name') or 'Image'),
+                'type': typ,
+            })
+            if len(images) >= _CHANNEL_REPOST_REFERENCE_ATTACHMENT_IMAGE_CAP:
+                break
+    if images:
+        embed['attachment_images'] = images
+
+    for key, value in _channel_youtube_embeds_from_content(getattr(message, 'content', '')).items():
+        embed.setdefault(key, value)
+
+    return embed
+
+
+def _channel_attachment_list_signals_deck_queue(
+    attachments: Any,
+    db_manager: Any = None,
+) -> bool:
+    """True when attachments include media or a Canopy HTML module the deck can use.
+
+    When attachment dicts only carry ``id``/``file_id`` (common after sync), optional
+    ``db_manager`` resolves ``files.original_name`` / ``content_type`` for the same
+    rules as inline metadata.
+    """
+    if not isinstance(attachments, list):
+        return False
     for item in attachments:
         if not isinstance(item, dict):
             continue
-        typ = str(item.get('type') or '')
-        file_id = str(item.get('id') or item.get('file_id') or '').strip()
-        url = str(item.get('url') or '').strip()
-        if not url and file_id:
-            url = f"/files/{file_id}"
-        if not url or not typ.startswith('image/'):
+        typ = str(
+            item.get('type') or item.get('content_type') or item.get('mime_type') or ''
+        ).lower()
+        name = str(
+            item.get('name')
+            or item.get('filename')
+            or item.get('original_name')
+            or item.get('file_name')
+            or ''
+        ).lower()
+        if typ.startswith('image/') or typ.startswith('video/') or typ.startswith('audio/'):
+            return True
+        if name.endswith('.canopy-module.html') or name.endswith('.canopy-module.htm'):
+            return True
+        if typ.startswith('text/html'):
+            return True
+        if name.endswith('.html') or name.endswith('.htm'):
+            return True
+
+        fid = str(item.get('id') or item.get('file_id') or '').strip()
+        if not fid or not db_manager:
             continue
-        images.append({
-            'url': url,
-            'name': str(item.get('name') or 'Image'),
-            'type': typ,
-        })
-        if len(images) >= _CHANNEL_REPOST_REFERENCE_ATTACHMENT_IMAGE_CAP:
-            break
-    if images:
-        embed['attachment_images'] = images
-    return embed
+        try:
+            with db_manager.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT original_name, content_type FROM files WHERE id = ? LIMIT 1",
+                    (fid,),
+                ).fetchone()
+        except Exception:
+            row = None
+        if not row:
+            continue
+        try:
+            db_name = str(row['original_name'] or '').lower()
+            db_ct = str(row['content_type'] or '').lower()
+        except (TypeError, KeyError, IndexError):
+            continue
+        if db_ct.startswith('image/') or db_ct.startswith('video/') or db_ct.startswith('audio/'):
+            return True
+        if db_name.endswith('.canopy-module.html') or db_name.endswith('.canopy-module.htm'):
+            return True
+        if db_ct.startswith('text/html'):
+            return True
+        if db_name.endswith('.html') or db_name.endswith('.htm'):
+            return True
+    return False
+
+
+def _channel_original_signals_deck_ui(
+    original: Any,
+    embed: Dict[str, Any],
+    db_manager: Any = None,
+) -> bool:
+    """Deck-eligible antecedent without requiring persisted source_layout JSON."""
+    if embed.get('attachment_images'):
+        return True
+    if str(embed.get('link_url') or embed.get('video_url') or '').strip():
+        return True
+    if str(embed.get('youtube_video_id') or '').strip():
+        return True
+    yids = embed.get('youtube_video_ids')
+    if isinstance(yids, list) and any(str(x or '').strip() for x in yids):
+        return True
+    atts = getattr(original, 'attachments', None)
+    if _channel_attachment_list_signals_deck_queue(atts, db_manager):
+        return True
+    mt = getattr(original, 'message_type', None)
+    if mt in (MessageType.IMAGE, MessageType.LINK):
+        return True
+    # FILE (or any row with stored attachments) usually has a renderable surface on the source card.
+    if isinstance(atts, list) and len(atts) > 0 and mt in (
+        MessageType.FILE,
+        MessageType.TEXT,
+        MessageType.THREAD_REPLY,
+    ):
+        return True
+    return False
 
 
 class ChannelType(Enum):
@@ -6097,6 +6230,8 @@ class ChannelManager:
             else ''
         )
         body_text, body_truncated = _truncate_channel_repost_reference_body(original.content)
+        embed = _channel_repost_embed_from_original(original)
+        has_deck_ui = bool(source_layout) or _channel_original_signals_deck_ui(original, embed, self.db)
         try:
             result.update({
                 'available': True,
@@ -6107,8 +6242,8 @@ class ChannelManager:
                 'preview_text': _build_channel_repost_preview_text(original.content),
                 'body_text': body_text,
                 'body_truncated': body_truncated,
-                'embed': _channel_repost_embed_from_original(original),
-                'has_source_layout': bool(source_layout),
+                'embed': embed,
+                'has_source_layout': has_deck_ui,
                 'deck_default_ref': deck_default_ref or None,
             })
         except Exception as preview_err:
@@ -6251,6 +6386,8 @@ class ChannelManager:
             else ''
         )
         body_text, body_truncated = _truncate_channel_repost_reference_body(original.content)
+        embed = _channel_repost_embed_from_original(original)
+        has_deck_ui = bool(source_layout) or _channel_original_signals_deck_ui(original, embed, self.db)
         try:
             result.update({
                 'available': True,
@@ -6261,8 +6398,8 @@ class ChannelManager:
                 'preview_text': _build_channel_repost_preview_text(original.content),
                 'body_text': body_text,
                 'body_truncated': body_truncated,
-                'embed': _channel_repost_embed_from_original(original),
-                'has_source_layout': bool(source_layout),
+                'embed': embed,
+                'has_source_layout': has_deck_ui,
                 'deck_default_ref': deck_default_ref or None,
             })
         except Exception as preview_err:
@@ -6297,6 +6434,8 @@ class ChannelManager:
                 return None
 
             original = cast(Message, eligibility['message'])
+            # Persist the antecedent's channel (same as posting channel in v1; avoids stale param drift).
+            antecedent_channel_id = str(getattr(original, 'channel_id', None) or channel_id or '').strip()
             return self.send_message(
                 channel_id=channel_id,
                 user_id=user_id,
@@ -6306,7 +6445,7 @@ class ChannelManager:
                     'kind': 'repost_v1',
                     'source_type': 'channel_message',
                     'source_id': original.id,
-                    'channel_id': channel_id,
+                    'channel_id': antecedent_channel_id,
                     'created_by_user_id': user_id,
                 },
                 allow_source_reference=True,

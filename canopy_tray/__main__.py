@@ -5,10 +5,8 @@ Usage:
     python -m canopy_tray
     python -m canopy_tray --port 7770
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 from __future__ import annotations
 

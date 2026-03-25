@@ -1,7 +1,6 @@
 # Repost v1 Design Review
 
 Date: 2026-03-23
-Author: Codex
 
 ## Findings First
 

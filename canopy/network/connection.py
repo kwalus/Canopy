@@ -3,10 +3,8 @@ Connection management for Canopy P2P network.
 
 Handles establishing, maintaining, and closing connections to peers.
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
 import asyncio

@@ -4,10 +4,8 @@ Agent action inbox for Canopy.
 Stores per-agent trigger items (e.g., @mentions) so agents can
 pull pending actions without scanning every post.
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
 from __future__ import annotations

@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-03-24
+
+### Added
+- **Canopy Module public-release baseline** — `Canopy Module` is now documented and versioned as a first-class layer in the product surface, making `0.5.0` the right milestone for the first curated public release candidate.
+
+### Changed
+- **Public release scrub** — Removed personal attribution and AI-process metadata from committed code/doc headers that are intended to ship in the public-facing tree.
+- **Release candidate alignment** — Package metadata, README versioning, and operator-facing docs now point to the `0.5.0` surface so the first public candidate is coherent across install, API, MCP, and tray documentation.
+
 ## [0.4.159] - 2026-03-24
 
 ### Fixed

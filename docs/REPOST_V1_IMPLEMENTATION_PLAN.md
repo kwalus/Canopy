@@ -1,7 +1,6 @@
 # Repost v1 Implementation Plan
 
 Date: 2026-03-23
-Author: Codex
 
 Note:
 - `source_reference` is now also reused by `variant_v1` lineage wrappers.

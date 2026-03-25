@@ -4,10 +4,8 @@ Canopy MCP Test Client - July 2025 Edition
 Simple test client to verify MCP server functionality.
 For local/dev use only; uses CANOPY_API_KEY from environment (no credentials in file).
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
 import asyncio

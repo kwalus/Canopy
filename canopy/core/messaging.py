@@ -4,10 +4,8 @@ Core messaging system for Canopy local communication.
 Handles message creation, delivery, and management for local network communication
 with support for different message types and encryption.
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
 import hashlib

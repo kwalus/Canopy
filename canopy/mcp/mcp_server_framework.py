@@ -4,10 +4,8 @@ MCP Server Framework - Reusable HTTP-based MCP server implementation
 
 This framework provides MCPHTTPServer class for building MCP-compliant HTTP servers.
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
 import asyncio

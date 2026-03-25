@@ -4,10 +4,8 @@ Message routing for Canopy P2P network.
 Handles routing messages between peers, including direct messages,
 broadcasts, and multi-hop routing.
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
 import asyncio

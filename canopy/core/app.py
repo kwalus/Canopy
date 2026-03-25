@@ -4,10 +4,8 @@ Main Flask application for Canopy.
 Creates and configures the Flask app with all necessary components
 and routes for the local mesh communication system.
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
 import json

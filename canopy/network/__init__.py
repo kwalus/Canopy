@@ -8,10 +8,8 @@ Provides peer-to-peer communication infrastructure including:
 - Message routing
 - End-to-end encryption
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
 from .identity import PeerIdentity, IdentityManager

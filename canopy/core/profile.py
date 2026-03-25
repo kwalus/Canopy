@@ -2,10 +2,8 @@
 User Profile Management for Canopy.
 Handles user profile information, avatars, and preferences.
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
 import logging

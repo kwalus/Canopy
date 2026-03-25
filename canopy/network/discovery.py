@@ -5,10 +5,8 @@ Supports:
 - mDNS (Multicast DNS) for local network discovery
 - DHT (Distributed Hash Table) for remote peer discovery (future)
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
 import logging

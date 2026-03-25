@@ -4,10 +4,8 @@ Peer identity management for Canopy P2P network.
 Handles cryptographic identities using Ed25519 for signatures
 and X25519 for key exchange.
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
 import os

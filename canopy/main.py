@@ -4,10 +4,8 @@ Main entry point for Canopy application.
 Uses waitress as the production WSGI server (cross-platform: Windows, macOS, Linux).
 Falls back to Flask's development server when --debug is specified.
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
 import logging

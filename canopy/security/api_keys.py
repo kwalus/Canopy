@@ -4,10 +4,8 @@ API Key management system for Canopy.
 Provides granular access control with permissions for different data types
 and operations, supporting the core security model of the application.
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
 import hashlib

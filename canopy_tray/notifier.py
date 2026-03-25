@@ -4,10 +4,8 @@ Notifier - Windows toast notifications for Canopy events.
 Uses winotify for native Windows 10/11 toast notifications.
 Rate-limited to avoid notification spam.
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
 import logging

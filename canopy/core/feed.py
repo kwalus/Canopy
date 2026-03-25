@@ -4,10 +4,8 @@ Social feed system for Canopy.
 Implements Facebook-like timeline posts with permissions, media support,
 and customizable feed algorithms.
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
 from __future__ import annotations
@@ -269,6 +267,105 @@ def _repost_embed_from_original(original: Post) -> Dict[str, Any]:
         pass
 
     return embed
+
+
+_REPOST_EMBED_KEYS_IMPLYING_DECK_QUEUE = frozenset({
+    'link_url',
+    'image_url',
+    'video_url',
+    'audio_url',
+    'attachment_images',
+})
+
+
+def _metadata_has_canopy_module_attachment(metadata: Any, db_manager: Any = None) -> bool:
+    """True when attachments include HTML the feed deck can run (modules or demos).
+
+    Feed UI treats ``.html`` / ``.htm`` attachments as module-capable; MIME is often
+    wrong (e.g. ``application/octet-stream``). Align repost ``has_source_layout`` with
+    that so Deck appears on repost cards.
+
+    When dicts only have ``id``/``file_id``, optional ``db_manager`` reads ``files``
+    for ``original_name`` / ``content_type``.
+    """
+    if not isinstance(metadata, dict):
+        return False
+    attachments = metadata.get('attachments')
+    if not isinstance(attachments, list):
+        return False
+    for item in attachments:
+        if not isinstance(item, dict):
+            continue
+        typ = str(
+            item.get('type') or item.get('content_type') or item.get('mime_type') or ''
+        ).lower()
+        name = str(
+            item.get('name')
+            or item.get('filename')
+            or item.get('original_name')
+            or item.get('file_name')
+            or ''
+        ).lower()
+        if name.endswith('.canopy-module.html') or name.endswith('.canopy-module.htm'):
+            return True
+        if typ.startswith('text/html'):
+            return True
+        if name.endswith('.html') or name.endswith('.htm'):
+            return True
+
+        fid = str(item.get('id') or item.get('file_id') or '').strip()
+        if not fid or not db_manager:
+            continue
+        try:
+            with db_manager.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT original_name, content_type FROM files WHERE id = ? LIMIT 1",
+                    (fid,),
+                ).fetchone()
+        except Exception:
+            row = None
+        if not row:
+            continue
+        try:
+            db_name = str(row['original_name'] or '').lower()
+            db_ct = str(row['content_type'] or '').lower()
+        except (TypeError, KeyError, IndexError):
+            continue
+        if db_ct.startswith('image/') or db_ct.startswith('video/') or db_ct.startswith('audio/'):
+            return True
+        if db_name.endswith('.canopy-module.html') or db_name.endswith('.canopy-module.htm'):
+            return True
+        if db_ct.startswith('text/html'):
+            return True
+        if db_name.endswith('.html') or db_name.endswith('.htm'):
+            return True
+    return False
+
+
+def _metadata_has_any_file_attachment(metadata: Any) -> bool:
+    """True when the post metadata lists at least one stored file attachment by id.
+
+    Covers replication/sync where filenames or MIME are missing on the message row but
+    the source post still has a deck-capable surface when opened.
+    """
+    if not isinstance(metadata, dict):
+        return False
+    attachments = metadata.get('attachments')
+    if not isinstance(attachments, list):
+        return False
+    for item in attachments:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get('id') or item.get('file_id') or '').strip():
+            return True
+    return False
+
+
+def _repost_embed_implies_deck_queue(embed: Dict[str, Any]) -> bool:
+    """True when structured repost embed carries media the deck can queue."""
+    if not embed:
+        return False
+    return any(key in embed for key in _REPOST_EMBED_KEYS_IMPLYING_DECK_QUEUE)
 
 
 @dataclass
@@ -1326,6 +1423,15 @@ class FeedManager:
         )
         body_text, body_truncated = _truncate_repost_reference_body(original.content)
         embed = _repost_embed_from_original(original)
+        meta = original.metadata if isinstance(original.metadata, dict) else {}
+        # UI uses has_source_layout to show the Deck control on repost cards; originals may
+        # be deck-capable via media/embed/module attachments without persisted source_layout.
+        has_deck_ui = (
+            bool(source_layout)
+            or _repost_embed_implies_deck_queue(embed)
+            or _metadata_has_canopy_module_attachment(meta, self.db)
+            or _metadata_has_any_file_attachment(meta)
+        )
         result.update({
             'available': True,
             'unavailable_reason': None,
@@ -1337,7 +1443,7 @@ class FeedManager:
             'body_text': body_text,
             'body_truncated': body_truncated,
             'embed': embed,
-            'has_source_layout': bool(source_layout),
+            'has_source_layout': has_deck_ui,
             'deck_default_ref': deck_default_ref or None,
         })
         return result
@@ -1424,6 +1530,14 @@ class FeedManager:
             else ''
         )
         body_text, body_truncated = _truncate_repost_reference_body(original.content)
+        embed = _repost_embed_from_original(original)
+        meta = original.metadata if isinstance(original.metadata, dict) else {}
+        has_deck_ui = (
+            bool(source_layout)
+            or _repost_embed_implies_deck_queue(embed)
+            or _metadata_has_canopy_module_attachment(meta, self.db)
+            or _metadata_has_any_file_attachment(meta)
+        )
         result.update({
             'available': True,
             'unavailable_reason': None,
@@ -1434,8 +1548,8 @@ class FeedManager:
             'preview_text': _build_preview_text(original.content),
             'body_text': body_text,
             'body_truncated': body_truncated,
-            'embed': _repost_embed_from_original(original),
-            'has_source_layout': bool(source_layout),
+            'embed': embed,
+            'has_source_layout': has_deck_ui,
             'deck_default_ref': deck_default_ref or None,
         })
         return result

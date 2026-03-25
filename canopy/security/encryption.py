@@ -8,10 +8,8 @@ without the instance's private key.
 
 Uses ChaCha20-Poly1305 (AEAD) with keys derived from the local peer identity.
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
 import hashlib

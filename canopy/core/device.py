@@ -10,10 +10,8 @@ The device_id is used to create a per-device data directory inside the
 project (e.g. ./data/devices/<device_id>/) so that databases, peer keys,
 uploaded files, and session secrets are fully isolated per machine.
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
 import json

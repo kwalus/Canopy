@@ -4,10 +4,8 @@ Mention event handling for Canopy.
 Stores per-user mention events and provides helpers to resolve
 @mentions in content so agents can react on demand.
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
 from __future__ import annotations

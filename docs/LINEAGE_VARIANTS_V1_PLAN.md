@@ -1,7 +1,6 @@
 # Lineage Variants v1
 
-Date: 2026-03-23  
-Author: Codex
+Date: 2026-03-23
 
 ## Scope
 

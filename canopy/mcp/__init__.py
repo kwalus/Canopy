@@ -4,10 +4,8 @@ Canopy MCP Module
 Model Context Protocol integration for Canopy, allowing AI agents to interact
 with Canopy functionality through standardized MCP tools.
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
 from typing import Any

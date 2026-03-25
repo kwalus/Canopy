@@ -4,10 +4,8 @@ ServerManager - manages the Canopy Flask server lifecycle.
 Starts the Flask server in a background daemon thread and provides
 start/stop/status controls for the tray application.
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 from __future__ import annotations
 

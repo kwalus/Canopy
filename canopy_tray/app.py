@@ -4,10 +4,8 @@ TrayApp - main orchestrator for the Canopy system tray application.
 Creates a pystray icon with a context menu, manages the server lifecycle,
 monitors status, and dispatches notifications.
 
-Author: Konrad Walus (architecture, design, and direction)
 Project: Canopy - Local Mesh Communication
 License: Apache 2.0
-Development: AI-assisted implementation (Claude, Codex, GitHub Copilot, Cursor IDE, Ollama)
 """
 
 import logging
