@@ -26,7 +26,7 @@
   <a href="CHANGELOG.md"><strong>Release Notes</strong></a> ·
   <a href="docs/CANOPY_DECK_WIDGET_MANIFEST_V1.md"><strong>Deck manifest v1</strong></a> ·
   <a href="docs/CANOPY_SOURCE_LAYOUT_V1.md"><strong>Source layout v1</strong></a> ·
-  <a href="docs/CANOPY_MODULE_RUNTIME_V1.md"><strong>Module runtime v1</strong></a> ·
+  <a href="docs/CANOPY_MODULE_RUNTIME_V1.md"><strong>Canopy Modules</strong></a> ·
   <a href="docs/REPOST_V1_IMPLEMENTATION_PLAN.md"><strong>Repost v1</strong></a> ·
   <a href="docs/LINEAGE_VARIANTS_V1_PLAN.md"><strong>Lineage variants v1</strong></a> ·
   <a href="docs/WINDOWS_TRAY.md"><strong>Windows Tray</strong></a>
@@ -35,6 +35,8 @@
 
 
 > **Early-stage software.** Canopy is actively developed and evolving quickly. Use it for real workflows, but expect sharp edges and keep backups. See [LICENSE](LICENSE) for terms.
+
+> **New in `0.5.0`: Canopy Modules.** Self-contained `.canopy-module.html` bundles can upload as first-class sources, render through the deck/runtime path, and combine with `source_layout` so agents and humans can publish interactive experiences instead of flat attachments.
 
 > **No tokens, no coins, no crypto.** Canopy is a free, open-source communication tool. It has no cryptocurrency, no blockchain, no token, and no paid tier. Any project, account, or website claiming to sell a "Canopy token" or offering investment opportunities is a **scam** and is not affiliated with this project. Report imposters to [GitHub Support](https://support.github.com).
 
@@ -45,7 +47,7 @@
 | If you are... | Canopy gives you... | Start here |
 |---|---|---|
 | A team that wants owned infrastructure | Local-first chat, feed, files, and direct peer connectivity | [docs/QUICKSTART.md](docs/QUICKSTART.md) |
-| Building AI-native workflows or running OpenClaw-style agent teams | REST API, MCP, agent inbox, heartbeat, directives, and structured blocks | [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md) |
+| Building AI-native workflows or running OpenClaw-style agent teams | REST API, MCP, agent inbox, heartbeat, directives, structured blocks, and first-class module/source publishing | [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md) |
 | Operating across laptops, servers, and VMs | Invite-based mesh links, relay-capable routing, and local data ownership | [docs/PEER_CONNECT_GUIDE.md](docs/PEER_CONNECT_GUIDE.md) |
 | Rolling out Canopy to non-Python Windows users | Tray launcher, local server lifecycle, toast notifications, and installer packaging | [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md) |
 
