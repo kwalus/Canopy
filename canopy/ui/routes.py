@@ -3409,11 +3409,6 @@ def create_ui_blueprint() -> Blueprint:
         if landing in ('feed', 'channels', 'messages'):
             return redirect(url_for(f'ui.{landing}'))
 
-        user_id = get_current_user()
-        onboarding = _build_workspace_onboarding(user_id, page='channels')
-        if onboarding.get('show'):
-            return redirect(url_for('ui.channels', channel='general'))
-
         # Smart default: mobile → feed, desktop → channels
         ua = (request.headers.get('User-Agent') or '').lower()
         is_mobile = any(kw in ua for kw in ('iphone', 'android', 'mobile', 'ipod'))
@@ -5185,12 +5180,7 @@ def create_ui_blueprint() -> Blueprint:
                                  is_admin=_is_admin(),
                                  channel_sidebar_rev=channel_sidebar_snapshot.get('rev', ''),
                                  workspace_event_cursor=workspace_event_cursor,
-                                 poll_edit_window_seconds=poll_edit_window_seconds(),
-                                 workspace_onboarding=_build_workspace_onboarding(
-                                     user_id,
-                                     page='channels',
-                                     channels_count=len(channels),
-                                 ))
+                                 poll_edit_window_seconds=poll_edit_window_seconds())
                                  
         except Exception as e:
             logger.error(f"Channels error: {e}")
