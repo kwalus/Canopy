@@ -154,7 +154,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - **`docs/REPOST_V1_IMPLEMENTATION_PLAN.md`** — Read/render contract (`body_text`, `embed`, `channel_id`); API/UI/P2P shipped summary.
 
 ### Notes
-- Prepares repo docs for upcoming **public** push curation; **Canopy-Dev** should carry the same doc set as the primary dev tree.
+- Prepares repo docs for upcoming **public** release curation so the public-facing documentation stays aligned with the primary development tree.
 
 ## [0.4.140] - 2026-03-23
 
@@ -356,7 +356,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - **Canopy Module bundle validation** — Filenames ending in `.canopy-module.html` / `.canopy-module.htm` use `_validate_canopy_module_bundle()`: UTF-8 HTML document, **300 KiB** max, inline script allowed; blocks external scripts, inline event handlers, CSP override meta, embedded browsing tags, and non–self-contained resource URLs (`data:` / `blob:` / `#` only).
 - **Module-aware MIME inference** — Generic uploads (`application/octet-stream`, etc.) still normalize to `text/html` when the filename extension implies HTML, so agents can upload modules without spoofing types.
 - **Module preview semantics** — `build_file_preview()` returns `previewable: false`, `kind: "module"` for module bundles; `is_text_previewable()` excludes them.
-- **Sample module** — `canopy/ui/static/modules/piano-lab-v1.canopy-module.html` for regression tests and manual deck checks.
+- **Module bundle coverage** — Generic `Canopy Module` fixtures are covered in validation and manual deck-check workflows without shipping a local showcase bundle in the public repo.
 - **Documentation** — `docs/CANOPY_MODULE_RUNTIME_V1.md` and cross-links in README / API / agent docs.
 
 ### Changed
@@ -370,7 +370,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 ## [0.4.121] - 2026-02-27
 
 ### Changed
-- **Version bump** — Canopy-Dev / local testing alignment; no functional runtime change in this commit.
+- **Version bump** — release-candidate alignment for current local testing; no functional runtime change in this commit.
 
 ### Documentation
 - **Agent note (local only)** — `agent_note/AGENT_NOTE_CANOPY_MODULE_RUNTIME_V1_SCAFFOLD_2026-03-20.md` revised: repo-relative paths, explicit capability allowlist and gating (`context.get` vs broker methods), `CanopyModule` API, CSP/sandbox notes, link to `docs/CANOPY_MODULE_RUNTIME_V1.md`.

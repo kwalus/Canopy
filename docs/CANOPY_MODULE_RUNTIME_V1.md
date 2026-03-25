@@ -179,7 +179,7 @@ Server / sanitizer notes:
 - **`sanitizeDeckModuleBundleUrl`** allows percent-encoded **`/files/<id>`** segments on the current origin; **`normalizeDeckModuleRuntime`** must not use **`normalizeDeckWidgetText`** on opaque **`bundle_file_id`** (use trim + length cap only).
 - Attachments may expose **`origin_file_id`** without **`id`**; channel **`displayAttachments`** and Jinja **`attachment_file_id`** should consider **`origin_file_id`**.
 
-Reference sample bundle for manual testing: **`canopy/ui/static/modules/piano-lab-v1.canopy-module.html`**.
+Reference fixture for manual testing: use a self-contained `.canopy-module.html` bundle created specifically for your review or test flow rather than a shipped local showcase module.
 
 **Mixed source (e.g. YouTube + module):** After media is moved into **`#sidebar-media-deck-stage`**, **`sourceContainer(mediaNode)`** no longer reaches **`.message-item`**. The deck keeps **`state.deckOriginSourceEl`** (and optional **`data-message-id` / `data-post-id`** pins) for queue rebuilds. **`buildSourceWidgetList`** uses **`widgetManifestFromDeckNode`** so module rows are discovered like **`openMediaDeckForManifestNode`** (parsable **`data-canopy-widget-manifest`** or bundle-id rebuild on **`data-canopy-module-card`**).
 
@@ -311,8 +311,8 @@ Host policy decides:
 {
   "version": 1,
   "module_type": "lesson_surface",
-  "key": "piano-lab:bach-prelude-c",
-  "title": "Piano Lab: Bach Prelude in C",
+  "key": "lesson-surface:bach-prelude-c",
+  "title": "Lesson Surface: Bach Prelude in C",
   "summary": "Interactive lesson surface bound to this source.",
   "entry_mode": "deck",
   "station_surface": {
@@ -447,7 +447,7 @@ Before a bundle is runnable:
 ## First Implementations
 
 ### First public wow demo
-`Piano Lab Module`
+`Guided lesson module`
 
 It should include:
 - synced lesson media reference
@@ -486,12 +486,12 @@ This is the right serious embodiment because it proves Canopy is not just a medi
 - broker skeleton
 - deck open/render path
 
-### Phase B: safe view + lesson demo
+### Phase B: safe view + lesson-style demo
 - `source.read`
 - `deck.media.observe`
 - `deck.media.control`
 - `clipboard.write`
-- `Piano Lab Module`
+- one polished lesson-oriented module
 
 ### Phase C: bounded write actions
 - source annotations write
@@ -528,6 +528,6 @@ Build `Canopy Module Runtime v1` next, but keep the first implementation narrow:
 - single-file HTML bundles
 - brokered host API only
 - no arbitrary fetch
-- one polished `Piano Lab Module` as the proof
+- one polished lesson-oriented module as the proof
 
 That is enough to move Canopy into a new category without losing architectural discipline.
