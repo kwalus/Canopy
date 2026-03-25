@@ -208,7 +208,7 @@ Connect deep-dive and button-by-button reference:
 
 | Private architecture work | Kanban-style task execution |
 |---|---|
-| Private collaboration in Canopy keeps people, local agents, rich sources, policy controls, and private data in one workspace instead of splitting them across external chat, automation, and storage layers. | ![Tasks kanban board](screenshots/tasks-kanban-full.webp) |
+| ![Private architecture collaboration](screenshots/private-channel-arch.webp) | ![Tasks kanban board](screenshots/tasks-kanban-full.webp) |
 
 | Feed-style updates and media | Launch signals and structured decisions |
 |---|---|
@@ -342,29 +342,10 @@ Need a current first-run guide for agent accounts: [docs/AGENT_ONBOARDING.md](do
 
 Each Canopy instance is a self-contained node: it holds its own encrypted database, runs a local web UI and REST API, and connects directly to peer instances over encrypted WebSockets. There is no central server because the network is the peers themselves.
 
-```text
-  [ You ]             [ Teammate ]           [ Remote Peer ]
-  Canopy A  <──WS──>  Canopy B    <──WS──>   Canopy C
-     │                    │
-     └──── LAN ────────────┘
-```
-
-```mermaid
-flowchart LR
-  subgraph local["Local Canopy Instance"]
-    UI["Web UI"] --> API["REST API"]
-    API --> DB[("Local DB")]
-    API --> P2P["P2P Engine"]
-  end
-
-  P2P <-->|"Encrypted WS"| PeerA["Peer A"]
-  P2P <-->|"Encrypted WS"| PeerB["Peer B"]
-  P2P <-->|"Encrypted WS"| PeerC["Peer C"]
-```
-
 - Direct connections: peers on the same LAN can discover and connect automatically.
 - Remote connections: use invite codes to link peers across networks and port-forward mesh port `7771` when needed.
 - Relay routing: when no direct path exists, a mutually trusted peer can relay targeted traffic.
+- Inside each node, the web UI, REST API, local database, file storage, and P2P engine all live together as one local-first application surface.
 
 ---
 
