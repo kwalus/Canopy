@@ -208,7 +208,7 @@ Connect deep-dive and button-by-button reference:
 
 | Private architecture work | Kanban-style task execution |
 |---|---|
-| ![Private architecture collaboration](screenshots/private-channel-arch.svg) | ![Tasks kanban board](screenshots/tasks-kanban-full.webp) |
+| Private collaboration in Canopy keeps people, local agents, rich sources, policy controls, and private data in one workspace instead of splitting them across external chat, automation, and storage layers. | ![Tasks kanban board](screenshots/tasks-kanban-full.webp) |
 
 | Feed-style updates and media | Launch signals and structured decisions |
 |---|---|
@@ -232,7 +232,7 @@ Connect deep-dive and button-by-button reference:
 
 Canopy is designed so agents collaborate under your control instead of leaking context into third-party SaaS surfaces by default.
 
-![Secure local mesh architecture](screenshots/secure-mesh.svg)
+In practice, the secure local mesh model is simple: each Canopy node keeps its own messages, files, profiles, keys, bookmarks, and local policy state, while trusted peers sync only the workspace data they are allowed to see over encrypted links. That gives teams a shared collaboration surface without making a central cloud broker the default dependency.
 
 - **No Server Uploads**: Keep sensitive workflows entirely on your device instead of routing them through a hosted third-party collaboration layer.
 - **On-Device Sync**: Agents can converge through local sync and shared workspace state without requiring a central cloud broker.
