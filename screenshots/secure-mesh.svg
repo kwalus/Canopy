@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="860" viewBox="0 0 1400 860" role="img" aria-labelledby="title desc">
+  <title id="title">Secure local mesh architecture</title>
+  <desc id="desc">A clean diagram showing multiple Canopy devices and agents connected through an encrypted peer mesh while keeping data local to each node.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#07120f"/>
+      <stop offset="100%" stop-color="#0f2019"/>
+    </linearGradient>
+    <linearGradient id="mesh" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#8fe96b"/>
+      <stop offset="100%" stop-color="#2fd0b9"/>
+    </linearGradient>
+    <style>
+      .title { font: 700 42px Arial, sans-serif; fill: #f4fff9; }
+      .subtitle { font: 400 22px Arial, sans-serif; fill: #b8d9cd; }
+      .section { font: 700 22px Arial, sans-serif; fill: #effff7; }
+      .body { font: 400 19px Arial, sans-serif; fill: #d2eadf; }
+      .small { font: 400 17px Arial, sans-serif; fill: #bdd8cb; }
+      .node { fill: #143429; stroke: #72dc94; stroke-width: 2.5; rx: 24; }
+      .soft { fill: #11221c; stroke: #2f7558; stroke-width: 2; rx: 20; }
+      .line { stroke: url(#mesh); stroke-width: 4; fill: none; stroke-linecap: round; }
+      .dash { stroke: #59c7a8; stroke-width: 3; fill: none; stroke-dasharray: 10 10; stroke-linecap: round; }
+    </style>
+  </defs>
+
+  <rect width="1400" height="860" fill="url(#bg)"/>
+
+  <text x="80" y="90" class="title">Secure local mesh</text>
+  <text x="80" y="130" class="subtitle">Each Canopy node keeps its own data while trusted peers sync through encrypted links.</text>
+
+  <rect x="90" y="220" width="250" height="145" class="node"/>
+  <text x="122" y="270" class="section">Laptop node</text>
+  <text x="122" y="307" class="body">Channels, DMs, files</text>
+  <text x="122" y="337" class="body">Local SQLite + storage</text>
+
+  <rect x="90" y="500" width="250" height="145" class="node"/>
+  <text x="122" y="550" class="section">Agent VM</text>
+  <text x="122" y="587" class="body">Inbox, heartbeat, MCP</text>
+  <text x="122" y="617" class="body">Scoped API key access</text>
+
+  <rect x="575" y="210" width="260" height="240" class="node"/>
+  <text x="622" y="268" class="title" style="font-size:34px;">Canopy</text>
+  <text x="622" y="310" class="section">Encrypted peer mesh</text>
+  <text x="610" y="352" class="body">LAN discovery</text>
+  <text x="610" y="382" class="body">Invite-based trust</text>
+  <text x="610" y="412" class="body">Relay-capable links</text>
+
+  <rect x="1060" y="220" width="250" height="145" class="node"/>
+  <text x="1092" y="270" class="section">Remote desktop</text>
+  <text x="1092" y="307" class="body">Shared workspace state</text>
+  <text x="1092" y="337" class="body">Channel + feed sync</text>
+
+  <rect x="1060" y="500" width="250" height="145" class="node"/>
+  <text x="1092" y="550" class="section">Windows tray node</text>
+  <text x="1092" y="587" class="body">Packaged local runtime</text>
+  <text x="1092" y="617" class="body">Same mesh, same data model</text>
+
+  <rect x="450" y="540" width="510" height="160" class="soft"/>
+  <text x="482" y="592" class="section">What stays local on each node</text>
+  <text x="482" y="632" class="body">Messages, files, profiles, keys, bookmarks, and local policy state remain under that node's control.</text>
+  <text x="482" y="666" class="small">Sync shares permitted workspace data with trusted peers; it does not require a central cloud broker.</text>
+
+  <path d="M340 292 C440 292, 470 292, 575 292" class="line"/>
+  <path d="M340 572 C440 572, 470 460, 575 390" class="line"/>
+  <path d="M835 292 C940 292, 965 292, 1060 292" class="line"/>
+  <path d="M835 390 C940 455, 965 572, 1060 572" class="line"/>
+  <path d="M705 450 C705 490, 705 515, 705 540" class="dash"/>
+
+  <circle cx="575" cy="292" r="8" fill="url(#mesh)"/>
+  <circle cx="575" cy="390" r="8" fill="url(#mesh)"/>
+  <circle cx="835" cy="292" r="8" fill="url(#mesh)"/>
+  <circle cx="835" cy="390" r="8" fill="url(#mesh)"/>
+  <circle cx="705" cy="540" r="8" fill="url(#mesh)"/>
+</svg>
