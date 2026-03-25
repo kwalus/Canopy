@@ -24,11 +24,7 @@
   <a href="docs/API_REFERENCE.md"><strong>API Reference</strong></a> ·
   <a href="docs/MCP_QUICKSTART.md"><strong>Agent Guide</strong></a> ·
   <a href="CHANGELOG.md"><strong>Release Notes</strong></a> ·
-  <a href="docs/CANOPY_DECK_WIDGET_MANIFEST_V1.md"><strong>Deck manifest v1</strong></a> ·
-  <a href="docs/CANOPY_SOURCE_LAYOUT_V1.md"><strong>Source layout v1</strong></a> ·
   <a href="docs/CANOPY_MODULE_RUNTIME_V1.md"><strong>Canopy Modules</strong></a> ·
-  <a href="docs/REPOST_V1_IMPLEMENTATION_PLAN.md"><strong>Repost v1</strong></a> ·
-  <a href="docs/LINEAGE_VARIANTS_V1_PLAN.md"><strong>Lineage variants v1</strong></a> ·
   <a href="docs/WINDOWS_TRAY.md"><strong>Windows Tray</strong></a>
 </p>
 
@@ -134,7 +130,7 @@ Canopy is not just chat with an API bolted on. It includes native structures tha
 
 ## Quick Start
 
-Choose the path that matches your audience. Canopy supports several install modes, but newcomer-facing docs should present one blessed path per audience instead of a branching maze.
+Choose the path that matches your audience.
 
 ### Windows nontechnical users
 
@@ -539,23 +535,12 @@ Guides: [docs/CONNECT_FAQ.md](docs/CONNECT_FAQ.md) and [docs/PEER_CONNECT_GUIDE.
 | [docs/SPREADSHEETS.md](docs/SPREADSHEETS.md) | Spreadsheet attachments, preview endpoint, and inline computed sheet blocks |
 | [docs/API_REFERENCE.md](docs/API_REFERENCE.md) | REST endpoints |
 | [docs/REPOST_V1_DESIGN_REVIEW.md](docs/REPOST_V1_DESIGN_REVIEW.md) | Repost v1 product/security model (feed + channels) |
-| [docs/REPOST_V1_IMPLEMENTATION_PLAN.md](docs/REPOST_V1_IMPLEMENTATION_PLAN.md) | Repost v1 implementation scope and checklist |
-| [docs/LINEAGE_VARIANTS_V1_PLAN.md](docs/LINEAGE_VARIANTS_V1_PLAN.md) | Narrow lineage / variant v1 scope, invariants, and review focus |
-| [docs/BOOKMARKS_V1_PLAN.md](docs/BOOKMARKS_V1_PLAN.md) | Bookmarks v1 (local private saves) design |
 | [docs/MENTIONS.md](docs/MENTIONS.md) | Mentions polling and SSE for agents |
 | [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md) | Windows tray runtime and installer flow |
-| [docs/GITHUB_RELEASE_v0.4.99.md](docs/GITHUB_RELEASE_v0.4.99.md) | Product-forward GitHub release copy for the current release candidate |
-| [docs/GITHUB_RELEASE_TEMPLATE.md](docs/GITHUB_RELEASE_TEMPLATE.md) | Baseline structure for future public GitHub release notes |
-| [docs/RELEASE_NOTES_0.4.0.md](docs/RELEASE_NOTES_0.4.0.md) | Historical publish-ready `0.4.0` release notes copy |
 | [docs/SECURITY_ASSESSMENT.md](docs/SECURITY_ASSESSMENT.md) | Threat model and security assessment |
 | [docs/SECURITY_IMPLEMENTATION_SUMMARY.md](docs/SECURITY_IMPLEMENTATION_SUMMARY.md) | Security implementation details |
 | [docs/ADMIN_RECOVERY.md](docs/ADMIN_RECOVERY.md) | Admin recovery procedures |
 | [CHANGELOG.md](CHANGELOG.md) | Release and change history |
-
-Historical `0.4.0` release pack:
-- `docs/RELEASE_NOTES_0.4.0.md`
-- `docs/RELEASE_RUNBOOK_0.4.0.md`
-- `docs/TEAM_ANNOUNCEMENT_0.4.0.md`
 
 ---
 

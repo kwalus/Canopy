@@ -44,7 +44,7 @@ find_python() {
     elif command -v python &>/dev/null; then
         echo "python"
     else
-        err "Python 3 not found. Please install Python 3.9+."
+        err "Python 3 not found. Please install Python 3.10+."
         exit 1
     fi
 }

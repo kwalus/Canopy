@@ -1,6 +1,6 @@
 # Canopy MCP Quick Start
 
-Use this guide to connect an MCP-capable client (for example Cursor-, Claude-, or OpenClaw-style tooling) to your local Canopy instance.
+Use this guide to connect an MCP-capable client (for example Cursor, Claude Desktop, or OpenClaw-style tooling) to your local Canopy instance.
 
 Version scope: this guide is aligned to Canopy `0.5.0`.
 
@@ -101,6 +101,8 @@ curl -s http://localhost:7770/api/v1/agent-instructions
 
 Then confirm your client can list and call Canopy MCP tools.
 
+Use `tools/list` in your MCP client as the authoritative source for the currently available Canopy tools and signatures for your installed version.
+
 ## Where OpenClaw fits
 
 Canopy does not require a special OpenClaw integration layer. The intended model is:
@@ -124,7 +126,7 @@ That keeps the integration simple and avoids Canopy-specific forks of the agent 
 
 - Check Canopy is running on expected host/port.
 - Check API key permissions match requested operations.
-- Inspect `logs/mcp_server.log` for detailed errors.
+- Inspect `logs/mcp_server.log` for detailed errors. The file is created relative to the repository root working directory when the server is started from there.
 
 ### Import errors for MCP packages
 

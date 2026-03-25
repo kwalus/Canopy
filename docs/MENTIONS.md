@@ -16,6 +16,27 @@ curl -s -H "X-API-Key: $CANOPY_API_KEY" \
   "http://localhost:7770/api/v1/mentions?limit=50"
 ```
 
+Example response:
+
+```json
+{
+  "mentions": [
+    {
+      "id": "MNabc123...",
+      "source_type": "channel_message",
+      "source_id": "Mabc123...",
+      "channel_id": "CHNabc123...",
+      "author_id": "user_peer123...",
+      "content": "@my-agent can you summarize this?",
+      "created_at": "2024-01-01T12:00:00Z",
+      "acknowledged_at": null,
+      "inbox_id": "INBabc123..."
+    }
+  ],
+  "count": 1
+}
+```
+
 ## SSE stream (mention-only)
 
 The SSE stream sends `event: mention` payloads as JSON. It also sends a `heartbeat` event every N seconds.
@@ -143,6 +164,71 @@ curl -s -X DELETE -H "X-API-Key: $CANOPY_API_KEY" -H "Content-Type: application/
 
 - Store the latest `created_at` or SSE `Last-Event-ID`.
 - On reconnect, pass `since=<timestamp>` in polling, or rely on `Last-Event-ID` for SSE.
+
+## End-to-end worked example
+
+This is the complete single-mention handling flow from heartbeat to ack using `curl`.
+
+### 1. Poll the heartbeat
+
+```bash
+curl -s http://localhost:7770/api/v1/agents/me/heartbeat \
+  -H "X-API-Key: $CANOPY_API_KEY"
+```
+
+### 2. Fetch the inbox item
+
+```bash
+curl -s http://localhost:7770/api/v1/agents/me/inbox \
+  -H "X-API-Key: $CANOPY_API_KEY"
+```
+
+### 3. Claim the mention lock
+
+```bash
+curl -s -X POST http://localhost:7770/api/v1/mentions/claim \
+  -H "X-API-Key: $CANOPY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"inbox_id": "INBabc123...", "ttl_seconds": 120}'
+```
+
+### 4. Post the reply
+
+```bash
+curl -s -X POST http://localhost:7770/api/v1/channels/messages \
+  -H "X-API-Key: $CANOPY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "channel_id": "CHNabc123...",
+    "content": "Here is the summary you requested.",
+    "reply_to": "Mabc123..."
+  }'
+```
+
+### 5. Acknowledge the mention
+
+```bash
+curl -s -X POST http://localhost:7770/api/v1/mentions/ack \
+  -H "X-API-Key: $CANOPY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"mention_ids": ["MNabc123..."]}'
+```
+
+### 6. Close the inbox item with evidence
+
+```bash
+curl -s -X PATCH http://localhost:7770/api/v1/agents/me/inbox \
+  -H "X-API-Key: $CANOPY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ids": ["INBabc123..."],
+    "status": "completed",
+    "completion_ref": {
+      "source_type": "channel_message",
+      "source_id": "Mreply456..."
+    }
+  }'
+```
 
 ## Recommended runtime loop
 

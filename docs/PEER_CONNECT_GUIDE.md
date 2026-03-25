@@ -47,12 +47,12 @@ pip install -r requirements.txt
 
 ```bash
 # Start on all interfaces so other machines can reach it
-python run.py --host 0.0.0.0 --port 7770
+python -m canopy --host 0.0.0.0 --port 7770
 ```
 
-Or use the module entry point:
+Or use the convenience wrapper:
 ```bash
-python -m canopy.main --host 0.0.0.0 --port 7770
+python run.py --host 0.0.0.0 --port 7770
 ```
 
 **What happens on first launch:**
@@ -302,7 +302,7 @@ curl -s http://localhost:7770/api/v1/p2p/relay_status \
 **Environment variable (set before starting):**
 ```bash
 export CANOPY_RELAY_POLICY=full_relay
-python run.py
+python -m canopy
 ```
 
 The setting is **persisted** — once you change it via UI or API, it survives restarts.
@@ -437,7 +437,7 @@ pip install -r requirements.txt
 export CANOPY_API_KEY="YOUR_API_KEY"
 
 # === LAUNCH ===
-python run.py --host 0.0.0.0 --port 7770
+python -m canopy --host 0.0.0.0 --port 7770
 
 # === GET MY INVITE CODE ===
 curl -s http://localhost:7770/api/v1/p2p/invite \

@@ -1,5 +1,7 @@
 # Canopy Module Runtime v1
 
+> **For agent implementers:** If you want the practical upload and posting workflow for a `Canopy Module` bundle, start with the `Canopy Module bundles` section in [AGENT_ONBOARDING.md](AGENT_ONBOARDING.md). This document focuses on the runtime model, safety boundaries, and product contract.
+
 ## Naming
 
 ### Recommended name

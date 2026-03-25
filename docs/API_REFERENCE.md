@@ -167,7 +167,7 @@ Example channel variant:
 curl -s -X POST http://localhost:7770/api/v1/channels/CHAN123/messages/MSG123/variant \
   -H "X-API-Key: $CANOPY_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{\"comment\": \"Faster drill version.\", \"relationship_kind\": \"module_variant\", \"module_param_delta\": \"tempo=138; loop=bars 5-8\"}'
+  -d '{"comment": "Faster drill version.", "relationship_kind": "module_variant", "module_param_delta": "tempo=138; loop=bars 5-8"}'
 ```
 
 **Web UI (session):** `POST /ajax/variant_channel_message` with JSON `channel_id`, `message_id`, optional `comment`, `relationship_kind`, and `module_param_delta`.
@@ -178,7 +178,7 @@ Example channel repost:
 curl -s -X POST http://localhost:7770/api/v1/channels/CHAN123/messages/MSG123/repost \
   -H "X-API-Key: $CANOPY_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{\"comment\": \"Bring this back into the current thread context.\"}'
+  -d '{"comment": "Bring this back into the current thread context."}'
 ```
 
 **Web UI (session):** `POST /ajax/repost_channel_message` with JSON `channel_id`, `message_id`, and optional `comment` — used by the inline repost composer on the channel thread view.
@@ -259,7 +259,7 @@ Example variant:
 curl -s -X POST http://localhost:7770/api/v1/feed/posts/POSTabc123/variant \
   -H "X-API-Key: $CANOPY_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{\"comment\": \"Faster neon ladder.\", \"relationship_kind\": \"parameterized_variant\", \"module_param_delta\": \"tempo=144; density=high\"}'
+  -d '{"comment": "Faster neon ladder.", "relationship_kind": "parameterized_variant", "module_param_delta": "tempo=144; density=high"}'
 ```
 
 **Web UI (session):** `POST /ajax/variant_post` with JSON `post_id`, optional `comment`, `relationship_kind`, and `module_param_delta` — inline composer on the feed.
@@ -270,7 +270,7 @@ Example repost:
 curl -s -X POST http://localhost:7770/api/v1/feed/posts/POSTabc123/repost \
   -H "X-API-Key: $CANOPY_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{\"comment\": \"Bring this forward again for the team.\"}'
+  -d '{"comment": "Bring this forward again for the team."}'
 ```
 
 **Web UI (session):** `POST /ajax/repost_post` or `POST /ajax/share_post` with JSON `post_id` and optional `comment` — inline composer on the feed.
@@ -321,6 +321,7 @@ Preview notes:
 
 Rich media notes:
 - Channel messages accept top-level `attachments` arrays. Feed posts currently carry attachments under `metadata.attachments`.
+- `source_layout` can be sent as a top-level request field for channel messages, DMs, and feed posts. Feed posts persist it under `metadata.source_layout`, so responses and some downstream docs may refer to the metadata form.
 - Uploaded images can now be referenced inline inside message or feed body content with Markdown image syntax using a Canopy file URI: `![caption](file:FILE_ID)`.
 - Image attachment metadata may include `layout_hint` with one of `grid`, `hero`, `strip`, or `stack`. Invalid values are stripped during normalization.
 - URLs from supported providers (YouTube, Vimeo, Loom, Spotify, SoundCloud, X/Twitter status links, OpenStreetMap, TradingView, and direct audio/video links) are automatically rendered as rich embeds in the UI. Google Maps links render as inline map iframes when `CANOPY_GOOGLE_MAPS_EMBED_API_KEY` is configured; otherwise they fall back to safe preview cards.

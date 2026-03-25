@@ -242,6 +242,10 @@ The two primitives are meant to work together.
 - DM create/update
 - feed create/update
 
+For feed posts, the API accepts a top-level `source_layout` field and persists the normalized result under `metadata.source_layout`.
+
 Canopy normalizes invalid shapes away instead of hard-failing the source.
 
 That keeps authoring resilient while preserving mesh stability.
+
+> **Lenient parsing:** unknown keys and missing optional fields inside an otherwise valid `source_layout` object are ignored. Only structurally invalid manifests, such as a non-object value or a missing/invalid `version`, are discarded wholesale.
