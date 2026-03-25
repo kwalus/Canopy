@@ -6527,9 +6527,15 @@
                     return true;
                 }
                 if (type === 'youtube') {
+                    const currentHost = wrapper.parentNode;
+                    const preserveIframeDocument = !!(
+                        currentHost &&
+                        currentHost.isConnected &&
+                        host &&
+                        host.isConnected
+                    );
                     prepareYouTubeEmbedForHostMove(el, {
-                        skipResumeUrlRewrite: isSidebarDeckOrMiniHost(wrapper.parentNode) &&
-                            isSidebarDeckOrMiniHost(host),
+                        skipResumeUrlRewrite: preserveIframeDocument,
                     });
                 }
                 if (host === deckStage) {
@@ -8811,8 +8817,9 @@
 
             /**
              * Snapshot time/play state; optionally sync embed URL before reparenting.
-             * Mini ↔ deck: reparenting usually keeps the iframe document — rewriting src + resetYouTubePlayerBridge
-             * can blank the player. Post ↔ sidebar: URL + re-init still helps when the embed reloads.
+             * In-page moves usually preserve the iframe document, so rewriting src + resetting the
+             * YT bridge is more harmful than helpful there. Only reload when a caller explicitly
+             * asks for it by leaving skipResumeUrlRewrite false.
              */
             function prepareYouTubeEmbedForHostMove(el, opts) {
                 const options = opts && typeof opts === 'object' ? opts : {};
