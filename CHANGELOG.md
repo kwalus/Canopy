@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-03-28
+
+### Fixed
+- **Notification bell ordering and grouping** - The attention bell now reads as a clearer newest-first surface: server-side snapshots prefer fresher activity over older high-priority items, and the dropdown groups items into explicit sections for Mentions, Inbox, DMs, Channels, and Feed.
+
 ## [0.5.4] - 2026-03-28
 
 ### Changed
