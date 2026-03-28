@@ -337,3 +337,135 @@ class TestChannelRemovalVoting(unittest.TestCase):
             ['peer-a', 'peer-local'],
         )
 
+    def test_result_with_empty_finalizer_peer_is_rejected(self) -> None:
+        channel = self._create_private_channel('empty-finalizer-room')
+        applied = self.channel_manager.apply_channel_removal_result(
+            proposal_id='CRP-empty-finalizer',
+            channel_id=channel.id,
+            result='retired',
+            electorate_peer_ids=['peer-local', 'peer-a'],
+            threshold_count=2,
+            finalizing_peer_id='',
+            finalizing_user_id='remote-a',
+            trusted_peer_ids=['peer-a'],
+        )
+        self.assertFalse(applied)
+        self.assertFalse(self.channel_manager.is_channel_retired_by_vote(channel.id))
+
+    def test_retired_result_rejected_when_local_keep_vote_exists(self) -> None:
+        channel = self.channel_manager.create_channel(
+            name='keep-contradiction-room',
+            channel_type=ChannelType.PUBLIC,
+            created_by='owner-user',
+            description='keep vote contradiction test',
+            privacy_mode='open',
+        )
+        self.assertIsNotNone(channel)
+        assert channel is not None
+        self.assertTrue(
+            self.channel_manager.add_member(
+                channel_id=channel.id,
+                target_user_id='member-user',
+                requester_id='owner-user',
+            )
+        )
+        self.assertTrue(
+            self.channel_manager.receive_channel_removal_proposal(
+                proposal_id='CRP-keep-contradiction',
+                channel_id=channel.id,
+                channel_name=channel.name,
+                channel_origin_peer=channel.origin_peer,
+                channel_privacy_mode=channel.privacy_mode,
+                initiator_peer_id='peer-a',
+                initiator_user_id='remote-a',
+                electorate_peer_ids=['peer-local', 'peer-a'],
+                threshold_count=2,
+                trusted_peer_ids=['peer-a'],
+            )
+        )
+        keep_vote = self.channel_manager.cast_channel_removal_vote(
+            channel_id=channel.id,
+            proposal_id='CRP-keep-contradiction',
+            user_id='member-user',
+            local_peer_id='peer-local',
+            vote='keep',
+        )
+        self.assertTrue(keep_vote['ok'])
+        self.assertEqual((keep_vote.get('finalization') or {}).get('result'), 'rejected')
+
+        applied = self.channel_manager.apply_channel_removal_result(
+            proposal_id='CRP-keep-contradiction',
+            channel_id=channel.id,
+            result='retired',
+            electorate_peer_ids=['peer-local', 'peer-a'],
+            threshold_count=2,
+            finalizing_peer_id='peer-a',
+            finalizing_user_id='remote-a',
+            trusted_peer_ids=['peer-a'],
+        )
+        self.assertFalse(applied)
+        self.assertFalse(self.channel_manager.is_channel_retired_by_vote(channel.id))
+
+    def test_rejected_result_rejected_when_local_remove_votes_meet_threshold(self) -> None:
+        channel = self.channel_manager.create_channel(
+            name='remove-threshold-room',
+            channel_type=ChannelType.PUBLIC,
+            created_by='owner-user',
+            description='remove threshold contradiction test',
+            privacy_mode='open',
+        )
+        self.assertIsNotNone(channel)
+        assert channel is not None
+        start = self.channel_manager.start_channel_removal_vote(
+            channel_id=channel.id,
+            user_id='owner-user',
+            local_peer_id='peer-local',
+            connected_peer_ids=[],
+            trusted_peer_ids=[],
+        )
+        self.assertTrue(start['ok'])
+        self.assertEqual((start.get('finalization') or {}).get('result'), 'retired')
+
+        applied = self.channel_manager.apply_channel_removal_result(
+            proposal_id=start['proposal_id'],
+            channel_id=channel.id,
+            result='rejected',
+            electorate_peer_ids=['peer-local'],
+            threshold_count=1,
+            finalizing_peer_id='peer-local',
+            finalizing_user_id='owner-user',
+            trusted_peer_ids=['peer-local'],
+        )
+        self.assertFalse(applied)
+        self.assertTrue(self.channel_manager.is_channel_retired_by_vote(channel.id))
+
+    def test_bootstrap_result_applied_when_no_local_proposal(self) -> None:
+        channel = self._create_private_channel('bootstrap-result-room')
+        applied = self.channel_manager.apply_channel_removal_result(
+            proposal_id='CRP-bootstrap-result',
+            channel_id=channel.id,
+            result='retired',
+            electorate_peer_ids=['peer-local', 'peer-a'],
+            threshold_count=2,
+            finalizing_peer_id='peer-a',
+            finalizing_user_id='remote-a',
+            trusted_peer_ids=['peer-a'],
+        )
+        self.assertTrue(applied)
+        self.assertTrue(self.channel_manager.is_channel_retired_by_vote(channel.id))
+
+    def test_bootstrap_result_rejected_from_non_electorate_peer(self) -> None:
+        channel = self._create_private_channel('bootstrap-non-electorate-room')
+        applied = self.channel_manager.apply_channel_removal_result(
+            proposal_id='CRP-bootstrap-non-electorate',
+            channel_id=channel.id,
+            result='retired',
+            electorate_peer_ids=['peer-local', 'peer-a'],
+            threshold_count=2,
+            finalizing_peer_id='peer-b',
+            finalizing_user_id='remote-b',
+            trusted_peer_ids=['peer-b'],
+        )
+        self.assertFalse(applied)
+        self.assertFalse(self.channel_manager.is_channel_retired_by_vote(channel.id))
+

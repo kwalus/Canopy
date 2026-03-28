@@ -2143,10 +2143,11 @@ class ChannelManager:
             """,
             (proposal_id,),
         ).fetchall()
+        electorate_set = set(electorate)
         vote_map = {
             str(row['voter_peer_id'] or '').strip(): str(row['vote'] or '').strip().lower()
             for row in vote_rows or []
-            if str(row['voter_peer_id'] or '').strip()
+            if str(row['voter_peer_id'] or '').strip() in electorate_set
         }
         remove_votes = sum(1 for vote in vote_map.values() if vote == 'remove')
         keep_votes = sum(1 for vote in vote_map.values() if vote == 'keep')
@@ -2755,6 +2756,13 @@ class ChannelManager:
         if not clean_proposal_id or not clean_channel_id or not electorate:
             return False
         finalizer_peer = str(finalizing_peer_id or '').strip()
+        if not finalizer_peer:
+            logger.warning(
+                "Ignoring channel removal result %s for %s because finalizing peer is missing",
+                clean_proposal_id,
+                clean_channel_id,
+            )
+            return False
         trusted = set(self._normalize_peer_id_list(trusted_peer_ids))
         if trusted and finalizer_peer not in trusted:
             logger.warning(
@@ -2834,6 +2842,38 @@ class ChannelManager:
                         return False
                     electorate = stored_electorate
                     threshold_count = stored_threshold
+                    # Reject a remote terminal result when our locally stored ballots
+                    # already prove the opposite outcome.
+                    vote_rows = conn.execute(
+                        """
+                        SELECT voter_peer_id, vote
+                        FROM channel_removal_votes
+                        WHERE proposal_id = ?
+                        """,
+                        (clean_proposal_id,),
+                    ).fetchall()
+                    electorate_set = set(stored_electorate)
+                    stored_votes = {
+                        str(row['voter_peer_id'] or '').strip(): str(row['vote'] or '').strip().lower()
+                        for row in vote_rows or []
+                        if str(row['voter_peer_id'] or '').strip() in electorate_set
+                    }
+                    stored_remove_votes = sum(1 for vote in stored_votes.values() if vote == 'remove')
+                    stored_keep_votes = sum(1 for vote in stored_votes.values() if vote == 'keep')
+                    if result_value == _CHANNEL_REMOVAL_RETIRED_STATUS and stored_keep_votes > 0:
+                        logger.warning(
+                            "Ignoring channel removal result %s for %s because locally stored keep votes contradict retirement",
+                            clean_proposal_id,
+                            clean_channel_id,
+                        )
+                        return False
+                    if result_value == _CHANNEL_REMOVAL_REJECTED_STATUS and threshold_count > 0 and stored_remove_votes >= threshold_count:
+                        logger.warning(
+                            "Ignoring channel removal result %s for %s because locally stored remove votes already meet the retirement threshold",
+                            clean_proposal_id,
+                            clean_channel_id,
+                        )
+                        return False
                     conn.execute(
                         """
                         UPDATE channel_removal_proposals

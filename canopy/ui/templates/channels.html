@@ -14091,7 +14091,7 @@ function buildChannelRemovalModalHtml(channelId, channelName, status) {
     } else {
         const info = normalizeChannelRemovalIneligibleReason(status.ineligible_reason);
         bodyHtml = `
-            <p class="mb-2">Open a trusted-peer removal vote for <strong>#${safeName}</strong>. The current v1 rule is unanimous removal across the frozen electorate snapshot.</p>
+            <p class="mb-2">Open a trusted-peer removal vote for <strong>#${safeName}</strong>. Removal requires unanimous agreement across the frozen electorate snapshot.</p>
             ${info ? `<div class="alert alert-warning mb-0">${escapeHtml(info)}</div>` : '<div class="alert alert-secondary mb-0">No active vote exists for this channel.</div>'}
         `;
     }

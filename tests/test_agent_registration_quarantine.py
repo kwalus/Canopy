@@ -25,6 +25,7 @@ if 'zeroconf' not in sys.modules:
     sys.modules['zeroconf'] = zeroconf_stub
 
 from canopy.api.routes import create_api_blueprint
+from canopy.security.api_keys import Permission
 
 
 class _FakeDbManager:
@@ -142,7 +143,11 @@ class _FakeDbManager:
 
 
 class _FakeApiKeyManager:
+    def __init__(self) -> None:
+        self.last_permissions: list = []
+
     def generate_key(self, user_id, permissions):
+        self.last_permissions = list(permissions)
         return f"key-for-{user_id}"
 
 
@@ -250,6 +255,15 @@ class TestAgentRegistrationQuarantine(unittest.TestCase):
         self.assertEqual(int(governance['block_public_channels'] or 0), 1)
         self.assertEqual(int(governance['restrict_to_allowed_channels'] or 0), 1)
         self.assertEqual(governance['allowed_channel_ids'], '["agent-start-here"]')
+        self.assertEqual(
+            self.api_key_manager.last_permissions,
+            [
+                Permission.READ_MESSAGES,
+                Permission.WRITE_MESSAGES,
+                Permission.READ_FEED,
+                Permission.WRITE_FEED,
+            ],
+        )
 
     def test_human_register_still_joins_general(self) -> None:
         response = self.client.post(
