@@ -2503,15 +2503,22 @@ def create_ui_blueprint() -> Blueprint:
                 new_priority = int(built.get('priority') or 0)
                 existing_created = str(existing.get('created_at') or '')
                 new_created = str(built.get('created_at') or '')
-                if new_priority > existing_priority or (
-                    new_priority == existing_priority and new_created >= existing_created
+                existing_seq = int(existing.get('seq') or 0)
+                new_seq = int(built.get('seq') or 0)
+                if new_created > existing_created or (
+                    new_created == existing_created and (
+                        new_seq > existing_seq or (
+                            new_seq == existing_seq and new_priority >= existing_priority
+                        )
+                    )
                 ):
                     merged[semantic_key] = built
             activity_items = sorted(
                 merged.values(),
                 key=lambda entry: (
-                    int(entry.get('priority') or 0),
                     str(entry.get('created_at') or ''),
+                    int(entry.get('seq') or 0),
+                    int(entry.get('priority') or 0),
                 ),
                 reverse=True,
             )[: max(1, int(item_limit or 12))]

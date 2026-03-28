@@ -1091,6 +1091,10 @@
             { key: 'channel', label: 'Channels', icon: 'bi-hash' },
             { key: 'feed', label: 'Feed', icon: 'bi-rss' },
         ];
+        const CANOPY_ATTENTION_FILTER_MAP = CANOPY_ATTENTION_FILTER_DEFS.reduce((acc, def) => {
+            acc[def.key] = def;
+            return acc;
+        }, {});
         const canopyAttentionFilterStorageKey = (() => {
             const userId = window.CANOPY_VARS ? String(window.CANOPY_VARS.userId || 'local_user').trim() : 'local_user';
             return `canopy.attention.filters.${userId || 'local_user'}`;
@@ -1198,6 +1202,58 @@
                 const seq = Math.max(0, Number(item && item.seq || 0) || 0);
                 return sum + (seq > seenThrough ? 1 : 0);
             }, 0);
+        }
+
+        function attentionItemSortValue(item) {
+            const created = String(item && item.created_at || '').trim();
+            const seq = Math.max(0, Number(item && item.seq || 0) || 0);
+            return { created, seq };
+        }
+
+        function compareAttentionItemsDesc(a, b) {
+            const left = attentionItemSortValue(a);
+            const right = attentionItemSortValue(b);
+            if (left.created !== right.created) return right.created.localeCompare(left.created);
+            return right.seq - left.seq;
+        }
+
+        function groupCanopyAttentionItems(items) {
+            const normalized = Array.isArray(items) ? items.filter(Boolean) : [];
+            const groups = [];
+            const seenKeys = new Set();
+            CANOPY_ATTENTION_FILTER_DEFS.forEach((def) => {
+                const sectionItems = normalized
+                    .filter((item) => canopyAttentionFilterKeyForItem(item) === def.key)
+                    .sort(compareAttentionItemsDesc);
+                if (!sectionItems.length) return;
+                groups.push({
+                    key: def.key,
+                    label: def.label,
+                    icon: def.icon,
+                    items: sectionItems,
+                    latestCreatedAt: String(sectionItems[0] && sectionItems[0].created_at || ''),
+                    latestSeq: Math.max(0, Number(sectionItems[0] && sectionItems[0].seq || 0) || 0),
+                });
+                seenKeys.add(def.key);
+            });
+            const otherItems = normalized
+                .filter((item) => !seenKeys.has(canopyAttentionFilterKeyForItem(item)))
+                .sort(compareAttentionItemsDesc);
+            if (otherItems.length) {
+                groups.push({
+                    key: 'other',
+                    label: 'Other',
+                    icon: 'bi-bell',
+                    items: otherItems,
+                    latestCreatedAt: String(otherItems[0] && otherItems[0].created_at || ''),
+                    latestSeq: Math.max(0, Number(otherItems[0] && otherItems[0].seq || 0) || 0),
+                });
+            }
+            groups.sort((a, b) => {
+                if (a.latestCreatedAt !== b.latestCreatedAt) return b.latestCreatedAt.localeCompare(a.latestCreatedAt);
+                return b.latestSeq - a.latestSeq;
+            });
+            return groups;
         }
 
         canopySidebarAttentionState.dismissedThroughCursor = loadCanopyAttentionDismissCursor();
@@ -5374,75 +5430,96 @@
                 }
                 if (emptyWrap) emptyWrap.style.display = 'none';
 
-                normalized.forEach((item) => {
-                    const btn = document.createElement('button');
-                    btn.type = 'button';
-                    btn.className = 'dropdown-item notification-item';
+                groupCanopyAttentionItems(normalized).forEach((group) => {
+                    const section = document.createElement('div');
+                    section.className = 'notification-section';
+                    section.setAttribute('data-section-kind', String(group.key || 'other'));
 
-                    const row = document.createElement('div');
-                    row.className = 'activity-row';
+                    const label = document.createElement('div');
+                    label.className = 'notification-section-label';
+                    const left = document.createElement('span');
+                    left.innerHTML = `<i class="bi ${String(group.icon || 'bi-bell')}"></i><span>${String(group.label || 'Other')}</span>`;
+                    left.style.display = 'inline-flex';
+                    left.style.alignItems = 'center';
+                    left.style.gap = '8px';
+                    const count = document.createElement('span');
+                    count.className = 'notification-section-count';
+                    count.textContent = `${group.items.length} ${group.items.length === 1 ? 'item' : 'items'}`;
+                    label.appendChild(left);
+                    label.appendChild(count);
+                    section.appendChild(label);
 
-                    const iconWrap = document.createElement('div');
-                    iconWrap.className = 'activity-avatar';
-                    const avatarUrl = _safeImageSrc(item.avatar_url || '');
-                    if (avatarUrl) {
-                        const img = document.createElement('img');
-                        img.src = avatarUrl;
-                        img.alt = String(item.title || 'Activity');
-                        iconWrap.appendChild(img);
-                    } else {
-                        const fallbackLabel = String(item.title || '').trim();
-                        const fallbackInitial = fallbackLabel ? fallbackLabel.slice(0, 1).toUpperCase() : '';
-                        if (fallbackInitial && /^[A-Z0-9]$/.test(fallbackInitial)) {
-                            iconWrap.textContent = fallbackInitial;
+                    group.items.forEach((item) => {
+                        const btn = document.createElement('button');
+                        btn.type = 'button';
+                        btn.className = 'dropdown-item notification-item';
+
+                        const row = document.createElement('div');
+                        row.className = 'activity-row';
+
+                        const iconWrap = document.createElement('div');
+                        iconWrap.className = 'activity-avatar';
+                        const avatarUrl = _safeImageSrc(item.avatar_url || '');
+                        if (avatarUrl) {
+                            const img = document.createElement('img');
+                            img.src = avatarUrl;
+                            img.alt = String(item.title || 'Activity');
+                            iconWrap.appendChild(img);
                         } else {
-                            const icon = document.createElement('i');
-                            icon.className = String(item.icon || 'bi-bell');
-                            iconWrap.appendChild(icon);
+                            const fallbackLabel = String(item.title || '').trim();
+                            const fallbackInitial = fallbackLabel ? fallbackLabel.slice(0, 1).toUpperCase() : '';
+                            if (fallbackInitial && /^[A-Z0-9]$/.test(fallbackInitial)) {
+                                iconWrap.textContent = fallbackInitial;
+                            } else {
+                                const icon = document.createElement('i');
+                                icon.className = String(item.icon || (CANOPY_ATTENTION_FILTER_MAP[group.key] || {}).icon || 'bi-bell');
+                                iconWrap.appendChild(icon);
+                            }
                         }
-                    }
 
-                    const body = document.createElement('div');
-                    body.className = 'activity-body';
+                        const body = document.createElement('div');
+                        body.className = 'activity-body';
 
-                    const top = document.createElement('div');
-                    top.className = 'activity-top';
+                        const top = document.createElement('div');
+                        top.className = 'activity-top';
 
-                    const titleEl = document.createElement('span');
-                    titleEl.className = 'activity-name';
-                    titleEl.textContent = String(item.title || 'Activity');
+                        const titleEl = document.createElement('span');
+                        titleEl.className = 'activity-name';
+                        titleEl.textContent = String(item.title || 'Activity');
 
-                    const timeEl = document.createElement('span');
-                    timeEl.className = 'activity-time';
-                    if (item.created_at) {
-                        timeEl.textContent = formatTimestamp(item.created_at);
-                        timeEl.setAttribute('data-timestamp', item.created_at);
-                    }
+                        const timeEl = document.createElement('span');
+                        timeEl.className = 'activity-time';
+                        if (item.created_at) {
+                            timeEl.textContent = formatTimestamp(item.created_at);
+                            timeEl.setAttribute('data-timestamp', item.created_at);
+                        }
 
-                    top.appendChild(titleEl);
-                    top.appendChild(timeEl);
+                        top.appendChild(titleEl);
+                        top.appendChild(timeEl);
 
-                    const sub = document.createElement('div');
-                    sub.className = 'activity-sub';
-                    const meta = String(item.meta || '').trim();
-                    const preview = cleanPreview(item.preview || '');
-                    if (meta && preview) {
-                        sub.textContent = `${meta} • ${preview}`;
-                    } else {
-                        sub.textContent = meta || preview || 'Open';
-                    }
+                        const sub = document.createElement('div');
+                        sub.className = 'activity-sub';
+                        const meta = String(item.meta || '').trim();
+                        const preview = cleanPreview(item.preview || '');
+                        if (meta && preview) {
+                            sub.textContent = `${meta} • ${preview}`;
+                        } else {
+                            sub.textContent = meta || preview || 'Open';
+                        }
 
-                    body.appendChild(top);
-                    body.appendChild(sub);
+                        body.appendChild(top);
+                        body.appendChild(sub);
 
-                    row.appendChild(iconWrap);
-                    row.appendChild(body);
-                    btn.appendChild(row);
-                    btn.addEventListener('click', () => {
-                        const href = String(item.href || '').trim();
-                        if (href) window.location.href = href;
+                        row.appendChild(iconWrap);
+                        row.appendChild(body);
+                        btn.appendChild(row);
+                        btn.addEventListener('click', () => {
+                            const href = String(item.href || '').trim();
+                            if (href) window.location.href = href;
+                        });
+                        section.appendChild(btn);
                     });
-                    listEl.appendChild(btn);
+                    listEl.appendChild(section);
                 });
             };
 
@@ -10859,7 +10936,10 @@
                         throw new Error(data.error || 'Could not request download');
                     }
                     if (typeof showAlert === 'function') {
-                        showAlert('Large attachment download requested. It will appear when the transfer completes.', 'success');
+                        showAlert(
+                            String(data.message || '').trim() || 'Large attachment download requested. It will appear when the transfer completes.',
+                            data.queued ? 'info' : 'success'
+                        );
                     }
                     return true;
                 })

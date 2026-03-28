@@ -325,13 +325,55 @@ class TestSidebarAttentionSummary(unittest.TestCase):
         self.assertIsInstance(payload.get('workspace_event_cursor'), int)
         items = payload.get('items') or []
         self.assertGreaterEqual(len(items), 2)
-        self.assertEqual(items[0].get('kind'), 'mention')
-        self.assertIn('/channels/locate?message_id=msg-mention', items[0].get('href', ''))
-        self.assertEqual(items[0].get('avatar_url'), '/files/avatar-peer-a')
+        self.assertEqual(items[0].get('kind'), 'feed')
+        self.assertIn('/feed?focus_post=feed-1', items[0].get('href', ''))
         self.assertGreater(items[0].get('seq') or 0, 0)
-        self.assertEqual(items[1].get('kind'), 'feed')
-        self.assertIn('/feed?focus_post=feed-1', items[1].get('href', ''))
+        self.assertEqual(items[1].get('kind'), 'mention')
+        self.assertIn('/channels/locate?message_id=msg-mention', items[1].get('href', ''))
+        self.assertEqual(items[1].get('avatar_url'), '/files/avatar-peer-a')
         self.assertGreater(items[1].get('seq') or 0, 0)
+
+    def test_sidebar_attention_snapshot_orders_by_freshness_before_priority(self) -> None:
+        self.workspace_events.emit_event(
+            event_type=EVENT_MENTION_CREATED,
+            actor_user_id='peer-a',
+            target_user_id='owner',
+            channel_id='chan-2',
+            message_id='msg-older-mention',
+            visibility_scope='user',
+            dedupe_key='mention:older',
+            created_at='2026-03-16T10:00:00+00:00',
+            payload={
+                'source_type': 'channel_message',
+                'source_id': 'msg-older-mention',
+                'preview': 'Older mention',
+            },
+        )
+        self.workspace_events.emit_event(
+            event_type=EVENT_FEED_POST_CREATED,
+            actor_user_id='peer-b',
+            post_id='feed-newer',
+            visibility_scope='feed',
+            dedupe_key='feed:newer',
+            created_at='2026-03-16T10:30:00+00:00',
+            payload={
+                'preview': 'Newer feed update',
+                'visibility': 'public',
+                'author_id': 'peer-b',
+                'permissions': [],
+            },
+        )
+
+        response = self.client.get('/ajax/sidebar_attention_snapshot')
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        items = payload.get('items') or []
+        self.assertGreaterEqual(len(items), 2)
+        self.assertEqual(items[0].get('kind'), 'feed')
+        self.assertEqual(items[1].get('kind'), 'mention')
+        self.assertEqual(items[0].get('created_at'), '2026-03-16T10:30:00+00:00')
+        self.assertEqual(items[1].get('created_at'), '2026-03-16T10:00:00+00:00')
 
     def test_feed_route_marks_feed_viewed_on_page_open(self) -> None:
         response = self.client.get('/feed')

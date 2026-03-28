@@ -104,9 +104,18 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("saveCanopyAttentionFilters(next);", main_js)
         self.assertIn("const filterBar = document.getElementById('notificationFilterBar');", main_js)
         self.assertIn("const filterResetBtn = document.getElementById('notificationFilterReset');", main_js)
+        self.assertIn("function compareAttentionItemsDesc(a, b) {", main_js)
+        self.assertIn("function groupCanopyAttentionItems(items) {", main_js)
+        self.assertIn("groupCanopyAttentionItems(normalized).forEach((group) => {", main_js)
+        self.assertIn("section.className = 'notification-section';", main_js)
+        self.assertIn("label.className = 'notification-section-label';", main_js)
+        self.assertIn("count.className = 'notification-section-count';", main_js)
         self.assertIn("class=\"notification-filter-wrap\"", base_template)
         self.assertIn("id=\"notificationFilterBar\"", base_template)
         self.assertIn("id=\"notificationFilterReset\"", base_template)
+        self.assertIn(".notification-menu .notification-section {", base_template)
+        self.assertIn(".notification-menu .notification-section-label {", base_template)
+        self.assertIn(".notification-menu .notification-section-count {", base_template)
 
     def test_channel_focus_uses_context_window_and_container_scroll(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
@@ -720,6 +729,23 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("if (isDmSearchActive()) {\n            window.location.reload();\n            return;\n        }", messages_template)
         self.assertIn("if (!document.hidden && !isDmSearchActive()) {", messages_template)
         self.assertIn("return window.location.search.includes('search=');", messages_template)
+
+    def test_dm_workspace_includes_thread_body_gap_and_inline_edit_close_path(self) -> None:
+        messages_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
+        self.assertIn("#dm-thread-body {", messages_template)
+        self.assertIn("gap: 0.38rem;", messages_template)
+        self.assertIn("function setInlineDmEditSaving(messageId, saving) {", messages_template)
+        self.assertIn("function applyInlineDmMessageEdit(messageId, content, editedAt) {", messages_template)
+        self.assertIn("let textEl = msgEl.querySelector('.dm-message-text');", messages_template)
+        self.assertIn("if (!textEl && contentWrap && content) {", messages_template)
+        self.assertIn("contentWrap.insertBefore(textEl, attachmentList);", messages_template)
+        self.assertIn("cancelInlineMessageEdit(messageId, true);", messages_template)
+
+    def test_dm_attachment_macro_renders_video_inline_and_remote_download(self) -> None:
+        messages_macros = (ROOT / 'canopy' / 'ui' / 'templates' / '_messages_macros.html').read_text(encoding='utf-8')
+        self.assertIn("{% elif attachment.type and attachment.type.startswith('video/') %}", messages_macros)
+        self.assertIn("<video controls preload=\"metadata\" playsinline", messages_macros)
+        self.assertIn("requestRemoteAttachmentDownload({{ remote_payload|tojson }}, this)", messages_macros)
 
     def test_channel_search_preserves_search_view_and_scrolls_to_top(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
