@@ -972,11 +972,30 @@ def create_app(config: Optional[Config] = None) -> Flask:
         def _retry_pending_large_attachments_for_peer(peer_id: str) -> None:
             if not peer_id:
                 return
-            if get_large_attachment_download_mode(db_manager) != LARGE_ATTACHMENT_DOWNLOAD_AUTO:
+            download_mode = get_large_attachment_download_mode(db_manager)
+            if download_mode == LARGE_ATTACHMENT_DOWNLOAD_PAUSED:
                 return
+            if p2p_manager.connection_manager and p2p_manager.connection_manager.is_connected(peer_id):
+                if not p2p_manager.peer_supports_capability(peer_id, LARGE_ATTACHMENT_CAPABILITY):
+                    for transfer in file_manager.list_pending_remote_attachment_transfers(
+                        origin_peer_id=peer_id,
+                        statuses=['pending', 'requested'],
+                        limit=500,
+                    ):
+                        origin_file_id = str(transfer.get('origin_file_id') or '').strip()
+                        if not origin_file_id:
+                            continue
+                        file_manager.upsert_remote_attachment_transfer(
+                            origin_peer_id=peer_id,
+                            origin_file_id=origin_file_id,
+                            status='error',
+                            error='source_peer_missing_large_attachment_capability',
+                        )
+                    return
+            statuses = ['requested'] if download_mode != LARGE_ATTACHMENT_DOWNLOAD_AUTO else ['pending', 'requested', 'error']
             for transfer in file_manager.list_pending_remote_attachment_transfers(
                 origin_peer_id=peer_id,
-                statuses=['pending', 'error'],
+                statuses=statuses,
                 limit=500,
             ):
                 attachment = {
@@ -1461,6 +1480,15 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     return
 
                 effective_origin_peer = origin_peer or from_peer
+
+                if channel_manager.is_channel_retired_by_vote(channel_id):
+                    logger.info(
+                        "Ignoring channel message %s for retired channel %s from %s",
+                        message_id,
+                        channel_id,
+                        from_peer,
+                    )
+                    return
 
                 # Ensure remote user exists as a shadow account so FK works.
                 # IMPORTANT: shadow users are created per user_id (not per
@@ -2551,6 +2579,13 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     True if allow_member_replies is None else bool(allow_member_replies),
                     len([uid for uid in (allowed_poster_user_ids or []) if str(uid or '').strip()]),
                 )
+                if channel_manager.is_channel_retired_by_vote(channel_id):
+                    logger.info(
+                        "Ignoring channel announce for retired channel %s from %s",
+                        channel_id,
+                        from_peer,
+                    )
+                    return
 
                 # SECURITY: Strip initial_members from non-targeted channel announces
                 if initial_members and not is_targeted:
@@ -2742,6 +2777,23 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     )
                     return
 
+                if channel_manager.is_channel_retired_by_vote(channel_id):
+                    logger.info(
+                        "Ignoring member sync for retired channel %s from %s",
+                        channel_id,
+                        from_peer,
+                    )
+                    _send_member_sync_ack(
+                        sync_id=sync_id,
+                        to_peer=from_peer,
+                        status='error',
+                        error='channel_retired_by_vote',
+                        channel_id=channel_id,
+                        target_user_id=target_user_id,
+                        action=action,
+                    )
+                    return
+
                 # SECURITY: Validate that target_user_id exists locally
                 with db_manager.get_connection() as conn:
                     user_check = conn.execute(
@@ -2919,6 +2971,178 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
         p2p_manager.on_member_sync_ack = _on_member_sync_ack
 
+        def _on_channel_removal_proposal(
+            proposal_id,
+            channel_id,
+            channel_name,
+            channel_origin_peer,
+            channel_privacy_mode,
+            initiator_peer_id,
+            initiator_user_id,
+            electorate_peer_ids,
+            threshold_count,
+            opened_at,
+            from_peer,
+        ):
+            try:
+                initiator_peer = str(initiator_peer_id or '').strip() or str(from_peer or '').strip()
+                if str(from_peer or '').strip() and initiator_peer != str(from_peer).strip():
+                    logger.warning(
+                        "SECURITY: Ignoring channel removal proposal %s for %s from %s "
+                        "(initiator mismatch %s)",
+                        proposal_id,
+                        channel_id,
+                        from_peer,
+                        initiator_peer_id,
+                    )
+                    return
+                trusted_peers = set()
+                try:
+                    trusted_peers = {
+                        str(peer_id or '').strip()
+                        for peer_id in (trust_manager.get_trusted_peers() or [])
+                        if str(peer_id or '').strip()
+                    }
+                except Exception:
+                    trusted_peers = set()
+                if trusted_peers and initiator_peer not in trusted_peers:
+                    logger.warning(
+                        "SECURITY: Ignoring channel removal proposal %s for %s from untrusted peer %s",
+                        proposal_id,
+                        channel_id,
+                        initiator_peer,
+                    )
+                    return
+                channel_manager.receive_channel_removal_proposal(
+                    proposal_id=proposal_id,
+                    channel_id=channel_id,
+                    channel_name=channel_name,
+                    channel_origin_peer=channel_origin_peer,
+                    channel_privacy_mode=channel_privacy_mode,
+                    initiator_peer_id=initiator_peer,
+                    initiator_user_id=initiator_user_id,
+                    electorate_peer_ids=electorate_peer_ids,
+                    threshold_count=int(threshold_count or 0),
+                    opened_at=opened_at,
+                    trusted_peer_ids=list(trusted_peers),
+                )
+            except Exception as e:
+                logger.error(f"Failed to handle channel removal proposal: {e}", exc_info=True)
+
+        p2p_manager.on_channel_removal_proposal = _on_channel_removal_proposal
+
+        def _on_channel_removal_vote(
+            proposal_id,
+            channel_id,
+            voter_peer_id,
+            voter_user_id,
+            vote,
+            reason,
+            cast_at,
+            from_peer,
+        ):
+            try:
+                voter_peer = str(voter_peer_id or '').strip() or str(from_peer or '').strip()
+                if str(from_peer or '').strip() and voter_peer != str(from_peer).strip():
+                    logger.warning(
+                        "SECURITY: Ignoring channel removal vote %s for %s from %s "
+                        "(voter mismatch %s)",
+                        proposal_id,
+                        channel_id,
+                        from_peer,
+                        voter_peer_id,
+                    )
+                    return
+                trusted_peers = set()
+                try:
+                    trusted_peers = {
+                        str(peer_id or '').strip()
+                        for peer_id in (trust_manager.get_trusted_peers() or [])
+                        if str(peer_id or '').strip()
+                    }
+                except Exception:
+                    trusted_peers = set()
+                if trusted_peers and voter_peer not in trusted_peers:
+                    logger.warning(
+                        "SECURITY: Ignoring channel removal vote %s for %s from untrusted peer %s",
+                        proposal_id,
+                        channel_id,
+                        voter_peer,
+                    )
+                    return
+                channel_manager.receive_channel_removal_vote(
+                    proposal_id=proposal_id,
+                    channel_id=channel_id,
+                    voter_peer_id=voter_peer,
+                    voter_user_id=voter_user_id,
+                    vote=vote,
+                    reason=reason,
+                    cast_at=cast_at,
+                    trusted_peer_ids=list(trusted_peers),
+                )
+            except Exception as e:
+                logger.error(f"Failed to handle channel removal vote: {e}", exc_info=True)
+
+        p2p_manager.on_channel_removal_vote = _on_channel_removal_vote
+
+        def _on_channel_removal_result(
+            proposal_id,
+            channel_id,
+            result,
+            electorate_peer_ids,
+            threshold_count,
+            finalizing_peer_id,
+            finalizing_user_id,
+            tombstone_id,
+            finalized_at,
+            from_peer,
+        ):
+            try:
+                finalizer_peer = str(finalizing_peer_id or '').strip() or str(from_peer or '').strip()
+                if str(from_peer or '').strip() and finalizer_peer != str(from_peer).strip():
+                    logger.warning(
+                        "SECURITY: Ignoring channel removal result %s for %s from %s "
+                        "(finalizer mismatch %s)",
+                        proposal_id,
+                        channel_id,
+                        from_peer,
+                        finalizing_peer_id,
+                    )
+                    return
+                trusted_peers = set()
+                try:
+                    trusted_peers = {
+                        str(peer_id or '').strip()
+                        for peer_id in (trust_manager.get_trusted_peers() or [])
+                        if str(peer_id or '').strip()
+                    }
+                except Exception:
+                    trusted_peers = set()
+                if trusted_peers and finalizer_peer not in trusted_peers:
+                    logger.warning(
+                        "SECURITY: Ignoring channel removal result %s for %s from untrusted peer %s",
+                        proposal_id,
+                        channel_id,
+                        finalizer_peer,
+                    )
+                    return
+                channel_manager.apply_channel_removal_result(
+                    proposal_id=proposal_id,
+                    channel_id=channel_id,
+                    result=result,
+                    electorate_peer_ids=electorate_peer_ids,
+                    threshold_count=int(threshold_count or 0),
+                    finalizing_peer_id=finalizer_peer,
+                    finalizing_user_id=finalizing_user_id,
+                    tombstone_id=tombstone_id,
+                    finalized_at=finalized_at,
+                    trusted_peer_ids=list(trusted_peers),
+                )
+            except Exception as e:
+                logger.error(f"Failed to handle channel removal result: {e}", exc_info=True)
+
+        p2p_manager.on_channel_removal_result = _on_channel_removal_result
+
         def _normalize_channel_crypto_mode(raw_mode: Any) -> str:
             mode = str(raw_mode or '').strip().lower()
             if mode in {'e2e_optional', 'e2e_enforced', 'legacy_plaintext'}:
@@ -2984,6 +3208,13 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         continue
                     channel_id = str(item.get('channel_id') or '').strip()
                     if not channel_id:
+                        continue
+                    if channel_manager.is_channel_retired_by_vote(channel_id):
+                        logger.info(
+                            "Ignoring membership recovery for retired channel %s from %s",
+                            channel_id,
+                            from_peer,
+                        )
                         continue
                     name = str(item.get('name') or f'private-{channel_id[:8]}').strip() or f'private-{channel_id[:8]}'
                     channel_type = str(item.get('channel_type') or 'private').strip().lower() or 'private'
@@ -4240,6 +4471,14 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         continue
 
                     channel_id = msg.get('channel_id', 'general')
+                    if channel_manager.is_channel_retired_by_vote(channel_id):
+                        logger.info(
+                            "Ignoring catchup message %s for retired channel %s from %s",
+                            mid,
+                            channel_id,
+                            from_peer,
+                        )
+                        continue
                     user_id = msg.get('user_id', f'peer_{from_peer}')
                     content = msg.get('content', '')
                     incoming_encrypted = msg.get('encrypted_content')

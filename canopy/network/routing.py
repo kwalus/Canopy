@@ -177,6 +177,9 @@ class MessageType(Enum):
     # Private channel membership
     MEMBER_SYNC = "member_sync"                  # Add/remove member on remote peer
     MEMBER_SYNC_ACK = "member_sync_ack"          # Ack member sync delivery/apply
+    CHANNEL_REMOVAL_PROPOSAL = "channel_removal_proposal"  # Open a channel retirement vote
+    CHANNEL_REMOVAL_VOTE = "channel_removal_vote"          # Cast a channel retirement ballot
+    CHANNEL_REMOVAL_RESULT = "channel_removal_result"      # Finalized retirement result
     CHANNEL_MEMBERSHIP_QUERY = "channel_membership_query"      # Ask peer for private channel memberships
     CHANNEL_MEMBERSHIP_RESPONSE = "channel_membership_response"  # Recovery response with channel metadata
     PRIVATE_CHANNEL_INVITE = "private_channel_invite"  # Invite peer to private channel
@@ -270,6 +273,9 @@ class MessageRouter:
         MessageType.CHANNEL_ANNOUNCE,
         MessageType.MEMBER_SYNC,
         MessageType.MEMBER_SYNC_ACK,
+        MessageType.CHANNEL_REMOVAL_PROPOSAL,
+        MessageType.CHANNEL_REMOVAL_VOTE,
+        MessageType.CHANNEL_REMOVAL_RESULT,
         MessageType.CHANNEL_MEMBERSHIP_QUERY,
         MessageType.CHANNEL_MEMBERSHIP_RESPONSE,
         MessageType.CHANNEL_KEY_DISTRIBUTION,
@@ -345,6 +351,9 @@ class MessageRouter:
         self.on_catchup_response: Optional[Any] = None
         self.on_member_sync: Optional[Any] = None
         self.on_member_sync_ack: Optional[Any] = None
+        self.on_channel_removal_proposal: Optional[Any] = None
+        self.on_channel_removal_vote: Optional[Any] = None
+        self.on_channel_removal_result: Optional[Any] = None
         self.on_channel_membership_query: Optional[Any] = None
         self.on_channel_membership_response: Optional[Any] = None
         self.on_private_channel_invite: Optional[Any] = None
@@ -1061,6 +1070,59 @@ class MessageRouter:
             except Exception as e:
                 logger.error(f"Error delivering member sync ack locally: {e}", exc_info=True)
 
+        elif message.type == MessageType.CHANNEL_REMOVAL_PROPOSAL and self.on_channel_removal_proposal:
+            try:
+                meta = payload.get('metadata', {})
+                self.on_channel_removal_proposal(
+                    proposal_id=meta.get('proposal_id'),
+                    channel_id=meta.get('channel_id'),
+                    channel_name=meta.get('channel_name'),
+                    channel_origin_peer=meta.get('channel_origin_peer'),
+                    channel_privacy_mode=meta.get('channel_privacy_mode'),
+                    initiator_peer_id=meta.get('initiator_peer_id') or message.from_peer,
+                    initiator_user_id=meta.get('initiator_user_id'),
+                    electorate_peer_ids=meta.get('electorate_peer_ids') or [],
+                    threshold_count=meta.get('threshold_count'),
+                    opened_at=meta.get('opened_at'),
+                    from_peer=message.from_peer,
+                )
+            except Exception as e:
+                logger.error(f"Error delivering channel removal proposal locally: {e}", exc_info=True)
+
+        elif message.type == MessageType.CHANNEL_REMOVAL_VOTE and self.on_channel_removal_vote:
+            try:
+                meta = payload.get('metadata', {})
+                self.on_channel_removal_vote(
+                    proposal_id=meta.get('proposal_id'),
+                    channel_id=meta.get('channel_id'),
+                    voter_peer_id=meta.get('voter_peer_id') or message.from_peer,
+                    voter_user_id=meta.get('voter_user_id'),
+                    vote=meta.get('vote'),
+                    reason=meta.get('reason'),
+                    cast_at=meta.get('cast_at'),
+                    from_peer=message.from_peer,
+                )
+            except Exception as e:
+                logger.error(f"Error delivering channel removal vote locally: {e}", exc_info=True)
+
+        elif message.type == MessageType.CHANNEL_REMOVAL_RESULT and self.on_channel_removal_result:
+            try:
+                meta = payload.get('metadata', {})
+                self.on_channel_removal_result(
+                    proposal_id=meta.get('proposal_id'),
+                    channel_id=meta.get('channel_id'),
+                    result=meta.get('result'),
+                    electorate_peer_ids=meta.get('electorate_peer_ids') or [],
+                    threshold_count=meta.get('threshold_count'),
+                    finalizing_peer_id=meta.get('finalizing_peer_id') or message.from_peer,
+                    finalizing_user_id=meta.get('finalizing_user_id'),
+                    tombstone_id=meta.get('tombstone_id'),
+                    finalized_at=meta.get('finalized_at'),
+                    from_peer=message.from_peer,
+                )
+            except Exception as e:
+                logger.error(f"Error delivering channel removal result locally: {e}", exc_info=True)
+
         elif message.type == MessageType.CHANNEL_MEMBERSHIP_QUERY and self.on_channel_membership_query:
             try:
                 meta = payload.get('metadata', {})
@@ -1602,6 +1664,103 @@ class MessageRouter:
             }
         }
         message = self.create_message(MessageType.MEMBER_SYNC_ACK, to_peer, payload)
+        self.sign_message(message)
+        return await self._route_to_peer(message)
+
+    async def send_channel_removal_proposal(
+        self,
+        to_peer: str,
+        *,
+        proposal_id: str,
+        channel_id: str,
+        channel_name: str,
+        channel_origin_peer: Optional[str],
+        channel_privacy_mode: Optional[str],
+        initiator_peer_id: str,
+        initiator_user_id: Optional[str],
+        electorate_peer_ids: list[str],
+        threshold_count: int,
+        opened_at: Optional[str] = None,
+    ) -> bool:
+        payload = {
+            'content': '',
+            'metadata': {
+                'type': 'channel_removal_proposal',
+                'proposal_id': proposal_id,
+                'channel_id': channel_id,
+                'channel_name': channel_name,
+                'channel_origin_peer': channel_origin_peer,
+                'channel_privacy_mode': channel_privacy_mode,
+                'initiator_peer_id': initiator_peer_id,
+                'initiator_user_id': initiator_user_id,
+                'electorate_peer_ids': electorate_peer_ids,
+                'threshold_count': int(threshold_count),
+                'opened_at': opened_at,
+            },
+        }
+        message = self.create_message(MessageType.CHANNEL_REMOVAL_PROPOSAL, to_peer, payload)
+        self.sign_message(message)
+        return await self._route_to_peer(message)
+
+    async def send_channel_removal_vote(
+        self,
+        to_peer: str,
+        *,
+        proposal_id: str,
+        channel_id: str,
+        voter_peer_id: str,
+        voter_user_id: Optional[str],
+        vote: str,
+        reason: Optional[str] = None,
+        cast_at: Optional[str] = None,
+    ) -> bool:
+        payload = {
+            'content': '',
+            'metadata': {
+                'type': 'channel_removal_vote',
+                'proposal_id': proposal_id,
+                'channel_id': channel_id,
+                'voter_peer_id': voter_peer_id,
+                'voter_user_id': voter_user_id,
+                'vote': vote,
+                'reason': reason,
+                'cast_at': cast_at,
+            },
+        }
+        message = self.create_message(MessageType.CHANNEL_REMOVAL_VOTE, to_peer, payload)
+        self.sign_message(message)
+        return await self._route_to_peer(message)
+
+    async def send_channel_removal_result(
+        self,
+        to_peer: str,
+        *,
+        proposal_id: str,
+        channel_id: str,
+        result: str,
+        electorate_peer_ids: list[str],
+        threshold_count: int,
+        finalizing_peer_id: str,
+        finalizing_user_id: Optional[str],
+        tombstone_id: Optional[str] = None,
+        finalized_at: Optional[str] = None,
+    ) -> bool:
+        payload = {
+            'content': '',
+            'metadata': {
+                'type': 'channel_removal_result',
+                'proposal_id': proposal_id,
+                'channel_id': channel_id,
+                'result': result,
+                'electorate_peer_ids': electorate_peer_ids,
+                'threshold_count': int(threshold_count),
+                'finalizing_peer_id': finalizing_peer_id,
+                'finalizing_user_id': finalizing_user_id,
+                'tombstone_id': tombstone_id,
+                'finalized_at': finalized_at,
+            },
+        }
+        message = self.create_message(MessageType.CHANNEL_REMOVAL_RESULT, to_peer, payload)
         self.sign_message(message)
         return await self._route_to_peer(message)
 
