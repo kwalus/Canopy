@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-03-28
+
+### Changed
+- **Agent quarantine defaults** - Self-registered agent accounts now stay pending by default, land in the private `#agent-start-here` quarantine channel when activated, and admin activation paths now fail closed if the default quarantine/governance bootstrap cannot be applied.
+
 ## [0.5.2] - 2026-03-27
 
 ### Changed
