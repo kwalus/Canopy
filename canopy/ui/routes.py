@@ -15703,6 +15703,219 @@ def create_ui_blueprint() -> Blueprint:
             logger.error(f"Remove channel member (ui) failed: {e}")
             return jsonify({'error': 'Internal server error'}), 500
 
+    def _channel_removal_mesh_context(trust_manager, p2p_manager):
+        local_peer_id = None
+        connected_peer_ids: list[str] = []
+        trusted_peer_ids: list[str] = []
+        try:
+            if p2p_manager:
+                local_peer_id = p2p_manager.get_peer_id()
+        except Exception:
+            local_peer_id = None
+        try:
+            if p2p_manager:
+                connected_peer_ids = list(p2p_manager.get_connected_peers() or [])
+        except Exception:
+            connected_peer_ids = []
+        try:
+            if trust_manager:
+                trusted_peer_ids = list(trust_manager.get_trusted_peers() or [])
+        except Exception:
+            trusted_peer_ids = []
+        return local_peer_id, connected_peer_ids, trusted_peer_ids
+
+    @ui.route('/ajax/channel_removal_status/<channel_id>', methods=['GET'])
+    @require_login
+    def ajax_channel_removal_status(channel_id):
+        try:
+            db_manager, _, trust_manager, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+            if not channel_manager:
+                return jsonify({'error': 'Channels unavailable'}), 503
+            user_id = get_current_user()
+            allow_admin = _is_admin()
+            if not allow_admin and db_manager:
+                with db_manager.get_connection() as conn:
+                    membership = conn.execute(
+                        "SELECT 1 FROM channel_members WHERE channel_id = ? AND user_id = ?",
+                        (channel_id, user_id),
+                    ).fetchone()
+                if not membership:
+                    return jsonify({'error': 'Channel not found'}), 404
+            local_peer_id, connected_peer_ids, trusted_peer_ids = _channel_removal_mesh_context(
+                trust_manager,
+                p2p_manager,
+            )
+            status = channel_manager.get_channel_removal_status(
+                channel_id,
+                local_peer_id=local_peer_id,
+                viewer_user_id=user_id,
+                allow_admin=allow_admin,
+                connected_peer_ids=connected_peer_ids,
+                trusted_peer_ids=trusted_peer_ids,
+            )
+            if not status.get('channel_exists'):
+                return jsonify({'error': 'Channel not found'}), 404
+            return jsonify({'success': True, 'status': status})
+        except Exception as e:
+            logger.error(f"Channel removal status (ui) failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/channel_removal_vote', methods=['POST'])
+    @require_login
+    def ajax_channel_removal_vote():
+        try:
+            db_manager, _, trust_manager, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+            if not channel_manager:
+                return jsonify({'error': 'Channels unavailable'}), 503
+
+            user_id = get_current_user()
+            allow_admin = _is_admin()
+            data = request.get_json() or {}
+            channel_id = str(data.get('channel_id') or '').strip()
+            requested_vote = str(data.get('vote') or '').strip().lower()
+            proposal_id = str(data.get('proposal_id') or '').strip() or None
+            reason = str(data.get('reason') or '').strip() or None
+            if requested_vote not in {'remove', 'keep'} or not channel_id:
+                return jsonify({'error': 'channel_id and vote are required'}), 400
+            if not allow_admin and db_manager:
+                with db_manager.get_connection() as conn:
+                    membership = conn.execute(
+                        "SELECT 1 FROM channel_members WHERE channel_id = ? AND user_id = ?",
+                        (channel_id, user_id),
+                    ).fetchone()
+                if not membership:
+                    return jsonify({'error': 'Channel not found'}), 404
+
+            local_peer_id, connected_peer_ids, trusted_peer_ids = _channel_removal_mesh_context(
+                trust_manager,
+                p2p_manager,
+            )
+            if not local_peer_id:
+                return jsonify({'error': 'Local peer identity unavailable'}), 503
+
+            pre_status = channel_manager.get_channel_removal_status(
+                channel_id,
+                local_peer_id=local_peer_id,
+                viewer_user_id=user_id,
+                allow_admin=allow_admin,
+                connected_peer_ids=connected_peer_ids,
+                trusted_peer_ids=trusted_peer_ids,
+            )
+            if not pre_status.get('channel_exists'):
+                return jsonify({'error': 'Channel not found'}), 404
+
+            active_proposal = pre_status.get('active_proposal') or {}
+            manager_result: Dict[str, Any]
+            action = 'cast'
+            if active_proposal:
+                manager_result = channel_manager.cast_channel_removal_vote(
+                    channel_id=channel_id,
+                    proposal_id=proposal_id or str(active_proposal.get('proposal_id') or '').strip(),
+                    user_id=user_id,
+                    local_peer_id=str(local_peer_id),
+                    vote=requested_vote,
+                    allow_admin=allow_admin,
+                    reason=reason,
+                    connected_peer_ids=connected_peer_ids,
+                    trusted_peer_ids=trusted_peer_ids,
+                )
+            else:
+                if requested_vote != 'remove':
+                    return jsonify({'error': 'A keep vote requires an active removal proposal'}), 400
+                action = 'start'
+                manager_result = channel_manager.start_channel_removal_vote(
+                    channel_id=channel_id,
+                    user_id=user_id,
+                    local_peer_id=str(local_peer_id),
+                    connected_peer_ids=connected_peer_ids,
+                    trusted_peer_ids=trusted_peer_ids,
+                    allow_admin=allow_admin,
+                    reason=reason,
+                )
+
+            if not manager_result.get('ok'):
+                error = str(manager_result.get('error') or 'Unable to update vote')
+                http_status = 403 if error in {
+                    'not_authorized',
+                    'peer_not_in_electorate',
+                    'already_retired',
+                    'proposal_exists',
+                    'already_voted',
+                    'system_channel',
+                    'channel_type_ineligible',
+                    'preserved_channel',
+                } else 400
+                return jsonify({
+                    'error': error,
+                    'status': manager_result.get('status'),
+                }), http_status
+
+            post_status = manager_result.get('status') or channel_manager.get_channel_removal_status(
+                channel_id,
+                local_peer_id=local_peer_id,
+                viewer_user_id=user_id,
+                allow_admin=allow_admin,
+                connected_peer_ids=connected_peer_ids,
+                trusted_peer_ids=trusted_peer_ids,
+            )
+            finalization = manager_result.get('finalization') or {}
+            electorate_peer_ids = []
+            if action == 'start':
+                electorate_peer_ids = list(manager_result.get('electorate_peer_ids') or [])
+            elif active_proposal:
+                electorate_peer_ids = [
+                    entry.get('peer_id')
+                    for entry in (active_proposal.get('electorate') or [])
+                    if isinstance(entry, dict) and entry.get('peer_id')
+                ]
+
+            if p2p_manager and p2p_manager.is_running():
+                try:
+                    if action == 'start':
+                        p2p_manager.broadcast_channel_removal_proposal(
+                            proposal_id=manager_result.get('proposal_id'),
+                            channel_id=channel_id,
+                            channel_name=str((post_status.get('active_proposal') or {}).get('channel_name') or pre_status.get('active_proposal', {}).get('channel_name') or channel_id),
+                            channel_origin_peer=(post_status.get('active_proposal') or {}).get('channel_origin_peer'),
+                            channel_privacy_mode=(post_status.get('active_proposal') or {}).get('channel_privacy_mode'),
+                            initiator_user_id=user_id,
+                            electorate_peer_ids=electorate_peer_ids,
+                            threshold_count=int((post_status.get('active_proposal') or {}).get('threshold_count') or len(electorate_peer_ids) or 0),
+                            opened_at=(post_status.get('active_proposal') or {}).get('opened_at'),
+                        )
+                    if electorate_peer_ids:
+                        p2p_manager.broadcast_channel_removal_vote(
+                            proposal_id=(manager_result.get('proposal_id') or proposal_id or (active_proposal.get('proposal_id'))),
+                            channel_id=channel_id,
+                            voter_user_id=user_id,
+                            vote=requested_vote,
+                            electorate_peer_ids=electorate_peer_ids,
+                            reason=reason,
+                        )
+                    if finalization:
+                        p2p_manager.broadcast_channel_removal_result(
+                            proposal_id=str(finalization.get('proposal_id') or manager_result.get('proposal_id') or proposal_id or ''),
+                            channel_id=channel_id,
+                            result=str(finalization.get('result') or finalization.get('status') or ''),
+                            electorate_peer_ids=list(finalization.get('electorate_peer_ids') or electorate_peer_ids),
+                            threshold_count=int(finalization.get('threshold_count') or len(electorate_peer_ids) or 0),
+                            finalizing_user_id=user_id,
+                            tombstone_id=finalization.get('tombstone_id'),
+                            finalized_at=finalization.get('finalized_at'),
+                        )
+                except Exception as mesh_err:
+                    logger.warning(f"Channel removal vote mesh propagation failed: {mesh_err}")
+
+            return jsonify({
+                'success': True,
+                'action': action,
+                'status': post_status,
+                'finalization': finalization,
+            })
+        except Exception as e:
+            logger.error(f"Channel removal vote (ui) failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @ui.route('/ajax/delete_channel', methods=['POST'])
     @require_login
     def ajax_delete_channel():

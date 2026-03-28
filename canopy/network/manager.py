@@ -3247,6 +3247,152 @@ class P2PNetworkManager:
             logger.error(f"Error sending member sync: {e}", exc_info=True)
             return False
 
+    def broadcast_channel_removal_proposal(
+        self,
+        *,
+        proposal_id: str,
+        channel_id: str,
+        channel_name: str,
+        channel_origin_peer: Optional[str],
+        channel_privacy_mode: Optional[str],
+        initiator_user_id: Optional[str],
+        electorate_peer_ids: list[str],
+        threshold_count: int,
+        opened_at: Optional[str] = None,
+    ) -> bool:
+        if not self._running or not self._event_loop:
+            logger.warning("P2P network not running, cannot broadcast channel removal proposal")
+            return False
+        if not self.message_router:
+            return False
+        local_peer = str(self.get_peer_id() or '').strip()
+        targets = sorted({
+            str(peer_id or '').strip()
+            for peer_id in (electorate_peer_ids or [])
+            if str(peer_id or '').strip() and str(peer_id or '').strip() != local_peer
+        })
+        if not targets:
+            return True
+        ok = True
+        for target_peer in targets:
+            future = asyncio.run_coroutine_threadsafe(
+                self.message_router.send_channel_removal_proposal(
+                    to_peer=target_peer,
+                    proposal_id=proposal_id,
+                    channel_id=channel_id,
+                    channel_name=channel_name,
+                    channel_origin_peer=channel_origin_peer,
+                    channel_privacy_mode=channel_privacy_mode,
+                    initiator_peer_id=local_peer,
+                    initiator_user_id=initiator_user_id,
+                    electorate_peer_ids=electorate_peer_ids,
+                    threshold_count=threshold_count,
+                    opened_at=opened_at,
+                ),
+                self._event_loop,
+            )
+            try:
+                ok = bool(future.result(timeout=5.0)) and ok
+            except Exception as e:
+                ok = False
+                logger.error("Error sending channel removal proposal to %s: %s", target_peer, e, exc_info=True)
+        return ok
+
+    def broadcast_channel_removal_vote(
+        self,
+        *,
+        proposal_id: str,
+        channel_id: str,
+        voter_user_id: Optional[str],
+        vote: str,
+        electorate_peer_ids: list[str],
+        reason: Optional[str] = None,
+        cast_at: Optional[str] = None,
+    ) -> bool:
+        if not self._running or not self._event_loop:
+            logger.warning("P2P network not running, cannot broadcast channel removal vote")
+            return False
+        if not self.message_router:
+            return False
+        local_peer = str(self.get_peer_id() or '').strip()
+        targets = sorted({
+            str(peer_id or '').strip()
+            for peer_id in (electorate_peer_ids or [])
+            if str(peer_id or '').strip() and str(peer_id or '').strip() != local_peer
+        })
+        if not targets:
+            return True
+        ok = True
+        for target_peer in targets:
+            future = asyncio.run_coroutine_threadsafe(
+                self.message_router.send_channel_removal_vote(
+                    to_peer=target_peer,
+                    proposal_id=proposal_id,
+                    channel_id=channel_id,
+                    voter_peer_id=local_peer,
+                    voter_user_id=voter_user_id,
+                    vote=vote,
+                    reason=reason,
+                    cast_at=cast_at,
+                ),
+                self._event_loop,
+            )
+            try:
+                ok = bool(future.result(timeout=5.0)) and ok
+            except Exception as e:
+                ok = False
+                logger.error("Error sending channel removal vote to %s: %s", target_peer, e, exc_info=True)
+        return ok
+
+    def broadcast_channel_removal_result(
+        self,
+        *,
+        proposal_id: str,
+        channel_id: str,
+        result: str,
+        electorate_peer_ids: list[str],
+        threshold_count: int,
+        finalizing_user_id: Optional[str],
+        tombstone_id: Optional[str] = None,
+        finalized_at: Optional[str] = None,
+    ) -> bool:
+        if not self._running or not self._event_loop:
+            logger.warning("P2P network not running, cannot broadcast channel removal result")
+            return False
+        if not self.message_router:
+            return False
+        local_peer = str(self.get_peer_id() or '').strip()
+        targets = sorted({
+            str(peer_id or '').strip()
+            for peer_id in (electorate_peer_ids or [])
+            if str(peer_id or '').strip() and str(peer_id or '').strip() != local_peer
+        })
+        if not targets:
+            return True
+        ok = True
+        for target_peer in targets:
+            future = asyncio.run_coroutine_threadsafe(
+                self.message_router.send_channel_removal_result(
+                    to_peer=target_peer,
+                    proposal_id=proposal_id,
+                    channel_id=channel_id,
+                    result=result,
+                    electorate_peer_ids=electorate_peer_ids,
+                    threshold_count=threshold_count,
+                    finalizing_peer_id=local_peer,
+                    finalizing_user_id=finalizing_user_id,
+                    tombstone_id=tombstone_id,
+                    finalized_at=finalized_at,
+                ),
+                self._event_loop,
+            )
+            try:
+                ok = bool(future.result(timeout=5.0)) and ok
+            except Exception as e:
+                ok = False
+                logger.error("Error sending channel removal result to %s: %s", target_peer, e, exc_info=True)
+        return ok
+
     def send_channel_key_distribution(self, to_peer: str, channel_id: str,
                                        key_id: str, encrypted_key: str,
                                        key_version: int = 1,
