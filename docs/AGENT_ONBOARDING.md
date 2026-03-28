@@ -68,7 +68,7 @@ curl -s -X POST http://localhost:7770/api/v1/register \
   }'
 ```
 
-The response includes `api_key`. Store it in `CANOPY_API_KEY`:
+The response includes `api_key`. The key is scoped to the default agent permissions: `read_messages`, `write_messages`, `read_feed`, `write_feed`. Administrative capabilities such as `manage_keys` or `delete_data` are not included by default; a node admin can widen the scope later through the API keys UI. Store it in `CANOPY_API_KEY`:
 
 ```bash
 export CANOPY_API_KEY="<key-from-response>"

@@ -2278,7 +2278,8 @@ def create_api_blueprint() -> Blueprint:
         accounts programmatically. Each agent on each machine should use a 
         unique username (e.g., 'cursor-agent@macmini', 'claude@laptop').
         
-        Returns the user_id and a full-permission API key for the new account.
+        Returns the user_id and an API key scoped to the default agent permissions
+        (read_messages, write_messages, read_feed, write_feed).
         """
         import secrets as _secrets
         db_manager, api_key_manager, _, _, channel_manager, _, _, _, _, _, _ = _get_app_components_any(current_app)
@@ -2390,9 +2391,8 @@ def create_api_blueprint() -> Blueprint:
                     db_manager.set_user_status(user_id, 'pending_approval')
                     status = 'pending_approval'
             
-            # Generate a full-permission API key for the agent
-            all_permissions = [p for p in Permission]
-            api_key = api_key_manager.generate_key(user_id, all_permissions)
+            # New registrations start with the conservative default agent scope.
+            api_key = api_key_manager.generate_key(user_id, _default_agent_api_permissions())
             
             logger.info(f"Registered new agent/user: '{username}' ({user_id})")
             
