@@ -12427,6 +12427,35 @@ function setChannelSendState(inFlight) {
     syncChannelComposerAvailability();
 }
 
+function buildOptimisticChannelMessage(message) {
+    const optimistic = Object.assign({}, message || {});
+    if (!optimistic || !optimistic.id) return null;
+    optimistic.like_count = Number(optimistic.like_count || 0);
+    optimistic.user_has_liked = !!optimistic.user_has_liked;
+    optimistic.is_bookmarked = !!optimistic.is_bookmarked;
+    if (optimistic.display_content === undefined || optimistic.display_content === null) {
+        optimistic.display_content = optimistic.content || '';
+    }
+    if (!Array.isArray(optimistic.attachments)) {
+        optimistic.attachments = [];
+    }
+    if (!optimistic.reactions || typeof optimistic.reactions !== 'object') {
+        optimistic.reactions = {};
+    }
+    return optimistic;
+}
+
+function appendOptimisticChannelMessage(message) {
+    const optimistic = buildOptimisticChannelMessage(message);
+    if (!optimistic || isSearchActive) return false;
+    try {
+        return !!appendNewMessages([optimistic]);
+    } catch (error) {
+        console.warn('Optimistic channel append failed:', error);
+        return false;
+    }
+}
+
 // Message sending
 function sendMessage(event) {
     if (event && typeof event.preventDefault === 'function') {
@@ -12513,22 +12542,12 @@ function sendMessage(event) {
             renderChannelStructuredValidation({ issues: [] });
             updateChannelStructuredTriggerState({ issues: [], blocking: false });
             renderChannelStructuredResult(data.structured_objects || []);
-            // Always append incrementally after sending — avoids the
-            // flash/spinner from a full loadChannelMessages() reload
-            apiCall(`/ajax/channel_messages/${currentChannelId}`)
-                .then(freshData => {
-                    if (freshData && freshData.messages) {
-                        if (isSearchActive) {
-                            rerunActiveChannelSearch({ scrollToTop: false });
-                        } else if (!appendNewMessages(freshData.messages)) {
-                            displayMessages(freshData.messages, { forceScroll: true });
-                        }
-                    }
-                }).catch(() => {
-                    if (!rerunActiveChannelSearch({ scrollToTop: false })) {
-                        requestChannelThreadRefresh({ forceScroll: true });
-                    }
-                });
+            const appended = appendOptimisticChannelMessage(data.message);
+            window.setTimeout(() => {
+                if (!rerunActiveChannelSearch({ scrollToTop: false })) {
+                    requestChannelThreadRefresh({ forceScroll: !appended });
+                }
+            }, appended ? 120 : 0);
         } else {
             console.error('Send message failed:', data.error);
             alert('Failed to send message: ' + (data.error || 'Unknown error'));

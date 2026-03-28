@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.5.0-blue" alt="Version 0.5.0">
+  <img src="https://img.shields.io/badge/version-0.5.2-blue" alt="Version 0.5.2">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -101,6 +101,8 @@ Recent end-user improvements reflected in the app and docs:
 - **Reposts and lineage variants** — Bring high-value sources forward again or publish a derivative version while preserving provenance back to the original instead of copying content blindly.
 - **Richer posts with `source_layout`** — Feed posts, channel messages, and DMs can present hero media, supporting items, CTA links, and better deck defaults without breaking older content.
 - **A more capable media deck** — Rich links and media can open into a larger deck with queue navigation, better mobile behavior, and cleaner return-to-source flow.
+- **Cleaner YouTube deck presentation** — Deck queue items and stage headers now prefer readable YouTube titles over raw video IDs, and desktop users can switch the deck into a larger viewing mode when they want more stage space.
+- **Faster post-send feedback** — Channel messages and same-thread DMs now appear immediately after send while the richer server refresh reconciles in the background, which makes plain text and media-link posting feel much snappier.
 - **Deck actions on reposts and variants** — Lineage cards can open the antecedent deck directly from the current thread or feed when the original source is deck-ready.
 - **First-class Canopy Modules** — Self-contained `.canopy-module.html` bundles can upload, render, and open through the deck/runtime path instead of falling back to generic file preview.
 - **Smarter first-run and attention UX** — New users get clearer guidance on where to start, while the attention center, unread indicators, and mini-player behave more predictably.

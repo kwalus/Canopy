@@ -8,6 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-03-27
+
+### Changed
+- **Faster post-send feedback** — Channel messages and same-thread DMs now append the newly created message immediately after send and defer the heavier thread refresh into the background, so posting feels much more responsive without changing the authoritative server reconciliation model.
+
+## [0.5.1] - 2026-03-25
+
+### Changed
+- **Readable YouTube deck titles** — Deck queue items and the active stage now prefer human-readable YouTube titles from existing source metadata, player metadata, or a same-origin title lookup instead of falling back to raw video IDs.
+- **Desktop large deck mode** — Desktop users can toggle a larger Canopy deck view for more stage space without changing queue, control, or mobile behavior.
+
+### Fixed
+- **Paused YouTube post -> deck transfer** — Moving an already-materialized YouTube embed from a source card into the deck now preserves the live iframe document for in-page host moves, so playback in the deck no longer requires reselecting the same item from the queue.
+
 ## [0.5.0] - 2026-03-24
 
 ### Added
@@ -356,7 +370,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - **Canopy Module bundle validation** — Filenames ending in `.canopy-module.html` / `.canopy-module.htm` use `_validate_canopy_module_bundle()`: UTF-8 HTML document, **300 KiB** max, inline script allowed; blocks external scripts, inline event handlers, CSP override meta, embedded browsing tags, and non–self-contained resource URLs (`data:` / `blob:` / `#` only).
 - **Module-aware MIME inference** — Generic uploads (`application/octet-stream`, etc.) still normalize to `text/html` when the filename extension implies HTML, so agents can upload modules without spoofing types.
 - **Module preview semantics** — `build_file_preview()` returns `previewable: false`, `kind: "module"` for module bundles; `is_text_previewable()` excludes them.
-- **Module bundle coverage** — Generic `Canopy Module` fixtures are covered in validation and manual deck-check workflows without shipping a local showcase bundle in the public repo.
+- **Sample module** — `canopy/ui/static/modules/piano-lab-v1.canopy-module.html` for regression tests and manual deck checks.
 - **Documentation** — `docs/CANOPY_MODULE_RUNTIME_V1.md` and cross-links in README / API / agent docs.
 
 ### Changed

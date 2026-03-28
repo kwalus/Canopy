@@ -1362,6 +1362,23 @@ def create_api_blueprint() -> Blueprint:
         context['summary_text'] = '\n\n'.join(summary_parts).strip()
         return context
 
+    def _fetch_youtube_oembed_metadata(video_id: str) -> dict[str, str]:
+        vid = (video_id or '').strip()
+        if not _YT_ID_PATTERN.match(vid):
+            raise ValueError('Invalid YouTube video id')
+        canonical_url = f"https://www.youtube.com/watch?v={vid}"
+        oembed_url = f"https://www.youtube.com/oembed?url={quote_plus(canonical_url)}&format=json"
+        raw = _http_get_text(oembed_url, timeout=6, max_bytes=128_000)
+        obj = json.loads(raw)
+        return {
+            'video_id': vid,
+            'title': str(obj.get('title') or '').strip(),
+            'author': str(obj.get('author_name') or '').strip(),
+            'provider_name': str(obj.get('provider_name') or '').strip(),
+            'thumbnail_url': str(obj.get('thumbnail_url') or '').strip(),
+            'canonical_url': canonical_url,
+        }
+
     def _extract_external_context(url: str) -> dict:
         """Best-effort extraction of text context for agents/humans."""
         candidate = (url or '').strip()
@@ -4971,6 +4988,30 @@ def create_api_blueprint() -> Blueprint:
         except Exception as e:
             logger.error(f"Extract content context failed: {e}")
             return jsonify({'error': 'Failed to extract content context'}), 500
+
+    @api.route('/deck/youtube-title', methods=['GET'])
+    @require_auth(allow_session=True)
+    def deck_youtube_title_api():
+        try:
+            video_id = str(request.args.get('video_id') or '').strip()
+            if not video_id:
+                return jsonify({'error': 'video_id is required'}), 400
+            metadata = _fetch_youtube_oembed_metadata(video_id)
+            if not metadata.get('title'):
+                return jsonify({'error': 'YouTube title unavailable'}), 404
+            return jsonify({
+                'video_id': metadata.get('video_id') or video_id,
+                'title': metadata.get('title') or '',
+                'author': metadata.get('author') or '',
+                'provider_name': metadata.get('provider_name') or 'YouTube',
+                'thumbnail_url': metadata.get('thumbnail_url') or '',
+                'canonical_url': metadata.get('canonical_url') or '',
+            })
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
+        except Exception as e:
+            logger.error(f"Deck YouTube title lookup failed for {request.args.get('video_id')}: {e}")
+            return jsonify({'error': 'Failed to resolve YouTube title'}), 502
 
     @api.route('/content-contexts', methods=['GET'])
     @require_auth(Permission.READ_FEED)

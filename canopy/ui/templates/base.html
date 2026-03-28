@@ -868,6 +868,14 @@
             max-height: min(82vh, 860px);
         }
 
+        .sidebar-media-deck.is-desktop-large {
+            width: min(820px, calc(100vw - 52px));
+        }
+
+        .sidebar-media-deck.is-desktop-large.is-visible {
+            max-height: min(96vh, 1080px);
+        }
+
         .sidebar-media-deck-shell {
             border-radius: 26px;
             overflow: hidden;
@@ -885,6 +893,10 @@
             flex: 1 1 auto;
             min-height: 0;
             max-height: min(82vh, 860px);
+        }
+
+        .sidebar-media-deck.is-desktop-large .sidebar-media-deck-shell {
+            max-height: min(96vh, 1080px);
         }
 
         /* Scrollable middle: stage, queue, meta / station / widget — not transport controls */
@@ -1065,6 +1077,13 @@
             transition: all 0.2s ease;
         }
 
+        .sidebar-media-deck-action-btn.is-active {
+            border-color: rgba(96, 165, 250, 0.42);
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.16), rgba(34, 197, 94, 0.14));
+            color: #dbeafe;
+            box-shadow: inset 0 0 0 1px rgba(147, 197, 253, 0.1);
+        }
+
         .sidebar-media-deck-action-label {
             display: none;
             line-height: 1;
@@ -1091,6 +1110,23 @@
             padding: 0 18px 14px;
         }
 
+        .sidebar-media-deck.is-desktop-large .sidebar-media-deck-header {
+            padding: 18px 20px 14px;
+        }
+
+        .sidebar-media-deck.is-desktop-large .sidebar-media-deck-stage-shell,
+        .sidebar-media-deck.is-desktop-large .sidebar-media-deck-detail,
+        .sidebar-media-deck.is-desktop-large .sidebar-media-deck-queue-shell {
+            padding-left: 20px;
+            padding-right: 20px;
+        }
+
+        .sidebar-media-deck.is-desktop-large .sidebar-media-deck-footer {
+            padding-left: 20px;
+            padding-right: 20px;
+            padding-bottom: 20px;
+        }
+
         .sidebar-media-deck-stage {
             position: relative;
             width: 100%;
@@ -1100,6 +1136,11 @@
             background: linear-gradient(180deg, rgba(2, 6, 23, 0.95), rgba(15, 23, 42, 0.98));
             border: 1px solid rgba(255, 255, 255, 0.08);
             box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+        }
+
+        .sidebar-media-deck.is-desktop-large .sidebar-media-deck-stage {
+            min-height: clamp(352px, 57vh, 770px);
+            max-height: min(66vh, 770px);
         }
 
         .sidebar-media-deck-stage.is-empty {
@@ -1678,6 +1719,12 @@
             transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
         }
 
+        .sidebar-media-deck.is-desktop-large .sidebar-media-deck-item {
+            min-width: 152px;
+            width: 152px;
+            flex-basis: 152px;
+        }
+
         .sidebar-media-deck-item:hover {
             transform: translateY(-1px);
             border-color: rgba(96, 165, 250, 0.3);
@@ -2051,6 +2098,10 @@
                 padding: 0.25rem 0.45rem;
                 gap: 0.3rem;
                 font-size: 0.68rem;
+            }
+
+            #sidebar-media-deck-large-toggle {
+                display: none !important;
             }
         }
 
@@ -7702,6 +7753,10 @@
                         <div class="sidebar-media-deck-source" id="sidebar-media-deck-source">Now playing from Canopy</div>
                     </div>
                     <div class="sidebar-media-deck-actions">
+                        <button type="button" class="sidebar-media-deck-action-btn" id="sidebar-media-deck-large-toggle" aria-label="Use larger Canopy deck view" title="Use larger Canopy deck view">
+                            <i class="bi bi-arrows-fullscreen"></i>
+                            <span class="sidebar-media-deck-action-label">Large view</span>
+                        </button>
                         <button type="button" class="sidebar-media-deck-action-btn" id="sidebar-media-deck-minimize" aria-label="Minimize Canopy deck">
                             <i class="bi bi-dash-lg"></i>
                             <span class="sidebar-media-deck-action-label">Minimize</span>

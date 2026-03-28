@@ -2556,8 +2556,9 @@
         }
     }
 
-    function applyDmRichContent() {
-        document.querySelectorAll('.dm-message-text').forEach(el => {
+    function applyDmRichContentInScope(scope) {
+        const root = scope && scope.querySelectorAll ? scope : document;
+        root.querySelectorAll('.dm-message-text').forEach(el => {
             const raw = el.textContent || '';
             const tmp = document.createElement('div');
             tmp.textContent = raw;
@@ -2567,7 +2568,185 @@
             el.innerHTML = html;
             if (typeof renderMathInElementSafe === 'function') renderMathInElementSafe(el);
         });
-        if (typeof processRichEmbeds === 'function') processRichEmbeds('.dm-bubble-copy');
+        if (typeof processRichEmbeds === 'function') {
+            if (scope && scope.getAttribute) {
+                const messageId = scope.getAttribute('data-message-id');
+                if (messageId) {
+                    const escapedId = window.CSS && typeof window.CSS.escape === 'function'
+                        ? window.CSS.escape(String(messageId))
+                        : String(messageId).replace(/["\\]/g, '\\$&');
+                    processRichEmbeds(`.message-item[data-message-id="${escapedId}"] .dm-bubble-copy`);
+                    return;
+                }
+            }
+            processRichEmbeds('.dm-bubble-copy');
+        }
+    }
+
+    function applyDmRichContent() {
+        applyDmRichContentInScope(document);
+    }
+
+    function dmEscapeAttr(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/"/g, '&quot;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    }
+
+    function getCurrentUserDmIdentity() {
+        const existingLabel = document.querySelector('.dm-message-row.outbound .dm-message-sender');
+        const existingAvatar = document.querySelector('.dm-message-row.outbound .dm-avatar img');
+        return {
+            label: (existingLabel && existingLabel.textContent || CURRENT_USER_ID || 'You').trim() || CURRENT_USER_ID || 'You',
+            avatarUrl: existingAvatar ? (existingAvatar.getAttribute('src') || existingAvatar.src || '') : '',
+        };
+    }
+
+    function isDmTargetActiveThread(targetUrl) {
+        if (isDmSearchActive()) return false;
+        try {
+            const desired = new URL(getDmQueryUrl(targetUrl), window.location.origin);
+            const current = new URL(getDmQueryUrl(), window.location.origin);
+            return (
+                String(desired.searchParams.get('with') || '') === String(current.searchParams.get('with') || '') &&
+                String(desired.searchParams.get('group') || '') === String(current.searchParams.get('group') || '')
+            );
+        } catch (_) {
+            return false;
+        }
+    }
+
+    function buildOptimisticDmSecurityChip(security) {
+        if (!security || typeof security !== 'object') return '';
+        const mode = String(security.mode || '').trim();
+        const state = String(security.state || '').trim();
+        let kind = 'warning';
+        let icon = 'shield-exclamation';
+        if (mode === 'peer_e2e_v1') {
+            kind = 'e2e';
+            icon = 'shield-lock-fill';
+        } else if (mode === 'local_only') {
+            kind = 'local';
+            icon = 'pc-display';
+        } else if (state === 'decrypt_failed') {
+            kind = 'failure';
+            icon = 'shield-x';
+        }
+        const title = dmEscapeAttr(String(security.label || 'DM security').trim() || 'DM security');
+        const hidden = escapeHtml(String(security.label || 'DM security').trim() || 'DM security');
+        return `<span class="dm-security-chip ${kind}" title="${title}" aria-label="${title}"><i class="bi bi-${icon}"></i><span class="visually-hidden security-text">${hidden}</span></span>`;
+    }
+
+    function renderOptimisticDmAttachments(attachments) {
+        const items = Array.isArray(attachments) ? attachments : [];
+        if (!items.length) return '';
+        return `<div class="dm-attachment-list">${items.map((attachment) => {
+            const name = escapeHtml(String((attachment && attachment.name) || 'Attachment'));
+            const url = String((attachment && attachment.url) || '').trim();
+            const type = escapeHtml(String((attachment && attachment.type) || 'file'));
+            const size = Number(attachment && attachment.size);
+            const sizeLabel = Number.isFinite(size) && size > 0 ? ` • ${escapeHtml((size / 1024 / 1024 >= 1 ? `${(size / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(size / 1024))} KB`))}` : '';
+            const download = url ? `<a href="${dmEscapeAttr(url)}" class="btn btn-sm btn-outline-primary" download="${dmEscapeAttr(name)}"><i class="bi bi-download"></i></a>` : '';
+            return `
+                <div class="dm-attachment dm-attachment-card">
+                    <div class="dm-attachment-title-row">
+                        <div>
+                            <strong>${name}</strong>
+                            <small>${type}${sizeLabel}</small>
+                        </div>
+                        ${download}
+                    </div>
+                </div>
+            `;
+        }).join('')}</div>`;
+    }
+
+    function renderOptimisticDmRow(message, options = {}) {
+        const identity = getCurrentUserDmIdentity();
+        const metadata = (message && typeof message.metadata === 'object' && message.metadata) ? message.metadata : {};
+        const attachments = Array.isArray(message && message.attachments) ? message.attachments : (Array.isArray(metadata.attachments) ? metadata.attachments : []);
+        const replyPreview = options.replyPreview || null;
+        const security = (metadata && typeof metadata.security === 'object') ? metadata.security : null;
+        const sourceLayout = (metadata && metadata.source_layout && typeof metadata.source_layout === 'object') ? metadata.source_layout : null;
+        const sourceLayoutAttr = sourceLayout ? ` data-canopy-source-layout="${dmEscapeAttr(JSON.stringify(sourceLayout))}"` : '';
+        const editedHtml = message && message.edited_at ? `<span title="Edited ${dmEscapeAttr(message.edited_at)}">Edited</span>` : '';
+        const replyHtml = replyPreview ? `
+            <button type="button" class="dm-bubble-reply-preview" onclick="jumpToMessage('${dmEscapeAttr(replyPreview.id)}')">
+                <strong>${escapeHtml(replyPreview.sender_name || 'Reply')}</strong>
+                <span>${escapeHtml(replyPreview.preview || 'Replying in thread')}</span>
+            </button>
+        ` : '';
+        const avatarHtml = identity.avatarUrl
+            ? `<div class="dm-avatar" data-user-id="${dmEscapeAttr(CURRENT_USER_ID)}" data-origin-peer="" onclick='copyUserId(${JSON.stringify(CURRENT_USER_ID)}, ${JSON.stringify(identity.label)}, this)' title="View user details"><img src="${dmEscapeAttr(identity.avatarUrl)}" alt="${escapeHtml(identity.label)}"></div>`
+            : `<div class="dm-avatar" data-user-id="${dmEscapeAttr(CURRENT_USER_ID)}" data-origin-peer="" onclick='copyUserId(${JSON.stringify(CURRENT_USER_ID)}, ${JSON.stringify(identity.label)}, this)' title="View user details"><span>${escapeHtml((identity.label || CURRENT_USER_ID || 'Y').slice(0, 2).toUpperCase())}</span></div>`;
+        return `
+            <div class="dm-message-row outbound message-item"
+                 id="message-${dmEscapeAttr(message.id)}"
+                 data-message-id="${dmEscapeAttr(message.id)}"
+                 data-user-id="${dmEscapeAttr(CURRENT_USER_ID)}">
+                <div class="dm-message-main flex-grow-1">
+                    <div class="dm-message-meta">
+                        <span class="dm-message-sender" data-user-display="${dmEscapeAttr(CURRENT_USER_ID)}">${escapeHtml(identity.label)}</span>
+                        <span data-timestamp="${dmEscapeAttr(message.created_at || new Date().toISOString())}">${escapeHtml(message.created_at || '')}</span>
+                    </div>
+                    <div class="dm-bubble-wrap">
+                        <div class="dropdown dm-message-menu" data-message-actions="1">
+                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                                <i class="bi bi-three-dots"></i>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li><a class="dropdown-item" href="#" onclick="replyToMessage('${dmEscapeAttr(message.id)}', ${JSON.stringify(identity.label)}, ${JSON.stringify(((message.content || '').toString().slice(0, 140)) || '(attachment)')}); return false;"><i class="bi bi-reply"></i> Reply</a></li>
+                                <li><a class="dropdown-item" href="#" data-bookmark-button="1" data-source-type="dm_message" data-source-id="${dmEscapeAttr(message.id)}" data-bookmarked="false" onclick="event.preventDefault();"><i class="bi bi-bookmark"></i> <span data-bookmark-label>Save</span></a></li>
+                                <li><a class="dropdown-item" href="#" onclick="editMessage('${dmEscapeAttr(message.id)}'); return false;"><i class="bi bi-pencil"></i> Edit</a></li>
+                                <li><a class="dropdown-item text-danger" href="#" onclick="deleteMessage('${dmEscapeAttr(message.id)}'); return false;"><i class="bi bi-trash"></i> Delete</a></li>
+                            </ul>
+                        </div>
+                        <div class="dm-bubble">
+                            <div class="message-content" data-message-content="1"${sourceLayoutAttr}>
+                                ${replyHtml}
+                                ${message.content ? `<div class="dm-bubble-copy dm-message-text" data-canopy-source-ref="content:lede">${escapeHtml(message.content)}</div>` : ''}
+                                ${renderOptimisticDmAttachments(attachments)}
+                            </div>
+                            <div class="dm-bubble-footer">
+                                ${buildOptimisticDmSecurityChip(security)}
+                                ${editedHtml}
+                                <span data-timestamp="${dmEscapeAttr(message.created_at || new Date().toISOString())}">${escapeHtml(message.created_at || '')}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="dm-message-avatar-wrap">
+                    ${avatarHtml}
+                </div>
+            </div>
+        `;
+    }
+
+    function appendOptimisticDmMessage(message, options = {}) {
+        if (!message || !message.id || !isDmTargetActiveThread(options.targetUrl)) {
+            return false;
+        }
+        const body = document.getElementById('dm-thread-body');
+        if (!body) return false;
+        if (body.querySelector('.dm-empty-state')) {
+            body.innerHTML = '';
+        }
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = renderOptimisticDmRow(message, options);
+        const row = wrapper.firstElementChild;
+        if (!row) return false;
+        body.appendChild(row);
+        applyDmRichContentInScope(row);
+        if (typeof window.canopyApplySourceLayoutsInScope === 'function') {
+            window.canopyApplySourceLayoutsInScope(row);
+        }
+        if (typeof formatTimestamps === 'function') {
+            formatTimestamps();
+        }
+        scrollThreadToBottom();
+        return true;
     }
 
     function getThreadHrefForRecipients(recipients, responseData) {
@@ -2625,20 +2804,33 @@
         })
         .then((data) => {
             const targetUrl = getThreadHrefForRecipients(recipients, data || {});
+            const replyPreview = activeReplyContext && activeReplyContext.messageId ? {
+                id: activeReplyContext.messageId,
+                sender_name: activeReplyContext.senderLabel || 'Reply',
+                preview: activeReplyContext.preview || 'Replying in thread',
+            } : null;
             if (textarea) textarea.value = '';
             messageSelectedFiles = [];
             updateMessageFilePreview();
             clearReplyContext();
             composerUsesActiveThread = true;
-            loadDmSnapshot({
+            const appended = appendOptimisticDmMessage((data && data.message) || null, {
                 targetUrl,
-                pushHistory: true,
-                forceBottom: true,
-                allowDeferred: false,
-                hardFallback: true,
-            }).catch(() => {
-                window.location.href = targetUrl;
+                replyPreview,
             });
+            window.setTimeout(() => {
+                loadDmSnapshot({
+                    targetUrl,
+                    pushHistory: true,
+                    forceBottom: true,
+                    allowDeferred: false,
+                    hardFallback: !appended,
+                }).catch(() => {
+                    if (!appended) {
+                        window.location.href = targetUrl;
+                    }
+                });
+            }, appended ? 120 : 0);
         })
         .catch(error => {
             showAlert(error.error || 'Failed to send message', 'danger');
