@@ -14000,6 +14000,28 @@ function setChannelRemovalHeaderActionEnabled(enabled) {
     btn.classList.toggle('disabled', !enabled);
 }
 
+function syncChannelRemovalHeaderAction(status = currentChannelRemovalStatus, enabled = null) {
+    const btn = document.getElementById('channel-removal-vote-header-btn');
+    if (!btn) return;
+    const proposal = status && status.active_proposal ? status.active_proposal : null;
+    const localVote = String(proposal && proposal.local_vote || '').trim().toLowerCase();
+    let label = 'Channel removal vote';
+    if (status && status.retired) {
+        label = 'Channel retired by vote';
+    } else if (localVote === 'remove') {
+        label = 'Channel removal vote · You voted remove';
+    } else if (localVote === 'keep') {
+        label = 'Channel removal vote · You voted keep';
+    } else if (proposal) {
+        label = 'Channel removal vote · Awaiting your vote';
+    }
+    btn.innerHTML = `<i class="bi bi-person-workspace me-2"></i>${escapeHtml(label)}`;
+    btn.title = label;
+    if (enabled !== null) {
+        setChannelRemovalHeaderActionEnabled(!!enabled);
+    }
+}
+
 function normalizeChannelRemovalIneligibleReason(reason) {
     const normalized = String(reason || '').trim().toLowerCase();
     const labels = {
@@ -14071,6 +14093,7 @@ function buildChannelRemovalSummary(status) {
 function buildChannelRemovalModalHtml(channelId, channelName, status) {
     const safeName = escapeHtml(String(channelName || channelId || 'channel'));
     const proposal = status && status.active_proposal;
+    const selectedVote = String(proposal && proposal.local_vote || '').trim().toLowerCase();
     let bodyHtml = '';
     if (!status || !status.channel_exists) {
         bodyHtml = '<p class="mb-0 text-muted">Channel not found.</p>';
@@ -14081,7 +14104,12 @@ function buildChannelRemovalModalHtml(channelId, channelName, status) {
             ${status.tombstone ? renderChannelRemovalElectorate({ active_proposal: { electorate: (status.tombstone.electorate_peer_ids || []).map((peerId) => ({ peer_id: peerId })) } }) : ''}
         `;
     } else if (proposal) {
-        const localVote = proposal.local_vote ? `This peer already voted <strong>${escapeHtml(String(proposal.local_vote))}</strong>.` : 'This peer has not voted yet.';
+        let localVote = 'This peer has not voted yet.';
+        if (selectedVote && status && status.can_change_vote) {
+            localVote = `This peer voted <strong>${escapeHtml(selectedVote)}</strong>. You can still switch to the other ballot while the proposal remains open.`;
+        } else if (selectedVote) {
+            localVote = `This peer already voted <strong>${escapeHtml(selectedVote)}</strong>.`;
+        }
         bodyHtml = `
             ${buildChannelRemovalSummary(status)}
             <p class="mb-2">A removal vote is open for <strong>#${safeName}</strong>. The electorate was frozen when the proposal opened. Only those trusted connected peers count.</p>
@@ -14098,7 +14126,21 @@ function buildChannelRemovalModalHtml(channelId, channelName, status) {
 
     const canStart = !!(status && status.can_start && !status.active_proposal && !status.retired);
     const canVote = !!(status && status.can_vote && status.active_proposal && !status.retired);
+    const canChangeVote = !!(status && status.can_change_vote && status.active_proposal && !status.retired);
     const proposalId = proposal ? escapeHtml(String(proposal.proposal_id || '')) : '';
+    const canActOnProposal = canVote || canChangeVote;
+    let keepBtn = '';
+    let removeBtn = '';
+    if (canActOnProposal) {
+        const keepSelected = selectedVote === 'keep';
+        const removeSelected = selectedVote === 'remove';
+        const keepClass = keepSelected ? 'btn btn-success' : 'btn btn-outline-success';
+        const removeClass = removeSelected ? 'btn btn-danger' : 'btn btn-outline-danger';
+        const keepLabel = keepSelected ? 'Keep selected' : (removeSelected ? 'Switch to keep' : 'Keep channel');
+        const removeLabel = removeSelected ? 'Remove selected' : (keepSelected ? 'Switch to remove' : 'Vote remove');
+        keepBtn = `<button type="button" class="${keepClass}" ${keepSelected ? 'disabled' : ''} onclick="submitChannelRemovalVote('keep', '${escapeHtml(String(channelId || ''))}', '${proposalId}')">${keepLabel}</button>`;
+        removeBtn = `<button type="button" class="${removeClass}" ${removeSelected ? 'disabled' : ''} onclick="submitChannelRemovalVote('remove', '${escapeHtml(String(channelId || ''))}', '${proposalId}')">${removeLabel}</button>`;
+    }
 
     return `
         <div class="modal fade" id="channelRemovalVoteModal" tabindex="-1">
@@ -14115,8 +14157,7 @@ function buildChannelRemovalModalHtml(channelId, channelName, status) {
                     <div class="modal-footer">
                         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
                         ${canStart ? `<button type="button" class="btn btn-danger" onclick="submitChannelRemovalVote('remove', '${escapeHtml(String(channelId || ''))}')">Start remove vote</button>` : ''}
-                        ${canVote ? `<button type="button" class="btn btn-outline-success" onclick="submitChannelRemovalVote('keep', '${escapeHtml(String(channelId || ''))}', '${proposalId}')">Keep channel</button>
-                                     <button type="button" class="btn btn-danger" onclick="submitChannelRemovalVote('remove', '${escapeHtml(String(channelId || ''))}', '${proposalId}')">Vote remove</button>` : ''}
+                        ${canActOnProposal ? `${keepBtn}${removeBtn}` : ''}
                     </div>
                 </div>
             </div>
@@ -14158,29 +14199,37 @@ function syncChannelRemovalBanner() {
     if (!status || !status.active_proposal || status.retired) {
         banner.classList.add('d-none');
         banner.innerHTML = '';
-        setChannelRemovalHeaderActionEnabled(!!canOpen);
+        syncChannelRemovalHeaderAction(status, !!canOpen);
         return;
     }
     const proposal = status.active_proposal;
+    const selectedVote = String(proposal.local_vote || '').trim().toLowerCase();
     const summary = `${proposal.remove_votes || 0} remove · ${proposal.keep_votes || 0} keep · ${proposal.pending_votes || 0} pending`;
     const buttons = [];
     buttons.push('<button type="button" class="btn btn-sm btn-outline-secondary" onclick="openChannelRemovalModal()">Review vote</button>');
-    if (status.can_vote) {
-        buttons.push(`<button type="button" class="btn btn-sm btn-outline-success" onclick="submitChannelRemovalVote('keep', '${escapeHtml(String(currentChannelId || ''))}', '${escapeHtml(String(proposal.proposal_id || ''))}')">Keep</button>`);
-        buttons.push(`<button type="button" class="btn btn-sm btn-danger" onclick="submitChannelRemovalVote('remove', '${escapeHtml(String(currentChannelId || ''))}', '${escapeHtml(String(proposal.proposal_id || ''))}')">Remove</button>`);
+    if (status.can_vote || status.can_change_vote) {
+        const keepSelected = selectedVote === 'keep';
+        const removeSelected = selectedVote === 'remove';
+        const keepClass = keepSelected ? 'btn btn-sm btn-success' : 'btn btn-sm btn-outline-success';
+        const removeClass = removeSelected ? 'btn btn-sm btn-danger' : 'btn btn-sm btn-outline-danger';
+        buttons.push(`<button type="button" class="${keepClass}" ${keepSelected ? 'disabled' : ''} onclick="submitChannelRemovalVote('keep', '${escapeHtml(String(currentChannelId || ''))}', '${escapeHtml(String(proposal.proposal_id || ''))}')">${removeSelected ? 'Switch to keep' : (keepSelected ? 'Keep selected' : 'Keep')}</button>`);
+        buttons.push(`<button type="button" class="${removeClass}" ${removeSelected ? 'disabled' : ''} onclick="submitChannelRemovalVote('remove', '${escapeHtml(String(currentChannelId || ''))}', '${escapeHtml(String(proposal.proposal_id || ''))}')">${keepSelected ? 'Switch to remove' : (removeSelected ? 'Remove selected' : 'Remove')}</button>`);
     }
+    const localVoteNote = selectedVote
+        ? `This peer voted ${escapeHtml(selectedVote)}.${status.can_change_vote ? ' You can still switch to the other ballot while the proposal remains open.' : ''}`
+        : 'This peer has not voted yet.';
     banner.innerHTML = `
         <div class="channel-removal-banner-copy">
             <div class="d-flex align-items-center gap-2 flex-wrap">
                 <strong>Removal vote in progress</strong>
                 <span class="channel-removal-badge">${escapeHtml(summary)}</span>
             </div>
-            <div class="small text-muted mt-1">The electorate was frozen when the vote opened. Only trusted connected peers in that snapshot count.</div>
+            <div class="small text-muted mt-1">The electorate was frozen when the vote opened. Only trusted connected peers in that snapshot count. ${localVoteNote}</div>
         </div>
         <div class="channel-removal-banner-actions">${buttons.join('')}</div>
     `;
     banner.classList.remove('d-none');
-    setChannelRemovalHeaderActionEnabled(true);
+    syncChannelRemovalHeaderAction(status, true);
 }
 
 function loadChannelRemovalStatus(channelId, options = {}) {
@@ -14255,7 +14304,10 @@ function submitChannelRemovalVote(vote, channelId = currentChannelId, proposalId
                 handleRetiredChannel(normalizedId, status);
                 return;
             }
-            const message = normalizedVote === 'remove'
+            const voteChanged = !(data && data.changed === false);
+            const message = !voteChanged
+                ? 'Vote unchanged'
+                : normalizedVote === 'remove'
                 ? (data.action === 'start' ? 'Removal vote started' : 'Remove vote recorded')
                 : 'Keep vote recorded';
             showAlert(message, 'success');

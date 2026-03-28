@@ -15859,6 +15859,7 @@ def create_ui_blueprint() -> Blueprint:
                 trusted_peer_ids=trusted_peer_ids,
             )
             finalization = manager_result.get('finalization') or {}
+            vote_changed = bool(manager_result.get('changed', True))
             electorate_peer_ids = []
             if action == 'start':
                 electorate_peer_ids = list(manager_result.get('electorate_peer_ids') or [])
@@ -15869,7 +15870,7 @@ def create_ui_blueprint() -> Blueprint:
                     if isinstance(entry, dict) and entry.get('peer_id')
                 ]
 
-            if p2p_manager and p2p_manager.is_running():
+            if vote_changed and p2p_manager and p2p_manager.is_running():
                 try:
                     if action == 'start':
                         p2p_manager.broadcast_channel_removal_proposal(
@@ -15909,6 +15910,7 @@ def create_ui_blueprint() -> Blueprint:
             return jsonify({
                 'success': True,
                 'action': action,
+                'changed': vote_changed,
                 'status': post_status,
                 'finalization': finalization,
             })

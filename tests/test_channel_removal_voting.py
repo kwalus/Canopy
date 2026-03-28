@@ -148,8 +148,46 @@ class TestChannelRemovalVoting(unittest.TestCase):
             local_peer_id='peer-local',
             vote='remove',
         )
-        self.assertFalse(duplicate['ok'])
-        self.assertEqual(duplicate['error'], 'already_voted')
+        self.assertTrue(duplicate['ok'])
+        self.assertFalse(duplicate['changed'])
+        self.assertEqual((duplicate.get('status') or {}).get('active_proposal', {}).get('local_vote'), 'remove')
+
+    def test_local_peer_can_change_open_vote_before_finalization(self) -> None:
+        channel = self._create_private_channel('toggle-room')
+
+        result = self.channel_manager.start_channel_removal_vote(
+            channel_id=channel.id,
+            user_id='owner-user',
+            local_peer_id='peer-local',
+            connected_peer_ids=['peer-a', 'peer-b'],
+            trusted_peer_ids=['peer-a', 'peer-b'],
+        )
+        self.assertTrue(result['ok'])
+
+        status_before = self.channel_manager.get_channel_removal_status(
+            channel.id,
+            local_peer_id='peer-local',
+            viewer_user_id='owner-user',
+            connected_peer_ids=['peer-a', 'peer-b'],
+            trusted_peer_ids=['peer-a', 'peer-b'],
+        )
+        self.assertFalse(status_before['can_vote'])
+        self.assertTrue(status_before['can_change_vote'])
+        self.assertEqual((status_before.get('active_proposal') or {}).get('local_vote'), 'remove')
+
+        changed = self.channel_manager.cast_channel_removal_vote(
+            channel_id=channel.id,
+            proposal_id=result['proposal_id'],
+            user_id='owner-user',
+            local_peer_id='peer-local',
+            vote='keep',
+            connected_peer_ids=['peer-a', 'peer-b'],
+            trusted_peer_ids=['peer-a', 'peer-b'],
+        )
+        self.assertTrue(changed['ok'])
+        self.assertTrue(changed['changed'])
+        self.assertEqual(changed['previous_vote'], 'remove')
+        self.assertEqual((changed.get('finalization') or {}).get('result'), 'rejected')
 
     def test_member_can_cast_local_peer_vote_on_open_proposal(self) -> None:
         channel = self.channel_manager.create_channel(
