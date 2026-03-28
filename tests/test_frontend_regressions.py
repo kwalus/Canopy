@@ -779,6 +779,16 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("#channel-posting-badge.open {", channels_template)
         self.assertIn("display: flex !important;", channels_template)
 
+    def test_channel_removal_ui_surfaces_local_vote_state_and_toggle_actions(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        self.assertIn("function syncChannelRemovalHeaderAction(status = currentChannelRemovalStatus, enabled = null) {", channels_template)
+        self.assertIn("Channel removal vote · You voted remove", channels_template)
+        self.assertIn("Channel removal vote · You voted keep", channels_template)
+        self.assertIn("status.can_change_vote", channels_template)
+        self.assertIn("Switch to keep", channels_template)
+        self.assertIn("Switch to remove", channels_template)
+        self.assertIn("Vote unchanged", channels_template)
+
     def test_dashboard_flash_messages_null_check(self) -> None:
         dashboard_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'dashboard.html').read_text(encoding='utf-8')
         # Must guard against missing .flash-messages before injecting new API key alert

@@ -208,3 +208,48 @@ class TestChannelRemovalVoteRoutes(unittest.TestCase):
         self.p2p_manager.broadcast_channel_removal_proposal.assert_not_called()
         self.p2p_manager.broadcast_channel_removal_vote.assert_called_once()
         self.p2p_manager.broadcast_channel_removal_result.assert_called_once()
+
+    def test_vote_route_skips_mesh_broadcast_when_vote_is_unchanged(self) -> None:
+        pre_status = {
+            'channel_exists': True,
+            'active_proposal': {
+                'proposal_id': 'CRP1',
+                'electorate': [
+                    {'peer_id': 'peer-local'},
+                    {'peer_id': 'peer-a'},
+                ],
+                'local_vote': 'remove',
+            },
+        }
+        post_status = {
+            'channel_exists': True,
+            'active_proposal': {
+                'proposal_id': 'CRP1',
+                'electorate': [
+                    {'peer_id': 'peer-local', 'vote': 'remove'},
+                    {'peer_id': 'peer-a', 'vote': None},
+                ],
+                'local_vote': 'remove',
+            },
+        }
+        self.channel_manager.get_channel_removal_status.return_value = pre_status
+        self.channel_manager.cast_channel_removal_vote.return_value = {
+            'ok': True,
+            'status': post_status,
+            'finalization': None,
+            'changed': False,
+        }
+
+        response = self.client.post(
+            '/ajax/channel_removal_vote',
+            json={'channel_id': 'chan-1', 'vote': 'remove', 'proposal_id': 'CRP1'},
+            headers={'X-CSRFToken': 'csrf-channel-removal'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertFalse(payload.get('changed'))
+        self.p2p_manager.broadcast_channel_removal_proposal.assert_not_called()
+        self.p2p_manager.broadcast_channel_removal_vote.assert_not_called()
+        self.p2p_manager.broadcast_channel_removal_result.assert_not_called()

@@ -1948,6 +1948,7 @@ class ChannelManager:
             'retired_reason': None,
             'can_start': False,
             'can_vote': False,
+            'can_change_vote': False,
             'ineligible_reason': None,
             'active_proposal': None,
             'tombstone': None,
@@ -2057,6 +2058,13 @@ class ChannelManager:
                 and local_peer in electorate
                 and not local_vote
             )
+            status['can_change_vote'] = bool(
+                viewer_user_id
+                and (allow_admin or self.get_member_role(channel_id, viewer_user_id))
+                and local_peer
+                and local_peer in electorate
+                and local_vote
+            )
             return status
 
         return status
@@ -2080,6 +2088,7 @@ class ChannelManager:
                 'retired_reason': None,
                 'can_start': False,
                 'can_vote': False,
+                'can_change_vote': False,
                 'ineligible_reason': 'invalid_channel',
                 'active_proposal': None,
                 'tombstone': None,
@@ -2115,6 +2124,7 @@ class ChannelManager:
                 'retired_reason': None,
                 'can_start': False,
                 'can_vote': False,
+                'can_change_vote': False,
                 'ineligible_reason': 'internal_error',
                 'active_proposal': None,
                 'tombstone': None,
@@ -2466,55 +2476,76 @@ class ChannelManager:
                     """,
                     (clean_proposal_id, local_peer),
                 ).fetchone()
-                if existing_vote:
-                    return {'ok': False, 'error': 'already_voted'}
-
+                previous_vote = str(existing_vote['vote'] or '').strip().lower() if existing_vote else ''
+                changed = True
+                if existing_vote and previous_vote == vote_value:
+                    changed = False
                 cast_ts = str(cast_at or '').strip() or self._format_db_timestamp(datetime.now(timezone.utc))
-                conn.execute(
-                    """
-                    INSERT INTO channel_removal_votes (
-                        proposal_id, channel_id, voter_peer_id, voter_user_id, vote, reason, cast_at
+                if existing_vote and changed:
+                    conn.execute(
+                        """
+                        UPDATE channel_removal_votes
+                        SET voter_user_id = ?, vote = ?, reason = ?, cast_at = ?
+                        WHERE proposal_id = ? AND voter_peer_id = ?
+                        """,
+                        (
+                            actor_user_id,
+                            vote_value,
+                            str(reason or '').strip() or None,
+                            cast_ts,
+                            clean_proposal_id,
+                            local_peer,
+                        ),
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        clean_proposal_id,
-                        clean_channel_id,
-                        local_peer,
-                        actor_user_id,
-                        vote_value,
-                        str(reason or '').strip() or None,
-                        cast_ts,
-                    ),
-                )
-                finalization = self._finalize_channel_removal_locked(
-                    conn,
-                    proposal_row=proposal_row,
-                    finalizing_peer_id=local_peer,
-                    finalizing_user_id=actor_user_id,
-                )
+                elif not existing_vote:
+                    conn.execute(
+                        """
+                        INSERT INTO channel_removal_votes (
+                            proposal_id, channel_id, voter_peer_id, voter_user_id, vote, reason, cast_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            clean_proposal_id,
+                            clean_channel_id,
+                            local_peer,
+                            actor_user_id,
+                            vote_value,
+                            str(reason or '').strip() or None,
+                            cast_ts,
+                        ),
+                    )
+                finalization = None
+                if changed:
+                    finalization = self._finalize_channel_removal_locked(
+                        conn,
+                        proposal_row=proposal_row,
+                        finalizing_peer_id=local_peer,
+                        finalizing_user_id=actor_user_id,
+                    )
                 conn.commit()
-
-            event_reason = 'channel_removal_vote_updated'
-            dedupe_suffix = f"channel_removal_vote_updated:{clean_proposal_id}:{local_peer}"
-            if finalization and finalization.get('result') == _CHANNEL_REMOVAL_RETIRED_STATUS:
-                event_reason = 'channel_retired_by_vote'
-                dedupe_suffix = f"channel_retired_by_vote:{clean_proposal_id}"
-            elif finalization and finalization.get('result') == _CHANNEL_REMOVAL_REJECTED_STATUS:
-                event_reason = 'channel_removal_vote_rejected'
-                dedupe_suffix = f"channel_removal_vote_rejected:{clean_proposal_id}"
-            self._emit_channel_user_event(
-                channel_id=clean_channel_id,
-                event_type=EVENT_CHANNEL_STATE_UPDATED,
-                actor_user_id=actor_user_id,
-                payload={
-                    'reason': event_reason,
-                    'proposal_id': clean_proposal_id,
-                    'vote': vote_value,
-                    'voter_peer_id': local_peer,
-                },
-                dedupe_suffix=dedupe_suffix,
-            )
+            if changed:
+                event_reason = 'channel_removal_vote_updated'
+                dedupe_suffix = f"channel_removal_vote_updated:{clean_proposal_id}:{local_peer}"
+                if finalization and finalization.get('result') == _CHANNEL_REMOVAL_RETIRED_STATUS:
+                    event_reason = 'channel_retired_by_vote'
+                    dedupe_suffix = f"channel_retired_by_vote:{clean_proposal_id}"
+                elif finalization and finalization.get('result') == _CHANNEL_REMOVAL_REJECTED_STATUS:
+                    event_reason = 'channel_removal_vote_rejected'
+                    dedupe_suffix = f"channel_removal_vote_rejected:{clean_proposal_id}"
+                self._emit_channel_user_event(
+                    channel_id=clean_channel_id,
+                    event_type=EVENT_CHANNEL_STATE_UPDATED,
+                    actor_user_id=actor_user_id,
+                    payload={
+                        'reason': event_reason,
+                        'proposal_id': clean_proposal_id,
+                        'vote': vote_value,
+                        'previous_vote': previous_vote or None,
+                        'voter_peer_id': local_peer,
+                    },
+                    dedupe_suffix=dedupe_suffix,
+                )
             status = self.get_channel_removal_status(
                 clean_channel_id,
                 local_peer_id=local_peer,
@@ -2527,6 +2558,8 @@ class ChannelManager:
                 'ok': True,
                 'status': status,
                 'finalization': finalization,
+                'changed': changed,
+                'previous_vote': previous_vote or None,
             }
         except Exception as e:
             logger.error(f"Failed to cast channel removal vote for {channel_id}: {e}", exc_info=True)
@@ -2676,59 +2709,83 @@ class ChannelManager:
                 existing_vote = conn.execute(
                     """
                     SELECT 1
+                           , vote
                     FROM channel_removal_votes
                     WHERE proposal_id = ? AND voter_peer_id = ?
                     """,
                     (clean_proposal_id, voter_peer),
                 ).fetchone()
-                if existing_vote:
-                    return {'ok': False, 'error': 'already_voted'}
+                previous_vote = str(existing_vote['vote'] or '').strip().lower() if existing_vote else ''
+                changed = True
+                if existing_vote and previous_vote == vote_value:
+                    changed = False
                 cast_ts = str(cast_at or '').strip() or self._format_db_timestamp(datetime.now(timezone.utc))
-                conn.execute(
-                    """
-                    INSERT INTO channel_removal_votes (
-                        proposal_id, channel_id, voter_peer_id, voter_user_id, vote, reason, cast_at
+                if existing_vote and changed:
+                    conn.execute(
+                        """
+                        UPDATE channel_removal_votes
+                        SET voter_user_id = ?, vote = ?, reason = ?, cast_at = ?
+                        WHERE proposal_id = ? AND voter_peer_id = ?
+                        """,
+                        (
+                            str(voter_user_id or '').strip() or None,
+                            vote_value,
+                            str(reason or '').strip() or None,
+                            cast_ts,
+                            clean_proposal_id,
+                            voter_peer,
+                        ),
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        clean_proposal_id,
-                        clean_channel_id,
-                        voter_peer,
-                        str(voter_user_id or '').strip() or None,
-                        vote_value,
-                        str(reason or '').strip() or None,
-                        cast_ts,
-                    ),
-                )
-                finalization = self._finalize_channel_removal_locked(
-                    conn,
-                    proposal_row=proposal_row,
-                    finalizing_peer_id=voter_peer,
-                    finalizing_user_id=str(voter_user_id or '').strip() or None,
-                )
+                elif not existing_vote:
+                    conn.execute(
+                        """
+                        INSERT INTO channel_removal_votes (
+                            proposal_id, channel_id, voter_peer_id, voter_user_id, vote, reason, cast_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            clean_proposal_id,
+                            clean_channel_id,
+                            voter_peer,
+                            str(voter_user_id or '').strip() or None,
+                            vote_value,
+                            str(reason or '').strip() or None,
+                            cast_ts,
+                        ),
+                    )
+                finalization = None
+                if changed:
+                    finalization = self._finalize_channel_removal_locked(
+                        conn,
+                        proposal_row=proposal_row,
+                        finalizing_peer_id=voter_peer,
+                        finalizing_user_id=str(voter_user_id or '').strip() or None,
+                    )
                 conn.commit()
-            event_reason = 'channel_removal_vote_updated'
-            dedupe_suffix = f"channel_removal_vote_updated:{clean_proposal_id}:{voter_peer}"
-            if finalization and finalization.get('result') == _CHANNEL_REMOVAL_RETIRED_STATUS:
-                event_reason = 'channel_retired_by_vote'
-                dedupe_suffix = f"channel_retired_by_vote:{clean_proposal_id}"
-            elif finalization and finalization.get('result') == _CHANNEL_REMOVAL_REJECTED_STATUS:
-                event_reason = 'channel_removal_vote_rejected'
-                dedupe_suffix = f"channel_removal_vote_rejected:{clean_proposal_id}"
-            self._emit_channel_user_event(
-                channel_id=clean_channel_id,
-                event_type=EVENT_CHANNEL_STATE_UPDATED,
-                actor_user_id=str(voter_user_id or '').strip() or None,
-                payload={
-                    'reason': event_reason,
-                    'proposal_id': clean_proposal_id,
-                    'vote': vote_value,
-                    'voter_peer_id': voter_peer,
-                },
-                dedupe_suffix=dedupe_suffix,
-            )
-            return {'ok': True, 'finalization': finalization}
+            if changed:
+                event_reason = 'channel_removal_vote_updated'
+                dedupe_suffix = f"channel_removal_vote_updated:{clean_proposal_id}:{voter_peer}"
+                if finalization and finalization.get('result') == _CHANNEL_REMOVAL_RETIRED_STATUS:
+                    event_reason = 'channel_retired_by_vote'
+                    dedupe_suffix = f"channel_retired_by_vote:{clean_proposal_id}"
+                elif finalization and finalization.get('result') == _CHANNEL_REMOVAL_REJECTED_STATUS:
+                    event_reason = 'channel_removal_vote_rejected'
+                    dedupe_suffix = f"channel_removal_vote_rejected:{clean_proposal_id}"
+                self._emit_channel_user_event(
+                    channel_id=clean_channel_id,
+                    event_type=EVENT_CHANNEL_STATE_UPDATED,
+                    actor_user_id=str(voter_user_id or '').strip() or None,
+                    payload={
+                        'reason': event_reason,
+                        'proposal_id': clean_proposal_id,
+                        'vote': vote_value,
+                        'previous_vote': previous_vote or None,
+                        'voter_peer_id': voter_peer,
+                    },
+                    dedupe_suffix=dedupe_suffix,
+                )
+            return {'ok': True, 'finalization': finalization, 'changed': changed, 'previous_vote': previous_vote or None}
         except Exception as e:
             logger.error(f"Failed to receive channel removal vote {proposal_id}: {e}", exc_info=True)
             return {'ok': False, 'error': 'internal_error'}
