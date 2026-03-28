@@ -2281,7 +2281,7 @@ def create_api_blueprint() -> Blueprint:
         Returns the user_id and a full-permission API key for the new account.
         """
         import secrets as _secrets
-        db_manager, api_key_manager, _, _, _, _, _, _, _, _, _ = _get_app_components_any(current_app)
+        db_manager, api_key_manager, _, _, channel_manager, _, _, _, _, _, _ = _get_app_components_any(current_app)
         
         try:
             data = request.get_json()
@@ -2294,7 +2294,8 @@ def create_api_blueprint() -> Blueprint:
             account_type = (data.get('account_type') or 'human').strip().lower()
             if account_type not in ('human', 'agent'):
                 account_type = 'human'
-            # Optional: auto-approve agent accounts (set CANOPY_AUTO_APPROVE_AGENTS=1)
+            # Agents normally remain pending until an admin approves them. When
+            # legacy auto-approve is enabled, they still start quarantined.
             auto_approve = (os.getenv('CANOPY_AUTO_APPROVE_AGENTS') or '').strip().lower() in ('1', 'true', 'yes')
             status = 'active' if (account_type == 'agent' and auto_approve) else ('pending_approval' if account_type == 'agent' else 'active')
 
@@ -2359,16 +2360,35 @@ def create_api_blueprint() -> Blueprint:
             db_manager.store_user_keys(user_id, ed25519_pub_b58, ed25519_priv_b58,
                                        x25519_pub_b58, x25519_priv_b58)
             
-            # Add to general channel
+            quarantine_channel_id = None
+            quarantine_ready = True
+            # Apply default channel placement.
             try:
-                with db_manager.get_connection() as conn:
-                    conn.execute("""
-                        INSERT OR IGNORE INTO channel_members (channel_id, user_id, role)
-                        VALUES ('general', ?, 'member')
-                    """, (user_id,))
-                    conn.commit()
-            except Exception:
-                pass
+                if account_type == 'agent':
+                    quarantine_channel_id = getattr(channel_manager, 'AGENT_START_CHANNEL_ID', 'agent-start-here')
+                    quarantine_ready = bool(
+                        channel_manager
+                        and channel_manager.ensure_agent_quarantine_assignment(
+                            user_id,
+                            updated_by='system',
+                        )
+                    )
+                    if not quarantine_ready and status == 'active':
+                        db_manager.set_user_status(user_id, 'pending_approval')
+                        status = 'pending_approval'
+                else:
+                    with db_manager.get_connection() as conn:
+                        conn.execute("""
+                            INSERT OR IGNORE INTO channel_members (channel_id, user_id, role)
+                            VALUES ('general', ?, 'member')
+                        """, (user_id,))
+                        conn.commit()
+            except Exception as placement_err:
+                logger.error(f"Default channel placement failed for {user_id}: {placement_err}", exc_info=True)
+                quarantine_ready = False
+                if account_type == 'agent' and status == 'active':
+                    db_manager.set_user_status(user_id, 'pending_approval')
+                    status = 'pending_approval'
             
             # Generate a full-permission API key for the agent
             all_permissions = [p for p in Permission]
@@ -2384,8 +2404,18 @@ def create_api_blueprint() -> Blueprint:
                 'status': status,
                 'api_key': api_key,
                 'public_key': ed25519_pub_b58,
+                'quarantine_channel_id': quarantine_channel_id if (account_type == 'agent' and quarantine_ready) else None,
                 'message': f'Account created. Use the api_key for MCP/API authentication.'
-                    + (' Poll GET /api/auth/status until status is "active".' if status == 'pending_approval' else '')
+                    + (
+                        ' Poll GET /api/auth/status until status is "active". '
+                        'Once approved, you will start in the private #agent-start-here channel until an admin expands your access.'
+                        if status == 'pending_approval'
+                        else (
+                            ' Your account is active, but it starts in the private #agent-start-here channel until an admin expands your access.'
+                            if account_type == 'agent'
+                            else ''
+                        )
+                    )
             }), 201
             
         except Exception as e:

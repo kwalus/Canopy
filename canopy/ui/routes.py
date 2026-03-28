@@ -743,6 +743,10 @@ def create_ui_blueprint() -> Blueprint:
                     INSERT OR IGNORE INTO channel_members (channel_id, user_id, role)
                     VALUES ('general', ?, 'member')
                 """, (user_id,))
+                conn.execute("""
+                    INSERT OR IGNORE INTO channel_members (channel_id, user_id, role)
+                    VALUES ('agent-start-here', ?, 'admin')
+                """, (user_id,))
                 try:
                     public_channels = conn.execute(
                         "SELECT id FROM channels "
@@ -3949,6 +3953,32 @@ def create_ui_blueprint() -> Blueprint:
 
         latest_message_id = message_rows[-1]['id'] if message_rows else None
         latest_message_created_at = message_rows[-1]['created_at'] if message_rows else None
+        thread_state_fingerprint = hashlib.sha256(
+            '\n'.join(
+                '|'.join(
+                    [
+                        str(row.get('id') or ''),
+                        str(row.get('created_at') or ''),
+                        str(row.get('edited_at') or ''),
+                        str((row.get('security') or {}).get('state') if isinstance(row.get('security'), dict) else ''),
+                        ','.join(
+                            ':'.join(
+                                [
+                                    str(att.get('id') or att.get('origin_file_id') or ''),
+                                    str(att.get('url') or ''),
+                                    str(att.get('download_status') or ''),
+                                ]
+                            )
+                            for att in (row.get('attachments') or [])
+                            if isinstance(att, dict)
+                        ),
+                        str(bool(row.get('source_layout'))),
+                        str(len(str(row.get('content') or ''))),
+                    ]
+                )
+                for row in message_rows
+            ).encode('utf-8')
+        ).hexdigest()[:20] if message_rows else ''
         sidebar_state_token = '|'.join(
             f"{entry.get('key')}:{entry.get('updated_at')}:{entry.get('unread_count')}"
             for entry in conversation_entries[:80]
@@ -3958,6 +3988,7 @@ def create_ui_blueprint() -> Blueprint:
             str(len(message_rows)),
             str(latest_message_id or ''),
             str(latest_message_created_at or ''),
+            str(thread_state_fingerprint or ''),
         ])
 
         return {
@@ -5264,9 +5295,11 @@ def create_ui_blueprint() -> Blueprint:
                 return jsonify({'success': False, 'error': 'Large attachment downloads are paused on this node'}), 409
             if not p2p_manager:
                 return jsonify({'success': False, 'error': 'P2P manager unavailable'}), 503
-            if not p2p_manager.connection_manager or not p2p_manager.connection_manager.is_connected(source_peer_id):
-                return jsonify({'success': False, 'error': 'Source peer is not currently connected'}), 409
-            if not p2p_manager.peer_supports_capability(source_peer_id, LARGE_ATTACHMENT_CAPABILITY):
+            is_connected = bool(
+                p2p_manager.connection_manager
+                and p2p_manager.connection_manager.is_connected(source_peer_id)
+            )
+            if is_connected and not p2p_manager.peer_supports_capability(source_peer_id, LARGE_ATTACHMENT_CAPABILITY):
                 return jsonify({'success': False, 'error': 'Source peer does not support large attachment fetch'}), 409
 
             request_id = f"LAR{secrets.token_hex(8)}"
@@ -5281,6 +5314,14 @@ def create_ui_blueprint() -> Blueprint:
                 last_request_id=request_id,
                 error=None,
             )
+            if not is_connected:
+                return jsonify({
+                    'success': True,
+                    'queued': True,
+                    'request_id': request_id,
+                    'message': 'Source peer is offline right now. Download queued and will start when that peer reconnects.',
+                }), 202
+
             sent = p2p_manager.send_large_attachment_request(
                 to_peer=source_peer_id,
                 request_id=request_id,
@@ -5296,7 +5337,12 @@ def create_ui_blueprint() -> Blueprint:
                 )
                 return jsonify({'success': False, 'error': 'Failed to send download request'}), 502
 
-            return jsonify({'success': True, 'request_id': request_id})
+            return jsonify({
+                'success': True,
+                'queued': False,
+                'request_id': request_id,
+                'message': 'Large attachment download requested. It will appear when the transfer completes.',
+            })
         except Exception as e:
             logger.error(f"Failed to request remote attachment download: {e}", exc_info=True)
             return jsonify({'success': False, 'error': 'Internal server error'}), 500
@@ -6916,8 +6962,18 @@ def create_ui_blueprint() -> Blueprint:
     def ajax_admin_approve(user_id):
         """Set user status to active (approve pending agent)."""
         try:
-            db_manager, _, _, _, _, _, _, _, _, _, _ = _get_app_components_any(current_app)
+            db_manager, _, _, _, channel_manager, _, _, _, _, _, _ = _get_app_components_any(current_app)
+            user = db_manager.get_user(user_id) if db_manager else None
             if db_manager.set_user_status(user_id, 'active'):
+                if user and (user.get('account_type') or 'human') == 'agent' and channel_manager:
+                    quarantine_ok = channel_manager.ensure_agent_quarantine_assignment(
+                        user_id,
+                        updated_by=get_current_user(),
+                    )
+                    governance_result = channel_manager.enforce_user_channel_governance(user_id) if quarantine_ok else {}
+                    if not quarantine_ok or not governance_result.get('enabled'):
+                        db_manager.set_user_status(user_id, 'pending_approval')
+                        return jsonify({'error': 'Failed to apply default agent quarantine'}), 500
                 return jsonify({'success': True, 'status': 'active'})
             return jsonify({'error': 'User not found or update failed'}), 400
         except Exception as e:
@@ -6947,7 +7003,7 @@ def create_ui_blueprint() -> Blueprint:
     def ajax_admin_update_user_classification(user_id: str):
         """Admin: update account_type/status for local or remote user records."""
         try:
-            db_manager, _, _, _, _, _, _, _, _, _, _ = _get_app_components_any(current_app)
+            db_manager, _, _, _, channel_manager, _, _, _, _, _, _ = _get_app_components_any(current_app)
             user = db_manager.get_user(user_id)
             if not user:
                 return jsonify({'error': 'User not found'}), 404
@@ -6982,6 +7038,26 @@ def create_ui_blueprint() -> Blueprint:
                 return jsonify({'error': 'No valid classification updates were applied'}), 400
 
             refreshed = db_manager.get_user(user_id) or user
+            is_local_registered_agent = (
+                bool(refreshed.get('password_hash'))
+                and not refreshed.get('origin_peer')
+                and (refreshed.get('account_type') or 'human') == 'agent'
+                and (refreshed.get('status') or 'active') == 'active'
+            )
+            if is_local_registered_agent and channel_manager:
+                quarantine_ok = channel_manager.ensure_agent_quarantine_assignment(
+                    user_id,
+                    updated_by=get_current_user(),
+                )
+                governance_result = channel_manager.enforce_user_channel_governance(user_id) if quarantine_ok else {}
+                if not quarantine_ok or not governance_result.get('enabled'):
+                    db_manager.update_user_admin_fields(
+                        user_id,
+                        account_type=user.get('account_type'),
+                        status=user.get('status'),
+                    )
+                    return jsonify({'error': 'Failed to apply default agent quarantine'}), 500
+                refreshed = db_manager.get_user(user_id) or refreshed
             payload = {
                 'id': refreshed.get('id'),
                 'username': refreshed.get('username'),
@@ -11165,7 +11241,16 @@ def create_ui_blueprint() -> Blueprint:
             except Exception as inbox_err:
                 logger.warning(f"Failed to refresh DM inbox trigger on edit: {inbox_err}")
 
-            return jsonify({'success': True})
+            return jsonify({
+                'success': True,
+                'message': {
+                    'id': message_id,
+                    'content': content,
+                    'edited_at': final_metadata.get('edited_at') if isinstance(final_metadata, dict) else None,
+                    'attachments': final_attachments or [],
+                    'metadata': final_metadata if isinstance(final_metadata, dict) else {},
+                },
+            })
         except Exception as e:
             logger.error(f"Update message error: {e}", exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500

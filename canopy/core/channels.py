@@ -543,6 +543,12 @@ class Message:
 class ChannelManager:
     """Manages Slack-style channels and messaging."""
 
+    GENERAL_CHANNEL_ID = "general"
+    AGENT_START_CHANNEL_ID = "agent-start-here"
+    AGENT_START_CHANNEL_NAME = "agent-start-here"
+    AGENT_START_CHANNEL_DESCRIPTION = (
+        "Private local-only quarantine and onboarding channel for newly approved agents."
+    )
     DEFAULT_TTL_DAYS = 90  # Quarterly default
     DEFAULT_TTL_SECONDS = DEFAULT_TTL_DAYS * 24 * 3600
     DEFAULT_CHANNEL_LIFECYCLE_DAYS = 180
@@ -1411,48 +1417,98 @@ class ChannelManager:
                     INSERT OR IGNORE INTO users (id, username, public_key)
                     VALUES ('local_user', 'Local User', 'default_public_key')
                 """)
-                
-                # Check if general channel exists
-                cursor = conn.execute("SELECT id FROM channels WHERE name = 'general'")
+
+                owner_id = None
+                try:
+                    owner_id = self.db.get_instance_owner_user_id()
+                except Exception:
+                    owner_id = None
+
+                cursor = conn.execute(
+                    "SELECT id FROM channels WHERE id = ? OR name = ?",
+                    (self.GENERAL_CHANNEL_ID, self.GENERAL_CHANNEL_ID),
+                )
                 if not cursor.fetchone():
                     logger.info("Creating default general channel")
-                    
-                    # Create the general channel
-                    conn.execute("""
+                    conn.execute(
+                        """
                         INSERT INTO channels (
                             id, name, channel_type, created_by, description, privacy_mode,
                             last_activity_at, lifecycle_ttl_days, lifecycle_preserved
                         )
-                        VALUES (
-                            'general', 'general', 'public', 'system', 'General discussion channel', 'open',
-                            CURRENT_TIMESTAMP, ?, 1
-                        )
-                    """, (self.DEFAULT_CHANNEL_LIFECYCLE_DAYS,))
-                    conn.execute(
-                        "UPDATE channels SET lifecycle_preserved = 1, last_activity_at = COALESCE(last_activity_at, created_at) WHERE id = 'general'",
+                        VALUES (?, ?, 'public', 'system', ?, 'open', CURRENT_TIMESTAMP, ?, 1)
+                        """,
+                        (
+                            self.GENERAL_CHANNEL_ID,
+                            self.GENERAL_CHANNEL_ID,
+                            'General discussion channel',
+                            self.DEFAULT_CHANNEL_LIFECYCLE_DAYS,
+                        ),
                     )
-                    
-                    # Add local user to the general channel
-                    conn.execute("""
-                        INSERT OR IGNORE INTO channel_members (channel_id, user_id, role)
-                        VALUES ('general', 'local_user', 'admin')
-                    """)
-                    
-                    conn.commit()
                     logger.info("Default general channel created successfully")
                 else:
                     logger.debug("General channel already exists")
-                    # Ensure general channel is always open
-                    conn.execute("""
-                        UPDATE channels SET privacy_mode = 'open' WHERE id = 'general'
-                    """)
-                    
-                    # Ensure local user is in general channel even if channel exists
-                    conn.execute("""
+                    conn.execute(
+                        "UPDATE channels SET privacy_mode = 'open' WHERE id = ?",
+                        (self.GENERAL_CHANNEL_ID,),
+                    )
+
+                conn.execute(
+                    "UPDATE channels SET lifecycle_preserved = 1, last_activity_at = COALESCE(last_activity_at, created_at) WHERE id = ?",
+                    (self.GENERAL_CHANNEL_ID,),
+                )
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO channel_members (channel_id, user_id, role)
+                    VALUES (?, 'local_user', 'admin')
+                    """,
+                    (self.GENERAL_CHANNEL_ID,),
+                )
+
+                cursor = conn.execute(
+                    "SELECT id FROM channels WHERE id = ? OR name = ?",
+                    (self.AGENT_START_CHANNEL_ID, self.AGENT_START_CHANNEL_NAME),
+                )
+                if not cursor.fetchone():
+                    logger.info("Creating default agent quarantine channel")
+                    conn.execute(
+                        """
+                        INSERT INTO channels (
+                            id, name, channel_type, created_by, description, privacy_mode,
+                            last_activity_at, lifecycle_ttl_days, lifecycle_preserved,
+                            post_policy, allow_member_replies
+                        )
+                        VALUES (?, ?, 'private', 'system', ?, 'private', CURRENT_TIMESTAMP, ?, 1, ?, 1)
+                        """,
+                        (
+                            self.AGENT_START_CHANNEL_ID,
+                            self.AGENT_START_CHANNEL_NAME,
+                            self.AGENT_START_CHANNEL_DESCRIPTION,
+                            self.DEFAULT_CHANNEL_LIFECYCLE_DAYS,
+                            self.POST_POLICY_OPEN,
+                        ),
+                    )
+                    logger.info("Default agent quarantine channel created successfully")
+                conn.execute(
+                    "UPDATE channels SET lifecycle_preserved = 1, last_activity_at = COALESCE(last_activity_at, created_at) WHERE id = ?",
+                    (self.AGENT_START_CHANNEL_ID,),
+                )
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO channel_members (channel_id, user_id, role)
+                    VALUES (?, 'local_user', 'admin')
+                    """,
+                    (self.AGENT_START_CHANNEL_ID,),
+                )
+                if owner_id and owner_id not in {'system', 'local_user'}:
+                    conn.execute(
+                        """
                         INSERT OR IGNORE INTO channel_members (channel_id, user_id, role)
-                        VALUES ('general', 'local_user', 'admin')
-                    """)
-                    conn.commit()
+                        VALUES (?, ?, 'admin')
+                        """,
+                        (self.AGENT_START_CHANNEL_ID, owner_id),
+                    )
+                conn.commit()
                     
         except Exception as e:
             logger.error(f"Failed to ensure default channels: {e}", exc_info=True)
@@ -1630,6 +1686,44 @@ class ChannelManager:
                 return True
         except Exception as e:
             logger.error(f"Failed to update channel governance for {user_id}: {e}", exc_info=True)
+            return False
+
+    def ensure_agent_quarantine_assignment(
+        self,
+        user_id: str,
+        *,
+        updated_by: Optional[str] = None,
+        role: str = 'member',
+    ) -> bool:
+        """Place an agent into the built-in quarantine channel and restrict channel access."""
+        if not user_id:
+            return False
+        try:
+            with self.db.get_connection() as conn:
+                exists = conn.execute(
+                    "SELECT 1 FROM users WHERE id = ?",
+                    (user_id,),
+                ).fetchone()
+                if not exists:
+                    return False
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO channel_members (channel_id, user_id, role)
+                    VALUES (?, ?, ?)
+                    """,
+                    (self.AGENT_START_CHANNEL_ID, user_id, role or 'member'),
+                )
+                conn.commit()
+            return self.set_user_channel_governance(
+                user_id=user_id,
+                enabled=True,
+                block_public_channels=True,
+                restrict_to_allowed_channels=True,
+                allowed_channel_ids=[self.AGENT_START_CHANNEL_ID],
+                updated_by=updated_by or 'system',
+            )
+        except Exception as e:
+            logger.error(f"Failed to quarantine agent {user_id}: {e}", exc_info=True)
             return False
 
     def get_channel_access_decision(
