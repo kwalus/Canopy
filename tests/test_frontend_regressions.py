@@ -37,6 +37,33 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('.admin-section-environment { order: 1; }', admin_template)
         self.assertIn('.admin-section-users { order: 2; }', admin_template)
 
+    def test_admin_exposes_remote_shadow_duplicate_repair_controls(self) -> None:
+        admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')
+        self.assertIn('Duplicate Remote Shadow Users', admin_template)
+        self.assertIn('repair-shadow-duplicates-btn', admin_template)
+        self.assertIn("/ajax/admin/users/${userId}/repair-shadow-duplicates", admin_template)
+        self.assertIn('merged ${mergedCount} duplicate shadow row(s)', admin_template)
+
+    def test_admin_exposes_cross_peer_remote_forget_controls(self) -> None:
+        admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')
+        self.assertIn('Cross-Peer Same-Name Identities', admin_template)
+        self.assertIn('forget-remote-shadow-btn', admin_template)
+        self.assertIn("/ajax/admin/users/${userId}/forget-remote-shadow", admin_template)
+        self.assertIn('Forget remote shadow identity', admin_template)
+
+    def test_trust_page_exposes_remove_peer_controls(self) -> None:
+        trust_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'trust.html').read_text(encoding='utf-8')
+        self.assertIn("onclick=\"removePeerFromTrust('{{ peer_id }}')\"", trust_template)
+        self.assertIn("function removePeerFromTrust(peerId)", trust_template)
+        self.assertIn("/api/v1/p2p/forget", trust_template)
+        self.assertIn("remove_shadow_users: true", trust_template)
+
+    def test_connect_forget_peer_mentions_residue_cleanup(self) -> None:
+        connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
+        self.assertIn('clean stored trust/user residue for that peer', connect_template)
+        self.assertIn("purge_residue: true", connect_template)
+        self.assertIn("showAlert('Peer removed from known list and local residue cleaned up.'", connect_template)
+
     def test_settings_device_profile_precedes_system_information(self) -> None:
         settings_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'settings.html').read_text(encoding='utf-8')
         device_pos = settings_template.find('Device Profile')

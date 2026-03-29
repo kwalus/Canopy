@@ -1296,6 +1296,156 @@
 
 <div class="card mb-4 admin-section-users">
     <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-exclamation-diamond"></i> Duplicate Remote Shadow Users</h5>
+    </div>
+    <div class="card-body">
+        {% if remote_shadow_duplicate_groups %}
+        <p class="text-muted small mb-3">
+            These are same-peer duplicate shadow identities. Repair will merge stale rows into the suggested canonical row and keep the attached history.
+        </p>
+        <div class="table-responsive">
+            <table class="table table-hover table-sm align-middle" id="remote-shadow-duplicates-table">
+                <thead>
+                    <tr>
+                        <th>Identity</th>
+                        <th>Origin peer</th>
+                        <th>Suggested canonical</th>
+                        <th>Duplicate rows</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for group in remote_shadow_duplicate_groups %}
+                    <tr>
+                        <td>
+                            <div class="fw-semibold">{{ group.display_name }}</div>
+                            <div class="small text-muted">{{ group.reference_total }} tracked references across {{ group.users|length }} rows</div>
+                        </td>
+                        <td><code>{{ group.origin_peer }}</code></td>
+                        <td>
+                            <div><code>{{ group.canonical_username }}</code></div>
+                            <div class="small text-muted font-monospace">{{ group.canonical_user_id }}</div>
+                        </td>
+                        <td>
+                            <div class="d-flex flex-column gap-1">
+                                {% for member in group.users %}
+                                <div class="small">
+                                    <code>{{ member.username }}</code>
+                                    {% if member.id == group.canonical_user_id %}
+                                    <span class="badge bg-success ms-1">canonical</span>
+                                    {% else %}
+                                    <span class="badge bg-warning text-dark ms-1">stale</span>
+                                    {% endif %}
+                                    <span class="text-muted">refs {{ member.reference_total or 0 }}</span>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </td>
+                        <td>
+                            <button type="button"
+                                    class="btn btn-outline-warning btn-sm repair-shadow-duplicates-btn"
+                                    data-user-id="{{ group.canonical_user_id }}"
+                                    data-display-name="{{ group.display_name }}"
+                                    data-origin-peer="{{ group.origin_peer }}"
+                                    data-duplicate-count="{{ group.duplicate_count }}">Repair</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="small text-muted">No same-peer duplicate remote shadow identities detected.</div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card mb-4 admin-section-users">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-diagram-3"></i> Cross-Peer Same-Name Identities</h5>
+    </div>
+    <div class="card-body">
+        {% if cross_peer_same_name_groups %}
+        <p class="text-muted small mb-3">
+            These names appear across multiple peer identities. Use <strong>Forget</strong> only for stale remote shadow rows you explicitly want removed; this deletes that selected remote identity's local history.
+        </p>
+        <div class="table-responsive">
+            <table class="table table-hover table-sm align-middle" id="cross-peer-same-name-table">
+                <thead>
+                    <tr>
+                        <th>Identity</th>
+                        <th>Contexts</th>
+                        <th>Rows</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for group in cross_peer_same_name_groups %}
+                    <tr>
+                        <td>
+                            <div class="fw-semibold">{{ group.display_name }}</div>
+                            <div class="small text-muted">{{ group.peer_count }} contexts, {{ group.row_count }} rows, {{ group.reference_total }} tracked references</div>
+                        </td>
+                        <td>
+                            <div class="d-flex flex-column gap-1">
+                                {% for member in group.users %}
+                                <div class="small">
+                                    {% if member.is_local %}
+                                    <span class="badge bg-success-subtle text-success-emphasis border border-success-subtle">local</span>
+                                    {% else %}
+                                    <code>{{ member.origin_peer }}</code>
+                                    {% endif %}
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </td>
+                        <td>
+                            <div class="d-flex flex-column gap-2">
+                                {% for member in group.users %}
+                                <div class="border rounded p-2">
+                                    <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                                        <code>{{ member.username }}</code>
+                                        {% if member.is_local %}
+                                        <span class="badge bg-success-subtle text-success-emphasis border border-success-subtle">keep local</span>
+                                        {% elif member.forgettable %}
+                                        <span class="badge bg-warning text-dark">forgettable remote shadow</span>
+                                        {% else %}
+                                        <span class="badge bg-secondary">remote</span>
+                                        {% endif %}
+                                    </div>
+                                    <div class="small text-muted mb-2">
+                                        {{ member.reference_total or 0 }} refs
+                                        {% if member.origin_peer %}
+                                        • peer <code>{{ member.origin_peer }}</code>
+                                        {% endif %}
+                                        • id <span class="font-monospace">{{ member.id }}</span>
+                                    </div>
+                                    {% if member.forgettable %}
+                                    <button type="button"
+                                            class="btn btn-outline-danger btn-sm forget-remote-shadow-btn"
+                                            data-user-id="{{ member.id }}"
+                                            data-display-name="{{ group.display_name }}"
+                                            data-origin-peer="{{ member.origin_peer }}"
+                                            data-reference-total="{{ member.reference_total or 0 }}">Forget</button>
+                                    {% else %}
+                                    <button type="button" class="btn btn-outline-secondary btn-sm" disabled>Keep</button>
+                                    {% endif %}
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="small text-muted">No cross-peer same-name identities detected.</div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card mb-4 admin-section-users">
+    <div class="card-header">
         <h5 class="mb-0"><i class="bi bi-list-ul"></i> All users</h5>
     </div>
     <div class="card-body">
@@ -2593,6 +2743,49 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
             if (!userId) return;
             const { ok, data } = await api('POST', `/ajax/admin/users/${userId}/approve`, {});
             if (ok) { window.location.reload(); } else { alert(data.error || 'Failed'); }
+        });
+    });
+
+    document.querySelectorAll('.repair-shadow-duplicates-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const userId = btn.getAttribute('data-user-id');
+            const displayName = btn.getAttribute('data-display-name') || userId;
+            const originPeer = btn.getAttribute('data-origin-peer') || '';
+            const duplicateCount = Number(btn.getAttribute('data-duplicate-count') || 0);
+            if (!userId) return;
+            const confirmed = confirm(`Repair duplicate remote shadow rows for "${displayName}" from peer ${originPeer}?\n\nThis will merge ${duplicateCount} stale row(s) into the suggested canonical user.`);
+            if (!confirmed) return;
+            setButtonBusy(btn, true, 'Repairing…');
+            const { ok, data } = await api('POST', `/ajax/admin/users/${userId}/repair-shadow-duplicates`, {});
+            setButtonBusy(btn, false);
+            if (ok) {
+                const mergedCount = Number(data.merged_count || 0);
+                setAdminUsersStatus(`Repaired ${displayName}; merged ${mergedCount} duplicate shadow row(s).`);
+                window.location.reload();
+            } else {
+                setAdminUsersStatus(data.error || `Failed to repair ${displayName}.`, true);
+            }
+        });
+    });
+
+    document.querySelectorAll('.forget-remote-shadow-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const userId = btn.getAttribute('data-user-id');
+            const displayName = btn.getAttribute('data-display-name') || userId;
+            const originPeer = btn.getAttribute('data-origin-peer') || '';
+            const referenceTotal = Number(btn.getAttribute('data-reference-total') || 0);
+            if (!userId) return;
+            const confirmed = confirm(`Forget remote shadow identity "${displayName}" from peer ${originPeer}?\n\nThis removes that selected remote row and its local history snapshot (${referenceTotal} tracked refs).`);
+            if (!confirmed) return;
+            setButtonBusy(btn, true, 'Forgetting…');
+            const { ok, data } = await api('POST', `/ajax/admin/users/${userId}/forget-remote-shadow`, {});
+            setButtonBusy(btn, false);
+            if (ok) {
+                setAdminUsersStatus(`Forgot remote shadow ${displayName} from peer ${originPeer}.`);
+                window.location.reload();
+            } else {
+                setAdminUsersStatus(data.error || `Failed to forget ${displayName}.`, true);
+            }
         });
     });
 

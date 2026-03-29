@@ -1277,15 +1277,20 @@ function promoteDirect(peerId, btn) {
 
 function forgetPeer(peerId) {
     if (!peerId) return;
-    if (!confirm('Forget this peer? This will remove stored endpoints and stop auto-reconnect.')) return;
+    if (!confirm('Forget this peer? This will disconnect them, remove stored endpoints, stop auto-reconnect, and clean stored trust/user residue for that peer.')) return;
     apiJsonFetch('/api/v1/p2p/forget', {
         method: 'POST',
-        body: JSON.stringify({peer_id: peerId})
+        body: JSON.stringify({
+            peer_id: peerId,
+            remove_introduced: true,
+            purge_residue: true,
+            remove_shadow_users: true
+        })
     })
     .then(data => {
         if (data.status === 'forgotten' || data.status === 'not_found') {
             document.querySelectorAll(`[data-peer-id="${peerId}"]`).forEach(el => el.remove());
-            showAlert('Peer removed from known list.', 'success');
+            showAlert('Peer removed from known list and local residue cleaned up.', 'success');
         } else {
             showAlert(data.message || 'Could not forget peer', 'danger');
         }
