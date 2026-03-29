@@ -51,6 +51,20 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("/ajax/admin/users/${userId}/forget-remote-shadow", admin_template)
         self.assertIn('Forget remote shadow identity', admin_template)
 
+    def test_admin_governance_exposes_unsaved_state_and_secondary_save_bar(self) -> None:
+        admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')
+        self.assertIn('id="workspace-governance-dirty-indicator"', admin_template)
+        self.assertIn('Changes are not saved until you click <strong>Save Governance</strong>.', admin_template)
+        self.assertIn('id="workspace-save-governance-bottom-btn"', admin_template)
+        self.assertIn('id="workspace-governance-action-bar"', admin_template)
+
+    def test_admin_governance_tracks_dirty_state_in_script(self) -> None:
+        admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')
+        self.assertIn('let workspaceGovernanceSavedSignature = \'\';', admin_template)
+        self.assertIn('function refreshGovernanceDirtyState()', admin_template)
+        self.assertIn("workspaceGovernanceDirtyIndicator.textContent = workspaceGovernanceDirty ? 'Unsaved changes' : 'Saved';", admin_template)
+        self.assertIn('[workspaceSaveGovernanceBtn, workspaceSaveGovernanceBottomBtn].filter(Boolean).forEach((button) => {', admin_template)
+
     def test_trust_page_exposes_remove_peer_controls(self) -> None:
         trust_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'trust.html').read_text(encoding='utf-8')
         self.assertIn("onclick=\"removePeerFromTrust('{{ peer_id }}')\"", trust_template)

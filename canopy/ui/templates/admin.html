@@ -494,6 +494,44 @@
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
+.governance-status-banner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.85rem;
+    padding: 0.7rem 0.85rem;
+    border-radius: 12px;
+    border: 1px solid rgba(122, 151, 215, 0.18);
+    background: rgba(8, 19, 35, 0.45);
+}
+
+.governance-status-banner.is-dirty {
+    border-color: rgba(250, 204, 21, 0.4);
+    background: rgba(74, 54, 8, 0.28);
+}
+
+.governance-dirty-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border-radius: 999px;
+    padding: 0.22rem 0.6rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    border: 1px solid rgba(122, 151, 215, 0.2);
+    background: rgba(8, 19, 35, 0.56);
+    color: #cbd9f2;
+}
+
+.governance-dirty-indicator.is-dirty {
+    border-color: rgba(250, 204, 21, 0.38);
+    background: rgba(92, 65, 6, 0.42);
+    color: #fde68a;
+}
+
 .governance-stat-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -629,6 +667,22 @@
 .governance-helper {
     font-size: 0.76rem;
     color: #9cb2cf;
+}
+
+.governance-action-bar {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    margin-top: 0.85rem;
+    padding: 0.8rem 0.9rem;
+    border-radius: 14px;
+    border: 1px solid rgba(122, 151, 215, 0.22);
+    background: linear-gradient(145deg, rgba(17, 33, 56, 0.95), rgba(10, 24, 42, 0.96));
+    box-shadow: 0 -10px 24px rgba(3, 9, 22, 0.22);
+}
+
+.governance-action-bar.is-dirty {
+    border-color: rgba(250, 204, 21, 0.35);
 }
 
 .keys-panel-shell {
@@ -1084,6 +1138,13 @@
                     <div class="small text-muted mb-3" id="workspace-status-line"></div>
 
                     <div class="governance-shell mb-3">
+                        <div class="governance-status-banner" id="workspace-governance-status-banner">
+                            <div>
+                                <div class="small fw-semibold">Governance changes are staged locally.</div>
+                                <div class="small text-muted">Changes are not saved until you click <strong>Save Governance</strong>.</div>
+                            </div>
+                            <div class="governance-dirty-indicator" id="workspace-governance-dirty-indicator">Saved</div>
+                        </div>
                         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
                             <div>
                                 <h6 class="mb-0">Channel Governance</h6>
@@ -1169,6 +1230,17 @@
                             <p class="small text-muted mb-0">No governance channels loaded.</p>
                         </div>
                         <div class="small text-muted mt-1" id="workspace-governance-summary">No policy loaded.</div>
+                        <div class="governance-action-bar" id="workspace-governance-action-bar">
+                            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                                <div class="small text-muted">
+                                    Review the staged allowlist, then click <strong>Save Governance</strong> to persist it for this agent.
+                                </div>
+                                <div class="d-flex flex-wrap gap-2">
+                                    <button type="button" class="btn btn-success btn-sm" id="workspace-save-governance-bottom-btn">Save Governance</button>
+                                    <button type="button" class="btn btn-outline-warning btn-sm" id="workspace-enforce-governance-bottom-btn">Enforce Now</button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="row g-3">
@@ -3385,6 +3457,9 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
     const workspaceGovernanceAllowedChannels = document.getElementById('workspace-governance-allowed-channels');
     const workspaceGovernanceSummary = document.getElementById('workspace-governance-summary');
     const workspaceGovernanceChannelList = document.getElementById('workspace-governance-channel-list');
+    const workspaceGovernanceStatusBanner = document.getElementById('workspace-governance-status-banner');
+    const workspaceGovernanceDirtyIndicator = document.getElementById('workspace-governance-dirty-indicator');
+    const workspaceGovernanceActionBar = document.getElementById('workspace-governance-action-bar');
     const workspaceGovernanceSearch = document.getElementById('workspace-governance-search');
     const workspaceGovernanceFilter = document.getElementById('workspace-governance-filter');
     const workspaceGovernanceSelectMemberBtn = document.getElementById('workspace-governance-select-member-btn');
@@ -3406,13 +3481,17 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
     const workspaceRuntimeSubscriptionUpdated = document.getElementById('workspace-runtime-subscription-updated');
     const workspaceRuntimeSubscriptionTypes = document.getElementById('workspace-runtime-subscription-types');
     const workspaceSaveGovernanceBtn = document.getElementById('workspace-save-governance-btn');
+    const workspaceSaveGovernanceBottomBtn = document.getElementById('workspace-save-governance-bottom-btn');
     const workspaceEnforceGovernanceBtn = document.getElementById('workspace-enforce-governance-btn');
+    const workspaceEnforceGovernanceBottomBtn = document.getElementById('workspace-enforce-governance-bottom-btn');
 
     let selectedWorkspaceUserId = null;
     let selectedWorkspaceUserLabel = null;
     let selectedWorkspaceIsLocal = true;
     let workspaceGovernanceChannelsCache = [];
     let workspaceGovernancePolicy = {};
+    let workspaceGovernanceSavedSignature = '';
+    let workspaceGovernanceDirty = false;
 
     function escapeHtml(value) {
         return String(value || '')
@@ -3469,6 +3548,48 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
 
     function governanceSelectedSet() {
         return new Set(getSelectedOptions(workspaceGovernanceAllowedChannels));
+    }
+
+    function currentGovernanceDraft() {
+        return {
+            enabled: !!workspaceGovernanceEnabled?.checked,
+            block_public_channels: !!workspaceGovernanceBlockPublic?.checked,
+            restrict_to_allowed_channels: !!workspaceGovernanceAllowlist?.checked,
+            allowed_channel_ids: getSelectedOptions(workspaceGovernanceAllowedChannels).sort(),
+        };
+    }
+
+    function governancePolicySignature(policy) {
+        return JSON.stringify({
+            enabled: !!policy?.enabled,
+            block_public_channels: !!policy?.block_public_channels,
+            restrict_to_allowed_channels: !!policy?.restrict_to_allowed_channels,
+            allowed_channel_ids: Array.isArray(policy?.allowed_channel_ids)
+                ? policy.allowed_channel_ids.map(id => String(id || '').trim()).filter(Boolean).sort()
+                : [],
+        });
+    }
+
+    function setGovernanceDirtyState(isDirty) {
+        workspaceGovernanceDirty = !!isDirty;
+        if (workspaceGovernanceStatusBanner) {
+            workspaceGovernanceStatusBanner.classList.toggle('is-dirty', workspaceGovernanceDirty);
+        }
+        if (workspaceGovernanceActionBar) {
+            workspaceGovernanceActionBar.classList.toggle('is-dirty', workspaceGovernanceDirty);
+        }
+        if (workspaceGovernanceDirtyIndicator) {
+            workspaceGovernanceDirtyIndicator.textContent = workspaceGovernanceDirty ? 'Unsaved changes' : 'Saved';
+            workspaceGovernanceDirtyIndicator.classList.toggle('is-dirty', workspaceGovernanceDirty);
+        }
+        [workspaceSaveGovernanceBtn, workspaceSaveGovernanceBottomBtn].filter(Boolean).forEach((button) => {
+            button.classList.toggle('btn-success', workspaceGovernanceDirty);
+            button.classList.toggle('btn-outline-success', !workspaceGovernanceDirty);
+        });
+    }
+
+    function refreshGovernanceDirtyState() {
+        setGovernanceDirtyState(governancePolicySignature(currentGovernanceDraft()) !== workspaceGovernanceSavedSignature);
     }
 
     function setGovernanceSelection(channelIds, selected) {
@@ -3549,6 +3670,7 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
                 `${governancePolicyStateLabel()} · ` +
                 `block public ${workspaceGovernanceBlockPublic?.checked ? 'on' : 'off'} · ` +
                 `allowlist ${workspaceGovernanceAllowlist?.checked ? 'on' : 'off'} · ` +
+                `${workspaceGovernanceDirty ? 'unsaved changes pending · ' : ''}` +
                 `updated ${updatedAt}${updatedBy}`;
         }
     }
@@ -3609,6 +3731,7 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
                 const option = governanceOptionElement(channelId);
                 if (option) option.selected = !!event.target.checked;
                 renderGovernanceChannelList();
+                refreshGovernanceDirtyState();
             });
         });
     }
@@ -3620,11 +3743,12 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
             .forEach(el => { el.disabled = !canEdit; });
         renderGovernanceSummary();
         renderGovernanceChannelList();
+        refreshGovernanceDirtyState();
     }
 
     function setWorkspaceEditable(canEdit) {
         selectedWorkspaceIsLocal = !!canEdit;
-        [workspaceDisplayNameInput, workspaceAccountTypeSelect, workspaceThemeSelect, workspaceBioInput, workspaceSaveProfileBtn, workspaceAvatarUploadBtn, workspaceAvatarClearBtn, workspaceGovernanceEnabled, workspaceGovernanceBlockPublic, workspaceGovernanceAllowlist, workspaceSaveGovernanceBtn, workspaceEnforceGovernanceBtn]
+        [workspaceDisplayNameInput, workspaceAccountTypeSelect, workspaceThemeSelect, workspaceBioInput, workspaceSaveProfileBtn, workspaceAvatarUploadBtn, workspaceAvatarClearBtn, workspaceGovernanceEnabled, workspaceGovernanceBlockPublic, workspaceGovernanceAllowlist, workspaceSaveGovernanceBtn, workspaceSaveGovernanceBottomBtn, workspaceEnforceGovernanceBtn, workspaceEnforceGovernanceBottomBtn]
             .filter(Boolean)
             .forEach(el => { el.disabled = !canEdit; });
         if (workspaceReadonlyNote) {
@@ -3802,6 +3926,8 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
                 workspaceGovernanceAllowedChannels.appendChild(emptyOption);
             }
         }
+        workspaceGovernanceSavedSignature = governancePolicySignature(workspaceGovernancePolicy);
+        setGovernanceDirtyState(false);
         syncGovernanceControlState();
 
         renderWorkspaceList(
@@ -4063,6 +4189,7 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
                 true,
             );
             renderGovernanceChannelList();
+            refreshGovernanceDirtyState();
         });
     }
     if (workspaceGovernanceSelectVisibleBtn) {
@@ -4072,6 +4199,7 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
                 .filter(Boolean);
             setGovernanceSelection(visibleIds, true);
             renderGovernanceChannelList();
+            refreshGovernanceDirtyState();
         });
     }
     if (workspaceGovernanceClearVisibleBtn) {
@@ -4081,6 +4209,7 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
                 .filter(Boolean);
             setGovernanceSelection(visibleIds, false);
             renderGovernanceChannelList();
+            refreshGovernanceDirtyState();
         });
     }
     if (workspaceGovernanceQuarantineBtn) {
@@ -4100,8 +4229,7 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
         });
     }
 
-    if (workspaceSaveGovernanceBtn) {
-        workspaceSaveGovernanceBtn.addEventListener('click', async () => {
+    async function submitGovernancePolicy(enforceNow) {
             if (!selectedWorkspaceUserId) {
                 setWorkspaceStatus('Select a user first', true);
                 return;
@@ -4111,24 +4239,31 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
                 return;
             }
             const payload = {
-                enabled: !!workspaceGovernanceEnabled?.checked,
-                block_public_channels: !!workspaceGovernanceBlockPublic?.checked,
-                restrict_to_allowed_channels: !!workspaceGovernanceAllowlist?.checked,
-                allowed_channel_ids: getSelectedOptions(workspaceGovernanceAllowedChannels),
-                enforce_now: false,
+                ...currentGovernanceDraft(),
+                enforce_now: !!enforceNow,
             };
             const { ok, data } = await api('POST', `/ajax/admin/users/${selectedWorkspaceUserId}/governance`, payload);
             if (!ok) {
-                setWorkspaceStatus(data.error || 'Failed to save governance policy', true);
+                setWorkspaceStatus(data.error || `Failed to ${enforceNow ? 'enforce' : 'save'} governance policy`, true);
                 return;
             }
             if (data.workspace) renderWorkspace(data.workspace);
+            if (enforceNow) {
+                const removed = Number((data.enforcement || {}).removed_count || 0);
+                setWorkspaceStatus(data.message || `Governance enforced (removed ${removed} memberships)`);
+                return;
+            }
             setWorkspaceStatus(data.message || 'Governance policy updated');
-        });
     }
 
-    if (workspaceEnforceGovernanceBtn) {
-        workspaceEnforceGovernanceBtn.addEventListener('click', async () => {
+    [workspaceSaveGovernanceBtn, workspaceSaveGovernanceBottomBtn].filter(Boolean).forEach((button) => {
+        button.addEventListener('click', async () => {
+            await submitGovernancePolicy(false);
+        });
+    });
+
+    [workspaceEnforceGovernanceBtn, workspaceEnforceGovernanceBottomBtn].filter(Boolean).forEach((button) => {
+        button.addEventListener('click', async () => {
             if (!selectedWorkspaceUserId) {
                 setWorkspaceStatus('Select a user first', true);
                 return;
@@ -4138,23 +4273,9 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
                 return;
             }
             if (!confirm('Apply governance policy now and remove disallowed memberships for this user?')) return;
-            const payload = {
-                enabled: !!workspaceGovernanceEnabled?.checked,
-                block_public_channels: !!workspaceGovernanceBlockPublic?.checked,
-                restrict_to_allowed_channels: !!workspaceGovernanceAllowlist?.checked,
-                allowed_channel_ids: getSelectedOptions(workspaceGovernanceAllowedChannels),
-                enforce_now: true,
-            };
-            const { ok, data } = await api('POST', `/ajax/admin/users/${selectedWorkspaceUserId}/governance`, payload);
-            if (!ok) {
-                setWorkspaceStatus(data.error || 'Failed to enforce governance policy', true);
-                return;
-            }
-            if (data.workspace) renderWorkspace(data.workspace);
-            const removed = Number((data.enforcement || {}).removed_count || 0);
-            setWorkspaceStatus(data.message || `Governance enforced (removed ${removed} memberships)`);
+            await submitGovernancePolicy(true);
         });
-    }
+    });
 
     if (workspaceUserButtons.length > 0) {
         const first = workspaceUserButtons[0];

@@ -9302,34 +9302,121 @@ def create_api_blueprint() -> Blueprint:
     def _find_stream_remote_base(self_stream_id: str) -> Optional[str]:
         """Find a reachable remote base URL for a stream by trying all host_addrs."""
         from urllib.request import urlopen as _urlopen
-        from urllib.error import URLError as _URLError
         import json as _json
+
+        def _normalize_base_url(base_url: Any) -> str:
+            candidate = str(base_url or '').strip()
+            if not candidate:
+                return ''
+            parsed = urlparse(candidate)
+            scheme = (parsed.scheme or '').lower()
+            if scheme not in ('http', 'https'):
+                return ''
+            host = (parsed.hostname or '').strip()
+            if not host:
+                return ''
+            try:
+                port = parsed.port
+            except ValueError:
+                return ''
+            default_port = 443 if scheme == 'https' else 80
+            netloc = f"{host}:{port or default_port}"
+            return f"{scheme}://{netloc}"
+
+        def _stream_candidate_allowed_for_peer(base_url: Any, origin_peer: str, p2p_manager: Any) -> bool:
+            normalized = _normalize_base_url(base_url)
+            if not normalized:
+                return False
+            safe, _reason = _is_safe_external_url(normalized)
+            if safe:
+                return True
+            if not origin_peer or not p2p_manager:
+                return False
+
+            allowed: set[str] = set()
+
+            def _add_host_port(host: str, port: Optional[int], scheme: str = 'http') -> None:
+                clean_host = str(host or '').strip().lstrip('/')
+                if not clean_host:
+                    return
+                default_port = 443 if scheme == 'https' else 80
+                allowed.add(f"{scheme}://{clean_host}:{port or default_port}")
+
+            identity_manager = getattr(p2p_manager, 'identity_manager', None)
+            if identity_manager:
+                peer_endpoints = getattr(identity_manager, 'peer_endpoints', {}) or {}
+                for endpoint in peer_endpoints.get(origin_peer, []) or []:
+                    try:
+                        parts = str(endpoint).rsplit(':', 1)
+                        host = parts[0].lstrip('/')
+                        port = int(parts[1]) if len(parts) > 1 else 7771
+                        http_port = port - 1 if port > 7770 else 7770
+                        _add_host_port(host, http_port, 'http')
+                    except Exception:
+                        continue
+
+            discovery = getattr(p2p_manager, 'discovery', None)
+            if discovery and hasattr(discovery, 'get_peer'):
+                try:
+                    peer = discovery.get_peer(origin_peer)
+                except Exception:
+                    peer = None
+                if peer is not None:
+                    try:
+                        _add_host_port(getattr(peer, 'address', ''), getattr(peer, 'port', None), 'http')
+                    except Exception:
+                        pass
+
+            return normalized in allowed
+
         cached = _get_cached_stream_remote_base(self_stream_id)
         if cached:
             return cached
-        db_manager = _get_db_manager()
+        db_manager, _, _, _, _, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
         if not db_manager:
             return None
         candidates: list[str] = []
+        origin_peer = ''
         with db_manager.get_connection() as conn:
             rows = conn.execute(
-                "SELECT attachments FROM channel_messages "
+                "SELECT origin_peer, attachments FROM channel_messages "
                 "WHERE attachments IS NOT NULL AND attachments != '[]' "
                 "ORDER BY created_at DESC LIMIT 300"
             ).fetchall()
         for row in rows:
             try:
-                atts = _json.loads(row[0] if not hasattr(row, 'keys') else row['attachments'])
+                atts = _json.loads(row[1] if not hasattr(row, 'keys') else row['attachments'])
             except Exception:
                 continue
             for att in atts:
                 if not isinstance(att, dict):
                     continue
                 if str(att.get('stream_id') or '') == self_stream_id:
+                    origin_peer = str(row[0] if not hasattr(row, 'keys') else row['origin_peer'] or '').strip()
                     candidates = [str(a).rstrip('/') for a in (att.get('host_addrs') or [])]
                     break
             if candidates:
                 break
+        identity_manager = getattr(p2p_manager, 'identity_manager', None)
+        if origin_peer and identity_manager:
+            peer_endpoints = getattr(identity_manager, 'peer_endpoints', {}) or {}
+            for endpoint in peer_endpoints.get(origin_peer, []) or []:
+                try:
+                    parts = str(endpoint).rsplit(':', 1)
+                    host = parts[0].lstrip('/')
+                    port = int(parts[1]) if len(parts) > 1 else 7771
+                    http_port = port - 1 if port > 7770 else 7770
+                    candidates.append(f"http://{host}:{http_port}")
+                except Exception:
+                    continue
+        filtered_candidates: list[str] = []
+        for base in candidates:
+            if _stream_candidate_allowed_for_peer(base, origin_peer, p2p_manager):
+                filtered_candidates.append(base)
+        candidates = filtered_candidates
+        cached = _get_cached_stream_remote_base(self_stream_id)
+        if cached and _stream_candidate_allowed_for_peer(cached, origin_peer, p2p_manager):
+            return cached
         for base in candidates:
             try:
                 test_url = f"{base}/api/v1/streams/{self_stream_id}/manifest.m3u8"
@@ -9345,6 +9432,7 @@ def create_api_blueprint() -> Blueprint:
         return None
 
     @api.route('/stream-proxy/<stream_id>/manifest.m3u8', methods=['GET'])
+    @require_auth(allow_session=True)
     def stream_proxy_manifest_api(stream_id):
         """Server-side proxy for remote peer streams — fetches manifest from origin peer and rewrites segment URLs."""
         from urllib.request import urlopen as _urlopen
@@ -9396,6 +9484,7 @@ def create_api_blueprint() -> Blueprint:
             return jsonify({'error': 'Internal server error'}), 500
 
     @api.route('/stream-proxy/<stream_id>/segments/<segment_name>', methods=['GET'])
+    @require_auth(allow_session=True)
     def stream_proxy_segment_api(stream_id, segment_name):
         """Server-side proxy for remote peer stream segments."""
         from urllib.request import urlopen as _urlopen
