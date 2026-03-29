@@ -92,6 +92,11 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('onclick="confirmDeleteChannel()"', channels_template)
         self.assertIn("const deleteBtn = document.getElementById('channel-delete-header-btn');", channels_template)
 
+    def test_channel_unavailable_images_offer_remote_download_recovery(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        self.assertIn("img && (img.large_attachment || img.storage_mode === 'remote_large'", channels_template)
+        self.assertIn("requestRemoteAttachmentDownload(${JSON.stringify(remotePayload)}, this)", channels_template)
+
     def test_miniplayer_no_longer_eagerly_docks_youtube_on_update(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
         self.assertNotIn("if (type === 'youtube' && !isDocked && miniVideoHost) {", main_js)
