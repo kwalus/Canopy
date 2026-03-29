@@ -1415,6 +1415,10 @@
         cursor: pointer;
         transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
     }
+    .create-channel-posture-option > div {
+        min-width: 0;
+        flex: 1 1 auto;
+    }
     .create-channel-posture-option:hover {
         border-color: rgba(89, 222, 137, 0.24);
         background: rgba(14, 20, 34, 0.62);
@@ -1431,6 +1435,7 @@
         font-size: 0.72rem;
         line-height: 1.38;
         color: var(--canopy-text-muted);
+        overflow-wrap: anywhere;
     }
     .btn-check:checked + .create-channel-posture-option {
         border-color: rgba(89, 222, 137, 0.45);
@@ -2686,7 +2691,7 @@
                                     <i class="bi bi-megaphone"></i>
                                     <div>
                                         <strong>Open</strong>
-                                        <span>Any member can start top-level posts and replies.</span>
+                                        <span>Anyone in the channel can post and reply.</span>
                                     </div>
                                 </label>
                             </div>
@@ -2696,13 +2701,13 @@
                                     <i class="bi bi-person-check"></i>
                                     <div>
                                         <strong>Curated</strong>
-                                        <span>Admins and approved posters start top-level posts. Replies stay open to members.</span>
+                                        <span>Admins and approved posters start posts. Everyone can still reply.</span>
                                     </div>
                                 </label>
                             </div>
                         </div>
                         <div class="create-channel-posture-meta">
-                            Use curated posting when the channel should stay high-signal without blocking discussion in replies.
+                            Choose who can start posts.
                         </div>
                     </div>
                     <div class="d-flex gap-2">
@@ -2718,6 +2723,8 @@
                 {% set lifecycle_status = channel.lifecycle_status or 'active' %}
                 <div class="channel-item p-2 rounded mb-1 {% if loop.first %}active{% endif %} {% if lifecycle_status == 'archived' %}lifecycle-archived{% elif lifecycle_status == 'cooling' %}lifecycle-cooling{% elif lifecycle_status == 'preserved' %}lifecycle-preserved{% endif %}" 
                      data-channel-id="{{ channel.id }}"
+                     data-channel-base-name="{{ channel.name|e }}"
+                     data-display-name="{{ channel.name|e }}"
                      data-privacy-mode="{{ channel.privacy_mode }}"
                      data-member-count="{{ channel.member_count if channel.member_count is not none else 0 }}"
                      data-unread-count="{{ channel.unread_count if channel.unread_count is not none else 0 }}"
@@ -5849,6 +5856,83 @@ function sortChannelListByPins() {
     items.forEach(item => list.appendChild(item));
 }
 
+function getPeerDisplayLabel(peerId) {
+    const normalized = String(peerId || '').trim();
+    if (!normalized) return '';
+    const profiles = (window.CANOPY_VARS && window.CANOPY_VARS.peerProfiles) || {};
+    const profile = profiles[normalized];
+    if (profile && profile.display_name) {
+        return String(profile.display_name).trim() || normalized.slice(0, 12);
+    }
+    return normalized.slice(0, 12);
+}
+
+function getChannelDuplicateNameCounts() {
+    const counts = new Map();
+    document.querySelectorAll('.channel-item[data-channel-id]').forEach(item => {
+        const baseName = String(item.getAttribute('data-channel-base-name') || '').trim();
+        if (!baseName) return;
+        const key = baseName.toLowerCase();
+        counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    return counts;
+}
+
+function buildChannelDisplayName(baseName, originPeer, duplicateCounts = null) {
+    const cleanName = String(baseName || '').trim();
+    if (!cleanName) return '';
+    const cleanPeer = String(originPeer || '').trim();
+    const counts = duplicateCounts || getChannelDuplicateNameCounts();
+    if ((counts.get(cleanName.toLowerCase()) || 0) <= 1 || !cleanPeer) {
+        return cleanName;
+    }
+    const peerLabel = getPeerDisplayLabel(cleanPeer);
+    return peerLabel ? `${cleanName} · ${peerLabel}` : cleanName;
+}
+
+function getSidebarChannelDisplayName(item, fallbackName = '') {
+    if (!item) return String(fallbackName || '').trim();
+    const baseName = String(item.getAttribute('data-channel-base-name') || fallbackName || '').trim();
+    const originPeer = String(item.getAttribute('data-origin-peer') || '').trim();
+    return buildChannelDisplayName(baseName, originPeer);
+}
+
+function refreshSidebarChannelLabels() {
+    const duplicateCounts = getChannelDuplicateNameCounts();
+    document.querySelectorAll('.channel-item[data-channel-id]').forEach(item => {
+        const baseName = String(item.getAttribute('data-channel-base-name') || '').trim();
+        if (!baseName) return;
+        const displayName = buildChannelDisplayName(
+            baseName,
+            item.getAttribute('data-origin-peer') || '',
+            duplicateCounts,
+        );
+        item.setAttribute('data-display-name', displayName);
+        const nameEl = item.querySelector('.channel-name');
+        if (nameEl) {
+            const inner = nameEl.querySelector('.channel-name-inner');
+            if (inner) inner.textContent = displayName;
+            nameEl.setAttribute('data-full-name', displayName);
+            nameEl.setAttribute('aria-label', displayName);
+        }
+    });
+    if (currentChannelId) {
+        const selectedItem = document.querySelector(`.channel-item[data-channel-id="${CSS.escape(String(currentChannelId))}"]`);
+        if (selectedItem) {
+            const labelEl = document.getElementById('current-channel-name');
+            if (labelEl) {
+                labelEl.textContent = '#' + getSidebarChannelDisplayName(selectedItem, currentChannelName);
+            }
+        }
+    }
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', refreshSidebarChannelLabels);
+} else {
+    refreshSidebarChannelLabels();
+}
+
 // Channel management
 function selectChannel(channelId, channelName, options = {}) {
     if (typeof window.canopyPersistActiveMedia === 'function') {
@@ -5880,9 +5964,9 @@ function selectChannel(channelId, channelName, options = {}) {
     if (isSearchActive) clearSearch();
     
     // Update UI
-    document.getElementById('current-channel-name').textContent = '#' + channelName;
-    updateCurrentChannelIdUI(channelId);
     const selectedItem = document.querySelector(`[data-channel-id="${channelId}"]`);
+    document.getElementById('current-channel-name').textContent = '#' + getSidebarChannelDisplayName(selectedItem, channelName);
+    updateCurrentChannelIdUI(channelId);
     const descEl = document.getElementById('current-channel-desc');
     if (descEl && selectedItem) {
         const desc = selectedItem.getAttribute('data-channel-desc') || '';
@@ -9549,6 +9633,8 @@ function applySidebarChannelState(channels) {
             const div = document.createElement('div');
             div.className = 'channel-item p-2 rounded mb-1';
             div.setAttribute('data-channel-id', ch.id);
+            div.setAttribute('data-channel-base-name', ch.name);
+            div.setAttribute('data-display-name', ch.name);
             div.setAttribute('data-privacy-mode', privacy);
             div.setAttribute('data-member-count', String(ch.member_count || 0));
             div.setAttribute('data-unread-count', String(ch.unread_count || 0));
@@ -9668,6 +9754,7 @@ function applySidebarChannelState(channels) {
             item.setAttribute('data-channel-desc', ch.description || '');
         }
         if (ch.name) {
+            item.setAttribute('data-channel-base-name', ch.name);
             const nameEl = item.querySelector('.channel-name');
             if (nameEl) {
                 const inner = nameEl.querySelector('.channel-name-inner');
@@ -9729,6 +9816,7 @@ function applySidebarChannelState(channels) {
     bindChannelQuickActionHandlers();
     bindChannelPinHandlers();
     sortChannelListByPins();
+    refreshSidebarChannelLabels();
     scheduleChannelNameOverflowSync();
 }
 

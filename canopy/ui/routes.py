@@ -3021,7 +3021,10 @@ def create_ui_blueprint() -> Blueprint:
         if channel_manager and user_id:
             try:
                 policy = channel_manager.get_user_channel_governance(user_id)
-                channels = channel_manager.list_channels_for_governance(user_id=user_id)
+                channels = _filter_admin_governance_channels(
+                    channel_manager.list_channels_for_governance(user_id=user_id),
+                    local_peer_id=(p2p_manager.get_peer_id() if p2p_manager else None),
+                )
                 if not isinstance(policy, dict):
                     policy = {}
                 if not isinstance(channels, list):
@@ -3041,6 +3044,33 @@ def create_ui_blueprint() -> Blueprint:
                 logger.warning(f"Admin workspace governance snapshot failed for {user_id}: {gov_err}")
 
         return workspace
+
+    def _filter_admin_governance_channels(
+        channels: Any,
+        *,
+        local_peer_id: Optional[str],
+    ) -> list[dict[str, Any]]:
+        """Hide remote private/restricted channels from admin governance tooling."""
+        filtered: list[dict[str, Any]] = []
+        local_peer = str(local_peer_id or '').strip()
+        for raw in channels or []:
+            if not isinstance(raw, dict):
+                continue
+            row = dict(raw)
+            origin_peer = str(row.get('origin_peer') or '').strip()
+            privacy_mode = str(row.get('privacy_mode') or 'open').strip().lower() or 'open'
+            channel_type = str(row.get('channel_type') or 'public').strip().lower() or 'public'
+            is_public_open = bool(
+                row.get('is_public_open')
+                or (privacy_mode == 'open' and channel_type in {'public', 'general'})
+            )
+            is_local_origin = not origin_peer or (bool(local_peer) and origin_peer == local_peer)
+            if not is_public_open and not is_local_origin:
+                continue
+            row['origin_peer'] = origin_peer or None
+            row['is_public_open'] = is_public_open
+            filtered.append(row)
+        return filtered
 
     def _serialize_community_notes(notes: Any, viewer_user_id: str) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
@@ -7361,7 +7391,7 @@ def create_ui_blueprint() -> Blueprint:
     def ajax_admin_update_user_governance(user_id: str):
         """Admin: update per-user channel governance policy for a local user."""
         try:
-            db_manager, _, _, _, channel_manager, _, _, _, _, _, _ = _get_app_components_any(current_app)
+            db_manager, _, _, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
             user = _admin_registered_user_row(db_manager, user_id)
             if not user:
                 return jsonify({'error': 'User not found'}), 404
@@ -7390,7 +7420,10 @@ def create_ui_blueprint() -> Blueprint:
             if len(raw_allowed) > 1024:
                 return jsonify({'error': 'Too many allowed channels provided'}), 400
 
-            available_channels = channel_manager.list_channels_for_governance()
+            available_channels = _filter_admin_governance_channels(
+                channel_manager.list_channels_for_governance(),
+                local_peer_id=(p2p_manager.get_peer_id() if p2p_manager else None),
+            )
             valid_channel_ids = {
                 str(row.get('id')).strip()
                 for row in (available_channels or [])

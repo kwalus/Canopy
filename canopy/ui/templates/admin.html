@@ -3310,14 +3310,48 @@
         return true;
     }
 
+    function governancePeerLabel(peerId) {
+        const normalized = String(peerId || '').trim();
+        if (!normalized) return '';
+        const profiles = (window.CANOPY_VARS && window.CANOPY_VARS.peerProfiles) || {};
+        const profile = profiles[normalized];
+        if (profile && profile.display_name) {
+            return String(profile.display_name).trim() || normalized.slice(0, 12);
+        }
+        return normalized.slice(0, 12);
+    }
+
+    function governanceDuplicateNameCounts(channels) {
+        const counts = new Map();
+        (channels || []).forEach(channel => {
+            const name = String(channel && channel.name || '').trim().toLowerCase();
+            if (!name) return;
+            counts.set(name, (counts.get(name) || 0) + 1);
+        });
+        return counts;
+    }
+
+    function governanceChannelDisplayName(channel, duplicateCounts) {
+        const baseName = String(channel && channel.name || '').trim();
+        if (!baseName) return '';
+        const counts = duplicateCounts || governanceDuplicateNameCounts(workspaceGovernanceChannelsCache);
+        const originPeer = String(channel && channel.origin_peer || '').trim();
+        if ((counts.get(baseName.toLowerCase()) || 0) <= 1 || !originPeer) {
+            return baseName;
+        }
+        const peerLabel = governancePeerLabel(originPeer);
+        return peerLabel ? `${baseName} · ${peerLabel}` : baseName;
+    }
+
     function renderGovernanceSummary() {
         const allowedSet = governanceSelectedSet();
         const allowedCount = allowedSet.size;
         const memberCount = workspaceGovernanceChannelsCache.filter(channel => channel.is_member).length;
         const query = String(workspaceGovernanceSearch?.value || '').trim().toLowerCase();
         const filterValue = String(workspaceGovernanceFilter?.value || 'all').trim().toLowerCase();
+        const duplicateCounts = governanceDuplicateNameCounts(workspaceGovernanceChannelsCache);
         const visibleCount = workspaceGovernanceChannelsCache.filter(channel => {
-            const haystack = `${channel.name || ''} ${channel.id || ''}`.toLowerCase();
+            const haystack = `${governanceChannelDisplayName(channel, duplicateCounts)} ${channel.id || ''} ${governancePeerLabel(channel.origin_peer || '')}`.toLowerCase();
             if (query && !haystack.includes(query)) return false;
             return channelMatchesGovernanceFilter(channel, filterValue, allowedSet);
         }).length;
@@ -3342,8 +3376,9 @@
         const allowedSet = governanceSelectedSet();
         const query = String(workspaceGovernanceSearch?.value || '').trim().toLowerCase();
         const filterValue = String(workspaceGovernanceFilter?.value || 'all').trim().toLowerCase();
+        const duplicateCounts = governanceDuplicateNameCounts(workspaceGovernanceChannelsCache);
         const visible = workspaceGovernanceChannelsCache.filter(channel => {
-            const haystack = `${channel.name || ''} ${channel.id || ''}`.toLowerCase();
+            const haystack = `${governanceChannelDisplayName(channel, duplicateCounts)} ${channel.id || ''} ${governancePeerLabel(channel.origin_peer || '')}`.toLowerCase();
             if (query && !haystack.includes(query)) return false;
             return channelMatchesGovernanceFilter(channel, filterValue, allowedSet);
         });
@@ -3359,6 +3394,7 @@
         workspaceGovernanceChannelList.innerHTML = `<div class="governance-channel-grid">${
             visible.map(channel => {
                 const channelId = String(channel.id || '').trim();
+                const displayName = governanceChannelDisplayName(channel, duplicateCounts);
                 const checked = allowedSet.has(channelId);
                 const allowed = channel.governance_allowed !== false;
                 const badges = [
@@ -3373,7 +3409,7 @@
                             `<div class="governance-channel-title">` +
                                 `<input class="form-check-input workspace-governance-channel-checkbox" type="checkbox" data-channel-id="${escapeHtml(channelId)}" ${checked ? 'checked' : ''} ${canEdit ? '' : 'disabled'}>` +
                                 `<div>` +
-                                    `<div class="governance-channel-name">#${escapeHtml(channel.name || channelId)}</div>` +
+                                    `<div class="governance-channel-name">#${escapeHtml(displayName || channelId)}</div>` +
                                     `<div class="governance-channel-meta">${escapeHtml(channelId)}</div>` +
                                 `</div>` +
                             `</div>` +

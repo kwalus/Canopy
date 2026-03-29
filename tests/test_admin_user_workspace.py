@@ -284,6 +284,7 @@ class _FakeChannelManager:
                 'name': 'general',
                 'channel_type': 'public',
                 'privacy_mode': 'open',
+                'origin_peer': None,
                 'member_count': 10,
                 'members': {'agent-local'},
             },
@@ -292,6 +293,7 @@ class _FakeChannelManager:
                 'name': 'private-test',
                 'channel_type': 'private',
                 'privacy_mode': 'private',
+                'origin_peer': None,
                 'member_count': 2,
                 'members': {'agent-local'},
             },
@@ -300,7 +302,26 @@ class _FakeChannelManager:
                 'name': 'public-room',
                 'channel_type': 'public',
                 'privacy_mode': 'open',
+                'origin_peer': None,
                 'member_count': 6,
+                'members': {'agent-local'},
+            },
+            {
+                'id': 'CremotePrivate',
+                'name': 'ops-room',
+                'channel_type': 'private',
+                'privacy_mode': 'private',
+                'origin_peer': 'peer-xyz',
+                'member_count': 2,
+                'members': set(),
+            },
+            {
+                'id': 'CremotePublic',
+                'name': 'ops-room',
+                'channel_type': 'public',
+                'privacy_mode': 'open',
+                'origin_peer': 'peer-xyz',
+                'member_count': 5,
                 'members': {'agent-local'},
             },
         ]
@@ -333,6 +354,7 @@ class _FakeChannelManager:
                 'name': row['name'],
                 'channel_type': row['channel_type'],
                 'privacy_mode': row['privacy_mode'],
+                'origin_peer': row.get('origin_peer'),
                 'member_count': row['member_count'],
                 'is_public_open': row['privacy_mode'] == 'open' and row['channel_type'] in {'public', 'general'},
             }
@@ -554,6 +576,7 @@ class TestAdminUserWorkspace(unittest.TestCase):
 
         p2p_manager = MagicMock()
         p2p_manager.is_running.return_value = False
+        p2p_manager.get_peer_id.return_value = 'peer-local'
 
         components = (
             self.db_manager,          # db_manager
@@ -638,6 +661,9 @@ class TestAdminUserWorkspace(unittest.TestCase):
         self.assertTrue(governance.get('available'))
         self.assertTrue((governance.get('policy') or {}).get('enabled'))
         self.assertGreaterEqual(len(governance.get('channels') or []), 1)
+        channel_ids = {row.get('id') for row in (governance.get('channels') or [])}
+        self.assertNotIn('CremotePrivate', channel_ids)
+        self.assertIn('CremotePublic', channel_ids)
 
     def test_admin_page_renders_governance_manager_and_permission_presets(self) -> None:
         self._set_authenticated_session()
@@ -773,6 +799,30 @@ class TestAdminUserWorkspace(unittest.TestCase):
         self.assertEqual(self.channel_manager.enforce_calls, ['agent-local'])
         enforcement = payload.get('enforcement') or {}
         self.assertEqual(enforcement.get('removed_count'), 2)
+
+    def test_admin_governance_update_ignores_remote_private_channel_ids(self) -> None:
+        csrf_token = 'csrf-governance-filter'
+        self._set_authenticated_session(csrf_token=csrf_token)
+
+        response = self.client.post(
+            '/ajax/admin/users/agent-local/governance',
+            json={
+                'enabled': True,
+                'block_public_channels': False,
+                'restrict_to_allowed_channels': True,
+                'allowed_channel_ids': ['Cprivate', 'CremotePrivate', 'CremotePublic'],
+                'enforce_now': False,
+            },
+            headers={'X-CSRFToken': csrf_token},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertEqual(
+            self.channel_manager.saved_payloads[-1]['allowed_channel_ids'],
+            ['Cprivate', 'CremotePublic'],
+        )
 
     def test_admin_governance_update_rejects_remote_user(self) -> None:
         csrf_token = 'csrf-governance-remote'

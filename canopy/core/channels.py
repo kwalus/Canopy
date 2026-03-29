@@ -3315,13 +3315,14 @@ class ChannelManager:
                     rows = conn.execute(
                         """
                         SELECT c.id, c.name, c.channel_type, COALESCE(c.privacy_mode, 'open') AS privacy_mode,
+                               c.origin_peer,
                                COUNT(DISTINCT cm.user_id) AS member_count,
                                MAX(CASE WHEN cmu.user_id IS NOT NULL THEN 1 ELSE 0 END) AS is_member
                         FROM channels c
                         LEFT JOIN channel_members cm ON cm.channel_id = c.id
                         LEFT JOIN channel_members cmu
                           ON cmu.channel_id = c.id AND cmu.user_id = ?
-                        GROUP BY c.id, c.name, c.channel_type, COALESCE(c.privacy_mode, 'open')
+                        GROUP BY c.id, c.name, c.channel_type, COALESCE(c.privacy_mode, 'open'), c.origin_peer
                         ORDER BY CASE WHEN c.id = 'general' THEN 0 ELSE 1 END, LOWER(c.name) ASC
                         """,
                         (user_id,),
@@ -3330,10 +3331,11 @@ class ChannelManager:
                     rows = conn.execute(
                         """
                         SELECT c.id, c.name, c.channel_type, COALESCE(c.privacy_mode, 'open') AS privacy_mode,
+                               c.origin_peer,
                                COUNT(DISTINCT cm.user_id) AS member_count
                         FROM channels c
                         LEFT JOIN channel_members cm ON cm.channel_id = c.id
-                        GROUP BY c.id, c.name, c.channel_type, COALESCE(c.privacy_mode, 'open')
+                        GROUP BY c.id, c.name, c.channel_type, COALESCE(c.privacy_mode, 'open'), c.origin_peer
                         ORDER BY CASE WHEN c.id = 'general' THEN 0 ELSE 1 END, LOWER(c.name) ASC
                         """
                     ).fetchall()
@@ -3349,6 +3351,7 @@ class ChannelManager:
                         'name': row['name'],
                         'channel_type': channel_type,
                         'privacy_mode': privacy_mode,
+                        'origin_peer': row['origin_peer'],
                         'member_count': int(row['member_count'] or 0),
                         'is_public_open': bool(is_public),
                     }
