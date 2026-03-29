@@ -678,6 +678,10 @@ class ChannelManager:
     def get_agent_quarantine_channel_id(self) -> str:
         return self.AGENT_START_CHANNEL_ID
 
+    def ensure_default_channels_exist(self) -> None:
+        """Public wrapper for default channel bootstrap/self-heal."""
+        self._ensure_default_channels()
+
     def _channel_member_user_ids(self, channel_id: str) -> List[str]:
         """Return all member ids for a channel for local UI event fanout."""
         if not channel_id:
