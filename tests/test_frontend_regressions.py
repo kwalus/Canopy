@@ -21,6 +21,37 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertNotIn('{{ connected_peers|length }} connected', connect_template)
         self.assertNotIn('trust-hero-stats', trust_template)
 
+    def test_admin_agent_operations_unified_card_exists(self) -> None:
+        admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')
+        self.assertIn('admin-section-agent-ops', admin_template)
+        self.assertIn('Agent Operations', admin_template)
+        self.assertIn('id="agent-ops-workspace-tab"', admin_template)
+        self.assertIn('id="agent-ops-directives-tab"', admin_template)
+        self.assertIn('id="agent-ops-workspace-pane"', admin_template)
+        self.assertIn('id="agent-ops-directives-pane"', admin_template)
+        self.assertNotIn('admin-section-workspace', admin_template)
+        self.assertNotIn('admin-section-directives', admin_template)
+
+    def test_admin_instance_environment_is_first_section(self) -> None:
+        admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')
+        self.assertIn('.admin-section-environment { order: 1; }', admin_template)
+        self.assertIn('.admin-section-users { order: 2; }', admin_template)
+
+    def test_settings_device_profile_precedes_system_information(self) -> None:
+        settings_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'settings.html').read_text(encoding='utf-8')
+        device_pos = settings_template.find('Device Profile')
+        system_pos = settings_template.find('System Information')
+        self.assertGreater(device_pos, 0)
+        self.assertGreater(system_pos, 0)
+        self.assertLess(device_pos, system_pos)
+
+    def test_profile_theme_is_per_user_and_settings_theme_is_default(self) -> None:
+        profile_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'profile.html').read_text(encoding='utf-8')
+        settings_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'settings.html').read_text(encoding='utf-8')
+        self.assertIn('per-user', profile_template)
+        self.assertIn('Default Theme', settings_template)
+        self.assertIn('each user can override via Profile', settings_template)
+
     def test_channel_reply_button_uses_dataset_helper(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         self.assertIn("function setReplyFromButton(button)", channels_template)

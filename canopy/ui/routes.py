@@ -12,6 +12,7 @@ import logging
 import os
 import json
 import hashlib
+import hmac
 import secrets
 import base64
 import time
@@ -4255,7 +4256,8 @@ def create_ui_blueprint() -> Blueprint:
                                  connected_peers=connected_peers,
                                  introduced_peers=introduced_peers,
                                  potential_peers=potential_peers,
-                                 peer_device_profiles=peer_device_profiles)
+                                 peer_device_profiles=peer_device_profiles,
+                                 user_id=get_current_user())
                                  
         except Exception as e:
             logger.error(f"Trust management error: {e}")
@@ -5488,7 +5490,7 @@ def create_ui_blueprint() -> Blueprint:
             flash('Recovery secret is not configured.', 'error')
             return redirect(url_for('ui.dashboard'))
         submitted = (request.form.get('secret') or '').strip()
-        if not submitted or submitted != secret:
+        if not submitted or not hmac.compare_digest(submitted.encode(), secret.encode()):
             flash('Invalid recovery secret.', 'error')
             return render_template('claim_admin.html', needs_secret=True, claim_secret_configured=True)
         db_manager.set_instance_owner_user_id(current_user_id)
@@ -5594,7 +5596,8 @@ def create_ui_blueprint() -> Blueprint:
                                  agent_users=agent_users,
                                  workspace_users=workspace_users,
                                  directive_presets=_agent_directive_presets_payload(),
-                                 directive_max_length=MAX_AGENT_DIRECTIVES_LENGTH)
+                                 directive_max_length=MAX_AGENT_DIRECTIVES_LENGTH,
+                                 user_id=get_current_user())
         except Exception as e:
             logger.error(f"Admin page error: {e}")
             flash('Error loading admin page', 'error')
@@ -10544,6 +10547,8 @@ def create_ui_blueprint() -> Blueprint:
                 key_info = api_key_manager.validate_key(api_key, Permission.WRITE_MESSAGES)
                 if not key_info:
                     return jsonify({'error': 'Invalid API key or insufficient permissions'}), 403
+                if getattr(key_info, 'account_pending', False):
+                    return jsonify({'error': 'Account pending approval', 'status': 'pending_approval'}), 403
                 user_id = key_info.user_id
             
             data = request.get_json()
@@ -16405,7 +16410,7 @@ def create_ui_blueprint() -> Blueprint:
 
     # Database management AJAX endpoints for Settings page
     @ui.route('/ajax/database_cleanup', methods=['POST'])
-    @require_login
+    @require_admin
     def ajax_database_cleanup():
         """AJAX: Clean up old data from the database."""
         try:
@@ -16423,7 +16428,7 @@ def create_ui_blueprint() -> Blueprint:
             return jsonify({'error': 'Internal server error'}), 500
 
     @ui.route('/ajax/database_export', methods=['GET'])
-    @require_login
+    @require_admin
     def ajax_database_export():
         """AJAX: Export database as downloadable file."""
         try:
@@ -16587,7 +16592,7 @@ def create_ui_blueprint() -> Blueprint:
                     pass
 
     @ui.route('/ajax/system_reset', methods=['POST'])
-    @require_login
+    @require_admin
     def ajax_system_reset():
         """AJAX: Reset the system by clearing all user data."""
         try:

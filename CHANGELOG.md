@@ -13,11 +13,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - **Cleaner channel surfaces** — The feed and DM pages no longer show the first-day onboarding card, the add-channel posture copy now stays inside the create pane, and duplicate peer channel names now append a peer label for clarity in channel/admin views.
 - **Admin page cleanup** — The admin surface now prioritizes live user, directive, and governance controls while removing stale diagnostics and one-off operator panels that no longer help normal administration.
 - **Utility pages simplified** — Bookmarks, API Keys, Profile, Connect, and Trust now focus on the actual management controls instead of top-of-page vanity counters and summary tiles.
+- **Admin page reorganized** — Instance Environment moved to the top; Agent Workspace and Directives merged into a single tabbed Agent Operations card; Device Profile now leads the Settings page.
+- **Theme ownership clarified** — Profile is the canonical per-user theme preference surface; Settings shows only the instance default with a pointer to Profile.
 
 ### Fixed
 - **Privacy-first trust gating** — Unknown peers now default to blocked for replicated content ingest/delivery, and feed views now hide previously stored remote posts unless the author's peer currently has an explicit trusted score.
 - **Admin governance channel filtering** — Local agent allowlist controls no longer expose remote private/restricted channels from connected peers.
 - **Tasks identity context** — Opening the Tasks page now preserves the authenticated user identity instead of falling back to `Local User` in shared UI context.
+- **Trust/Admin identity context** — Trust Network and Admin pages now pass the authenticated user identity, fixing the same `Local User` fallback that was previously fixed on Tasks.
+
+### Security
+- **Admin-gated destructive routes** — `database_cleanup`, `database_export`, and `system_reset` AJAX endpoints now require admin instead of just login.
+- **Timing-safe admin recovery** — `claim_admin` secret comparison uses `hmac.compare_digest` to prevent timing side-channels.
+- **Pending-account guard** — The UI comment endpoint now rejects API keys from accounts still pending approval.
+- **Encryption fail-closed** — `DataEncryptor.encrypt()` raises on failure instead of silently returning plaintext.
+- **Session cookie hardening** — HTTPOnly, SameSite=Lax, and optional Secure flag for session cookies.
+- **Security response headers** — All responses now carry `X-Content-Type-Options: nosniff` and `X-Frame-Options: SAMEORIGIN`.
+
+### Performance
+- **Feed count_unread_posts** — Single DB connection instead of two for fetching last_viewed_at and running the count query.
+- **Feed get_available_tags** — Bounded to 2000 most recent posts instead of full-table scan.
+- **Inbox _expire_items throttle** — Per-user 30s throttle prevents redundant UPDATE on every list/count call.
+- **Bookmark upsert** — Pre-check SELECT folded into the same connection as the INSERT/UPDATE.
 
 ## [0.5.2] - 2026-03-27
 

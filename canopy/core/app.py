@@ -261,6 +261,16 @@ def create_app(config: Optional[Config] = None) -> Flask:
     app.config['DEBUG'] = config.debug
     app.config['TESTING'] = config.testing
     app.config['GOOGLE_MAPS_EMBED_API_KEY'] = os.getenv('CANOPY_GOOGLE_MAPS_EMBED_API_KEY', '').strip()
+
+    # Harden session cookies: HTTPOnly prevents JS access; Lax SameSite blocks
+    # most CSRF vectors; Secure is enabled only when TLS is configured so that
+    # plain-HTTP local deployments still work.
+    app.config['SESSION_COOKIE_HTTPONLY'] = True
+    app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+    app.config['SESSION_COOKIE_SECURE'] = bool(
+        os.getenv('CANOPY_SESSION_COOKIE_SECURE', '').strip().lower() in ('1', 'true', 'yes')
+        or (config.network.enable_tls)
+    )
     
     # Store config in app for access in routes
     app.config['CANOPY_CONFIG'] = config
@@ -7094,6 +7104,9 @@ def create_app(config: Optional[Config] = None) -> Flask:
     # Register error handlers
     register_error_handlers(app)
 
+    # Attach security response headers to every reply
+    _install_security_headers(app)
+
     # Install rate limiting
     _install_rate_limiting(app)
     
@@ -7180,6 +7193,28 @@ def _is_stream_playback_path(path: str) -> bool:
         or '/segments/' in normalized
         or normalized.endswith('/events')
     )
+
+
+def _install_security_headers(app: Flask) -> None:
+    """Attach security-hardening headers to every HTTP response.
+
+    These headers are cheap, stateless defences that all browsers respect:
+
+    * ``X-Content-Type-Options: nosniff`` — prevents MIME-type sniffing that
+      could allow a browser to execute a response as a different content type
+      (e.g. running a JSON upload as a script).
+
+    * ``X-Frame-Options: SAMEORIGIN`` — stops the UI being embedded inside a
+      cross-origin <iframe>, which is the classic clickjacking vector.
+
+    Uses ``setdefault`` so individual routes can override if needed.
+    """
+
+    @app.after_request
+    def _add_security_headers(response):
+        response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+        response.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
+        return response
 
 
 def _install_rate_limiting(app: Flask) -> None:

@@ -104,6 +104,11 @@ class DataEncryptor:
         Returns:
             Encrypted string with prefix, or original string if encryption
             disabled. Returns None when plaintext is None.
+            
+        Raises:
+            Exception: If encryption is enabled but the operation fails.
+                       Callers should let this propagate rather than silently
+                       storing unencrypted data.
         """
         if plaintext is None:
             return None
@@ -126,7 +131,7 @@ class DataEncryptor:
             
         except Exception as e:
             logger.error(f"Encryption failed: {e}")
-            return plaintext  # Fail open - store unencrypted rather than lose data
+            raise
     
     def decrypt(self, stored_value: Optional[str]) -> Optional[str]:
         """

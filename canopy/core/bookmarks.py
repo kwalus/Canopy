@@ -222,13 +222,19 @@ class BookmarkManager:
         if not user_id or not source_type or not source_id:
             raise ValueError('user_id, source_type, and source_id are required')
 
-        existing = self.get_bookmark_for_source(user_id, source_type, source_id)
-        bookmark_id = existing['id'] if existing else f"BK{secrets.token_hex(12)}"
         snapshot_json = self._json_dumps(snapshot or {}, '{}')
         source_layout_json = self._json_dumps(source_layout, 'null') if source_layout else None
 
         with self.db.get_connection() as conn:
-            if existing:
+            existing_row = conn.execute(
+                """
+                SELECT id FROM user_bookmarks
+                WHERE user_id = ? AND source_type = ? AND source_id = ?
+                """,
+                (user_id, source_type, source_id),
+            ).fetchone()
+            bookmark_id = existing_row['id'] if existing_row else f"BK{secrets.token_hex(12)}"
+            if existing_row:
                 conn.execute(
                     """
                     UPDATE user_bookmarks

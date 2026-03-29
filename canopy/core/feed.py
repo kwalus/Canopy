@@ -1849,19 +1849,24 @@ class FeedManager:
         if not user_id:
             return 0
 
-        last_viewed_at = self.get_feed_last_viewed_at(user_id)
-        params: List[Any] = [user_id, user_id]
-        own_clause = ""
-        if exclude_own_posts:
-            own_clause = " AND p.author_id != ?"
-            params.append(user_id)
-        since_clause = ""
-        if last_viewed_at:
-            since_clause = " AND COALESCE(p.last_activity_at, p.created_at) > ?"
-            params.append(self._format_db_timestamp(last_viewed_at))
-
         try:
             with self.db.get_connection() as conn:
+                lv_row = conn.execute(
+                    "SELECT last_viewed_at FROM user_feed_preferences WHERE user_id = ?",
+                    (user_id,),
+                ).fetchone()
+                last_viewed_at = self._parse_datetime(lv_row['last_viewed_at']) if lv_row else None
+
+                params: List[Any] = [user_id, user_id]
+                own_clause = ""
+                if exclude_own_posts:
+                    own_clause = " AND p.author_id != ?"
+                    params.append(user_id)
+                since_clause = ""
+                if last_viewed_at:
+                    since_clause = " AND COALESCE(p.last_activity_at, p.created_at) > ?"
+                    params.append(self._format_db_timestamp(last_viewed_at))
+
                 row = conn.execute(f"""
                     SELECT COUNT(DISTINCT p.id) AS unread_count
                     FROM feed_posts p
@@ -1889,6 +1894,7 @@ class FeedManager:
                 cursor = conn.execute(
                     "SELECT tags FROM feed_posts WHERE tags IS NOT NULL AND tags != ''"
                     " AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)"
+                    " ORDER BY created_at DESC LIMIT 2000"
                 )
                 tag_counts: Dict[str, int] = {}
                 for row in cursor.fetchall():

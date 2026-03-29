@@ -451,15 +451,14 @@
     flex-direction: column;
 }
 
-.admin-section-users { order: 1; }
-.admin-section-workspace { order: 2; }
-.admin-section-pending { order: 3; }
-.admin-section-instance { order: 4; }
-.admin-section-directives { order: 5; }
+.admin-section-environment { order: 1; }
+.admin-section-users { order: 2; }
+.admin-section-agent-ops { order: 3; }
+.admin-section-pending { order: 4; }
+.admin-section-instance { order: 5; }
 .admin-section-relay { order: 6; }
 .admin-section-attachments { order: 7; }
 .admin-section-data { order: 8; }
-.admin-section-environment { order: 9; }
 
 .admin-summary-row {
     --bs-gutter-y: 0.75rem;
@@ -924,100 +923,12 @@
     </div>
 </div>
 
-<div class="card directive-shell mb-4 admin-section-directives">
+<div class="card directive-shell workspace-shell mb-4 admin-section-agent-ops">
     <div class="card-header">
-        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
             <div>
-                <h5 class="mb-0"><i class="bi bi-cpu"></i> Agent Directives Control</h5>
-                <div class="text-muted small">Admin-managed directives injected into `agent-instructions` and catchup.</div>
-            </div>
-            <div class="d-flex align-items-center gap-2">
-                <button type="button" class="btn btn-outline-info btn-sm" id="directive-refresh-btn">Refresh</button>
-                <button type="button" class="btn btn-outline-success btn-sm" id="directive-apply-defaults-btn">Apply Defaults To Missing</button>
-            </div>
-        </div>
-    </div>
-    <div class="card-body">
-        <div class="row g-3">
-            <div class="col-lg-4">
-                <div class="directive-agent-list" id="directive-agent-list">
-                    {% if agent_users %}
-                        {% for u in agent_users %}
-                        <button type="button"
-                                class="directive-agent-btn"
-                                data-user-id="{{ u.id }}"
-                                data-display-name="{{ u.display_name or u.username }}"
-                                data-username="{{ u.username }}">
-                            <div class="d-flex justify-content-between align-items-center mb-1">
-                                <strong>{{ u.display_name or u.username }}</strong>
-                                <span class="badge {% if u.agent_directives_source == 'custom' %}bg-success{% elif u.agent_directives_source == 'default' %}bg-secondary{% else %}bg-dark{% endif %} directive-source">{{ u.agent_directives_source or 'none' }}</span>
-                            </div>
-                            <div class="small text-muted">@{{ u.username }} · {{ (u.status or 'active') }}</div>
-                            <div class="small mt-1 text-truncate">{{ u.agent_directives_preview or 'No effective directives.' }}</div>
-                        </button>
-                        {% endfor %}
-                    {% else %}
-                    <p class="text-muted small mb-0">No agent accounts yet.</p>
-                    {% endif %}
-                </div>
-            </div>
-            <div class="col-lg-8">
-                <div class="directive-editor">
-                    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-                        <div>
-                            <div class="small text-muted">Selected agent</div>
-                            <div class="fw-semibold" id="directive-selected-user">Pick an agent from the list</div>
-                        </div>
-                        <span class="badge bg-dark directive-source" id="directive-source-badge">none</span>
-                    </div>
-
-                    <div class="row g-2 mb-2">
-                        <div class="col-md-8">
-                            <label for="directive-preset-select" class="form-label small mb-1">Preset</label>
-                            <select id="directive-preset-select" class="form-select form-select-sm">
-                                <option value="">Choose preset</option>
-                                {% for p in directive_presets %}
-                                <option value="{{ p.id }}">{{ p.label }} — {{ p.description }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div class="col-md-4 d-flex align-items-end">
-                            <button type="button" class="btn btn-outline-primary btn-sm w-100" id="directive-apply-preset-btn">Apply Preset</button>
-                        </div>
-                    </div>
-
-                    <label for="directive-textarea" class="form-label small mb-1">Directive text</label>
-                    <textarea id="directive-textarea"
-                              class="form-control form-control-sm"
-                              maxlength="{{ directive_max_length }}"
-                              placeholder="Write custom directives for the selected agent..."></textarea>
-                    <div class="d-flex justify-content-between align-items-center mt-1 mb-2">
-                        <span class="small text-muted">Security tip: keep directives concise and policy-focused.</span>
-                        <span class="small text-muted"><span id="directive-char-count">0</span>/{{ directive_max_length }}</span>
-                    </div>
-
-                    <div class="d-flex flex-wrap gap-2">
-                        <button type="button" class="btn btn-success btn-sm" id="directive-save-btn">Save Custom</button>
-                        <button type="button" class="btn btn-outline-warning btn-sm" id="directive-reset-default-btn">Use Default</button>
-                        <button type="button" class="btn btn-outline-secondary btn-sm" id="directive-clear-btn">Clear Text</button>
-                    </div>
-
-                    <hr class="my-3">
-                    <div class="small text-muted mb-1">Effective directive preview</div>
-                    <div id="directive-preview" class="directive-preview">No agent selected.</div>
-                    <div class="small mt-2 text-muted" id="directive-status-line"></div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<div class="card workspace-shell mb-4 admin-section-workspace">
-    <div class="card-header">
-        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
-            <div>
-                <h5 class="mb-0"><i class="bi bi-stars me-1"></i> Agent Workspace</h5>
-                <div class="small text-muted">Inspect inbox + mentions and directly edit local user profiles and avatars.</div>
+                <h5 class="mb-0"><i class="bi bi-cpu me-1"></i> Agent Operations</h5>
+                <div class="small text-muted">Manage profiles, governance, inbox, mentions, and directives for agents and users.</div>
             </div>
             <div class="d-flex align-items-center gap-2">
                 <input type="text" class="form-control form-control-sm" id="workspace-search" placeholder="Filter users..." style="max-width: 200px;">
@@ -1026,7 +937,18 @@
                 </button>
             </div>
         </div>
+        <ul class="nav nav-tabs card-header-tabs" id="agent-ops-tabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="agent-ops-workspace-tab" data-bs-toggle="tab" data-bs-target="#agent-ops-workspace-pane" type="button" role="tab" aria-controls="agent-ops-workspace-pane" aria-selected="true">Workspace</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="agent-ops-directives-tab" data-bs-toggle="tab" data-bs-target="#agent-ops-directives-pane" type="button" role="tab" aria-controls="agent-ops-directives-pane" aria-selected="false">Directives</button>
+            </li>
+        </ul>
     </div>
+    <div class="card-body">
+        <div class="tab-content" id="agent-ops-tab-content">
+        <div class="tab-pane fade show active" id="agent-ops-workspace-pane" role="tabpanel" aria-labelledby="agent-ops-workspace-tab">
     <div class="card-body">
         <div class="row g-3">
             <div class="col-lg-4">
@@ -1135,7 +1057,7 @@
                             </select>
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label small mb-1" for="workspace-theme-select">Theme</label>
+                            <label class="form-label small mb-1" for="workspace-theme-select">User theme</label>
                             <select class="form-select form-select-sm" id="workspace-theme-select">
                                 <option value="dark">dark</option>
                                 <option value="light">light</option>
@@ -1288,6 +1210,87 @@
                 </div>
             </div>
         </div>
+        </div><!-- /workspace tab pane -->
+
+        <div class="tab-pane fade" id="agent-ops-directives-pane" role="tabpanel" aria-labelledby="agent-ops-directives-tab">
+        <div class="d-flex flex-wrap justify-content-end gap-2 mb-3">
+            <button type="button" class="btn btn-outline-info btn-sm" id="directive-refresh-btn">Refresh</button>
+            <button type="button" class="btn btn-outline-success btn-sm" id="directive-apply-defaults-btn">Apply Defaults To Missing</button>
+        </div>
+        <div class="row g-3">
+            <div class="col-lg-4">
+                <div class="directive-agent-list" id="directive-agent-list">
+                    {% if agent_users %}
+                        {% for u in agent_users %}
+                        <button type="button"
+                                class="directive-agent-btn"
+                                data-user-id="{{ u.id }}"
+                                data-display-name="{{ u.display_name or u.username }}"
+                                data-username="{{ u.username }}">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <strong>{{ u.display_name or u.username }}</strong>
+                                <span class="badge {% if u.agent_directives_source == 'custom' %}bg-success{% elif u.agent_directives_source == 'default' %}bg-secondary{% else %}bg-dark{% endif %} directive-source">{{ u.agent_directives_source or 'none' }}</span>
+                            </div>
+                            <div class="small text-muted">@{{ u.username }} · {{ (u.status or 'active') }}</div>
+                            <div class="small mt-1 text-truncate">{{ u.agent_directives_preview or 'No effective directives.' }}</div>
+                        </button>
+                        {% endfor %}
+                    {% else %}
+                    <p class="text-muted small mb-0">No agent accounts yet.</p>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="col-lg-8">
+                <div class="directive-editor">
+                    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                        <div>
+                            <div class="small text-muted">Selected agent</div>
+                            <div class="fw-semibold" id="directive-selected-user">Pick an agent from the list</div>
+                        </div>
+                        <span class="badge bg-dark directive-source" id="directive-source-badge">none</span>
+                    </div>
+
+                    <div class="row g-2 mb-2">
+                        <div class="col-md-8">
+                            <label for="directive-preset-select" class="form-label small mb-1">Preset</label>
+                            <select id="directive-preset-select" class="form-select form-select-sm">
+                                <option value="">Choose preset</option>
+                                {% for p in directive_presets %}
+                                <option value="{{ p.id }}">{{ p.label }} — {{ p.description }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4 d-flex align-items-end">
+                            <button type="button" class="btn btn-outline-primary btn-sm w-100" id="directive-apply-preset-btn">Apply Preset</button>
+                        </div>
+                    </div>
+
+                    <label for="directive-textarea" class="form-label small mb-1">Directive text</label>
+                    <textarea id="directive-textarea"
+                              class="form-control form-control-sm"
+                              maxlength="{{ directive_max_length }}"
+                              placeholder="Write custom directives for the selected agent..."></textarea>
+                    <div class="d-flex justify-content-between align-items-center mt-1 mb-2">
+                        <span class="small text-muted">Security tip: keep directives concise and policy-focused.</span>
+                        <span class="small text-muted"><span id="directive-char-count">0</span>/{{ directive_max_length }}</span>
+                    </div>
+
+                    <div class="d-flex flex-wrap gap-2">
+                        <button type="button" class="btn btn-success btn-sm" id="directive-save-btn">Save Custom</button>
+                        <button type="button" class="btn btn-outline-warning btn-sm" id="directive-reset-default-btn">Use Default</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" id="directive-clear-btn">Clear Text</button>
+                    </div>
+
+                    <hr class="my-3">
+                    <div class="small text-muted mb-1">Effective directive preview</div>
+                    <div id="directive-preview" class="directive-preview">No agent selected.</div>
+                    <div class="small mt-2 text-muted" id="directive-status-line"></div>
+                </div>
+            </div>
+        </div>
+        </div><!-- /directives tab pane -->
+
+        </div><!-- /tab-content -->
     </div>
 </div>
 
