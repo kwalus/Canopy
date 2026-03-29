@@ -4269,7 +4269,7 @@ def create_ui_blueprint() -> Blueprint:
     def trust_update():
         """Update trust score directly (manual tier adjustment)."""
         try:
-            _, _, trust_manager, _, _, _, _, _, _, _, _ = _get_app_components_any(current_app)
+            _, _, trust_manager, _, _, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
             if not trust_manager:
                 return jsonify({'error': 'Trust manager not available'}), 500
 
@@ -4294,13 +4294,28 @@ def create_ui_blueprint() -> Blueprint:
                 score = tier_map[tier]
 
             reason_value = reason or (f"tier:{tier}" if tier else "manual")
+            prior_score = trust_manager.get_trust_score(peer_id)
             new_score = trust_manager.set_trust_score(peer_id, score, reason=reason_value)
+            recovery = None
+            if new_score >= 50 and p2p_manager and hasattr(p2p_manager, 'recover_peer_profile_state'):
+                try:
+                    recovery = p2p_manager.recover_peer_profile_state(
+                        peer_id,
+                        trigger_sync=prior_score < 50,
+                    )
+                except Exception as recovery_err:
+                    logger.warning(
+                        "Peer profile recovery after trust update failed for %s: %s",
+                        peer_id,
+                        recovery_err,
+                    )
 
             return jsonify({
                 'success': True,
                 'peer_id': peer_id,
                 'trust_score': new_score,
-                'is_trusted': new_score >= 50
+                'is_trusted': new_score >= 50,
+                'profile_recovery': recovery,
             })
         except Exception as e:
             logger.error(f"Failed to update trust score: {e}")
