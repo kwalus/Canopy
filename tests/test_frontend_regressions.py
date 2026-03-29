@@ -8,6 +8,19 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class TestFrontendRegressions(unittest.TestCase):
+    def test_account_pages_do_not_render_deemphasized_stats_panels(self) -> None:
+        bookmarks_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'bookmarks.html').read_text(encoding='utf-8')
+        api_keys_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'api_keys.html').read_text(encoding='utf-8')
+        profile_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'profile.html').read_text(encoding='utf-8')
+        connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
+        trust_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'trust.html').read_text(encoding='utf-8')
+
+        self.assertNotIn('bookmark-hero-stats', bookmarks_template)
+        self.assertNotIn('key_stats.total_keys', api_keys_template)
+        self.assertNotIn('Your Activity', profile_template)
+        self.assertNotIn('{{ connected_peers|length }} connected', connect_template)
+        self.assertNotIn('trust-hero-stats', trust_template)
+
     def test_channel_reply_button_uses_dataset_helper(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         self.assertIn("function setReplyFromButton(button)", channels_template)

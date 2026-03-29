@@ -155,6 +155,38 @@
     .connect-page .card {
         margin-bottom: 0.85rem;
     }
+
+    .connect-page-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 0.6rem;
+        flex-wrap: wrap;
+    }
+
+    .invite-input-group,
+    .public-host-group {
+        width: 100%;
+    }
+
+    .connect-page code {
+        overflow-wrap: anywhere;
+        word-break: break-word;
+    }
+
+    .connect-page .card-header .d-flex {
+        min-width: 0;
+    }
+
+    .connect-page .card-header .d-flex > * {
+        min-width: 0;
+    }
+
+    .peer-meta code {
+        overflow-wrap: anywhere;
+        word-break: break-word;
+    }
+
     .connect-scroll-list {
         max-height: 420px;
         overflow-y: auto;
@@ -185,20 +217,78 @@
         transform: rotate(180deg);
     }
     @media (max-width: 767.98px) {
+        .connect-page .card-header .d-flex {
+            flex-wrap: wrap;
+            gap: 0.45rem;
+            align-items: flex-start !important;
+        }
+
         .peer-actions {
             width: 100%;
             justify-content: flex-start;
         }
+
+        .peer-row {
+            flex-wrap: wrap;
+            row-gap: 0.45rem;
+        }
+
+        .peer-row > .peer-meta {
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+
+        .peer-row > .peer-actions {
+            margin-left: 0 !important;
+        }
+
         .connect-scroll-list,
         .connect-scroll-table {
             max-height: 300px;
+        }
+    }
+
+    @media (max-width: 575.98px) {
+        .connect-page-header h1 {
+            font-size: 1.2rem;
+        }
+
+        .invite-input-group,
+        .public-host-group {
+            flex-wrap: wrap;
+            gap: 0.35rem;
+        }
+
+        .invite-input-group > *,
+        .public-host-group > * {
+            border-radius: 0.45rem !important;
+        }
+
+        .public-host-group #publicPort {
+            max-width: none !important;
+            flex: 1 1 6rem;
+        }
+
+        .invite-input-group .btn,
+        .public-host-group .btn {
+            width: 100%;
+        }
+
+        .connect-page .peer-actions .btn {
+            padding: 0.28rem 0.48rem;
+            font-size: 0.75rem;
+        }
+
+        .connect-scroll-list,
+        .connect-scroll-table {
+            max-height: min(46vh, 300px);
         }
     }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="connect-page-header mb-4">
     <h1 class="h3 mb-0">
         <i class="bi bi-link-45deg"></i> Connect with Peers
     </h1>
@@ -232,7 +322,7 @@
 
                 <div class="mb-3">
                     <label class="form-label small text-muted">Invite code (copy &amp; send to friend)</label>
-                    <div class="input-group">
+                    <div class="input-group invite-input-group">
                         <input type="text" class="form-control font-monospace" id="inviteCode" 
                                value="{{ invite_code }}" readonly style="font-size: 0.8rem;">
                         <button class="btn btn-primary" onclick="copyInvite()" title="Copy to clipboard">
@@ -250,7 +340,7 @@
                     <i class="bi bi-globe"></i> <strong>Connecting from outside your LAN?</strong><br>
                     If you've port-forwarded port <code>{{ mesh_port }}</code> on your router, enter your public IP below to generate an invite that works over the internet.
                 </p>
-                <div class="input-group mb-2">
+                <div class="input-group mb-2 public-host-group">
                     <input type="text" class="form-control" id="publicHost" placeholder="Public IP or hostname">
                     <input type="number" class="form-control" id="publicPort" placeholder="Port" value="{{ mesh_port }}" style="max-width:100px;">
                     <button class="btn btn-outline-primary" onclick="regenerateInvite()">
@@ -300,9 +390,6 @@
                 <div class="d-flex justify-content-between align-items-center">
                     <h5 class="mb-0"><i class="bi bi-people"></i> Connected Peers</h5>
                     <div class="d-flex align-items-center gap-2 flex-wrap">
-                        <span class="badge bg-success peer-pill">{{ connected_peers|length }} connected</span>
-                        <span class="badge bg-secondary peer-pill">{{ discovered_peers|length }} discovered</span>
-                        <span class="badge bg-dark peer-pill">{{ known_peers|length }} known</span>
                         <button class="btn btn-sm btn-outline-secondary" onclick="refreshConnectPage()" title="Refresh">
                             <i class="bi bi-arrow-clockwise"></i>
                         </button>

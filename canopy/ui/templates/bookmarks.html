@@ -13,20 +13,6 @@
                 Nothing in this view is mesh-broadcast.
             </p>
         </div>
-        <div class="bookmark-hero-stats">
-            <div class="bookmark-stat-tile">
-                <span class="bookmark-stat-value">{{ bookmark_stats.total }}</span>
-                <span class="bookmark-stat-label">Saved</span>
-            </div>
-            <div class="bookmark-stat-tile">
-                <span class="bookmark-stat-value">{{ bookmark_stats.deck_ready }}</span>
-                <span class="bookmark-stat-label">Deck-first</span>
-            </div>
-            <div class="bookmark-stat-tile">
-                <span class="bookmark-stat-value">{{ bookmark_stats.channels + bookmark_stats.feed + bookmark_stats.dms }}</span>
-                <span class="bookmark-stat-label">Private only</span>
-            </div>
-        </div>
     </div>
 
     <div class="bookmark-filter-row mb-3" role="tablist" aria-label="Bookmark filters">
@@ -140,37 +126,6 @@
         max-width: 58rem;
         color: var(--canopy-text-secondary);
         line-height: 1.6;
-    }
-
-    .bookmark-hero-stats {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(110px, 1fr));
-        gap: 0.8rem;
-        min-width: min(100%, 420px);
-    }
-
-    .bookmark-stat-tile {
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        gap: 0.25rem;
-        padding: 0.9rem 1rem;
-        border-radius: 18px;
-        background: rgba(15, 23, 42, 0.52);
-        border: 1px solid rgba(148, 163, 184, 0.18);
-    }
-
-    .bookmark-stat-value {
-        font-size: 1.5rem;
-        font-weight: 700;
-        color: var(--canopy-text-primary);
-    }
-
-    .bookmark-stat-label {
-        font-size: 0.76rem;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        color: var(--canopy-text-muted);
     }
 
     .bookmark-filter-row {
@@ -352,18 +307,9 @@
         .bookmark-hero-card {
             flex-direction: column;
         }
-
-        .bookmark-hero-stats {
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            min-width: 0;
-        }
     }
 
     @media (max-width: 640px) {
-        .bookmark-hero-stats {
-            grid-template-columns: 1fr;
-        }
-
         .bookmark-grid {
             grid-template-columns: 1fr;
         }

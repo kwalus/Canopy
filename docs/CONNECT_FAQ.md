@@ -14,6 +14,8 @@ The Connect page is the operational control center for:
 - reconnect/disconnect/forget workflows,
 - mesh diagnostics and connection history.
 
+It is intentionally action-first. The important value is whether you can connect, reconnect, relay, and diagnose peers from one place, not how many decorative counters fit at the top of the page.
+
 ---
 
 ## Section-by-section reference
@@ -134,7 +136,7 @@ Why this makes sense:
 
 ### 8) Mesh Diagnostics
 
-Displays runtime metrics such as connected/known counts, pending queues, reconnect tasks, and recent failures.
+Displays runtime diagnostics such as pending queues, reconnect tasks, route state, and recent failures.
 
 Actions:
 
@@ -143,7 +145,7 @@ Actions:
 
 Why this makes sense:
 
-- Offers immediate operational visibility during onboarding and incident response.
+- Offers immediate operational visibility during onboarding and incident response without making the page depend on vanity summary tiles.
 
 ---
 

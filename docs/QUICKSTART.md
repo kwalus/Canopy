@@ -212,6 +212,7 @@ Quick interpretation:
 
 - **Connected Peers / Known Peers / Introduced Peers**
   - `Reconnect`, `Reconnect All`, `Disconnect`, and `Forget` manage peer state/endpoints.
+  - The page is intentionally action-first: invite handling, peer actions, and diagnostics matter more than summary counters.
   - Direct, relayed, and offline peers are shown separately when Canopy can infer the current route.
 
 - **Mesh Diagnostics**
