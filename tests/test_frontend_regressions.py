@@ -71,6 +71,27 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("channel.channel_type.value if channel.channel_type is not string", channels_template)
         self.assertIn("channel_type_value == 'private' or channel.privacy_mode in ['private', 'confidential']", channels_template)
 
+    def test_channel_delete_menu_item_is_click_wired(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        self.assertIn("const deleteBtn = e.target.closest('.channel-delete-btn');", channels_template)
+        self.assertIn('onclick="return handleChannelDeleteClick(event, this)"', channels_template)
+        self.assertIn("function handleChannelDeleteClick(event, button)", channels_template)
+        self.assertIn("confirmDeleteChannelById(channelId, channelName);", channels_template)
+        self.assertIn("const channelId = String(_toolsPortalChannelId || '').trim();", channels_template)
+        self.assertIn("confirmDeleteChannelById(channelId, channelName);", channels_template)
+
+    def test_channel_delete_permission_honors_creator_metadata(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        self.assertIn('data-created-by="{{ channel.created_by or \'\' }}"', channels_template)
+        self.assertIn("const createdBy = String(item.dataset.createdBy || '').trim();", channels_template)
+        self.assertIn("createdBy === currentUserId", channels_template)
+
+    def test_channel_header_has_direct_delete_action(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        self.assertIn('id="channel-delete-header-btn"', channels_template)
+        self.assertIn('onclick="confirmDeleteChannel()"', channels_template)
+        self.assertIn("const deleteBtn = document.getElementById('channel-delete-header-btn');", channels_template)
+
     def test_miniplayer_no_longer_eagerly_docks_youtube_on_update(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
         self.assertNotIn("if (type === 'youtube' && !isDocked && miniVideoHost) {", main_js)

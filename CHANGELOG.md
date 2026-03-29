@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.15] - 2026-03-29
+
+### Changed
+- **Channel delete controls now behave consistently** — The selected-channel header action and the sidebar channel-tools delete action now open the same confirmation flow instead of diverging.
+- **Channel ownership UX stays aligned with backend rules** — Local creators can delete their own channels from the UI even when the client only has creator metadata rather than an explicit admin role string.
+
+### Fixed
+- **Sidebar delete pulldown** — The channel-list tools delete action no longer loses the selected channel id before opening the warning modal, so it now triggers the same delete confirmation as the working top-right control.
+- **Member-aware private governance visibility** — Agent Operations continues to show remote private channels when the selected user is actually a member, while still hiding unrelated remote private channels.
+- **Private membership canonicalization** — Adding remote members to targeted channels now resolves stale duplicate shadow identities to the freshest known user record before sync and governance updates.
+- **Local private-channel lock icon** — Private channels created on this peer render with the same lock icon locally as they do after remote sync.
+
 ## [0.5.14] - 2026-03-29
 
 ### Changed
