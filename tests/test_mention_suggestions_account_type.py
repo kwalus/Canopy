@@ -69,6 +69,9 @@ class TestMentionSuggestionsAccountType(unittest.TestCase):
                 id TEXT PRIMARY KEY,
                 username TEXT,
                 display_name TEXT,
+                avatar_file_id TEXT,
+                profile_updated_at TEXT,
+                created_at TEXT,
                 account_type TEXT,
                 status TEXT,
                 agent_directives TEXT,
@@ -234,6 +237,40 @@ class TestMentionSuggestionsAccountType(unittest.TestCase):
         self.assertEqual(len(matching), 1)
         self.assertEqual(matching[0].get('user_id'), 'remote-canonical')
         self.assertEqual(matching[0].get('username'), 'Maddog.peer12')
+
+    def test_global_suggestions_prefer_freshest_remote_duplicate_identity(self) -> None:
+        self.profile_manager._all['remote-stale'] = {
+            'username': 'Windy_MacCursor.826sN3',
+            'display_name': 'Windy MacCursor',
+            'avatar_url': '/files/stale',
+            'origin_peer': 'peer-123456',
+        }
+        self.profile_manager._all['remote-current'] = {
+            'username': 'Windy_MacCursor-74506f',
+            'display_name': 'Windy MacCursor',
+            'avatar_url': '/files/current',
+            'origin_peer': 'peer-123456',
+        }
+        self.conn.execute(
+            "INSERT OR REPLACE INTO users (id, username, display_name, avatar_file_id, profile_updated_at, created_at, account_type, status, agent_directives, origin_peer) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ('remote-stale', 'Windy_MacCursor.826sN3', 'Windy MacCursor', 'avatar-stale', '2026-03-29T14:28:23+00:00', '2026-03-29 14:04:05', 'human', 'active', None, 'peer-123456'),
+        )
+        self.conn.execute(
+            "INSERT OR REPLACE INTO users (id, username, display_name, avatar_file_id, profile_updated_at, created_at, account_type, status, agent_directives, origin_peer) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ('remote-current', 'Windy_MacCursor-74506f', 'Windy MacCursor', 'avatar-current', '2026-03-29T15:50:44+00:00', '2026-03-29 14:28:24', 'human', 'active', None, 'peer-123456'),
+        )
+        self.conn.commit()
+
+        self._set_authenticated_session()
+        response = self.client.get('/ajax/mention_suggestions?q=windy')
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        users = payload.get('users') or []
+        matching = [u for u in users if u.get('display_name') == 'Windy MacCursor']
+
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching[0].get('user_id'), 'remote-current')
+        self.assertEqual(matching[0].get('username'), 'Windy_MacCursor-74506f')
 
     def test_global_suggestions_handle_older_user_schema_without_name_columns(self) -> None:
         legacy_conn = sqlite3.connect(':memory:')

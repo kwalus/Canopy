@@ -66,6 +66,11 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("const priv = document.getElementById('type-private');", channels_template)
         self.assertIn("if (priv) priv.checked = true;", channels_template)
 
+    def test_private_channel_icons_use_normalized_channel_type_or_privacy_mode(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        self.assertIn("channel.channel_type.value if channel.channel_type is not string", channels_template)
+        self.assertIn("channel_type_value == 'private' or channel.privacy_mode in ['private', 'confidential']", channels_template)
+
     def test_miniplayer_no_longer_eagerly_docks_youtube_on_update(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
         self.assertNotIn("if (type === 'youtube' && !isDocked && miniVideoHost) {", main_js)

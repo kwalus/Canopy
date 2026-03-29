@@ -2842,7 +2842,7 @@
                      data-privacy-mode="{{ channel.privacy_mode }}"
                      data-member-count="{{ channel.member_count if channel.member_count is not none else 0 }}"
                      data-unread-count="{{ channel.unread_count if channel.unread_count is not none else 0 }}"
-                     data-channel-type="{{ channel.channel_type }}"
+                     data-channel-type="{{ channel.channel_type.value if channel.channel_type is not string and channel.channel_type is not none else channel.channel_type }}"
                      data-user-role="{{ channel.user_role }}"
                      data-origin-peer="{{ channel.origin_peer or '' }}"
                      data-notifications-enabled="{{ 'true' if channel.notifications_enabled else 'false' }}"
@@ -2862,7 +2862,8 @@
                      data-last-activity-at="{{ channel.last_activity_at.isoformat() if channel.last_activity_at else '' }}"
                     onclick="selectChannel({{ channel.id|tojson }}, {{ channel.name|tojson }})">
                     <div class="d-flex align-items-center channel-item-head">
-                        <i class="bi bi-{% if channel.channel_type == 'private' %}lock{% elif channel.channel_type == 'dm' %}person{% elif channel.privacy_mode == 'guarded' %}shield-check{% else %}hash{% endif %} me-2"></i>
+                        {% set channel_type_value = channel.channel_type.value if channel.channel_type is not string and channel.channel_type is not none else channel.channel_type %}
+                        <i class="bi bi-{% if channel_type_value == 'private' or channel.privacy_mode in ['private', 'confidential'] %}lock{% elif channel_type_value == 'dm' %}person{% elif channel.privacy_mode == 'guarded' %}shield-check{% else %}hash{% endif %} me-2"></i>
                         <span class="channel-name" data-full-name="{{ channel.name|e }}">
                             <span class="channel-name-inner">{{ channel.name }}</span>
                         </span>

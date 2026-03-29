@@ -13,10 +13,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 ### Changed
 - **Channel composer fits the rail** — The channel sidebar now gives the add-channel workspace more room on desktop, defaults new channels to private, and lays out the creation controls so they fit cleanly in narrow split views.
 - **DM recipient suggestions cleaned up** — DM recipient search now collapses stale placeholder shadow users, prefers canonical remote identities, and restores the recipient picker to a working dropdown workflow.
+- **Agent Operations governance list stays member-aware** — Remote private channels now remain visible in the governance/allowlist workspace when the selected user is already a member, while unrelated remote private channels stay hidden.
 
 ### Fixed
 - **Recipient picker duplicates** — Remote peers that had both a temporary shadow row and a canonical user row no longer appear twice in DM recipient suggestions.
 - **Messages page compose controls** — A JavaScript parse error that broke the recipient button, suggestion dropdown, and related DM compose interactions has been removed.
+- **Private member propagation against duplicate remote users** — Adding remote members to private channels now canonicalizes stale duplicate shadow identities to the freshest known user row before membership sync and allowlist/governance updates.
+- **Local private-channel lock icon** — Private channels created on this peer now render the same lock icon locally as they do on remote peers.
 
 ## [0.5.13] - 2026-03-29
 
