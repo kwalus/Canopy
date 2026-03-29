@@ -2845,6 +2845,7 @@
                      data-channel-type="{{ channel.channel_type.value if channel.channel_type is not string and channel.channel_type is not none else channel.channel_type }}"
                      data-user-role="{{ channel.user_role }}"
                      data-origin-peer="{{ channel.origin_peer or '' }}"
+                     data-created-by="{{ channel.created_by or '' }}"
                      data-notifications-enabled="{{ 'true' if channel.notifications_enabled else 'false' }}"
                      data-post-policy="{{ channel.post_policy }}"
                      data-allow-member-replies="{{ 'true' if channel.allow_member_replies else 'false' }}"
@@ -2920,6 +2921,7 @@
                                     <button type="button"
                                             class="dropdown-item text-danger channel-delete-btn d-none"
                                             data-channel-id="{{ channel.id }}"
+                                            onclick="return handleChannelDeleteClick(event, this)"
                                             title="Delete">
                                             <i class="bi bi-trash"></i>
                                         </button>
@@ -3193,6 +3195,11 @@
                                 <li>
                                     <button type="button" class="dropdown-item" id="channel-removal-vote-header-btn" onclick="openChannelRemovalModal()">
                                         <i class="bi bi-person-workspace me-2"></i>Channel removal vote
+                                    </button>
+                                </li>
+                                <li>
+                                    <button type="button" class="dropdown-item text-danger" id="channel-delete-header-btn" onclick="confirmDeleteChannel()">
+                                        <i class="bi bi-trash me-2"></i>Delete channel
                                     </button>
                                 </li>
                             </ul>
@@ -5705,7 +5712,26 @@ function canDeleteChannelFromItem(item) {
     const channelId = String(item.dataset.channelId || '').trim();
     if (!channelId || channelId === 'general') return false;
     const role = String(item.dataset.userRole || 'member').toLowerCase();
-    return !!(isAdmin || role === 'admin');
+    const createdBy = String(item.dataset.createdBy || '').trim();
+    return !!(isAdmin || role === 'admin' || (createdBy && createdBy === currentUserId));
+}
+
+function handleChannelDeleteClick(event, button) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    const channelId = String((button && button.dataset ? button.dataset.channelId : '') || '').trim();
+    if (!channelId) return false;
+    const item = (button && typeof button.closest === 'function' ? button.closest('.channel-item') : null)
+        || document.querySelector(`.channel-item[data-channel-id="${CSS.escape(channelId)}"]`);
+    if (item && !canDeleteChannelFromItem(item)) {
+        showAlert('You do not have permission to delete this channel', 'warning');
+        return false;
+    }
+    const channelName = item?.querySelector('.channel-name')?.textContent || channelId;
+    confirmDeleteChannelById(channelId, channelName);
+    return false;
 }
 
 function canOpenChannelRemovalFromItem(item) {
@@ -5798,15 +5824,17 @@ function getToolsPortal() {
         e.preventDefault();
         e.stopPropagation();
         if (!_toolsPortalChannelId) return;
-        const item = document.querySelector('.channel-item[data-channel-id="' + CSS.escape(_toolsPortalChannelId) + '"]');
+        const channelId = String(_toolsPortalChannelId || '').trim();
+        if (!channelId) return;
+        const item = document.querySelector('.channel-item[data-channel-id="' + CSS.escape(channelId) + '"]');
         if (item && !canDeleteChannelFromItem(item)) {
             showAlert('You do not have permission to delete this channel', 'warning');
             closeAllChannelToolsMenus();
             return;
         }
-        const channelName = item?.querySelector('.channel-name')?.textContent || _toolsPortalChannelId;
+        const channelName = item?.querySelector('.channel-name')?.textContent || channelId;
         closeAllChannelToolsMenus();
-        confirmDeleteChannelById(_toolsPortalChannelId, channelName);
+        confirmDeleteChannelById(channelId, channelName);
     });
 
     el.querySelector('.portal-removal-btn').addEventListener('click', function(e) {
@@ -5882,6 +5910,11 @@ document.addEventListener('click', function(e) {
     const copyBtn = e.target.closest('.channel-copy-btn');
     if (copyBtn) {
         copyChannelIdFromList(e, copyBtn, copyBtn.dataset.channelId);
+        return;
+    }
+    const deleteBtn = e.target.closest('.channel-delete-btn');
+    if (deleteBtn) {
+        handleChannelDeleteClick(e, deleteBtn);
         return;
     }
     const removalBtn = e.target.closest('.channel-removal-vote-btn');
@@ -6133,12 +6166,22 @@ function selectChannel(channelId, channelName, options = {}) {
 
 function updateCurrentChannelIdUI(channelId) {
     const copyBtn = document.getElementById('copy-channel-id-btn');
+    const deleteBtn = document.getElementById('channel-delete-header-btn');
     const normalized = channelId ? String(channelId).trim() : '';
     if (copyBtn) {
         copyBtn.dataset.channelId = normalized;
         copyBtn.disabled = !normalized;
         copyBtn.title = normalized ? `Copy channel ID: ${normalized}` : 'No channel selected';
         copyBtn.setAttribute('aria-disabled', normalized ? 'false' : 'true');
+    }
+    if (deleteBtn) {
+        const item = normalized
+            ? document.querySelector(`.channel-item[data-channel-id="${CSS.escape(normalized)}"]`)
+            : null;
+        const canDelete = item ? canDeleteChannelFromItem(item) : false;
+        deleteBtn.disabled = !canDelete;
+        deleteBtn.classList.toggle('disabled', !canDelete);
+        deleteBtn.setAttribute('aria-disabled', canDelete ? 'false' : 'true');
     }
 }
 
@@ -9756,6 +9799,7 @@ function applySidebarChannelState(channels) {
             div.setAttribute('data-channel-type', ctype);
             div.setAttribute('data-user-role', ch.user_role || 'member');
             div.setAttribute('data-origin-peer', ch.origin_peer || '');
+            div.setAttribute('data-created-by', ch.created_by || '');
             div.setAttribute('data-notifications-enabled', ch.notifications_enabled !== false ? 'true' : 'false');
             div.setAttribute('data-post-policy', ch.post_policy || 'open');
             div.setAttribute('data-allow-member-replies', ch.allow_member_replies === false ? 'false' : 'true');
@@ -9821,6 +9865,7 @@ function applySidebarChannelState(channels) {
                                     <button type="button"
                                             class="dropdown-item text-danger channel-delete-btn d-none"
                                             data-channel-id="${channelIdAttr}"
+                                            onclick="return handleChannelDeleteClick(event, this)"
                                             title="Delete">
                                         <i class="bi bi-trash"></i>
                                     </button>
@@ -9843,6 +9888,7 @@ function applySidebarChannelState(channels) {
         item.setAttribute('data-member-count', String(ch.member_count || 0));
         item.setAttribute('data-user-role', ch.user_role || item.getAttribute('data-user-role') || 'member');
         item.setAttribute('data-origin-peer', ch.origin_peer || item.getAttribute('data-origin-peer') || '');
+        item.setAttribute('data-created-by', ch.created_by || item.getAttribute('data-created-by') || '');
         item.setAttribute('data-post-policy', ch.post_policy || item.getAttribute('data-post-policy') || 'open');
         item.setAttribute('data-allow-member-replies', ch.allow_member_replies === false ? 'false' : (item.getAttribute('data-allow-member-replies') || 'true'));
         item.setAttribute('data-can-post-top-level', ch.can_post_top_level === false ? 'false' : (Object.prototype.hasOwnProperty.call(ch, 'can_post_top_level') ? 'true' : (item.getAttribute('data-can-post-top-level') || 'true')));
