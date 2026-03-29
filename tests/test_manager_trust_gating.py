@@ -36,7 +36,7 @@ class TestManagerTrustGating(unittest.TestCase):
 
         peers = manager._get_feed_post_target_peers('network')
 
-        self.assertEqual(peers, ['peer-trusted', 'peer-unknown'])
+        self.assertEqual(peers, ['peer-trusted'])
 
 
 if __name__ == '__main__':

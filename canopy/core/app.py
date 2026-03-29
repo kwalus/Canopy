@@ -331,7 +331,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
         )
 
         logger.info("Initializing feed manager...")
-        feed_manager = FeedManager(db_manager, api_key_manager)
+        feed_manager = FeedManager(db_manager, api_key_manager, trust_manager=trust_manager)
         feed_manager.workspace_events = workspace_event_manager
         app.config['FEED_MANAGER'] = feed_manager
         logger.info("Feed manager initialized successfully")
@@ -3179,12 +3179,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
         def _peer_is_trusted_for_content(peer_id: Any) -> bool:
             clean_peer = str(peer_id or '').strip()
             if not clean_peer or not trust_manager:
-                return True
+                return False
             try:
                 if hasattr(trust_manager, 'has_explicit_trust_score') and not trust_manager.has_explicit_trust_score(clean_peer):
-                    return True
+                    return False
             except Exception:
-                pass
+                return False
             try:
                 return bool(trust_manager.is_peer_trusted(clean_peer))
             except Exception:

@@ -67,7 +67,8 @@ class _SqliteDb:
                 last_interaction TIMESTAMP,
                 compliance_events INTEGER DEFAULT 0,
                 violation_events INTEGER DEFAULT 0,
-                notes TEXT
+                notes TEXT,
+                manually_penalized BOOLEAN NOT NULL DEFAULT 0
             )
             """
         )
@@ -135,15 +136,17 @@ class FeedTargetingPolicyTests(unittest.TestCase):
             "peer-low": 10,
         }
         self.manager.get_trust_score = lambda peer_id: trust_map.get(peer_id, 0)
+        self.manager.has_explicit_trust_score = lambda peer_id: peer_id in trust_map
+        self.manager.get_peer_id = lambda: "peer-local"
 
     def test_target_peers_for_public_and_network_include_all_connected(self) -> None:
         self.assertEqual(
             self.manager._get_feed_post_target_peers("public"),
-            ["peer-safe", "peer-review", "peer-low"],
+            ["peer-safe", "peer-review"],
         )
         self.assertEqual(
             self.manager._get_feed_post_target_peers("network"),
-            ["peer-safe", "peer-review", "peer-low"],
+            ["peer-safe", "peer-review"],
         )
 
     def test_target_peers_for_trusted_only_include_explicitly_trusted_peers(self) -> None:
@@ -159,11 +162,136 @@ class FeedTargetingPolicyTests(unittest.TestCase):
     def test_visibility_narrowing_revokes_peers_outside_new_scope(self) -> None:
         targets, revoke = self.manager._get_feed_post_target_delta("public", "trusted")
         self.assertEqual(targets, ["peer-safe", "peer-review"])
-        self.assertEqual(revoke, ["peer-low"])
+        self.assertEqual(revoke, [])
 
         targets, revoke = self.manager._get_feed_post_target_delta("trusted", "private")
         self.assertEqual(targets, [])
         self.assertEqual(revoke, ["peer-safe", "peer-review"])
+
+
+class _FeedDb:
+    def __init__(self) -> None:
+        self._tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.path = self._tmp.name
+        self._tmp.close()
+        conn = sqlite3.connect(self.path)
+        conn.row_factory = sqlite3.Row
+        conn.execute(
+            """
+            CREATE TABLE users (
+                id TEXT PRIMARY KEY,
+                username TEXT,
+                origin_peer TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE feed_posts (
+                id TEXT PRIMARY KEY,
+                author_id TEXT NOT NULL,
+                content TEXT NOT NULL,
+                content_type TEXT DEFAULT 'text',
+                metadata TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP,
+                visibility TEXT DEFAULT 'network',
+                likes INTEGER DEFAULT 0,
+                comments INTEGER DEFAULT 0,
+                shares INTEGER DEFAULT 0,
+                source_type TEXT DEFAULT 'human',
+                source_agent_id TEXT DEFAULT NULL,
+                source_url TEXT DEFAULT NULL,
+                tags TEXT DEFAULT NULL,
+                last_activity_at TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE post_permissions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                post_id TEXT NOT NULL,
+                user_id TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE trust_scores (
+                peer_id TEXT PRIMARY KEY,
+                score INTEGER,
+                last_interaction TIMESTAMP,
+                compliance_events INTEGER DEFAULT 0,
+                violation_events INTEGER DEFAULT 0,
+                notes TEXT,
+                manually_penalized BOOLEAN NOT NULL DEFAULT 0
+            )
+            """
+        )
+        conn.commit()
+        conn.close()
+
+    @contextmanager
+    def get_connection(self):
+        conn = sqlite3.connect(self.path)
+        conn.row_factory = sqlite3.Row
+        try:
+            yield conn
+            conn.commit()
+        finally:
+            conn.close()
+
+
+class FeedTrustVisibilityTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.db = _FeedDb()
+        self.trust_manager = TrustManager(self.db)
+        self.feed_manager = FeedManager(self.db, SimpleNamespace(), trust_manager=self.trust_manager)
+        with self.db.get_connection() as conn:
+            conn.executemany(
+                "INSERT INTO users (id, username, origin_peer) VALUES (?, ?, ?)",
+                [
+                    ("viewer", "viewer", None),
+                    ("local-author", "local-author", None),
+                    ("remote-unknown", "remote-unknown", "peer-unknown"),
+                    ("remote-trusted", "remote-trusted", "peer-trusted"),
+                ],
+            )
+            conn.executemany(
+                """
+                INSERT INTO feed_posts (
+                    id, author_id, content, content_type, metadata, created_at, visibility
+                ) VALUES (?, ?, ?, 'text', ?, CURRENT_TIMESTAMP, ?)
+                """,
+                [
+                    ("POST-local", "local-author", "local ok", "{}", "network"),
+                    ("POST-unknown", "remote-unknown", "remote blocked", "{}", "network"),
+                    ("POST-trusted", "remote-trusted", "remote ok", "{}", "network"),
+                ],
+            )
+        self.trust_manager.set_trust_score("peer-trusted", 80, reason="approved")
+
+    def test_feed_hides_unknown_remote_posts_until_peer_is_trusted(self) -> None:
+        posts = self.feed_manager.get_user_feed("viewer", limit=20)
+        post_ids = [post.id for post in posts]
+        self.assertIn("POST-local", post_ids)
+        self.assertIn("POST-trusted", post_ids)
+        self.assertNotIn("POST-unknown", post_ids)
+
+    def test_post_object_blocks_view_when_author_peer_is_unknown(self) -> None:
+        with self.db.get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT p.*, u.origin_peer AS author_origin_peer
+                FROM feed_posts p
+                LEFT JOIN users u ON p.author_id = u.id
+                WHERE p.id = ?
+                """,
+                ("POST-unknown",),
+            ).fetchone()
+            post = self.feed_manager._row_to_post(row, conn)
+        self.assertFalse(post.can_view("viewer", 50))
 
 
 ROOT = Path(__file__).resolve().parents[1]

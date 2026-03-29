@@ -189,7 +189,12 @@ class TestWorkspaceEventHandlerPaths(unittest.TestCase):
         trust_manager = self.app.config['TRUST_MANAGER']
         trust_manager.set_trust_score(peer_id, 0, reason='test-untrusted')
 
+    def _mark_peer_trusted(self, peer_id: str, score: int = 80) -> None:
+        trust_manager = self.app.config['TRUST_MANAGER']
+        trust_manager.set_trust_score(peer_id, score, reason='test-trusted')
+
     def test_real_inbound_dm_create_emits_one_created_event_with_canonical_id(self) -> None:
+        self._mark_peer_trusted('peer-remote')
         with self.app.app_context():
             self.p2p_manager.on_direct_message(
                 sender_id='remote-user',
@@ -219,6 +224,7 @@ class TestWorkspaceEventHandlerPaths(unittest.TestCase):
             self.assertEqual(event_rows[0]['message_id'], 'DM-handler-1')
 
     def test_real_inbound_dm_delete_emits_one_deleted_event_and_cleans_inbox(self) -> None:
+        self._mark_peer_trusted('peer-remote')
         with self.app.app_context():
             self.p2p_manager.on_direct_message(
                 sender_id='remote-user',
@@ -303,6 +309,7 @@ class TestWorkspaceEventHandlerPaths(unittest.TestCase):
 
     def test_real_inbound_dm_repairs_remote_origin_from_sender_peer(self) -> None:
         self._seed_remote_shadow('remote-user', 'peer-stale')
+        self._mark_peer_trusted('peer-windy')
 
         with self.app.app_context():
             self.p2p_manager.on_direct_message(
@@ -330,6 +337,7 @@ class TestWorkspaceEventHandlerPaths(unittest.TestCase):
         local_peer = self.p2p_manager.get_peer_id()
         assert local_peer
         self._seed_remote_shadow('remote-user', local_peer)
+        self._mark_peer_trusted('peer-windy')
 
         with self.app.app_context():
             self.p2p_manager.on_direct_message(
@@ -355,6 +363,7 @@ class TestWorkspaceEventHandlerPaths(unittest.TestCase):
 
     def test_catchup_uses_message_origin_peer_not_relay_peer_for_shadow_updates(self) -> None:
         self._seed_remote_shadow('remote-user', 'peer-stale')
+        self._mark_peer_trusted('peer-relay')
 
         with self.app.app_context():
             self.p2p_manager.on_catchup_response(

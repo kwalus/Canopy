@@ -496,6 +496,8 @@ class Post:
     source_agent_id: Optional[str] = None
     source_url: Optional[str] = None
     tags: Optional[str] = None  # JSON array string
+    author_origin_peer: Optional[str] = None
+    author_peer_trusted: Optional[bool] = None
 
     @property
     def is_expired(self) -> bool:
@@ -546,6 +548,8 @@ class Post:
         Default trust_score is 0 (untrusted) so callers must explicitly
         pass the viewer's actual trust level to allow trusted-visibility access.
         """
+        if self.author_origin_peer and not bool(self.author_peer_trusted):
+            return False
         if self.visibility == PostVisibility.PUBLIC:
             return True
         elif self.visibility == PostVisibility.NETWORK:
@@ -572,11 +576,12 @@ class FeedManager:
     LEGACY_NO_EXPIRY_TTL_SECONDS = LEGACY_NO_EXPIRY_TTL_DAYS * 24 * 3600
     
     def __init__(self, db_manager: DatabaseManager, api_key_manager: ApiKeyManager,
-                 data_encryptor: Any = None):
+                 data_encryptor: Any = None, trust_manager: Any = None):
         """Initialize feed manager with database and API key manager."""
         self.db = db_manager
         self.api_key_manager = api_key_manager
         self.data_encryptor = data_encryptor
+        self.trust_manager = trust_manager
         self.workspace_events: Any = None
         self.max_content_length = 4096  # 4KB for text posts
         self.supported_media_types = [
@@ -828,6 +833,20 @@ class FeedManager:
         if 'expires_at' in row.keys() and row['expires_at']:
             expires_dt = self._parse_datetime(row['expires_at'])
 
+        author_origin_peer = None
+        if 'author_origin_peer' in row.keys():
+            author_origin_peer = row['author_origin_peer']
+        elif conn is not None:
+            try:
+                origin_row = conn.execute(
+                    "SELECT origin_peer FROM users WHERE id = ?",
+                    (row['author_id'],),
+                ).fetchone()
+                if origin_row:
+                    author_origin_peer = origin_row['origin_peer'] if 'origin_peer' in origin_row.keys() else origin_row[0]
+            except Exception:
+                author_origin_peer = None
+
         return Post(
             id=row['id'],
             author_id=row['author_id'],
@@ -849,7 +868,30 @@ class FeedManager:
             source_agent_id=row['source_agent_id'] if 'source_agent_id' in row.keys() else None,
             source_url=row['source_url'] if 'source_url' in row.keys() else None,
             tags=row['tags'] if 'tags' in row.keys() else None,
+            author_origin_peer=str(author_origin_peer or '').strip() or None,
+            author_peer_trusted=self._is_author_origin_peer_trusted(author_origin_peer),
         )
+
+    def _is_author_origin_peer_trusted(self, origin_peer: Any) -> bool:
+        peer_id = str(origin_peer or '').strip()
+        if not peer_id:
+            return True
+        if not self.trust_manager:
+            return False
+        try:
+            if hasattr(self.trust_manager, 'has_explicit_trust_score') and not self.trust_manager.has_explicit_trust_score(peer_id):
+                return False
+        except Exception:
+            return False
+        try:
+            return bool(self.trust_manager.is_peer_trusted(peer_id))
+        except Exception:
+            return False
+
+    def _post_visible_to_user(self, post: Post, user_id: str) -> bool:
+        if not user_id:
+            return False
+        return bool(post.can_view(user_id, 50))
     
     def get_post(self, post_id: str) -> Optional[Post]:
         """Get a specific post by ID."""
@@ -924,7 +966,8 @@ class FeedManager:
                 params.append(limit)
                 
                 cursor = conn.execute(query, params)
-                return [self._row_to_post(row, conn) for row in cursor.fetchall()]
+                posts = [self._row_to_post(row, conn) for row in cursor.fetchall()]
+                return [post for post in posts if self._post_visible_to_user(post, user_id)]
                 
         except Exception as e:
             logger.error(f"Failed to get feed for user {user_id}: {e}")
@@ -962,7 +1005,8 @@ class FeedManager:
                     LIMIT ?
                 """
                 rows = conn.execute(query, (user_id, user_id, since_db, limit_val)).fetchall()
-                return [self._row_to_post(row, conn) for row in rows]
+                posts = [self._row_to_post(row, conn) for row in rows]
+                return [post for post in posts if self._post_visible_to_user(post, user_id)]
         except Exception as e:
             logger.error(f"Failed to get posts since {since}: {e}")
             return []
@@ -999,6 +1043,8 @@ class FeedManager:
         for row in cursor.fetchall():
             try:
                 post = self._row_to_post(row, conn)
+                if not self._post_visible_to_user(post, user_id):
+                    continue
                 score = algo.score_post(post, user_id)
                 if score >= 0:
                     scored.append((score, post))
@@ -1049,7 +1095,10 @@ class FeedManager:
                         LIMIT ?
                     """, (author_id, limit))
 
-                return [self._row_to_post(row, conn) for row in cursor.fetchall()]
+                posts = [self._row_to_post(row, conn) for row in cursor.fetchall()]
+                if viewer_id:
+                    return [post for post in posts if self._post_visible_to_user(post, viewer_id)]
+                return [post for post in posts if post.author_peer_trusted]
 
         except Exception as e:
             logger.error(f"Failed to get posts for user {author_id}: {e}")

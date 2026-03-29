@@ -358,12 +358,12 @@ class P2PNetworkManager:
         if has_explicit:
             try:
                 if not bool(has_explicit(clean_peer)):
-                    return True
+                    return False
             except Exception:
-                pass
+                return False
         trust_lookup = getattr(self, 'get_trust_score', None)
         if not trust_lookup:
-            return True
+            return False
         threshold = max(
             1,
             int(getattr(getattr(self.config, 'security', None), 'trust_threshold', 50) or 50),
