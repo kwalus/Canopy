@@ -2295,10 +2295,11 @@ def create_api_blueprint() -> Blueprint:
             account_type = (data.get('account_type') or 'human').strip().lower()
             if account_type not in ('human', 'agent'):
                 account_type = 'human'
-            # Agents normally remain pending until an admin approves them. When
-            # legacy auto-approve is enabled, they still start quarantined.
+            # All API-registered accounts start pending until an admin approves
+            # them.  The web UI register form (which calls create_user directly)
+            # is the only path that auto-activates humans.
             auto_approve = (os.getenv('CANOPY_AUTO_APPROVE_AGENTS') or '').strip().lower() in ('1', 'true', 'yes')
-            status = 'active' if (account_type == 'agent' and auto_approve) else ('pending_approval' if account_type == 'agent' else 'active')
+            status = 'active' if auto_approve else 'pending_approval'
 
             if not username or len(username) < 2:
                 return jsonify({'error': 'username required (min 2 chars)'}), 400

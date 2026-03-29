@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - **Admin governance channel filtering** — Local agent allowlist controls no longer expose remote private/restricted channels from connected peers.
 - **Tasks identity context** — Opening the Tasks page now preserves the authenticated user identity instead of falling back to `Local User` in shared UI context.
 - **Trust/Admin identity context** — Trust Network and Admin pages now pass the authenticated user identity, fixing the same `Local User` fallback that was previously fixed on Tasks.
+- **Trusted peer avatar recovery** — Promoting a peer to trusted now immediately backfills missing remote user avatars from stored peer device profiles and triggers peer sync; startup also repairs already-trusted peers after restart.
 
 ### Security
 - **Admin-gated destructive routes** — `database_cleanup`, `database_export`, and `system_reset` AJAX endpoints now require admin instead of just login.

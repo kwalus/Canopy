@@ -5154,6 +5154,125 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
         setattr(p2p_manager, 'resync_user_avatar', _resync_user_avatar)  # dynamic; route checks hasattr()
 
+        def _recover_peer_profile_state(peer_id: str = "", *, trigger_sync: bool = False) -> dict:
+            """Backfill missing remote user avatars from trusted peer device profiles."""
+            seen_peers: set[str] = set()
+            peer_ids: list[str] = []
+            if peer_id:
+                peer_ids = [str(peer_id or "").strip()]
+            elif trust_manager:
+                try:
+                    peer_ids = [
+                        str(pid or "").strip()
+                        for pid in (trust_manager.get_trusted_peers() or [])
+                        if str(pid or "").strip()
+                    ]
+                except Exception as e:
+                    logger.warning(f"recover_peer_profile_state: failed to load trusted peers: {e}")
+                    peer_ids = []
+
+            recovered_user_ids: list[str] = []
+            sync_triggered_for: list[str] = []
+            skipped_untrusted: list[str] = []
+            peers_with_device_avatar: list[str] = []
+
+            for raw_peer_id in peer_ids:
+                clean_peer_id = str(raw_peer_id or "").strip()
+                if not clean_peer_id or clean_peer_id in seen_peers:
+                    continue
+                seen_peers.add(clean_peer_id)
+
+                if trust_manager and not trust_manager.is_peer_trusted(clean_peer_id):
+                    skipped_untrusted.append(clean_peer_id)
+                    continue
+
+                device_profile = None
+                try:
+                    if channel_manager and hasattr(channel_manager, 'get_peer_device_profile'):
+                        device_profile = channel_manager.get_peer_device_profile(clean_peer_id)
+                    elif channel_manager and hasattr(channel_manager, 'get_peer_device_profiles'):
+                        device_profile = (channel_manager.get_peer_device_profiles([clean_peer_id]) or {}).get(clean_peer_id)
+                except Exception as e:
+                    logger.warning(
+                        "recover_peer_profile_state: failed to load device profile for %s: %s",
+                        clean_peer_id,
+                        e,
+                    )
+                    device_profile = None
+
+                avatar_b64 = str((device_profile or {}).get('avatar_b64') or '').strip()
+                avatar_mime = str((device_profile or {}).get('avatar_mime') or '').strip() or 'image/jpeg'
+                if avatar_b64:
+                    peers_with_device_avatar.append(clean_peer_id)
+                    try:
+                        with db_manager.get_connection() as conn:
+                            rows = conn.execute(
+                                """
+                                SELECT id
+                                FROM users
+                                WHERE origin_peer = ?
+                                  AND id NOT IN ('system', 'local_user')
+                                  AND COALESCE(avatar_file_id, '') = ''
+                                ORDER BY id ASC
+                                """,
+                                (clean_peer_id,),
+                            ).fetchall()
+                    except Exception as e:
+                        logger.warning(
+                            "recover_peer_profile_state: failed to scan remote users for %s: %s",
+                            clean_peer_id,
+                            e,
+                        )
+                        rows = []
+
+                    for row in rows or []:
+                        try:
+                            remote_user_id = str(row['id']).strip()
+                        except Exception:
+                            remote_user_id = str(row[0] or '').strip()
+                        if not remote_user_id:
+                            continue
+                        try:
+                            changed = profile_manager.update_from_remote(
+                                remote_user_id,
+                                {
+                                    'avatar_thumbnail': avatar_b64,
+                                    'avatar_content_type': avatar_mime,
+                                },
+                            ) if profile_manager else False
+                            if changed:
+                                recovered_user_ids.append(remote_user_id)
+                        except Exception as e:
+                            logger.warning(
+                                "recover_peer_profile_state: failed avatar backfill for %s from %s: %s",
+                                remote_user_id,
+                                clean_peer_id,
+                                e,
+                            )
+
+                if trigger_sync and p2p_manager and hasattr(p2p_manager, 'trigger_peer_sync'):
+                    try:
+                        if p2p_manager.trigger_peer_sync(clean_peer_id):
+                            sync_triggered_for.append(clean_peer_id)
+                    except Exception as e:
+                        logger.warning(
+                            "recover_peer_profile_state: failed to trigger sync for %s: %s",
+                            clean_peer_id,
+                            e,
+                        )
+
+            return {
+                "ok": True,
+                "peer_ids": list(seen_peers),
+                "peers_with_device_avatar": peers_with_device_avatar,
+                "recovered_user_ids": recovered_user_ids,
+                "recovered_user_count": len(recovered_user_ids),
+                "sync_triggered_for": sync_triggered_for,
+                "skipped_untrusted": skipped_untrusted,
+            }
+
+        setattr(p2p_manager, 'recover_peer_profile_state', _recover_peer_profile_state)  # dynamic; route checks hasattr()
+
         # --- Provide local profile card for sync ---
         def _get_local_profile_sync_user_ids():
             """Return local user IDs that should be included in profile sync.
@@ -6871,6 +6990,15 @@ def create_app(config: Optional[Config] = None) -> Flask:
             logger.info("Starting P2P network...")
             p2p_manager.start()
             logger.info("P2P network started successfully")
+            try:
+                recovery_result = p2p_manager.recover_peer_profile_state(trigger_sync=False)
+                if recovery_result.get('recovered_user_count'):
+                    logger.info(
+                        "Recovered %s remote user avatar(s) from trusted peer device profiles",
+                        recovery_result.get('recovered_user_count'),
+                    )
+            except Exception as e:
+                logger.warning(f"Startup peer profile recovery failed: {e}")
 
             # Override the activity event recorder to suppress notifications
             # for private/confidential channels where no local user is a

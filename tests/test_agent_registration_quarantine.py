@@ -265,7 +265,8 @@ class TestAgentRegistrationQuarantine(unittest.TestCase):
             ],
         )
 
-    def test_human_register_still_joins_general(self) -> None:
+    def test_human_api_register_starts_pending(self) -> None:
+        """All API-registered accounts start pending_approval regardless of type."""
         response = self.client.post(
             '/api/v1/register',
             json={
@@ -277,8 +278,7 @@ class TestAgentRegistrationQuarantine(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 201)
         payload = response.get_json() or {}
-        self.assertEqual(payload.get('status'), 'active')
-        self.assertIsNone(payload.get('quarantine_channel_id'))
+        self.assertEqual(payload.get('status'), 'pending_approval')
 
         row = self.db_manager.conn.execute(
             "SELECT id FROM users WHERE username = ?",
