@@ -31,6 +31,7 @@ class _FakeDbManager:
     def __init__(self) -> None:
         self.conn = sqlite3.connect(':memory:')
         self.conn.row_factory = sqlite3.Row
+        self._system_state = {}
         self.conn.execute(
             """
             CREATE TABLE users (
@@ -65,6 +66,16 @@ class _FakeDbManager:
         row = self.conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
         return dict(row) if row else None
 
+    def get_system_state(self, key: str):
+        return self._system_state.get(key)
+
+    def set_system_state(self, key: str, value):
+        if value is None:
+            self._system_state.pop(key, None)
+        else:
+            self._system_state[key] = value
+        return True
+
 
 class TestChannelGovernance(unittest.TestCase):
     def setUp(self) -> None:
@@ -82,6 +93,10 @@ class TestChannelGovernance(unittest.TestCase):
         self.db.conn.close()
 
     def test_default_agent_start_here_channel_exists(self) -> None:
+        self.assertNotEqual(
+            self.channel_manager.AGENT_START_CHANNEL_ID,
+            self.channel_manager.LEGACY_AGENT_START_CHANNEL_ID,
+        )
         row = self.db.conn.execute(
             """
             SELECT id, name, channel_type, privacy_mode, lifecycle_preserved

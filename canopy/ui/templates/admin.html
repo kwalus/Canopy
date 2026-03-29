@@ -3871,7 +3871,7 @@
                 workspaceGovernanceChannelsCache.map(channel => channel.id),
                 false,
             );
-            const quarantineChannel = workspaceGovernanceChannelsCache.find(channel => channel.id === 'agent-start-here');
+            const quarantineChannel = workspaceGovernanceChannelsCache.find(channel => String(channel.name || '').trim() === 'agent-start-here');
             if (quarantineChannel) {
                 setGovernanceSelection([quarantineChannel.id], true);
             }

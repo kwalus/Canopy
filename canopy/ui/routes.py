@@ -745,8 +745,8 @@ def create_ui_blueprint() -> Blueprint:
                 """, (user_id,))
                 conn.execute("""
                     INSERT OR IGNORE INTO channel_members (channel_id, user_id, role)
-                    VALUES ('agent-start-here', ?, 'admin')
-                """, (user_id,))
+                    VALUES (?, ?, 'admin')
+                """, (channel_manager.get_agent_quarantine_channel_id(), user_id))
                 try:
                     public_channels = conn.execute(
                         "SELECT id FROM channels "
