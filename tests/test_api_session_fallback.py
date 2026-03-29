@@ -11,6 +11,7 @@ import sys
 import unittest
 import types
 from datetime import datetime, timezone
+from urllib.error import HTTPError
 from unittest.mock import MagicMock, patch
 
 from flask import Flask
@@ -142,6 +143,26 @@ class TestApiSessionFallback(unittest.TestCase):
         payload = response.get_json() or {}
         self.assertEqual(payload.get('relay_policy'), 'broker_only')
         self.assertIn('active_relays', payload)
+
+    def test_youtube_title_lookup_returns_404_without_error_log_on_upstream_404(self) -> None:
+        self._set_authenticated_session()
+        with patch(
+            'canopy.api.routes.urlopen',
+            side_effect=HTTPError(
+                url='https://www.youtube.com/oembed',
+                code=404,
+                msg='Not Found',
+                hdrs=None,
+                fp=None,
+            ),
+        ), patch('canopy.api.routes.logger') as logger:
+            response = self.client.get('/api/v1/deck/youtube-title?video_id=fa6R4NUl8BQ')
+
+        self.assertEqual(response.status_code, 404)
+        payload = response.get_json() or {}
+        self.assertEqual(payload.get('error'), 'YouTube title unavailable')
+        logger.error.assert_not_called()
+        logger.info.assert_called_once()
 
     def test_authenticated_session_can_access_p2p_activity_endpoint(self) -> None:
         self._set_authenticated_session()

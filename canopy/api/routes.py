@@ -5039,6 +5039,15 @@ def create_api_blueprint() -> Blueprint:
             })
         except ValueError as e:
             return jsonify({'error': str(e)}), 400
+        except HTTPError as e:
+            if getattr(e, 'code', None) == 404:
+                logger.info(
+                    "Deck YouTube title unavailable for %s: upstream returned 404",
+                    request.args.get('video_id'),
+                )
+                return jsonify({'error': 'YouTube title unavailable'}), 404
+            logger.error(f"Deck YouTube title lookup failed for {request.args.get('video_id')}: {e}")
+            return jsonify({'error': 'Failed to resolve YouTube title'}), 502
         except Exception as e:
             logger.error(f"Deck YouTube title lookup failed for {request.args.get('video_id')}: {e}")
             return jsonify({'error': 'Failed to resolve YouTube title'}), 502

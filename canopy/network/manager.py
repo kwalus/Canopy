@@ -39,11 +39,17 @@ from .routing import (
     MessageRouter,
     P2PMessage,
     MessageType,
+    MAX_PAYLOAD_BYTES,
     encrypt_with_channel_key,
     decode_channel_key_material,
 )
 
 logger = logging.getLogger('canopy.network.manager')
+
+# Keep inlined attachment blobs well below the router payload ceiling. Base64
+# expansion plus envelope metadata can otherwise turn "small" files into
+# oversized P2P payloads that remote peers will drop.
+P2P_INLINE_ATTACHMENT_MAX_BYTES = min(LARGE_ATTACHMENT_THRESHOLD, MAX_PAYLOAD_BYTES // 8)
 
 
 class P2PNetworkManager:
@@ -309,7 +315,7 @@ class P2PNetworkManager:
             if not result:
                 return entry
             file_data, file_info = result
-            if len(file_data) <= LARGE_ATTACHMENT_THRESHOLD:
+            if len(file_data) <= P2P_INLINE_ATTACHMENT_MAX_BYTES:
                 import base64
                 entry['data'] = base64.b64encode(file_data).decode('ascii')
                 logger.info(
@@ -331,9 +337,10 @@ class P2PNetworkManager:
             ))
             entry.pop('url', None)
             logger.info(
-                "Prepared large attachment metadata for %s (%d bytes)",
+                "Prepared metadata-only attachment reference for %s (%d bytes, inline cap=%d bytes)",
                 file_id,
                 len(file_data),
+                P2P_INLINE_ATTACHMENT_MAX_BYTES,
             )
         except Exception as e:
             logger.error("Failed to read file %s for P2P transfer: %s", file_id, e)
