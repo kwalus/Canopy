@@ -15,7 +15,7 @@ import threading
 import time
 import json
 from collections import deque
-from typing import Optional, Callable, Dict, Any, Union, Tuple, Deque
+from typing import Optional, Callable, Dict, Any, Union, Tuple, Deque, Iterable
 from pathlib import Path
 
 from .. import __version__ as CANOPY_VERSION
@@ -345,6 +345,77 @@ class P2PNetworkManager:
         except Exception as e:
             logger.error("Failed to read file %s for P2P transfer: %s", file_id, e)
         return entry
+
+    def _peer_is_trusted_for_content(self, peer_id: Any) -> bool:
+        """Return whether a peer should receive replicated user content."""
+        clean_peer = str(peer_id or '').strip()
+        if not clean_peer:
+            return False
+        local_peer = str(self.get_peer_id() or '').strip()
+        if local_peer and clean_peer == local_peer:
+            return True
+        has_explicit = getattr(self, 'has_explicit_trust_score', None)
+        if has_explicit:
+            try:
+                if not bool(has_explicit(clean_peer)):
+                    return True
+            except Exception:
+                pass
+        trust_lookup = getattr(self, 'get_trust_score', None)
+        if not trust_lookup:
+            return True
+        threshold = max(
+            1,
+            int(getattr(getattr(self.config, 'security', None), 'trust_threshold', 50) or 50),
+        )
+        try:
+            return int(trust_lookup(clean_peer)) >= threshold
+        except Exception:
+            return False
+
+    def _filter_trusted_content_peers(self, peer_ids: Optional[Iterable[Any]]) -> list[str]:
+        """Normalize peer IDs and keep only trusted remote peers."""
+        local_peer = str(self.get_peer_id() or '').strip()
+        filtered: list[str] = []
+        seen: set[str] = set()
+        for raw_peer in peer_ids or []:
+            clean_peer = str(raw_peer or '').strip()
+            if not clean_peer or clean_peer == local_peer or clean_peer in seen:
+                continue
+            if not self._peer_is_trusted_for_content(clean_peer):
+                continue
+            seen.add(clean_peer)
+            filtered.append(clean_peer)
+        return filtered
+
+    def _derive_channel_delivery_peers(self, channel_id: str) -> list[str]:
+        """Derive trusted remote member peers for a restricted channel."""
+        clean_channel_id = str(channel_id or '').strip()
+        local_peer = str(self.get_peer_id() or '').strip()
+        if not clean_channel_id or not local_peer:
+            return []
+        try:
+            with self.db.get_connection() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT DISTINCT u.origin_peer
+                    FROM channel_members cm
+                    JOIN users u ON u.id = cm.user_id
+                    WHERE cm.channel_id = ?
+                      AND u.origin_peer IS NOT NULL
+                      AND u.origin_peer != ''
+                      AND u.origin_peer != ?
+                    """,
+                    (clean_channel_id, local_peer),
+                ).fetchall()
+            peer_ids = [
+                str(row['origin_peer'] if hasattr(row, 'keys') and 'origin_peer' in row.keys() else row[0]).strip()
+                for row in (rows or [])
+            ]
+            return self._filter_trusted_content_peers(peer_ids)
+        except Exception as exc:
+            logger.debug("Could not derive trusted delivery peers for %s: %s", clean_channel_id, exc)
+            return []
 
     def _normalize_capability_items(self, raw_caps: Any) -> list[str]:
         values = raw_caps if isinstance(raw_caps, (list, tuple, set)) else []
@@ -1520,6 +1591,10 @@ class P2PNetworkManager:
             if self.on_peer_connected:
                 self.on_peer_connected(peer_id)
 
+            if not self._peer_is_trusted_for_content(peer_id):
+                logger.info("Post-connect content sync skipped for untrusted peer %s", peer_id)
+                return
+
             # Channel metadata sync
             await self._send_channel_sync_to_peer(peer_id)
 
@@ -1581,6 +1656,9 @@ class P2PNetworkManager:
         can display correct display names for all users on this device.
         """
         if not self.message_router or not self.get_local_profile_card:
+            return
+        if not self._peer_is_trusted_for_content(peer_id):
+            logger.debug("Skipping profile sync for untrusted peer %s", peer_id)
             return
         try:
             # Build device info once (shared across all cards)
@@ -2660,14 +2738,35 @@ class P2PNetworkManager:
             metadata['attachments'] = p2p_attachments
             metadata['message_type'] = 'file'
 
-        # Broadcast all channel messages (including restricted) to the
-        # full mesh so intermediary peers can relay.  Content
-        # confidentiality for private channels will be enforced via
-        # E2E encryption; targeted-only sending was removed to fix
-        # relay gaps when member peers are not directly connected.
+        delivery_peers = self._filter_trusted_content_peers(list(target_peer_ids or []))
+        if targeted_channel and not delivery_peers:
+            delivery_peers = self._derive_channel_delivery_peers(channel_id)
+        if not targeted_channel and not delivery_peers:
+            delivery_peers = self._filter_trusted_content_peers(self.get_connected_peers())
+
+        if not delivery_peers:
+            logger.info(
+                "Skipping channel message %s in %s: no trusted target peers",
+                message_id,
+                channel_id,
+            )
+            return True
+
+        async def _send_channel_message() -> bool:
+            sent_any = False
+            for peer_id in delivery_peers:
+                ok = await self.message_router.send_channel_broadcast(
+                    outbound_content,
+                    metadata,
+                    to_peer=peer_id,
+                )
+                if ok:
+                    sent_any = True
+            return sent_any
+
         timeout = 60.0 if attachments else 5.0
         future = asyncio.run_coroutine_threadsafe(
-            self.message_router.send_channel_broadcast(outbound_content, metadata),
+            _send_channel_message(),
             self._event_loop
         )
         try:
@@ -2742,31 +2841,29 @@ class P2PNetworkManager:
             previous_visibility_mode,
             visibility_mode,
         )
-        if visibility_mode == 'trusted' and not target_peers:
+        if visibility_mode in {'public', 'network', 'trusted'} and not target_peers:
             logger.info(
-                "Feed post %s visibility=trusted has no trusted connected peers; keeping local only",
+                "Feed post %s visibility=%s has no trusted connected peers; keeping local only",
                 post_id,
+                visibility_mode,
             )
 
         async def _send_feed_post() -> bool:
             sent_any = False
-            if visibility_mode in {'public', 'network'}:
-                sent_any = await self.message_router.send_feed_post_broadcast(content, meta)
-            else:
-                for peer_id in target_peers:
-                    payload = {
-                        'content': content,
-                        'metadata': dict(meta),
-                    }
-                    message = self.message_router.create_message(
-                        MessageType.FEED_POST,
-                        peer_id,
-                        payload,
-                        ttl=getattr(self.message_router, '_CONTENT_TTL', 5),
-                    )
-                    self.message_router.sign_message(message)
-                    if await self.message_router._route_to_peer(message):
-                        sent_any = True
+            for peer_id in target_peers:
+                payload = {
+                    'content': content,
+                    'metadata': dict(meta),
+                }
+                message = self.message_router.create_message(
+                    MessageType.FEED_POST,
+                    peer_id,
+                    payload,
+                    ttl=getattr(self.message_router, '_CONTENT_TTL', 5),
+                )
+                self.message_router.sign_message(message)
+                if await self.message_router._route_to_peer(message):
+                    sent_any = True
 
             revoked_any = False
             if revoke_peers:
@@ -2804,25 +2901,12 @@ class P2PNetworkManager:
         visibility_mode = str(visibility or 'private').strip().lower() or 'private'
         if visibility_mode in {'private', 'custom'}:
             return []
-        peers = list(self.get_connected_peers())
+        peers = self._filter_trusted_content_peers(self.get_connected_peers())
         if visibility_mode in {'public', 'network'}:
             return peers
         if visibility_mode != 'trusted' or not self.get_trust_score:
             return []
-        threshold = max(
-            1,
-            int(getattr(getattr(self.config, 'security', None), 'trust_threshold', 50) or 50),
-        )
-        trusted_peers: list[str] = []
-        for peer_id in peers:
-            if not peer_id:
-                continue
-            try:
-                if int(self.get_trust_score(peer_id)) >= threshold:
-                    trusted_peers.append(peer_id)
-            except Exception:
-                continue
-        return trusted_peers
+        return peers
 
     def _get_feed_post_target_delta(
         self,
@@ -3815,6 +3899,9 @@ class P2PNetworkManager:
         """
         if not self.message_router:
             return
+        if not self._peer_is_trusted_for_content(peer_id):
+            logger.debug("Skipping channel sync for untrusted peer %s", peer_id)
+            return
 
         try:
             channels = []
@@ -3863,6 +3950,9 @@ class P2PNetworkManager:
     async def _send_membership_recovery_query(self, peer_id: str) -> None:
         """Send targeted membership-recovery query to a connected peer."""
         if not self.message_router:
+            return
+        if not self._peer_is_trusted_for_content(peer_id):
+            logger.debug("Skipping membership recovery query for untrusted peer %s", peer_id)
             return
         local_user_ids = self._get_local_user_ids_for_membership_recovery(limit=256)
         if not local_user_ids:
@@ -3959,9 +4049,13 @@ class P2PNetworkManager:
 
                 peers = self.connection_manager.get_connected_peers()
                 if peers:
+                    trusted_peers = self._filter_trusted_content_peers(peers)
+                    if not trusted_peers:
+                        await asyncio.sleep(self.PERIODIC_CATCHUP_INTERVAL)
+                        continue
                     logger.info(f"Periodic catch-up: syncing with "
-                                f"{len(peers)} connected peer(s)")
-                    for peer_id in peers:
+                                f"{len(trusted_peers)} trusted connected peer(s)")
+                    for peer_id in trusted_peers:
                         try:
                             await self._send_catchup_request(peer_id)
                         except Exception as per_err:
@@ -3984,6 +4078,9 @@ class P2PNetworkManager:
         circle votes, and tasks so the peer can send missed items.
         """
         if not self.message_router:
+            return
+        if not self._peer_is_trusted_for_content(peer_id):
+            logger.debug("Skipping catchup request for untrusted peer %s", peer_id)
             return
 
         try:

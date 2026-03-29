@@ -1378,6 +1378,14 @@ def create_app(config: Optional[Config] = None) -> Flask:
             images and files natively.
             """
             try:
+                if not _peer_is_trusted_for_content(from_peer):
+                    logger.info(
+                        "Ignoring channel message %s in %s from untrusted peer %s",
+                        message_id,
+                        channel_id,
+                        from_peer,
+                    )
+                    return
                 existing_msg = None
                 if message_id:
                     try:
@@ -2559,6 +2567,13 @@ def create_app(config: Optional[Config] = None) -> Flask:
             channels, all local human users are added as before.
             """
             try:
+                if not _peer_is_trusted_for_content(from_peer):
+                    logger.info(
+                        "Ignoring channel announce %s from untrusted peer %s",
+                        channel_id,
+                        from_peer,
+                    )
+                    return
                 mode = str(privacy_mode or '').strip().lower()
                 channel_type_norm = str(channel_type or '').strip().lower()
                 if mode not in {'open', 'guarded', 'private', 'confidential'}:
@@ -2758,6 +2773,14 @@ def create_app(config: Optional[Config] = None) -> Flask:
             the specified user.
             """
             try:
+                if not _peer_is_trusted_for_content(from_peer):
+                    logger.info(
+                        "Ignoring member sync %s for %s from untrusted peer %s",
+                        action,
+                        channel_id,
+                        from_peer,
+                    )
+                    return
                 channel_id = str(channel_id or '').strip()
                 target_user_id = str(target_user_id or '').strip()
                 action = str(action or '').strip().lower()
@@ -3153,6 +3176,20 @@ def create_app(config: Optional[Config] = None) -> Flask:
             sec = getattr(config, 'security', None) if config else None
             return bool(getattr(sec, 'e2e_private_channels', False))
 
+        def _peer_is_trusted_for_content(peer_id: Any) -> bool:
+            clean_peer = str(peer_id or '').strip()
+            if not clean_peer or not trust_manager:
+                return True
+            try:
+                if hasattr(trust_manager, 'has_explicit_trust_score') and not trust_manager.has_explicit_trust_score(clean_peer):
+                    return True
+            except Exception:
+                pass
+            try:
+                return bool(trust_manager.is_peer_trusted(clean_peer))
+            except Exception:
+                return False
+
         def _channel_targets_e2e(privacy_mode: str, crypto_mode: str) -> bool:
             return (
                 str(privacy_mode or '').strip().lower() in {'private', 'confidential'}
@@ -3162,6 +3199,13 @@ def create_app(config: Optional[Config] = None) -> Flask:
         def _on_channel_membership_query(query_id, local_user_ids, limit, from_peer):
             """Respond with private-channel metadata for querying peer users."""
             try:
+                if not _peer_is_trusted_for_content(from_peer):
+                    logger.info(
+                        "Ignoring channel membership query %s from untrusted peer %s",
+                        query_id,
+                        from_peer,
+                    )
+                    return
                 qid = str(query_id or '').strip() or None
                 user_ids = []
                 seen_users = set()
@@ -3201,6 +3245,13 @@ def create_app(config: Optional[Config] = None) -> Flask:
         def _on_channel_membership_response(query_id, channels, truncated, from_peer):
             """Recover missing private-channel metadata/membership after reconnect."""
             try:
+                if not _peer_is_trusted_for_content(from_peer):
+                    logger.info(
+                        "Ignoring channel membership response %s from untrusted peer %s",
+                        query_id,
+                        from_peer,
+                    )
+                    return
                 local_peer = str((p2p_manager.get_peer_id() if p2p_manager else '') or '').strip()
                 imported_channels = 0
                 for item in (channels or []):
@@ -3966,6 +4017,9 @@ def create_app(config: Optional[Config] = None) -> Flask:
         def _on_channel_sync(channels, from_peer):
             """Handle a CHANNEL_SYNC (bulk list) from a connected peer."""
             try:
+                if not _peer_is_trusted_for_content(from_peer):
+                    logger.info("Ignoring channel sync from untrusted peer %s", from_peer)
+                    return
                 local_user = 'local_user'
                 try:
                     with db_manager.get_connection() as conn:
@@ -4100,6 +4154,9 @@ def create_app(config: Optional[Config] = None) -> Flask:
             async task so the event loop stays responsive.
             """
             try:
+                if not _peer_is_trusted_for_content(from_peer):
+                    logger.info("Ignoring catchup request from untrusted peer %s", from_peer)
+                    return
                 all_messages = []
                 # Get all local channels (peer may not know about some)
                 local_ts = channel_manager.get_channel_latest_timestamps()
@@ -4457,6 +4514,9 @@ def create_app(config: Optional[Config] = None) -> Flask:
             has_extra = bool(feed_posts) or bool(circle_entries) or bool(circle_votes) or bool(circles) or bool(tasks)
             if not has_messages and not has_extra:
                 return
+            if not _peer_is_trusted_for_content(from_peer):
+                logger.info("Ignoring catchup response from untrusted peer %s", from_peer)
+                return
             try:
                 stored = 0
                 skipped_dup = 0
@@ -4799,6 +4859,9 @@ def create_app(config: Optional[Config] = None) -> Flask:
             profiles arriving via relay before any messages.
             """
             try:
+                if not _peer_is_trusted_for_content(from_peer):
+                    logger.info("Ignoring profile sync from untrusted peer %s", from_peer)
+                    return
                 remote_peer_id = profile_data.get('peer_id', from_peer)
 
                 # ---- Skip unchanged profiles (version hash dedup) ----
@@ -4893,6 +4956,8 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                 continue  # don't echo back to sender
                             if pid == (p2p_manager.get_peer_id() or ''):
                                 continue  # skip ourselves
+                            if not _peer_is_trusted_for_content(pid):
+                                continue
                             if p2p_manager.message_router and p2p_manager._event_loop:
                                 asyncio.run_coroutine_threadsafe(
                                     p2p_manager.message_router.send_profile_sync(
@@ -5182,6 +5247,9 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                display_name, from_peer):
             """Store an incoming P2P feed post locally. Updates content/metadata when post already exists (edit broadcast)."""
             try:
+                if not _peer_is_trusted_for_content(from_peer):
+                    logger.info("Ignoring feed post %s from untrusted peer %s", post_id, from_peer)
+                    return
                 # --- Input validation ---
 
                 # Reject posts with private/custom visibility over P2P
@@ -5996,6 +6064,14 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                  display_name, metadata, from_peer):
             """Apply an incoming P2P interaction locally (idempotent)."""
             try:
+                if not _peer_is_trusted_for_content(from_peer):
+                    logger.info(
+                        "Ignoring interaction %s/%s from untrusted peer %s",
+                        item_type,
+                        action,
+                        from_peer,
+                    )
+                    return
                 # Ensure shadow user exists
                 interaction_origin_peer = str((metadata or {}).get('origin_peer') or from_peer or '').strip() or str(from_peer or '').strip()
                 _ensure_shadow_user(
@@ -6195,6 +6271,9 @@ def create_app(config: Optional[Config] = None) -> Flask:
             to all peers, but only the recipient's node should store it).
             """
             try:
+                if not _peer_is_trusted_for_content(from_peer):
+                    logger.info("Ignoring direct message %s from untrusted peer %s", message_id, from_peer)
+                    return
                 if not recipient_id:
                     return
 
@@ -6723,6 +6802,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
         # Wire trust score lookup so P2P relay can gate by trust
         p2p_manager.get_trust_score = trust_manager.get_trust_score
+        p2p_manager.has_explicit_trust_score = trust_manager.has_explicit_trust_score
 
         # Start P2P network (skip if CANOPY_DISABLE_MESH=true, e.g. for isolated testnet)
         import os as _os
