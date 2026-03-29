@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.17] - 2026-03-29
+
+### Fixed
+- **Reliable remote attachment propagation** — Large attachment chunks now stay under the router payload cap so medium-sized images stop getting dropped in transit, and peers now preserve existing `origin_file_id` / `source_peer_id` references instead of flattening fetchable remote attachments into dead metadata-only stubs.
+
 ## [0.5.16] - 2026-03-29
 
 ### Fixed

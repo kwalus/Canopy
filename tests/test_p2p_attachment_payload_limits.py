@@ -67,3 +67,56 @@ class TestP2PAttachmentPayloadLimits(unittest.TestCase):
         self.assertTrue(entry.get('large_attachment'))
         self.assertEqual(entry.get('origin_file_id'), 'Flarge')
         self.assertEqual(entry.get('source_peer_id'), 'peer-local')
+
+    def test_existing_remote_reference_survives_without_local_file_id(self) -> None:
+        manager = P2PNetworkManager.__new__(P2PNetworkManager)
+        manager.file_manager = None
+        manager.get_peer_id = lambda: 'peer-local'
+
+        entry = manager._build_p2p_attachment_entry({
+            'name': 'thumb_homies-claw-avatar.png',
+            'type': 'image/png',
+            'size': 863841,
+            'checksum': 'abc123',
+            'origin_file_id': 'Forigin-remote',
+            'source_peer_id': 'peer-remote',
+            'large_attachment': True,
+            'storage_mode': 'remote_large',
+            'download_status': 'pending',
+        })
+
+        self.assertIsNotNone(entry)
+        assert entry is not None
+        self.assertEqual(entry.get('origin_file_id'), 'Forigin-remote')
+        self.assertEqual(entry.get('source_peer_id'), 'peer-remote')
+        self.assertTrue(entry.get('large_attachment'))
+        self.assertEqual(entry.get('storage_mode'), 'remote_large')
+        self.assertEqual(entry.get('download_status'), 'pending')
+        self.assertEqual(entry.get('checksum'), 'abc123')
+        self.assertNotIn('data', entry)
+
+    def test_existing_remote_reference_survives_missing_local_blob(self) -> None:
+        class _MissingFileManager:
+            def get_file_data(self, file_id: str):
+                return None
+
+        manager = P2PNetworkManager.__new__(P2PNetworkManager)
+        manager.file_manager = _MissingFileManager()
+        manager.get_peer_id = lambda: 'peer-local'
+
+        entry = manager._build_p2p_attachment_entry({
+            'id': 'Flocal-missing',
+            'name': 'thumb_homies-claw-avatar.png',
+            'type': 'image/png',
+            'size': 863841,
+            'origin_file_id': 'Forigin-remote',
+            'source_peer_id': 'peer-remote',
+            'large_attachment': True,
+        })
+
+        self.assertIsNotNone(entry)
+        assert entry is not None
+        self.assertEqual(entry.get('id'), 'Flocal-missing')
+        self.assertEqual(entry.get('origin_file_id'), 'Forigin-remote')
+        self.assertEqual(entry.get('source_peer_id'), 'peer-remote')
+        self.assertTrue(entry.get('large_attachment'))

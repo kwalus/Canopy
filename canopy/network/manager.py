@@ -31,6 +31,9 @@ from ..core.large_attachments import (
     LARGE_ATTACHMENT_THRESHOLD,
     LARGE_ATTACHMENT_CHUNK_SIZE,
     build_large_attachment_metadata,
+    get_attachment_origin_file_id,
+    get_attachment_source_peer_id,
+    is_large_attachment_reference,
 )
 from .identity import IdentityManager, PeerIdentity
 from .discovery import PeerDiscovery, DiscoveredPeer
@@ -304,15 +307,37 @@ class P2PNetworkManager:
             'type': attachment.get('type', attachment.get('content_type', 'application/octet-stream')),
             'size': attachment.get('size', 0),
         }
+        checksum = str(attachment.get('checksum') or '').strip()
+        if checksum:
+            entry['checksum'] = checksum
         if file_id:
             entry['id'] = file_id
 
+        existing_remote_reference: Dict[str, Any] = {}
+        if is_large_attachment_reference(attachment):
+            origin_file_id = get_attachment_origin_file_id(attachment)
+            source_peer_id = get_attachment_source_peer_id(attachment)
+            if origin_file_id and source_peer_id:
+                existing_remote_reference = {
+                    'origin_file_id': origin_file_id,
+                    'source_peer_id': source_peer_id,
+                    'large_attachment': True,
+                    'storage_mode': str(attachment.get('storage_mode') or 'remote_large').strip().lower() or 'remote_large',
+                    'download_status': str(attachment.get('download_status') or 'pending').strip().lower() or 'pending',
+                }
+
         if not file_id or not self.file_manager:
+            if existing_remote_reference:
+                entry.update(existing_remote_reference)
+                entry.pop('url', None)
             return entry
 
         try:
             result = self.file_manager.get_file_data(file_id)
             if not result:
+                if existing_remote_reference:
+                    entry.update(existing_remote_reference)
+                    entry.pop('url', None)
                 return entry
             file_data, file_info = result
             if len(file_data) <= P2P_INLINE_ATTACHMENT_MAX_BYTES:
@@ -344,6 +369,9 @@ class P2PNetworkManager:
             )
         except Exception as e:
             logger.error("Failed to read file %s for P2P transfer: %s", file_id, e)
+            if existing_remote_reference:
+                entry.update(existing_remote_reference)
+                entry.pop('url', None)
         return entry
 
     def _peer_is_trusted_for_content(self, peer_id: Any) -> bool:

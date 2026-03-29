@@ -9,7 +9,9 @@ from typing import Any, Dict, Optional
 
 LARGE_ATTACHMENT_CAPABILITY = "large_attachment_store_v1"
 LARGE_ATTACHMENT_THRESHOLD = 10 * 1024 * 1024  # 10 MB fixed protocol threshold
-LARGE_ATTACHMENT_CHUNK_SIZE = 512 * 1024  # 512 KB
+# Chunks are base64-encoded and wrapped in a P2P envelope, so keep them well
+# below the router payload cap to avoid oversized-message drops on receive.
+LARGE_ATTACHMENT_CHUNK_SIZE = 256 * 1024  # 256 KB
 LARGE_ATTACHMENT_STORE_DIRNAME = "canopy-large-attachments"
 LARGE_ATTACHMENT_STORE_ROOT_KEY = "large_attachment_store_root"
 LARGE_ATTACHMENT_DOWNLOAD_MODE_KEY = "large_attachment_download_mode"
