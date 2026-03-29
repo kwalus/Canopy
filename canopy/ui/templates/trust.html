@@ -487,6 +487,9 @@
                 <option value="restricted" {% if tier == 'restricted' %}selected{% endif %}>Restricted</option>
                 <option value="quarantine" {% if tier == 'quarantine' %}selected{% endif %}>Quarantine</option>
             </select>
+            <button type="button" class="btn btn-outline-danger btn-sm" onclick="removePeerFromTrust('{{ peer_id }}')">
+                Remove
+            </button>
         </div>
     </div>
 {% endmacro %}
@@ -522,6 +525,9 @@
                 <option value="restricted">Restricted</option>
                 <option value="quarantine">Quarantine</option>
             </select>
+            <button type="button" class="btn btn-outline-danger btn-sm" onclick="removePeerFromTrust('{{ peer_id }}')">
+                Remove
+            </button>
         </div>
     </div>
 {% endmacro %}
@@ -868,6 +874,33 @@
                 selectEl.value = originalTier;
             }
             showAlert(error.error || 'Failed to update trust score', 'danger');
+        });
+    }
+
+    function removePeerFromTrust(peerId) {
+        if (!peerId) return;
+        if (!confirm('Remove this peer from trust and known-peer state? This also cleans stored trust residue and shadow-user residue for that peer.')) {
+            return;
+        }
+        apiCall('/api/v1/p2p/forget', {
+            method: 'POST',
+            body: JSON.stringify({
+                peer_id: peerId,
+                remove_introduced: true,
+                purge_residue: true,
+                remove_shadow_users: true
+            })
+        })
+        .then(data => {
+            if (data.status === 'forgotten' || data.status === 'not_found') {
+                showAlert('Peer removed and local residue cleaned up.', 'success');
+                setTimeout(refreshTrust, 150);
+            } else {
+                showAlert(data.message || 'Failed to remove peer', 'danger');
+            }
+        })
+        .catch(error => {
+            showAlert(error.error || 'Failed to remove peer', 'danger');
         });
     }
 

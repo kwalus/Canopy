@@ -1344,6 +1344,648 @@ class DatabaseManager:
             logger.error(f"Failed to update admin user fields: {e}")
             return False
 
+    @staticmethod
+    def _remote_shadow_identity_value(row: Dict[str, Any]) -> str:
+        return str(row.get('display_name') or row.get('username') or row.get('id') or '').strip()
+
+    @staticmethod
+    def _sort_timestamp_value(raw: Any) -> float:
+        value = str(raw or '').strip()
+        if not value:
+            return 0.0
+        try:
+            return datetime.fromisoformat(value.replace('Z', '+00:00')).timestamp()
+        except Exception:
+            pass
+        for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M:%S.%f'):
+            try:
+                return datetime.strptime(value, fmt).timestamp()
+            except Exception:
+                continue
+        return 0.0
+
+    @staticmethod
+    def _is_placeholder_shadow_username(username: str, user_id: str) -> bool:
+        uname = str(username or '').strip().lower()
+        uid = str(user_id or '').strip().lower()
+        return bool(uname) and (uname.startswith('peer-') or uname == uid)
+
+    @staticmethod
+    def _safe_table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:
+        try:
+            rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+        except Exception:
+            return set()
+        names: set[str] = set()
+        for row in rows or []:
+            if hasattr(row, 'keys') and 'name' in row.keys():
+                names.add(str(row['name']))
+            elif len(row) > 1:
+                names.add(str(row[1]))
+        return names
+
+    def _collect_shadow_user_reference_counts(
+        self,
+        conn: sqlite3.Connection,
+        user_id: str,
+    ) -> Dict[str, int]:
+        counts: Dict[str, int] = {}
+        tracked = [
+            ('channels_created', 'SELECT COUNT(*) FROM channels WHERE created_by = ?'),
+            ('channel_memberships', 'SELECT COUNT(*) FROM channel_members WHERE user_id = ?'),
+            ('channel_messages', 'SELECT COUNT(*) FROM channel_messages WHERE user_id = ?'),
+            ('uploads', 'SELECT COUNT(*) FROM files WHERE uploaded_by = ?'),
+            ('direct_messages_sent', 'SELECT COUNT(*) FROM messages WHERE sender_id = ?'),
+            ('feed_posts', 'SELECT COUNT(*) FROM feed_posts WHERE author_id = ?'),
+        ]
+        for key, query in tracked:
+            try:
+                row = conn.execute(query, (user_id,)).fetchone()
+                counts[key] = int(row[0] if row else 0)
+            except Exception:
+                counts[key] = 0
+        counts['total'] = sum(counts.values())
+        return counts
+
+    def _remote_shadow_candidate_sort_key(
+        self,
+        row: Dict[str, Any],
+        reference_counts: Dict[str, int],
+    ) -> Tuple[Any, ...]:
+        username = str(row.get('username') or '').strip()
+        user_id = str(row.get('id') or '').strip()
+        return (
+            0 if self._sort_timestamp_value(row.get('profile_updated_at')) else 1,
+            -self._sort_timestamp_value(row.get('profile_updated_at')),
+            -int(reference_counts.get('total') or 0),
+            0 if self._sort_timestamp_value(row.get('created_at')) else 1,
+            -self._sort_timestamp_value(row.get('created_at')),
+            1 if self._is_placeholder_shadow_username(username, user_id) else 0,
+            0 if str(row.get('avatar_file_id') or '').strip() else 1,
+            username.lower(),
+            user_id,
+        )
+
+    def _fetch_remote_shadow_duplicate_group_rows(
+        self,
+        conn: sqlite3.Connection,
+        anchor_user_id: str,
+    ) -> List[Dict[str, Any]]:
+        user_cols = self._safe_table_columns(conn, 'users')
+        select_cols = [
+            'id',
+            'username',
+            'display_name',
+            'origin_peer',
+            'created_at',
+            'updated_at',
+            'password_hash',
+            'public_key',
+        ]
+        for optional_col in ('avatar_file_id', 'profile_updated_at', 'bio'):
+            if optional_col in user_cols:
+                select_cols.append(optional_col)
+        row = conn.execute(
+            f"SELECT {', '.join(select_cols)} FROM users WHERE id = ?",
+            (anchor_user_id,),
+        ).fetchone()
+        if not row:
+            return []
+        anchor = dict(row)
+        origin_peer = str(anchor.get('origin_peer') or '').strip()
+        if not origin_peer or str(anchor.get('password_hash') or '').strip():
+            return []
+        identity_value = self._remote_shadow_identity_value(anchor)
+        if not identity_value:
+            return []
+        rows = conn.execute(
+            f"""
+            SELECT {', '.join(select_cols)}
+            FROM users
+            WHERE origin_peer = ?
+              AND COALESCE(password_hash, '') = ''
+              AND lower(COALESCE(display_name, username, id)) = lower(?)
+            """,
+            (origin_peer, identity_value),
+        ).fetchall()
+        return [dict(candidate) for candidate in (rows or [])]
+
+    @staticmethod
+    def _pick_latest_timestamp(*values: Any) -> Optional[str]:
+        best_raw: Optional[str] = None
+        best_value = float('-inf')
+        for raw in values:
+            raw_value = str(raw or '').strip()
+            if not raw_value:
+                continue
+            try_value = DatabaseManager._sort_timestamp_value(raw_value)
+            if try_value > best_value:
+                best_value = try_value
+                best_raw = raw_value
+        return best_raw
+
+    @staticmethod
+    def _pick_earliest_timestamp(*values: Any) -> Optional[str]:
+        best_raw: Optional[str] = None
+        best_value: Optional[float] = None
+        for raw in values:
+            raw_value = str(raw or '').strip()
+            if not raw_value:
+                continue
+            try_value = DatabaseManager._sort_timestamp_value(raw_value)
+            if best_value is None or try_value < best_value:
+                best_value = try_value
+                best_raw = raw_value
+        return best_raw
+
+    @staticmethod
+    def _exec_optional(
+        conn: sqlite3.Connection,
+        sql: str,
+        params: tuple[Any, ...],
+    ) -> Optional[sqlite3.Cursor]:
+        try:
+            return conn.execute(sql, params)
+        except sqlite3.OperationalError as e:
+            msg = str(e).lower()
+            if "no such table" in msg or "no such column" in msg:
+                logger.debug(f"Optional cleanup skipped: {sql} ({e})")
+                return None
+            raise
+
+    def _reassign_user_reference_optional(
+        self,
+        conn: sqlite3.Connection,
+        table: str,
+        column: str,
+        source_user_id: str,
+        canonical_user_id: str,
+        *,
+        unique_conflict_safe: bool = False,
+    ) -> None:
+        clause = "UPDATE OR IGNORE" if unique_conflict_safe else "UPDATE"
+        self._exec_optional(
+            conn,
+            f"{clause} {table} SET {column} = ? WHERE {column} = ?",
+            (canonical_user_id, source_user_id),
+        )
+        if unique_conflict_safe:
+            self._exec_optional(
+                conn,
+                f"DELETE FROM {table} WHERE {column} = ?",
+                (source_user_id,),
+            )
+
+    def _merge_channel_membership_rows(
+        self,
+        conn: sqlite3.Connection,
+        source_user_id: str,
+        canonical_user_id: str,
+    ) -> None:
+        rows = self._exec_optional(
+            conn,
+            """
+            SELECT id, channel_id, role, notifications_enabled, last_read_at, joined_at
+            FROM channel_members
+            WHERE user_id = ?
+            """,
+            (source_user_id,),
+        )
+        if rows is None:
+            return
+        for row in rows.fetchall():
+            existing = conn.execute(
+                """
+                SELECT id, role, notifications_enabled, last_read_at, joined_at
+                FROM channel_members
+                WHERE channel_id = ? AND user_id = ?
+                """,
+                (row['channel_id'], canonical_user_id),
+            ).fetchone()
+            if existing:
+                merged_role = 'admin' if 'admin' in {
+                    str(existing['role'] or '').strip().lower(),
+                    str(row['role'] or '').strip().lower(),
+                } else str(existing['role'] or row['role'] or 'member')
+                merged_notifications = 1 if (
+                    bool(existing['notifications_enabled']) or bool(row['notifications_enabled'])
+                ) else 0
+                merged_last_read = self._pick_latest_timestamp(
+                    existing['last_read_at'],
+                    row['last_read_at'],
+                )
+                merged_joined_at = self._pick_earliest_timestamp(
+                    existing['joined_at'],
+                    row['joined_at'],
+                )
+                conn.execute(
+                    """
+                    UPDATE channel_members
+                    SET role = ?, notifications_enabled = ?, last_read_at = ?, joined_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        merged_role,
+                        merged_notifications,
+                        merged_last_read,
+                        merged_joined_at,
+                        existing['id'],
+                    ),
+                )
+                conn.execute(
+                    "DELETE FROM channel_members WHERE id = ?",
+                    (row['id'],),
+                )
+                continue
+            conn.execute(
+                "UPDATE channel_members SET user_id = ? WHERE id = ?",
+                (canonical_user_id, row['id']),
+            )
+
+    def list_remote_shadow_duplicate_groups(self, limit: int = 200) -> List[Dict[str, Any]]:
+        """List duplicate remote-shadow identities grouped by origin peer and display identity."""
+        lim = max(1, min(int(limit or 200), 1000))
+        groups: List[Dict[str, Any]] = []
+        try:
+            with self.get_connection() as conn:
+                rows = self.get_all_users_for_admin()
+                grouped: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
+                for user in rows:
+                    if not user.get('is_remote') or not user.get('is_shadow'):
+                        continue
+                    origin_peer = str(user.get('origin_peer') or '').strip()
+                    identity_value = self._remote_shadow_identity_value(user)
+                    if not origin_peer or not identity_value:
+                        continue
+                    grouped.setdefault((origin_peer.lower(), identity_value.lower()), []).append(dict(user))
+                for members in grouped.values():
+                    if len(members) <= 1:
+                        continue
+                    annotated: List[Dict[str, Any]] = []
+                    for member in members:
+                        ref_counts = self._collect_shadow_user_reference_counts(conn, str(member.get('id') or ''))
+                        member['reference_counts'] = ref_counts
+                        member['reference_total'] = int(ref_counts.get('total') or 0)
+                        annotated.append(member)
+                    canonical = min(
+                        annotated,
+                        key=lambda row: self._remote_shadow_candidate_sort_key(
+                            row,
+                            cast(Dict[str, int], row.get('reference_counts') or {}),
+                        ),
+                    )
+                    groups.append(
+                        {
+                            'origin_peer': str(canonical.get('origin_peer') or '').strip(),
+                            'display_name': self._remote_shadow_identity_value(canonical),
+                            'canonical_user_id': canonical.get('id'),
+                            'canonical_username': canonical.get('username'),
+                            'duplicate_count': max(0, len(annotated) - 1),
+                            'reference_total': sum(int(m.get('reference_total') or 0) for m in annotated),
+                            'users': sorted(
+                                annotated,
+                                key=lambda row: self._remote_shadow_candidate_sort_key(
+                                    row,
+                                    cast(Dict[str, int], row.get('reference_counts') or {}),
+                                ),
+                            ),
+                        }
+                    )
+        except Exception as e:
+            logger.error(f"Failed to list remote shadow duplicate groups: {e}")
+            return []
+        groups.sort(
+            key=lambda group: (
+                -int(group.get('duplicate_count') or 0),
+                -int(group.get('reference_total') or 0),
+                str(group.get('display_name') or '').lower(),
+                str(group.get('origin_peer') or '').lower(),
+            )
+        )
+        return groups[:lim]
+
+    def _cross_peer_same_name_sort_key(self, row: Dict[str, Any]) -> Tuple[Any, ...]:
+        return (
+            0 if not bool(row.get('is_remote')) else 1,
+            0 if bool(row.get('is_registered')) else 1,
+            -int(row.get('reference_total') or 0),
+            0 if self._sort_timestamp_value(row.get('profile_updated_at')) else 1,
+            -self._sort_timestamp_value(row.get('profile_updated_at')),
+            0 if self._sort_timestamp_value(row.get('created_at')) else 1,
+            -self._sort_timestamp_value(row.get('created_at')),
+            str(row.get('username') or '').lower(),
+            str(row.get('id') or '').strip(),
+        )
+
+    def list_cross_peer_same_name_groups(self, limit: int = 200) -> List[Dict[str, Any]]:
+        """List same-name identities that span multiple peers or local/remote contexts."""
+        lim = max(1, min(int(limit or 200), 1000))
+        groups: List[Dict[str, Any]] = []
+        try:
+            with self.get_connection() as conn:
+                rows = self.get_all_users_for_admin()
+                grouped: Dict[str, List[Dict[str, Any]]] = {}
+                for user in rows:
+                    identity_value = self._remote_shadow_identity_value(user)
+                    if not identity_value:
+                        continue
+                    grouped.setdefault(identity_value.lower(), []).append(dict(user))
+
+                for members in grouped.values():
+                    contexts = {
+                        str(member.get('origin_peer') or '').strip() or '(local)'
+                        for member in members
+                    }
+                    forgettable_count = 0
+                    annotated: List[Dict[str, Any]] = []
+                    for member in members:
+                        ref_counts = self._collect_shadow_user_reference_counts(conn, str(member.get('id') or ''))
+                        member['reference_counts'] = ref_counts
+                        member['reference_total'] = int(ref_counts.get('total') or 0)
+                        member['is_local'] = not bool(str(member.get('origin_peer') or '').strip())
+                        member['forgettable'] = bool(member.get('is_remote') and member.get('is_shadow'))
+                        member['context_label'] = str(member.get('origin_peer') or '').strip() or 'local'
+                        if member['forgettable']:
+                            forgettable_count += 1
+                        annotated.append(member)
+                    if len(contexts) <= 1 or forgettable_count <= 0:
+                        continue
+
+                    annotated_sorted = sorted(annotated, key=self._cross_peer_same_name_sort_key)
+                    primary = annotated_sorted[0]
+                    groups.append(
+                        {
+                            'display_name': self._remote_shadow_identity_value(primary),
+                            'peer_count': len(contexts),
+                            'row_count': len(annotated_sorted),
+                            'forgettable_count': forgettable_count,
+                            'reference_total': sum(int(m.get('reference_total') or 0) for m in annotated_sorted),
+                            'users': annotated_sorted,
+                        }
+                    )
+        except Exception as e:
+            logger.error(f"Failed to list cross-peer same-name groups: {e}")
+            return []
+
+        groups.sort(
+            key=lambda group: (
+                -int(group.get('peer_count') or 0),
+                -int(group.get('forgettable_count') or 0),
+                -int(group.get('reference_total') or 0),
+                str(group.get('display_name') or '').lower(),
+            )
+        )
+        return groups[:lim]
+
+    def forget_remote_shadow_user(self, user_id: str) -> Dict[str, Any]:
+        """Delete one selected remote shadow user after validating it is safe to forget explicitly."""
+        target_user_id = str(user_id or '').strip()
+        if not target_user_id:
+            return {'success': False, 'error': 'Missing user ID'}
+        try:
+            with self.get_connection() as conn:
+                row = conn.execute(
+                    """
+                    SELECT id, username, display_name, origin_peer, password_hash
+                    FROM users
+                    WHERE id = ?
+                    """,
+                    (target_user_id,),
+                ).fetchone()
+                if not row:
+                    return {'success': False, 'error': 'Remote shadow user not found'}
+                user = dict(row)
+                origin_peer = str(user.get('origin_peer') or '').strip()
+                if not origin_peer:
+                    return {'success': False, 'error': 'Local users cannot be forgotten here'}
+                if str(user.get('password_hash') or '').strip():
+                    return {'success': False, 'error': 'Registered remote users cannot be forgotten here'}
+                ref_counts = self._collect_shadow_user_reference_counts(conn, target_user_id)
+        except Exception as e:
+            logger.error(f"Failed to prepare remote shadow delete for {target_user_id}: {e}", exc_info=True)
+            return {'success': False, 'error': 'Remote shadow delete failed'}
+
+        deleted = self.delete_user(target_user_id)
+        if not deleted:
+            return {'success': False, 'error': 'Failed to forget remote shadow user'}
+        return {
+            'success': True,
+            'deleted_user_id': target_user_id,
+            'display_name': self._remote_shadow_identity_value(user),
+            'origin_peer': origin_peer,
+            'reference_total': int(ref_counts.get('total') or 0),
+        }
+
+    def forget_peer_residue(self, peer_id: str, *, remove_shadow_users: bool = True) -> Dict[str, Any]:
+        """Remove stored trust/profile residue for a forgotten peer."""
+        clean_peer_id = str(peer_id or '').strip()
+        if not clean_peer_id:
+            return {'success': False, 'error': 'Missing peer ID'}
+
+        shadow_user_ids: List[str] = []
+        if remove_shadow_users:
+            try:
+                with self.get_connection() as conn:
+                    rows = conn.execute(
+                        """
+                        SELECT id
+                        FROM users
+                        WHERE origin_peer = ?
+                          AND COALESCE(password_hash, '') = ''
+                        ORDER BY created_at ASC, id ASC
+                        """,
+                        (clean_peer_id,),
+                    ).fetchall()
+                    shadow_user_ids = [
+                        str((row['id'] if hasattr(row, 'keys') and 'id' in row.keys() else row[0]) or '').strip()
+                        for row in (rows or [])
+                        if str((row['id'] if hasattr(row, 'keys') and 'id' in row.keys() else row[0]) or '').strip()
+                    ]
+            except Exception as e:
+                logger.error(f"Failed to load shadow users for forgotten peer {clean_peer_id}: {e}", exc_info=True)
+                return {'success': False, 'error': 'Peer cleanup failed'}
+
+        deleted_shadow_user_ids: List[str] = []
+        failed_shadow_user_ids: List[str] = []
+        for user_id in shadow_user_ids:
+            if self.delete_user(user_id):
+                deleted_shadow_user_ids.append(user_id)
+            else:
+                failed_shadow_user_ids.append(user_id)
+
+        counts: Dict[str, int] = {
+            'deleted_shadow_users': len(deleted_shadow_user_ids),
+            'failed_shadow_users': len(failed_shadow_user_ids),
+            'trust_scores_deleted': 0,
+            'delete_signals_deleted': 0,
+            'peer_profiles_deleted': 0,
+            'mesh_principals_deleted': 0,
+            'mesh_grants_deleted': 0,
+            'mesh_grant_applications_deleted': 0,
+            'mesh_grant_revocations_deleted': 0,
+            'remote_attachment_transfers_deleted': 0,
+        }
+
+        try:
+            with self.get_connection() as conn:
+                def _delete_count(sql: str, params: tuple[Any, ...]) -> int:
+                    cur = self._exec_optional(conn, sql, params)
+                    if cur is None:
+                        return 0
+                    return max(0, int(cur.rowcount or 0))
+
+                counts['trust_scores_deleted'] = _delete_count(
+                    "DELETE FROM trust_scores WHERE peer_id = ?",
+                    (clean_peer_id,),
+                )
+                counts['delete_signals_deleted'] = _delete_count(
+                    "DELETE FROM delete_signals WHERE target_peer_id = ?",
+                    (clean_peer_id,),
+                )
+                counts['peer_profiles_deleted'] = _delete_count(
+                    "DELETE FROM peer_device_profiles WHERE peer_id = ?",
+                    (clean_peer_id,),
+                )
+                counts['mesh_grant_applications_deleted'] = _delete_count(
+                    "DELETE FROM mesh_bootstrap_grant_applications WHERE source_peer = ?",
+                    (clean_peer_id,),
+                )
+                counts['mesh_grant_revocations_deleted'] = _delete_count(
+                    "DELETE FROM mesh_bootstrap_grant_revocations WHERE issuer_peer_id = ?",
+                    (clean_peer_id,),
+                )
+                counts['mesh_grants_deleted'] = _delete_count(
+                    "DELETE FROM mesh_bootstrap_grants WHERE issuer_peer_id = ?",
+                    (clean_peer_id,),
+                )
+                counts['mesh_principals_deleted'] = _delete_count(
+                    "DELETE FROM mesh_principals WHERE origin_peer = ?",
+                    (clean_peer_id,),
+                )
+                counts['remote_attachment_transfers_deleted'] = _delete_count(
+                    "DELETE FROM remote_attachment_transfers WHERE origin_peer_id = ?",
+                    (clean_peer_id,),
+                )
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to remove residue for forgotten peer {clean_peer_id}: {e}", exc_info=True)
+            return {'success': False, 'error': 'Peer cleanup failed'}
+
+        return {
+            'success': True,
+            'peer_id': clean_peer_id,
+            'deleted_shadow_user_ids': deleted_shadow_user_ids,
+            'failed_shadow_user_ids': failed_shadow_user_ids,
+            'cleanup': counts,
+        }
+
+    def repair_remote_shadow_duplicate_group(self, anchor_user_id: str) -> Dict[str, Any]:
+        """Merge duplicate remote-shadow rows for one origin/display identity into one canonical row."""
+        target_user_id = str(anchor_user_id or '').strip()
+        if not target_user_id:
+            return {'success': False, 'error': 'Missing user ID'}
+        try:
+            with self.get_connection() as conn:
+                group_rows = self._fetch_remote_shadow_duplicate_group_rows(conn, target_user_id)
+                if not group_rows:
+                    return {'success': False, 'error': 'Remote shadow duplicate group not found'}
+                if len(group_rows) == 1:
+                    row = group_rows[0]
+                    return {
+                        'success': True,
+                        'canonical_user_id': row.get('id'),
+                        'merged_user_ids': [],
+                        'merged_count': 0,
+                        'origin_peer': row.get('origin_peer'),
+                        'display_name': self._remote_shadow_identity_value(row),
+                    }
+
+                annotated: List[Dict[str, Any]] = []
+                for row in group_rows:
+                    ref_counts = self._collect_shadow_user_reference_counts(conn, str(row.get('id') or ''))
+                    row['reference_counts'] = ref_counts
+                    annotated.append(row)
+                canonical = min(
+                    annotated,
+                    key=lambda row: self._remote_shadow_candidate_sort_key(
+                        row,
+                        cast(Dict[str, int], row.get('reference_counts') or {}),
+                    ),
+                )
+                canonical_user_id = str(canonical.get('id') or '').strip()
+                merged_user_ids: List[str] = []
+
+                for row in annotated:
+                    source_user_id = str(row.get('id') or '').strip()
+                    if not source_user_id or source_user_id == canonical_user_id:
+                        continue
+                    merged_user_ids.append(source_user_id)
+
+                    self._reassign_user_reference_optional(conn, 'channels', 'created_by', source_user_id, canonical_user_id)
+                    self._reassign_user_reference_optional(conn, 'streams', 'created_by', source_user_id, canonical_user_id)
+                    self._reassign_user_reference_optional(conn, 'files', 'uploaded_by', source_user_id, canonical_user_id)
+                    self._reassign_user_reference_optional(conn, 'messages', 'sender_id', source_user_id, canonical_user_id)
+                    self._reassign_user_reference_optional(conn, 'messages', 'recipient_id', source_user_id, canonical_user_id)
+                    self._reassign_user_reference_optional(conn, 'feed_posts', 'author_id', source_user_id, canonical_user_id)
+                    self._reassign_user_reference_optional(conn, 'tasks', 'created_by', source_user_id, canonical_user_id)
+                    self._reassign_user_reference_optional(conn, 'tasks', 'updated_by', source_user_id, canonical_user_id)
+                    self._reassign_user_reference_optional(conn, 'tasks', 'assigned_to', source_user_id, canonical_user_id)
+                    self._reassign_user_reference_optional(conn, 'objectives', 'created_by', source_user_id, canonical_user_id)
+                    self._reassign_user_reference_optional(conn, 'requests', 'created_by', source_user_id, canonical_user_id)
+                    self._reassign_user_reference_optional(conn, 'agent_inbox', 'sender_user_id', source_user_id, canonical_user_id)
+                    self._reassign_user_reference_optional(conn, 'content_contexts', 'owner_user_id', source_user_id, canonical_user_id, unique_conflict_safe=True)
+                    self._reassign_user_reference_optional(conn, 'mention_events', 'author_id', source_user_id, canonical_user_id)
+                    self._reassign_user_reference_optional(conn, 'mention_events', 'user_id', source_user_id, canonical_user_id, unique_conflict_safe=True)
+                    self._reassign_user_reference_optional(conn, 'mention_claims', 'claimed_by_user_id', source_user_id, canonical_user_id)
+                    self._reassign_user_reference_optional(conn, 'channel_messages', 'user_id', source_user_id, canonical_user_id)
+                    self._reassign_user_reference_optional(conn, 'channel_member_sync_deliveries', 'target_user_id', source_user_id, canonical_user_id)
+                    self._reassign_user_reference_optional(conn, 'channel_post_permissions', 'user_id', source_user_id, canonical_user_id, unique_conflict_safe=True)
+                    self._reassign_user_reference_optional(conn, 'channel_post_permissions', 'granted_by', source_user_id, canonical_user_id)
+                    self._reassign_user_reference_optional(conn, 'channel_removal_proposals', 'initiator_user_id', source_user_id, canonical_user_id)
+                    self._reassign_user_reference_optional(conn, 'channel_removal_votes', 'voter_user_id', source_user_id, canonical_user_id)
+                    self._reassign_user_reference_optional(conn, 'channel_removal_tombstones', 'retired_by_user_id', source_user_id, canonical_user_id)
+                    self._reassign_user_reference_optional(conn, 'channel_removal_tombstones', 'restored_by_user_id', source_user_id, canonical_user_id)
+                    self._reassign_user_reference_optional(conn, 'channel_thread_subscriptions', 'user_id', source_user_id, canonical_user_id, unique_conflict_safe=True)
+                    self._reassign_user_reference_optional(conn, 'user_channel_governance', 'user_id', source_user_id, canonical_user_id, unique_conflict_safe=True)
+                    self._reassign_user_reference_optional(conn, 'user_channel_governance', 'updated_by', source_user_id, canonical_user_id)
+                    self._reassign_user_reference_optional(conn, 'post_permissions', 'user_id', source_user_id, canonical_user_id, unique_conflict_safe=True)
+                    self._reassign_user_reference_optional(conn, 'post_content_keys', 'user_id', source_user_id, canonical_user_id, unique_conflict_safe=True)
+                    self._reassign_user_reference_optional(conn, 'user_feed_preferences', 'user_id', source_user_id, canonical_user_id, unique_conflict_safe=True)
+                    self._reassign_user_reference_optional(conn, 'objective_members', 'user_id', source_user_id, canonical_user_id, unique_conflict_safe=True)
+                    self._reassign_user_reference_optional(conn, 'objective_members', 'added_by', source_user_id, canonical_user_id)
+                    self._reassign_user_reference_optional(conn, 'request_members', 'user_id', source_user_id, canonical_user_id, unique_conflict_safe=True)
+                    self._reassign_user_reference_optional(conn, 'request_members', 'added_by', source_user_id, canonical_user_id)
+                    self._reassign_user_reference_optional(conn, 'stream_access_tokens', 'user_id', source_user_id, canonical_user_id)
+                    self._reassign_user_reference_optional(conn, 'file_access_log', 'accessed_by', source_user_id, canonical_user_id)
+                    self._reassign_user_reference_optional(conn, 'likes', 'user_id', source_user_id, canonical_user_id, unique_conflict_safe=True)
+                    self._reassign_user_reference_optional(conn, 'agent_presence', 'user_id', source_user_id, canonical_user_id, unique_conflict_safe=True)
+                    self._reassign_user_reference_optional(conn, 'agent_runtime_state', 'user_id', source_user_id, canonical_user_id, unique_conflict_safe=True)
+                    self._reassign_user_reference_optional(conn, 'agent_event_subscription_state', 'user_id', source_user_id, canonical_user_id, unique_conflict_safe=True)
+                    self._reassign_user_reference_optional(conn, 'agent_event_subscriptions', 'user_id', source_user_id, canonical_user_id, unique_conflict_safe=True)
+                    self._reassign_user_reference_optional(conn, 'agent_inbox', 'agent_user_id', source_user_id, canonical_user_id, unique_conflict_safe=True)
+                    self._reassign_user_reference_optional(conn, 'agent_inbox_config', 'user_id', source_user_id, canonical_user_id, unique_conflict_safe=True)
+                    self._reassign_user_reference_optional(conn, 'agent_inbox_audit', 'agent_user_id', source_user_id, canonical_user_id)
+
+                    self._merge_channel_membership_rows(conn, source_user_id, canonical_user_id)
+
+                    conn.execute(
+                        "DELETE FROM users WHERE id = ?",
+                        (source_user_id,),
+                    )
+
+                conn.commit()
+                return {
+                    'success': True,
+                    'canonical_user_id': canonical_user_id,
+                    'merged_user_ids': merged_user_ids,
+                    'merged_count': len(merged_user_ids),
+                    'origin_peer': canonical.get('origin_peer'),
+                    'display_name': self._remote_shadow_identity_value(canonical),
+                }
+        except Exception as e:
+            logger.error(f"Failed to repair remote shadow duplicate group for {target_user_id}: {e}", exc_info=True)
+            return {'success': False, 'error': 'Remote shadow repair failed'}
+
     def delete_user(self, user_id: str) -> bool:
         """Delete a user and all data that references them. System/local_user cannot be deleted.
 

@@ -442,6 +442,157 @@ def create_api_blueprint() -> Blueprint:
             return decorated_function
         return decorator
 
+    def _cleanup_forgotten_peer_runtime_state(p2p_manager: Any, peer_id: str, *, remove_introduced: bool) -> dict[str, int]:
+        counts = {
+            'introduced_removed': 0,
+            'routes_removed': 0,
+            'relay_entries_removed': 0,
+            'reconnect_tasks_cancelled': 0,
+            'discovered_removed': 0,
+        }
+        if not p2p_manager or not peer_id:
+            return counts
+
+        if remove_introduced and hasattr(p2p_manager, '_introduced_peers'):
+            try:
+                if p2p_manager._introduced_peers.pop(peer_id, None) is not None:
+                    counts['introduced_removed'] += 1
+            except Exception:
+                pass
+
+        try:
+            p2p_manager.peer_versions.pop(peer_id, None)
+        except Exception:
+            pass
+
+        try:
+            if hasattr(p2p_manager, '_active_relays'):
+                removed = 1 if p2p_manager._active_relays.pop(peer_id, None) is not None else 0
+                relay_destinations = [dest for dest, relay in list(p2p_manager._active_relays.items()) if relay == peer_id]
+                for dest in relay_destinations:
+                    p2p_manager._active_relays.pop(dest, None)
+                    removed += 1
+                counts['relay_entries_removed'] += removed
+        except Exception:
+            pass
+
+        try:
+            router = getattr(p2p_manager, 'message_router', None)
+            if router and hasattr(router, 'remove_route'):
+                if router.remove_route(peer_id):
+                    counts['routes_removed'] += 1
+        except Exception:
+            pass
+
+        try:
+            reconnect_tasks = getattr(p2p_manager, '_reconnect_tasks', None)
+            if reconnect_tasks is not None:
+                task = reconnect_tasks.pop(peer_id, None)
+                if task is not None:
+                    try:
+                        if hasattr(task, 'cancel'):
+                            task.cancel()
+                    except Exception:
+                        pass
+                    counts['reconnect_tasks_cancelled'] += 1
+        except Exception:
+            pass
+
+        try:
+            discovery = getattr(p2p_manager, 'discovery', None)
+            discovered = getattr(discovery, 'discovered_peers', None) if discovery else None
+            if isinstance(discovered, dict) and discovered.pop(peer_id, None) is not None:
+                counts['discovered_removed'] += 1
+        except Exception:
+            pass
+
+        return counts
+
+    def _forget_peer_with_cleanup(
+        db_manager: Any,
+        p2p_manager: Any,
+        peer_id: str,
+        *,
+        remove_introduced: bool = True,
+        purge_residue: bool = True,
+        remove_shadow_users: bool = True,
+    ) -> dict[str, Any]:
+        clean_peer_id = str(peer_id or '').strip()
+        if not clean_peer_id:
+            return {'success': False, 'error': 'peer_id required'}
+        if not p2p_manager or not getattr(p2p_manager, 'identity_manager', None):
+            return {'success': False, 'error': 'P2P not running'}
+
+        import asyncio
+
+        disconnected = False
+        disconnect_failed = False
+        try:
+            if (
+                getattr(p2p_manager, 'connection_manager', None)
+                and p2p_manager.connection_manager.is_connected(clean_peer_id)
+            ):
+                ev_loop = getattr(p2p_manager, '_event_loop', None)
+                if ev_loop and not ev_loop.is_closed():
+                    future = asyncio.run_coroutine_threadsafe(
+                        p2p_manager.connection_manager.disconnect_peer(clean_peer_id),
+                        ev_loop
+                    )
+                    future.result(timeout=10.0)
+                    disconnected = True
+        except Exception as e:
+            logger.warning(f"Disconnect during forget failed for {clean_peer_id}: {e}")
+            disconnect_failed = True
+
+        removed_known = False
+        try:
+            removed_known = bool(p2p_manager.identity_manager.remove_known_peer(clean_peer_id))
+        except Exception as e:
+            logger.warning(f"remove_known_peer failed for {clean_peer_id}: {e}")
+
+        runtime_cleanup = _cleanup_forgotten_peer_runtime_state(
+            p2p_manager,
+            clean_peer_id,
+            remove_introduced=remove_introduced,
+        )
+
+        residue_cleanup: dict[str, Any] = {'success': False, 'skipped': True}
+        if purge_residue and db_manager and hasattr(db_manager, 'forget_peer_residue'):
+            residue_cleanup = db_manager.forget_peer_residue(
+                clean_peer_id,
+                remove_shadow_users=remove_shadow_users,
+            )
+        elif not purge_residue:
+            residue_cleanup = {'success': True, 'skipped': True}
+
+        try:
+            p2p_manager.record_activity_event({
+                'id': f"conn_forget_{clean_peer_id}_{int(time.time() * 1000)}",
+                'peer_id': clean_peer_id,
+                'kind': 'connection',
+                'timestamp': time.time(),
+                'status': 'forgotten',
+                'detail': 'Peer removed from known list and local residue cleaned up' if purge_residue else 'Peer removed from known list',
+            })
+        except Exception:
+            pass
+
+        success = bool(removed_known or residue_cleanup.get('success'))
+        status = 'forgotten' if success else 'not_found'
+        if disconnect_failed and not success:
+            status = 'failed'
+
+        return {
+            'success': success,
+            'status': status,
+            'peer_id': clean_peer_id,
+            'removed_known_peer': removed_known,
+            'disconnected': disconnected,
+            'disconnect_failed': disconnect_failed,
+            'runtime_cleanup': runtime_cleanup,
+            'residue_cleanup': residue_cleanup,
+        }
+
     def _get_bookmark_manager() -> Any:
         return current_app.config.get('BOOKMARK_MANAGER')
 
@@ -2997,52 +3148,30 @@ def create_api_blueprint() -> Blueprint:
     @api.route('/p2p/forget', methods=['POST'])
     @require_auth(allow_session=True)
     def forget_peer():
-        """Forget a known peer (remove from stored endpoints)."""
-        import asyncio
-        *_, p2p_manager = _get_app_components_any(current_app)
-        if not p2p_manager or not p2p_manager.identity_manager:
-            return jsonify({'error': 'P2P not running'}), 500
+        """Forget a peer and clean up stored residue."""
+        db_manager, _, _, _, _, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
 
         data = request.get_json() or {}
         peer_id = data.get('peer_id')
         remove_introduced = data.get('remove_introduced', True)
+        purge_residue = data.get('purge_residue', True)
+        remove_shadow_users = data.get('remove_shadow_users', True)
         if not peer_id:
             return jsonify({'error': 'peer_id required'}), 400
 
-        # Disconnect if currently connected
-        try:
-            if p2p_manager.connection_manager and p2p_manager.connection_manager.is_connected(peer_id):
-                ev_loop = p2p_manager._event_loop
-                if ev_loop and not ev_loop.is_closed():
-                    future = asyncio.run_coroutine_threadsafe(
-                        p2p_manager.connection_manager.disconnect_peer(peer_id),
-                        ev_loop
-                    )
-                    future.result(timeout=10.0)
-        except Exception as e:
-            logger.warning(f"Disconnect during forget failed for {peer_id}: {e}")
-
-        removed = p2p_manager.identity_manager.remove_known_peer(peer_id)
-
-        if remove_introduced and hasattr(p2p_manager, '_introduced_peers'):
-            try:
-                p2p_manager._introduced_peers.pop(peer_id, None)
-            except Exception:
-                pass
-
-        try:
-            p2p_manager.record_activity_event({
-                'id': f"conn_forget_{peer_id}_{int(time.time() * 1000)}",
-                'peer_id': peer_id,
-                'kind': 'connection',
-                'timestamp': time.time(),
-                'status': 'forgotten',
-                'detail': 'Peer removed from known list',
-            })
-        except Exception:
-            pass
-
-        return jsonify({'status': 'forgotten' if removed else 'not_found', 'peer_id': peer_id})
+        result = _forget_peer_with_cleanup(
+            db_manager,
+            p2p_manager,
+            peer_id,
+            remove_introduced=bool(remove_introduced),
+            purge_residue=bool(purge_residue),
+            remove_shadow_users=bool(remove_shadow_users),
+        )
+        if not result.get('success') and result.get('error'):
+            error = str(result.get('error') or 'Could not forget peer')
+            status = 500 if error == 'P2P not running' else 400
+            return jsonify({'error': error}), status
+        return jsonify(result)
 
     # ------------------------------------------------------------------ #
     #  Relay / brokering status and policy                                 #

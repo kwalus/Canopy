@@ -5825,6 +5825,18 @@ def create_ui_blueprint() -> Blueprint:
                     (u.get('display_name') or u.get('username') or '').lower(),
                 ),
             )
+            remote_shadow_duplicate_groups = []
+            if hasattr(db_manager, 'list_remote_shadow_duplicate_groups'):
+                try:
+                    remote_shadow_duplicate_groups = db_manager.list_remote_shadow_duplicate_groups(limit=200)
+                except Exception:
+                    remote_shadow_duplicate_groups = []
+            cross_peer_same_name_groups = []
+            if hasattr(db_manager, 'list_cross_peer_same_name_groups'):
+                try:
+                    cross_peer_same_name_groups = db_manager.list_cross_peer_same_name_groups(limit=200)
+                except Exception:
+                    cross_peer_same_name_groups = []
             all_permissions = [p.value for p in api_key_manager.get_all_permissions()]
             default_permissions = [p.value for p in api_key_manager.get_default_permissions()]
 
@@ -5844,6 +5856,8 @@ def create_ui_blueprint() -> Blueprint:
                                  default_permissions=default_permissions,
                                  agent_users=agent_users,
                                  workspace_users=workspace_users,
+                                 remote_shadow_duplicate_groups=remote_shadow_duplicate_groups,
+                                 cross_peer_same_name_groups=cross_peer_same_name_groups,
                                  directive_presets=_agent_directive_presets_payload(),
                                  directive_max_length=MAX_AGENT_DIRECTIVES_LENGTH,
                                  user_id=get_current_user())
@@ -6814,6 +6828,40 @@ def create_ui_blueprint() -> Blueprint:
             return jsonify({'success': True, 'users': users})
         except Exception as e:
             logger.error(f"Admin list users error: {e}")
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/admin/users/<user_id>/repair-shadow-duplicates', methods=['POST'])
+    @require_login
+    @require_admin
+    def ajax_admin_repair_shadow_duplicates(user_id):
+        """Merge duplicate remote-shadow rows for one origin/display identity."""
+        try:
+            db_manager, _, _, _, _, _, _, _, _, _, _ = _get_app_components_any(current_app)
+            result = db_manager.repair_remote_shadow_duplicate_group(user_id)
+            if result.get('success'):
+                return jsonify(result)
+            error = str(result.get('error') or 'Repair failed')
+            status = 404 if 'not found' in error.lower() else 400
+            return jsonify({'error': error}), status
+        except Exception as e:
+            logger.error(f"Admin remote shadow repair error: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/admin/users/<user_id>/forget-remote-shadow', methods=['POST'])
+    @require_login
+    @require_admin
+    def ajax_admin_forget_remote_shadow_user(user_id):
+        """Delete one explicitly selected remote shadow user."""
+        try:
+            db_manager, _, _, _, _, _, _, _, _, _, _ = _get_app_components_any(current_app)
+            result = db_manager.forget_remote_shadow_user(user_id)
+            if result.get('success'):
+                return jsonify(result)
+            error = str(result.get('error') or 'Forget failed')
+            status = 404 if 'not found' in error.lower() else 400
+            return jsonify({'error': error}), status
+        except Exception as e:
+            logger.error(f"Admin forget remote shadow user error: {e}", exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
     @ui.route('/ajax/admin/workspace-events/status', methods=['GET'])
