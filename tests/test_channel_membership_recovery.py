@@ -30,9 +30,20 @@ from canopy.core.channels import ChannelManager
 class _FakeDbManager:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
+        self._system_state = {}
 
     def get_connection(self) -> sqlite3.Connection:
         return self._conn
+
+    def get_system_state(self, key: str):
+        return self._system_state.get(key)
+
+    def set_system_state(self, key: str, value):
+        if value is None:
+            self._system_state.pop(key, None)
+        else:
+            self._system_state[key] = value
+        return True
 
 
 class TestChannelMembershipRecovery(unittest.TestCase):
@@ -144,6 +155,21 @@ class TestChannelMembershipRecovery(unittest.TestCase):
         channels = payload.get('channels') or []
         self.assertEqual(len(channels), 3)
         self.assertTrue(payload.get('truncated'))
+
+    def test_recovery_excludes_local_agent_quarantine_channel(self) -> None:
+        self._seed_private_channel(
+            self.manager.AGENT_START_CHANNEL_ID,
+            name=self.manager.AGENT_START_CHANNEL_NAME,
+        )
+
+        payload = self.manager.get_private_channel_recovery_payload(
+            query_user_ids=['user-local-a'],
+            requester_peer_id='peer-a',
+            limit=20,
+        )
+
+        channels = payload.get('channels') or []
+        self.assertEqual(channels, [])
 
 
 if __name__ == '__main__':

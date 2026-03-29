@@ -560,7 +560,8 @@ class ChannelManager:
     """Manages Slack-style channels and messaging."""
 
     GENERAL_CHANNEL_ID = "general"
-    AGENT_START_CHANNEL_ID = "agent-start-here"
+    LEGACY_AGENT_START_CHANNEL_ID = "agent-start-here"
+    AGENT_START_CHANNEL_ID = LEGACY_AGENT_START_CHANNEL_ID
     AGENT_START_CHANNEL_NAME = "agent-start-here"
     AGENT_START_CHANNEL_DESCRIPTION = (
         "Private local-only quarantine and onboarding channel for newly approved agents."
@@ -628,6 +629,7 @@ class ChannelManager:
         logger.info("Initializing ChannelManager")
         self.db = db
         self.api_key_manager = api_key_manager
+        self.AGENT_START_CHANNEL_ID = self._load_or_create_agent_start_channel_id()
         self.workspace_events: Any = None
         self._channel_key_lock = threading.RLock()
         self._channel_key_cache: Dict[Tuple[str, str], bytes] = {}
@@ -643,6 +645,38 @@ class ChannelManager:
             self._ensure_default_channels()
         
         logger.info("ChannelManager initialized successfully")
+
+    def _build_agent_start_channel_id(self) -> str:
+        return f"Cagentstart{secrets.token_hex(8)}"
+
+    def _load_or_create_agent_start_channel_id(self) -> str:
+        getter = getattr(self.db, 'get_system_state', None)
+        setter = getattr(self.db, 'set_system_state', None)
+        if callable(getter):
+            try:
+                existing = str(getter('agent_quarantine_channel_id') or '').strip()
+            except Exception:
+                existing = ''
+            if existing:
+                return existing
+        fallback = "Cagentstartlocal"
+        channel_id = self._build_agent_start_channel_id() if callable(setter) else fallback
+        if callable(setter):
+            try:
+                setter('agent_quarantine_channel_id', channel_id)
+            except Exception:
+                pass
+        return channel_id
+
+    def is_agent_quarantine_channel(self, channel_id: Any, channel_name: Optional[str] = None) -> bool:
+        clean_id = str(channel_id or '').strip()
+        clean_name = self._normalize_channel_name(channel_name or '')
+        if clean_id and clean_id in {self.AGENT_START_CHANNEL_ID, self.LEGACY_AGENT_START_CHANNEL_ID}:
+            return True
+        return clean_name == self.AGENT_START_CHANNEL_NAME
+
+    def get_agent_quarantine_channel_id(self) -> str:
+        return self.AGENT_START_CHANNEL_ID
 
     def _channel_member_user_ids(self, channel_id: str) -> List[str]:
         """Return all member ids for a channel for local UI event fanout."""
@@ -1538,30 +1572,7 @@ class ChannelManager:
                     (self.GENERAL_CHANNEL_ID,),
                 )
 
-                cursor = conn.execute(
-                    "SELECT id FROM channels WHERE id = ? OR name = ?",
-                    (self.AGENT_START_CHANNEL_ID, self.AGENT_START_CHANNEL_NAME),
-                )
-                if not cursor.fetchone():
-                    logger.info("Creating default agent quarantine channel")
-                    conn.execute(
-                        """
-                        INSERT INTO channels (
-                            id, name, channel_type, created_by, description, privacy_mode,
-                            last_activity_at, lifecycle_ttl_days, lifecycle_preserved,
-                            post_policy, allow_member_replies
-                        )
-                        VALUES (?, ?, 'private', 'system', ?, 'private', CURRENT_TIMESTAMP, ?, 1, ?, 1)
-                        """,
-                        (
-                            self.AGENT_START_CHANNEL_ID,
-                            self.AGENT_START_CHANNEL_NAME,
-                            self.AGENT_START_CHANNEL_DESCRIPTION,
-                            self.DEFAULT_CHANNEL_LIFECYCLE_DAYS,
-                            self.POST_POLICY_OPEN,
-                        ),
-                    )
-                    logger.info("Default agent quarantine channel created successfully")
+                self._ensure_agent_quarantine_channel(conn)
                 conn.execute(
                     "UPDATE channels SET lifecycle_preserved = 1, last_activity_at = COALESCE(last_activity_at, created_at) WHERE id = ?",
                     (self.AGENT_START_CHANNEL_ID,),
@@ -1586,6 +1597,191 @@ class ChannelManager:
         except Exception as e:
             logger.error(f"Failed to ensure default channels: {e}", exc_info=True)
             raise
+
+    def _ensure_agent_quarantine_channel(self, conn: sqlite3.Connection) -> None:
+        current_id = self.AGENT_START_CHANNEL_ID
+        existing_current = conn.execute(
+            "SELECT id FROM channels WHERE id = ?",
+            (current_id,),
+        ).fetchone()
+        if not existing_current:
+            logger.info("Creating per-instance agent quarantine channel %s", current_id)
+            conn.execute(
+                """
+                INSERT INTO channels (
+                    id, name, channel_type, created_by, description, privacy_mode,
+                    last_activity_at, lifecycle_ttl_days, lifecycle_preserved,
+                    post_policy, allow_member_replies
+                )
+                VALUES (?, ?, 'private', 'system', ?, 'private', CURRENT_TIMESTAMP, ?, 1, ?, 1)
+                """,
+                (
+                    current_id,
+                    self.AGENT_START_CHANNEL_NAME,
+                    self.AGENT_START_CHANNEL_DESCRIPTION,
+                    self.DEFAULT_CHANNEL_LIFECYCLE_DAYS,
+                    self.POST_POLICY_OPEN,
+                ),
+            )
+
+        stale_rows = conn.execute(
+            """
+            SELECT id, COALESCE(origin_peer, '') AS origin_peer
+            FROM channels
+            WHERE name = ?
+              AND id != ?
+            ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END, id ASC
+            """,
+            (
+                self.AGENT_START_CHANNEL_NAME,
+                current_id,
+                self.LEGACY_AGENT_START_CHANNEL_ID,
+            ),
+        ).fetchall()
+        if not stale_rows:
+            return
+
+        governance_updates: List[str] = []
+        for row in stale_rows:
+            stale_id = str(row['id'] if hasattr(row, 'keys') and 'id' in row.keys() else row[0])
+            origin_peer = str(row['origin_peer'] if hasattr(row, 'keys') and 'origin_peer' in row.keys() else row[1]).strip()
+            if not stale_id or stale_id == current_id:
+                continue
+            if not origin_peer:
+                self._migrate_agent_quarantine_references(conn, stale_id, current_id)
+                governance_updates.append(stale_id)
+            logger.info("Removing stale agent quarantine channel %s", stale_id)
+            conn.execute("DELETE FROM channels WHERE id = ?", (stale_id,))
+
+        for stale_id in governance_updates:
+            self._replace_quarantine_channel_in_governance(conn, stale_id, current_id)
+
+    def _migrate_agent_quarantine_references(
+        self,
+        conn: sqlite3.Connection,
+        old_channel_id: str,
+        new_channel_id: str,
+    ) -> None:
+        if not old_channel_id or not new_channel_id or old_channel_id == new_channel_id:
+            return
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO channel_members (
+                channel_id, user_id, joined_at, role, notifications_enabled, last_read_at
+            )
+            SELECT ?, user_id, joined_at, role, notifications_enabled, last_read_at
+            FROM channel_members
+            WHERE channel_id = ?
+            """,
+            (new_channel_id, old_channel_id),
+        )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO channel_post_permissions (
+                channel_id, user_id, granted_by, granted_at
+            )
+            SELECT ?, user_id, granted_by, granted_at
+            FROM channel_post_permissions
+            WHERE channel_id = ?
+            """,
+            (new_channel_id, old_channel_id),
+        )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO channel_keys (
+                channel_id, key_id, key_material_enc, created_by_peer, created_at, revoked_at, metadata
+            )
+            SELECT ?, key_id, key_material_enc, created_by_peer, created_at, revoked_at, metadata
+            FROM channel_keys
+            WHERE channel_id = ?
+            """,
+            (new_channel_id, old_channel_id),
+        )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO channel_member_keys (
+                channel_id, key_id, peer_id, delivery_state, last_error, delivered_at, acked_at, updated_at
+            )
+            SELECT ?, key_id, peer_id, delivery_state, last_error, delivered_at, acked_at, updated_at
+            FROM channel_member_keys
+            WHERE channel_id = ?
+            """,
+            (new_channel_id, old_channel_id),
+        )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO channel_thread_subscriptions (
+                channel_id, thread_root_message_id, user_id, subscribed, source, created_at, updated_at
+            )
+            SELECT ?, thread_root_message_id, user_id, subscribed, source, created_at, updated_at
+            FROM channel_thread_subscriptions
+            WHERE channel_id = ?
+            """,
+            (new_channel_id, old_channel_id),
+        )
+        conn.execute(
+            "UPDATE channel_messages SET channel_id = ? WHERE channel_id = ?",
+            (new_channel_id, old_channel_id),
+        )
+        for table_name in (
+            'channel_member_sync_deliveries',
+            'channel_sync_digests',
+            'channel_removal_proposals',
+            'channel_removal_votes',
+            'channel_removal_tombstones',
+        ):
+            conn.execute(
+                f"UPDATE {table_name} SET channel_id = ? WHERE channel_id = ?",
+                (new_channel_id, old_channel_id),
+            )
+        for table_name in (
+            'channel_members',
+            'channel_post_permissions',
+            'channel_member_keys',
+            'channel_keys',
+            'channel_thread_subscriptions',
+        ):
+            conn.execute(f"DELETE FROM {table_name} WHERE channel_id = ?", (old_channel_id,))
+
+    def _replace_quarantine_channel_in_governance(
+        self,
+        conn: sqlite3.Connection,
+        old_channel_id: str,
+        new_channel_id: str,
+    ) -> None:
+        rows = conn.execute(
+            """
+            SELECT user_id, allowed_channel_ids
+            FROM user_channel_governance
+            WHERE allowed_channel_ids IS NOT NULL
+              AND allowed_channel_ids != ''
+            """
+        ).fetchall()
+        for row in rows or []:
+            user_id = str(row['user_id'])
+            raw = row['allowed_channel_ids']
+            try:
+                parsed = json.loads(raw or '[]')
+            except Exception:
+                continue
+            if not isinstance(parsed, list) or old_channel_id not in parsed:
+                continue
+            updated = []
+            seen: set[str] = set()
+            for value in parsed:
+                channel_id = new_channel_id if str(value or '').strip() == old_channel_id else str(value or '').strip()
+                if not channel_id or channel_id in seen:
+                    continue
+                seen.add(channel_id)
+                updated.append(channel_id)
+            conn.execute(
+                """
+                UPDATE user_channel_governance
+                SET allowed_channel_ids = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = ?
+                """,
+                (json.dumps(updated), user_id),
+            )
 
     # ------------------------------------------------------------------
     #  Channel governance helpers
@@ -1832,7 +2028,7 @@ class ChannelManager:
         ctype = str(channel_type or '').strip().lower()
         if not clean_id:
             return 'invalid_channel'
-        if clean_id in {self.GENERAL_CHANNEL_ID, self.AGENT_START_CHANNEL_ID}:
+        if clean_id == self.GENERAL_CHANNEL_ID or self.is_agent_quarantine_channel(clean_id):
             return 'system_channel'
         if ctype in {'general', 'dm', 'group_dm'}:
             return 'channel_type_ineligible'
@@ -6883,6 +7079,11 @@ class ChannelManager:
                         COALESCE(c.privacy_mode, 'open') IN ('private', 'confidential')
                         OR c.channel_type = 'private'
                       )
+                      AND NOT (
+                        c.name = ?
+                        OR c.id = ?
+                        OR c.id = ?
+                      )
                       AND NOT EXISTS (
                         SELECT 1
                         FROM channel_removal_tombstones crt
@@ -6906,7 +7107,14 @@ class ChannelManager:
                     ORDER BY COALESCE(MAX(cm.joined_at), c.created_at) DESC
                     LIMIT ?
                     """,
-                    tuple(valid_user_ids) + (requester, int(limit) + 1),
+                    tuple(valid_user_ids)
+                    + (
+                        self.AGENT_START_CHANNEL_NAME,
+                        self.AGENT_START_CHANNEL_ID,
+                        self.LEGACY_AGENT_START_CHANNEL_ID,
+                        requester,
+                        int(limit) + 1,
+                    ),
                 ).fetchall()
 
                 truncated = len(channel_rows) > int(limit)

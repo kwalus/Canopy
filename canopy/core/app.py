@@ -1386,6 +1386,14 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         from_peer,
                     )
                     return
+                if _is_foreign_agent_quarantine_channel(channel_id):
+                    logger.info(
+                        "Ignoring foreign agent quarantine message %s in %s from %s",
+                        message_id,
+                        channel_id,
+                        from_peer,
+                    )
+                    return
                 existing_msg = None
                 if message_id:
                     try:
@@ -2574,6 +2582,13 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         from_peer,
                     )
                     return
+                if _is_foreign_agent_quarantine_channel(channel_id, name):
+                    logger.info(
+                        "Ignoring foreign agent quarantine channel announce %s from %s",
+                        channel_id,
+                        from_peer,
+                    )
+                    return
                 mode = str(privacy_mode or '').strip().lower()
                 channel_type_norm = str(channel_type or '').strip().lower()
                 if mode not in {'open', 'guarded', 'private', 'confidential'}:
@@ -2777,6 +2792,13 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     logger.info(
                         "Ignoring member sync %s for %s from untrusted peer %s",
                         action,
+                        channel_id,
+                        from_peer,
+                    )
+                    return
+                if _is_foreign_agent_quarantine_channel(channel_id, channel_name):
+                    logger.info(
+                        "Ignoring foreign agent quarantine member sync for %s from %s",
                         channel_id,
                         from_peer,
                     )
@@ -3190,6 +3212,16 @@ def create_app(config: Optional[Config] = None) -> Flask:
             except Exception:
                 return False
 
+        def _is_foreign_agent_quarantine_channel(channel_id: Any, channel_name: Any = None) -> bool:
+            if not channel_manager:
+                return False
+            clean_id = str(channel_id or '').strip()
+            clean_name = str(channel_name or '').strip()
+            return (
+                channel_manager.is_agent_quarantine_channel(clean_id, clean_name)
+                and clean_id != channel_manager.get_agent_quarantine_channel_id()
+            )
+
         def _channel_targets_e2e(privacy_mode: str, crypto_mode: str) -> bool:
             return (
                 str(privacy_mode or '').strip().lower() in {'private', 'confidential'}
@@ -3258,7 +3290,15 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     if not isinstance(item, dict):
                         continue
                     channel_id = str(item.get('channel_id') or '').strip()
+                    channel_name = str(item.get('name') or '').strip()
                     if not channel_id:
+                        continue
+                    if _is_foreign_agent_quarantine_channel(channel_id, channel_name):
+                        logger.info(
+                            "Ignoring foreign agent quarantine recovery %s from %s",
+                            channel_id,
+                            from_peer,
+                        )
                         continue
                     if channel_manager.is_channel_retired_by_vote(channel_id):
                         logger.info(
@@ -3267,7 +3307,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
                             from_peer,
                         )
                         continue
-                    name = str(item.get('name') or f'private-{channel_id[:8]}').strip() or f'private-{channel_id[:8]}'
+                    name = channel_name or f'private-{channel_id[:8]}'
                     channel_type = str(item.get('channel_type') or 'private').strip().lower() or 'private'
                     description = str(item.get('description') or '')
                     origin_peer = str(item.get('origin_peer') or from_peer or '').strip() or str(from_peer or '').strip()
@@ -4195,6 +4235,8 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 # access-control filtering was removed to fix relay gaps.
 
                 for ch_id, local_latest in local_ts.items():
+                    if channel_manager.is_agent_quarantine_channel(ch_id):
+                        continue
                     remote_digest = remote_digest_channels.get(ch_id)
                     local_digest = local_digest_channels.get(ch_id)
                     if remote_digest is not None:
@@ -4531,6 +4573,13 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         continue
 
                     channel_id = msg.get('channel_id', 'general')
+                    if _is_foreign_agent_quarantine_channel(channel_id):
+                        logger.info(
+                            "Ignoring foreign agent quarantine catchup for %s from %s",
+                            channel_id,
+                            from_peer,
+                        )
+                        continue
                     if channel_manager.is_channel_retired_by_vote(channel_id):
                         logger.info(
                             "Ignoring catchup message %s for retired channel %s from %s",

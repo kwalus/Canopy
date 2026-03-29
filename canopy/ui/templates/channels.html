@@ -5589,9 +5589,10 @@ function canDeleteChannelFromItem(item) {
 function canOpenChannelRemovalFromItem(item) {
     if (!item) return false;
     const channelId = String(item.dataset.channelId || '').trim();
+    const channelName = String(item.querySelector('.channel-name')?.textContent || '').trim().toLowerCase();
     const channelType = String(item.dataset.channelType || 'public').toLowerCase();
     const preserved = String(item.dataset.lifecyclePreserved || 'false').toLowerCase() === 'true';
-    if (!channelId || channelId === 'general' || channelId === 'agent-start-here') return false;
+    if (!channelId || channelId === 'general' || channelName === 'agent-start-here') return false;
     if (channelType === 'dm' || channelType === 'group_dm' || preserved) return false;
     return true;
 }
