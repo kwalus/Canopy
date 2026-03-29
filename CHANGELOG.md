@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.16] - 2026-03-29
+
+### Fixed
+- **Safer proxied stream playback** — Remote stream proxy segments now reject malformed segment names, normalize untrusted remote segment content types to a safe binary default, and require destructive peer-forget API key callers to hold `DELETE_DATA`.
+- **Faster duplicate-shadow admin analysis** — Remote shadow duplicate and cross-peer same-name admin views now batch reference counting work and ensure `users.origin_peer` stays indexed so large stale-identity cleanups scale better.
+- **Clearer recovery and cleanup actions** — DM remote-download buttons now explicitly say `Download from peer`, the Trust removal confirmation explains the disconnect and cleanup scope more clearly, and the secondary governance save action starts with the calmer outlined styling until there are unsaved changes.
+
 ## [0.5.15] - 2026-03-29
 
 ### Changed

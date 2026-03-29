@@ -65,12 +65,20 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("workspaceGovernanceDirtyIndicator.textContent = workspaceGovernanceDirty ? 'Unsaved changes' : 'Saved';", admin_template)
         self.assertIn('[workspaceSaveGovernanceBtn, workspaceSaveGovernanceBottomBtn].filter(Boolean).forEach((button) => {', admin_template)
 
+    def test_admin_governance_secondary_save_button_defaults_to_outline(self) -> None:
+        admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')
+        self.assertIn('class="btn btn-outline-success btn-sm" id="workspace-save-governance-bottom-btn"', admin_template)
+
     def test_trust_page_exposes_remove_peer_controls(self) -> None:
         trust_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'trust.html').read_text(encoding='utf-8')
         self.assertIn("onclick=\"removePeerFromTrust('{{ peer_id }}')\"", trust_template)
         self.assertIn("function removePeerFromTrust(peerId)", trust_template)
         self.assertIn("/api/v1/p2p/forget", trust_template)
         self.assertIn("remove_shadow_users: true", trust_template)
+
+    def test_trust_page_remove_peer_confirmation_mentions_disconnect_and_cleanup(self) -> None:
+        trust_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'trust.html').read_text(encoding='utf-8')
+        self.assertIn('Remove this peer? This will disconnect them, remove stored endpoints, stop auto-reconnect, and clean stored trust and shadow-user residue for that peer.', trust_template)
 
     def test_connect_forget_peer_mentions_residue_cleanup(self) -> None:
         connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
@@ -137,6 +145,11 @@ class TestFrontendRegressions(unittest.TestCase):
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         self.assertIn("img && (img.large_attachment || img.storage_mode === 'remote_large'", channels_template)
         self.assertIn("requestRemoteAttachmentDownload(${JSON.stringify(remotePayload)}, this)", channels_template)
+
+    def test_dm_remote_download_buttons_use_labeled_actions(self) -> None:
+        macros_template = (ROOT / 'canopy' / 'ui' / 'templates' / '_messages_macros.html').read_text(encoding='utf-8')
+        self.assertIn('title="Download from peer"', macros_template)
+        self.assertIn('<i class="bi bi-cloud-download"></i> Download', macros_template)
 
     def test_miniplayer_no_longer_eagerly_docks_youtube_on_update(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')

@@ -149,8 +149,8 @@
                         <small>{{ attachment.type }} • {{ attachment.size | filesizeformat if attachment.size is defined and attachment.size is not none else '—' }}</small>
                     </div>
                     {% if remote_large %}
-                        <button type="button" class="btn btn-sm btn-outline-primary" onclick='requestRemoteAttachmentDownload({{ remote_payload|tojson }}, this)'>
-                            <i class="bi bi-cloud-download"></i>
+                        <button type="button" class="btn btn-sm btn-outline-primary" title="Download from peer" onclick='requestRemoteAttachmentDownload({{ remote_payload|tojson }}, this)'>
+                            <i class="bi bi-cloud-download"></i> Download
                         </button>
                     {% endif %}
                 </div>
@@ -168,8 +168,8 @@
                         <i class="bi bi-download"></i>
                     </a>
                 {% elif remote_large %}
-                    <button type="button" class="btn btn-sm btn-outline-primary" onclick='requestRemoteAttachmentDownload({{ remote_payload|tojson }}, this)'>
-                        <i class="bi bi-cloud-download"></i>
+                    <button type="button" class="btn btn-sm btn-outline-primary" title="Download from peer" onclick='requestRemoteAttachmentDownload({{ remote_payload|tojson }}, this)'>
+                        <i class="bi bi-cloud-download"></i> Download
                     </button>
                 {% endif %}
             </div>
@@ -177,6 +177,29 @@
                 <audio controls preload="metadata" class="w-100 mt-2">
                     <source src="{{ attachment.url }}" type="{{ attachment.type or 'audio/mpeg' }}">
                 </audio>
+            {% endif %}
+        </div>
+    {% elif attachment.type and attachment.type.startswith('video/') %}
+        <div class="dm-attachment dm-attachment-card"{% if attachment_file_id %} data-canopy-source-ref="attachment:{{ attachment_file_id }}"{% endif %}>
+            <div class="dm-attachment-title-row">
+                <div>
+                    <strong>{{ attachment.name }}</strong>
+                    <small>{{ attachment.type }} • {{ attachment.size | filesizeformat if attachment.size is defined and attachment.size is not none else '—' }}</small>
+                </div>
+                {% if attachment.url %}
+                    <a href="{{ attachment.url }}" class="btn btn-sm btn-outline-primary" download="{{ attachment.name }}">
+                        <i class="bi bi-download"></i>
+                    </a>
+                {% elif remote_large %}
+                    <button type="button" class="btn btn-sm btn-outline-primary" title="Download from peer" onclick='requestRemoteAttachmentDownload({{ remote_payload|tojson }}, this)'>
+                        <i class="bi bi-cloud-download"></i> Download
+                    </button>
+                {% endif %}
+            </div>
+            {% if attachment.url %}
+                <video controls preload="metadata" playsinline class="w-100 mt-2" style="max-width:100%;border-radius:12px;background:#000;">
+                    <source src="{{ attachment.url }}" type="{{ attachment.type or 'video/mp4' }}">
+                </video>
             {% endif %}
         </div>
     {% elif is_module %}
@@ -244,8 +267,8 @@
                             <i class="bi bi-download"></i>
                         </a>
                     {% elif remote_large %}
-                        <button type="button" class="btn btn-sm btn-outline-primary" onclick='requestRemoteAttachmentDownload({{ remote_payload|tojson }}, this)'>
-                            <i class="bi bi-cloud-download"></i>
+                        <button type="button" class="btn btn-sm btn-outline-primary" title="Download from peer" onclick='requestRemoteAttachmentDownload({{ remote_payload|tojson }}, this)'>
+                            <i class="bi bi-cloud-download"></i> Download
                         </button>
                     {% endif %}
                 </div>

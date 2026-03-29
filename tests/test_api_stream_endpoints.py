@@ -518,6 +518,62 @@ class TestApiStreamEndpoints(unittest.TestCase):
         self.assertTrue(all('127.0.0.1' not in url for url in called_urls))
         self.assertTrue(all('10.0.0.5' in url for url in called_urls))
 
+    def test_stream_proxy_segment_rejects_invalid_segment_name(self) -> None:
+        self._set_authenticated_session()
+        response = self.client.get('/api/v1/stream-proxy/remote-stream-ok/segments/seg%2001.ts')
+        self.assertEqual(response.status_code, 400)
+        payload = response.get_json() or {}
+        self.assertEqual(payload.get('error'), 'Invalid segment name')
+
+    def test_stream_proxy_segment_forces_binary_type_for_unsafe_remote_content_type(self) -> None:
+        self.conn.execute(
+            "INSERT INTO channel_messages (id, channel_id, origin_peer, attachments, created_at) VALUES (?, ?, ?, ?, ?)",
+            (
+                'Mremote3',
+                'C1',
+                'peer-remote',
+                json.dumps([{
+                    'stream_id': 'remote-stream-segment',
+                    'host_addrs': ['http://10.0.0.5:7770'],
+                }]),
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        self.conn.commit()
+        self.p2p_manager.identity_manager.peer_endpoints = {
+            'peer-remote': ['10.0.0.5:7771'],
+        }
+        self._set_authenticated_session()
+
+        class _FakeUrlopenResponse:
+            def __init__(self, payload: bytes, headers: Optional[dict[str, str]] = None) -> None:
+                self._payload = payload
+                self.headers = headers or {}
+
+            def read(self, amount: int = -1) -> bytes:
+                if amount is None or amount < 0:
+                    return self._payload
+                return self._payload[:amount]
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        with patch(
+            'urllib.request.urlopen',
+            side_effect=[
+                _FakeUrlopenResponse(b'#'),
+                _FakeUrlopenResponse(b'<html>nope</html>', headers={'Content-Type': 'text/html; charset=utf-8'}),
+            ],
+        ):
+            response = self.client.get('/api/v1/stream-proxy/remote-stream-segment/segments/seg01.ts')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, 'application/octet-stream')
+        self.assertEqual(response.data, b'<html>nope</html>')
+
     def test_empty_manifest_ingest_returns_actionable_hint(self) -> None:
         create_resp = self.client.post(
             '/api/v1/streams',

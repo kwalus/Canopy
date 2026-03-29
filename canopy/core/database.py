@@ -578,6 +578,7 @@ class DatabaseManager:
             if 'origin_peer' not in columns:
                 logger.info("Migration: Adding origin_peer column to users table")
                 conn.execute("ALTER TABLE users ADD COLUMN origin_peer TEXT")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_users_origin_peer ON users(origin_peer)")
 
             if 'agent_directives' not in columns:
                 logger.info("Migration: Adding agent_directives column to users table")
@@ -1389,23 +1390,69 @@ class DatabaseManager:
         conn: sqlite3.Connection,
         user_id: str,
     ) -> Dict[str, int]:
-        counts: Dict[str, int] = {}
+        result = self._batch_collect_shadow_user_reference_counts(conn, [user_id])
+        return result.get(
+            user_id,
+            {
+                'channels_created': 0,
+                'channel_memberships': 0,
+                'channel_messages': 0,
+                'uploads': 0,
+                'direct_messages_sent': 0,
+                'feed_posts': 0,
+                'total': 0,
+            },
+        )
+
+    def _batch_collect_shadow_user_reference_counts(
+        self,
+        conn: sqlite3.Connection,
+        user_ids: List[str],
+    ) -> Dict[str, Dict[str, int]]:
+        """Fetch reference counts for multiple users with bounded queries."""
+        ids = [str(user_id or '').strip() for user_id in (user_ids or []) if str(user_id or '').strip()]
+        if not ids:
+            return {}
+
+        placeholders = ','.join('?' for _ in ids)
+        result: Dict[str, Dict[str, int]] = {
+            user_id: {
+                'channels_created': 0,
+                'channel_memberships': 0,
+                'channel_messages': 0,
+                'uploads': 0,
+                'direct_messages_sent': 0,
+                'feed_posts': 0,
+                'total': 0,
+            }
+            for user_id in ids
+        }
         tracked = [
-            ('channels_created', 'SELECT COUNT(*) FROM channels WHERE created_by = ?'),
-            ('channel_memberships', 'SELECT COUNT(*) FROM channel_members WHERE user_id = ?'),
-            ('channel_messages', 'SELECT COUNT(*) FROM channel_messages WHERE user_id = ?'),
-            ('uploads', 'SELECT COUNT(*) FROM files WHERE uploaded_by = ?'),
-            ('direct_messages_sent', 'SELECT COUNT(*) FROM messages WHERE sender_id = ?'),
-            ('feed_posts', 'SELECT COUNT(*) FROM feed_posts WHERE author_id = ?'),
+            ('channels_created', f'SELECT created_by, COUNT(*) FROM channels WHERE created_by IN ({placeholders}) GROUP BY created_by'),
+            ('channel_memberships', f'SELECT user_id, COUNT(*) FROM channel_members WHERE user_id IN ({placeholders}) GROUP BY user_id'),
+            ('channel_messages', f'SELECT user_id, COUNT(*) FROM channel_messages WHERE user_id IN ({placeholders}) GROUP BY user_id'),
+            ('uploads', f'SELECT uploaded_by, COUNT(*) FROM files WHERE uploaded_by IN ({placeholders}) GROUP BY uploaded_by'),
+            ('direct_messages_sent', f'SELECT sender_id, COUNT(*) FROM messages WHERE sender_id IN ({placeholders}) GROUP BY sender_id'),
+            ('feed_posts', f'SELECT author_id, COUNT(*) FROM feed_posts WHERE author_id IN ({placeholders}) GROUP BY author_id'),
         ]
         for key, query in tracked:
             try:
-                row = conn.execute(query, (user_id,)).fetchone()
-                counts[key] = int(row[0] if row else 0)
+                for row in conn.execute(query, ids).fetchall():
+                    row_user_id = str(row[0] or '').strip()
+                    if row_user_id in result:
+                        result[row_user_id][key] = int(row[1] or 0)
             except Exception:
-                counts[key] = 0
-        counts['total'] = sum(counts.values())
-        return counts
+                continue
+        for counts in result.values():
+            counts['total'] = (
+                counts['channels_created']
+                + counts['channel_memberships']
+                + counts['channel_messages']
+                + counts['uploads']
+                + counts['direct_messages_sent']
+                + counts['feed_posts']
+            )
+        return result
 
     def _remote_shadow_candidate_sort_key(
         self,
@@ -1618,12 +1665,20 @@ class DatabaseManager:
                     if not origin_peer or not identity_value:
                         continue
                     grouped.setdefault((origin_peer.lower(), identity_value.lower()), []).append(dict(user))
+                candidate_ids = [
+                    str(member.get('id') or '').strip()
+                    for members in grouped.values()
+                    if len(members) > 1
+                    for member in members
+                    if str(member.get('id') or '').strip()
+                ]
+                batch_counts = self._batch_collect_shadow_user_reference_counts(conn, candidate_ids)
                 for members in grouped.values():
                     if len(members) <= 1:
                         continue
                     annotated: List[Dict[str, Any]] = []
                     for member in members:
-                        ref_counts = self._collect_shadow_user_reference_counts(conn, str(member.get('id') or ''))
+                        ref_counts = batch_counts.get(str(member.get('id') or '').strip(), {})
                         member['reference_counts'] = ref_counts
                         member['reference_total'] = int(ref_counts.get('total') or 0)
                         annotated.append(member)
@@ -1690,6 +1745,13 @@ class DatabaseManager:
                     if not identity_value:
                         continue
                     grouped.setdefault(identity_value.lower(), []).append(dict(user))
+                candidate_ids = [
+                    str(member.get('id') or '').strip()
+                    for members in grouped.values()
+                    for member in members
+                    if str(member.get('id') or '').strip()
+                ]
+                batch_counts = self._batch_collect_shadow_user_reference_counts(conn, candidate_ids)
 
                 for members in grouped.values():
                     contexts = {
@@ -1699,7 +1761,7 @@ class DatabaseManager:
                     forgettable_count = 0
                     annotated: List[Dict[str, Any]] = []
                     for member in members:
-                        ref_counts = self._collect_shadow_user_reference_counts(conn, str(member.get('id') or ''))
+                        ref_counts = batch_counts.get(str(member.get('id') or '').strip(), {})
                         member['reference_counts'] = ref_counts
                         member['reference_total'] = int(ref_counts.get('total') or 0)
                         member['is_local'] = not bool(str(member.get('origin_peer') or '').strip())

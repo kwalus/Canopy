@@ -879,7 +879,7 @@
 
     function removePeerFromTrust(peerId) {
         if (!peerId) return;
-        if (!confirm('Remove this peer from trust and known-peer state? This also cleans stored trust residue and shadow-user residue for that peer.')) {
+        if (!confirm('Remove this peer? This will disconnect them, remove stored endpoints, stop auto-reconnect, and clean stored trust and shadow-user residue for that peer.')) {
             return;
         }
         apiCall('/api/v1/p2p/forget', {

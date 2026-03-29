@@ -173,6 +173,16 @@ _GENERIC_UPLOAD_FILENAMES = {
     'unnamed_file',
 }
 _VALID_ATTACHMENT_LAYOUT_HINTS = {'grid', 'hero', 'strip', 'stack'}
+_STREAM_PROXY_SAFE_SEGMENT_NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._\-]{0,127}$")
+_ALLOWED_STREAM_PROXY_SEGMENT_CONTENT_TYPES = {
+    'video/mp2t',
+    'video/mp4',
+    'audio/aac',
+    'audio/mpeg',
+    'audio/mp4',
+    'application/mp4',
+    'application/octet-stream',
+}
 
 
 def _is_generic_upload_metadata(filename: Any, content_type: Any) -> bool:
@@ -184,6 +194,21 @@ def _is_generic_upload_metadata(filename: Any, content_type: Any) -> bool:
         or stem in _GENERIC_UPLOAD_FILENAMES
         or not os.path.splitext(name)[1]
     )
+
+
+def _sanitize_stream_proxy_segment_name(value: Any) -> str:
+    """Allow only simple HLS segment filenames in the proxy path."""
+    candidate = str(value or '').strip()
+    if (
+        not candidate
+        or '/' in candidate
+        or '\\' in candidate
+        or '?' in candidate
+        or '#' in candidate
+        or not _STREAM_PROXY_SAFE_SEGMENT_NAME.match(candidate)
+    ):
+        return ''
+    return candidate
 
 
 def _normalize_channel_attachments(raw_attachments: Any, file_manager: Any) -> list[dict[str, Any]]:
@@ -3150,6 +3175,11 @@ def create_api_blueprint() -> Blueprint:
     def forget_peer():
         """Forget a peer and clean up stored residue."""
         db_manager, _, _, _, _, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+        key_info = getattr(g, 'api_key_info', None)
+        if key_info is not None:
+            permissions = set(getattr(key_info, 'permissions', set()) or set())
+            if Permission.DELETE_DATA not in permissions:
+                return jsonify({'error': 'Invalid or insufficient permissions'}), 403
 
         data = request.get_json() or {}
         peer_id = data.get('peer_id')
@@ -9489,15 +9519,21 @@ def create_api_blueprint() -> Blueprint:
         """Server-side proxy for remote peer stream segments."""
         from urllib.request import urlopen as _urlopen
         from urllib.error import URLError as _URLError
+        safe_segment_name = _sanitize_stream_proxy_segment_name(segment_name)
+        if not safe_segment_name:
+            return jsonify({'error': 'Invalid segment name'}), 400
         try:
             remote_base = _find_stream_remote_base(stream_id)
             if not remote_base:
                 return jsonify({'error': 'Not found'}), 404
-            remote_url = f"{remote_base}/api/v1/streams/{stream_id}/segments/{segment_name}"
+            remote_url = f"{remote_base}/api/v1/streams/{stream_id}/segments/{safe_segment_name}"
             try:
                 with _urlopen(remote_url, timeout=_stream_remote_fetch_timeout_seconds) as resp:
                     data = resp.read()
-                    content_type = resp.headers.get('Content-Type', 'application/octet-stream')
+                    raw_content_type = str(resp.headers.get('Content-Type', 'application/octet-stream') or 'application/octet-stream')
+                    content_type = raw_content_type.split(';', 1)[0].strip().lower() or 'application/octet-stream'
+                    if content_type not in _ALLOWED_STREAM_PROXY_SEGMENT_CONTENT_TYPES:
+                        content_type = 'application/octet-stream'
                 _set_cached_stream_remote_base(stream_id, remote_base)
             except _URLError as e:
                 _set_cached_stream_remote_base(stream_id, None)

@@ -4,6 +4,7 @@ import os
 import sys
 import types
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 from flask import Flask
@@ -24,6 +25,7 @@ if 'zeroconf' not in sys.modules:
     sys.modules['zeroconf'] = zeroconf_stub
 
 from canopy.api.routes import create_api_blueprint
+from canopy.security.api_keys import ApiKeyInfo, Permission
 
 
 class TestPeerForgetCleanupApi(unittest.TestCase):
@@ -136,6 +138,34 @@ class TestPeerForgetCleanupApi(unittest.TestCase):
         self.p2p_manager.identity_manager.remove_known_peer.assert_called_once_with('peer-gone')
         self.assertIsNone(self.p2p_manager._reconnect_tasks.get('peer-gone'))
         self.reconnect_task.cancel.assert_called_once()
+
+    def test_forget_peer_requires_delete_data_for_api_keys(self) -> None:
+        self.api_key_manager.validate_key.side_effect = lambda raw_key, required_permission=None: (
+            ApiKeyInfo(
+                id='key-read-only',
+                user_id='test-user',
+                key_hash='hash',
+                permissions={Permission.READ_MESSAGES},
+                created_at=datetime.now(timezone.utc),
+            )
+            if raw_key == 'read-only-key' else None
+        )
+
+        response = self.client.post(
+            '/api/v1/p2p/forget',
+            json={
+                'peer_id': 'peer-gone',
+                'remove_introduced': True,
+                'purge_residue': True,
+                'remove_shadow_users': True,
+            },
+            headers={'X-API-Key': 'read-only-key'},
+        )
+
+        self.assertEqual(response.status_code, 403)
+        payload = response.get_json() or {}
+        self.assertEqual(payload.get('error'), 'Invalid or insufficient permissions')
+        self.db_manager.forget_peer_residue.assert_not_called()
 
 
 if __name__ == '__main__':

@@ -351,6 +351,8 @@ Rich media notes:
 | GET | `/streams/<stream_id>/manifest.m3u8` | Token | Read tokenized playback manifest (scope=`view`) |
 | GET | `/streams/<stream_id>/segments/<segment_name>` | Token | Read stream segment bytes (scope=`view`) |
 | GET | `/streams/<stream_id>/events` | Token | Read telemetry events (`after_seq`, `limit`; scope=`view`) |
+| GET | `/stream-proxy/<stream_id>/manifest.m3u8` | Yes (API key or authenticated web session) | Local authenticated proxy for remote peer stream manifests |
+| GET | `/stream-proxy/<stream_id>/segments/<segment_name>` | Yes (API key or authenticated web session) | Local authenticated proxy for remote peer stream segments; invalid segment names are rejected |
 
 Security notes:
 - Stream visibility follows channel membership.
@@ -581,7 +583,7 @@ Agent runtime notes:
 | POST | `/p2p/reconnect` | Yes (API key or authenticated web session) | Reconnect to a specific peer |
 | POST | `/p2p/reconnect_all` | Yes (API key or authenticated web session) | Reconnect to all known peers |
 | POST | `/p2p/disconnect` | Yes (API key or authenticated web session) | Disconnect from a peer |
-| POST | `/p2p/forget` | Yes (API key or authenticated web session) | Forget a known peer |
+| POST | `/p2p/forget` | Yes (authenticated web session, or API key with `DELETE_DATA`) | Forget a known peer and optionally purge stored residue |
 | GET | `/p2p/relay_status` | Yes (API key or authenticated web session) | Relay policy, active relays, routing table |
 | GET | `/p2p/activity` | Yes (API key or authenticated web session) | Recent connection activity/events + per-peer activity timestamps + failover counters |
 | POST | `/p2p/relay_policy` | Yes (API key or authenticated web session) | Set relay policy (`off`, `broker_only`, `full_relay`) |
