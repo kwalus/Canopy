@@ -24,7 +24,7 @@
         overflow: hidden;
         display: grid;
         gap: 24px;
-        grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+        grid-template-columns: minmax(0, 1fr);
     }
 
     .trust-hero::after {
@@ -67,44 +67,6 @@
         display: flex;
         flex-wrap: wrap;
         gap: 10px;
-    }
-
-    .trust-hero-stats {
-        position: relative;
-        z-index: 1;
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 14px;
-    }
-
-    .trust-stat {
-        padding: 14px 16px;
-        border-radius: 16px;
-        background: rgba(15, 23, 42, 0.6);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-        backdrop-filter: blur(8px);
-    }
-
-    .trust-stat-label {
-        font-size: 0.72rem;
-        text-transform: uppercase;
-        letter-spacing: 0.12em;
-        color: rgba(148, 163, 184, 0.85);
-    }
-
-    .trust-stat-value {
-        font-family: 'Space Grotesk', sans-serif;
-        font-size: 1.4rem;
-        font-weight: 600;
-        color: var(--canopy-text-primary);
-    }
-
-    .trust-stat-sub {
-        font-size: 0.8rem;
-        color: var(--canopy-text-muted);
     }
 
     .trust-layout {
@@ -586,28 +548,6 @@
                 <button class="btn btn-outline-primary btn-sm" onclick="refreshTrust()">
                     <i class="bi bi-arrow-clockwise"></i> Refresh
                 </button>
-            </div>
-        </div>
-        <div class="trust-hero-stats">
-            <div class="trust-stat">
-                <div class="trust-stat-label">Connected</div>
-                <div class="trust-stat-value" data-stat-connected>{{ connected_peers|length }}</div>
-                <div class="trust-stat-sub">live peers</div>
-            </div>
-            <div class="trust-stat">
-                <div class="trust-stat-label">Safe Zone</div>
-                <div class="trust-stat-value" data-stat-safe>{{ trust_tiers.safe|length }}</div>
-                <div class="trust-stat-sub">full trust</div>
-            </div>
-            <div class="trust-stat">
-                <div class="trust-stat-label">Potential</div>
-                <div class="trust-stat-value" data-stat-potential>{{ potential_peers|length }}</div>
-                <div class="trust-stat-sub">introduced</div>
-            </div>
-            <div class="trust-stat">
-                <div class="trust-stat-label">Compliance</div>
-                <div class="trust-stat-value">{{ "%.0f"|format(trust_stats.compliance_rate or 100) }}%</div>
-                <div class="trust-stat-sub">delete signals</div>
             </div>
         </div>
     </div>

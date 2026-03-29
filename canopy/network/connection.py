@@ -21,6 +21,24 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger('canopy.network.connection')
 
+_EXPECTED_CONNECT_ERRNOS = {51, 61, 64, 65, 110, 111, 113}
+
+
+def _is_expected_connect_failure(exc: Exception) -> bool:
+    """Return True for routine unreachable-peer connect failures.
+
+    These happen regularly when remembered peers are offline, moved networks,
+    or still advertising stale endpoints. They should not flood logs with full
+    tracebacks during normal background reconnect behavior.
+    """
+    if isinstance(exc, (ConnectionRefusedError, ConnectionResetError)):
+        return True
+    if isinstance(exc, OSError):
+        errno = getattr(exc, 'errno', None)
+        if errno in _EXPECTED_CONNECT_ERRNOS:
+            return True
+    return False
+
 
 def _generate_self_signed_cert(cert_path: Path, key_path: Path) -> bool:
     """Generate a self-signed TLS certificate for P2P WebSocket connections.
@@ -504,11 +522,14 @@ class ConnectionManager:
             await self._disconnect_connection(connection, notify=False)
             return False
         except Exception as e:
-            logger.error(
+            log_message = (
                 f"Failed to connect to {peer_id} at {address}:{port}: "
-                f"{type(e).__name__}: {e}",
-                exc_info=True,
+                f"{type(e).__name__}: {e}"
             )
+            if _is_expected_connect_failure(e):
+                logger.warning(log_message)
+            else:
+                logger.error(log_message, exc_info=True)
             connection.state = ConnectionState.FAILED
             connection.failure_reason = type(e).__name__
             connection.failure_detail = str(e)
@@ -893,7 +914,10 @@ class ConnectionManager:
             return True
             
         except Exception as e:
-            logger.error(f"Handshake failed: {e}", exc_info=True)
+            if isinstance(e, websockets.exceptions.ConnectionClosedOK):
+                logger.info(f"Handshake closed cleanly with {connection.peer_id}: {e}")
+            else:
+                logger.error(f"Handshake failed: {e}", exc_info=True)
             connection.failure_reason = type(e).__name__
             connection.failure_detail = str(e)
             return False

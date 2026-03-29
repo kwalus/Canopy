@@ -4167,9 +4167,6 @@ def create_ui_blueprint() -> Blueprint:
             # Get user's API keys
             keys = api_key_manager.list_keys(user_id)
             
-            # Get usage statistics
-            key_stats = api_key_manager.get_key_usage_stats(user_id)
-            
             # Get available permissions
             all_permissions = api_key_manager.get_all_permissions()
             default_permissions = api_key_manager.get_default_permissions()
@@ -4180,7 +4177,6 @@ def create_ui_blueprint() -> Blueprint:
             
             return render_template('api_keys.html',
                                  keys=keys,
-                                 key_stats=key_stats,
                                  all_permissions=all_permissions,
                                  default_permissions=default_permissions,
                                  user_id=user_id,
@@ -5088,7 +5084,12 @@ def create_ui_blueprint() -> Blueprint:
         """Task board interface for collaborative work."""
         user_id = get_current_user()
         display_name = session.get('display_name') or session.get('username') or user_id
-        return render_template('tasks.html', current_user_id=user_id, current_user_name=display_name)
+        return render_template(
+            'tasks.html',
+            current_user_id=user_id,
+            current_user_name=display_name,
+            user_id=user_id,
+        )
 
     @ui.route('/bookmarks')
     @require_login
