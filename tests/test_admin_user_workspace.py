@@ -676,6 +676,10 @@ class TestAdminUserWorkspace(unittest.TestCase):
         self.assertIn('Quarantine preset', html)
         self.assertIn('Agent default', html)
         self.assertIn('Read only', html)
+        self.assertNotIn('Subsystem Visibility', html)
+        self.assertNotIn('Mesh Sync Diagnostics', html)
+        self.assertNotIn('Workspace Event Journal', html)
+        self.assertNotIn('Identity Portability (Phase 1)', html)
 
     def test_admin_workspace_event_status_snapshot(self) -> None:
         self._set_authenticated_session()
