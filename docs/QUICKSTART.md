@@ -184,7 +184,7 @@ Canopy now treats attachments above a fixed `10 MB` threshold differently:
 - other peers receive attachment metadata first instead of an inline file blob
 - by default, authorized peers auto-download the large attachment in the background so it remains available even if the source peer is only online briefly
 
-Admins can tune node behavior under **Settings -> Large Attachment Store**:
+Admins can tune node behavior under **Admin -> Large Attachment Store**:
 
 - **Storage root**: optional external directory Canopy manages for large files
 - **Download mode**:
@@ -284,7 +284,7 @@ Use the dedicated MCP guide:
 
 ## 10) Data export/import safety
 
-Settings -> **Advanced Actions** now includes:
+Admin -> **Data Operations** now includes:
 
 - **Export Data**: safe database export for backup/migration.
 - **Import Data**: admin-only danger-zone flow with strict guardrails:

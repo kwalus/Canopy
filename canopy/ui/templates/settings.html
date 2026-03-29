@@ -173,12 +173,6 @@
                     <dd class="col-sm-6"><span class="badge bg-info">{{ db_stats.feed_posts or 0 }}</span></dd>
                 </dl>
                 
-                <div class="mt-3">
-                    <button class="btn btn-outline-warning btn-sm" onclick="cleanupDatabase()">
-                        <i class="bi bi-trash"></i> Cleanup Old Data
-                    </button>
-                    <small class="text-muted d-block mt-1">Removes messages and data older than 30 days</small>
-                </div>
             </div>
         </div>
     </div>
@@ -405,229 +399,28 @@
     </div>
 </div>
 
-<!-- Mesh Relay Settings -->
 <div class="row mt-4">
     <div class="col-12">
-        <div class="card">
+        <div class="card border-info">
             <div class="card-header">
                 <h5 class="mb-0">
-                    <i class="bi bi-arrow-left-right"></i> Mesh Relay
+                    <i class="bi bi-shield-lock"></i> Instance Controls Moved
                 </h5>
             </div>
             <div class="card-body">
+                <p class="text-muted mb-2">
+                    Instance-wide controls now live on the Admin page so operator actions are grouped together.
+                </p>
                 <p class="text-muted small mb-3">
-                    <strong>What is Mesh Relay?</strong> When two peers can't connect directly (e.g., both behind NATs/firewalls), 
-                    a third peer can help them communicate. This setting controls how your node participates in helping others connect.
+                    Use Admin for user management, agent approvals, mesh relay policy, large attachment storage, destructive data operations, and environment/operator notes.
                 </p>
-
-                <div class="row mb-3 settings-relay-row">
-                    <div class="col-md-6">
-                        <label class="form-label"><strong>Relay Policy</strong></label>
-                        <select class="form-select" id="relayPolicySelect" onchange="updateRelayPolicy()">
-                            <option value="off">Off &mdash; Do not help peers connect</option>
-                            <option value="broker_only">Broker Only &mdash; Help introduce peers (default, recommended)</option>
-                            <option value="full_relay">Full Relay &mdash; Also forward messages for unreachable peers</option>
-                        </select>
-                        <small class="text-muted mt-2 d-block">
-                            <strong>Broker Only</strong> (recommended) helps peers find and establish direct connections with minimal bandwidth cost.
-                            <br>
-                            <strong>Full Relay</strong> also carries traffic for peers that cannot connect directly, which uses your bandwidth and resources.
-                            <br>
-                            For a public relay, use a separate node from your primary owner mesh.
-                        </small>
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label"><strong>Current Status</strong></label>
-                        <div id="relayStatusInfo">
-                            <p class="text-muted small mb-1">Loading...</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div id="routingTableSection" style="display:none;">
-                    <hr class="my-3">
-                    <label class="form-label"><strong>Active Routing Table</strong></label>
-                    <p class="text-muted small">
-                        Shows current peer-to-peer routes. "Relay" routes forward traffic; "Route" entries are direct connections.
-                    </p>
-                    <div class="table-responsive">
-                        <table class="table table-sm" style="color:var(--canopy-text-primary);">
-                            <thead>
-                                <tr><th>Destination</th><th>Next Hop</th><th>Type</th></tr>
-                            </thead>
-                            <tbody id="routingTableBody">
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Large Attachment Store -->
-<div class="row mt-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0">
-                    <i class="bi bi-hdd-network"></i> Large Attachment Store
-                </h5>
-            </div>
-            <div class="card-body">
-                <p class="text-muted small mb-3">
-                    Files larger than <strong>{{ large_attachment_threshold_mb }} MB</strong> use Canopy's managed large-attachment path.
-                    The protocol threshold is fixed for compatibility; only the local storage root and download policy are configurable.
-                </p>
-                <div class="row g-3">
-                    <div class="col-lg-6">
-                        <label for="largeAttachmentStoreRoot" class="form-label">Storage Root</label>
-                        <input type="text"
-                               class="form-control"
-                               id="largeAttachmentStoreRoot"
-                               value="{{ large_attachment_store_root }}"
-                               placeholder="/path/to/attachment-store"
-                               {% if not is_admin %}disabled{% endif %}>
-                        <small class="text-muted d-block mt-1">
-                            Canopy manages a dedicated <code>canopy-large-attachments</code> subfolder under this root.
-                        </small>
-                    </div>
-                    <div class="col-lg-4">
-                        <label for="largeAttachmentDownloadMode" class="form-label">Download Policy</label>
-                        <select class="form-select" id="largeAttachmentDownloadMode" {% if not is_admin %}disabled{% endif %}>
-                            <option value="auto" {% if large_attachment_download_mode == 'auto' %}selected{% endif %}>Automatic</option>
-                            <option value="manual" {% if large_attachment_download_mode == 'manual' %}selected{% endif %}>Manual</option>
-                            <option value="paused" {% if large_attachment_download_mode == 'paused' %}selected{% endif %}>Paused</option>
-                        </select>
-                        <small class="text-muted d-block mt-1">
-                            Automatic downloads fetch eligible remote large attachments while the source peer is online.
-                        </small>
-                    </div>
-                    <div class="col-lg-2 d-flex align-items-end">
-                        <button class="btn btn-primary w-100" onclick="saveLargeAttachmentSettings()" {% if not is_admin %}disabled{% endif %}>
-                            <i class="bi bi-check-lg"></i> Save
-                        </button>
-                    </div>
-                </div>
-                <div class="mt-2">
-                    <span id="large-attachment-settings-status" class="text-muted small">
-                        {% if not is_admin %}Instance admin only.{% endif %}
-                    </span>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Advanced Actions -->
-<div class="row mt-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0">
-                    <i class="bi bi-tools"></i> Advanced Actions
-                </h5>
-            </div>
-            <div class="card-body">
-                <p class="text-muted small mb-3">
-                    <i class="bi bi-exclamation-triangle text-warning"></i>
-                    <strong>Warning:</strong> These actions affect your data. Use with caution.
-                </p>
-                <div class="row settings-advanced-grid">
-                    <div class="col-md-3 settings-advanced-col">
-                        <div class="d-grid">
-                            <button class="btn btn-outline-warning" id="cleanup-db-btn" onclick="cleanupDatabase()">
-                                <i class="bi bi-trash"></i> Cleanup Database
-                            </button>
-                            <small class="text-muted mt-1">Remove old messages and expired data</small>
-                        </div>
-                    </div>
-                    
-                    <div class="col-md-3 settings-advanced-col">
-                        <div class="d-grid">
-                            <button class="btn btn-outline-info" id="export-data-btn" onclick="exportData()">
-                                <i class="bi bi-download"></i> Export Data
-                            </button>
-                            <small class="text-muted mt-1">Download your data for backup</small>
-                        </div>
-                    </div>
-
-                    <div class="col-md-3 settings-advanced-col">
-                        <div class="d-grid">
-                            <button class="btn btn-outline-danger" id="import-data-btn" onclick="openImportDataPicker()"
-                                    {% if not is_admin %}disabled title="Instance admin only"{% endif %}>
-                                <i class="bi bi-upload"></i> Import Data
-                            </button>
-                            <small class="text-muted mt-1">
-                                Overwrites local database (backup created automatically)
-                                {% if not is_admin %}<span class="d-block">Instance admin only</span>{% endif %}
-                            </small>
-                        </div>
-                    </div>
-                    
-                    <div class="col-md-3 settings-advanced-col">
-                        <div class="d-grid">
-                            <button class="btn btn-outline-danger" id="reset-system-btn" onclick="resetSystem()">
-                                <i class="bi bi-arrow-clockwise"></i> Reset System
-                            </button>
-                            <small class="text-muted mt-1">Clear all data and start fresh</small>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Environment Variables -->
-<div class="row mt-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0">
-                    <i class="bi bi-code-square"></i> Environment Configuration
-                </h5>
-            </div>
-            <div class="card-body">
-                <p class="text-muted mb-3">
-                    You can customize Canopy behavior using these environment variables:
-                </p>
-                
-                <div class="row">
-                    <div class="col-md-6">
-                        <h6>Network Configuration</h6>
-                        <pre class="p-3 rounded" style="background: var(--canopy-bg-tertiary); color: var(--canopy-text-primary);"><code>export CANOPY_HOST=0.0.0.0
-export CANOPY_PORT=7770
-export CANOPY_DEBUG=true</code></pre>
-                    </div>
-                    
-                    <div class="col-md-6">
-                        <h6>Storage Configuration</h6>
-                        <pre class="p-3 rounded" style="background: var(--canopy-bg-tertiary); color: var(--canopy-text-primary);"><code>export CANOPY_DATABASE_PATH=./data/canopy.db
-export CANOPY_SECRET_KEY=&lt;generate-a-strong-random-value&gt;</code></pre>
-                        <p class="small text-muted mb-0">Canopy auto-generates a secret key at first run if not set. Only set this if you need a fixed value (e.g. multi-process).</p>
-                    </div>
-                </div>
-
-                <div class="row mt-3">
-                    <div class="col-12">
-                        <h6>Agents / MCP</h6>
-                        <p class="text-muted small mb-2">Control whether new agent (bot) accounts are approved automatically or require human approval in Admin.</p>
-                        <div class="d-flex align-items-center flex-wrap gap-2">
-                            <span class="badge bg-{{ 'success' if auto_approve_agents else 'secondary' }}">
-                                CANOPY_AUTO_APPROVE_AGENTS: {{ 'Enabled' if auto_approve_agents else 'Not set' }}
-                            </span>
-                            <span class="text-muted small">Set to <code>1</code>, <code>true</code>, or <code>yes</code> to auto-approve new agents; leave unset to require approval in Admin.</span>
-                        </div>
-                        <pre class="p-3 rounded mt-2 mb-0" style="background: var(--canopy-bg-tertiary); color: var(--canopy-text-primary);"><code># Optional: auto-approve new agent registrations (restart required)
-export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
-                    </div>
-                </div>
-                
-                <div class="alert alert-info mt-3">
-                    <i class="bi bi-info-circle"></i>
-                    <strong>Note:</strong> Changes to environment variables require restarting Canopy to take effect.
-                </div>
+                {% if is_admin %}
+                <a class="btn btn-outline-primary btn-sm" href="{{ url_for('ui.admin_page') }}">
+                    <i class="bi bi-arrow-right-circle"></i> Open Admin
+                </a>
+                {% else %}
+                <span class="text-muted small">Only the instance admin can access those controls.</span>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -680,8 +473,6 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
         </div>
     </div>
 </div>
-
-<input type="file" id="import-db-input" class="d-none" accept=".db,.sqlite,.sqlite3,application/x-sqlite3">
 
 {% endblock %}
 
@@ -990,12 +781,18 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
 
     // ---- Mesh Relay ----
     function loadRelayStatus() {
+        const info = document.getElementById('relayStatusInfo');
+        const tableSection = document.getElementById('routingTableSection');
+        const tableBody = document.getElementById('routingTableBody');
+        const sel = document.getElementById('relayPolicySelect');
+        if (!info || !tableSection || !tableBody || !sel) {
+            return;
+        }
         fetch('/api/v1/p2p/relay_status')
         .then(r => r.json())
         .then(data => {
             // Set policy selector
-            const sel = document.getElementById('relayPolicySelect');
-            if (sel && data.relay_policy) {
+            if (data.relay_policy) {
                 sel.value = data.relay_policy;
             }
 
@@ -1027,7 +824,6 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
             }
         })
         .catch(err => {
-            const info = document.getElementById('relayStatusInfo');
             info.innerHTML = '<p class="text-muted small mb-0">P2P not available</p>';
         });
     }

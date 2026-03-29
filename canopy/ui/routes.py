@@ -576,6 +576,7 @@ def create_ui_blueprint() -> Blueprint:
     def register():
         """User registration page and handler."""
         db_manager = current_app.config.get('DB_MANAGER')
+        _, _, _, _, channel_manager, _, _, _, _, _, _ = _get_app_components_any(current_app)
         if not db_manager:
             return render_template('error.html', error='Database not initialized')
         
@@ -693,6 +694,7 @@ def create_ui_blueprint() -> Blueprint:
     def setup():
         """First-run wizard: create admin/first user and optionally connect a peer."""
         db_manager = current_app.config.get('DB_MANAGER')
+        _, _, _, _, channel_manager, _, _, _, _, _, _ = _get_app_components_any(current_app)
         if not db_manager:
             return render_template('error.html', error='Database not initialized')
         has_users = db_manager.has_any_registered_users()
@@ -5499,15 +5501,27 @@ def create_ui_blueprint() -> Blueprint:
     def admin_page():
         """Admin page: pending agent approvals, all users, approve/suspend/delete."""
         try:
-            db_manager, _, _, _, _, _, _, _, _, _, _ = _get_app_components_any(current_app)
-            _, api_key_manager, _, _, _, _, _, _, _, _, _ = _get_app_components_any(current_app)
-            skill_manager = current_app.config.get('SKILL_MANAGER')
+            db_manager, api_key_manager, _, _, _, _, _, _, _, config, _ = _get_app_components_any(current_app)
+            from .. import __version__ as canopy_version
             users = db_manager.get_all_users_for_admin()
             _annotate_user_presence(users, db_manager)
             pending = [
                 u for u in users
                 if u.get('is_registered') and (u.get('status') or 'active') == 'pending_approval'
             ]
+            auto_approve_raw = (os.getenv('CANOPY_AUTO_APPROVE_AGENTS') or '').strip().lower()
+            auto_approve_agents = auto_approve_raw in ('1', 'true', 'yes')
+            config_host = ''
+            config_port = ''
+            config_db_path = ''
+            try:
+                config_host = str(getattr(getattr(config, 'network', None), 'host', '') or '')
+                config_port = str(getattr(getattr(config, 'network', None), 'port', '') or '')
+                config_db_path = str(getattr(getattr(config, 'storage', None), 'database_path', '') or '')
+            except Exception:
+                config_host = ''
+                config_port = ''
+                config_db_path = ''
             active_agents = [
                 u for u in users
                 if u.get('is_registered')
@@ -5561,81 +5575,25 @@ def create_ui_blueprint() -> Blueprint:
             )
             all_permissions = [p.value for p in api_key_manager.get_all_permissions()]
             default_permissions = [p.value for p in api_key_manager.get_default_permissions()]
-            current_user_id = get_current_user()
-            current_user_row = db_manager.get_user(current_user_id) if db_manager else None
-            heartbeat_snapshot = _build_agent_heartbeat_snapshot(current_user_id)
-
-            community_note_counts = {
-                'total': 0,
-                'proposed': 0,
-                'accepted': 0,
-                'rejected': 0,
-            }
-            community_note_queue = []
-            top_skill_trust = []
-
-            if skill_manager:
-                try:
-                    with db_manager.get_connection() as conn:
-                        rows = conn.execute(
-                            "SELECT status, COUNT(*) AS cnt FROM community_notes GROUP BY status"
-                        ).fetchall()
-                        total = conn.execute(
-                            "SELECT COUNT(*) AS cnt FROM community_notes"
-                        ).fetchone()
-                    community_note_counts['total'] = int(total['cnt']) if total and total['cnt'] is not None else 0
-                    for row in rows or []:
-                        status = (row['status'] or '').lower()
-                        if status in community_note_counts:
-                            community_note_counts[status] = int(row['cnt'] or 0)
-                except Exception:
-                    pass
-
-                try:
-                    queued = skill_manager.get_community_notes(status='proposed', limit=10)
-                    community_note_queue = _serialize_community_notes(queued, current_user_id)
-                except Exception:
-                    community_note_queue = []
-
-                try:
-                    skills = skill_manager.get_skills(limit=24)
-                    for skill in skills or []:
-                        trust_data = skill_manager.get_skill_trust_score(skill['id'])
-                        trust_score = trust_data.get('trust_score')
-                        components = trust_data.get('components') or {}
-                        top_skill_trust.append({
-                            'id': skill['id'],
-                            'name': skill.get('name') or skill.get('id'),
-                            'version': skill.get('version') or '',
-                            'author_id': skill.get('author_id'),
-                            'trust_score': trust_score,
-                            'trust_percent': int(round(trust_score * 100)) if trust_score is not None else None,
-                            'endorsement_count': int((components or {}).get('endorsement_count') or 0),
-                            'invocation_count': int((components or {}).get('invocation_count') or 0),
-                            'success_rate': components.get('success_rate'),
-                        })
-                    top_skill_trust.sort(
-                        key=lambda x: (x.get('trust_score') is None, -(x.get('trust_score') or 0.0), -(x.get('endorsement_count') or 0)),
-                    )
-                    top_skill_trust = top_skill_trust[:8]
-                except Exception:
-                    top_skill_trust = []
 
             return render_template('admin.html',
                                  users=users,
                                  pending_count=len(pending),
                                  active_agents_count=len(active_agents),
+                                 canopy_version=canopy_version,
+                                 auto_approve_agents=auto_approve_agents,
+                                 instance_host=config_host,
+                                 instance_port=config_port,
+                                 instance_database_path=config_db_path,
+                                 large_attachment_threshold_mb=int(LARGE_ATTACHMENT_THRESHOLD / 1024 / 1024),
+                                 large_attachment_store_root=get_large_attachment_store_root(db_manager),
+                                 large_attachment_download_mode=get_large_attachment_download_mode(db_manager),
                                  all_permissions=all_permissions,
                                  default_permissions=default_permissions,
                                  agent_users=agent_users,
                                  workspace_users=workspace_users,
                                  directive_presets=_agent_directive_presets_payload(),
-                                 directive_max_length=MAX_AGENT_DIRECTIVES_LENGTH,
-                                 heartbeat_snapshot=heartbeat_snapshot,
-                                 current_user_is_agent=bool((current_user_row or {}).get('account_type') == 'agent'),
-                                 community_note_counts=community_note_counts,
-                                 community_note_queue=community_note_queue,
-                                 top_skill_trust=top_skill_trust)
+                                 directive_max_length=MAX_AGENT_DIRECTIVES_LENGTH)
         except Exception as e:
             logger.error(f"Admin page error: {e}")
             flash('Error loading admin page', 'error')
