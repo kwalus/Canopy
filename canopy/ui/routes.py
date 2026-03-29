@@ -149,12 +149,35 @@ def _is_placeholder_shadow_username(username: Any, user_id: Any) -> bool:
     return bool(uid_suffix) and uname.endswith(f"-{uid_suffix}")
 
 
+def _sort_timestamp_value(value: Any) -> float:
+    raw = str(value or '').strip()
+    if not raw:
+        return 0.0
+    normalized = raw.replace('Z', '+00:00')
+    try:
+        return datetime.fromisoformat(normalized).timestamp()
+    except Exception:
+        pass
+    for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M:%S.%f'):
+        try:
+            return datetime.strptime(raw, fmt).timestamp()
+        except Exception:
+            continue
+    return 0.0
+
+
 def _recipient_directory_candidate_sort_key(user: dict[str, Any]) -> tuple[Any, ...]:
     origin_peer = str(user.get('origin_peer') or '').strip()
     username = str(user.get('username') or user.get('user_id') or '').strip()
     user_id = str(user.get('user_id') or '').strip()
     peer_token = origin_peer[:6].lower()
+    profile_updated_at = _sort_timestamp_value(user.get('profile_updated_at'))
+    created_at = _sort_timestamp_value(user.get('created_at'))
     return (
+        0 if profile_updated_at else 1,
+        -profile_updated_at,
+        0 if created_at else 1,
+        -created_at,
         1 if _is_placeholder_shadow_username(username, user_id) else 0,
         0 if (peer_token and f".{peer_token}" in username.lower()) else 1,
         0 if user.get('avatar_url') else 1,
@@ -193,6 +216,97 @@ def _dedupe_recipient_directory_users(users: list[dict[str, Any]]) -> list[dict[
         filtered.append(user)
 
     return filtered
+
+
+def _resolve_canonical_remote_user_id(db_manager: Any, user_id: Any) -> str:
+    """Pick the freshest local row when a remote identity has stale duplicates."""
+    target_user_id = str(user_id or '').strip()
+    if not target_user_id or not db_manager:
+        return target_user_id
+    try:
+        with db_manager.get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT id, username, display_name, origin_peer, avatar_file_id, profile_updated_at, created_at
+                FROM users
+                WHERE id = ?
+                """,
+                (target_user_id,),
+            ).fetchone()
+            if not row:
+                return target_user_id
+            origin_peer = str(row['origin_peer'] or '').strip() if 'origin_peer' in row.keys() else ''
+            if not origin_peer:
+                return target_user_id
+            display_name = str(
+                (row['display_name'] if 'display_name' in row.keys() else None)
+                or (row['username'] if 'username' in row.keys() else None)
+                or target_user_id
+            ).strip()
+            if not display_name:
+                return target_user_id
+            candidates = conn.execute(
+                """
+                SELECT id, username, display_name, origin_peer, avatar_file_id, profile_updated_at, created_at
+                FROM users
+                WHERE origin_peer = ?
+                  AND lower(COALESCE(display_name, username, id)) = lower(?)
+                """,
+                (origin_peer, display_name),
+            ).fetchall()
+    except Exception:
+        return target_user_id
+    if not candidates:
+        return target_user_id
+    best = min((dict(candidate) for candidate in candidates), key=_recipient_directory_candidate_sort_key)
+    return str(best.get('id') or target_user_id).strip() or target_user_id
+
+
+def _find_remote_identity_duplicate_user_ids(db_manager: Any, user_id: Any) -> list[str]:
+    target_user_id = str(user_id or '').strip()
+    canonical_user_id = _resolve_canonical_remote_user_id(db_manager, target_user_id)
+    if not canonical_user_id or not db_manager:
+        return []
+    try:
+        with db_manager.get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT username, display_name, origin_peer
+                FROM users
+                WHERE id = ?
+                """,
+                (canonical_user_id,),
+            ).fetchone()
+            if not row:
+                return []
+            origin_peer = str(row['origin_peer'] or '').strip() if 'origin_peer' in row.keys() else ''
+            if not origin_peer:
+                return []
+            display_name = str(
+                (row['display_name'] if 'display_name' in row.keys() else None)
+                or (row['username'] if 'username' in row.keys() else None)
+                or canonical_user_id
+            ).strip()
+            if not display_name:
+                return []
+            rows = conn.execute(
+                """
+                SELECT id
+                FROM users
+                WHERE origin_peer = ?
+                  AND lower(COALESCE(display_name, username, id)) = lower(?)
+                  AND id != ?
+                """,
+                (origin_peer, display_name, canonical_user_id),
+            ).fetchall()
+    except Exception:
+        return []
+    duplicates: list[str] = []
+    for row in rows or []:
+        dup_id = str((row['id'] if 'id' in row.keys() else row[0]) or '').strip()
+        if dup_id and dup_id not in duplicates:
+            duplicates.append(dup_id)
+    return duplicates
 
 
 def _resolve_p2p_stream(stream_id: str, db_manager: Any, p2p_manager: Any) -> Optional[dict[str, Any]]:
@@ -3113,7 +3227,7 @@ def create_ui_blueprint() -> Blueprint:
         *,
         local_peer_id: Optional[str],
     ) -> list[dict[str, Any]]:
-        """Hide remote private/restricted channels from admin governance tooling."""
+        """Hide unrelated remote private channels from admin governance tooling."""
         filtered: list[dict[str, Any]] = []
         local_peer = str(local_peer_id or '').strip()
         for raw in channels or []:
@@ -3128,7 +3242,8 @@ def create_ui_blueprint() -> Blueprint:
                 or (privacy_mode == 'open' and channel_type in {'public', 'general'})
             )
             is_local_origin = not origin_peer or (bool(local_peer) and origin_peer == local_peer)
-            if not is_public_open and not is_local_origin:
+            is_member = bool(row.get('is_member'))
+            if not is_public_open and not is_local_origin and not is_member:
                 continue
             row['origin_peer'] = origin_peer or None
             row['is_public_open'] = is_public_open
@@ -7517,7 +7632,7 @@ def create_ui_blueprint() -> Blueprint:
                 return jsonify({'error': 'Too many allowed channels provided'}), 400
 
             available_channels = _filter_admin_governance_channels(
-                channel_manager.list_channels_for_governance(),
+                channel_manager.list_channels_for_governance(user_id=user_id),
                 local_peer_id=(p2p_manager.get_peer_id() if p2p_manager else None),
             )
             valid_channel_ids = {
@@ -15833,10 +15948,26 @@ def create_ui_blueprint() -> Blueprint:
             db_manager, _, _, _, channel_manager, _, _, _, _, _, _ = _get_app_components_any(current_app)
             user_id = get_current_user()
             data = request.get_json() or {}
-            target_user_id = data.get('user_id')
+            requested_user_id = data.get('user_id')
+            target_user_id = _resolve_canonical_remote_user_id(db_manager, requested_user_id)
+            duplicate_user_ids = _find_remote_identity_duplicate_user_ids(db_manager, target_user_id)
             role = data.get('role', 'member')
             if not target_user_id:
                 return jsonify({'error': 'user_id required'}), 400
+            stale_member_ids = set(duplicate_user_ids)
+            if requested_user_id and requested_user_id != target_user_id:
+                stale_member_ids.add(str(requested_user_id))
+            if stale_member_ids:
+                try:
+                    with db_manager.get_connection() as conn:
+                        for stale_user_id in stale_member_ids:
+                            conn.execute(
+                                "DELETE FROM channel_members WHERE channel_id = ? AND user_id = ?",
+                                (channel_id, stale_user_id),
+                            )
+                        conn.commit()
+                except Exception:
+                    pass
             ok = channel_manager.add_member(channel_id, target_user_id, user_id, role)
             if ok:
                 # Trigger P2P member sync for private channels
@@ -18293,6 +18424,10 @@ def create_ui_blueprint() -> Blueprint:
                         select_cols.append('display_name')
                     if 'avatar_file_id' in table_cols:
                         select_cols.append('avatar_file_id')
+                    if 'profile_updated_at' in table_cols:
+                        select_cols.append('profile_updated_at')
+                    if 'created_at' in table_cols:
+                        select_cols.append('created_at')
                     if 'origin_peer' in table_cols:
                         select_cols.append('origin_peer')
                     if 'account_type' in table_cols:
@@ -18350,6 +18485,8 @@ def create_ui_blueprint() -> Blueprint:
                     dname = row['display_name'] if 'display_name' in row_keys else uname
                     dname = dname or uname or uid
                     avatar_file_id = row['avatar_file_id'] if 'avatar_file_id' in row_keys else None
+                    profile_updated_at = row['profile_updated_at'] if 'profile_updated_at' in row_keys else None
+                    created_at = row['created_at'] if 'created_at' in row_keys else None
                     account_type = row['account_type'] if 'account_type' in row_keys else None
                     origin_peer = row['origin_peer'] if 'origin_peer' in row_keys else ''
                     status = row['status'] if 'status' in row_keys else None
@@ -18360,6 +18497,8 @@ def create_ui_blueprint() -> Blueprint:
                         'display_name': dname,
                         'handle': _clean_mention_handle(dname, uname, uid),
                         'avatar_url': f"/files/{avatar_file_id}" if avatar_file_id else None,
+                        'profile_updated_at': profile_updated_at,
+                        'created_at': created_at,
                         'account_type': (account_type or '').strip().lower() or None,
                         'origin_peer': origin_peer,
                         'status': status,

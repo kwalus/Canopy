@@ -313,6 +313,15 @@ class _FakeChannelManager:
                 'privacy_mode': 'private',
                 'origin_peer': 'peer-xyz',
                 'member_count': 2,
+                'members': {'agent-local'},
+            },
+            {
+                'id': 'CremotePrivateOther',
+                'name': 'ops-room-secret',
+                'channel_type': 'private',
+                'privacy_mode': 'private',
+                'origin_peer': 'peer-xyz',
+                'member_count': 2,
                 'members': set(),
             },
             {
@@ -662,7 +671,8 @@ class TestAdminUserWorkspace(unittest.TestCase):
         self.assertTrue((governance.get('policy') or {}).get('enabled'))
         self.assertGreaterEqual(len(governance.get('channels') or []), 1)
         channel_ids = {row.get('id') for row in (governance.get('channels') or [])}
-        self.assertNotIn('CremotePrivate', channel_ids)
+        self.assertIn('CremotePrivate', channel_ids)
+        self.assertNotIn('CremotePrivateOther', channel_ids)
         self.assertIn('CremotePublic', channel_ids)
 
     def test_admin_page_renders_governance_manager_and_permission_presets(self) -> None:
@@ -814,7 +824,7 @@ class TestAdminUserWorkspace(unittest.TestCase):
                 'enabled': True,
                 'block_public_channels': False,
                 'restrict_to_allowed_channels': True,
-                'allowed_channel_ids': ['Cprivate', 'CremotePrivate', 'CremotePublic'],
+                'allowed_channel_ids': ['Cprivate', 'CremotePrivate', 'CremotePrivateOther', 'CremotePublic'],
                 'enforce_now': False,
             },
             headers={'X-CSRFToken': csrf_token},
@@ -825,7 +835,7 @@ class TestAdminUserWorkspace(unittest.TestCase):
         self.assertTrue(payload.get('success'))
         self.assertEqual(
             self.channel_manager.saved_payloads[-1]['allowed_channel_ids'],
-            ['Cprivate', 'CremotePublic'],
+            ['Cprivate', 'CremotePrivate', 'CremotePublic'],
         )
 
     def test_admin_governance_update_rejects_remote_user(self) -> None:
