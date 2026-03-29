@@ -442,6 +442,13 @@
         scrollbar-gutter: stable both-edges;
     }
 
+    #dm-thread-body {
+        display: flex;
+        flex-direction: column;
+        gap: 0.38rem;
+        min-width: 0;
+    }
+
     .dm-day-divider {
         display: flex;
         justify-content: center;
@@ -1393,8 +1400,6 @@
             </button>
         </div>
     </div>
-
-    {% include '_workspace_onboarding.html' %}
 
     <div class="messages-shell">
         <aside class="dm-sidebar">
@@ -2646,9 +2651,24 @@
             const name = escapeHtml(String((attachment && attachment.name) || 'Attachment'));
             const url = String((attachment && attachment.url) || '').trim();
             const type = escapeHtml(String((attachment && attachment.type) || 'file'));
+            const rawType = String((attachment && attachment.type) || '').trim().toLowerCase();
             const size = Number(attachment && attachment.size);
             const sizeLabel = Number.isFinite(size) && size > 0 ? ` • ${escapeHtml((size / 1024 / 1024 >= 1 ? `${(size / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(size / 1024))} KB`))}` : '';
             const download = url ? `<a href="${dmEscapeAttr(url)}" class="btn btn-sm btn-outline-primary" download="${dmEscapeAttr(name)}"><i class="bi bi-download"></i></a>` : '';
+            let mediaHtml = '';
+            if (url && rawType.startsWith('audio/')) {
+                mediaHtml = `
+                    <audio controls preload="metadata" class="w-100 mt-2">
+                        <source src="${dmEscapeAttr(url)}" type="${dmEscapeAttr(rawType || 'audio/mpeg')}">
+                    </audio>
+                `;
+            } else if (url && rawType.startsWith('video/')) {
+                mediaHtml = `
+                    <video controls preload="metadata" playsinline class="w-100 mt-2" style="max-width:100%;border-radius:12px;background:#000;">
+                        <source src="${dmEscapeAttr(url)}" type="${dmEscapeAttr(rawType || 'video/mp4')}">
+                    </video>
+                `;
+            }
             return `
                 <div class="dm-attachment dm-attachment-card">
                     <div class="dm-attachment-title-row">
@@ -2658,6 +2678,7 @@
                         </div>
                         ${download}
                     </div>
+                    ${mediaHtml}
                 </div>
             `;
         }).join('')}</div>`;
@@ -3009,16 +3030,73 @@
         if (!silent) showAlert('Edit cancelled', 'secondary');
     }
 
+    function setInlineDmEditSaving(messageId, saving) {
+        const msgEl = getDmMessageElement(messageId);
+        if (!msgEl) return;
+        const panel = msgEl.querySelector(`.dm-inline-editor[data-inline-dm-for="${messageId}"]`);
+        if (!panel) return;
+        const textarea = panel.querySelector('textarea[data-inline-dm-content]');
+        const saveBtn = panel.querySelector('[data-inline-dm-save]');
+        const cancelBtn = panel.querySelector('[data-inline-dm-cancel]');
+        if (textarea) textarea.disabled = !!saving;
+        if (cancelBtn) cancelBtn.disabled = !!saving;
+        if (saveBtn) {
+            if (saving) {
+                saveBtn.dataset.originalHtml = saveBtn.innerHTML;
+                saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving...';
+                saveBtn.disabled = true;
+            } else {
+                saveBtn.innerHTML = saveBtn.dataset.originalHtml || '<i class="bi bi-check2"></i> Save';
+                saveBtn.disabled = false;
+            }
+        }
+    }
+
+    function applyInlineDmMessageEdit(messageId, content, editedAt) {
+        const msgEl = getDmMessageElement(messageId);
+        if (!msgEl) return;
+        const contentWrap = msgEl.querySelector('[data-message-content]');
+        let textEl = msgEl.querySelector('.dm-message-text');
+        if (!textEl && contentWrap && content) {
+            textEl = document.createElement('div');
+            textEl.className = 'dm-bubble-copy dm-message-text';
+            textEl.setAttribute('data-canopy-source-ref', 'content:lede');
+            const attachmentList = contentWrap.querySelector('.dm-attachment-list');
+            if (attachmentList) contentWrap.insertBefore(textEl, attachmentList);
+            else contentWrap.appendChild(textEl);
+        }
+        if (textEl) {
+            textEl.textContent = content || '';
+        }
+        const footer = msgEl.querySelector('.dm-bubble-footer');
+        if (footer) {
+            let badge = footer.querySelector('[data-dm-edited-badge]');
+            if (!badge) {
+                badge = document.createElement('span');
+                badge.setAttribute('data-dm-edited-badge', '1');
+                const timeNode = footer.querySelector('[data-timestamp]');
+                if (timeNode) footer.insertBefore(badge, timeNode);
+                else footer.appendChild(badge);
+            }
+            const title = editedAt ? `Edited ${editedAt}` : 'Edited';
+            badge.textContent = 'Edited';
+            badge.setAttribute('title', title);
+        }
+    }
+
     function saveInlineMessageEdit(messageId) {
         const msgEl = getDmMessageElement(messageId);
         if (!msgEl) return;
         const panel = msgEl.querySelector(`.dm-inline-editor[data-inline-dm-for="${messageId}"]`);
         const textarea = panel ? panel.querySelector('textarea[data-inline-dm-content]') : null;
         const content = textarea ? textarea.value.trim() : '';
+        if (!panel || panel.dataset.saving === '1') return;
         if (!content) {
             showAlert('Message content required', 'warning');
             return;
         }
+        panel.dataset.saving = '1';
+        setInlineDmEditSaving(messageId, true);
 
         apiCall('/ajax/update_message', {
             method: 'POST',
@@ -3029,13 +3107,27 @@
                 showAlert((data && data.error) || 'Failed to update message', 'danger');
                 return;
             }
+            const updatedMessage = (data && typeof data.message === 'object' && data.message) ? data.message : null;
+            applyInlineDmMessageEdit(
+                messageId,
+                (updatedMessage && typeof updatedMessage.content === 'string') ? updatedMessage.content : content,
+                (updatedMessage && updatedMessage.edited_at) ? updatedMessage.edited_at : new Date().toISOString(),
+            );
+            cancelInlineMessageEdit(messageId, true);
+            showAlert('Message updated successfully', 'success');
             loadDmSnapshot({
                 forceBottom: false,
                 allowDeferred: false,
-                hardFallback: true,
+                hardFallback: false,
             }).catch(err => showAlert('Failed to refresh message thread: ' + (err.message || err), 'danger'));
         })
         .catch(err => showAlert('Failed to update message: ' + (err.message || err), 'danger'));
+        .finally(() => {
+            if (panel && panel.isConnected) {
+                panel.dataset.saving = '0';
+            }
+            setInlineDmEditSaving(messageId, false);
+        });
     }
 
     function escapeHtml(text) {

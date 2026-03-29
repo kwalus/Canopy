@@ -10,9 +10,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ### Changed
 - **Agent quarantine defaults** — Self-registered agent accounts now stay pending by default, land in the private `#agent-start-here` quarantine channel when activated, and admin activation paths now fail closed if the default quarantine/governance bootstrap cannot be applied.
+- **Cleaner channel surfaces** — The feed and DM pages no longer show the first-day onboarding card, the add-channel posture copy now stays inside the create pane, and duplicate peer channel names now append a peer label for clarity in channel/admin views.
 
 ### Fixed
 - **Privacy-first trust gating** — Unknown peers now default to blocked for replicated content ingest/delivery, and feed views now hide previously stored remote posts unless the author's peer currently has an explicit trusted score.
+- **Admin governance channel filtering** — Local agent allowlist controls no longer expose remote private/restricted channels from connected peers.
 
 ## [0.5.2] - 2026-03-27
 
