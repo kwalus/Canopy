@@ -29,6 +29,7 @@ if 'zeroconf' not in sys.modules:
     sys.modules['zeroconf'] = zeroconf_stub
 
 from canopy.ui.routes import create_ui_blueprint
+from canopy.security.api_keys import Permission
 
 
 class _FakeDbManager:
@@ -48,6 +49,10 @@ class _FakeDbManager:
             (user_id,),
         ).fetchone()
         return dict(row) if row else None
+
+    def get_all_users_for_admin(self):
+        rows = self._conn.execute("SELECT * FROM users ORDER BY username ASC").fetchall()
+        return [dict(row) for row in rows]
 
 
 class _FakeProfileManager:
@@ -538,13 +543,21 @@ class TestAdminUserWorkspace(unittest.TestCase):
         self.mention_manager = _FakeMentionManager()
         self.workspace_event_manager = _FakeWorkspaceEventManager()
         self.channel_manager = _FakeChannelManager()
+        self.api_key_manager = MagicMock()
+        self.api_key_manager.get_all_permissions.return_value = list(Permission)
+        self.api_key_manager.get_default_permissions.return_value = [
+            Permission.READ_MESSAGES,
+            Permission.WRITE_MESSAGES,
+            Permission.READ_FEED,
+            Permission.WRITE_FEED,
+        ]
 
         p2p_manager = MagicMock()
         p2p_manager.is_running.return_value = False
 
         components = (
             self.db_manager,          # db_manager
-            MagicMock(),              # api_key_manager
+            self.api_key_manager,     # api_key_manager
             MagicMock(),              # trust_manager
             MagicMock(),              # message_manager
             self.channel_manager,     # channel_manager
@@ -625,6 +638,18 @@ class TestAdminUserWorkspace(unittest.TestCase):
         self.assertTrue(governance.get('available'))
         self.assertTrue((governance.get('policy') or {}).get('enabled'))
         self.assertGreaterEqual(len(governance.get('channels') or []), 1)
+
+    def test_admin_page_renders_governance_manager_and_permission_presets(self) -> None:
+        self._set_authenticated_session()
+
+        response = self.client.get('/admin')
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('Stage current memberships', html)
+        self.assertIn('Quarantine preset', html)
+        self.assertIn('Agent default', html)
+        self.assertIn('Read only', html)
 
     def test_admin_workspace_event_status_snapshot(self) -> None:
         self._set_authenticated_session()

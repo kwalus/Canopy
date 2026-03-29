@@ -472,6 +472,208 @@
     min-width: 0;
 }
 
+.governance-shell {
+    border: 1px solid rgba(122, 151, 215, 0.22);
+    border-radius: 16px;
+    background: linear-gradient(145deg, rgba(15, 30, 52, 0.8), rgba(10, 23, 41, 0.72));
+    padding: 1rem;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.governance-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.65rem;
+    margin-bottom: 0.85rem;
+}
+
+.governance-stat {
+    border: 1px solid rgba(122, 151, 215, 0.22);
+    border-radius: 12px;
+    background: rgba(8, 19, 35, 0.55);
+    padding: 0.65rem 0.75rem;
+}
+
+.governance-stat-label {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #9cb2cf;
+}
+
+.governance-stat-value {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #e7f0ff;
+}
+
+.governance-toolbar {
+    border: 1px solid rgba(122, 151, 215, 0.18);
+    border-radius: 14px;
+    background: rgba(8, 19, 35, 0.42);
+    padding: 0.75rem;
+}
+
+.governance-channel-list {
+    max-height: 360px;
+    overflow-y: auto;
+    padding-right: 4px;
+    margin-top: 0.85rem;
+}
+
+.governance-channel-grid {
+    display: grid;
+    gap: 0.65rem;
+}
+
+.governance-channel-card {
+    border: 1px solid rgba(122, 151, 215, 0.18);
+    border-radius: 14px;
+    background: linear-gradient(145deg, rgba(18, 33, 56, 0.82), rgba(12, 24, 43, 0.78));
+    padding: 0.8rem 0.9rem;
+    transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+}
+
+.governance-channel-card:hover {
+    border-color: rgba(74, 220, 191, 0.48);
+    transform: translateY(-1px);
+    box-shadow: 0 10px 18px rgba(3, 9, 22, 0.3);
+}
+
+.governance-channel-card.selected {
+    border-color: rgba(74, 220, 191, 0.85);
+    box-shadow: 0 0 0 1px rgba(74, 220, 191, 0.35);
+}
+
+.governance-channel-card.blocked {
+    border-color: rgba(248, 113, 113, 0.28);
+}
+
+.governance-channel-card.readonly {
+    opacity: 0.68;
+}
+
+.governance-channel-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    align-items: flex-start;
+    margin-bottom: 0.4rem;
+}
+
+.governance-channel-title {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-width: 0;
+}
+
+.governance-channel-name {
+    font-weight: 700;
+    color: #e7f0ff;
+}
+
+.governance-channel-meta {
+    color: #9cb2cf;
+    font-size: 0.76rem;
+}
+
+.governance-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 0.45rem;
+}
+
+.governance-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border-radius: 999px;
+    padding: 0.16rem 0.52rem;
+    border: 1px solid rgba(122, 151, 215, 0.22);
+    background: rgba(8, 18, 33, 0.56);
+    color: #cbd9f2;
+    font-size: 0.71rem;
+}
+
+.governance-chip.good {
+    border-color: rgba(74, 222, 128, 0.28);
+    color: #86efac;
+}
+
+.governance-chip.warn {
+    border-color: rgba(250, 204, 21, 0.35);
+    color: #fde68a;
+}
+
+.governance-chip.bad {
+    border-color: rgba(248, 113, 113, 0.32);
+    color: #fca5a5;
+}
+
+.governance-helper {
+    font-size: 0.76rem;
+    color: #9cb2cf;
+}
+
+.keys-panel-shell {
+    border: 1px solid rgba(122, 151, 215, 0.18);
+    border-radius: 14px;
+    background: linear-gradient(145deg, rgba(16, 31, 53, 0.78), rgba(11, 23, 40, 0.72));
+    padding: 0.9rem;
+}
+
+.keys-preset-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    margin-bottom: 0.65rem;
+}
+
+.keys-permission-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.45rem;
+}
+
+.keys-permission-card {
+    border: 1px solid rgba(122, 151, 215, 0.18);
+    border-radius: 12px;
+    background: rgba(8, 19, 35, 0.5);
+    padding: 0.55rem 0.65rem;
+}
+
+.keys-permission-card .form-check {
+    margin: 0;
+}
+
+.keys-permission-hint {
+    font-size: 0.72rem;
+    color: #9cb2cf;
+    margin-top: 0.2rem;
+}
+
+.keys-summary-line {
+    font-size: 0.78rem;
+    color: #b7c8e6;
+}
+
+.keys-permission-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+}
+
+.keys-permission-badge {
+    border-radius: 999px;
+    border: 1px solid rgba(122, 151, 215, 0.22);
+    background: rgba(8, 18, 33, 0.56);
+    color: #d7e4fb;
+    padding: 0.12rem 0.45rem;
+    font-size: 0.7rem;
+}
+
 @media (max-width: 1400px) {
     .id-port-panel .row.g-2 {
         --bs-gutter-x: 0.45rem;
@@ -1433,15 +1635,33 @@
                     </div>
                     <div class="small text-muted mb-3" id="workspace-status-line"></div>
 
-                    <div class="border rounded p-2 mb-3">
+                    <div class="governance-shell mb-3">
                         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
                             <div>
                                 <h6 class="mb-0">Channel Governance</h6>
-                                <div class="small text-muted">Restrict agent access to selected channels and block public channels.</div>
+                                <div class="small text-muted">Search, stage, and enforce an agent's channel allowlist without wrestling a raw multi-select.</div>
                             </div>
                             <div class="d-flex gap-2">
                                 <button type="button" class="btn btn-outline-success btn-sm" id="workspace-save-governance-btn">Save Governance</button>
                                 <button type="button" class="btn btn-outline-warning btn-sm" id="workspace-enforce-governance-btn">Enforce Now</button>
+                            </div>
+                        </div>
+                        <div class="governance-stat-grid">
+                            <div class="governance-stat">
+                                <div class="governance-stat-label">Policy</div>
+                                <div class="governance-stat-value" id="workspace-governance-policy-state">Not loaded</div>
+                            </div>
+                            <div class="governance-stat">
+                                <div class="governance-stat-label">Allowlisted</div>
+                                <div class="governance-stat-value" id="workspace-governance-allowed-count">0 channels</div>
+                            </div>
+                            <div class="governance-stat">
+                                <div class="governance-stat-label">Current Memberships</div>
+                                <div class="governance-stat-value" id="workspace-governance-member-count">0 channels</div>
+                            </div>
+                            <div class="governance-stat">
+                                <div class="governance-stat-label">Visible Slice</div>
+                                <div class="governance-stat-value" id="workspace-governance-visible-count">0 channels</div>
                             </div>
                         </div>
                         <div class="row g-2 mb-2">
@@ -1464,8 +1684,42 @@
                                 </div>
                             </div>
                         </div>
-                        <label class="form-label small mb-1" for="workspace-governance-allowed-channels">Allowed channels (multi-select)</label>
-                        <select class="form-select form-select-sm" id="workspace-governance-allowed-channels" multiple size="6"></select>
+                        <div class="governance-toolbar">
+                            <div class="row g-2 align-items-end">
+                                <div class="col-lg-4">
+                                    <label class="form-label small mb-1" for="workspace-governance-search">Search channels</label>
+                                    <input type="search" class="form-control form-control-sm" id="workspace-governance-search" placeholder="Search by channel name or ID">
+                                </div>
+                                <div class="col-lg-3">
+                                    <label class="form-label small mb-1" for="workspace-governance-filter">Filter</label>
+                                    <select class="form-select form-select-sm" id="workspace-governance-filter">
+                                        <option value="all">All channels</option>
+                                        <option value="allowed">Allowlisted</option>
+                                        <option value="blocked">Blocked by policy</option>
+                                        <option value="member">Current memberships</option>
+                                        <option value="not-member">Not a member</option>
+                                        <option value="public">Public/open</option>
+                                        <option value="private">Private/restricted</option>
+                                    </select>
+                                </div>
+                                <div class="col-lg-5">
+                                    <label class="form-label small mb-1">Quick actions</label>
+                                    <div class="d-flex flex-wrap gap-2">
+                                        <button type="button" class="btn btn-outline-info btn-sm" id="workspace-governance-select-member-btn">Stage current memberships</button>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm" id="workspace-governance-select-visible-btn">Allow visible</button>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm" id="workspace-governance-clear-visible-btn">Clear visible</button>
+                                        <button type="button" class="btn btn-outline-warning btn-sm" id="workspace-governance-quarantine-btn">Quarantine preset</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="governance-helper mt-2">
+                                Stage selections even while allowlist mode is off. When you enable it, only the selected channels remain allowed.
+                            </div>
+                        </div>
+                        <select class="form-select form-select-sm d-none" id="workspace-governance-allowed-channels" multiple size="6" aria-hidden="true"></select>
+                        <div class="governance-channel-list" id="workspace-governance-channel-list">
+                            <p class="small text-muted mb-0">No governance channels loaded.</p>
+                        </div>
                         <div class="small text-muted mt-1" id="workspace-governance-summary">No policy loaded.</div>
                     </div>
 
@@ -1660,7 +1914,7 @@
             </table>
         </div>
         <!-- Inline API keys panel (no modal — stays in page flow to avoid z-index/obstruction) -->
-        <div id="keys-panel" class="mt-3 p-3 rounded border border-secondary" style="display: none; background: var(--canopy-bg-tertiary, rgba(30,30,50,0.4));">
+        <div id="keys-panel" class="mt-3 p-3 rounded border border-secondary" style="display: none; background: var(--canopy-bg-tertiary, rgba(30,30,50,0.4));" data-default-permissions='{{ default_permissions|default([])|tojson|safe }}'>
             <div class="d-flex justify-content-between align-items-center mb-2 keys-panel-header">
                 <h6 class="mb-0">API keys — <span id="keys-panel-username"></span></h6>
                 <button type="button" class="btn btn-sm btn-outline-secondary" id="keys-panel-close" aria-label="Close">Close</button>
@@ -1670,21 +1924,33 @@
                 <p class="text-muted small">Loading…</p>
             </div>
             <hr class="my-3">
-            <h6 class="mb-2">Create new key</h6>
-            <p class="text-muted small mb-2">Select permissions (default: all). The new key is shown once — copy it and give it to the user.</p>
-            <div class="mb-2" id="keys-permission-checkboxes">
-                {% for p in all_permissions %}
-                <div class="form-check form-check-inline">
-                    <input class="form-check-input key-perm-cb" type="checkbox" id="perm-{{ p }}" value="{{ p }}">
-                    <label class="form-check-label small" for="perm-{{ p }}">{{ p }}</label>
+            <div class="keys-panel-shell">
+                <h6 class="mb-2">Create new key</h6>
+                <p class="text-muted small mb-2">Use presets for common agent scopes, then fine-tune individual permissions if needed. The raw key is shown once.</p>
+                <div class="keys-preset-row">
+                    <button type="button" class="btn btn-outline-info btn-sm" id="keys-preset-agent-btn">Agent default</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="keys-preset-readonly-btn">Read only</button>
+                    <button type="button" class="btn btn-outline-warning btn-sm" id="keys-preset-full-btn">Full access</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="keys-preset-clear-btn">Clear all</button>
                 </div>
-                {% endfor %}
+                <div class="keys-summary-line mb-2" id="keys-permission-summary">No permissions selected.</div>
+                <div class="keys-permission-grid mb-3" id="keys-permission-checkboxes">
+                    {% for p in all_permissions %}
+                    <div class="keys-permission-card">
+                        <div class="form-check">
+                            <input class="form-check-input key-perm-cb" type="checkbox" id="perm-{{ p }}" value="{{ p }}">
+                            <label class="form-check-label small fw-semibold" for="perm-{{ p }}">{{ p }}</label>
+                        </div>
+                        <div class="keys-permission-hint">Grant {{ p.replace('_', ' ') }} capability on this key.</div>
+                    </div>
+                    {% endfor %}
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small">Expires (days, optional)</label>
+                    <input type="number" class="form-control form-control-sm" id="keys-expires-days" placeholder="Leave empty for no expiry" min="1" style="max-width: 120px;">
+                </div>
+                <button type="button" class="btn btn-primary btn-sm" id="keys-create-btn">Create key</button>
             </div>
-            <div class="mb-2">
-                <label class="form-label small">Expires (days, optional)</label>
-                <input type="number" class="form-control form-control-sm" id="keys-expires-days" placeholder="Leave empty for no expiry" min="1" style="max-width: 120px;">
-            </div>
-            <button type="button" class="btn btn-primary btn-sm" id="keys-create-btn">Create key</button>
             <div id="keys-new-key-area" class="mt-3 p-2 rounded border bg-dark bg-opacity-25" style="display: none;">
                 <p class="small text-warning mb-1">Copy this key now; it will not be shown again.</p>
                 <div class="keys-new-key-row">
@@ -2759,6 +3025,57 @@
     const keysNewKeyInput = document.getElementById('keys-new-key-input');
     const keysCopyKeyBtn = document.getElementById('keys-copy-key-btn');
     const keysPanelClose = document.getElementById('keys-panel-close');
+    const keysPermissionSummary = document.getElementById('keys-permission-summary');
+    const keysPresetAgentBtn = document.getElementById('keys-preset-agent-btn');
+    const keysPresetReadonlyBtn = document.getElementById('keys-preset-readonly-btn');
+    const keysPresetFullBtn = document.getElementById('keys-preset-full-btn');
+    const keysPresetClearBtn = document.getElementById('keys-preset-clear-btn');
+    const keyPermissionCheckboxes = Array.from(document.querySelectorAll('.key-perm-cb'));
+    const allKeyPermissions = keyPermissionCheckboxes.map(cb => String(cb.value || '').trim()).filter(Boolean);
+    const defaultKeyPermissions = (() => {
+        try {
+            const raw = keysPanel?.dataset?.defaultPermissions || '[]';
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed.map(v => String(v || '').trim()).filter(Boolean) : [];
+        } catch (err) {
+            return [];
+        }
+    })();
+
+    function humanizePermission(permission) {
+        return String(permission || '')
+            .split('_')
+            .filter(Boolean)
+            .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+            .join(' ');
+    }
+
+    function setKeyPermissionSelection(values) {
+        const selected = new Set((values || []).map(v => String(v || '').trim()).filter(Boolean));
+        keyPermissionCheckboxes.forEach(cb => {
+            cb.checked = selected.has(String(cb.value || '').trim());
+        });
+        updateKeyPermissionSummary();
+    }
+
+    function updateKeyPermissionSummary() {
+        if (!keysPermissionSummary) return;
+        const selected = keyPermissionCheckboxes
+            .filter(cb => cb.checked)
+            .map(cb => String(cb.value || '').trim())
+            .filter(Boolean);
+        if (!selected.length) {
+            keysPermissionSummary.textContent = 'No permissions selected. Creating the key now would fall back to the server defaults.';
+            return;
+        }
+        const preview = selected.slice(0, 4).map(humanizePermission).join(' • ');
+        const extra = selected.length > 4 ? ` +${selected.length - 4} more` : '';
+        keysPermissionSummary.textContent = `${selected.length} permission${selected.length === 1 ? '' : 's'} selected · ${preview}${extra}`;
+    }
+
+    function readOnlyPermissionPreset() {
+        return allKeyPermissions.filter(permission => permission.startsWith('read_') || permission === 'view_trust');
+    }
 
     async function loadKeysForUser(userId) {
         keysListContainer.innerHTML = '<p class="text-muted small">Loading…</p>';
@@ -2771,13 +3088,19 @@
         if (keys.length === 0) {
             keysListContainer.innerHTML = '<p class="text-muted small">No API keys yet. Create one below.</p>';
         } else {
-            keysListContainer.innerHTML = '<table class="table table-sm"><thead><tr><th>Key</th><th>Permissions</th><th>Created</th><th></th></tr></thead><tbody>' +
-                keys.map(k => '<tr>' +
-                    '<td><code>' + (k.id_suffix || k.id) + '</code></td>' +
-                    '<td><span class="badge bg-secondary me-1">' + (k.permissions || []).length + ' perms</span></td>' +
-                    '<td class="small">' + (k.created_at ? k.created_at.slice(0, 10) : '-') + '</td>' +
-                    '<td>' + (k.revoked ? '<span class="badge bg-danger">Revoked</span>' : '<button type="button" class="btn btn-outline-danger btn-sm revoke-key-btn" data-key-id="' + k.id + '">Revoke</button>') + '</td></tr>'
-                ).join('') + '</tbody></table>';
+            keysListContainer.innerHTML = '<div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>Key</th><th>Permissions</th><th>Created</th><th>Expiry</th><th></th></tr></thead><tbody>' +
+                keys.map(k => {
+                    const permissions = Array.isArray(k.permissions) ? k.permissions : [];
+                    const badges = permissions.length
+                        ? `<div class="keys-permission-badges">${permissions.map(permission => `<span class="keys-permission-badge">${escapeHtml(humanizePermission(permission))}</span>`).join('')}</div>`
+                        : '<span class="text-muted small">No permissions recorded</span>';
+                    return '<tr>' +
+                        '<td><div class="d-flex flex-column"><code>' + escapeHtml(k.id_suffix || k.id) + '</code><span class="small text-muted">' + escapeHtml(k.id || '') + '</span></div></td>' +
+                        '<td><div class="small mb-1"><span class="badge bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle">' + permissions.length + ' perms</span></div>' + badges + '</td>' +
+                        '<td class="small">' + escapeHtml(k.created_at ? k.created_at.slice(0, 10) : '-') + '</td>' +
+                        '<td class="small">' + escapeHtml(k.expires_at ? k.expires_at.slice(0, 10) : 'none') + '</td>' +
+                        '<td>' + (k.revoked ? '<span class="badge bg-danger">Revoked</span>' : '<button type="button" class="btn btn-outline-danger btn-sm revoke-key-btn" data-key-id="' + escapeHtml(k.id || '') + '">Revoke</button>') + '</td></tr>';
+                }).join('') + '</tbody></table></div>';
             keysListContainer.querySelectorAll('.revoke-key-btn').forEach(btn => {
                 btn.addEventListener('click', async () => {
                     if (!confirm('Revoke this key? It will stop working immediately.')) return;
@@ -2794,7 +3117,7 @@
         keysPanelUserId.value = userId;
         keysPanelUsername.textContent = username;
         keysNewKeyArea.style.display = 'none';
-        document.querySelectorAll('.key-perm-cb').forEach(cb => { cb.checked = true; });
+        setKeyPermissionSelection(defaultKeyPermissions.length ? defaultKeyPermissions : allKeyPermissions);
         const expEl = document.getElementById('keys-expires-days');
         if (expEl) expEl.value = '';
         keysPanel.style.display = 'block';
@@ -2814,12 +3137,18 @@
         });
     });
     if (keysPanelClose) keysPanelClose.addEventListener('click', hideKeysPanel);
+    keyPermissionCheckboxes.forEach(cb => cb.addEventListener('change', updateKeyPermissionSummary));
+    if (keysPresetAgentBtn) keysPresetAgentBtn.addEventListener('click', () => setKeyPermissionSelection(defaultKeyPermissions));
+    if (keysPresetReadonlyBtn) keysPresetReadonlyBtn.addEventListener('click', () => setKeyPermissionSelection(readOnlyPermissionPreset()));
+    if (keysPresetFullBtn) keysPresetFullBtn.addEventListener('click', () => setKeyPermissionSelection(allKeyPermissions));
+    if (keysPresetClearBtn) keysPresetClearBtn.addEventListener('click', () => setKeyPermissionSelection([]));
+    updateKeyPermissionSummary();
 
     if (keysCreateBtn) {
         keysCreateBtn.addEventListener('click', async () => {
             const userId = keysPanelUserId.value;
             if (!userId) return;
-            const perms = Array.from(document.querySelectorAll('.key-perm-cb:checked')).map(cb => cb.value);
+            const perms = keyPermissionCheckboxes.filter(cb => cb.checked).map(cb => cb.value);
             const expiresVal = document.getElementById('keys-expires-days').value;
             const expires_days = expiresVal ? parseInt(expiresVal, 10) : null;
             const { ok, data } = await api('POST', `/ajax/admin/users/${userId}/keys`, { permissions: perms.length ? perms : undefined, expires_days: expires_days || undefined });
@@ -2873,6 +3202,17 @@
     const workspaceGovernanceAllowlist = document.getElementById('workspace-governance-allowlist');
     const workspaceGovernanceAllowedChannels = document.getElementById('workspace-governance-allowed-channels');
     const workspaceGovernanceSummary = document.getElementById('workspace-governance-summary');
+    const workspaceGovernanceChannelList = document.getElementById('workspace-governance-channel-list');
+    const workspaceGovernanceSearch = document.getElementById('workspace-governance-search');
+    const workspaceGovernanceFilter = document.getElementById('workspace-governance-filter');
+    const workspaceGovernanceSelectMemberBtn = document.getElementById('workspace-governance-select-member-btn');
+    const workspaceGovernanceSelectVisibleBtn = document.getElementById('workspace-governance-select-visible-btn');
+    const workspaceGovernanceClearVisibleBtn = document.getElementById('workspace-governance-clear-visible-btn');
+    const workspaceGovernanceQuarantineBtn = document.getElementById('workspace-governance-quarantine-btn');
+    const workspaceGovernancePolicyState = document.getElementById('workspace-governance-policy-state');
+    const workspaceGovernanceAllowedCount = document.getElementById('workspace-governance-allowed-count');
+    const workspaceGovernanceMemberCount = document.getElementById('workspace-governance-member-count');
+    const workspaceGovernanceVisibleCount = document.getElementById('workspace-governance-visible-count');
     const workspaceRuntimeEventCursor = document.getElementById('workspace-runtime-event-cursor');
     const workspaceRuntimeEventFetchAt = document.getElementById('workspace-runtime-event-fetch-at');
     const workspaceRuntimeInboxFetchAt = document.getElementById('workspace-runtime-inbox-fetch-at');
@@ -2889,6 +3229,8 @@
     let selectedWorkspaceUserId = null;
     let selectedWorkspaceUserLabel = null;
     let selectedWorkspaceIsLocal = true;
+    let workspaceGovernanceChannelsCache = [];
+    let workspaceGovernancePolicy = {};
 
     function escapeHtml(value) {
         return String(value || '')
@@ -2920,12 +3262,146 @@
             .filter(Boolean);
     }
 
+    function governancePolicyStateLabel() {
+        const enabled = !!workspaceGovernanceEnabled?.checked;
+        const allowlist = !!workspaceGovernanceAllowlist?.checked;
+        const blockPublic = !!workspaceGovernanceBlockPublic?.checked;
+        if (!enabled) return 'Disabled';
+        if (allowlist && blockPublic) return 'Quarantined';
+        if (allowlist) return 'Allowlist only';
+        if (blockPublic) return 'No public/open';
+        return 'Enabled';
+    }
+
+    function governanceReasonLabel(reason) {
+        const normalized = String(reason || '').trim().toLowerCase();
+        if (normalized === 'governance_public_channels_blocked') return 'Blocked: public/open';
+        if (normalized === 'governance_channel_not_allowlisted') return 'Blocked: not in allowlist';
+        return 'Allowed';
+    }
+
+    function governanceOptionElement(channelId) {
+        return Array.from(workspaceGovernanceAllowedChannels?.options || [])
+            .find(option => String(option.value || '').trim() === String(channelId || '').trim()) || null;
+    }
+
+    function governanceSelectedSet() {
+        return new Set(getSelectedOptions(workspaceGovernanceAllowedChannels));
+    }
+
+    function setGovernanceSelection(channelIds, selected) {
+        const wanted = new Set((channelIds || []).map(id => String(id || '').trim()).filter(Boolean));
+        Array.from(workspaceGovernanceAllowedChannels?.options || []).forEach(option => {
+            if (!wanted.has(String(option.value || '').trim())) return;
+            option.selected = !!selected;
+        });
+    }
+
+    function channelMatchesGovernanceFilter(channel, filterValue, allowedSet) {
+        const filter = String(filterValue || 'all').trim().toLowerCase();
+        const channelId = String(channel.id || '').trim();
+        const allowed = allowedSet.has(channelId);
+        if (filter === 'allowed') return allowed;
+        if (filter === 'blocked') return !allowed;
+        if (filter === 'member') return !!channel.is_member;
+        if (filter === 'not-member') return !channel.is_member;
+        if (filter === 'public') return !!channel.is_public_open;
+        if (filter === 'private') return !channel.is_public_open;
+        return true;
+    }
+
+    function renderGovernanceSummary() {
+        const allowedSet = governanceSelectedSet();
+        const allowedCount = allowedSet.size;
+        const memberCount = workspaceGovernanceChannelsCache.filter(channel => channel.is_member).length;
+        const query = String(workspaceGovernanceSearch?.value || '').trim().toLowerCase();
+        const filterValue = String(workspaceGovernanceFilter?.value || 'all').trim().toLowerCase();
+        const visibleCount = workspaceGovernanceChannelsCache.filter(channel => {
+            const haystack = `${channel.name || ''} ${channel.id || ''}`.toLowerCase();
+            if (query && !haystack.includes(query)) return false;
+            return channelMatchesGovernanceFilter(channel, filterValue, allowedSet);
+        }).length;
+        const updatedAt = workspaceGovernancePolicy.updated_at ? formatTime(workspaceGovernancePolicy.updated_at) : 'never';
+        const updatedBy = workspaceGovernancePolicy.updated_by ? ` by ${workspaceGovernancePolicy.updated_by}` : '';
+
+        if (workspaceGovernancePolicyState) workspaceGovernancePolicyState.textContent = governancePolicyStateLabel();
+        if (workspaceGovernanceAllowedCount) workspaceGovernanceAllowedCount.textContent = `${allowedCount} channel${allowedCount === 1 ? '' : 's'}`;
+        if (workspaceGovernanceMemberCount) workspaceGovernanceMemberCount.textContent = `${memberCount} channel${memberCount === 1 ? '' : 's'}`;
+        if (workspaceGovernanceVisibleCount) workspaceGovernanceVisibleCount.textContent = `${visibleCount} channel${visibleCount === 1 ? '' : 's'}`;
+        if (workspaceGovernanceSummary) {
+            workspaceGovernanceSummary.textContent =
+                `${governancePolicyStateLabel()} · ` +
+                `block public ${workspaceGovernanceBlockPublic?.checked ? 'on' : 'off'} · ` +
+                `allowlist ${workspaceGovernanceAllowlist?.checked ? 'on' : 'off'} · ` +
+                `updated ${updatedAt}${updatedBy}`;
+        }
+    }
+
+    function renderGovernanceChannelList() {
+        if (!workspaceGovernanceChannelList) return;
+        const allowedSet = governanceSelectedSet();
+        const query = String(workspaceGovernanceSearch?.value || '').trim().toLowerCase();
+        const filterValue = String(workspaceGovernanceFilter?.value || 'all').trim().toLowerCase();
+        const visible = workspaceGovernanceChannelsCache.filter(channel => {
+            const haystack = `${channel.name || ''} ${channel.id || ''}`.toLowerCase();
+            if (query && !haystack.includes(query)) return false;
+            return channelMatchesGovernanceFilter(channel, filterValue, allowedSet);
+        });
+
+        renderGovernanceSummary();
+
+        if (!visible.length) {
+            workspaceGovernanceChannelList.innerHTML = '<p class="small text-muted mb-0">No channels match the current search/filter.</p>';
+            return;
+        }
+
+        const canEdit = !!selectedWorkspaceIsLocal;
+        workspaceGovernanceChannelList.innerHTML = `<div class="governance-channel-grid">${
+            visible.map(channel => {
+                const channelId = String(channel.id || '').trim();
+                const checked = allowedSet.has(channelId);
+                const allowed = channel.governance_allowed !== false;
+                const badges = [
+                    `<span class="governance-chip ${channel.is_public_open ? 'warn' : 'good'}">${escapeHtml(channel.channel_type || 'channel')} · ${escapeHtml(channel.privacy_mode || 'open')}</span>`,
+                    `<span class="governance-chip ${channel.is_member ? 'good' : ''}">${channel.is_member ? 'Current member' : 'Not a member'}</span>`,
+                    `<span class="governance-chip">${Number(channel.member_count || 0)} members</span>`,
+                    `<span class="governance-chip ${allowed ? 'good' : 'bad'}">${escapeHtml(governanceReasonLabel(channel.governance_reason))}</span>`,
+                ].join('');
+                return (
+                    `<label class="governance-channel-card ${checked ? 'selected' : ''} ${allowed ? '' : 'blocked'} ${canEdit ? '' : 'readonly'}">` +
+                        `<div class="governance-channel-head">` +
+                            `<div class="governance-channel-title">` +
+                                `<input class="form-check-input workspace-governance-channel-checkbox" type="checkbox" data-channel-id="${escapeHtml(channelId)}" ${checked ? 'checked' : ''} ${canEdit ? '' : 'disabled'}>` +
+                                `<div>` +
+                                    `<div class="governance-channel-name">#${escapeHtml(channel.name || channelId)}</div>` +
+                                    `<div class="governance-channel-meta">${escapeHtml(channelId)}</div>` +
+                                `</div>` +
+                            `</div>` +
+                            `<div class="small text-muted">${checked ? 'Allowlisted' : 'Not allowlisted'}</div>` +
+                        `</div>` +
+                        `<div class="governance-chip-row">${badges}</div>` +
+                    `</label>`
+                );
+            }).join('')
+        }</div>`;
+
+        workspaceGovernanceChannelList.querySelectorAll('.workspace-governance-channel-checkbox').forEach(checkbox => {
+            checkbox.addEventListener('change', (event) => {
+                const channelId = event.target.getAttribute('data-channel-id') || '';
+                const option = governanceOptionElement(channelId);
+                if (option) option.selected = !!event.target.checked;
+                renderGovernanceChannelList();
+            });
+        });
+    }
+
     function syncGovernanceControlState() {
         const canEdit = !!selectedWorkspaceIsLocal;
-        if (workspaceGovernanceAllowedChannels) {
-            const allowlistEnabled = !!workspaceGovernanceAllowlist?.checked;
-            workspaceGovernanceAllowedChannels.disabled = !canEdit || !allowlistEnabled;
-        }
+        [workspaceGovernanceSelectMemberBtn, workspaceGovernanceSelectVisibleBtn, workspaceGovernanceClearVisibleBtn, workspaceGovernanceQuarantineBtn]
+            .filter(Boolean)
+            .forEach(el => { el.disabled = !canEdit; });
+        renderGovernanceSummary();
+        renderGovernanceChannelList();
     }
 
     function setWorkspaceEditable(canEdit) {
@@ -3068,20 +3544,36 @@
         if (workspaceGovernanceEnabled) workspaceGovernanceEnabled.checked = !!governancePolicy.enabled;
         if (workspaceGovernanceBlockPublic) workspaceGovernanceBlockPublic.checked = !!governancePolicy.block_public_channels;
         if (workspaceGovernanceAllowlist) workspaceGovernanceAllowlist.checked = !!governancePolicy.restrict_to_allowed_channels;
+        workspaceGovernancePolicy = {
+            enabled: !!governancePolicy.enabled,
+            block_public_channels: !!governancePolicy.block_public_channels,
+            restrict_to_allowed_channels: !!governancePolicy.restrict_to_allowed_channels,
+            allowed_channel_ids: Array.isArray(governancePolicy.allowed_channel_ids) ? governancePolicy.allowed_channel_ids : [],
+            updated_at: governancePolicy.updated_at || null,
+            updated_by: governancePolicy.updated_by || null,
+        };
+        workspaceGovernanceChannelsCache = governanceChannels.map((channel) => ({
+            id: String(channel.id || '').trim(),
+            name: channel.name || channel.id || '',
+            channel_type: channel.channel_type || 'channel',
+            privacy_mode: channel.privacy_mode || 'open',
+            member_count: Number(channel.member_count || 0),
+            is_member: !!channel.is_member,
+            is_public_open: !!channel.is_public_open,
+            governance_allowed: channel.governance_allowed !== false,
+            governance_reason: channel.governance_reason || 'ok',
+        })).filter(channel => channel.id);
 
         if (workspaceGovernanceAllowedChannels) {
             const allowedSet = new Set((governancePolicy.allowed_channel_ids || []).map(id => String(id)));
             workspaceGovernanceAllowedChannels.innerHTML = '';
-            governanceChannels.forEach((channel) => {
-                const channelId = String(channel.id || '').trim();
+            workspaceGovernanceChannelsCache.forEach((channel) => {
+                const channelId = channel.id;
                 if (!channelId) return;
-                const channelName = channel.name || channelId;
-                const mode = channel.privacy_mode || 'open';
-                const memberState = channel.is_member ? 'member' : 'not member';
                 const option = document.createElement('option');
                 option.value = channelId;
                 option.selected = allowedSet.has(channelId);
-                option.textContent = `#${channelName} [${mode}] \u00b7 ${memberState}`;
+                option.textContent = `#${channel.name || channelId}`;
                 workspaceGovernanceAllowedChannels.appendChild(option);
             });
             if (!workspaceGovernanceAllowedChannels.options.length) {
@@ -3091,17 +3583,6 @@
                 emptyOption.disabled = true;
                 workspaceGovernanceAllowedChannels.appendChild(emptyOption);
             }
-        }
-
-        if (workspaceGovernanceSummary) {
-            const allowedCount = (governancePolicy.allowed_channel_ids || []).length;
-            const updatedAt = governancePolicy.updated_at ? formatTime(governancePolicy.updated_at) : 'never';
-            const updatedBy = governancePolicy.updated_by ? ` by ${governancePolicy.updated_by}` : '';
-            workspaceGovernanceSummary.textContent =
-                `enabled=${governancePolicy.enabled ? 'yes' : 'no'} \u00b7 ` +
-                `block_public=${governancePolicy.block_public_channels ? 'yes' : 'no'} \u00b7 ` +
-                `allowlist=${governancePolicy.restrict_to_allowed_channels ? 'yes' : 'no'} (${allowedCount}) \u00b7 ` +
-                `updated ${updatedAt}${updatedBy}`;
         }
         syncGovernanceControlState();
 
@@ -3341,11 +3822,65 @@
         });
     }
 
-    [workspaceGovernanceAllowlist, workspaceGovernanceEnabled].filter(Boolean).forEach((el) => {
+    [workspaceGovernanceAllowlist, workspaceGovernanceEnabled, workspaceGovernanceBlockPublic].filter(Boolean).forEach((el) => {
         el.addEventListener('change', () => {
             syncGovernanceControlState();
         });
     });
+
+    if (workspaceGovernanceSearch) {
+        workspaceGovernanceSearch.addEventListener('input', () => {
+            renderGovernanceChannelList();
+        });
+    }
+    if (workspaceGovernanceFilter) {
+        workspaceGovernanceFilter.addEventListener('change', () => {
+            renderGovernanceChannelList();
+        });
+    }
+    if (workspaceGovernanceSelectMemberBtn) {
+        workspaceGovernanceSelectMemberBtn.addEventListener('click', () => {
+            setGovernanceSelection(
+                workspaceGovernanceChannelsCache.filter(channel => channel.is_member).map(channel => channel.id),
+                true,
+            );
+            renderGovernanceChannelList();
+        });
+    }
+    if (workspaceGovernanceSelectVisibleBtn) {
+        workspaceGovernanceSelectVisibleBtn.addEventListener('click', () => {
+            const visibleIds = Array.from(workspaceGovernanceChannelList?.querySelectorAll('.workspace-governance-channel-checkbox') || [])
+                .map(el => String(el.getAttribute('data-channel-id') || '').trim())
+                .filter(Boolean);
+            setGovernanceSelection(visibleIds, true);
+            renderGovernanceChannelList();
+        });
+    }
+    if (workspaceGovernanceClearVisibleBtn) {
+        workspaceGovernanceClearVisibleBtn.addEventListener('click', () => {
+            const visibleIds = Array.from(workspaceGovernanceChannelList?.querySelectorAll('.workspace-governance-channel-checkbox') || [])
+                .map(el => String(el.getAttribute('data-channel-id') || '').trim())
+                .filter(Boolean);
+            setGovernanceSelection(visibleIds, false);
+            renderGovernanceChannelList();
+        });
+    }
+    if (workspaceGovernanceQuarantineBtn) {
+        workspaceGovernanceQuarantineBtn.addEventListener('click', () => {
+            setGovernanceSelection(
+                workspaceGovernanceChannelsCache.map(channel => channel.id),
+                false,
+            );
+            const quarantineChannel = workspaceGovernanceChannelsCache.find(channel => channel.id === 'agent-start-here');
+            if (quarantineChannel) {
+                setGovernanceSelection([quarantineChannel.id], true);
+            }
+            if (workspaceGovernanceEnabled) workspaceGovernanceEnabled.checked = true;
+            if (workspaceGovernanceBlockPublic) workspaceGovernanceBlockPublic.checked = true;
+            if (workspaceGovernanceAllowlist) workspaceGovernanceAllowlist.checked = true;
+            syncGovernanceControlState();
+        });
+    }
 
     if (workspaceSaveGovernanceBtn) {
         workspaceSaveGovernanceBtn.addEventListener('click', async () => {

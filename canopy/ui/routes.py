@@ -5466,6 +5466,7 @@ def create_ui_blueprint() -> Blueprint:
                 ),
             )
             all_permissions = [p.value for p in api_key_manager.get_all_permissions()]
+            default_permissions = [p.value for p in api_key_manager.get_default_permissions()]
             current_user_id = get_current_user()
             current_user_row = db_manager.get_user(current_user_id) if db_manager else None
             heartbeat_snapshot = _build_agent_heartbeat_snapshot(current_user_id)
@@ -5531,6 +5532,7 @@ def create_ui_blueprint() -> Blueprint:
                                  pending_count=len(pending),
                                  active_agents_count=len(active_agents),
                                  all_permissions=all_permissions,
+                                 default_permissions=default_permissions,
                                  agent_users=agent_users,
                                  workspace_users=workspace_users,
                                  directive_presets=_agent_directive_presets_payload(),
