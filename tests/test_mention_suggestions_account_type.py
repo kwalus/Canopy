@@ -202,6 +202,39 @@ class TestMentionSuggestionsAccountType(unittest.TestCase):
         user_ids = {u.get('user_id') for u in users}
         self.assertIn('agent-259', user_ids)
 
+    def test_global_suggestions_hide_placeholder_shadow_duplicates_for_remote_users(self) -> None:
+        self.profile_manager._all['remote-placeholder'] = {
+            'username': 'Maddog-4e1eaf',
+            'display_name': 'Maddog',
+            'avatar_url': '/files/placeholder',
+            'origin_peer': 'peer-123456',
+        }
+        self.profile_manager._all['remote-canonical'] = {
+            'username': 'Maddog.peer12',
+            'display_name': 'Maddog',
+            'avatar_url': '/files/canonical',
+            'origin_peer': 'peer-123456',
+        }
+        self.conn.executemany(
+            "INSERT OR REPLACE INTO users (id, username, display_name, account_type, status, agent_directives, origin_peer) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [
+                ('remote-placeholder', 'Maddog-4e1eaf', 'Maddog', 'human', 'active', None, 'peer-123456'),
+                ('remote-canonical', 'Maddog.peer12', 'Maddog', 'human', 'active', None, 'peer-123456'),
+            ],
+        )
+        self.conn.commit()
+
+        self._set_authenticated_session()
+        response = self.client.get('/ajax/mention_suggestions?q=maddog')
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        users = payload.get('users') or []
+        matching = [u for u in users if u.get('display_name') == 'Maddog']
+
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching[0].get('user_id'), 'remote-canonical')
+        self.assertEqual(matching[0].get('username'), 'Maddog.peer12')
+
     def test_global_suggestions_handle_older_user_schema_without_name_columns(self) -> None:
         legacy_conn = sqlite3.connect(':memory:')
         legacy_conn.row_factory = sqlite3.Row

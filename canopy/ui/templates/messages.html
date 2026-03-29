@@ -1504,10 +1504,10 @@
     let INITIAL_RECIPIENTS = {{ composer_recipients|tojson }};
 
     let messageSelectedFiles = [];
-    let recipientDirectory = [];
+    let recipientDirectory = {{ recipient_directory_seed|tojson if recipient_directory_seed else '[]' }};
     let recipientDirectoryPromise = null;
     let recipientDirectoryLoading = false;
-    let recipientDirectoryFetchedAt = 0;
+    let recipientDirectoryFetchedAt = Array.isArray(recipientDirectory) && recipientDirectory.length ? Date.now() : 0;
     const RECIPIENT_DIRECTORY_TTL_MS = 30000;
     let recipientMatches = [];
     let recipientActiveIndex = -1;
@@ -2357,9 +2357,29 @@
         const raw = normalizeRecipientInput(forceValue || input.value);
         if (!raw) return;
 
+        const rawLower = raw.toLowerCase();
         let match = recipientDirectory.find(rec => rec.user_id === raw)
-            || recipientDirectory.find(rec => (rec.username || '').toLowerCase() === raw.toLowerCase())
-            || recipientDirectory.find(rec => (rec.display_name || '').toLowerCase() === raw.toLowerCase());
+            || recipientDirectory.find(rec => (rec.username || '').toLowerCase() === rawLower)
+            || recipientDirectory.find(rec => (rec.display_name || '').toLowerCase() === rawLower);
+
+        if (!match) {
+            const partialMatches = recipientDirectory
+                .filter(rec => rec && rec.user_id)
+                .filter(rec => {
+                    const userId = String(rec.user_id || '').toLowerCase();
+                    const username = String(rec.username || '').toLowerCase();
+                    const displayName = String(rec.display_name || '').toLowerCase();
+                    return userId.startsWith(rawLower)
+                        || username.startsWith(rawLower)
+                        || displayName.startsWith(rawLower)
+                        || userId.includes(rawLower)
+                        || username.includes(rawLower)
+                        || displayName.includes(rawLower);
+                });
+            if (partialMatches.length === 1) {
+                match = partialMatches[0];
+            }
+        }
 
         if (match) {
             addRecipient({
@@ -3121,7 +3141,7 @@
                 hardFallback: false,
             }).catch(err => showAlert('Failed to refresh message thread: ' + (err.message || err), 'danger'));
         })
-        .catch(err => showAlert('Failed to update message: ' + (err.message || err), 'danger'));
+        .catch(err => showAlert('Failed to update message: ' + (err.message || err), 'danger'))
         .finally(() => {
             if (panel && panel.isConnected) {
                 panel.dataset.saving = '0';

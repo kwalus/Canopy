@@ -85,6 +85,19 @@ class TestUiPolishRegressions(unittest.TestCase):
         self.assertIn("More compose tools", channels)
         self.assertIn(".channel-composer-advanced-tool", channels)
 
+    def test_create_channel_form_has_compact_narrow_sidebar_styles(self) -> None:
+        channels = (ROOT / "canopy" / "ui" / "templates" / "channels.html").read_text(encoding="utf-8")
+        self.assertIn("--channel-sidebar-width: clamp(236px, 24vw, 260px);", channels)
+        self.assertIn("#create-channel-inline {\n        flex: 0 0 auto;", channels)
+        self.assertIn("padding: 0.75rem 0.7rem !important;", channels)
+        self.assertIn("Private by default.", channels)
+        self.assertIn(".create-channel-member-entry {\n        display: grid;\n        grid-template-columns: 1fr;", channels)
+        self.assertIn(".create-channel-member-add-btn {\n        width: 100%;", channels)
+        self.assertIn(".create-channel-privacy-row {\n        display: grid;\n        grid-template-columns: 1fr;", channels)
+        self.assertIn('placeholder="Add members"', channels)
+        self.assertIn("width: var(--channel-sidebar-width);", channels)
+        self.assertIn("margin-left: calc(var(--channel-sidebar-width) * -1);", channels)
+
     def test_profile_avatar_container_has_role_button(self) -> None:
         profile = (ROOT / "canopy" / "ui" / "templates" / "profile.html").read_text(encoding="utf-8")
         self.assertIn('role="button"', profile)

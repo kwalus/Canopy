@@ -58,6 +58,14 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("onclick=\"setReplyFromButton(this)\"", channels_template)
         self.assertNotIn("onclick=\"setReplyTo('${message.id}'", channels_template)
 
+    def test_create_channel_defaults_to_private_and_resets_to_private(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        self.assertIn('id="type-private" value="private" checked', channels_template)
+        self.assertNotIn('id="type-public" value="public" checked', channels_template)
+        self.assertIn('Private by default.', channels_template)
+        self.assertIn("const priv = document.getElementById('type-private');", channels_template)
+        self.assertIn("if (priv) priv.checked = true;", channels_template)
+
     def test_miniplayer_no_longer_eagerly_docks_youtube_on_update(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
         self.assertNotIn("if (type === 'youtube' && !isDocked && miniVideoHost) {", main_js)

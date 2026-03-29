@@ -6,6 +6,8 @@
 <style>
     :root {
         --channel-navbar-height: 56px;
+        --channel-sidebar-width: clamp(236px, 24vw, 260px);
+        --channel-sidebar-width-mobile: 260px;
     }
 
     /* Override base.html .main-content padding so the channels
@@ -1390,6 +1392,7 @@
         border-radius: 0.85rem;
         padding: 0.7rem 0.75rem;
         background: linear-gradient(160deg, rgba(20, 27, 46, 0.92), rgba(17, 24, 39, 0.96));
+        min-width: 0;
     }
     .create-channel-posture-title {
         font-size: 0.72rem;
@@ -1456,36 +1459,47 @@
         max-height: min(62vh, 33rem);
         overflow-y: auto;
         overscroll-behavior: contain;
+        padding: 0.75rem 0.7rem !important;
     }
     #create-channel-form {
         display: grid;
         gap: 0.65rem;
+        min-width: 0;
     }
     #create-channel-form .mb-2 {
         margin-bottom: 0 !important;
     }
+    #create-channel-form .form-text {
+        font-size: 0.72rem;
+        line-height: 1.3;
+    }
     .create-channel-privacy-row {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 0.45rem;
+        grid-template-columns: 1fr;
+        gap: 0.12rem;
     }
     .create-channel-privacy-row .form-check-inline {
         margin: 0;
+        min-width: 0;
     }
     .create-channel-privacy-row .form-check-label {
         display: inline-flex;
         align-items: center;
-        gap: 0.35rem;
-        min-height: 2.2rem;
+        gap: 0.34rem;
+        min-height: 1.75rem;
+        font-size: 0.73rem;
+        min-width: 0;
+        white-space: normal;
     }
     .create-channel-member-entry {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        gap: 0.45rem;
-        align-items: start;
+        grid-template-columns: 1fr;
+        gap: 0.38rem;
+        align-items: stretch;
     }
     .create-channel-member-add-btn {
-        min-width: 3.35rem;
+        width: 100%;
+        min-width: 0;
         align-self: stretch;
     }
     .create-channel-actions {
@@ -1499,6 +1513,7 @@
     }
     .create-channel-actions .btn {
         flex: 1 1 0;
+        min-width: 0;
     }
     .channel-member-admin-badge,
     .channel-member-poster-badge,
@@ -1898,9 +1913,9 @@
 
     /* Channel sidebar sizing */
     #channel-sidebar {
-        width: 220px;
-        min-width: 220px;
-        max-width: 220px;
+        width: var(--channel-sidebar-width);
+        min-width: var(--channel-sidebar-width);
+        max-width: var(--channel-sidebar-width);
         transition: margin-left 0.25s ease, opacity 0.2s ease;
         overflow: hidden; /* sidebar itself doesn't scroll */
         height: 100%;
@@ -2021,11 +2036,11 @@
             left: 0;
             bottom: 0;
             z-index: 1040;
-            width: 260px;
-            min-width: 260px;
-            max-width: 260px;
+            width: var(--channel-sidebar-width-mobile);
+            min-width: var(--channel-sidebar-width-mobile);
+            max-width: var(--channel-sidebar-width-mobile);
             height: auto; /* override desktop fixed height; top+bottom handles it */
-            margin-left: -260px; /* hidden by default */
+            margin-left: calc(var(--channel-sidebar-width-mobile) * -1); /* hidden by default */
             box-shadow: 4px 0 12px rgba(0,0,0,0.15);
         }
         #channel-sidebar.show {
@@ -2598,6 +2613,56 @@
     }
 
     @media (max-width: 430px) {
+        #create-channel-inline {
+            padding: 0.65rem 0.55rem !important;
+        }
+
+        #create-channel-form {
+            gap: 0.55rem;
+        }
+
+        #create-channel-form .form-text {
+            font-size: 0.69rem;
+        }
+
+        .create-channel-privacy-row {
+            gap: 0.3rem;
+        }
+
+        .create-channel-privacy-row .form-check-label {
+            gap: 0.24rem;
+            min-height: 1.95rem;
+            font-size: 0.74rem;
+        }
+
+        .create-channel-posture-card {
+            padding: 0.58rem 0.62rem;
+        }
+
+        .create-channel-posture-option {
+            gap: 0.42rem;
+            padding: 0.5rem 0.56rem;
+        }
+
+        .create-channel-posture-option strong {
+            font-size: 0.77rem;
+        }
+
+        .create-channel-posture-option span {
+            font-size: 0.66rem;
+            line-height: 1.26;
+        }
+
+        .create-channel-actions {
+            gap: 0.4rem;
+        }
+
+        .create-channel-actions .btn {
+            padding-left: 0.45rem;
+            padding-right: 0.45rem;
+            font-size: 0.78rem;
+        }
+
         .channel-header {
             padding: 0.34rem 0.38rem !important;
         }
@@ -2658,7 +2723,7 @@
     /* Desktop: collapse support */
     @media (min-width: 768px) {
         #channel-sidebar.collapsed {
-            margin-left: -220px;
+            margin-left: calc(var(--channel-sidebar-width) * -1);
             opacity: 0;
             pointer-events: none;
         }
@@ -2694,7 +2759,7 @@
             </div>
 
             <!-- Inline Create Channel Form -->
-            <div id="create-channel-inline" class="p-3 border-bottom" style="display:none; border-color: var(--canopy-border) !important; background: var(--canopy-bg-tertiary);">
+            <div id="create-channel-inline" class="border-bottom" style="display:none; border-color: var(--canopy-border) !important; background: var(--canopy-bg-tertiary);">
                 <form id="create-channel-form" onsubmit="createChannel(event)">
                     <div class="mb-2">
                         <input type="text" class="form-control form-control-sm" id="channel-name" required
@@ -2708,25 +2773,26 @@
                     <div class="mb-2 create-channel-privacy-row">
                         <div class="form-check form-check-inline">
                             <input class="form-check-input" type="radio" name="channel-type"
-                                   id="type-public" value="public" checked>
+                                   id="type-public" value="public">
                             <label class="form-check-label small" for="type-public">
                                 <i class="bi bi-hash"></i> Public
                             </label>
                         </div>
                         <div class="form-check form-check-inline">
                             <input class="form-check-input" type="radio" name="channel-type"
-                                   id="type-private" value="private">
+                                   id="type-private" value="private" checked>
                             <label class="form-check-label small" for="type-private">
                                 <i class="bi bi-lock"></i> Private
                             </label>
                         </div>
                     </div>
+                    <small class="form-text text-muted d-block mb-2">Private by default.</small>
                     <div id="create-channel-members" class="mb-2" style="display:none;">
                         <label class="small text-muted mb-1 d-block">Private members</label>
                         <div class="create-channel-member-entry">
                             <div class="member-picker">
                                 <div id="create-member-chips" class="member-chip-row"></div>
-                                <input type="text" id="create-member-input" placeholder="Add members by name or @handle">
+                                <input type="text" id="create-member-input" placeholder="Add members">
                             </div>
                             <button type="button" class="btn btn-outline-secondary btn-sm create-channel-member-add-btn" onclick="tryAddCreateMember()">Add</button>
                         </div>
@@ -13565,8 +13631,8 @@ function toggleCreateChannel() {
         if (nameInput) { nameInput.value = ''; nameInput.focus(); }
         const descInput = document.getElementById('channel-description');
         if (descInput) descInput.value = '';
-        const pub = document.getElementById('type-public');
-        if (pub) pub.checked = true;
+        const priv = document.getElementById('type-private');
+        if (priv) priv.checked = true;
         const openPosting = document.getElementById('create-post-policy-open');
         if (openPosting) openPosting.checked = true;
         createMemberSelections = [];
