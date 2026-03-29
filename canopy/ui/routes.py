@@ -640,6 +640,12 @@ def create_ui_blueprint() -> Blueprint:
             x25519_pub=keypair['x25519_public'],
             x25519_priv=keypair['x25519_private']
         )
+        _ensure_user_default_channels(
+            db_manager,
+            channel_manager,
+            user_id,
+            include_quarantine_admin=False,
+        )
         
         # Add user to the general channel and all other public channels
         try:
@@ -736,6 +742,12 @@ def create_ui_blueprint() -> Blueprint:
             user_id=user_id,
             ed25519_pub=keypair['ed25519_public'], ed25519_priv=keypair['ed25519_private'],
             x25519_pub=keypair['x25519_public'], x25519_priv=keypair['x25519_private']
+        )
+        _ensure_user_default_channels(
+            db_manager,
+            channel_manager,
+            user_id,
+            include_quarantine_admin=True,
         )
         try:
             with db_manager.get_connection() as conn:
@@ -2136,6 +2148,44 @@ def create_ui_blueprint() -> Blueprint:
             'channels': payload,
             'rev': _stable_ui_revision(payload),
         }
+
+    def _ensure_user_default_channels(
+        db_manager: Any,
+        channel_manager: Any,
+        user_id: str,
+        *,
+        include_quarantine_admin: bool = False,
+    ) -> bool:
+        if not db_manager or not channel_manager or not user_id:
+            return False
+        try:
+            ensure_defaults = getattr(channel_manager, 'ensure_default_channels_exist', None)
+            if callable(ensure_defaults):
+                ensure_defaults()
+        except Exception as exc:
+            logger.warning(f"Failed to re-ensure default channels for {user_id}: {exc}")
+        try:
+            with db_manager.get_connection() as conn:
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO channel_members (channel_id, user_id, role)
+                    VALUES (?, ?, 'member')
+                    """,
+                    ('general', user_id),
+                )
+                if include_quarantine_admin:
+                    conn.execute(
+                        """
+                        INSERT OR IGNORE INTO channel_members (channel_id, user_id, role)
+                        VALUES (?, ?, 'admin')
+                        """,
+                        (channel_manager.get_agent_quarantine_channel_id(), user_id),
+                    )
+                conn.commit()
+            return True
+        except Exception as exc:
+            logger.warning(f"Failed to repair default channel memberships for {user_id}: {exc}")
+            return False
 
     def _build_sidebar_attention_summary(
         db_manager: Any,
@@ -5172,7 +5222,7 @@ def create_ui_blueprint() -> Blueprint:
     def channels():
         """Slack-style channel interface for real-time messaging."""
         try:
-            _, _, _, _, channel_manager, _, _, _, _, config, p2p_manager = _get_app_components_any(current_app)
+            db_manager, _, _, _, channel_manager, _, _, _, _, config, p2p_manager = _get_app_components_any(current_app)
             from ..core.polls import poll_edit_window_seconds
             user_id = get_current_user()
             workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
@@ -5185,6 +5235,20 @@ def create_ui_blueprint() -> Blueprint:
             
             # Get user's channels
             channels = channel_manager.get_user_channels(user_id)
+            if not channels:
+                owner_id = None
+                try:
+                    owner_id = db_manager.get_instance_owner_user_id() if db_manager else None
+                except Exception:
+                    owner_id = None
+                repaired = _ensure_user_default_channels(
+                    db_manager,
+                    channel_manager,
+                    user_id,
+                    include_quarantine_admin=bool(owner_id and owner_id == user_id),
+                )
+                if repaired:
+                    channels = channel_manager.get_user_channels(user_id)
             channels = _enrich_channel_lifecycle_state(channels, channel_manager, p2p_manager)
             channel_sidebar_snapshot = _build_channel_sidebar_snapshot(channel_manager, p2p_manager, user_id)
             logger.debug(f"Channels page: user_id={user_id}, channels_count={len(channels)}")
