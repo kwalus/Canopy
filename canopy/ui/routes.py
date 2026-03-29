@@ -135,6 +135,66 @@ def _is_remote_origin_peer(origin_peer: Any, local_peer_id: Optional[str] = None
     return _normalize_origin_peer_value(origin_peer, local_peer_id) is not None
 
 
+def _is_placeholder_shadow_username(username: Any, user_id: Any) -> bool:
+    """Identify temporary shadow-user names that should lose to canonical names."""
+    uname = str(username or '').strip().lower()
+    uid = str(user_id or '').strip().lower()
+    if not uname or not uid:
+        return False
+    if uname.startswith('peer-'):
+        return True
+    if re.search(r"-[0-9a-f]{6}$", uname):
+        return True
+    uid_suffix = uid[-6:]
+    return bool(uid_suffix) and uname.endswith(f"-{uid_suffix}")
+
+
+def _recipient_directory_candidate_sort_key(user: dict[str, Any]) -> tuple[Any, ...]:
+    origin_peer = str(user.get('origin_peer') or '').strip()
+    username = str(user.get('username') or user.get('user_id') or '').strip()
+    user_id = str(user.get('user_id') or '').strip()
+    peer_token = origin_peer[:6].lower()
+    return (
+        1 if _is_placeholder_shadow_username(username, user_id) else 0,
+        0 if (peer_token and f".{peer_token}" in username.lower()) else 1,
+        0 if user.get('avatar_url') else 1,
+        username.lower(),
+        user_id,
+    )
+
+
+def _dedupe_recipient_directory_users(users: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse duplicate remote shadow rows while preserving real multi-user peers."""
+    filtered: list[dict[str, Any]] = []
+    seen_user_ids: set[str] = set()
+    remote_identity_index: dict[tuple[str, str], int] = {}
+
+    for raw_user in users:
+        user = dict(raw_user or {})
+        uid = str(user.get('user_id') or '').strip()
+        if not uid or uid in ('system', 'local_user') or uid in seen_user_ids:
+            continue
+        seen_user_ids.add(uid)
+        user['user_id'] = uid
+
+        origin_peer = str(user.get('origin_peer') or '').strip()
+        display_name = str(user.get('display_name') or user.get('username') or uid).strip()
+        if origin_peer and display_name:
+            identity_key = (origin_peer.lower(), display_name.lower())
+            existing_index = remote_identity_index.get(identity_key)
+            if existing_index is None:
+                remote_identity_index[identity_key] = len(filtered)
+                filtered.append(user)
+                continue
+            if _recipient_directory_candidate_sort_key(user) < _recipient_directory_candidate_sort_key(filtered[existing_index]):
+                filtered[existing_index] = user
+            continue
+
+        filtered.append(user)
+
+    return filtered
+
+
 def _resolve_p2p_stream(stream_id: str, db_manager: Any, p2p_manager: Any) -> Optional[dict[str, Any]]:
     """Find the origin peer for a stream not stored locally and return a remote playback URL.
 
@@ -3589,6 +3649,63 @@ def create_ui_blueprint() -> Blueprint:
             meta = getattr(message, 'metadata', None)
             return meta if isinstance(meta, dict) else {}
 
+        def _build_recipient_directory_seed(limit: int = 200) -> list[dict[str, Any]]:
+            if not db_manager:
+                return []
+            try:
+                with db_manager.get_connection() as conn:
+                    table_cols = set()
+                    try:
+                        for col_row in conn.execute("PRAGMA table_info(users)").fetchall():
+                            name = col_row['name'] if isinstance(col_row, sqlite3.Row) else col_row[1]
+                            table_cols.add(str(name))
+                    except Exception:
+                        table_cols = {'id', 'username', 'display_name'}
+
+                    if 'display_name' in table_cols and 'username' in table_cols:
+                        sort_expr = "lower(COALESCE(display_name, username, id))"
+                    elif 'display_name' in table_cols:
+                        sort_expr = "lower(COALESCE(display_name, id))"
+                    elif 'username' in table_cols:
+                        sort_expr = "lower(COALESCE(username, id))"
+                    else:
+                        sort_expr = "lower(COALESCE(id, ''))"
+
+                    rows = conn.execute(
+                        f"""
+                        SELECT id
+                        FROM users
+                        WHERE id NOT IN ('system', 'local_user')
+                          AND id != ?
+                        ORDER BY {sort_expr} ASC
+                        LIMIT ?
+                        """,
+                        (user_id, max(1, int(limit))),
+                    ).fetchall()
+            except Exception:
+                return []
+
+            seed: list[dict[str, Any]] = []
+            seen_user_ids: set[str] = set()
+            for row in rows or []:
+                try:
+                    candidate_user_id = str(row['id'] or '').strip()
+                except Exception:
+                    candidate_user_id = str(row[0] or '').strip()
+                if not candidate_user_id or candidate_user_id in seen_user_ids:
+                    continue
+                display = _user_display(candidate_user_id) or {}
+                seed.append({
+                    'user_id': candidate_user_id,
+                    'display_name': display.get('display_name') or candidate_user_id,
+                    'username': display.get('username') or candidate_user_id,
+                    'avatar_url': display.get('avatar_url') or None,
+                    'origin_peer': display.get('origin_peer') or None,
+                    'unknown': False,
+                })
+                seen_user_ids.add(candidate_user_id)
+            return _dedupe_recipient_directory_users(seed)
+
         def _normalize_members(raw_members: Any, fallback_members: Optional[list[str]] = None) -> list[str]:
             members: list[str] = []
             if isinstance(raw_members, list):
@@ -4017,6 +4134,7 @@ def create_ui_blueprint() -> Blueprint:
 
         direct_conversations = [entry for entry in conversation_entries if entry.get('kind') == 'direct']
         group_conversations = [entry for entry in conversation_entries if entry.get('kind') == 'group']
+        recipient_directory_seed = _build_recipient_directory_seed(limit=200)
 
         composer_recipients: list[dict[str, Any]] = []
         if active_thread:
@@ -4091,6 +4209,7 @@ def create_ui_blueprint() -> Blueprint:
             'conversation_entries': conversation_entries,
             'search_results': search_results,
             'composer_recipients': composer_recipients,
+            'recipient_directory_seed': recipient_directory_seed,
             'conversation_with': conversation_with,
             'conversation_group': conversation_group,
             'latest_message_id': latest_message_id,
@@ -18248,16 +18367,7 @@ def create_ui_blueprint() -> Blueprint:
                     })
                 users = _rank_users(users, query)[:limit]
 
-            deduped_users = []
-            seen_user_ids: set[str] = set()
-            for user in users:
-                uid = str(user.get('user_id') or '').strip()
-                if not uid or uid in ('system', 'local_user') or uid in seen_user_ids:
-                    continue
-                seen_user_ids.add(uid)
-                user['user_id'] = uid
-                deduped_users.append(user)
-            users = deduped_users
+            users = _dedupe_recipient_directory_users(users)
 
             user_ids = [u.get('user_id') for u in users if u.get('user_id')]
             if user_ids:
@@ -18346,6 +18456,7 @@ def create_ui_blueprint() -> Blueprint:
                     user['presence_color'] = presence.get('color')
                     user['presence_age_seconds'] = presence.get('age_seconds')
                     user['presence_age_text'] = presence.get('age_text')
+                users = _dedupe_recipient_directory_users(users)
             return jsonify({'success': True, 'users': users})
         except Exception as e:
             logger.error(f"Mention suggestions error: {e}")

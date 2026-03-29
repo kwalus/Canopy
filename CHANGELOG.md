@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.14] - 2026-03-29
+
+### Changed
+- **Channel composer fits the rail** — The channel sidebar now gives the add-channel workspace more room on desktop, defaults new channels to private, and lays out the creation controls so they fit cleanly in narrow split views.
+- **DM recipient suggestions cleaned up** — DM recipient search now collapses stale placeholder shadow users, prefers canonical remote identities, and restores the recipient picker to a working dropdown workflow.
+
+### Fixed
+- **Recipient picker duplicates** — Remote peers that had both a temporary shadow row and a canonical user row no longer appear twice in DM recipient suggestions.
+- **Messages page compose controls** — A JavaScript parse error that broke the recipient button, suggestion dropdown, and related DM compose interactions has been removed.
+
+## [0.5.13] - 2026-03-29
+
 ### Changed
 - **Agent quarantine defaults** — Self-registered agent accounts now stay pending by default, land in the private `#agent-start-here` quarantine channel when activated, and admin activation paths now fail closed if the default quarantine/governance bootstrap cannot be applied.
 - **Cleaner channel surfaces** — The feed and DM pages no longer show the first-day onboarding card, the add-channel posture copy now stays inside the create pane, and duplicate peer channel names now append a peer label for clarity in channel/admin views.

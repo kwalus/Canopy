@@ -248,6 +248,9 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertIn("if (isDmSearchActive()) {", body)
         self.assertIn("loadDmSnapshot({ forceBottom: false, allowDeferred: false, hardFallback: true }).catch(() => {});", body)
         self.assertIn('/ajax/mention_suggestions?', body)
+        self.assertIn('let recipientDirectory = [', body)
+        self.assertIn('"user_id": "peer-a"', body)
+        self.assertIn('"user_id": "peer-b"', body)
         self.assertIn('setupMessageDropzone();', body)
         self.assertIn("composer.addEventListener('drop'", body)
         self.assertNotIn("threadPane.addEventListener('paste'", body)
@@ -420,6 +423,29 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         payload = response.get_json() or {}
         self.assertTrue(payload.get('success'))
         self.assertEqual(payload.get('workspace_event_cursor'), 5)
+
+    def test_thread_snapshot_token_changes_when_existing_message_is_edited(self) -> None:
+        before = self.client.get('/ajax/messages/thread_snapshot?with=peer-a').get_json() or {}
+        before_token = before.get('thread_state_token')
+
+        self.conn.execute(
+            """
+            UPDATE messages
+            SET content = ?, edited_at = ?
+            WHERE id = ?
+            """,
+            (
+                'Need update (edited)',
+                '2026-03-07T10:08:00+00:00',
+                'DM-reply',
+            ),
+        )
+        self.conn.commit()
+
+        after = self.client.get('/ajax/messages/thread_snapshot?with=peer-a').get_json() or {}
+        self.assertTrue(after.get('success'))
+        self.assertNotEqual(before_token, after.get('thread_state_token'))
+        self.assertIn('Need update (edited)', after.get('thread_body_html') or '')
 
     def test_ajax_send_message_preserves_reply_to_metadata(self) -> None:
         response = self.client.post(
