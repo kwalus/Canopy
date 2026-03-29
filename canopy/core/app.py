@@ -73,6 +73,7 @@ from .large_attachments import (
     LARGE_ATTACHMENT_DOWNLOAD_AUTO,
     LARGE_ATTACHMENT_DOWNLOAD_MANUAL,
     LARGE_ATTACHMENT_DOWNLOAD_PAUSED,
+    coerce_remote_attachment_reference,
     get_attachment_origin_file_id,
     get_attachment_source_peer_id,
     get_large_attachment_download_mode,
@@ -661,10 +662,15 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 except Exception as save_err:
                     logger.debug("Failed to save inline attachment: %s", save_err)
 
-            if is_large_attachment_reference(attachment):
-                source_peer_id = get_attachment_source_peer_id(attachment) or str(default_source_peer_id or '').strip()
-                origin_file_id = get_attachment_origin_file_id(attachment) or str(attachment.get('id') or '').strip()
-                checksum = str(attachment.get('checksum') or '').strip()
+            remote_attachment = coerce_remote_attachment_reference(
+                attachment,
+                default_source_peer_id=default_source_peer_id,
+            )
+
+            if remote_attachment and is_large_attachment_reference(remote_attachment):
+                source_peer_id = get_attachment_source_peer_id(remote_attachment) or str(default_source_peer_id or '').strip()
+                origin_file_id = get_attachment_origin_file_id(remote_attachment) or str(remote_attachment.get('id') or '').strip()
+                checksum = str(remote_attachment.get('checksum') or '').strip()
                 if source_peer_id and origin_file_id:
                     transfer = file_manager.get_remote_attachment_transfer(source_peer_id, origin_file_id)
                     local_file_id = str((transfer or {}).get('local_file_id') or '').strip()
@@ -687,17 +693,17 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     file_manager.upsert_remote_attachment_transfer(
                         origin_peer_id=source_peer_id,
                         origin_file_id=origin_file_id,
-                        file_name=attachment.get('name'),
-                        content_type=attachment.get('type'),
-                        size=attachment.get('size'),
+                        file_name=remote_attachment.get('name'),
+                        content_type=remote_attachment.get('type'),
+                        size=remote_attachment.get('size'),
                         checksum=checksum or None,
                         status='pending',
                         error=None,
                     )
                     normalized = {
-                        'name': attachment.get('name', 'file'),
-                        'type': attachment.get('type', 'application/octet-stream'),
-                        'size': attachment.get('size', 0),
+                        'name': remote_attachment.get('name', 'file'),
+                        'type': remote_attachment.get('type', 'application/octet-stream'),
+                        'size': remote_attachment.get('size', 0),
                         'checksum': checksum,
                         'origin_file_id': origin_file_id,
                         'source_peer_id': source_peer_id,

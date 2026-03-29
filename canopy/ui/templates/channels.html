@@ -10587,6 +10587,18 @@ function buildMediaGrid(images, layoutHint = '') {
         const isLast = (i === show - 1) && extraCount > 0 && !showAll;
         const imageFileId = String((img && (img.id || img.file_id || img.origin_file_id)) || '').trim();
         const sourceRefAttr = imageFileId ? ` data-canopy-source-ref="attachment:${imageFileId.replace(/"/g, '&quot;')}"` : '';
+        const remotePayload = (
+            img && (img.large_attachment || img.storage_mode === 'remote_large' || ((img.origin_file_id || img.id || img.file_id) && img.source_peer_id))
+        ) ? {
+            origin_file_id: img.origin_file_id || img.id || img.file_id,
+            source_peer_id: img.source_peer_id,
+            name: img.name,
+            type: img.type,
+            size: img.size,
+            checksum: img.checksum,
+            large_attachment: true,
+            storage_mode: img.storage_mode || 'remote_large'
+        } : null;
         if (hasUrl) {
             const thumbUrl = img.url + '/thumb';
             cells += `<div class="mg-cell"${sourceRefAttr} onclick="openLightbox(${i}, '${urlsAttr}')">
@@ -10598,8 +10610,11 @@ function buildMediaGrid(images, layoutHint = '') {
                 ${isLast ? `<div class="mg-more-overlay">+${extraCount}</div>` : ''}
             </div>`;
         } else {
+            const remoteDownloadBtn = remotePayload
+                ? `<button type="button" class="btn btn-sm btn-outline-primary mt-2" onclick='event.stopPropagation(); requestRemoteAttachmentDownload(${JSON.stringify(remotePayload)}, this)'><i class="bi bi-cloud-download"></i> Download</button>`
+                : '';
             cells += `<div class="mg-cell mg-cell-unavailable d-flex align-items-center justify-content-center p-2"${sourceRefAttr} style="min-height:80px;background:var(--canopy-bg-tertiary, #f0f0f0);border-radius:8px;">
-                <span class="small text-muted text-center">${(img.name || 'Image').replace(/</g, '&lt;')}<br><span class="opacity-75">Not on this device yet — will appear when synced</span></span>
+                <span class="small text-muted text-center">${(img.name || 'Image').replace(/</g, '&lt;')}<br><span class="opacity-75">Not on this device yet — will appear when synced</span>${remoteDownloadBtn}</span>
         </div>`;
         }
     }
