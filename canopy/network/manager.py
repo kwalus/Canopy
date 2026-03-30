@@ -466,6 +466,17 @@ class P2PNetworkManager:
             row = None
         return row if isinstance(row, dict) else None
 
+    def _get_user_account_type(self, user_id: str) -> Optional[str]:
+        """Return a normalized local account type for outbound metadata."""
+        if not self.db or not user_id:
+            return None
+        try:
+            row = self.db.get_user(user_id)
+        except Exception:
+            row = None
+        raw = str((row or {}).get('account_type') or '').strip().lower()
+        return raw if raw in {'human', 'agent'} else None
+
     def describe_direct_message_security(self, recipient_ids: list[str]) -> Dict[str, Any]:
         clean_recipient_ids = []
         seen_ids: set[str] = set()
@@ -1619,8 +1630,14 @@ class P2PNetworkManager:
             if self.on_peer_connected:
                 self.on_peer_connected(peer_id)
 
-            if not self._peer_is_trusted_for_content(peer_id):
-                logger.info("Post-connect content sync skipped for untrusted peer %s", peer_id)
+            trusted_content = self._peer_is_trusted_for_content(peer_id)
+            if not trusted_content:
+                logger.info(
+                    "Post-connect sync running in public-only mode for untrusted peer %s",
+                    peer_id,
+                )
+                await self._send_channel_sync_to_peer(peer_id)
+                await self._send_catchup_request(peer_id)
                 return
 
             # Channel metadata sync
@@ -2753,6 +2770,9 @@ class P2PNetworkManager:
         # for this specific user yet.
         if display_name:
             metadata['display_name'] = display_name
+        sender_account_type = self._get_user_account_type(user_id)
+        if sender_account_type:
+            metadata['account_type'] = sender_account_type
 
         # Embed file data for each attachment so peers can store locally.
         # Include original file_id so receivers can rewrite /files/ORIGINAL in content to /files/LOCAL.
@@ -2848,6 +2868,9 @@ class P2PNetworkManager:
 
         if display_name:
             meta['display_name'] = display_name
+        author_account_type = self._get_user_account_type(author_id)
+        if author_account_type:
+            meta['account_type'] = author_account_type
 
         # Embed file data for feed attachments so peers can render locally
         try:
@@ -2984,6 +3007,9 @@ class P2PNetworkManager:
 
         if display_name:
             meta['display_name'] = display_name
+        interaction_account_type = self._get_user_account_type(user_id)
+        if interaction_account_type:
+            meta['account_type'] = interaction_account_type
 
         future = asyncio.run_coroutine_threadsafe(
             self.message_router.send_interaction_broadcast(meta),
@@ -3038,6 +3064,9 @@ class P2PNetworkManager:
 
         if display_name:
             meta['display_name'] = display_name
+        sender_account_type = self._get_user_account_type(sender_id)
+        if sender_account_type:
+            meta['account_type'] = sender_account_type
         if update_only:
             meta['update_only'] = True
         if edited_at:
@@ -3927,10 +3956,6 @@ class P2PNetworkManager:
         """
         if not self.message_router:
             return
-        if not self._peer_is_trusted_for_content(peer_id):
-            logger.debug("Skipping channel sync for untrusted peer %s", peer_id)
-            return
-
         try:
             channels = []
             if self.get_public_channels_for_sync:
@@ -4107,14 +4132,33 @@ class P2PNetworkManager:
         """
         if not self.message_router:
             return
-        if not self._peer_is_trusted_for_content(peer_id):
-            logger.debug("Skipping catchup request for untrusted peer %s", peer_id)
-            return
-
         try:
             channel_timestamps = {}
             if self.get_channel_latest_timestamps:
                 channel_timestamps = self.get_channel_latest_timestamps()
+            trusted_content = self._peer_is_trusted_for_content(peer_id)
+            if not trusted_content and channel_timestamps:
+                public_channel_ids = set()
+                if self.get_public_channels_for_sync:
+                    try:
+                        for channel in self.get_public_channels_for_sync() or []:
+                            channel_id = str((channel or {}).get('id') or '').strip()
+                            if channel_id:
+                                public_channel_ids.add(channel_id)
+                    except Exception as public_err:
+                        logger.debug(
+                            "Failed to resolve public channel IDs for catchup request to %s: %s",
+                            peer_id,
+                            public_err,
+                        )
+                if public_channel_ids:
+                    channel_timestamps = {
+                        channel_id: ts
+                        for channel_id, ts in channel_timestamps.items()
+                        if channel_id in public_channel_ids
+                    }
+                else:
+                    channel_timestamps = {}
 
             # Gather extra timestamps for non-channel data
             extra_timestamps = {}

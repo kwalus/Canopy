@@ -257,6 +257,72 @@ class TestProfileSyncMetadata(unittest.TestCase):
         self.assertIn('local-key-only', by_user_id)
         self.assertEqual(by_user_id['local-key-only'].get('account_type'), 'human')
 
+    def test_incoming_feed_post_seeds_remote_agent_shadow_user_account_type(self) -> None:
+        tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(tempdir.cleanup)
+
+        env_patcher = patch.dict(
+            os.environ,
+            {
+                'CANOPY_TESTING': 'true',
+                'CANOPY_DISABLE_MESH': 'true',
+                'CANOPY_DATA_DIR': tempdir.name,
+                'CANOPY_DATABASE_PATH': os.path.join(tempdir.name, 'canopy.db'),
+                'CANOPY_SECRET_KEY': 'test-secret',
+            },
+            clear=False,
+        )
+        env_patcher.start()
+        self.addCleanup(env_patcher.stop)
+
+        checkpoint_patcher = patch(
+            'canopy.core.database.DatabaseManager._start_checkpoint_thread',
+            lambda self: None,
+        )
+        checkpoint_patcher.start()
+        self.addCleanup(checkpoint_patcher.stop)
+
+        logging_patcher = patch(
+            'canopy.core.app.setup_logging',
+            lambda debug=False: None,
+        )
+        logging_patcher.start()
+        self.addCleanup(logging_patcher.stop)
+
+        p2p_patcher = patch(
+            'canopy.core.app.P2PNetworkManager',
+            _FakeP2PNetworkManager,
+        )
+        p2p_patcher.start()
+        self.addCleanup(p2p_patcher.stop)
+
+        app = create_app()
+        db_manager = app.config['DB_MANAGER']
+        trust_manager = app.config['TRUST_MANAGER']
+        p2p_manager = app.config['P2P_MANAGER']
+
+        with app.app_context():
+            trust_manager.set_trust_score('peer-remote', 100, reason='test')
+            p2p_manager.on_feed_post(
+                post_id='FP-remote-agent',
+                author_id='remote-agent',
+                content='hello from remote agent',
+                post_type='text',
+                visibility='network',
+                timestamp='2026-03-29T23:40:00+00:00',
+                metadata={'origin_peer': 'peer-remote'},
+                expires_at=None,
+                ttl_seconds=None,
+                ttl_mode=None,
+                display_name='Remote Agent',
+                account_type='agent',
+                from_peer='peer-remote',
+            )
+
+            row = db_manager.get_user('remote-agent')
+            self.assertIsNotNone(row)
+            self.assertEqual((row or {}).get('account_type'), 'agent')
+
 
 if __name__ == '__main__':
     unittest.main()

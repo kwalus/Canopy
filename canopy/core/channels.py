@@ -4009,7 +4009,7 @@ class ChannelManager:
                            last_attempt_at IS NULL
                            OR last_attempt_at <= datetime('now', ?)
                       )
-                    ORDER BY created_at ASC
+                    ORDER BY m.created_at ASC
                     LIMIT ?
                     """,
                     (peer_id, max(1, int(max_attempts)), retry_window, int(limit)),
@@ -8390,6 +8390,42 @@ class ChannelManager:
                          exc_info=True)
             return {}
 
+    def get_channel_visibility_map(self, channel_ids: List[str]) -> Dict[str, bool]:
+        """Return whether each channel ID is public/open enough for public mesh bootstrap."""
+        result: Dict[str, bool] = {}
+        ids: List[str] = []
+        seen = set()
+        for raw in channel_ids or []:
+            cid = str(raw or '').strip()
+            if not cid or cid in seen:
+                continue
+            seen.add(cid)
+            ids.append(cid)
+        if not ids:
+            return result
+        try:
+            with self.db.get_connection() as conn:
+                placeholders = ",".join("?" for _ in ids)
+                rows = conn.execute(
+                    f"""
+                    SELECT id, channel_type, COALESCE(privacy_mode, 'open') AS privacy_mode
+                    FROM channels
+                    WHERE id IN ({placeholders})
+                    """,
+                    tuple(ids),
+                ).fetchall()
+            for row in rows or []:
+                channel_id = str(row['id'] or '').strip()
+                if not channel_id:
+                    continue
+                result[channel_id] = self._is_public_channel(
+                    row['channel_type'],
+                    row['privacy_mode'],
+                )
+        except Exception as e:
+            logger.debug(f"Failed to build channel visibility map: {e}")
+        return result
+
     @staticmethod
     def _stable_json(value: Any) -> str:
         """Serialize JSON deterministically for hashing."""
@@ -8631,17 +8667,22 @@ class ChannelManager:
         try:
             with self.db.get_connection() as conn:
                 rows = conn.execute("""
-                    SELECT id, channel_id, user_id, content,
-                           message_type, created_at, attachments, expires_at,
-                           origin_peer,
-                           ttl_seconds, ttl_mode, parent_message_id, source_layout,
-                           source_reference, repost_policy,
-                           encrypted_content, crypto_state, key_id, nonce
-                    FROM channel_messages
-                    WHERE channel_id = ?
-                      AND created_at > ?
-                      AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-                    ORDER BY created_at ASC
+                    SELECT m.id, m.channel_id, m.user_id, m.content,
+                           m.message_type, m.created_at, m.attachments, m.expires_at,
+                           m.origin_peer,
+                           m.ttl_seconds, m.ttl_mode, m.parent_message_id, m.source_layout,
+                           m.source_reference, m.repost_policy,
+                           m.encrypted_content, m.crypto_state, m.key_id, m.nonce,
+                           c.name AS channel_name,
+                           c.channel_type AS channel_type,
+                           COALESCE(c.privacy_mode, 'open') AS channel_privacy_mode,
+                           c.origin_peer AS channel_origin_peer
+                    FROM channel_messages m
+                    LEFT JOIN channels c ON c.id = m.channel_id
+                    WHERE m.channel_id = ?
+                      AND m.created_at > ?
+                      AND (m.expires_at IS NULL OR m.expires_at > CURRENT_TIMESTAMP)
+                    ORDER BY m.created_at ASC
                     LIMIT ?
                 """, (channel_id, since_timestamp, limit)).fetchall()
 
@@ -8656,6 +8697,10 @@ class ChannelManager:
                         'created_at': row['created_at'],
                         'expires_at': row['expires_at'],
                         'origin_peer': row['origin_peer'] if 'origin_peer' in row.keys() else None,
+                        'channel_name': row['channel_name'] if 'channel_name' in row.keys() else None,
+                        'channel_type': row['channel_type'] if 'channel_type' in row.keys() else None,
+                        'channel_privacy_mode': row['channel_privacy_mode'] if 'channel_privacy_mode' in row.keys() else None,
+                        'channel_origin_peer': row['channel_origin_peer'] if 'channel_origin_peer' in row.keys() else None,
                         'ttl_seconds': row['ttl_seconds'] if 'ttl_seconds' in row.keys() else None,
                         'ttl_mode': row['ttl_mode'] if 'ttl_mode' in row.keys() else None,
                         'parent_message_id': row['parent_message_id'] if 'parent_message_id' in row.keys() else None,

@@ -1226,6 +1226,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
             display_name: Optional[str],
             from_peer: str,
             *,
+            account_type: Optional[str] = None,
             allow_origin_reassign: bool = False,
         ) -> None:
             """Create/update a shadow user safely, avoiding username collisions."""
@@ -1234,15 +1235,27 @@ def create_app(config: Optional[Config] = None) -> Flask:
             try:
                 existing = db_manager.get_user(user_id)
                 shadow_display = display_name or f"peer-{from_peer[:8]}"
+                shadow_account_type = str(account_type or '').strip().lower()
+                if shadow_account_type not in {'human', 'agent'}:
+                    shadow_account_type = 'human'
 
                 if existing:
                     try:
                         current_display = existing.get('display_name', '')
+                        current_account_type = str(existing.get('account_type') or '').strip().lower()
+                        updates = []
+                        params: list[Any] = []
                         if display_name and (current_display.startswith('peer-') or current_display == user_id):
+                            updates.append("display_name = ?")
+                            params.append(display_name)
+                        if shadow_account_type and shadow_account_type != current_account_type:
+                            updates.append("account_type = ?")
+                            params.append(shadow_account_type)
+                        if updates:
                             with db_manager.get_connection() as conn:
                                 conn.execute(
-                                    "UPDATE users SET display_name = ? WHERE id = ?",
-                                    (display_name, user_id)
+                                    f"UPDATE users SET {', '.join(updates)} WHERE id = ?",
+                                    (*params, user_id)
                                 )
                                 conn.commit()
                     except Exception:
@@ -1276,11 +1289,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
                             public_key='',
                             password_hash=None,
                             display_name=shadow_display,
+                            account_type=shadow_account_type,
                             origin_peer=from_peer
                         ):
                             created = True
                             logger.info(
-                                f"Created shadow user {user_id} (username={cand}, display_name={shadow_display})"
+                                f"Created shadow user {user_id} (username={cand}, display_name={shadow_display}, account_type={shadow_account_type})"
                             )
                             break
                     except Exception:
@@ -1294,6 +1308,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
                             public_key='',
                             password_hash=None,
                             display_name=shadow_display,
+                            account_type=shadow_account_type,
                             origin_peer=from_peer
                         )
                     except Exception as e:
@@ -1375,6 +1390,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                      repost_policy: Optional[str] = None,
                                      message_type: str = 'text',
                                      display_name: Optional[str] = None, expires_at: Optional[str] = None,
+                                     account_type: Optional[str] = None,
                                      ttl_seconds: Optional[int] = None, ttl_mode: Optional[str] = None,
                                      update_only: bool = False,
                                      origin_peer: Optional[str] = None,
@@ -1530,6 +1546,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     user_id,
                     display_name,
                     effective_origin_peer,
+                    account_type=account_type,
                     allow_origin_reassign=True,
                 )
 
@@ -3228,6 +3245,14 @@ def create_app(config: Optional[Config] = None) -> Flask:
             except Exception:
                 return False
 
+        def _channel_definition_is_public(channel_type: Any, privacy_mode: Any) -> bool:
+            if not channel_manager:
+                return False
+            try:
+                return bool(channel_manager._is_public_channel(channel_type, privacy_mode))
+            except Exception:
+                return False
+
         def _is_foreign_agent_quarantine_channel(channel_id: Any, channel_name: Any = None) -> bool:
             if not channel_manager:
                 return False
@@ -4073,9 +4098,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
         def _on_channel_sync(channels, from_peer):
             """Handle a CHANNEL_SYNC (bulk list) from a connected peer."""
             try:
-                if not _peer_is_trusted_for_content(from_peer):
-                    logger.info("Ignoring channel sync from untrusted peer %s", from_peer)
-                    return
+                trusted_content = _peer_is_trusted_for_content(from_peer)
+                if not trusted_content:
+                    logger.info(
+                        "Applying channel sync from untrusted peer %s in public-only mode",
+                        from_peer,
+                    )
                 local_user = 'local_user'
                 try:
                     with db_manager.get_connection() as conn:
@@ -4095,6 +4123,8 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     ch_type = ch.get('type', 'public')
                     ch_desc = ch.get('desc', '')
                     ch_privacy = ch.get('privacy_mode') or 'open'
+                    if not trusted_content and not _channel_definition_is_public(ch_type, ch_privacy):
+                        continue
                     ch_last_activity_at = ch.get('last_activity_at')
                     ch_ttl_days = ch.get('lifecycle_ttl_days')
                     ch_preserved = bool(ch.get('lifecycle_preserved'))
@@ -4210,12 +4240,16 @@ def create_app(config: Optional[Config] = None) -> Flask:
             async task so the event loop stays responsive.
             """
             try:
-                if not _peer_is_trusted_for_content(from_peer):
-                    logger.info("Ignoring catchup request from untrusted peer %s", from_peer)
-                    return
+                trusted_content = _peer_is_trusted_for_content(from_peer)
+                if not trusted_content:
+                    logger.info(
+                        "Handling catchup request from untrusted peer %s in public-only mode",
+                        from_peer,
+                    )
                 all_messages = []
                 # Get all local channels (peer may not know about some)
                 local_ts = channel_manager.get_channel_latest_timestamps()
+                visibility_map = channel_manager.get_channel_visibility_map(list(local_ts.keys()))
                 digest_checked = 0
                 digest_matched = 0
                 digest_mismatched = 0
@@ -4232,6 +4266,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         and isinstance(digest.get('channels'), dict)
                     ):
                         remote_digest_channels = cast(Dict[str, Any], digest.get('channels') or {})
+                        if not trusted_content and remote_digest_channels:
+                            remote_digest_channels = {
+                                cid: payload
+                                for cid, payload in remote_digest_channels.items()
+                                if visibility_map.get(str(cid or '').strip(), False)
+                            }
                         if remote_digest_channels:
                             local_digest_channels = channel_manager.get_channel_sync_digests(
                                 channel_ids=list(remote_digest_channels.keys()),
@@ -4252,6 +4292,8 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
                 for ch_id, local_latest in local_ts.items():
                     if channel_manager.is_agent_quarantine_channel(ch_id):
+                        continue
+                    if not trusted_content and not visibility_map.get(ch_id, False):
                         continue
                     remote_digest = remote_digest_channels.get(ch_id)
                     local_digest = local_digest_channels.get(ch_id)
@@ -4488,7 +4530,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     logger.debug(f"Catchup feed posts gathering failed: {fp_err}")
 
                 # Circle objects newer than what the peer has (v0.3.55+)
-                if circle_manager:
+                if trusted_content and circle_manager:
                     try:
                         since_co = circles_latest or '1970-01-01 00:00:00'
                         circles_data = circle_manager.get_circles_since(since_co)
@@ -4498,7 +4540,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         logger.debug(f"Catchup circles gathering failed: {co_err}")
 
                 # Circle entries newer than what the peer has
-                if circle_manager:
+                if trusted_content and circle_manager:
                     try:
                         since_ce = circle_entries_latest or '1970-01-01 00:00:00'
                         entries = circle_manager.get_entries_since(since_ce)
@@ -4517,7 +4559,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         logger.debug(f"Catchup circle votes gathering failed: {cv_err}")
 
                 # Tasks newer than what the peer has
-                if task_manager:
+                if trusted_content and task_manager:
                     try:
                         since_t = tasks_latest or '1970-01-01 00:00:00'
                         tasks = task_manager.get_tasks_since(since_t)
@@ -4572,9 +4614,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
             has_extra = bool(feed_posts) or bool(circle_entries) or bool(circle_votes) or bool(circles) or bool(tasks)
             if not has_messages and not has_extra:
                 return
-            if not _peer_is_trusted_for_content(from_peer):
-                logger.info("Ignoring catchup response from untrusted peer %s", from_peer)
-                return
+            trusted_content = _peer_is_trusted_for_content(from_peer)
+            if not trusted_content:
+                logger.info(
+                    "Applying catchup response from untrusted peer %s in public-only mode",
+                    from_peer,
+                )
             try:
                 stored = 0
                 skipped_dup = 0
@@ -4589,6 +4634,10 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         continue
 
                     channel_id = msg.get('channel_id', 'general')
+                    incoming_channel_type = str(msg.get('channel_type') or '').strip().lower()
+                    incoming_channel_privacy = str(msg.get('channel_privacy_mode') or '').strip().lower() or 'open'
+                    if not trusted_content and not _channel_definition_is_public(incoming_channel_type, incoming_channel_privacy):
+                        continue
                     if _is_foreign_agent_quarantine_channel(channel_id):
                         logger.info(
                             "Ignoring foreign agent quarantine catchup for %s from %s",
@@ -4691,22 +4740,36 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     # Ensure channel exists
                     with db_manager.get_connection() as conn:
                         existing_ch = conn.execute(
-                            "SELECT privacy_mode FROM channels WHERE id = ?",
+                            "SELECT channel_type, privacy_mode FROM channels WHERE id = ?",
                             (channel_id,)
                         ).fetchone()
                         if not existing_ch:
+                            auto_channel_name = str(msg.get('channel_name') or '').strip() or f"peer-channel-{channel_id[:8]}"
+                            auto_channel_type = incoming_channel_type if incoming_channel_type in {'public', 'private', 'general'} else (
+                                'public' if _channel_definition_is_public(incoming_channel_type, incoming_channel_privacy) else 'private'
+                            )
+                            auto_channel_privacy = incoming_channel_privacy if incoming_channel_privacy in {'open', 'guarded', 'private', 'confidential'} else (
+                                'open' if auto_channel_type in {'public', 'general'} else 'private'
+                            )
+                            auto_channel_origin = str(msg.get('channel_origin_peer') or from_peer or '').strip() or from_peer
                             conn.execute(
                                 "INSERT OR IGNORE INTO channels "
                                 "(id, name, channel_type, created_by, "
                                 "description, origin_peer, privacy_mode, created_at) "
-                                "VALUES (?, ?, 'private', ?, "
-                                "'Auto-created from P2P catchup', ?, 'private', "
+                                "VALUES (?, ?, ?, ?, "
+                                "'Auto-created from P2P catchup', ?, ?, "
                                 "datetime('now'))",
                                 (channel_id,
-                                 f"peer-channel-{channel_id[:8]}",
-                                 user_id, from_peer)
+                                 auto_channel_name,
+                                 auto_channel_type,
+                                 user_id,
+                                 auto_channel_origin,
+                                 auto_channel_privacy)
                             )
                             conn.commit()
+                            channel_privacy_mode = auto_channel_privacy
+                        else:
+                            channel_privacy_mode = str(existing_ch['privacy_mode'] or 'open').strip().lower()
 
                         # Ensure memberships
                         conn.execute(
@@ -4794,7 +4857,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
             # ---- Process extra catch-up data (v0.3.36+) ----
 
             # Feed posts
-            if feed_posts:
+            if trusted_content and feed_posts:
                 fp_stored = 0
                 for fp in feed_posts:
                     try:
@@ -4843,7 +4906,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
             # Circle objects (v0.3.55+) — must be ingested BEFORE entries
             # so that entries have a parent circle to reference.
-            if circles and circle_manager:
+            if trusted_content and circles and circle_manager:
                 co_stored = 0
                 for circle_data in circles:
                     try:
@@ -4856,7 +4919,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                 f"{co_stored} missed circle objects")
 
             # Circle entries
-            if circle_entries and circle_manager:
+            if trusted_content and circle_entries and circle_manager:
                 ce_stored = 0
                 for entry in circle_entries:
                     try:
@@ -4869,7 +4932,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                 f"{ce_stored} missed circle entries")
 
             # Circle votes
-            if circle_votes and circle_manager:
+            if trusted_content and circle_votes and circle_manager:
                 cv_stored = 0
                 for vote in circle_votes:
                     try:
@@ -4889,7 +4952,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                 f"{cv_stored} missed circle votes")
 
             # Tasks
-            if tasks and task_manager:
+            if trusted_content and tasks and task_manager:
                 t_stored = 0
                 for task_data in tasks:
                     try:
@@ -5080,6 +5143,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
                             remote_user_id,
                             profile_data.get('display_name'),
                             remote_peer_id,
+                            account_type=profile_data.get('account_type'),
                             allow_origin_reassign=False,
                         )
                         if db_manager.get_user(remote_user_id):
@@ -5428,7 +5492,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
         def _on_p2p_feed_post(post_id, author_id, content, post_type,
                                visibility, timestamp, metadata,
                                expires_at, ttl_seconds, ttl_mode,
-                               display_name, from_peer):
+                               display_name, account_type, from_peer):
             """Store an incoming P2P feed post locally. Updates content/metadata when post already exists (edit broadcast)."""
             try:
                 if not _peer_is_trusted_for_content(from_peer):
@@ -5476,6 +5540,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     author_id,
                     display_name,
                     feed_origin_peer,
+                    account_type=account_type,
                     allow_origin_reassign=True,
                 )
 
@@ -6262,6 +6327,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     user_id,
                     display_name,
                     interaction_origin_peer,
+                    account_type=(metadata or {}).get('account_type'),
                     allow_origin_reassign=True,
                 )
                 meta = metadata or {}
@@ -6446,7 +6512,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
         # --- Direct message handler (P2P) ---
         def _on_p2p_direct_message(sender_id, recipient_id, content,
-                                    message_id, timestamp, display_name,
+                                    message_id, timestamp, display_name, account_type,
                                     metadata, update_only, edited_at, from_peer):
             """Handle an incoming direct message from P2P.
 
@@ -6533,6 +6599,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     sender_id,
                     display_name,
                     str(from_peer or '').strip(),
+                    account_type=account_type,
                     allow_origin_reassign=True,
                 )
 

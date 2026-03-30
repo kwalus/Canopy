@@ -984,6 +984,7 @@ class MessageRouter:
                     security=meta.get('security'),
                     message_type=meta.get('message_type', 'text'),
                     display_name=meta.get('display_name'),
+                    account_type=meta.get('account_type'),
                     expires_at=meta.get('expires_at'),
                     ttl_seconds=meta.get('ttl_seconds'),
                     ttl_mode=meta.get('ttl_mode'),
@@ -1373,6 +1374,7 @@ class MessageRouter:
                     ttl_seconds=meta.get('ttl_seconds'),
                     ttl_mode=meta.get('ttl_mode'),
                     display_name=meta.get('display_name'),
+                    account_type=meta.get('account_type'),
                     from_peer=message.from_peer,
                 )
             except Exception as e:
@@ -1403,6 +1405,7 @@ class MessageRouter:
                     message_id=meta.get('message_id'),
                     timestamp=meta.get('timestamp'),
                     display_name=meta.get('display_name'),
+                    account_type=meta.get('account_type'),
                     metadata=meta.get('metadata'),
                     update_only=meta.get('update_only'),
                     edited_at=meta.get('edited_at'),

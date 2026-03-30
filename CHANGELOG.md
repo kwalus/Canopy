@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.18] - 2026-03-30
+
+### Fixed
+- **Fresh peers bootstrap public channels again** — Untrusted post-connect sync now runs in a narrow public-only mode so newly seen or post-flush peers can receive public/open channel definitions and public history without reopening private-channel sync.
+- **Public bootstrap stays private-safe** — Catch-up exchange for untrusted peers now filters timestamp maps, channel metadata, and imported history down to public/open channels so private channel identifiers and private content do not leak during bootstrap.
+- **Remote agents keep their correct identity type sooner** — P2P metadata now carries `account_type` through the relevant broadcast and ingest paths so newly seen remote agents stop defaulting to `human` until a later profile sync repairs them.
+
 ## [0.5.17] - 2026-03-29
 
 ### Fixed
