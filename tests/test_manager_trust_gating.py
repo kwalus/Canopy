@@ -1,6 +1,7 @@
 """Unit tests for trusted-peer content delivery gates."""
 
 import asyncio
+import json
 import os
 import sys
 import types
@@ -22,7 +23,11 @@ if 'zeroconf' not in sys.modules:
     zeroconf_stub.ServiceStateChange = _Dummy
     sys.modules['zeroconf'] = zeroconf_stub
 
-from canopy.network.manager import P2PNetworkManager
+from canopy.network.manager import (
+    CHANNEL_SYNC_TARGET_PAYLOAD_BYTES,
+    P2PNetworkManager,
+)
+from canopy.network.routing import MAX_PAYLOAD_BYTES
 
 
 class TestManagerTrustGating(unittest.TestCase):
@@ -94,6 +99,60 @@ class TestManagerTrustGating(unittest.TestCase):
             sent,
             [('peer-guest', {'Cpublic': '2026-03-30 12:00:00'}, None, None)],
         )
+
+    def test_channel_sync_batches_stay_under_payload_budget(self) -> None:
+        manager = P2PNetworkManager.__new__(P2PNetworkManager)
+        channels = [
+            {
+                'id': f'C{i:03d}',
+                'name': f'public-{i}',
+                'type': 'public',
+                'desc': 'x' * 30000,
+                'origin_peer': 'peer-local',
+                'privacy_mode': 'open',
+            }
+            for i in range(60)
+        ]
+
+        batches = manager._chunk_channel_sync_batches(channels)
+
+        self.assertGreater(len(batches), 1)
+        self.assertEqual(sum(len(batch) for batch in batches), len(channels))
+        for batch in batches:
+            payload_size = manager._estimate_channel_sync_payload_bytes(batch)
+            self.assertLessEqual(payload_size, CHANNEL_SYNC_TARGET_PAYLOAD_BYTES)
+            self.assertLess(payload_size, MAX_PAYLOAD_BYTES)
+
+    def test_send_channel_sync_to_peer_sends_multiple_batches(self) -> None:
+        manager = P2PNetworkManager.__new__(P2PNetworkManager)
+        manager.message_router = SimpleNamespace()
+        manager.get_public_channels_for_sync = lambda: [
+            {
+                'id': f'C{i:03d}',
+                'name': f'public-{i}',
+                'type': 'public',
+                'desc': 'x' * 30000,
+                'origin_peer': 'peer-local',
+                'privacy_mode': 'open',
+            }
+            for i in range(60)
+        ]
+
+        sent_batches: list[list[dict]] = []
+
+        async def _send_channel_sync(peer_id, channels):
+            sent_batches.append(channels)
+            return True
+
+        manager.message_router.send_channel_sync = _send_channel_sync
+
+        asyncio.run(manager._send_channel_sync_to_peer('peer-guest'))
+
+        self.assertGreater(len(sent_batches), 1)
+        self.assertEqual(sum(len(batch) for batch in sent_batches), 60)
+        for batch in sent_batches:
+            payload = {'content': '', 'metadata': {'type': 'channel_sync', 'channels': batch}}
+            self.assertLess(len(json.dumps(payload).encode('utf-8')), MAX_PAYLOAD_BYTES)
 
 
 if __name__ == '__main__':

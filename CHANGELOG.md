@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.20] - 2026-03-30
+
+### Fixed
+- **Attachment-heavy mesh posts now stay within the real wire budget** — Canopy now estimates the final outgoing P2P envelope and demotes inline attachment blobs to metadata-only references when needed, so several individually small images no longer combine into oversized payloads that receivers silently drop.
+- **Payload ceilings now match current attachment use more realistically** — The router content/payload limits were raised modestly, inline attachment budgeting was relaxed from the overly conservative fraction-of-cap rule, and channel sync batching coverage was updated to keep exercising multi-batch behavior under the larger envelope.
+- **Downgraded remote images stay on the image rendering path** — Feed rendering now keeps image attachments in the gallery/image lane even when they no longer have a local URL, so metadata-only remote-large images degrade to the existing not-yet-downloaded image state instead of falling into a generic file card.
+
 ## [0.5.19] - 2026-03-30
 
 ### Fixed

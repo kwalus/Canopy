@@ -49,10 +49,16 @@ from .routing import (
 
 logger = logging.getLogger('canopy.network.manager')
 
-# Keep inlined attachment blobs well below the router payload ceiling. Base64
-# expansion plus envelope metadata can otherwise turn "small" files into
-# oversized P2P payloads that remote peers will drop.
-P2P_INLINE_ATTACHMENT_MAX_BYTES = min(LARGE_ATTACHMENT_THRESHOLD, MAX_PAYLOAD_BYTES // 8)
+# Keep inlined attachment blobs below the router payload ceiling, but do not
+# force ordinary images into remote-large mode too aggressively. We still apply
+# a sender-side payload budget pass before transmission, so this cap is only
+# the first stage of protection against oversized messages.
+P2P_INLINE_ATTACHMENT_MAX_BYTES = min(
+    LARGE_ATTACHMENT_THRESHOLD,
+    max(128 * 1024, MAX_PAYLOAD_BYTES // 4),
+)
+CHANNEL_SYNC_TARGET_PAYLOAD_BYTES = max(16 * 1024, int(MAX_PAYLOAD_BYTES * 0.75))
+ATTACHMENT_PAYLOAD_TARGET_BYTES = max(64 * 1024, MAX_PAYLOAD_BYTES - (32 * 1024))
 
 
 class P2PNetworkManager:
@@ -296,7 +302,12 @@ class P2PNetworkManager:
             pass
         return False
 
-    def _build_p2p_attachment_entry(self, attachment: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _build_p2p_attachment_entry(
+        self,
+        attachment: Dict[str, Any],
+        *,
+        force_metadata_only: bool = False,
+    ) -> Optional[Dict[str, Any]]:
         """Prepare one attachment payload for P2P propagation."""
         if not isinstance(attachment, dict):
             return None
@@ -326,6 +337,11 @@ class P2PNetworkManager:
                     'download_status': str(attachment.get('download_status') or 'pending').strip().lower() or 'pending',
                 }
 
+        if existing_remote_reference and force_metadata_only:
+            entry.update(existing_remote_reference)
+            entry.pop('url', None)
+            return entry
+
         if not file_id or not self.file_manager:
             if existing_remote_reference:
                 entry.update(existing_remote_reference)
@@ -340,7 +356,7 @@ class P2PNetworkManager:
                     entry.pop('url', None)
                 return entry
             file_data, file_info = result
-            if len(file_data) <= P2P_INLINE_ATTACHMENT_MAX_BYTES:
+            if not force_metadata_only and len(file_data) <= P2P_INLINE_ATTACHMENT_MAX_BYTES:
                 import base64
                 entry['data'] = base64.b64encode(file_data).decode('ascii')
                 logger.info(
@@ -374,6 +390,86 @@ class P2PNetworkManager:
                 entry.pop('url', None)
         return entry
 
+    def _estimate_message_payload_bytes(self, content: Any, metadata: Any) -> int:
+        """Estimate payload bytes using the same JSON shape the router validates."""
+        try:
+            payload = {
+                'content': content if isinstance(content, str) else '',
+                'metadata': metadata or {},
+            }
+            return len(json.dumps(payload).encode('utf-8'))
+        except Exception:
+            return 0
+
+    def _prepare_p2p_attachment_entries(
+        self,
+        *,
+        content: str,
+        attachment_container: Dict[str, Any],
+        attachments: Optional[list[Any]],
+        context_label: str,
+    ) -> list[Dict[str, Any]]:
+        """Build attachment entries and demote inline blobs if the payload is too large."""
+        normalized_attachments = list(attachments or [])
+        entries: list[Dict[str, Any]] = []
+        for attachment in normalized_attachments:
+            entry = self._build_p2p_attachment_entry(attachment)
+            if entry:
+                entries.append(entry)
+
+        if not isinstance(attachment_container, dict):
+            return entries
+        if entries:
+            attachment_container['attachments'] = entries
+        else:
+            attachment_container.pop('attachments', None)
+            return entries
+
+        initial_size = self._estimate_message_payload_bytes(content, attachment_container)
+        if initial_size <= ATTACHMENT_PAYLOAD_TARGET_BYTES:
+            return entries
+
+        demotion_candidates: list[tuple[int, int, int]] = []
+        for idx, (attachment, entry) in enumerate(zip(normalized_attachments, entries)):
+            if not isinstance(entry, dict) or not entry.get('data'):
+                continue
+            entry_type = str(entry.get('type') or attachment.get('type') or '').strip().lower()
+            size_hint = int(entry.get('size') or attachment.get('size') or 0)
+            image_rank = 0 if entry_type.startswith('image/') else 1
+            demotion_candidates.append((image_rank, -size_hint, idx))
+
+        demoted = 0
+        for _, _, idx in sorted(demotion_candidates):
+            replacement = self._build_p2p_attachment_entry(
+                normalized_attachments[idx],
+                force_metadata_only=True,
+            )
+            if not replacement:
+                continue
+            entries[idx] = replacement
+            attachment_container['attachments'] = entries
+            demoted += 1
+            if self._estimate_message_payload_bytes(content, attachment_container) <= ATTACHMENT_PAYLOAD_TARGET_BYTES:
+                break
+
+        final_size = self._estimate_message_payload_bytes(content, attachment_container)
+        if demoted:
+            logger.info(
+                "Demoted %d inline attachment(s) for %s to fit payload budget (%d -> %d bytes)",
+                demoted,
+                context_label,
+                initial_size,
+                final_size,
+            )
+        if final_size > MAX_PAYLOAD_BYTES:
+            logger.warning(
+                "Payload for %s remains above router ceiling after attachment demotion (%d bytes > %d bytes)",
+                context_label,
+                final_size,
+                MAX_PAYLOAD_BYTES,
+            )
+        return entries
+
     def _peer_is_trusted_for_content(self, peer_id: Any) -> bool:
         """Return whether a peer should receive replicated user content."""
         clean_peer = str(peer_id or '').strip()
@@ -400,6 +496,59 @@ class P2PNetworkManager:
             return int(trust_lookup(clean_peer)) >= threshold
         except Exception:
             return False
+
+    @staticmethod
+    def _estimate_channel_sync_payload_bytes(channels: list[Dict[str, Any]]) -> int:
+        """Estimate the router-visible payload size for a channel_sync frame."""
+        payload = {
+            'content': '',
+            'metadata': {
+                'type': 'channel_sync',
+                'channels': channels,
+            },
+        }
+        return len(json.dumps(payload, separators=(',', ':'), sort_keys=True).encode('utf-8'))
+
+    def _chunk_channel_sync_batches(
+        self,
+        channels: list[Dict[str, Any]],
+        *,
+        target_payload_bytes: int = CHANNEL_SYNC_TARGET_PAYLOAD_BYTES,
+    ) -> list[list[Dict[str, Any]]]:
+        """Split channel sync into payload-safe batches."""
+        clean_target = max(4096, int(target_payload_bytes or CHANNEL_SYNC_TARGET_PAYLOAD_BYTES))
+        batches: list[list[Dict[str, Any]]] = []
+        current: list[Dict[str, Any]] = []
+
+        for channel in channels or []:
+            trial = current + [channel]
+            trial_size = self._estimate_channel_sync_payload_bytes(trial)
+            if not current and trial_size > clean_target:
+                logger.warning(
+                    "Skipping oversized channel sync entry %s (%s bytes > %s budget)",
+                    str((channel or {}).get('id') or '').strip() or '<unknown>',
+                    trial_size,
+                    clean_target,
+                )
+                continue
+            if current and trial_size > clean_target:
+                batches.append(current)
+                current = [channel]
+                current_size = self._estimate_channel_sync_payload_bytes(current)
+                if current_size > clean_target:
+                    logger.warning(
+                        "Skipping oversized channel sync entry %s (%s bytes > %s budget)",
+                        str((channel or {}).get('id') or '').strip() or '<unknown>',
+                        current_size,
+                        clean_target,
+                    )
+                    current = []
+                continue
+            current = trial
+
+        if current:
+            batches.append(current)
+        return batches
 
     def _filter_trusted_content_peers(self, peer_ids: Optional[Iterable[Any]]) -> list[str]:
         """Normalize peer IDs and keep only trusted remote peers."""
@@ -2777,13 +2926,12 @@ class P2PNetworkManager:
         # Embed file data for each attachment so peers can store locally.
         # Include original file_id so receivers can rewrite /files/ORIGINAL in content to /files/LOCAL.
         if attachments:
-            p2p_attachments = []
-            for att in attachments:
-                att_entry = self._build_p2p_attachment_entry(att)
-                if att_entry:
-                    p2p_attachments.append(att_entry)
-
-            metadata['attachments'] = p2p_attachments
+            p2p_attachments = self._prepare_p2p_attachment_entries(
+                content=outbound_content,
+                attachment_container=metadata,
+                attachments=attachments,
+                context_label=f"channel_message:{channel_id}:{message_id}",
+            )
             metadata['message_type'] = 'file'
 
         delivery_peers = self._filter_trusted_content_peers(list(target_peer_ids or []))
@@ -2878,13 +3026,12 @@ class P2PNetworkManager:
             attachments = meta_metadata.get('attachments') if isinstance(meta_metadata, dict) else []
             attachments = attachments or []
             if attachments:
-                enriched = []
-                for att in attachments:
-                    entry = self._build_p2p_attachment_entry(att)
-                    if entry:
-                        enriched.append(entry)
-                if isinstance(meta_metadata, dict):
-                    meta_metadata['attachments'] = enriched
+                self._prepare_p2p_attachment_entries(
+                    content=content,
+                    attachment_container=meta_metadata,
+                    attachments=attachments,
+                    context_label=f"feed_post:{post_id}",
+                )
         except Exception as e:
             logger.debug(f"Feed attachment embedding failed: {e}")
 
@@ -3078,13 +3225,12 @@ class P2PNetworkManager:
             attachments = dm_metadata.get('attachments') if isinstance(dm_metadata, dict) else []
             attachments = attachments or []
             if attachments:
-                enriched = []
-                for att in attachments:
-                    entry = self._build_p2p_attachment_entry(att)
-                    if entry:
-                        enriched.append(entry)
-                if isinstance(dm_metadata, dict):
-                    dm_metadata['attachments'] = enriched
+                self._prepare_p2p_attachment_entries(
+                    content=content,
+                    attachment_container=dm_metadata,
+                    attachments=attachments,
+                    context_label=f"direct_message:{message_id}",
+                )
             user_metadata = dm_metadata
         except Exception as e:
             logger.debug(f"DM attachment embedding failed: {e}")
@@ -3122,6 +3268,22 @@ class P2PNetworkManager:
             outbound_metadata['security'] = dict(security_summary)
             if target_peer_id:
                 outbound_metadata['security']['target_peer_id'] = target_peer_id
+
+        try:
+            outbound_attachments = (
+                outbound_metadata.get('attachments')
+                if isinstance(outbound_metadata, dict)
+                else []
+            ) or []
+            if outbound_attachments:
+                self._prepare_p2p_attachment_entries(
+                    content=outbound_content,
+                    attachment_container=outbound_metadata,
+                    attachments=outbound_attachments,
+                    context_label=f"direct_message:{message_id}:final",
+                )
+        except Exception as e:
+            logger.debug(f"Final DM attachment budget pass failed: {e}")
 
         meta['metadata'] = outbound_metadata
         future = asyncio.run_coroutine_threadsafe(
@@ -3965,8 +4127,35 @@ class P2PNetworkManager:
                 logger.debug(f"No public channels to sync with {peer_id}")
                 return
 
-            logger.debug(f"Sending channel sync ({len(channels)} channels) to {peer_id}")
-            await self.message_router.send_channel_sync(peer_id, channels)
+            batches = self._chunk_channel_sync_batches(list(channels or []))
+            if not batches:
+                logger.debug("No payload-safe public channel sync batches for %s", peer_id)
+                return
+
+            sent_channels = 0
+            total_channels = sum(len(batch) for batch in batches)
+            for idx, batch in enumerate(batches, start=1):
+                payload_bytes = self._estimate_channel_sync_payload_bytes(batch)
+                logger.debug(
+                    "Sending channel sync batch %s/%s to %s (channels=%s size=%s bytes)",
+                    idx,
+                    len(batches),
+                    peer_id,
+                    len(batch),
+                    payload_bytes,
+                )
+                ok = await self.message_router.send_channel_sync(peer_id, batch)
+                if not ok:
+                    logger.warning(
+                        "Channel sync batch %s/%s to %s failed after %s/%s channels",
+                        idx,
+                        len(batches),
+                        peer_id,
+                        sent_channels,
+                        total_channels,
+                    )
+                    break
+                sent_channels += len(batch)
         except Exception as e:
             logger.error(f"Error sending channel sync to {peer_id}: {e}", exc_info=True)
 

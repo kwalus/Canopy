@@ -128,8 +128,8 @@ def encode_channel_key_material(key_material: bytes) -> str:
 # Prevents a misbehaving or permanently-offline peer from exhausting RAM.
 MAX_PENDING_PER_PEER = 500
 
-MAX_CONTENT_BYTES = 256 * 1024       # 256 KB for text content
-MAX_PAYLOAD_BYTES = 512 * 1024       # 512 KB for total message payload
+MAX_CONTENT_BYTES = 512 * 1024       # 512 KB for text content
+MAX_PAYLOAD_BYTES = 1024 * 1024      # 1 MB for total message payload
 MAX_ID_BYTES = 512                   # max length for any user/post/signal ID
 
 # Replay-attack and clock-skew guards applied to all inbound messages.

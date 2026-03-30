@@ -560,7 +560,7 @@
                                     {% set others = [] %}
                                     {% set image_layout = namespace(value='') %}
                                     {% for attachment in post.metadata.attachments %}
-                                        {% if attachment.type.startswith('image/') and attachment.url %}
+                                        {% if attachment.type.startswith('image/') %}
                                             {% if images.append(attachment) %}{% endif %}
                                             {% if not image_layout.value %}
                                                 {% set candidate = (attachment.layout_hint or '')|lower %}
