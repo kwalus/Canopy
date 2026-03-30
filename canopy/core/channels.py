@@ -643,6 +643,11 @@ class ChannelManager:
         # Create default general channel if it doesn't exist
         with LogOperation("Default channel creation"):
             self._ensure_default_channels()
+
+        # Repair membership drift so locally-hosted users see any existing
+        # public/open channels even if those channels arrived after account creation.
+        with LogOperation("Public channel membership repair"):
+            self._repair_public_channel_memberships()
         
         logger.info("ChannelManager initialized successfully")
 
@@ -703,6 +708,123 @@ class ChannelManager:
             return members
         except Exception:
             return []
+
+    def _get_local_public_channel_candidate_user_ids(
+        self,
+        conn: sqlite3.Connection,
+        fallback_user_id: Optional[str] = None,
+    ) -> List[str]:
+        """Return locally-hosted users that should see public/open channels."""
+        candidate_ids: List[str] = []
+        seen: set[str] = set()
+        try:
+            rows = conn.execute(
+                """
+                SELECT id
+                FROM users
+                WHERE id != 'system'
+                  AND id != 'local_user'
+                  AND (origin_peer IS NULL OR trim(origin_peer) = '')
+                  AND (
+                        (password_hash IS NOT NULL AND trim(password_hash) != '')
+                        OR lower(COALESCE(account_type, 'human')) = 'agent'
+                  )
+                ORDER BY created_at ASC, id ASC
+                """
+            ).fetchall()
+        except Exception:
+            rows = []
+
+        for row in rows or []:
+            user_id = str(row['id'] if hasattr(row, 'keys') else row[0] or '').strip()
+            if not user_id or user_id in seen:
+                continue
+            seen.add(user_id)
+            candidate_ids.append(user_id)
+
+        fallback = str(fallback_user_id or '').strip()
+        if fallback and fallback not in seen:
+            row = conn.execute(
+                "SELECT id FROM users WHERE id = ?",
+                (fallback,),
+            ).fetchone()
+            if row:
+                candidate_ids.append(fallback)
+
+        return candidate_ids
+
+    def _ensure_public_channel_membership_conn(
+        self,
+        conn: sqlite3.Connection,
+        channel_id: str,
+        channel_type: Any,
+        privacy_mode: Any,
+        *,
+        fallback_user_id: Optional[str] = None,
+    ) -> int:
+        """Ensure local users are members of a public/open channel."""
+        if not channel_id or not self._is_public_channel(channel_type, privacy_mode):
+            return 0
+
+        added = 0
+        for user_id in self._get_local_public_channel_candidate_user_ids(
+            conn,
+            fallback_user_id=fallback_user_id,
+        ):
+            target_policy = self._load_user_channel_governance(conn, user_id)
+            allowed, reason = self._is_channel_allowed_by_policy(
+                policy=target_policy,
+                channel_id=channel_id,
+                channel_type=channel_type,
+                privacy_mode=privacy_mode,
+            )
+            if not allowed:
+                logger.info(
+                    "Skipping public auto-membership for %s in %s due to governance policy (%s)",
+                    user_id,
+                    channel_id,
+                    reason,
+                )
+                continue
+            cur = conn.execute(
+                """
+                INSERT OR IGNORE INTO channel_members (channel_id, user_id, role)
+                VALUES (?, ?, 'member')
+                """,
+                (channel_id, user_id),
+            )
+            if int(getattr(cur, 'rowcount', 0) or 0) > 0:
+                added += 1
+        return added
+
+    def _repair_public_channel_memberships(self) -> int:
+        """Backfill local memberships for any existing public/open channels."""
+        repaired = 0
+        try:
+            with self.db.get_connection() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT id, channel_type, COALESCE(privacy_mode, 'open') AS privacy_mode
+                    FROM channels
+                    WHERE (channel_type = 'public' OR channel_type = 'general')
+                      AND COALESCE(privacy_mode, 'open') NOT IN ('private', 'confidential')
+                    """
+                ).fetchall()
+                for row in rows or []:
+                    repaired += self._ensure_public_channel_membership_conn(
+                        conn,
+                        str(row['id'] or '').strip(),
+                        row['channel_type'],
+                        row['privacy_mode'],
+                    )
+                conn.commit()
+        except Exception as e:
+            logger.warning(f"Failed to repair public channel memberships: {e}")
+            return 0
+
+        if repaired:
+            logger.info("Repaired %s public channel membership row(s)", repaired)
+        return repaired
 
     def _emit_channel_user_event(
         self,
@@ -4009,7 +4131,7 @@ class ChannelManager:
                            last_attempt_at IS NULL
                            OR last_attempt_at <= datetime('now', ?)
                       )
-                    ORDER BY m.created_at ASC
+                    ORDER BY created_at ASC
                     LIMIT ?
                     """,
                     (peer_id, max(1, int(max_attempts)), retry_window, int(limit)),
@@ -4448,6 +4570,14 @@ class ChannelManager:
                                     INSERT OR IGNORE INTO channel_members (channel_id, user_id)
                                     VALUES (?, ?)
                                 """, (channel_id, user_id))
+
+                    self._ensure_public_channel_membership_conn(
+                        conn,
+                        channel_id,
+                        channel_type.value,
+                        privacy_mode,
+                        fallback_user_id=created_by,
+                    )
                     
                     conn.commit()
             
@@ -4644,7 +4774,6 @@ class ChannelManager:
                     lifecycle_archive_reason,
                 ))
 
-                added = 0
                 mode = (privacy_mode or '').lower()
                 is_targeted = mode in self.TARGETED_PRIVACY_MODES or channel_type == 'private'
                 if is_targeted:
@@ -4679,55 +4808,15 @@ class ChannelManager:
                                     INSERT OR IGNORE INTO channel_members (channel_id, user_id, role)
                                     VALUES (?, ?, 'member')
                                 """, (channel_id, uid))
-                                added += 1
                                 logger.debug(f"Added targeted member {uid} to channel {channel_id}")
                 else:
-                    # Public channels: add ALL registered human users
-                    human_users = conn.execute("""
-                        SELECT id FROM users
-                        WHERE id != 'system' AND id != 'local_user'
-                          AND password_hash IS NOT NULL AND password_hash != ''
-                    """).fetchall()
-
-                    for (uid,) in human_users:
-                        target_policy = self._load_user_channel_governance(conn, uid)
-                        allowed, reason = self._is_channel_allowed_by_policy(
-                            policy=target_policy,
-                            channel_id=channel_id,
-                            channel_type=channel_type,
-                            privacy_mode=privacy_mode,
-                        )
-                        if not allowed:
-                            logger.info(
-                                f"Skipping auto-membership for {uid} in synced channel {channel_id} "
-                                f"due to governance policy ({reason})"
-                            )
-                            continue
-                        conn.execute("""
-                            INSERT OR IGNORE INTO channel_members (channel_id, user_id, role)
-                            VALUES (?, ?, 'member')
-                        """, (channel_id, uid))
-                        added += 1
-
-                # Fallback: if no human users found, add the provided user (open/guarded only)
-                if added == 0 and local_user_id and not is_targeted:
-                    fallback_policy = self._load_user_channel_governance(conn, local_user_id)
-                    fallback_allowed, fallback_reason = self._is_channel_allowed_by_policy(
-                        policy=fallback_policy,
-                        channel_id=channel_id,
-                        channel_type=channel_type,
-                        privacy_mode=privacy_mode,
+                    self._ensure_public_channel_membership_conn(
+                        conn,
+                        channel_id,
+                        channel_type,
+                        privacy_mode,
+                        fallback_user_id=local_user_id,
                     )
-                    if not fallback_allowed:
-                        logger.info(
-                            f"Skipped fallback member {local_user_id} for synced channel {channel_id} "
-                            f"due to governance policy ({fallback_reason})"
-                        )
-                    else:
-                        conn.execute("""
-                            INSERT OR IGNORE INTO channel_members (channel_id, user_id, role)
-                            VALUES (?, ?, 'member')
-                        """, (channel_id, local_user_id))
 
                 conn.commit()
 
@@ -4812,15 +4901,16 @@ class ChannelManager:
                     return None
                 # Already have this exact channel?
                 existing = conn.execute(
-                    "SELECT name, description, privacy_mode, origin_peer, created_by FROM channels WHERE id = ?",
+                    "SELECT name, description, channel_type, privacy_mode, origin_peer, created_by FROM channels WHERE id = ?",
                     (remote_id,)
                 ).fetchone()
                 if existing:
                     old_name = existing[0] or ''
                     old_desc = existing[1] or ''
-                    old_privacy = self._normalize_privacy_mode(existing[2], default='open')
-                    old_origin_peer = existing[3] or ''
-                    old_created_by = existing[4] or ''
+                    old_type = str(existing[2] or 'public').strip().lower()
+                    old_privacy = self._normalize_privacy_mode(existing[3], default='open')
+                    old_origin_peer = existing[4] or ''
+                    old_created_by = existing[5] or ''
 
                     can_apply_remote_metadata = False
                     if old_origin_peer:
@@ -4834,6 +4924,7 @@ class ChannelManager:
                     needs_update = False
                     new_name = old_name
                     new_desc = old_desc
+                    new_type = old_type
                     new_privacy = old_privacy
                     new_post_policy = post_policy
                     new_allow_member_replies = bool(allow_member_replies)
@@ -4845,6 +4936,10 @@ class ChannelManager:
                             and remote_desc
                             and not remote_desc.startswith('Auto-created from P2P')):
                         new_desc = remote_desc
+                        needs_update = True
+                    normalized_remote_type = str(remote_type or '').strip().lower() or old_type
+                    if can_apply_remote_metadata and normalized_remote_type in {'public', 'private', 'general'} and normalized_remote_type != old_type:
+                        new_type = normalized_remote_type
                         needs_update = True
                     if privacy_mode and privacy_mode != old_privacy:
                         privacy_downgrade = self._is_privacy_downgrade(old_privacy, privacy_mode)
@@ -4925,6 +5020,7 @@ class ChannelManager:
                                 UPDATE channels
                                    SET name = ?,
                                        description = ?,
+                                       channel_type = ?,
                                        privacy_mode = ?,
                                        post_policy = ?,
                                        allow_member_replies = ?,
@@ -4939,6 +5035,7 @@ class ChannelManager:
                                 (
                                     new_name,
                                     new_desc,
+                                    new_type,
                                     new_privacy,
                                     new_post_policy,
                                     1 if new_allow_member_replies else 0,
@@ -4950,6 +5047,13 @@ class ChannelManager:
                                     lifecycle_archive_reason,
                                     remote_id,
                                 )
+                            )
+                            self._ensure_public_channel_membership_conn(
+                                conn,
+                                remote_id,
+                                new_type,
+                                new_privacy,
+                                fallback_user_id=local_user_id,
                             )
                             conn.commit()
                             self.apply_remote_channel_posting_snapshot(
@@ -4985,6 +5089,15 @@ class ChannelManager:
                         allowed_poster_user_ids=allowed_poster_user_ids,
                         log_context='channel_announce_existing',
                     )
+                    with self.db.get_connection() as membership_conn:
+                        self._ensure_public_channel_membership_conn(
+                            membership_conn,
+                            remote_id,
+                            old_type,
+                            privacy_mode,
+                            fallback_user_id=local_user_id,
+                        )
+                        membership_conn.commit()
                     return None  # Already synced, no updates needed
 
                 # Check for same-name conflict
@@ -5052,6 +5165,14 @@ class ChannelManager:
                                 INSERT OR IGNORE INTO channel_members (channel_id, user_id, role)
                                 VALUES (?, ?, ?)
                             """, (remote_id, user_id, role))
+
+                        self._ensure_public_channel_membership_conn(
+                            conn,
+                            remote_id,
+                            remote_type,
+                            privacy_mode,
+                            fallback_user_id=local_user_id,
+                        )
 
                         conn.commit()
                         self.sync_channel_post_permissions(

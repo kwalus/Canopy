@@ -167,10 +167,14 @@ class TestPublicChannelBootstrapSync(unittest.TestCase):
         with self.db_manager.get_connection() as conn:
             public_row = conn.execute("SELECT id, privacy_mode FROM channels WHERE id = 'Cpubsync001'").fetchone()
             private_row = conn.execute("SELECT id FROM channels WHERE id = 'Cprivsync001'").fetchone()
+            local_membership = conn.execute(
+                "SELECT 1 FROM channel_members WHERE channel_id = 'Cpubsync001' AND user_id = 'owner-user'"
+            ).fetchone()
 
         self.assertIsNotNone(public_row)
         self.assertEqual(public_row['privacy_mode'], 'open')
         self.assertIsNone(private_row)
+        self.assertIsNotNone(local_membership)
 
     def test_untrusted_catchup_request_serves_only_public_messages(self) -> None:
         self._mark_peer_untrusted('peer-guest')
@@ -248,6 +252,9 @@ class TestPublicChannelBootstrapSync(unittest.TestCase):
             stored_messages = conn.execute(
                 "SELECT id, channel_id, content FROM channel_messages ORDER BY id ASC"
             ).fetchall()
+            local_membership = conn.execute(
+                "SELECT 1 FROM channel_members WHERE channel_id = 'Cpubcatchup001' AND user_id = 'owner-user'"
+            ).fetchone()
 
         self.assertIsNotNone(public_channel)
         self.assertEqual(public_channel['name'], 'public-deck')
@@ -255,3 +262,68 @@ class TestPublicChannelBootstrapSync(unittest.TestCase):
         self.assertEqual(public_channel['privacy_mode'], 'open')
         self.assertIsNone(private_channel)
         self.assertEqual([(row['id'], row['channel_id']) for row in stored_messages], [('Mpub001', 'Cpubcatchup001')])
+        self.assertIsNotNone(local_membership)
+
+    def test_channel_sync_upgrades_placeholder_and_backfills_local_membership(self) -> None:
+        self._mark_peer_untrusted('peer-guest')
+
+        with self.db_manager.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO channels (
+                    id, name, channel_type, created_by, description, origin_peer, privacy_mode, created_at
+                ) VALUES (?, ?, 'private', ?, ?, ?, 'private', CURRENT_TIMESTAMP)
+                """,
+                ('Cpubupgrade001', 'peer-channel-Cpubupgr', 'owner-user', 'Auto-created from P2P catchup', 'peer-guest'),
+            )
+            conn.commit()
+
+        self.p2p_manager.on_channel_sync(
+            [
+                {
+                    'id': 'Cpubupgrade001',
+                    'name': 'synced-public',
+                    'type': 'public',
+                    'desc': 'public upgrade',
+                    'privacy_mode': 'open',
+                    'origin_peer': 'peer-guest',
+                },
+            ],
+            'peer-guest',
+        )
+
+        with self.db_manager.get_connection() as conn:
+            upgraded = conn.execute(
+                "SELECT name, channel_type, privacy_mode FROM channels WHERE id = 'Cpubupgrade001'"
+            ).fetchone()
+            local_membership = conn.execute(
+                "SELECT 1 FROM channel_members WHERE channel_id = 'Cpubupgrade001' AND user_id = 'owner-user'"
+            ).fetchone()
+
+        self.assertIsNotNone(upgraded)
+        self.assertEqual(upgraded['name'], 'synced-public')
+        self.assertEqual(upgraded['channel_type'], 'public')
+        self.assertEqual(upgraded['privacy_mode'], 'open')
+        self.assertIsNotNone(local_membership)
+
+    def test_public_channel_membership_repair_backfills_existing_rows(self) -> None:
+        with self.db_manager.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO channels (
+                    id, name, channel_type, created_by, description, privacy_mode, created_at
+                ) VALUES (?, ?, 'public', ?, ?, 'open', CURRENT_TIMESTAMP)
+                """,
+                ('Crepair001', 'repair-public', 'owner-user', 'repair target'),
+            )
+            conn.commit()
+
+        repaired = self.channel_manager._repair_public_channel_memberships()
+
+        with self.db_manager.get_connection() as conn:
+            local_membership = conn.execute(
+                "SELECT 1 FROM channel_members WHERE channel_id = 'Crepair001' AND user_id = 'owner-user'"
+            ).fetchone()
+
+        self.assertGreaterEqual(repaired, 1)
+        self.assertIsNotNone(local_membership)

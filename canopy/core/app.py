@@ -4778,6 +4778,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
                             "VALUES (?, ?, 'member')",
                             (channel_id, user_id)
                         )
+                        channel_manager._ensure_public_channel_membership_conn(
+                            conn,
+                            channel_id,
+                            incoming_channel_type or 'public',
+                            channel_privacy_mode,
+                        )
                         conn.commit()
 
                     # Process file attachments — decode base64 data and

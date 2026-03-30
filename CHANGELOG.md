@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.19] - 2026-03-30
+
+### Fixed
+- **Public channel sync now self-heals local visibility** — When public/open channels arrive after account creation, Canopy now backfills local membership rows consistently across sync, placeholder adoption, and catch-up materialization, and repairs already-broken public channel memberships during startup.
+- **Placeholder public-channel upgrades now finish cleanly** — Channels first seen through older catch-up placeholder paths now upgrade `channel_type` alongside `privacy_mode`, so later public metadata no longer leaves half-upgraded rows stuck looking private.
+- **Member-sync retry lookup no longer trips on bad ordering SQL** — Retryable channel member-sync delivery queries now order by the real delivery timestamp column instead of referencing a nonexistent alias.
+
 ## [0.5.18] - 2026-03-30
 
 ### Fixed
