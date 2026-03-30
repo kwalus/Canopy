@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.25] - 2026-03-30
+
+### Fixed
+- **Trusted relay hints now re-trigger reconcile for half-upgraded placeholder rows** — Public channels that were already promoted to `public/open` but still retained `peer-channel-*` placeholder names no longer dead-end when trusted non-origin peers provide canonical names; Canopy now treats those as reconcile hints and asks the recorded origin for authoritative metadata.
+- **Startup/public convergence repair now covers placeholder markers beyond the fully-private state** — Reconcile candidate scans no longer limit themselves to `private/private` placeholder rows, so older partially upgraded public rows remain eligible for origin-authoritative repair when the relevant peer reconnects.
+- **Regression coverage now includes placeholder-name-only convergence failures** — Added a focused test for the case where a trusted peer reports the correct public name but the local row is already `public/open`, preventing that half-upgraded placeholder state from regressing silently.
+
 ## [0.5.24] - 2026-03-30
 
 ### Fixed

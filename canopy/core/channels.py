@@ -828,20 +828,32 @@ class ChannelManager:
         return repaired
 
     @staticmethod
+    def _has_placeholder_channel_marker(
+        name: Any,
+        description: Any,
+    ) -> bool:
+        clean_name = str(name or '').strip()
+        clean_desc = str(description or '').strip()
+        return (
+            clean_name.startswith('peer-channel-')
+            or clean_desc.startswith('Auto-created from P2P catchup')
+        )
+
+    @classmethod
     def _is_placeholder_channel_signature(
+        cls,
         name: Any,
         description: Any,
         channel_type: Any,
         privacy_mode: Any,
     ) -> bool:
-        clean_name = str(name or '').strip()
-        clean_desc = str(description or '').strip()
         clean_type = str(channel_type or '').strip().lower()
         clean_privacy = str(privacy_mode or '').strip().lower()
         return (
-            clean_name.startswith('peer-channel-')
-            or clean_desc.startswith('Auto-created from P2P catchup')
-        ) and clean_type == 'private' and clean_privacy == 'private'
+            cls._has_placeholder_channel_marker(name, description)
+            and clean_type == 'private'
+            and clean_privacy == 'private'
+        )
 
     def list_public_placeholder_reconcile_candidates(self, limit: int = 200) -> List[Dict[str, Any]]:
         """Return placeholder/private channels that should be rechecked against origin metadata."""
@@ -861,8 +873,6 @@ class ChannelManager:
                     LEFT JOIN channel_messages m ON m.channel_id = c.id
                     WHERE c.origin_peer IS NOT NULL
                       AND TRIM(c.origin_peer) != ''
-                      AND c.channel_type = 'private'
-                      AND COALESCE(c.privacy_mode, 'private') = 'private'
                       AND (
                             c.name LIKE 'peer-channel-%'
                             OR c.description LIKE 'Auto-created from P2P catchup%'
@@ -4995,12 +5005,53 @@ class ChannelManager:
                         normalized_remote_type,
                         privacy_mode or old_privacy,
                     )
+                    old_has_placeholder_marker = self._has_placeholder_channel_marker(
+                        old_name,
+                        old_desc,
+                    )
                     old_is_placeholder = self._is_placeholder_channel_signature(
                         old_name,
                         old_desc,
                         old_type,
                         old_privacy,
                     )
+                    remote_has_canonical_name = bool(
+                        remote_name
+                        and not str(remote_name or '').strip().startswith('peer-channel-')
+                    )
+                    remote_has_canonical_desc = bool(
+                        remote_desc
+                        and not str(remote_desc or '').strip().startswith('Auto-created from P2P')
+                    )
+                    trusted_placeholder_hint = bool(
+                        old_has_placeholder_marker
+                        and not can_apply_remote_metadata
+                        and incoming_looks_public
+                        and (
+                            remote_has_canonical_name
+                            or remote_has_canonical_desc
+                            or normalized_remote_type != old_type
+                            or privacy_mode != old_privacy
+                        )
+                    )
+                    if trusted_placeholder_hint:
+                        callback = getattr(self, 'public_placeholder_reconcile_callback', None)
+                        if callable(callback):
+                            try:
+                                callback(
+                                    channel_id=remote_id,
+                                    origin_peer=old_origin_peer,
+                                    observed_from_peer=str(from_peer or '').strip(),
+                                    remote_name=remote_name,
+                                    remote_type=normalized_remote_type,
+                                    privacy_mode=privacy_mode,
+                                )
+                            except Exception as callback_err:
+                                logger.debug(
+                                    "Placeholder reconcile callback failed for %s: %s",
+                                    remote_id,
+                                    callback_err,
+                                )
                     if can_apply_remote_metadata and normalized_remote_type in {'public', 'private', 'general'} and normalized_remote_type != old_type:
                         new_type = normalized_remote_type
                         needs_update = True
@@ -5018,24 +5069,6 @@ class ChannelManager:
                                     remote_id, old_privacy, privacy_mode, from_peer,
                                 )
                         else:
-                            if old_origin_peer and old_is_placeholder and incoming_looks_public:
-                                callback = getattr(self, 'public_placeholder_reconcile_callback', None)
-                                if callable(callback):
-                                    try:
-                                        callback(
-                                            channel_id=remote_id,
-                                            origin_peer=old_origin_peer,
-                                            observed_from_peer=str(from_peer or '').strip(),
-                                            remote_name=remote_name,
-                                            remote_type=normalized_remote_type,
-                                            privacy_mode=privacy_mode,
-                                        )
-                                    except Exception as callback_err:
-                                        logger.debug(
-                                            "Placeholder reconcile callback failed for %s: %s",
-                                            remote_id,
-                                            callback_err,
-                                        )
                             logger.warning(
                                 "SECURITY: Ignoring privacy update for channel %s from non-origin peer %s "
                                 "(origin=%s, old=%s, incoming=%s)",

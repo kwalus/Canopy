@@ -390,6 +390,44 @@ class TestPublicChannelBootstrapSync(unittest.TestCase):
         self.assertEqual(placeholder['privacy_mode'], 'private')
         self.assertEqual(self.p2p_manager.sync_requests, ['peer-origin'])
 
+    def test_non_origin_public_name_hint_requests_reconcile_for_half_upgraded_placeholder(self) -> None:
+        self.trust_manager.set_trust_score('peer-relay', 100, reason='test-relay-trusted')
+
+        with self.db_manager.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO channels (
+                    id, name, channel_type, created_by, description, origin_peer, privacy_mode, created_at
+                ) VALUES (?, ?, 'public', ?, ?, ?, 'open', CURRENT_TIMESTAMP)
+                """,
+                ('Chalfpub001', 'peer-channel-Chalfpub', 'owner-user', 'Auto-created from P2P catchup', 'peer-origin'),
+            )
+            conn.commit()
+
+        self.p2p_manager.on_channel_sync(
+            [
+                {
+                    'id': 'Chalfpub001',
+                    'name': 'breaking-news',
+                    'type': 'public',
+                    'desc': 'relayed canonical public name',
+                    'privacy_mode': 'open',
+                },
+            ],
+            'peer-relay',
+        )
+
+        with self.db_manager.get_connection() as conn:
+            placeholder = conn.execute(
+                "SELECT name, channel_type, privacy_mode FROM channels WHERE id = 'Chalfpub001'"
+            ).fetchone()
+
+        self.assertIsNotNone(placeholder)
+        self.assertEqual(placeholder['name'], 'peer-channel-Chalfpub')
+        self.assertEqual(placeholder['channel_type'], 'public')
+        self.assertEqual(placeholder['privacy_mode'], 'open')
+        self.assertEqual(self.p2p_manager.sync_requests, ['peer-origin'])
+
     def test_membership_recovery_rebinds_private_visibility_to_instance_owner(self) -> None:
         self.trust_manager.set_trust_score('peer-origin', 100, reason='test-origin-trusted')
 
