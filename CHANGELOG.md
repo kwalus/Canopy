@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.21] - 2026-03-30
+
+### Fixed
+- **Relayed public channel metadata now converges hidden placeholders** — Public channel announces now honor the announced origin authority for convergence checks, so a trusted relay can still materialize an existing `peer-channel-*` placeholder into its real public/open channel instead of getting blocked by a relay-vs-origin mismatch.
+- **Catch-up can now repair placeholder public channels** — When catch-up messages carry public/open channel metadata plus `channel_origin_peer`, Canopy now reconciles existing private placeholders before storing the message, which lets channels like `#breaking-news` materialize even if the earlier full sync frame never landed.
+- **Public channel repair coverage expanded** — Added focused regressions for relayed public channel announces and catch-up driven placeholder promotion so the hidden-placeholder failure mode stays covered.
+
 ## [0.5.20] - 2026-03-30
 
 ### Fixed

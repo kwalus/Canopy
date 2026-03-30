@@ -2758,13 +2758,14 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     pass
 
                 creator_hint = str(created_by_user_id or '').strip() or None
+                public_authority_peer = str(created_by_peer or from_peer or '').strip() or str(from_peer or '').strip()
                 merge_result = channel_manager.merge_or_adopt_channel(
                     remote_id=channel_id,
                     remote_name=name,
                     remote_type=channel_type,
                     remote_desc=description,
                     local_user_id=creator_hint or local_user,
-                    from_peer=from_peer,
+                    from_peer=public_authority_peer,
                     privacy_mode=mode,
                     post_policy=post_policy,
                     allow_member_replies=True if allow_member_replies is None else bool(allow_member_replies),
@@ -4623,6 +4624,17 @@ def create_app(config: Optional[Config] = None) -> Flask:
             try:
                 stored = 0
                 skipped_dup = 0
+                catchup_local_user = 'local_user'
+                try:
+                    with db_manager.get_connection() as conn:
+                        row = conn.execute(
+                            "SELECT id FROM users WHERE id != 'system' "
+                            "AND id != 'local_user' LIMIT 1"
+                        ).fetchone()
+                        if row:
+                            catchup_local_user = row[0]
+                except Exception:
+                    pass
                 for msg in (messages or []):
                     mid = msg.get('id')
                     if not mid:
@@ -4738,20 +4750,40 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     )
 
                     # Ensure channel exists
+                    catchup_channel_name = str(msg.get('channel_name') or '').strip() or f"peer-channel-{channel_id[:8]}"
+                    catchup_channel_authority = str(msg.get('channel_origin_peer') or from_peer or '').strip() or str(from_peer or '').strip()
+                    if _channel_definition_is_public(incoming_channel_type, incoming_channel_privacy):
+                        try:
+                            channel_manager.merge_or_adopt_channel(
+                                remote_id=channel_id,
+                                remote_name=catchup_channel_name,
+                                remote_type=incoming_channel_type or 'public',
+                                remote_desc='',
+                                local_user_id=catchup_local_user,
+                                from_peer=catchup_channel_authority,
+                                privacy_mode=incoming_channel_privacy,
+                            )
+                        except Exception as merge_err:
+                            logger.debug(
+                                "Catchup public channel reconcile skipped for %s from %s: %s",
+                                channel_id,
+                                catchup_channel_authority or from_peer,
+                                merge_err,
+                            )
                     with db_manager.get_connection() as conn:
                         existing_ch = conn.execute(
                             "SELECT channel_type, privacy_mode FROM channels WHERE id = ?",
                             (channel_id,)
                         ).fetchone()
                         if not existing_ch:
-                            auto_channel_name = str(msg.get('channel_name') or '').strip() or f"peer-channel-{channel_id[:8]}"
+                            auto_channel_name = catchup_channel_name
                             auto_channel_type = incoming_channel_type if incoming_channel_type in {'public', 'private', 'general'} else (
                                 'public' if _channel_definition_is_public(incoming_channel_type, incoming_channel_privacy) else 'private'
                             )
                             auto_channel_privacy = incoming_channel_privacy if incoming_channel_privacy in {'open', 'guarded', 'private', 'confidential'} else (
                                 'open' if auto_channel_type in {'public', 'general'} else 'private'
                             )
-                            auto_channel_origin = str(msg.get('channel_origin_peer') or from_peer or '').strip() or from_peer
+                            auto_channel_origin = catchup_channel_authority
                             conn.execute(
                                 "INSERT OR IGNORE INTO channels "
                                 "(id, name, channel_type, created_by, "
@@ -4767,8 +4799,10 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                  auto_channel_privacy)
                             )
                             conn.commit()
+                            channel_type_for_membership = auto_channel_type
                             channel_privacy_mode = auto_channel_privacy
                         else:
+                            channel_type_for_membership = str(existing_ch['channel_type'] or incoming_channel_type or 'public').strip().lower() or 'public'
                             channel_privacy_mode = str(existing_ch['privacy_mode'] or 'open').strip().lower()
 
                         # Ensure memberships
@@ -4781,8 +4815,9 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         channel_manager._ensure_public_channel_membership_conn(
                             conn,
                             channel_id,
-                            incoming_channel_type or 'public',
+                            channel_type_for_membership,
                             channel_privacy_mode,
+                            fallback_user_id=catchup_local_user,
                         )
                         conn.commit()
 

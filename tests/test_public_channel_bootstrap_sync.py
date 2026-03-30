@@ -306,6 +306,98 @@ class TestPublicChannelBootstrapSync(unittest.TestCase):
         self.assertEqual(upgraded['privacy_mode'], 'open')
         self.assertIsNotNone(local_membership)
 
+    def test_relayed_public_channel_announce_uses_created_by_peer_authority(self) -> None:
+        self.trust_manager.set_trust_score('peer-relay', 100, reason='test-relay-trusted')
+
+        with self.db_manager.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO channels (
+                    id, name, channel_type, created_by, description, origin_peer, privacy_mode, created_at
+                ) VALUES (?, ?, 'private', ?, ?, ?, 'private', CURRENT_TIMESTAMP)
+                """,
+                ('Crelaypub001', 'peer-channel-Crelaypu', 'owner-user', 'Auto-created from P2P catchup', 'peer-origin'),
+            )
+            conn.commit()
+
+        self.p2p_manager.on_channel_announce(
+            channel_id='Crelaypub001',
+            name='breaking-news',
+            channel_type='public',
+            description='relayed public channel',
+            created_by_peer='peer-origin',
+            created_by_user_id='owner-user',
+            privacy_mode='open',
+            from_peer='peer-relay',
+            initial_members=None,
+        )
+
+        with self.db_manager.get_connection() as conn:
+            upgraded = conn.execute(
+                "SELECT name, channel_type, privacy_mode, origin_peer FROM channels WHERE id = 'Crelaypub001'"
+            ).fetchone()
+            local_membership = conn.execute(
+                "SELECT 1 FROM channel_members WHERE channel_id = 'Crelaypub001' AND user_id = 'owner-user'"
+            ).fetchone()
+
+        self.assertIsNotNone(upgraded)
+        self.assertEqual(upgraded['name'], 'breaking-news')
+        self.assertEqual(upgraded['channel_type'], 'public')
+        self.assertEqual(upgraded['privacy_mode'], 'open')
+        self.assertEqual(upgraded['origin_peer'], 'peer-origin')
+        self.assertIsNotNone(local_membership)
+
+    def test_untrusted_catchup_upgrades_existing_placeholder_via_channel_origin(self) -> None:
+        self._mark_peer_untrusted('peer-relay')
+
+        with self.db_manager.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO channels (
+                    id, name, channel_type, created_by, description, origin_peer, privacy_mode, created_at
+                ) VALUES (?, ?, 'private', ?, ?, ?, 'private', CURRENT_TIMESTAMP)
+                """,
+                ('Ccatchuprel001', 'peer-channel-Ccatchup', 'owner-user', 'Auto-created from P2P catchup', 'peer-origin'),
+            )
+            conn.commit()
+
+        self.p2p_manager.on_catchup_response(
+            [
+                {
+                    'id': 'Mrelay001',
+                    'channel_id': 'Ccatchuprel001',
+                    'channel_name': 'breaking-news',
+                    'channel_type': 'public',
+                    'channel_privacy_mode': 'open',
+                    'channel_origin_peer': 'peer-origin',
+                    'user_id': 'remote-user',
+                    'content': 'relayed public payload',
+                    'message_type': 'text',
+                    'created_at': '2026-03-30T12:05:00+00:00',
+                },
+            ],
+            'peer-relay',
+        )
+
+        with self.db_manager.get_connection() as conn:
+            upgraded = conn.execute(
+                "SELECT name, channel_type, privacy_mode, origin_peer FROM channels WHERE id = 'Ccatchuprel001'"
+            ).fetchone()
+            local_membership = conn.execute(
+                "SELECT 1 FROM channel_members WHERE channel_id = 'Ccatchuprel001' AND user_id = 'owner-user'"
+            ).fetchone()
+            stored_message = conn.execute(
+                "SELECT id, channel_id FROM channel_messages WHERE id = 'Mrelay001'"
+            ).fetchone()
+
+        self.assertIsNotNone(upgraded)
+        self.assertEqual(upgraded['name'], 'breaking-news')
+        self.assertEqual(upgraded['channel_type'], 'public')
+        self.assertEqual(upgraded['privacy_mode'], 'open')
+        self.assertEqual(upgraded['origin_peer'], 'peer-origin')
+        self.assertIsNotNone(local_membership)
+        self.assertIsNotNone(stored_message)
+
     def test_public_channel_membership_repair_backfills_existing_rows(self) -> None:
         with self.db_manager.get_connection() as conn:
             conn.execute(
