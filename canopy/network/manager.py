@@ -57,8 +57,11 @@ P2P_INLINE_ATTACHMENT_MAX_BYTES = min(
     LARGE_ATTACHMENT_THRESHOLD,
     max(128 * 1024, MAX_PAYLOAD_BYTES // 4),
 )
+LEGACY_BULK_SYNC_MAX_PAYLOAD_BYTES = 512 * 1024
+LEGACY_BULK_SYNC_CAPABILITY = 'bulk_sync_1mb_v1'
 CHANNEL_SYNC_TARGET_PAYLOAD_BYTES = max(16 * 1024, int(MAX_PAYLOAD_BYTES * 0.75))
 ATTACHMENT_PAYLOAD_TARGET_BYTES = max(64 * 1024, MAX_PAYLOAD_BYTES - (32 * 1024))
+CATCHUP_EXTRA_TARGET_PAYLOAD_BYTES = max(64 * 1024, MAX_PAYLOAD_BYTES - (64 * 1024))
 
 
 class P2PNetworkManager:
@@ -243,6 +246,8 @@ class P2PNetworkManager:
         if bool(getattr(sec_cfg, 'identity_portability_enabled', False)):
             caps.append('identity_portability_v1')
         caps.append(LARGE_ATTACHMENT_CAPABILITY)
+        if MAX_PAYLOAD_BYTES > LEGACY_BULK_SYNC_MAX_PAYLOAD_BYTES:
+            caps.append(LEGACY_BULK_SYNC_CAPABILITY)
 
         out: list[str] = []
         seen = set()
@@ -469,6 +474,97 @@ class P2PNetworkManager:
                 MAX_PAYLOAD_BYTES,
             )
         return entries
+
+    def _get_peer_bulk_sync_payload_limit(self, peer_id: Optional[str] = None) -> int:
+        """Return the safest bulk-sync payload ceiling for the target peer."""
+        clean_peer = str(peer_id or '').strip()
+        if not clean_peer:
+            return LEGACY_BULK_SYNC_MAX_PAYLOAD_BYTES
+        if self.peer_supports_capability(clean_peer, LEGACY_BULK_SYNC_CAPABILITY):
+            return MAX_PAYLOAD_BYTES
+        return min(MAX_PAYLOAD_BYTES, LEGACY_BULK_SYNC_MAX_PAYLOAD_BYTES)
+
+    def _get_channel_sync_target_payload_bytes(self, peer_id: Optional[str] = None) -> int:
+        """Return channel-sync batch target budget for the target peer."""
+        ceiling = self._get_peer_bulk_sync_payload_limit(peer_id)
+        return max(16 * 1024, int(ceiling * 0.75))
+
+    def _get_catchup_extra_target_payload_bytes(self, peer_id: Optional[str] = None) -> int:
+        """Return catch-up extra-data target budget for the target peer."""
+        ceiling = self._get_peer_bulk_sync_payload_limit(peer_id)
+        return max(64 * 1024, ceiling - (64 * 1024))
+
+    @staticmethod
+    def _estimate_catchup_response_payload_bytes(
+        messages: Optional[list[Dict[str, Any]]] = None,
+        extra_data: Optional[Dict[str, Any]] = None,
+    ) -> int:
+        """Estimate the router-visible payload size for a catch-up response frame."""
+        payload: Dict[str, Any] = {
+            'content': '',
+            'metadata': {
+                'type': 'channel_catchup_response',
+                'messages': list(messages or []),
+            },
+        }
+        if extra_data:
+            payload['metadata'].update(extra_data)
+        return len(json.dumps(payload, separators=(',', ':'), sort_keys=True).encode('utf-8'))
+
+    def _chunk_catchup_extra_data(
+        self,
+        extra_data: Optional[Dict[str, Any]],
+        *,
+        target_payload_bytes: int = CATCHUP_EXTRA_TARGET_PAYLOAD_BYTES,
+    ) -> list[Dict[str, Any]]:
+        """Split catch-up extra_data into payload-safe chunks."""
+        if not isinstance(extra_data, dict) or not extra_data:
+            return []
+
+        clean_target = max(4096, int(target_payload_bytes or CATCHUP_EXTRA_TARGET_PAYLOAD_BYTES))
+        static_payload: Dict[str, Any] = {}
+        list_payloads: list[tuple[str, list[Any]]] = []
+        for key, value in extra_data.items():
+            if isinstance(value, list):
+                items = [item for item in value if item is not None]
+                if items:
+                    list_payloads.append((str(key), items))
+            elif value not in (None, '', {}, []):
+                static_payload[str(key)] = value
+
+        chunks: list[Dict[str, Any]] = []
+        current: Dict[str, Any] = dict(static_payload)
+        if current and self._estimate_catchup_response_payload_bytes([], current) > clean_target:
+            logger.warning(
+                "Static catchup extra payload exceeds target budget (%d bytes > %d bytes)",
+                self._estimate_catchup_response_payload_bytes([], current),
+                clean_target,
+            )
+
+        for key, items in list_payloads:
+            for item in items:
+                current.setdefault(key, [])
+                current[key].append(item)
+                if self._estimate_catchup_response_payload_bytes([], current) <= clean_target:
+                    continue
+                current[key].pop()
+                if not current[key]:
+                    current.pop(key, None)
+                if current:
+                    chunks.append(current)
+                current = {key: [item]}
+                item_size = self._estimate_catchup_response_payload_bytes([], current)
+                if item_size > clean_target:
+                    logger.warning(
+                        "Single catchup extra item for %s exceeds target budget (%d bytes > %d bytes)",
+                        key,
+                        item_size,
+                        clean_target,
+                    )
+
+        if current:
+            chunks.append(current)
+        return chunks
 
     def _peer_is_trusted_for_content(self, peer_id: Any) -> bool:
         """Return whether a peer should receive replicated user content."""
@@ -4127,7 +4223,11 @@ class P2PNetworkManager:
                 logger.debug(f"No public channels to sync with {peer_id}")
                 return
 
-            batches = self._chunk_channel_sync_batches(list(channels or []))
+            target_payload_bytes = self._get_channel_sync_target_payload_bytes(peer_id)
+            batches = self._chunk_channel_sync_batches(
+                list(channels or []),
+                target_payload_bytes=target_payload_bytes,
+            )
             if not batches:
                 logger.debug("No payload-safe public channel sync batches for %s", peer_id)
                 return
@@ -4504,38 +4604,64 @@ class P2PNetworkManager:
             logger.info(f"Catchup to {peer_id}: sent {sent}/{len(messages)} "
                         f"messages successfully")
 
-        # Send extra data (circle entries, tasks, feed posts, votes) as
-        # a single batch response.  These are typically small so one
-        # message is fine.
+        # Send extra data (feed posts, circles, tasks, votes) in payload-safe
+        # chunks. A single oversized catchup metadata frame can otherwise
+        # prevent authoritative public-channel metadata from ever arriving.
         if extra_data:
-            total_extra = sum(len(v) for v in extra_data.values() if isinstance(v, list))
-            has_non_list_payload = any(
-                (not isinstance(v, list)) and v not in (None, '', {}, [])
-                for v in extra_data.values()
+            target_payload_bytes = self._get_catchup_extra_target_payload_bytes(peer_id)
+            extra_chunks = self._chunk_catchup_extra_data(
+                extra_data,
+                target_payload_bytes=target_payload_bytes,
             )
-            if total_extra > 0 or has_non_list_payload:
+            for idx, extra_chunk in enumerate(extra_chunks, start=1):
                 try:
                     ok = await asyncio.wait_for(
                         self.message_router.send_catchup_response(
-                            peer_id, [], extra_data=extra_data),
+                            peer_id, [], extra_data=extra_chunk),
                         timeout=30.0)
                     if ok:
+                        payload_bytes = self._estimate_catchup_response_payload_bytes([], extra_chunk)
                         parts = [
                             f"{k}={len(v)}"
-                            for k, v in extra_data.items()
+                            for k, v in extra_chunk.items()
                             if isinstance(v, list) and v
                         ]
-                        for k, v in extra_data.items():
+                        for k, v in extra_chunk.items():
                             if isinstance(v, dict) and v:
                                 parts.append(f"{k}=1")
-                        logger.info(f"Catchup to {peer_id}: sent extra data "
-                                    f"({', '.join(parts)})")
+                        logger.info(
+                            "Catchup to %s: sent extra data chunk %d/%d (%s bytes; %s)",
+                            peer_id,
+                            idx,
+                            len(extra_chunks),
+                            payload_bytes,
+                            ', '.join(parts) or 'no-items',
+                        )
                     else:
-                        logger.warning(f"Catchup to {peer_id}: failed to send extra data")
+                        logger.warning(
+                            "Catchup to %s: failed to send extra data chunk %d/%d",
+                            peer_id,
+                            idx,
+                            len(extra_chunks),
+                        )
+                        break
                 except asyncio.TimeoutError:
-                    logger.warning(f"Catchup to {peer_id}: timeout sending extra data")
+                    logger.warning(
+                        "Catchup to %s: timeout sending extra data chunk %d/%d",
+                        peer_id,
+                        idx,
+                        len(extra_chunks),
+                    )
+                    break
                 except Exception as e:
-                    logger.warning(f"Catchup to {peer_id}: error sending extra data: {e}")
+                    logger.warning(
+                        "Catchup to %s: error sending extra data chunk %d/%d: %s",
+                        peer_id,
+                        idx,
+                        len(extra_chunks),
+                        e,
+                    )
+                    break
 
     def get_connected_peers(self) -> list[str]:
         """Get list of currently connected peer IDs."""

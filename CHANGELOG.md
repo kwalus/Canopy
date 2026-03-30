@@ -8,6 +8,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.24] - 2026-03-30
+
+### Fixed
+- **Bulk public sync now respects legacy peer payload ceilings** — Channel sync and catch-up metadata chunking now target the connected peer's effective bulk-sync budget instead of assuming every peer can accept this node's larger router cap, so mixed-version peers stop dropping otherwise valid startup/public-catalog sync frames.
+- **New peers advertise modern bulk-sync support explicitly** — Nodes that can safely receive the larger 1 MB bulk sync envelopes now advertise a dedicated capability, letting newer peers use the higher budget while older peers continue receiving conservative backward-compatible chunk sizes.
+- **Convergence regressions now cover mixed-version payload budgets** — Added focused tests to ensure legacy peers receive smaller channel-sync and catch-up chunks while newer peers still use the higher modern budget.
+
+## [0.5.23] - 2026-03-30
+
+### Fixed
+- **Private membership recovery now restores visibility to the current local owner** — When peers return private-channel memberships that still point at stale local user IDs after account recreation, Canopy now conservatively rebinds local visibility to the active instance owner instead of leaving those channels hidden behind orphaned local memberships.
+- **Startup now repairs already-imported private channels with stale local memberships** — Existing private/confidential channels that only have stale local-hosted memberships but real message history are now repaired during startup so previously invisible channels reappear without manual database edits.
+- **Public convergence repair coverage now includes local private visibility continuity** — Added focused regressions for membership-recovery rebinding and startup-time private visibility repair so the cross-peer convergence path covers both public metadata and local private membership continuity.
+
+## [0.5.22] - 2026-03-30
+
+### Fixed
+- **Stuck public placeholders now trigger an origin-authoritative re-sync** — When a trusted relay surfaces public/open metadata for a private `peer-channel-*` catch-up placeholder but cannot prove origin directly, Canopy now requests a throttled re-sync from the recorded origin peer instead of just rejecting the update and leaving the row stuck forever.
+- **Catch-up metadata bundles now split by encoded payload bytes** — Feed posts, circles, tasks, votes, and similar `extra_data` payloads are now chunked using the final encoded frame size, so large catch-up metadata responses stay under the router cap instead of dropping wholesale before the receiver can apply the rest of the convergence data.
+- **Existing stuck placeholder rows can self-repair when origin reconnects** — On peer connect, Canopy now scans for placeholder/private channels with real message history and requests authoritative sync from their recorded origin peers, helping old hidden public channels recover without another database reset.
+
 ## [0.5.21] - 2026-03-30
 
 ### Fixed

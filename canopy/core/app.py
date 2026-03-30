@@ -3270,6 +3270,181 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 and str(crypto_mode or '').strip().lower() in {'e2e_optional', 'e2e_enforced'}
             )
 
+        def _get_active_local_registered_user_ids(conn) -> list[str]:
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT id
+                    FROM users
+                    WHERE id NOT IN ('system', 'local_user')
+                      AND (origin_peer IS NULL OR origin_peer = '' OR origin_peer = ?)
+                      AND password_hash IS NOT NULL
+                      AND password_hash != ''
+                      AND COALESCE(status, 'active') = 'active'
+                    ORDER BY created_at ASC, id ASC
+                    """
+                    ,
+                    (str((p2p_manager.get_peer_id() if p2p_manager else '') or '').strip(),),
+                ).fetchall()
+            except Exception:
+                rows = []
+            return [
+                str(row['id'] if hasattr(row, 'keys') and 'id' in row.keys() else row[0] or '').strip()
+                for row in (rows or [])
+                if str(row['id'] if hasattr(row, 'keys') and 'id' in row.keys() else row[0] or '').strip()
+            ]
+
+        def _owner_shares_local_principal(conn, owner_user_id: str, alias_user_ids: list[str]) -> bool:
+            clean_owner = str(owner_user_id or '').strip()
+            clean_aliases = [str(uid or '').strip() for uid in (alias_user_ids or []) if str(uid or '').strip()]
+            if not clean_owner or not clean_aliases:
+                return False
+            if not (identity_portability_manager and identity_portability_manager.enabled):
+                return False
+            placeholders = ",".join("?" for _ in clean_aliases)
+            try:
+                row = conn.execute(
+                    f"""
+                    SELECT 1
+                    FROM mesh_principal_links owner_link
+                    JOIN mesh_principal_links alias_link
+                      ON alias_link.principal_id = owner_link.principal_id
+                    WHERE owner_link.local_user_id = ?
+                      AND alias_link.local_user_id IN ({placeholders})
+                      AND alias_link.local_user_id != owner_link.local_user_id
+                    LIMIT 1
+                    """,
+                    (clean_owner, *clean_aliases),
+                ).fetchone()
+                return bool(row)
+            except Exception:
+                return False
+
+        def _maybe_add_private_membership_continuity_owner(
+            conn,
+            *,
+            channel_id: str,
+            local_member_ids: list[str],
+            source: str,
+            require_existing_activity: bool = False,
+        ) -> list[str]:
+            clean_channel_id = str(channel_id or '').strip()
+            normalized_local_members = [
+                str(uid or '').strip() for uid in (local_member_ids or []) if str(uid or '').strip()
+            ]
+            if not clean_channel_id or not normalized_local_members:
+                return []
+
+            owner_user_id = str(db_manager.get_instance_owner_user_id() or '').strip()
+            if not owner_user_id or owner_user_id in normalized_local_members:
+                return []
+
+            active_local_registered_ids = _get_active_local_registered_user_ids(conn)
+            if owner_user_id not in active_local_registered_ids:
+                return []
+
+            try:
+                existing_owner = conn.execute(
+                    "SELECT 1 FROM channel_members WHERE channel_id = ? AND user_id = ?",
+                    (clean_channel_id, owner_user_id),
+                ).fetchone()
+            except Exception:
+                existing_owner = None
+            if existing_owner:
+                return []
+
+            if require_existing_activity:
+                try:
+                    has_activity = conn.execute(
+                        "SELECT 1 FROM channel_messages WHERE channel_id = ? LIMIT 1",
+                        (clean_channel_id,),
+                    ).fetchone()
+                except Exception:
+                    has_activity = None
+                if not has_activity:
+                    return []
+
+            alias_user_ids = [
+                uid for uid in normalized_local_members
+                if uid and uid != owner_user_id
+            ]
+            if not alias_user_ids:
+                return []
+
+            if _owner_shares_local_principal(conn, owner_user_id, alias_user_ids):
+                logger.info(
+                    "Private membership continuity rebind for %s: added instance owner %s via shared principal (%s)",
+                    clean_channel_id,
+                    owner_user_id,
+                    source,
+                )
+                return [owner_user_id]
+
+            logger.info(
+                "Private membership continuity rebind for %s: added instance owner %s from stale local membership alias(es) %s (%s)",
+                clean_channel_id,
+                owner_user_id,
+                ",".join(alias_user_ids),
+                source,
+            )
+            return [owner_user_id]
+
+        def _repair_private_membership_visibility_continuity() -> int:
+            repaired = 0
+            try:
+                with db_manager.get_connection() as conn:
+                    rows = conn.execute(
+                        """
+                        SELECT c.id
+                        FROM channels c
+                        WHERE COALESCE(c.privacy_mode, 'open') IN ('private', 'confidential')
+                        ORDER BY c.created_at ASC, c.id ASC
+                        """
+                    ).fetchall()
+                    for row in rows or []:
+                        channel_id = str(row['id'] if hasattr(row, 'keys') and 'id' in row.keys() else row[0] or '').strip()
+                        if not channel_id:
+                            continue
+                        member_rows = conn.execute(
+                            """
+                            SELECT cm.user_id
+                            FROM channel_members cm
+                            JOIN users u ON u.id = cm.user_id
+                            WHERE cm.channel_id = ?
+                              AND (u.origin_peer IS NULL OR u.origin_peer = '' OR u.origin_peer = ?)
+                            ORDER BY cm.user_id ASC
+                            """,
+                            (channel_id, str((p2p_manager.get_peer_id() if p2p_manager else '') or '').strip()),
+                        ).fetchall()
+                        local_member_ids = [
+                            str(mr['user_id'] if hasattr(mr, 'keys') and 'user_id' in mr.keys() else mr[0] or '').strip()
+                            for mr in (member_rows or [])
+                            if str(mr['user_id'] if hasattr(mr, 'keys') and 'user_id' in mr.keys() else mr[0] or '').strip()
+                        ]
+                        continuity_targets = _maybe_add_private_membership_continuity_owner(
+                            conn,
+                            channel_id=channel_id,
+                            local_member_ids=local_member_ids,
+                            source='startup_private_visibility_repair',
+                            require_existing_activity=True,
+                        )
+                        for target_user_id in continuity_targets:
+                            conn.execute(
+                                "INSERT OR IGNORE INTO channel_members (channel_id, user_id, role) VALUES (?, ?, 'member')",
+                                (channel_id, target_user_id),
+                            )
+                            repaired += 1
+                    if repaired:
+                        conn.commit()
+            except Exception as repair_err:
+                logger.debug("Private membership continuity repair failed: %s", repair_err)
+            if repaired:
+                logger.info(
+                    "Private membership continuity repaired %d membership row(s)",
+                    repaired,
+                )
+            return repaired
+
         def _on_channel_membership_query(query_id, local_user_ids, limit, from_peer):
             """Respond with private-channel metadata for querying peer users."""
             try:
@@ -3383,6 +3558,18 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     # Ignore responses that do not include any local users.
                     if not local_member_ids:
                         continue
+                    with db_manager.get_connection() as conn:
+                        continuity_targets = _maybe_add_private_membership_continuity_owner(
+                            conn,
+                            channel_id=channel_id,
+                            local_member_ids=local_member_ids,
+                            source='membership_recovery_response',
+                            require_existing_activity=False,
+                        )
+                    for continuity_user_id in continuity_targets:
+                        if continuity_user_id not in seen_local:
+                            seen_local.add(continuity_user_id)
+                            local_member_ids.append(continuity_user_id)
                     if str(from_peer or '').strip() and not sender_is_member and origin_peer != str(from_peer).strip():
                         logger.info(
                             "Membership recovery for %s from %s (sender not in member list — "
@@ -4079,6 +4266,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     _retry_member_sync_delivery_for_peer(peer_id)
                     _retry_channel_key_delivery_for_peer(peer_id)
                     _retry_pending_large_attachments_for_peer(peer_id)
+                    _reconcile_existing_public_placeholders_for_peer(peer_id)
                 except Exception as retry_err:
                     logger.debug(
                         "Peer-connect retry worker failed for %s: %s",
@@ -4094,6 +4282,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
         p2p_manager.on_peer_connected = _on_peer_connected
         _mark_stale_pending_decrypt()
+        _repair_private_membership_visibility_continuity()
 
         # --- Channel sync callback ---
         def _on_channel_sync(channels, from_peer):
@@ -4222,6 +4411,98 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
         denied_catchup_audit_ts: dict[tuple[str, str], float] = {}
         denied_catchup_audit_interval_s = 120.0
+        _placeholder_reconcile_last_requested: dict[tuple[str, str], float] = {}
+        _PLACEHOLDER_RECONCILE_COOLDOWN_S = 120.0
+
+        def _request_public_placeholder_reconcile(
+            *,
+            channel_id: str,
+            origin_peer: str,
+            observed_from_peer: Optional[str] = None,
+            remote_name: Optional[str] = None,
+            remote_type: Optional[str] = None,
+            privacy_mode: Optional[str] = None,
+        ) -> bool:
+            clean_channel_id = str(channel_id or '').strip()
+            clean_origin_peer = str(origin_peer or '').strip()
+            clean_observed_from = str(observed_from_peer or '').strip()
+            if not clean_channel_id or not clean_origin_peer or not p2p_manager:
+                return False
+            try:
+                if hasattr(p2p_manager, 'connection_manager') and p2p_manager.connection_manager:
+                    if not p2p_manager.connection_manager.is_connected(clean_origin_peer):
+                        logger.info(
+                            "Placeholder reconcile deferred for %s: origin %s not connected "
+                            "(observed_from=%s, incoming_name=%s, incoming_type=%s, incoming_privacy=%s)",
+                            clean_channel_id,
+                            clean_origin_peer,
+                            clean_observed_from or 'unknown',
+                            str(remote_name or '').strip() or 'unknown',
+                            str(remote_type or '').strip() or 'unknown',
+                            str(privacy_mode or '').strip() or 'unknown',
+                        )
+                        return False
+            except Exception:
+                pass
+
+            now = time.time()
+            key = (clean_channel_id, clean_origin_peer)
+            last_requested = float(_placeholder_reconcile_last_requested.get(key, 0.0) or 0.0)
+            if now - last_requested < _PLACEHOLDER_RECONCILE_COOLDOWN_S:
+                return False
+            _placeholder_reconcile_last_requested[key] = now
+
+            logger.info(
+                "Placeholder reconcile started for %s via origin %s "
+                "(observed_from=%s, incoming_name=%s, incoming_type=%s, incoming_privacy=%s)",
+                clean_channel_id,
+                clean_origin_peer,
+                clean_observed_from or 'unknown',
+                str(remote_name or '').strip() or 'unknown',
+                str(remote_type or '').strip() or 'unknown',
+                str(privacy_mode or '').strip() or 'unknown',
+            )
+
+            trigger_sync = getattr(p2p_manager, 'trigger_peer_sync', None)
+            if callable(trigger_sync):
+                try:
+                    return bool(trigger_sync(clean_origin_peer))
+                except Exception as reconcile_err:
+                    logger.warning(
+                        "Placeholder reconcile trigger failed for %s via %s: %s",
+                        clean_channel_id,
+                        clean_origin_peer,
+                        reconcile_err,
+                    )
+            return False
+
+        def _reconcile_existing_public_placeholders_for_peer(peer_id: str) -> int:
+            clean_peer = str(peer_id or '').strip()
+            if not clean_peer or not channel_manager:
+                return 0
+            started = 0
+            for candidate in channel_manager.list_public_placeholder_reconcile_candidates(limit=256):
+                candidate_origin = str(candidate.get('origin_peer') or '').strip()
+                if candidate_origin != clean_peer:
+                    continue
+                if _request_public_placeholder_reconcile(
+                    channel_id=str(candidate.get('id') or '').strip(),
+                    origin_peer=candidate_origin,
+                    observed_from_peer='startup_repair_scan',
+                    remote_name=str(candidate.get('name') or '').strip(),
+                    remote_type=str(candidate.get('channel_type') or '').strip(),
+                    privacy_mode=str(candidate.get('privacy_mode') or '').strip(),
+                ):
+                    started += 1
+            if started:
+                logger.info(
+                    "Started %d placeholder reconcile request(s) for connected origin peer %s",
+                    started,
+                    clean_peer,
+                )
+            return started
+
+        channel_manager.public_placeholder_reconcile_callback = _request_public_placeholder_reconcile
 
         # --- Catch-up request handler ---
         def _on_catchup_request(channel_timestamps, from_peer,

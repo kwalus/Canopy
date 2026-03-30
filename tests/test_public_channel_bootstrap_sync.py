@@ -46,6 +46,7 @@ class _FakeP2PNetworkManager:
         self._introduced_peers = {}
         self._running = False
         self.sent_catchup = []
+        self.sync_requests = []
         self.on_channel_sync = None
         self.on_catchup_request = None
         self.on_catchup_response = None
@@ -67,6 +68,10 @@ class _FakeP2PNetworkManager:
 
     def start(self):
         self._running = True
+
+    def trigger_peer_sync(self, peer_id):
+        self.sync_requests.append(peer_id)
+        return True
 
     async def send_catchup_response_async(self, to_peer, messages, extra_data=None):
         self.sent_catchup.append({
@@ -347,6 +352,101 @@ class TestPublicChannelBootstrapSync(unittest.TestCase):
         self.assertEqual(upgraded['origin_peer'], 'peer-origin')
         self.assertIsNotNone(local_membership)
 
+    def test_non_origin_public_sync_requests_authoritative_reconcile(self) -> None:
+        self.trust_manager.set_trust_score('peer-relay', 100, reason='test-relay-trusted')
+
+        with self.db_manager.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO channels (
+                    id, name, channel_type, created_by, description, origin_peer, privacy_mode, created_at
+                ) VALUES (?, ?, 'private', ?, ?, ?, 'private', CURRENT_TIMESTAMP)
+                """,
+                ('Creconcile001', 'peer-channel-Creconci', 'owner-user', 'Auto-created from P2P catchup', 'peer-origin'),
+            )
+            conn.commit()
+
+        self.p2p_manager.on_channel_sync(
+            [
+                {
+                    'id': 'Creconcile001',
+                    'name': 'breaking-news',
+                    'type': 'public',
+                    'desc': 'relayed without origin metadata',
+                    'privacy_mode': 'open',
+                },
+            ],
+            'peer-relay',
+        )
+
+        with self.db_manager.get_connection() as conn:
+            placeholder = conn.execute(
+                "SELECT name, channel_type, privacy_mode FROM channels WHERE id = 'Creconcile001'"
+            ).fetchone()
+
+        self.assertIsNotNone(placeholder)
+        self.assertEqual(placeholder['name'], 'peer-channel-Creconci')
+        self.assertEqual(placeholder['channel_type'], 'private')
+        self.assertEqual(placeholder['privacy_mode'], 'private')
+        self.assertEqual(self.p2p_manager.sync_requests, ['peer-origin'])
+
+    def test_membership_recovery_rebinds_private_visibility_to_instance_owner(self) -> None:
+        self.trust_manager.set_trust_score('peer-origin', 100, reason='test-origin-trusted')
+
+        with self.db_manager.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO users (
+                    id, username, public_key, password_hash, display_name,
+                    origin_peer, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """,
+                ('old-owner', 'owner-old', 'pk-old-owner', 'pw-old-owner', 'Owner', None),
+            )
+            conn.commit()
+        self.db_manager.set_instance_owner_user_id('owner-user')
+
+        self.p2p_manager.on_channel_membership_response(
+            'qry-1',
+            [
+                {
+                    'channel_id': 'Cprivrebind001',
+                    'name': 'hidden-private',
+                    'channel_type': 'private',
+                    'description': 'private continuity repair',
+                    'origin_peer': 'peer-origin',
+                    'privacy_mode': 'private',
+                    'members': [
+                        {
+                            'user_id': 'old-owner',
+                            'origin_peer': '',
+                            'display_name': 'Owner',
+                            'role': 'member',
+                        },
+                        {
+                            'user_id': 'remote-user',
+                            'origin_peer': 'peer-origin',
+                            'display_name': 'Remote User',
+                            'role': 'member',
+                        },
+                    ],
+                },
+            ],
+            False,
+            'peer-origin',
+        )
+
+        with self.db_manager.get_connection() as conn:
+            owner_membership = conn.execute(
+                "SELECT 1 FROM channel_members WHERE channel_id = 'Cprivrebind001' AND user_id = 'owner-user'"
+            ).fetchone()
+            stale_membership = conn.execute(
+                "SELECT 1 FROM channel_members WHERE channel_id = 'Cprivrebind001' AND user_id = 'old-owner'"
+            ).fetchone()
+
+        self.assertIsNotNone(owner_membership)
+        self.assertIsNotNone(stale_membership)
+
     def test_untrusted_catchup_upgrades_existing_placeholder_via_channel_origin(self) -> None:
         self._mark_peer_untrusted('peer-relay')
 
@@ -419,3 +519,43 @@ class TestPublicChannelBootstrapSync(unittest.TestCase):
 
         self.assertGreaterEqual(repaired, 1)
         self.assertIsNotNone(local_membership)
+
+    def test_startup_repairs_private_channel_visibility_for_instance_owner(self) -> None:
+        with self.db_manager.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO users (
+                    id, username, public_key, password_hash, display_name,
+                    origin_peer, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """,
+                ('old-owner', 'owner-old', 'pk-old-owner', 'pw-old-owner', 'Owner', None),
+            )
+            conn.commit()
+        self.db_manager.set_instance_owner_user_id('owner-user')
+
+        private_channel = self.channel_manager.create_channel(
+            name='stale-private',
+            channel_type=ChannelType.PRIVATE,
+            created_by='old-owner',
+            description='stale private continuity',
+            privacy_mode='private',
+            initial_members=['old-owner'],
+        )
+        assert private_channel is not None
+        self.channel_manager.send_message(
+            channel_id=private_channel.id,
+            user_id='old-owner',
+            content='stale private history',
+        )
+
+        repaired_app = create_app()
+        repaired_db = repaired_app.config['DB_MANAGER']
+
+        with repaired_db.get_connection() as conn:
+            owner_membership = conn.execute(
+                "SELECT 1 FROM channel_members WHERE channel_id = ? AND user_id = 'owner-user'",
+                (private_channel.id,),
+            ).fetchone()
+
+        self.assertIsNotNone(owner_membership)

@@ -631,6 +631,7 @@ class ChannelManager:
         self.api_key_manager = api_key_manager
         self.AGENT_START_CHANNEL_ID = self._load_or_create_agent_start_channel_id()
         self.workspace_events: Any = None
+        self.public_placeholder_reconcile_callback: Optional[Callable[..., None]] = None
         self._channel_key_lock = threading.RLock()
         self._channel_key_cache: Dict[Tuple[str, str], bytes] = {}
         self._lifecycle_scan_lock = threading.RLock()
@@ -825,6 +826,58 @@ class ChannelManager:
         if repaired:
             logger.info("Repaired %s public channel membership row(s)", repaired)
         return repaired
+
+    @staticmethod
+    def _is_placeholder_channel_signature(
+        name: Any,
+        description: Any,
+        channel_type: Any,
+        privacy_mode: Any,
+    ) -> bool:
+        clean_name = str(name or '').strip()
+        clean_desc = str(description or '').strip()
+        clean_type = str(channel_type or '').strip().lower()
+        clean_privacy = str(privacy_mode or '').strip().lower()
+        return (
+            clean_name.startswith('peer-channel-')
+            or clean_desc.startswith('Auto-created from P2P catchup')
+        ) and clean_type == 'private' and clean_privacy == 'private'
+
+    def list_public_placeholder_reconcile_candidates(self, limit: int = 200) -> List[Dict[str, Any]]:
+        """Return placeholder/private channels that should be rechecked against origin metadata."""
+        max_rows = max(1, int(limit or 200))
+        try:
+            with self.db.get_connection() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT c.id,
+                           c.name,
+                           c.description,
+                           c.origin_peer,
+                           c.channel_type,
+                           COALESCE(c.privacy_mode, 'private') AS privacy_mode,
+                           COUNT(m.id) AS message_count
+                    FROM channels c
+                    LEFT JOIN channel_messages m ON m.channel_id = c.id
+                    WHERE c.origin_peer IS NOT NULL
+                      AND TRIM(c.origin_peer) != ''
+                      AND c.channel_type = 'private'
+                      AND COALESCE(c.privacy_mode, 'private') = 'private'
+                      AND (
+                            c.name LIKE 'peer-channel-%'
+                            OR c.description LIKE 'Auto-created from P2P catchup%'
+                      )
+                    GROUP BY c.id, c.name, c.description, c.origin_peer, c.channel_type, COALESCE(c.privacy_mode, 'private')
+                    HAVING COUNT(m.id) > 0
+                    ORDER BY COUNT(m.id) DESC, c.id ASC
+                    LIMIT ?
+                    """,
+                    (max_rows,),
+                ).fetchall()
+            return [dict(row) for row in rows or []]
+        except Exception as e:
+            logger.warning(f"Failed to list public placeholder reconcile candidates: {e}")
+            return []
 
     def _emit_channel_user_event(
         self,
@@ -4938,6 +4991,16 @@ class ChannelManager:
                         new_desc = remote_desc
                         needs_update = True
                     normalized_remote_type = str(remote_type or '').strip().lower() or old_type
+                    incoming_looks_public = self._is_public_channel(
+                        normalized_remote_type,
+                        privacy_mode or old_privacy,
+                    )
+                    old_is_placeholder = self._is_placeholder_channel_signature(
+                        old_name,
+                        old_desc,
+                        old_type,
+                        old_privacy,
+                    )
                     if can_apply_remote_metadata and normalized_remote_type in {'public', 'private', 'general'} and normalized_remote_type != old_type:
                         new_type = normalized_remote_type
                         needs_update = True
@@ -4955,6 +5018,24 @@ class ChannelManager:
                                     remote_id, old_privacy, privacy_mode, from_peer,
                                 )
                         else:
+                            if old_origin_peer and old_is_placeholder and incoming_looks_public:
+                                callback = getattr(self, 'public_placeholder_reconcile_callback', None)
+                                if callable(callback):
+                                    try:
+                                        callback(
+                                            channel_id=remote_id,
+                                            origin_peer=old_origin_peer,
+                                            observed_from_peer=str(from_peer or '').strip(),
+                                            remote_name=remote_name,
+                                            remote_type=normalized_remote_type,
+                                            privacy_mode=privacy_mode,
+                                        )
+                                    except Exception as callback_err:
+                                        logger.debug(
+                                            "Placeholder reconcile callback failed for %s: %s",
+                                            remote_id,
+                                            callback_err,
+                                        )
                             logger.warning(
                                 "SECURITY: Ignoring privacy update for channel %s from non-origin peer %s "
                                 "(origin=%s, old=%s, incoming=%s)",
