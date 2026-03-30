@@ -1882,11 +1882,13 @@ class P2PNetworkManager:
                     peer_id,
                 )
                 await self._send_channel_sync_to_peer(peer_id)
+                await self._send_public_channel_metadata_replay_to_peer(peer_id)
                 await self._send_catchup_request(peer_id)
                 return
 
             # Channel metadata sync
             await self._send_channel_sync_to_peer(peer_id)
+            await self._send_public_channel_metadata_replay_to_peer(peer_id)
 
             # Ask connected peer for private-channel memberships relevant
             # to local users on this instance (missed announce/member-sync recovery).
@@ -4258,6 +4260,54 @@ class P2PNetworkManager:
                 sent_channels += len(batch)
         except Exception as e:
             logger.error(f"Error sending channel sync to {peer_id}: {e}", exc_info=True)
+
+    async def _send_public_channel_metadata_replay_to_peer(self, peer_id: str) -> None:
+        """Replay lightweight per-channel metadata so names converge independently."""
+        if not self.message_router:
+            return
+        try:
+            channels = list(self.get_public_channels_for_sync() or []) if self.get_public_channels_for_sync else []
+            if not channels:
+                logger.debug("No public channel metadata replay needed for %s", peer_id)
+                return
+
+            local_peer_id = str(self.get_peer_id() or '').strip()
+            sent = 0
+            for ch in channels:
+                if not isinstance(ch, dict):
+                    continue
+                channel_id = str(ch.get('id') or '').strip()
+                if not channel_id:
+                    continue
+                authority_peer = str(ch.get('origin_peer') or '').strip() or local_peer_id
+                ok = await self.message_router.send_channel_announce(
+                    channel_id=channel_id,
+                    name=str(ch.get('name') or '').strip(),
+                    channel_type=str(ch.get('type') or 'public').strip(),
+                    description=str(ch.get('desc') or '').strip(),
+                    created_by_peer=authority_peer,
+                    created_by_user_id=None,
+                    privacy_mode=str(ch.get('privacy_mode') or 'open').strip(),
+                    post_policy=ch.get('post_policy'),
+                    allow_member_replies=ch.get('allow_member_replies'),
+                    allowed_poster_user_ids=ch.get('allowed_poster_user_ids'),
+                    last_activity_at=ch.get('last_activity_at'),
+                    lifecycle_ttl_days=ch.get('lifecycle_ttl_days'),
+                    lifecycle_preserved=ch.get('lifecycle_preserved'),
+                    lifecycle_archived_at=ch.get('lifecycle_archived_at'),
+                    lifecycle_archive_reason=ch.get('lifecycle_archive_reason'),
+                    to_peer=peer_id,
+                )
+                if ok:
+                    sent += 1
+            if sent:
+                logger.info(
+                    "Replayed public channel metadata for %d channel(s) to %s",
+                    sent,
+                    peer_id,
+                )
+        except Exception as e:
+            logger.error(f"Error replaying public channel metadata to {peer_id}: {e}", exc_info=True)
 
     def _get_local_user_ids_for_membership_recovery(self, limit: int = 256) -> list[str]:
         """Return local user IDs hosted on this peer for membership recovery."""

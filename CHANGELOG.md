@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.26] - 2026-03-30
+
+### Fixed
+- **Public channel metadata now replays on its own lightweight control-plane path at reconnect** — Canopy now sends per-channel `CHANNEL_ANNOUNCE` metadata replay during post-connect sync so canonical channel names, types, privacy, and posting policy can converge independently of heavier batch sync and catch-up payload delivery.
+- **Startup name convergence no longer relies only on batched sync or content catch-up success** — Even if large message/catch-up paths are delayed, dropped, or still reconciling, public channel identity metadata gets an immediate small replay lane that stays below payload limits on a per-channel basis.
+- **Regression coverage now checks reconnect metadata replay** — Added focused tests to verify post-connect sync replays public channel metadata separately and that those announces carry the authoritative peer information needed for later verification.
+
 ## [0.5.25] - 2026-03-30
 
 ### Fixed

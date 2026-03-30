@@ -59,6 +59,7 @@ class TestManagerTrustGating(unittest.TestCase):
             calls.append((name, peer_id))
 
         manager._send_channel_sync_to_peer = lambda peer_id: _record('channel_sync', peer_id)
+        manager._send_public_channel_metadata_replay_to_peer = lambda peer_id: _record('metadata_replay', peer_id)
         manager._send_catchup_request = lambda peer_id: _record('catchup', peer_id)
         manager._send_membership_recovery_query = lambda peer_id: _record('membership', peer_id)
         manager._retry_missing_channel_key_requests_for_peer = lambda peer_id: _record('keys', peer_id)
@@ -69,7 +70,7 @@ class TestManagerTrustGating(unittest.TestCase):
 
         asyncio.run(manager._run_post_connect_sync_impl('peer-guest'))
 
-        self.assertEqual(calls, [('channel_sync', 'peer-guest'), ('catchup', 'peer-guest')])
+        self.assertEqual(calls, [('channel_sync', 'peer-guest'), ('metadata_replay', 'peer-guest'), ('catchup', 'peer-guest')])
 
     def test_untrusted_catchup_request_sends_only_public_channel_timestamps(self) -> None:
         manager = P2PNetworkManager.__new__(P2PNetworkManager)
@@ -204,6 +205,61 @@ class TestManagerTrustGating(unittest.TestCase):
         target = manager._get_channel_sync_target_payload_bytes('peer-modern')
 
         self.assertEqual(target, CHANNEL_SYNC_TARGET_PAYLOAD_BYTES)
+
+    def test_public_channel_metadata_replay_sends_small_per_channel_announces(self) -> None:
+        manager = P2PNetworkManager.__new__(P2PNetworkManager)
+        manager.message_router = SimpleNamespace()
+        manager.get_public_channels_for_sync = lambda: [
+            {
+                'id': 'C001',
+                'name': 'breaking-news',
+                'type': 'public',
+                'desc': 'news',
+                'origin_peer': 'peer-origin',
+                'privacy_mode': 'open',
+                'post_policy': 'open',
+                'allow_member_replies': True,
+                'allowed_poster_user_ids': [],
+                'last_activity_at': None,
+                'lifecycle_ttl_days': 180,
+                'lifecycle_preserved': False,
+                'lifecycle_archived_at': None,
+                'lifecycle_archive_reason': None,
+            },
+            {
+                'id': 'C002',
+                'name': 'general',
+                'type': 'general',
+                'desc': 'default',
+                'origin_peer': '',
+                'privacy_mode': 'open',
+                'post_policy': 'open',
+                'allow_member_replies': True,
+                'allowed_poster_user_ids': [],
+                'last_activity_at': None,
+                'lifecycle_ttl_days': 180,
+                'lifecycle_preserved': True,
+                'lifecycle_archived_at': None,
+                'lifecycle_archive_reason': None,
+            },
+        ]
+        manager.get_peer_id = lambda: 'peer-local'
+
+        sent = []
+
+        async def _send_channel_announce(**kwargs):
+            sent.append(kwargs)
+            return True
+
+        manager.message_router.send_channel_announce = _send_channel_announce
+
+        asyncio.run(manager._send_public_channel_metadata_replay_to_peer('peer-guest'))
+
+        self.assertEqual(len(sent), 2)
+        self.assertEqual({item['channel_id'] for item in sent}, {'C001', 'C002'})
+        self.assertTrue(all(item['to_peer'] == 'peer-guest' for item in sent))
+        self.assertEqual(sent[0]['created_by_peer'], 'peer-origin')
+        self.assertEqual(sent[1]['created_by_peer'], 'peer-local')
 
 
 if __name__ == '__main__':
