@@ -897,7 +897,7 @@ class TestFrontendRegressions(unittest.TestCase):
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         self.assertIn('name="create-channel-post-policy"', channels_template)
         self.assertIn('id="create-post-policy-curated"', channels_template)
-        self.assertIn('Use curated posting when the channel should stay high-signal', channels_template)
+        self.assertIn('Only admins and approved posters start posts. Replies stay open.', channels_template)
         self.assertIn("const postPolicy = document.querySelector('input[name=\"create-channel-post-policy\"]:checked')?.value || 'open';", channels_template)
         self.assertIn('post_policy: postPolicy,', channels_template)
         self.assertIn("function renderChannelPostingPolicySummary(policy)", channels_template)

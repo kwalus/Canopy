@@ -2,6 +2,7 @@
 
 import os
 import sys
+import time
 import types
 import unittest
 
@@ -92,7 +93,7 @@ class TestRoutingCatchupDigestMetadata(unittest.IsolatedAsyncioTestCase):
             type=MessageType.CHANNEL_CATCHUP_REQUEST,
             from_peer='peer-remote',
             to_peer='peer-local',
-            timestamp=1000.0,
+            timestamp=time.time(),
             ttl=5,
             payload={
                 'content': '',
@@ -128,7 +129,7 @@ class TestRoutingCatchupDigestMetadata(unittest.IsolatedAsyncioTestCase):
             type=MessageType.CHANNEL_CATCHUP_REQUEST,
             from_peer='peer-remote',
             to_peer='peer-local',
-            timestamp=1000.0,
+            timestamp=time.time(),
             ttl=5,
             payload={
                 'content': '',

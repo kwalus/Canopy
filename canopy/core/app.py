@@ -3503,7 +3503,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 )
             return repaired
 
-        def _on_channel_membership_query(query_id, local_user_ids, limit, from_peer):
+        def _on_channel_membership_query(query_id, local_user_ids, limit, from_peer, username_hints=None):
             """Respond with private-channel metadata for querying peer users."""
             try:
                 if not _peer_is_trusted_for_content(from_peer):
@@ -3528,12 +3528,19 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     max_channels = max(1, min(int(limit or 200), 300))
                 except Exception:
                     max_channels = 200
+                clean_username_hints = {}
+                for user_id, username in dict(username_hints or {}).items():
+                    user_id_s = str(user_id or '').strip()
+                    username_s = str(username or '').strip()
+                    if user_id_s and username_s:
+                        clean_username_hints[user_id_s] = username_s
 
                 payload = channel_manager.get_private_channel_recovery_payload(
                     query_user_ids=user_ids,
                     requester_peer_id=str(from_peer or '').strip(),
                     limit=max_channels,
                     max_members_per_channel=250,
+                    query_username_hints=clean_username_hints,
                 )
                 channels_payload = list(payload.get('channels') or [])
                 truncated = bool(payload.get('truncated'))
@@ -6997,8 +7004,10 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
         # --- Direct message handler (P2P) ---
         def _on_p2p_direct_message(sender_id, recipient_id, content,
-                                    message_id, timestamp, display_name, account_type,
-                                    metadata, update_only, edited_at, from_peer):
+                                    message_id, timestamp, display_name,
+                                    account_type=None,
+                                    metadata=None, update_only=None, edited_at=None,
+                                    from_peer=None):
             """Handle an incoming direct message from P2P.
 
             Only store the message if the recipient is a local user on

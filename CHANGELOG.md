@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.29] - 2026-03-31
+
+### Fixed
+- **Reconnect recovery no longer strands peers after churn** — Post-connect sync now keeps a legitimate reconnect task alive until the connection actually survives the settle window, and dead-send failure paths now fire the disconnect callback so reconnect scheduling still happens after a socket silently dies.
+- **Private channel continuity now survives fresh-node restart plus username reuse** — Membership recovery queries now include local username hints, and remote peers can fall back to a peer-scoped username match when the restarted node recreated the same username with a new user ID, allowing existing private channels to be recovered without manual database edits.
+- **Recovery/test harnesses now match the current runtime contracts** — The direct-message callback tolerates older callers that omit `account_type`, and focused recovery/catch-up/admin regressions were corrected so they exercise the real code paths instead of failing on stale timestamps or incomplete test fixtures.
+
 ## [0.5.28] - 2026-03-30
 
 ### Fixed

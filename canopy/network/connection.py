@@ -1148,9 +1148,10 @@ class ConnectionManager:
             connection.failure_detail = 'Send timed out'
             logger.error(f"Failed to send to {peer_id}: "
                          f"send timed out (15s), connection likely dead")
-            # Force-close the dead connection so it can be re-established
+            # Force-close the dead connection so the disconnect callback can
+            # schedule reconnect work for the now-stranded peer.
             asyncio.ensure_future(
-                self._disconnect_connection(connection, notify=False))
+                self._disconnect_connection(connection, notify=True))
             return False
 
         except websockets.exceptions.ConnectionClosed as e:
@@ -1162,7 +1163,7 @@ class ConnectionManager:
             else:
                 logger.warning(f"Failed to send to {peer_id}: {e}")
             asyncio.ensure_future(
-                self._disconnect_connection(connection, notify=False))
+                self._disconnect_connection(connection, notify=True))
             return False
 
         except Exception as e:
@@ -1171,7 +1172,7 @@ class ConnectionManager:
             connection.failure_detail = str(e)
             logger.error(f"Failed to send to {peer_id}: {e}")
             asyncio.ensure_future(
-                self._disconnect_connection(connection, notify=False))
+                self._disconnect_connection(connection, notify=True))
             return False
     
     async def _disconnect_connection(self, connection: PeerConnection, *, notify: bool = True) -> None:

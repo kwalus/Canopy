@@ -1925,11 +1925,13 @@ class P2PNetworkManager:
         (works for both incoming and outgoing invite-code connections).
         """
         try:
-            # Cancel any pending auto-reconnect task for this peer
-            self._cancel_reconnect(peer_id)
             self._refresh_peer_version_info(peer_id)
             if not await self._wait_for_connection_settle(peer_id):
                 return
+
+            # Only cancel reconnect once the current connection has survived the
+            # settle window; otherwise a brief flap can strand the peer.
+            self._cancel_reconnect(peer_id)
 
             # Notify application layer
             if self.on_peer_connected:
@@ -4207,6 +4209,7 @@ class P2PNetworkManager:
         local_user_ids: list[str],
         limit: int = 200,
         query_id: Optional[str] = None,
+        username_hints: Optional[dict] = None,
     ) -> bool:
         """Request private-channel membership recovery data from a peer."""
         if not self._running or not self._event_loop:
@@ -4219,6 +4222,7 @@ class P2PNetworkManager:
                 local_user_ids=local_user_ids,
                 limit=limit,
                 query_id=query_id,
+                username_hints=username_hints,
             ),
             self._event_loop,
         )
@@ -4487,6 +4491,40 @@ class P2PNetworkManager:
             logger.debug(f"Failed to load local users for membership recovery: {e}")
             return []
 
+    def _get_local_username_hints_for_membership_recovery(
+        self,
+        user_ids: list[str],
+    ) -> dict[str, str]:
+        """Return user-id -> username hints for membership recovery queries."""
+        clean_user_ids = [
+            str(user_id or '').strip()
+            for user_id in (user_ids or [])
+            if str(user_id or '').strip()
+        ]
+        if not clean_user_ids:
+            return {}
+        try:
+            with self.db.get_connection() as conn:
+                placeholders = ','.join('?' for _ in clean_user_ids)
+                rows = conn.execute(
+                    f"""
+                    SELECT id, username
+                    FROM users
+                    WHERE id IN ({placeholders})
+                    """,
+                    tuple(clean_user_ids),
+                ).fetchall()
+            hints: dict[str, str] = {}
+            for row in rows or []:
+                user_id = str(row['id'] if hasattr(row, 'keys') and 'id' in row.keys() else row[0]).strip()
+                username = str(row['username'] if hasattr(row, 'keys') and 'username' in row.keys() else row[1]).strip()
+                if user_id and username:
+                    hints[user_id] = username
+            return hints
+        except Exception as e:
+            logger.debug(f"Failed to load username hints for membership recovery: {e}")
+            return {}
+
     async def _send_membership_recovery_query(self, peer_id: str) -> None:
         """Send targeted membership-recovery query to a connected peer."""
         if not self.message_router:
@@ -4497,11 +4535,13 @@ class P2PNetworkManager:
         local_user_ids = self._get_local_user_ids_for_membership_recovery(limit=256)
         if not local_user_ids:
             return
+        username_hints = self._get_local_username_hints_for_membership_recovery(local_user_ids)
         try:
             await self.message_router.send_channel_membership_query(
                 to_peer=peer_id,
                 local_user_ids=local_user_ids,
                 limit=200,
+                username_hints=username_hints,
             )
         except Exception as e:
             logger.debug(f"Membership recovery query to {peer_id} failed: {e}")

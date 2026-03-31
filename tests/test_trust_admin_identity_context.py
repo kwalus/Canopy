@@ -49,11 +49,16 @@ def _mock_components():
     p2p.get_peer_id.return_value = 'local-peer'
 
     profile = MagicMock()
+    profile.get_all_permissions.return_value = []
+    profile.get_default_permissions.return_value = []
     signal = MagicMock()
     skill = MagicMock()
     feed = MagicMock()
     message = MagicMock()
     mention = MagicMock()
+
+    db.list_remote_shadow_duplicate_groups.return_value = []
+    db.list_cross_peer_same_name_groups.return_value = []
 
     return (db, profile, trust, signal, channel, skill, feed, message, mention, MagicMock(), p2p)
 

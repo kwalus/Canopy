@@ -39,19 +39,21 @@ class _FakeDbManager:
                 username TEXT,
                 public_key TEXT,
                 password_hash TEXT,
-                origin_peer TEXT
+                origin_peer TEXT,
+                account_type TEXT DEFAULT 'human',
+                created_at TIMESTAMP
             )
             """
         )
         self.conn.executemany(
             """
-            INSERT INTO users (id, username, public_key, password_hash, origin_peer)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO users (id, username, public_key, password_hash, origin_peer, account_type, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """,
             [
-                ('owner-user', 'owner', 'pk-owner', 'hash-owner', None),
-                ('agent-user', 'agent', 'pk-agent', 'hash-agent', None),
-                ('member-user', 'member', 'pk-member', 'hash-member', None),
+                ('owner-user', 'owner', 'pk-owner', 'hash-owner', None, 'human'),
+                ('agent-user', 'agent', 'pk-agent', 'hash-agent', None, 'agent'),
+                ('member-user', 'member', 'pk-member', 'hash-member', None, 'human'),
             ],
         )
         self.conn.commit()

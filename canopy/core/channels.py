@@ -7293,6 +7293,7 @@ class ChannelManager:
         requester_peer_id: str,
         limit: int = 200,
         max_members_per_channel: int = 200,
+        query_username_hints: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """Return private/confidential channels relevant to querying peer users."""
         requester = str(requester_peer_id or '').strip()
@@ -7326,6 +7327,30 @@ class ChannelManager:
                     str(row['id'] if hasattr(row, 'keys') and 'id' in row.keys() else row[0])
                     for row in (valid_rows or [])
                 ]
+                if not valid_user_ids and query_username_hints:
+                    hinted_usernames = []
+                    seen_usernames = set()
+                    for query_user_id in user_ids:
+                        username = str((query_username_hints or {}).get(query_user_id) or '').strip()
+                        if not username or username in seen_usernames:
+                            continue
+                        seen_usernames.add(username)
+                        hinted_usernames.append(username)
+                    if hinted_usernames:
+                        username_placeholders = ','.join('?' for _ in hinted_usernames)
+                        fallback_rows = conn.execute(
+                            f"""
+                            SELECT id
+                            FROM users
+                            WHERE origin_peer = ?
+                              AND username IN ({username_placeholders})
+                            """,
+                            (requester, *hinted_usernames),
+                        ).fetchall()
+                        valid_user_ids = [
+                            str(row['id'] if hasattr(row, 'keys') and 'id' in row.keys() else row[0])
+                            for row in (fallback_rows or [])
+                        ]
                 if not valid_user_ids:
                     return {'channels': [], 'truncated': False, 'queried_users': []}
 

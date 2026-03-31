@@ -90,6 +90,81 @@ class TestConnectionSendFailures(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(websocket.send_calls, 1)
         self.assertEqual(connection.state, ConnectionState.DISCONNECTED)
 
+    async def test_send_timeout_fires_on_peer_disconnected_callback(self):
+        manager = ConnectionManager(
+            local_peer_id='peer-local',
+            identity_manager=_FakeIdentityManager(),
+        )
+        websocket = _BlockingWebSocket()
+        connection = PeerConnection(
+            peer_id='peer-remote',
+            address='127.0.0.1',
+            port=7771,
+            state=ConnectionState.AUTHENTICATED,
+            websocket=websocket,
+        )
+        manager.connections['peer-remote'] = connection
+
+        disconnected: list[str] = []
+        manager.on_peer_disconnected = disconnected.append
+
+        async def fake_wait_for(awaitable, timeout):
+            task = asyncio.create_task(awaitable)
+            await websocket.first_send_started.wait()
+            await asyncio.sleep(0)
+            task.cancel()
+            raise asyncio.TimeoutError()
+
+        with patch('canopy.network.connection.asyncio.wait_for', new=fake_wait_for):
+            ok = await manager.send_to_peer('peer-remote', {'type': 'p2p_message', 'message': {'id': 'one'}})
+            await asyncio.sleep(0)
+
+        self.assertFalse(ok)
+        self.assertEqual(disconnected, ['peer-remote'])
+
+    async def test_send_connection_closed_fires_on_peer_disconnected_callback(self):
+        manager = ConnectionManager(
+            local_peer_id='peer-local',
+            identity_manager=_FakeIdentityManager(),
+        )
+
+        class _ClosedWebSocket:
+            closed = False
+
+            async def send(self, _message: str) -> None:
+                raise RuntimeError('socket already closed')
+
+            async def close(self) -> None:
+                self.closed = True
+
+        websocket = _ClosedWebSocket()
+        connection = PeerConnection(
+            peer_id='peer-remote',
+            address='127.0.0.1',
+            port=7771,
+            state=ConnectionState.AUTHENTICATED,
+            websocket=websocket,
+        )
+        manager.connections['peer-remote'] = connection
+
+        disconnected: list[str] = []
+        manager.on_peer_disconnected = disconnected.append
+
+        class _FakeConnectionClosed(RuntimeError):
+            def __init__(self, message: str) -> None:
+                super().__init__(message)
+                self.rcvd = None
+
+        websocket_ns = types.SimpleNamespace(
+            exceptions=types.SimpleNamespace(ConnectionClosed=_FakeConnectionClosed)
+        )
+        with patch('canopy.network.connection.websockets', websocket_ns):
+            ok = await manager.send_to_peer('peer-remote', {'type': 'p2p_message', 'message': {'id': 'two'}})
+        await asyncio.sleep(0)
+
+        self.assertFalse(ok)
+        self.assertEqual(disconnected, ['peer-remote'])
+
 
 if __name__ == '__main__':
     unittest.main()

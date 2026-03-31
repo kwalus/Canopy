@@ -356,6 +356,52 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(sleeps), 1)
         self.assertAlmostEqual(sleeps[0], 1.3, places=1)
 
+    async def test_post_connect_sync_impl_preserves_reconnect_task_when_settle_fails(self) -> None:
+        manager = self._build_manager()
+        manager.on_peer_connected = None
+        manager._peer_is_trusted_for_content = lambda peer_id: False
+        manager._refresh_peer_version_info = lambda peer_id: None
+        cancelled: list[str] = []
+        manager._cancel_reconnect = lambda peer_id: cancelled.append(peer_id)
+
+        async def _settle(peer_id: str) -> bool:
+            return False
+
+        manager._wait_for_connection_settle = _settle  # type: ignore[assignment]
+
+        await manager._run_post_connect_sync_impl('peer-remote')
+
+        self.assertEqual(cancelled, [])
+
+    async def test_post_connect_sync_impl_cancels_reconnect_task_after_settle_succeeds(self) -> None:
+        manager = self._build_manager()
+        manager.on_peer_connected = None
+        manager._peer_is_trusted_for_content = lambda peer_id: False
+        manager._refresh_peer_version_info = lambda peer_id: None
+        cancelled: list[str] = []
+        calls: list[tuple[str, str]] = []
+        manager._cancel_reconnect = lambda peer_id: cancelled.append(peer_id)
+
+        async def _settle(peer_id: str) -> bool:
+            return True
+
+        async def _record(name: str, peer_id: str) -> None:
+            calls.append((name, peer_id))
+
+        manager._wait_for_connection_settle = _settle  # type: ignore[assignment]
+        manager._send_channel_sync_to_peer = lambda peer_id: _record('channel_sync', peer_id)  # type: ignore[assignment]
+        manager._send_public_channel_metadata_replay_to_peer = lambda peer_id: _record('metadata_replay', peer_id)  # type: ignore[assignment]
+        manager._send_catchup_request = lambda peer_id: _record('catchup', peer_id)  # type: ignore[assignment]
+        manager.message_router = None
+
+        await manager._run_post_connect_sync_impl('peer-remote')
+
+        self.assertEqual(cancelled, ['peer-remote'])
+        self.assertEqual(
+            calls,
+            [('channel_sync', 'peer-remote'), ('metadata_replay', 'peer-remote'), ('catchup', 'peer-remote')],
+        )
+
 
 if __name__ == '__main__':
     unittest.main()

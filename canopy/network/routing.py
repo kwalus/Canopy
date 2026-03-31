@@ -1134,6 +1134,7 @@ class MessageRouter:
                     query_id=meta.get('query_id'),
                     local_user_ids=meta.get('local_user_ids') or [],
                     limit=meta.get('limit'),
+                    username_hints=meta.get('username_hints') or {},
                     from_peer=message.from_peer,
                 )
             except Exception as e:
@@ -1788,6 +1789,7 @@ class MessageRouter:
         local_user_ids: list[str],
         limit: int = 200,
         query_id: Optional[str] = None,
+        username_hints: Optional[dict] = None,
     ) -> bool:
         """Request targeted private-channel membership recovery data."""
         payload = {
@@ -1797,6 +1799,7 @@ class MessageRouter:
                 'query_id': query_id or f"MCQ{secrets.token_hex(8)}",
                 'local_user_ids': list(local_user_ids or []),
                 'limit': max(1, min(int(limit or 200), 500)),
+                'username_hints': dict(username_hints or {}),
             },
         }
         message = self.create_message(MessageType.CHANNEL_MEMBERSHIP_QUERY, to_peer, payload)
