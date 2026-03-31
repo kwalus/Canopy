@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.32] - 2026-03-31
+
+### Fixed
+- **Connected-peer sidebar state now self-heals after missed poll updates** — The peer activity endpoint always returns the current connected-peer snapshot, and the sidebar poll now surfaces failures with bounded retry backoff instead of silently remaining stuck at `No active peers` after mesh sessions have already authenticated.
+
 ## [0.5.31] - 2026-03-31
 
 ### Fixed

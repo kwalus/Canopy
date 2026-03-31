@@ -6070,23 +6070,12 @@ def create_ui_blueprint() -> Blueprint:
                 'peer_changed': peer_changed,
                 'events': events,
                 'server_time': time.time(),
+                'peers': peers,
+                'connected_peer_ids': peer_snapshot['connected_peer_ids'],
+                'peer_trust': peer_snapshot['peer_trust'],
+                'peer_profiles': peer_snapshot['peer_profiles'],
+                'connected_peer_count': peer_snapshot['connected_peer_count'],
             }
-            if peer_changed:
-                payload.update({
-                    'peers': peers,
-                    'connected_peer_ids': peer_snapshot['connected_peer_ids'],
-                    'peer_trust': peer_snapshot['peer_trust'],
-                    'peer_profiles': peer_snapshot['peer_profiles'],
-                    'connected_peer_count': peer_snapshot['connected_peer_count'],
-                })
-            else:
-                payload.update({
-                    'peers': {},
-                    'connected_peer_ids': [],
-                    'peer_trust': {},
-                    'peer_profiles': {},
-                    'connected_peer_count': peer_snapshot['connected_peer_count'],
-                })
             return jsonify(payload)
         except Exception as e:
             logger.error(f"Peer activity error: {e}", exc_info=True)

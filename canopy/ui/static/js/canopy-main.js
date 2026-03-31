@@ -604,6 +604,11 @@
             totalCount: 0,
             currentRev: canopyInitialPeerRev || '',
         };
+        const canopySidebarPeerPollState = {
+            failureCount: 0,
+            nextDelayMs: 2500,
+            timerId: null,
+        };
 
         function seedSidebarPeerState() {
             if (canopySidebarPeerState.seeded) return;
@@ -680,6 +685,20 @@
             renderSidebarPeerModalList();
         }
 
+        function setSidebarPeerPollingStatus(message, isDegraded = false) {
+            const summaryEl = document.getElementById('sidebar-peers-summary');
+            const subtitleEl = document.getElementById('sidebar-peers-modal-subtitle');
+            const text = String(message || '').trim() || 'Showing up to five peers';
+            if (summaryEl) {
+                summaryEl.textContent = text;
+                summaryEl.classList.toggle('text-warning', !!isDegraded);
+            }
+            if (subtitleEl) {
+                subtitleEl.textContent = isDegraded ? text : 'Mesh connections on this node';
+                subtitleEl.classList.toggle('text-warning', !!isDegraded);
+            }
+        }
+
         window.syncCanopySidebarPeers = function(payload) {
             seedSidebarPeerState();
             if (!payload || typeof payload !== 'object') {
@@ -693,7 +712,11 @@
                 if (typeof payload.connected_peer_count === 'number') {
                     canopySidebarPeerState.totalCount = Math.max(0, Number(payload.connected_peer_count) || 0);
                 }
-                return;
+                const hasPeerSnapshot = Array.isArray(payload.connected_peer_ids)
+                    || (payload.peers && typeof payload.peers === 'object' && Object.keys(payload.peers).length > 0);
+                if (!hasPeerSnapshot) {
+                    return;
+                }
             }
 
             syncCanopyPeerTrust(payload.peer_trust);
@@ -5561,6 +5584,27 @@
 
         function startCanopySidebarPeerPolling() {
             const endpoint = ((window.CANOPY_VARS && window.CANOPY_VARS.urls) || {}).peerActivity || '/ajax/peer_activity';
+            const baseDelayMs = 2500;
+            const maxDelayMs = 15000;
+
+            function scheduleNext(delayMs) {
+                if (canopySidebarPeerPollState.timerId) {
+                    window.clearTimeout(canopySidebarPeerPollState.timerId);
+                }
+                canopySidebarPeerPollState.timerId = window.setTimeout(poll, delayMs);
+            }
+
+            function handleFailure(detail) {
+                canopySidebarPeerPollState.failureCount += 1;
+                canopySidebarPeerPollState.nextDelayMs = Math.min(
+                    maxDelayMs,
+                    baseDelayMs * Math.max(1, Math.pow(2, canopySidebarPeerPollState.failureCount - 1))
+                );
+                const retrySeconds = Math.max(1, Math.round(canopySidebarPeerPollState.nextDelayMs / 1000));
+                console.warn('Canopy sidebar peer poll failed:', detail);
+                setSidebarPeerPollingStatus(`Peer refresh degraded, retrying in ${retrySeconds}s`, true);
+                scheduleNext(canopySidebarPeerPollState.nextDelayMs);
+            }
 
             function poll() {
                 const params = new URLSearchParams();
@@ -5568,18 +5612,28 @@
                     params.set('peer_rev', canopySidebarPeerState.currentRev);
                 }
                 fetch(`${endpoint}${params.toString() ? `?${params.toString()}` : ''}`)
-                    .then(r => r.json())
+                    .then(async (r) => {
+                        if (!r.ok) {
+                            throw new Error(`HTTP ${r.status}`);
+                        }
+                        return r.json();
+                    })
                     .then(data => {
-                        if (!data || data.success === false) return;
-                        if (window.syncCanopySidebarPeers && (data.peer_changed !== false || data.peer_rev)) {
+                        if (!data || data.success === false) {
+                            throw new Error((data && data.error) || 'peer_activity unsuccessful');
+                        }
+                        canopySidebarPeerPollState.failureCount = 0;
+                        canopySidebarPeerPollState.nextDelayMs = baseDelayMs;
+                        setSidebarPeerPollingStatus('Showing up to five peers');
+                        if (window.syncCanopySidebarPeers) {
                             window.syncCanopySidebarPeers(data);
                         }
+                        scheduleNext(baseDelayMs);
                     })
-                    .catch(() => {});
+                    .catch((err) => handleFailure(err));
             }
 
             poll();
-            window.setInterval(poll, 2500);
         }
 
         // --- Sidebar media mini player (audio/video/youtube off-screen helper) ---

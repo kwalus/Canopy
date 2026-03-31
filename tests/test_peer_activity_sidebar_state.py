@@ -172,7 +172,7 @@ class TestPeerActivitySidebarState(unittest.TestCase):
         self.assertEqual(payload.get('peer_trust'), {})
         self.assertEqual(payload.get('peers'), {})
 
-    def test_peer_activity_delta_request_returns_no_sidebar_payload_when_unchanged(self):
+    def test_peer_activity_delta_request_returns_recoverable_sidebar_payload_when_unchanged(self):
         first = self.client.get('/ajax/peer_activity')
         self.assertEqual(first.status_code, 200)
         first_payload = first.get_json() or {}
@@ -185,10 +185,10 @@ class TestPeerActivitySidebarState(unittest.TestCase):
 
         self.assertTrue(payload.get('success'))
         self.assertFalse(payload.get('peer_changed'))
-        self.assertEqual(payload.get('connected_peer_ids'), [])
-        self.assertEqual(payload.get('peer_trust'), {})
-        self.assertEqual(payload.get('peer_profiles'), {})
-        self.assertEqual(payload.get('peers'), {})
+        self.assertEqual(payload.get('connected_peer_ids'), ['peer-a', 'peer-b'])
+        self.assertEqual((payload.get('peer_trust') or {}).get('peer-a'), 84)
+        self.assertEqual((payload.get('peer_profiles') or {}).get('peer-a', {}).get('display_name'), 'Peer Alpha')
+        self.assertIn('peer-a', payload.get('peers') or {})
 
 
 if __name__ == '__main__':
