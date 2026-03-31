@@ -24,6 +24,20 @@
 
 ---
 
+### 2. GitHub push workflow posture - Reviewed
+
+**Current workflow:** Routine pushes now target the private dev mirror (`kwalus/Canopy-Dev`) by default through `scripts/push_to_github.py` and the local MCP Manager on `localhost:8000`. Public `kwalus/Canopy` pushes are explicit opt-in actions used only for release-reviewed promotions.
+
+**What this means for public review:**
+
+- The repo's default automation path is now safer for day-to-day development because it lands on `Canopy-Dev`, not the public repo.
+- Public pushes require an explicit repo override and should be treated as a separate review gate, not a normal development sync.
+- When syncing to the separate push-folder mirror, copy only the changed files for the reviewed release instead of performing a blanket folder sync.
+
+**Change made:** Public-facing workflow language was refreshed so release reviewers are looking at the current promotion model rather than older local-folder assumptions.
+
+---
+
 ## Clean - No Action Required
 
 | Area | Status |
@@ -37,7 +51,7 @@
 | Database files and `data/` directory | Not committed - excluded by `.gitignore` |
 | `config/production.ini` / `config/secrets.env` | Not committed - excluded by `.gitignore` |
 | `cursor-mcp-config.json` (live) | Not committed - excluded by `.gitignore` |
-| `scripts/push_to_github.py` | Uses a local MCP Manager endpoint (`localhost:8000`); no credentials hardcoded; appropriate for a public dev repo |
+| `scripts/push_to_github.py` | Uses a local MCP Manager endpoint (`localhost:8000`); no credentials hardcoded; defaults to `Canopy-Dev` and requires explicit opt-in for public `Canopy` pushes |
 | `docs/SECURITY_ASSESSMENT.md` | Public-appropriate security documentation; no sensitive specifics |
 | `docs/RECOVERY_LOCK_STORM.md` | Mentions Dropbox as a general WAL-contention scenario; appropriate operational context |
 
