@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.33] - 2026-03-31
+
+### Fixed
+- **Active-peer sidebar state now survives transient connection handovers** — Authenticated connection arbitration no longer creates a brief visibility gap in `get_connected_peers()`, and the sidebar no longer wipes all peers immediately on a single empty poll response, reducing the "connected then zero peers" regression under live mesh churn.
+- **Mesh diagnostics now expose pending-vs-authenticated peer state more clearly** — Runtime diagnostics now report connection-state counts, pending handshake candidates, and recent peer-state transitions so operators can confirm whether the UI, manager snapshot, and socket layer are diverging.
+- **Device avatars are now bounded before they can bloat profile propagation** — The settings UI pre-compresses device avatars for mesh-friendly upload, and the server re-normalizes them to a capped JPEG thumbnail before saving, which prevents oversized profile images from inflating `profile_sync` payloads or blocking metadata convergence.
+
 ## [0.5.32] - 2026-03-31
 
 ### Fixed

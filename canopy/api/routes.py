@@ -3451,12 +3451,15 @@ def create_api_blueprint() -> Blueprint:
         data = request.get_json()
         if not data:
             return jsonify({'error': 'JSON body required'}), 400
-        ok = set_device_profile(
-            display_name=data.get('display_name'),
-            description=data.get('description'),
-            avatar_b64=data.get('avatar_b64'),
-            avatar_mime=data.get('avatar_mime'),
-        )
+        try:
+            ok = set_device_profile(
+                display_name=data.get('display_name'),
+                description=data.get('description'),
+                avatar_b64=data.get('avatar_b64'),
+                avatar_mime=data.get('avatar_mime'),
+            )
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
         if ok:
             # Broadcast updated device profile to connected peers
             *_, p2p_manager = _get_app_components_any(current_app)

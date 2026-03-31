@@ -702,6 +702,13 @@
     let _deviceAvatarB64 = '';
     let _deviceAvatarMime = '';
 
+    function setDeviceProfileStatus(message, cssVar) {
+        const status = document.getElementById('device-profile-status');
+        if (!status) return;
+        status.textContent = message || '';
+        status.style.color = cssVar || 'var(--bs-secondary)';
+    }
+
     function loadDeviceProfile() {
         fetch('/api/v1/device/profile')
             .then(r => r.json())
@@ -724,21 +731,69 @@
             .catch(() => {});
     }
 
-    function previewDeviceAvatar(input) {
+    async function previewDeviceAvatar(input) {
         if (!input.files || !input.files[0]) return;
         const file = input.files[0];
-        const reader = new FileReader();
-        reader.onload = function(e) {
+        const loadImageDataUrl = (selectedFile) => new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(new Error('Failed to read image file.'));
+            reader.readAsDataURL(selectedFile);
+        });
+        const loadImageElement = (dataUrl) => new Promise((resolve, reject) => {
+            const image = new Image();
+            image.onload = () => resolve(image);
+            image.onerror = () => reject(new Error('Selected file is not a valid image.'));
+            image.src = dataUrl;
+        });
+
+        try {
+            const originalDataUrl = await loadImageDataUrl(file);
+            const sourceImage = await loadImageElement(originalDataUrl);
+            const attempts = [
+                { size: 256, quality: 0.82 },
+                { size: 256, quality: 0.68 },
+                { size: 192, quality: 0.62 },
+                { size: 160, quality: 0.55 },
+                { size: 128, quality: 0.45 },
+            ];
+            let chosenDataUrl = '';
+
+            for (const attempt of attempts) {
+                const scale = Math.min(1, attempt.size / Math.max(sourceImage.width || 1, sourceImage.height || 1));
+                const width = Math.max(1, Math.round((sourceImage.width || 1) * scale));
+                const height = Math.max(1, Math.round((sourceImage.height || 1) * scale));
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) continue;
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, width, height);
+                ctx.drawImage(sourceImage, 0, 0, width, height);
+                const nextDataUrl = canvas.toDataURL('image/jpeg', attempt.quality);
+                const payloadSize = Math.floor((nextDataUrl.split(',')[1] || '').length * 3 / 4);
+                chosenDataUrl = nextDataUrl;
+                if (payloadSize <= 48 * 1024) break;
+            }
+
+            if (!chosenDataUrl) {
+                throw new Error('Could not prepare avatar image.');
+            }
+
             const img = document.getElementById('device-avatar-img');
-            img.src = e.target.result;
+            img.src = chosenDataUrl;
             img.style.display = 'block';
             document.getElementById('device-avatar-placeholder').style.display = 'none';
-            // Extract base64
-            const dataUrl = e.target.result;
-            _deviceAvatarMime = dataUrl.split(';')[0].split(':')[1];
-            _deviceAvatarB64 = dataUrl.split(',')[1];
-        };
-        reader.readAsDataURL(file);
+            _deviceAvatarMime = 'image/jpeg';
+            _deviceAvatarB64 = chosenDataUrl.split(',')[1] || '';
+            setDeviceProfileStatus('Avatar optimized for mesh sync before upload.', 'var(--bs-secondary)');
+        } catch (err) {
+            _deviceAvatarMime = '';
+            _deviceAvatarB64 = '';
+            input.value = '';
+            setDeviceProfileStatus((err && err.message) || 'Failed to process avatar image.', 'var(--bs-danger)');
+        }
     }
 
     function saveDeviceProfile() {
@@ -761,18 +816,15 @@
         })
         .then(r => r.json())
         .then(data => {
-            const status = document.getElementById('device-profile-status');
             if (data.ok) {
-                status.textContent = '✓ Device profile saved successfully!';
-                status.style.color = 'var(--bs-success)';
+                setDeviceProfileStatus('✓ Device profile saved successfully!', 'var(--bs-success)');
             } else {
-                status.textContent = '✗ Error: ' + (data.error || 'Failed to save');
-                status.style.color = 'var(--bs-danger)';
+                setDeviceProfileStatus('✗ Error: ' + (data.error || 'Failed to save'), 'var(--bs-danger)');
             }
-            setTimeout(() => { status.textContent = ''; }, 4000);
+            setTimeout(() => { setDeviceProfileStatus('', 'var(--bs-secondary)'); }, 4000);
         })
         .catch(err => {
-            document.getElementById('device-profile-status').textContent = 'Network error';
+            setDeviceProfileStatus('Network error', 'var(--bs-danger)');
         });
     }
 

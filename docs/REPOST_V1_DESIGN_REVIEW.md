@@ -283,8 +283,8 @@ There is already a legacy feed share model using:
 
 References:
 
-- `/Users/konradwalus/Library/CloudStorage/Dropbox/Python Toolbox/Canopy/canopy/core/feed.py:994`
-- `/Users/konradwalus/Library/CloudStorage/Dropbox/Python Toolbox/Canopy/canopy/core/feed.py:1000`
+- `canopy/core/feed.py:994`
+- `canopy/core/feed.py:1000`
 
 Recommended migration posture:
 

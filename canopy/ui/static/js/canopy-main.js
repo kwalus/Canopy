@@ -734,16 +734,6 @@
                 Number(payload.connected_peer_count || connectedPeerIds.length) || connectedPeerIds.length
             );
 
-            if (!connectedPeerIds.length && canopySidebarPeerState.totalCount === 0) {
-                canopySidebarPeerState.peers.forEach((record, peerId) => {
-                    record.active = false;
-                    record.missCount = 0;
-                    canopySidebarPeerState.peers.set(peerId, record);
-                });
-                renderSidebarPeers();
-                return;
-            }
-
             const seenNow = new Set(connectedPeerIds);
 
             connectedPeerIds.forEach((peerId, index) => {

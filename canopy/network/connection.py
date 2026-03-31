@@ -372,7 +372,12 @@ class ConnectionManager:
         return False
 
     async def _adopt_authenticated_connection(self, connection: PeerConnection) -> bool:
-        """Install a newly-authenticated connection if it wins arbitration."""
+        """Install a newly-authenticated connection if it wins arbitration.
+
+        Replace the visible connection entry before closing the loser so
+        readers like ``get_connected_peers()`` never observe a transient gap
+        where an authenticated peer disappears mid-handover.
+        """
         peer_id = connection.peer_id
         existing = self.connections.get(peer_id)
         if existing and existing is not connection:
@@ -394,7 +399,12 @@ class ConnectionManager:
                 peer_id,
                 'outbound' if getattr(connection, 'is_outbound', True) else 'inbound',
             )
+            self.connections[peer_id] = connection
+            connection.state = ConnectionState.AUTHENTICATED
+            connection.connected_at = time.time()
+            connection.update_activity()
             await self._disconnect_connection(existing, notify=False)
+            return True
 
         self.connections[peer_id] = connection
         connection.state = ConnectionState.AUTHENTICATED
@@ -1329,6 +1339,25 @@ class ConnectionManager:
             peer_id for peer_id, conn in self.connections.items()
             if conn.is_connected()
         ]
+
+    def get_connection_state_counts(self) -> Dict[str, int]:
+        """Return counts of live connection objects by state value."""
+        counts: Dict[str, int] = {state.value: 0 for state in ConnectionState}
+        for connection in self.connections.values():
+            state = getattr(connection, 'state', None)
+            key = state.value if isinstance(state, ConnectionState) else str(state or '').strip().lower()
+            if not key:
+                continue
+            counts[key] = counts.get(key, 0) + 1
+        return counts
+
+    def get_pending_handshake_peer_ids(self) -> list[str]:
+        """Return peer IDs currently waiting on handshake completion."""
+        return sorted({
+            str(peer_id or '').strip()
+            for peer_id, conn in self.connections.items()
+            if peer_id and getattr(conn, 'state', None) == ConnectionState.HANDSHAKING
+        })
     
     def get_connection(self, peer_id: str) -> Optional[PeerConnection]:
         """Get connection object for a peer."""

@@ -14,6 +14,9 @@ Project: Canopy - Local Mesh Communication
 License: Apache 2.0
 """
 
+import base64
+import binascii
+import io
 import json
 import logging
 import os
@@ -207,6 +210,8 @@ def set_device_label(label: str) -> bool:
 # Device Profile  (display name, description, avatar)
 # ---------------------------------------------------------------------------
 _DEVICE_PROFILE_FILE = _DEVICE_DIR / 'device_profile.json'
+_DEVICE_AVATAR_MAX_SIZE = 256
+_DEVICE_AVATAR_MAX_BYTES = 48 * 1024
 
 
 def get_device_profile() -> Dict[str, Any]:
@@ -236,6 +241,59 @@ def get_device_profile() -> Dict[str, Any]:
     return default
 
 
+def normalize_device_avatar(avatar_b64: Optional[str],
+                            avatar_mime: Optional[str]) -> tuple[str, str]:
+    """Normalize a device avatar to a bounded JPEG thumbnail."""
+    raw_b64 = str(avatar_b64 or '').strip()
+    raw_mime = str(avatar_mime or '').strip()
+    if not raw_b64:
+        return '', ''
+
+    try:
+        image_bytes = base64.b64decode(raw_b64, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise ValueError('Avatar must be valid base64-encoded image data.') from exc
+
+    try:
+        from PIL import Image
+    except Exception as exc:
+        if len(image_bytes) <= _DEVICE_AVATAR_MAX_BYTES and raw_mime.startswith('image/'):
+            return raw_b64, raw_mime
+        raise ValueError('Avatar processing is unavailable; install Pillow or use a smaller image.') from exc
+
+    try:
+        image = Image.open(io.BytesIO(image_bytes))
+        image.load()
+    except Exception as exc:
+        raise ValueError('Avatar must be a readable image file.') from exc
+
+    if getattr(image, 'mode', None) in ('RGBA', 'LA', 'P'):
+        flattened = Image.new('RGB', image.size, (255, 255, 255))
+        alpha = image.getchannel('A') if 'A' in image.getbands() else None
+        flattened.paste(image.convert('RGBA'), mask=alpha)
+        image = flattened
+    elif getattr(image, 'mode', None) != 'RGB':
+        image = image.convert('RGB')
+
+    resample_lanczos = getattr(getattr(Image, 'Resampling', Image), 'LANCZOS')
+    for size, quality in [
+        (_DEVICE_AVATAR_MAX_SIZE, 82),
+        (_DEVICE_AVATAR_MAX_SIZE, 70),
+        (192, 65),
+        (160, 55),
+        (128, 45),
+    ]:
+        work = image.copy()
+        work.thumbnail((size, size), resample_lanczos)
+        out = io.BytesIO()
+        work.save(out, format='JPEG', quality=quality, optimize=True)
+        normalized = out.getvalue()
+        if len(normalized) <= _DEVICE_AVATAR_MAX_BYTES:
+            return base64.b64encode(normalized).decode('ascii'), 'image/jpeg'
+
+    raise ValueError('Avatar is too large even after compression. Please choose a smaller image.')
+
+
 def set_device_profile(display_name: Optional[str] = None,
                        description: Optional[str] = None,
                        avatar_b64: Optional[str] = None,
@@ -247,15 +305,17 @@ def set_device_profile(display_name: Optional[str] = None,
             profile['display_name'] = display_name
         if description is not None:
             profile['description'] = description
-        if avatar_b64 is not None:
-            profile['avatar_b64'] = avatar_b64
-        if avatar_mime is not None:
-            profile['avatar_mime'] = avatar_mime
+        if avatar_b64 is not None or avatar_mime is not None:
+            normalized_b64, normalized_mime = normalize_device_avatar(avatar_b64, avatar_mime)
+            profile['avatar_b64'] = normalized_b64
+            profile['avatar_mime'] = normalized_mime
         _DEVICE_DIR.mkdir(parents=True, exist_ok=True)
         _DEVICE_PROFILE_FILE.write_text(json.dumps(profile, indent=2))
         os.chmod(_DEVICE_PROFILE_FILE, 0o600)
         logger.info(f"Device profile updated: display_name={profile['display_name']}")
         return True
+    except ValueError:
+        raise
     except Exception as e:
         logger.error(f"Failed to update device profile: {e}")
         return False

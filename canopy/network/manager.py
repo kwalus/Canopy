@@ -5104,9 +5104,39 @@ class P2PNetworkManager:
             except Exception:
                 sync_queue_depth = 0
 
+        state_counts: Dict[str, int] = {}
+        pending_handshake_candidates: list[str] = []
+        if self.connection_manager:
+            try:
+                state_counts = self.connection_manager.get_connection_state_counts()
+            except Exception:
+                state_counts = {}
+            try:
+                pending_handshake_candidates = self.connection_manager.get_pending_handshake_peer_ids()
+            except Exception:
+                pending_handshake_candidates = []
+
+        recent_peer_state_transitions: list[Dict[str, Any]] = []
+        try:
+            for event in self.get_activity_events(limit=100):
+                if event.get('kind') != 'connection':
+                    continue
+                recent_peer_state_transitions.append({
+                    'peer_id': str(event.get('peer_id') or '').strip(),
+                    'status': str(event.get('status') or '').strip(),
+                    'timestamp': event.get('timestamp'),
+                    'endpoint': event.get('endpoint'),
+                })
+        except Exception:
+            recent_peer_state_transitions = []
+
         return {
             'timestamp': time.time(),
             'connected_peers': self.get_connected_peers(),
+            'authenticated_count': int(state_counts.get('authenticated', 0)),
+            'pending_connection_count': int(state_counts.get('connecting', 0)) + int(state_counts.get('handshaking', 0)),
+            'connection_state_counts': state_counts,
+            'pending_handshake_candidates': pending_handshake_candidates,
             'known_peers_count': len(getattr(self.identity_manager, 'known_peers', {}) or {}),
             'pending_messages': {
                 'total': total_pending,
@@ -5133,6 +5163,7 @@ class P2PNetworkManager:
                 ),
             },
             'recent_failures': recent_failures[-20:],
+            'recent_peer_state_transitions': recent_peer_state_transitions[-20:],
         }
 
     def resync_mesh(self, include_reconnect: bool = True) -> Dict[str, Any]:

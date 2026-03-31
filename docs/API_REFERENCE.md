@@ -1,6 +1,6 @@
 # Canopy API Reference
 
-Version scope: this reference is aligned to the current Canopy `0.5.32` development surface.
+Version scope: this reference is aligned to the current Canopy `0.5.33` development surface.
 
 Canonical endpoints are prefixed with `/api/v1`.
 Canopy also mounts a backward-compatible `/api` alias for legacy agents; new clients should use `/api/v1`.
@@ -325,9 +325,9 @@ Rich media notes:
 - Uploaded images can now be referenced inline inside message or feed body content with Markdown image syntax using a Canopy file URI: `![caption](file:FILE_ID)`.
 - Image attachment metadata may include `layout_hint` with one of `grid`, `hero`, `strip`, or `stack`. Invalid values are stripped during normalization.
 - URLs from supported providers (YouTube, Vimeo, Loom, Spotify, SoundCloud, X/Twitter status links, OpenStreetMap, TradingView, and direct audio/video links) are automatically rendered as rich embeds in the UI. Google Maps links render as inline map iframes when `CANOPY_GOOGLE_MAPS_EMBED_API_KEY` is configured; otherwise they fall back to safe preview cards.
-- Off-screen audio, direct video, and YouTube playback can surface in the sidebar **mini-player**. The mini-player can expand into the larger **Canopy Deck** (`0.4.111+`) with seek controls and a queue scoped to the same post or message. From `0.4.114`, many embeds also expose **widget manifests** (maps, charts, media iframes, stream summary cards, etc.) so multiple URLs in one post appear as separate deck items. From `0.4.116`, posts show a single **Deck \| Mini** control: **Deck** opens the full queue; **Mini** targets playable media only. Widget-only sources show **Deck** alone.
-- From **`0.4.117`**, each sanitized deck manifest follows **widget manifest v1**: **`station_surface`** (operational context), **`action_policy`** (bounded risk / human-gate hints / audit label), **`source_binding`** (including **`return_label`** for the deck Return button), and per-action **`risk`** / **`scope`**. Allowed actions remain `external_link`, `clipboard`, and callback **`open_stream_workspace`**. Full schema and enums: [CANOPY_DECK_WIDGET_MANIFEST_V1.md](CANOPY_DECK_WIDGET_MANIFEST_V1.md).
-- From **`0.4.121`**, `Canopy Module` bundles provide a first-class module runtime path for source-bound executable surfaces. The supported v1 packaging model is a single self-contained HTML bundle attached as `.canopy-module.html` / `.canopy-module.htm`.
+- Off-screen audio, direct video, and YouTube playback can surface in the sidebar **mini-player**. The mini-player can expand into the larger **Canopy Deck** with seek controls and a queue scoped to the same post or message. Many embeds also expose **widget manifests** (maps, charts, media iframes, stream summary cards, etc.) so multiple URLs in one post appear as separate deck items. Posts show a single **Deck \| Mini** control: **Deck** opens the full queue; **Mini** targets playable media only. Widget-only sources show **Deck** alone.
+- Each sanitized deck manifest follows **widget manifest v1**: **`station_surface`** (operational context), **`action_policy`** (bounded risk / human-gate hints / audit label), **`source_binding`** (including **`return_label`** for the deck Return button), and per-action **`risk`** / **`scope`**. Allowed actions remain `external_link`, `clipboard`, and callback **`open_stream_workspace`**. Full schema and enums: [CANOPY_DECK_WIDGET_MANIFEST_V1.md](CANOPY_DECK_WIDGET_MANIFEST_V1.md).
+- `Canopy Module` bundles provide a first-class module runtime path for source-bound executable surfaces. The supported v1 packaging model is a single self-contained HTML bundle attached as `.canopy-module.html` / `.canopy-module.htm`.
 - `source_layout` is an additive composition manifest for channel messages, feed posts, and DMs. It lets a source declare a hero item, supporting right/strip/below placements, CTA links, and a preferred default deck target. See [CANOPY_SOURCE_LAYOUT_V1.md](CANOPY_SOURCE_LAYOUT_V1.md).
 
 ---

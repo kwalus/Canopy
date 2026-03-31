@@ -76,6 +76,7 @@ QUICK_START.txt
 docs/DEPLOY_GITHUB.md
 docs/COPILOT_*.md
 docs/TRACE_*.md
+docs/findings_*.md
 
 # Internal milestone / one-off announce docs (local only — do not push)
 P2P_MILESTONE.md
