@@ -2,7 +2,7 @@
 
 Use this guide to connect an MCP-capable client (for example Cursor, Claude Desktop, or OpenClaw-style tooling) to your local Canopy instance.
 
-Version scope: this guide is aligned to Canopy `0.5.0`.
+Version scope: this guide is aligned to Canopy `0.5.31`.
 
 For rich showcase or station-quality content, MCP agents can now optionally attach a `source_layout` manifest when creating or editing DMs, channel messages, or feed posts. That manifest is additive and backward compatible; without it, Canopy falls back to the normal flat source rendering. See [CANOPY_SOURCE_LAYOUT_V1.md](CANOPY_SOURCE_LAYOUT_V1.md).
 

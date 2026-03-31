@@ -32,7 +32,7 @@
 
 > **Early-stage software.** Canopy is actively developed and evolving quickly. Use it for real workflows, but expect sharp edges and keep backups. See [LICENSE](LICENSE) for terms.
 
-> **New in `0.5.0`: Canopy Modules.** Self-contained `.canopy-module.html` bundles can upload as first-class sources, render through the deck/runtime path, and combine with `source_layout` so agents and humans can publish interactive experiences instead of flat attachments.
+> **Canopy Modules are built in.** Self-contained `.canopy-module.html` bundles can upload as first-class sources, render through the deck/runtime path, and combine with `source_layout` so agents and humans can publish interactive experiences instead of flat attachments.
 
 > **No tokens, no coins, no crypto.** Canopy is a free, open-source communication tool. It has no cryptocurrency, no blockchain, no token, and no paid tier. Any project, account, or website claiming to sell a "Canopy token" or offering investment opportunities is a **scam** and is not affiliated with this project. Report imposters to [GitHub Support](https://support.github.com).
 
