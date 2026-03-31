@@ -1318,6 +1318,7 @@ class MessageRouter:
                         circles_latest=meta.get('circles_latest'),
                         tasks_latest=meta.get('tasks_latest'),
                         digest=meta.get('digest'),
+                        channel_ranges=meta.get('channel_ranges'),
                     )
                 except TypeError:
                     # Backward-compatibility for callbacks that predate
@@ -2130,7 +2131,8 @@ class MessageRouter:
     async def send_catchup_request(self, to_peer: str,
                                     channel_timestamps: Dict[str, str],
                                     extra_timestamps: Optional[Dict[str, str]] = None,
-                                    digest: Optional[Dict[str, Any]] = None) -> bool:
+                                    digest: Optional[Dict[str, Any]] = None,
+                                    channel_ranges: Optional[Dict[str, Dict[str, Any]]] = None) -> bool:
         """
         Send a catch-up request to a specific peer.
 
@@ -2140,6 +2142,7 @@ class MessageRouter:
             extra_timestamps: Optional dict with feed_latest, circle_entries_latest,
                               circle_votes_latest, tasks_latest
             digest: Optional channel digest envelope for sync optimization
+            channel_ranges: Optional per-channel oldest/latest/count hints
         """
         meta: Dict[str, Any] = {
             'type': 'channel_catchup_request',
@@ -2149,6 +2152,8 @@ class MessageRouter:
             meta.update(extra_timestamps)
         if digest:
             meta['digest'] = digest
+        if channel_ranges:
+            meta['channel_ranges'] = channel_ranges
 
         payload = {
             'content': '',

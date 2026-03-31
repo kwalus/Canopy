@@ -4450,6 +4450,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
         p2p_manager.get_channel_latest_timestamps = _get_channel_latest_timestamps
 
+        def _get_channel_history_bounds():
+            """Return oldest/latest/count hints for bounded catch-up repair."""
+            return channel_manager.get_channel_history_bounds()
+
+        p2p_manager.get_channel_history_bounds = _get_channel_history_bounds
+
         def _get_channel_sync_digests(
             channel_ids: Optional[list[str]] = None,
             max_channels: int = 200,
@@ -4690,7 +4696,8 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                 feed_latest=None, circle_entries_latest=None,
                                 circle_votes_latest=None, circles_latest=None,
                                 tasks_latest=None,
-                                digest=None):
+                                digest=None,
+                                channel_ranges=None):
             """A peer is asking us for messages it missed.
 
             For each channel, query messages newer than the timestamp
@@ -4711,8 +4718,15 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     )
                 all_messages = []
                 # Get all local channels (peer may not know about some)
-                local_ts = channel_manager.get_channel_latest_timestamps()
+                local_bounds = channel_manager.get_channel_history_bounds()
+                local_ts = {
+                    channel_id: str((bounds or {}).get('latest') or '').strip()
+                    for channel_id, bounds in local_bounds.items()
+                    if str((bounds or {}).get('latest') or '').strip()
+                }
                 visibility_map = channel_manager.get_channel_visibility_map(list(local_ts.keys()))
+                remote_channel_ranges = channel_ranges if isinstance(channel_ranges, dict) else {}
+                catchup_mode_counts = {'incremental': 0, 'backfill': 0}
                 digest_checked = 0
                 digest_matched = 0
                 digest_mismatched = 0
@@ -4758,6 +4772,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         continue
                     if not trusted_content and not visibility_map.get(ch_id, False):
                         continue
+                    bounds = local_bounds.get(ch_id) or {}
+                    local_oldest = str(bounds.get('oldest') or '').strip()
+                    try:
+                        local_count = int(bounds.get('message_count') or 0)
+                    except Exception:
+                        local_count = 0
                     remote_digest = remote_digest_channels.get(ch_id)
                     local_digest = local_digest_channels.get(ch_id)
                     if remote_digest is not None:
@@ -4792,17 +4812,66 @@ def create_app(config: Optional[Config] = None) -> Flask:
                             digest_fallbacks += 1
 
                     peer_latest = channel_timestamps.get(ch_id)
+                    peer_range = remote_channel_ranges.get(ch_id) if isinstance(remote_channel_ranges.get(ch_id), dict) else {}
+                    peer_oldest = str((peer_range or {}).get('oldest') or '').strip()
+                    try:
+                        peer_count = int((peer_range or {}).get('message_count') or 0)
+                    except Exception:
+                        peer_count = 0
+                    should_send_incremental = False
+                    since = ''
                     if peer_latest is None:
                         # Peer has no messages in this channel — send
                         # everything (up to the limit).
                         since = '1970-01-01 00:00:00'
+                        should_send_incremental = True
                     elif local_latest > peer_latest:
                         since = peer_latest
-                    else:
-                        continue  # peer is up-to-date
+                        should_send_incremental = True
 
-                    msgs = channel_manager.get_messages_since(ch_id, since)
-                    all_messages.extend(msgs)
+                    if should_send_incremental:
+                        msgs = channel_manager.get_messages_since(ch_id, since)
+                        if msgs:
+                            catchup_mode_counts['incremental'] += 1
+                            all_messages.extend(msgs)
+
+                    should_backfill = (
+                        bool(peer_oldest)
+                        and bool(local_oldest)
+                        and local_oldest < peer_oldest
+                        and local_count > max(peer_count, 0)
+                    )
+                    if should_backfill:
+                        older_msgs = channel_manager.get_messages_before(ch_id, peer_oldest, limit=50)
+                        if older_msgs:
+                            catchup_mode_counts['backfill'] += 1
+                            all_messages.extend(older_msgs)
+
+                if all_messages:
+                    deduped_messages = []
+                    seen_message_ids = set()
+                    for msg in sorted(
+                        all_messages,
+                        key=lambda item: (
+                            str(item.get('created_at') or ''),
+                            str(item.get('channel_id') or ''),
+                            str(item.get('id') or ''),
+                        ),
+                    ):
+                        msg_id = str(msg.get('id') or '').strip()
+                        if msg_id and msg_id in seen_message_ids:
+                            continue
+                        if msg_id:
+                            seen_message_ids.add(msg_id)
+                        deduped_messages.append(msg)
+                    all_messages = deduped_messages
+                    logger.info(
+                        "Catchup response to %s modes incremental=%d backfill=%d messages=%d",
+                        from_peer,
+                        catchup_mode_counts['incremental'],
+                        catchup_mode_counts['backfill'],
+                        len(all_messages),
+                    )
 
                 if remote_digest_channels:
                     for ch_id in remote_digest_channels.keys():

@@ -8673,6 +8673,34 @@ class ChannelManager:
                          exc_info=True)
             return {}
 
+    def get_channel_history_bounds(self) -> Dict[str, Dict[str, Any]]:
+        """Return oldest/latest timestamp and live message count per channel."""
+        try:
+            with self.db.get_connection() as conn:
+                rows = conn.execute("""
+                    SELECT channel_id,
+                           MIN(created_at) AS oldest,
+                           MAX(created_at) AS latest,
+                           COUNT(id) AS message_count
+                    FROM channel_messages
+                    WHERE expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP
+                    GROUP BY channel_id
+                """).fetchall()
+                result: Dict[str, Dict[str, Any]] = {}
+                for row in rows:
+                    channel_id = str(row['channel_id'] or '').strip()
+                    if not channel_id:
+                        continue
+                    result[channel_id] = {
+                        'oldest': row['oldest'],
+                        'latest': row['latest'],
+                        'message_count': int(row['message_count'] or 0),
+                    }
+                return result
+        except Exception as e:
+            logger.error(f"Failed to get channel history bounds: {e}", exc_info=True)
+            return {}
+
     def get_channel_visibility_map(self, channel_ids: List[str]) -> Dict[str, bool]:
         """Return whether each channel ID is public/open enough for public mesh bootstrap."""
         result: Dict[str, bool] = {}
@@ -9015,6 +9043,83 @@ class ChannelManager:
                 return messages
         except Exception as e:
             logger.error(f"Failed to get messages since {since_timestamp} "
+                         f"for #{channel_id}: {e}", exc_info=True)
+            return []
+
+    def get_messages_before(self, channel_id: str, before_timestamp: str,
+                            limit: int = 50) -> List[Dict[str, Any]]:
+        """Get older messages in a channel created before *before_timestamp*.
+
+        Results are returned in ascending timestamp order so callers can append
+        them directly to replay/catchup payloads without additional sorting.
+        """
+        try:
+            with self.db.get_connection() as conn:
+                rows = conn.execute("""
+                    SELECT m.id, m.channel_id, m.user_id, m.content,
+                           m.message_type, m.created_at, m.attachments, m.expires_at,
+                           m.origin_peer,
+                           m.ttl_seconds, m.ttl_mode, m.parent_message_id, m.source_layout,
+                           m.source_reference, m.repost_policy,
+                           m.encrypted_content, m.crypto_state, m.key_id, m.nonce,
+                           c.name AS channel_name,
+                           c.channel_type AS channel_type,
+                           COALESCE(c.privacy_mode, 'open') AS channel_privacy_mode,
+                           c.origin_peer AS channel_origin_peer
+                    FROM channel_messages m
+                    LEFT JOIN channels c ON c.id = m.channel_id
+                    WHERE m.channel_id = ?
+                      AND m.created_at < ?
+                      AND (m.expires_at IS NULL OR m.expires_at > CURRENT_TIMESTAMP)
+                    ORDER BY m.created_at DESC
+                    LIMIT ?
+                """, (channel_id, before_timestamp, limit)).fetchall()
+
+                messages: List[Dict[str, Any]] = []
+                for row in reversed(rows):
+                    msg = {
+                        'id': row['id'],
+                        'channel_id': row['channel_id'],
+                        'user_id': row['user_id'],
+                        'content': row['content'],
+                        'message_type': row['message_type'],
+                        'created_at': row['created_at'],
+                        'expires_at': row['expires_at'],
+                        'origin_peer': row['origin_peer'] if 'origin_peer' in row.keys() else None,
+                        'channel_name': row['channel_name'] if 'channel_name' in row.keys() else None,
+                        'channel_type': row['channel_type'] if 'channel_type' in row.keys() else None,
+                        'channel_privacy_mode': row['channel_privacy_mode'] if 'channel_privacy_mode' in row.keys() else None,
+                        'channel_origin_peer': row['channel_origin_peer'] if 'channel_origin_peer' in row.keys() else None,
+                        'ttl_seconds': row['ttl_seconds'] if 'ttl_seconds' in row.keys() else None,
+                        'ttl_mode': row['ttl_mode'] if 'ttl_mode' in row.keys() else None,
+                        'parent_message_id': row['parent_message_id'] if 'parent_message_id' in row.keys() else None,
+                        'source_layout': json.loads(row['source_layout']) if ('source_layout' in row.keys() and row['source_layout']) else None,
+                        'source_reference': json.loads(row['source_reference']) if ('source_reference' in row.keys() and row['source_reference']) else None,
+                        'repost_policy': _normalize_channel_repost_policy(row['repost_policy']) if 'repost_policy' in row.keys() else None,
+                        'encrypted_content': (
+                            row['encrypted_content'] if 'encrypted_content' in row.keys() else None
+                        ),
+                        'crypto_state': (
+                            row['crypto_state'] if 'crypto_state' in row.keys() else None
+                        ),
+                        'key_id': row['key_id'] if 'key_id' in row.keys() else None,
+                        'nonce': row['nonce'] if 'nonce' in row.keys() else None,
+                    }
+                    if row['attachments']:
+                        try:
+                            atts = json.loads(row['attachments'])
+                            for att in atts:
+                                att.pop('data', None)
+                            msg['attachments'] = atts
+                        except Exception:
+                            pass
+                    messages.append(msg)
+
+                logger.debug(f"Catchup backfill: {len(messages)} messages in "
+                             f"#{channel_id} before {before_timestamp}")
+                return messages
+        except Exception as e:
+            logger.error(f"Failed to get messages before {before_timestamp} "
                          f"for #{channel_id}: {e}", exc_info=True)
             return []
 

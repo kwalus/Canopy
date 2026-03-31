@@ -90,6 +90,14 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("function refreshTrustEmptyStates() {", trust_template)
         self.assertIn("refreshTrustEmptyStates();", trust_template)
 
+    def test_trust_page_exposes_review_actions_for_flagged_peers(self) -> None:
+        trust_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'trust.html').read_text(encoding='utf-8')
+        self.assertIn("function runTrustPeerAction(peerId, action) {", trust_template)
+        self.assertIn("apiCall('/trust/peer_action', {", trust_template)
+        self.assertIn("runTrustPeerAction('{{ peer_id }}', 'refresh_profile')", trust_template)
+        self.assertIn("runTrustPeerAction('{{ peer_id }}', 'sync_now')", trust_template)
+        self.assertIn("href=\"#trust-peer-{{ peer.peer_id }}\"", trust_template)
+
     def test_connect_forget_peer_mentions_residue_cleanup(self) -> None:
         connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
         self.assertIn('clean stored trust/user residue for that peer', connect_template)

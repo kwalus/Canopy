@@ -4570,6 +4570,7 @@ def create_ui_blueprint() -> Blueprint:
                         score_value = int(score_info.get('score', 0) or 0)
                     except Exception:
                         score_value = 0
+                is_trusted = bool(score_value is not None and score_value >= 50)
 
                 connection_sort = {'live': 0, 'known': 1, 'introduced': 2, 'stale': 3}.get(connection_state, 4)
                 return {
@@ -4589,6 +4590,14 @@ def create_ui_blueprint() -> Blueprint:
                     'public_avatar_color': str(public_identity.get('avatar_color') or '').strip(),
                     'public_avatar_initials': str(public_identity.get('avatar_initials') or '').strip(),
                     'connected': clean_peer_id in connected_set,
+                    'can_connect_now': clean_peer_id in introduced_map,
+                    'can_reconnect': bool(endpoint_count) and clean_peer_id not in connected_set,
+                    'can_sync_now': clean_peer_id in connected_set,
+                    'can_refresh_profile': bool(
+                        p2p_manager
+                        and hasattr(p2p_manager, 'recover_peer_profile_state')
+                        and hasattr(p2p_manager, 'clear_peer_profile_cache')
+                    ),
                     'connection_state': connection_state,
                     'connection_label': connection_label,
                     'connection_note': connection_note,
@@ -4596,6 +4605,7 @@ def create_ui_blueprint() -> Blueprint:
                     'role_label': role_label,
                     'role_state': role_state,
                     'score': score_value,
+                    'is_trusted': is_trusted,
                     'endpoint_count': endpoint_count,
                     'active_endpoint': active_endpoint,
                     'introduced_by': introduced_by,
@@ -4772,6 +4782,116 @@ def create_ui_blueprint() -> Blueprint:
         except Exception as e:
             logger.error(f"Failed to update trust score: {e}")
             return jsonify({'error': 'Failed to update trust score'}), 500
+
+    @ui.route('/trust/peer_action', methods=['POST'])
+    @require_login
+    def trust_peer_action():
+        """Run a remediation action for a peer from the trust UI."""
+        import asyncio
+        from ..network.invite import parse_invite_endpoint
+
+        try:
+            _, _, trust_manager, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+            if not p2p_manager:
+                return jsonify({'error': 'P2P manager not available'}), 500
+
+            data = request.get_json() or {}
+            peer_id = str(data.get('peer_id') or '').strip()
+            action = str(data.get('action') or '').strip().lower()
+            if not peer_id or not action:
+                return jsonify({'error': 'peer_id and action are required'}), 400
+
+            def _connect_via_endpoints(endpoints: list[str], detail: str) -> tuple[bool, Optional[str]]:
+                connection_manager = getattr(p2p_manager, 'connection_manager', None)
+                ev_loop = getattr(p2p_manager, '_event_loop', None)
+                if not connection_manager:
+                    return False, 'P2P connection manager unavailable'
+                if not ev_loop or ev_loop.is_closed():
+                    return False, 'P2P event loop unavailable'
+                for ep in endpoints or []:
+                    parsed = parse_invite_endpoint(ep)
+                    if not parsed:
+                        continue
+                    host, port, scheme = parsed
+                    try:
+                        future = asyncio.run_coroutine_threadsafe(
+                            connection_manager.connect_to_peer(peer_id, host, port, scheme=scheme),
+                            ev_loop,
+                        )
+                        connected = future.result(timeout=10.0)
+                    except Exception as connect_err:
+                        logger.warning("Trust peer action connect failed for %s via %s: %s", peer_id, ep, connect_err)
+                        connected = False
+                    if connected:
+                        try:
+                            _record_connection_event(
+                                p2p_manager,
+                                peer_id,
+                                status='connected',
+                                detail=detail,
+                                endpoint=ep,
+                            )
+                        except Exception:
+                            pass
+                        return True, ep
+                return False, 'Could not connect to any endpoint'
+
+            if action == 'sync_now':
+                trigger_sync = getattr(p2p_manager, 'trigger_peer_sync', None)
+                if not callable(trigger_sync):
+                    return jsonify({'error': 'Peer sync trigger unavailable'}), 500
+                if not trigger_sync(peer_id):
+                    return jsonify({'error': 'Failed to trigger sync'}), 502
+                return jsonify({'success': True, 'peer_id': peer_id, 'action': action, 'message': 'Peer sync triggered.'})
+
+            if action == 'refresh_profile':
+                clear_cache = getattr(p2p_manager, 'clear_peer_profile_cache', None)
+                recover = getattr(p2p_manager, 'recover_peer_profile_state', None)
+                if not callable(clear_cache) or not callable(recover):
+                    return jsonify({'error': 'Profile refresh unavailable'}), 500
+                cache_result = clear_cache(peer_id)
+                recovery = recover(peer_id, trigger_sync=True)
+                skipped_untrusted = list((recovery or {}).get('skipped_untrusted') or [])
+                message = 'Profile refresh requested.'
+                if peer_id in skipped_untrusted:
+                    message = 'Profile refresh is limited until this peer is trusted.'
+                return jsonify({
+                    'success': True,
+                    'peer_id': peer_id,
+                    'action': action,
+                    'cache_result': cache_result,
+                    'profile_recovery': recovery,
+                    'message': message,
+                })
+
+            if action == 'reconnect':
+                identity_manager = getattr(p2p_manager, 'identity_manager', None)
+                endpoints = list((getattr(identity_manager, 'peer_endpoints', {}) or {}).get(peer_id, []) or [])
+                ok, detail = _connect_via_endpoints(endpoints, 'Trust page reconnect succeeded')
+                if not ok:
+                    return jsonify({'error': str(detail or 'Reconnect failed')}), 502
+                try:
+                    p2p_manager.trigger_peer_sync(peer_id)
+                except Exception:
+                    pass
+                return jsonify({'success': True, 'peer_id': peer_id, 'action': action, 'endpoint': detail, 'message': 'Peer reconnected.'})
+
+            if action == 'connect_introduced':
+                intro = (getattr(p2p_manager, '_introduced_peers', {}) or {}).get(peer_id) or {}
+                endpoints = list(intro.get('endpoints') or [])
+                ok, detail = _connect_via_endpoints(endpoints, 'Trust page introduced-peer connect succeeded')
+                if not ok:
+                    return jsonify({'error': str(detail or 'Connect failed')}), 502
+                try:
+                    p2p_manager.trigger_peer_sync(peer_id)
+                except Exception:
+                    pass
+                return jsonify({'success': True, 'peer_id': peer_id, 'action': action, 'endpoint': detail, 'message': 'Introduced peer connected.'})
+
+            return jsonify({'error': 'Unsupported trust action'}), 400
+        except Exception as e:
+            logger.error(f"Failed to run trust peer action: {e}", exc_info=True)
+            return jsonify({'error': 'Failed to run trust peer action'}), 500
     
     # Feed interface
     @ui.route('/feed')

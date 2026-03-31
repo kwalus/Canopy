@@ -89,10 +89,23 @@ class TestManagerTrustGating(unittest.TestCase):
         manager.get_circles_latest_timestamp = None
         manager.get_tasks_latest_timestamp = None
 
-        sent: list[tuple[str, dict, dict | None, dict | None]] = []
+        manager.get_channel_history_bounds = lambda: {
+            'Cpublic': {
+                'latest': '2026-03-30 12:00:00',
+                'oldest': '2026-03-29 12:00:00',
+                'message_count': 4,
+            },
+            'Cprivate': {
+                'latest': '2026-03-30 12:01:00',
+                'oldest': '2026-03-29 12:01:00',
+                'message_count': 2,
+            },
+        }
 
-        async def _send_catchup_request(peer_id, channel_timestamps, extra_timestamps=None, digest=None):
-            sent.append((peer_id, channel_timestamps, extra_timestamps, digest))
+        sent: list[tuple[str, dict, dict | None, dict | None, dict | None]] = []
+
+        async def _send_catchup_request(peer_id, channel_timestamps, extra_timestamps=None, digest=None, channel_ranges=None):
+            sent.append((peer_id, channel_timestamps, extra_timestamps, digest, channel_ranges))
 
         manager.message_router.send_catchup_request = _send_catchup_request
 
@@ -100,7 +113,13 @@ class TestManagerTrustGating(unittest.TestCase):
 
         self.assertEqual(
             sent,
-            [('peer-guest', {'Cpublic': '2026-03-30 12:00:00'}, None, None)],
+            [('peer-guest', {'Cpublic': '2026-03-30 12:00:00'}, None, None, {
+                'Cpublic': {
+                    'latest': '2026-03-30 12:00:00',
+                    'oldest': '2026-03-29 12:00:00',
+                    'message_count': 4,
+                }
+            })],
         )
 
     def test_channel_sync_batches_stay_under_payload_budget(self) -> None:

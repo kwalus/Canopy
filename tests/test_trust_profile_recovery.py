@@ -219,6 +219,106 @@ class TestTrustProfileRecovery(unittest.TestCase):
         )
         p2p_manager.recover_peer_profile_state.assert_called_once_with('peer-1', trigger_sync=True)
 
+    def test_trust_peer_action_refresh_profile_clears_cache_and_recovers(self) -> None:
+        trust_manager = _FakeTrustManager()
+        p2p_manager = MagicMock()
+        p2p_manager.clear_peer_profile_cache.return_value = {'cleared_hashes': 1, 'cleared_relays': 0}
+        p2p_manager.recover_peer_profile_state.return_value = {
+            'ok': True,
+            'skipped_untrusted': [],
+            'recovered_user_count': 1,
+        }
+
+        components = (
+            MagicMock(),
+            MagicMock(),
+            trust_manager,
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            p2p_manager,
+        )
+
+        patcher = patch('canopy.ui.routes._get_app_components_any', return_value=components)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+        app = Flask(__name__)
+        app.config['TESTING'] = True
+        app.secret_key = 'test-secret'
+        app.register_blueprint(create_ui_blueprint())
+        client = app.test_client()
+
+        token = 'csrf-trust-peer-action-refresh'
+        with client.session_transaction() as sess:
+            sess['authenticated'] = True
+            sess['user_id'] = 'owner'
+            sess['username'] = 'owner'
+            sess['_csrf_token'] = token
+
+        response = client.post(
+            '/trust/peer_action',
+            json={'peer_id': 'peer-1', 'action': 'refresh_profile'},
+            headers={'X-CSRFToken': token},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        p2p_manager.clear_peer_profile_cache.assert_called_once_with('peer-1')
+        p2p_manager.recover_peer_profile_state.assert_called_once_with('peer-1', trigger_sync=True)
+
+    def test_trust_peer_action_sync_now_triggers_peer_sync(self) -> None:
+        trust_manager = _FakeTrustManager()
+        p2p_manager = MagicMock()
+        p2p_manager.trigger_peer_sync.return_value = True
+
+        components = (
+            MagicMock(),
+            MagicMock(),
+            trust_manager,
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            p2p_manager,
+        )
+
+        patcher = patch('canopy.ui.routes._get_app_components_any', return_value=components)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+        app = Flask(__name__)
+        app.config['TESTING'] = True
+        app.secret_key = 'test-secret'
+        app.register_blueprint(create_ui_blueprint())
+        client = app.test_client()
+
+        token = 'csrf-trust-peer-action-sync'
+        with client.session_transaction() as sess:
+            sess['authenticated'] = True
+            sess['user_id'] = 'owner'
+            sess['username'] = 'owner'
+            sess['_csrf_token'] = token
+
+        response = client.post(
+            '/trust/peer_action',
+            json={'peer_id': 'peer-1', 'action': 'sync_now'},
+            headers={'X-CSRFToken': token},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        p2p_manager.trigger_peer_sync.assert_called_once_with('peer-1')
+
 
 if __name__ == '__main__':
     unittest.main()

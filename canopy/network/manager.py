@@ -4782,8 +4782,15 @@ class P2PNetworkManager:
             return
         try:
             channel_timestamps = {}
+            channel_ranges = {}
             if self.get_channel_latest_timestamps:
                 channel_timestamps = self.get_channel_latest_timestamps()
+            get_channel_history_bounds = getattr(self, 'get_channel_history_bounds', None)
+            if callable(get_channel_history_bounds):
+                try:
+                    channel_ranges = get_channel_history_bounds() or {}
+                except Exception:
+                    channel_ranges = {}
             trusted_content = self._peer_is_trusted_for_content(peer_id)
             if not trusted_content and channel_timestamps:
                 public_channel_ids = set()
@@ -4805,8 +4812,14 @@ class P2PNetworkManager:
                         for channel_id, ts in channel_timestamps.items()
                         if channel_id in public_channel_ids
                     }
+                    channel_ranges = {
+                        channel_id: value
+                        for channel_id, value in channel_ranges.items()
+                        if channel_id in public_channel_ids
+                    }
                 else:
                     channel_timestamps = {}
+                    channel_ranges = {}
 
             # Gather extra timestamps for non-channel data
             extra_timestamps = {}
@@ -4861,6 +4874,7 @@ class P2PNetworkManager:
                 peer_id, channel_timestamps,
                 extra_timestamps=extra_timestamps if extra_timestamps else None,
                 digest=digest_payload,
+                channel_ranges=channel_ranges if channel_ranges else None,
             )
         except Exception as e:
             logger.error(f"Error sending catchup request to {peer_id}: {e}",

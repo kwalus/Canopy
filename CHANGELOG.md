@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.36] - 2026-03-31
+
+### Fixed
+- **Sparse public-channel history can now repair older holes instead of stalling at the newest local watermark** — Catch-up requests now include bounded channel history hints, and reconnect-time catch-up can return capped older public messages when a peer's local copy looks partial, which addresses incomplete backfill cases like Windy's `#aviation` gap without requiring oversized replay payloads.
+- **Trust review cards now expose remediation actions instead of only warning badges** — The Trust page now gives flagged peers direct `Connect`/`Reconnect`, `Sync now`, and `Refresh profile` actions, plus jump links from the review lane back to the full card, so operators can act on missing labels, stale sockets, and profile drift from the page that surfaced the issue.
+
 ## [0.5.35] - 2026-03-31
 
 ### Fixed

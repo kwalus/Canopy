@@ -375,7 +375,7 @@ For example: if B connects to A, and A is also connected to the VM, the VM will 
 
 ### Message Catch-Up
 
-When a peer reconnects after being offline, both sides exchange a **catch-up request** listing their channels and the timestamp of their last message. The other side responds with any messages the reconnecting peer missed.
+When a peer reconnects after being offline, both sides exchange a **catch-up request** listing their channels plus bounded history hints (latest, oldest, and message-count context for newer builds). The other side responds with any messages the reconnecting peer missed and can also repair older public-history gaps over repeated sync rounds when the local node looks sparse.
 
 This happens automatically — no action needed from the user.
 

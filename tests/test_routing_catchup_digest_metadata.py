@@ -81,6 +81,24 @@ class TestRoutingCatchupDigestMetadata(unittest.IsolatedAsyncioTestCase):
         self.assertIn('digest', metadata)
         self.assertEqual(metadata['digest']['version'], 1)
 
+    async def test_send_catchup_request_includes_channel_ranges_metadata(self) -> None:
+        ok = await self.router.send_catchup_request(
+            to_peer='peer-remote',
+            channel_timestamps={'general': '2026-03-04 10:00:00'},
+            channel_ranges={
+                'general': {
+                    'latest': '2026-03-04 10:00:00',
+                    'oldest': '2026-03-01 09:00:00',
+                    'message_count': 8,
+                }
+            },
+        )
+        self.assertTrue(ok)
+        _peer, payload = self.conn.sent[-1]
+        metadata = payload['message']['payload']['metadata']
+        self.assertIn('channel_ranges', metadata)
+        self.assertEqual(metadata['channel_ranges']['general']['oldest'], '2026-03-01 09:00:00')
+
     async def test_callback_receives_digest_when_supported(self) -> None:
         seen = {}
 
@@ -113,6 +131,42 @@ class TestRoutingCatchupDigestMetadata(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(ok)
         self.assertIn('digest', seen)
         self.assertEqual(seen['digest']['version'], 1)
+
+    async def test_callback_receives_channel_ranges_when_supported(self) -> None:
+        seen = {}
+
+        def _cb(**kwargs):
+            seen.update(kwargs)
+
+        self.router.on_catchup_request = _cb
+        msg = P2PMessage(
+            id='MCATCH003',
+            type=MessageType.CHANNEL_CATCHUP_REQUEST,
+            from_peer='peer-remote',
+            to_peer='peer-local',
+            timestamp=time.time(),
+            ttl=5,
+            payload={
+                'content': '',
+                'metadata': {
+                    'channel_timestamps': {'general': '2026-03-04 10:00:00'},
+                    'channel_ranges': {
+                        'general': {
+                            'latest': '2026-03-04 10:00:00',
+                            'oldest': '2026-03-01 09:00:00',
+                            'message_count': 8,
+                        }
+                    },
+                },
+            },
+            signature='sig',
+            encrypted_payload=None,
+        )
+
+        ok = await self.router.route_message(msg)
+        self.assertTrue(ok)
+        self.assertIn('channel_ranges', seen)
+        self.assertEqual(seen['channel_ranges']['general']['message_count'], 8)
 
     async def test_callback_without_digest_arg_still_works(self) -> None:
         called = {'value': False}
