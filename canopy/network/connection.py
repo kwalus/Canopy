@@ -155,6 +155,7 @@ class PeerConnection:
     handshake_version: Optional[str] = None
     canopy_version: Optional[str] = None
     protocol_version: Optional[int] = None
+    endpoint_uri: Optional[str] = None
     failure_reason: Optional[str] = None
     failure_detail: Optional[str] = None
     _send_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
@@ -268,6 +269,38 @@ class ConnectionManager:
 
     def _failure_key(self, peer_id: str, address: str, port: int) -> str:
         return f"{peer_id}|{self._format_endpoint_host(address)}|{int(port)}"
+
+    def _record_handshake_peerid_mismatch(
+        self,
+        expected_peer_id: str,
+        actual_peer_id: str,
+        endpoint_uri: str,
+    ) -> None:
+        """Clean up stale endpoint ownership after a verified peer-id mismatch."""
+        clean_endpoint = str(endpoint_uri or '').strip()
+        if clean_endpoint.endswith('/p2p'):
+            clean_endpoint = clean_endpoint[:-4]
+        action_taken = 'mapping_reset'
+        if not clean_endpoint:
+            logger.warning(
+                "handshake_peerid_mismatch expected_peer=%s actual_peer=%s endpoint=unknown action_taken=%s",
+                expected_peer_id,
+                actual_peer_id,
+                action_taken,
+            )
+            return
+        try:
+            self.identity_manager.remove_endpoint(expected_peer_id, clean_endpoint)
+            self.identity_manager.record_endpoint(actual_peer_id, clean_endpoint, claim=True)
+        except Exception:
+            action_taken = 'endpoint_quarantine'
+        logger.warning(
+            "handshake_peerid_mismatch expected_peer=%s actual_peer=%s endpoint=%s action_taken=%s",
+            expected_peer_id,
+            actual_peer_id,
+            clean_endpoint,
+            action_taken,
+        )
 
     def _record_connect_failure(self, peer_id: str, address: str, port: int,
                                 reason: str, detail: str) -> None:
@@ -526,7 +559,7 @@ class ConnectionManager:
             address=address,
             port=port,
             state=ConnectionState.CONNECTING,
-            is_outbound=True
+            is_outbound=True,
         )
         
         self.connections[peer_id] = connection
@@ -536,6 +569,7 @@ class ConnectionManager:
             # then fall back to ws:// for backward compatibility.
             scheme = 'wss' if self.enable_tls else 'ws'
             uri = f"{scheme}://{address}:{port}/p2p"
+            connection.endpoint_uri = f"{scheme}://{address}:{port}"
             connect_kwargs: Dict[str, Any] = dict(
                 ping_interval=None,
                 ping_timeout=None,
@@ -554,6 +588,7 @@ class ConnectionManager:
                     logger.debug(
                         f"wss:// failed to {address}:{port}, falling back to ws:// ({tls_err})"
                     )
+                    connection.endpoint_uri = f"ws://{address}:{port}"
                     websocket = await websockets.connect(
                         f"ws://{address}:{port}/p2p",
                         ping_interval=None,
@@ -913,13 +948,14 @@ class ConnectionManager:
                 connection.failure_detail = (
                     f"Handshake peer-id mismatch: expected {connection.peer_id}, got {resp_peer_id}"
                 )
-                try:
-                    host = connection.address
-                    port = connection.port
-                    self.identity_manager.remove_endpoint(connection.peer_id, f"ws://{host}:{port}")
-                    self.identity_manager.remove_endpoint(connection.peer_id, f"wss://{host}:{port}")
-                except Exception:
-                    pass
+                endpoint_uri = str(getattr(connection, 'endpoint_uri', '') or '').strip()
+                if not endpoint_uri:
+                    endpoint_uri = f"ws://{self._format_endpoint_host(connection.address)}:{connection.port}"
+                self._record_handshake_peerid_mismatch(
+                    expected_peer_id=connection.peer_id,
+                    actual_peer_id=resp_peer_id,
+                    endpoint_uri=endpoint_uri,
+                )
                 return False
 
             # Create a remote peer identity and verify signature

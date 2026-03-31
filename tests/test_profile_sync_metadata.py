@@ -323,6 +323,83 @@ class TestProfileSyncMetadata(unittest.TestCase):
             self.assertIsNotNone(row)
             self.assertEqual((row or {}).get('account_type'), 'agent')
 
+    def test_profile_sync_reapplies_device_profile_even_when_hash_is_unchanged(self) -> None:
+        tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(tempdir.cleanup)
+
+        env_patcher = patch.dict(
+            os.environ,
+            {
+                'CANOPY_TESTING': 'true',
+                'CANOPY_DISABLE_MESH': 'true',
+                'CANOPY_DATA_DIR': tempdir.name,
+                'CANOPY_DATABASE_PATH': os.path.join(tempdir.name, 'canopy.db'),
+                'CANOPY_SECRET_KEY': 'test-secret',
+            },
+            clear=False,
+        )
+        env_patcher.start()
+        self.addCleanup(env_patcher.stop)
+
+        checkpoint_patcher = patch(
+            'canopy.core.database.DatabaseManager._start_checkpoint_thread',
+            lambda self: None,
+        )
+        checkpoint_patcher.start()
+        self.addCleanup(checkpoint_patcher.stop)
+
+        logging_patcher = patch(
+            'canopy.core.app.setup_logging',
+            lambda debug=False: None,
+        )
+        logging_patcher.start()
+        self.addCleanup(logging_patcher.stop)
+
+        p2p_patcher = patch(
+            'canopy.core.app.P2PNetworkManager',
+            _FakeP2PNetworkManager,
+        )
+        p2p_patcher.start()
+        self.addCleanup(p2p_patcher.stop)
+
+        app = create_app()
+        db_manager = app.config['DB_MANAGER']
+        trust_manager = app.config['TRUST_MANAGER']
+        p2p_manager = app.config['P2P_MANAGER']
+
+        profile_payload = {
+            'peer_id': 'peer-remote',
+            'user_id': 'remote-user',
+            'display_name': 'Remote User',
+            'username': 'remote_user',
+            'profile_hash': 'hash-remote-1',
+            'device': {
+                'display_name': 'Remote Node',
+                'description': 'remote device',
+                'avatar_b64': 'abc123',
+                'avatar_mime': 'image/png',
+            },
+        }
+
+        with app.app_context():
+            trust_manager.set_trust_score('peer-remote', 100, reason='test')
+            p2p_manager.on_profile_sync(profile_payload, 'peer-remote')
+            with db_manager.get_connection() as conn:
+                conn.execute("DELETE FROM peer_device_profiles WHERE peer_id = ?", ('peer-remote',))
+                conn.commit()
+
+            p2p_manager.on_profile_sync(profile_payload, 'peer-remote')
+
+            with db_manager.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT display_name, avatar_b64 FROM peer_device_profiles WHERE peer_id = ?",
+                    ('peer-remote',),
+                ).fetchone()
+
+        self.assertIsNotNone(row)
+        self.assertEqual(row['display_name'], 'Remote Node')
+        self.assertEqual(row['avatar_b64'], 'abc123')
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -210,6 +210,9 @@ class P2PNetworkManager:
         self._queued_sync_peers: set[str] = set()
         self._syncs_in_progress: set[str] = set()
         self._resync_after_current: set[str] = set()
+        self._post_connect_retry_counts: Dict[str, int] = {}
+        self._post_connect_retry_tokens: Dict[str, str] = {}
+        self._POST_CONNECT_SYNC_MAX_RETRIES = 3
         self._active_catchups: set = set()
         self._MAX_CONCURRENT_CATCHUPS_STARTUP = 2
         self._MAX_CONCURRENT_CATCHUPS_NORMAL = 5
@@ -1881,6 +1884,43 @@ class P2PNetworkManager:
             # Fallback if queue not initialized yet
             await self._run_post_connect_sync_impl(peer_id)
 
+    @staticmethod
+    def _connection_token(connection: Optional[Any]) -> str:
+        """Return a short token describing a specific connection instance."""
+        if not connection:
+            return 'none'
+        direction = 'out' if bool(getattr(connection, 'is_outbound', True)) else 'in'
+        connected_at = float(getattr(connection, 'connected_at', 0.0) or 0.0)
+        return f"{direction}:{int(connected_at * 1000)}:{id(connection):x}"
+
+    def _request_post_connect_sync_retry(self, peer_id: str, reason: str) -> None:
+        """Queue one bounded retry when a stable post-connect sync could not run."""
+        connection_manager = getattr(self, 'connection_manager', None)
+        current = connection_manager.get_connection(peer_id) if connection_manager else None
+        current_token = self._connection_token(current)
+        if self._post_connect_retry_tokens.get(peer_id) != current_token:
+            self._post_connect_retry_tokens[peer_id] = current_token
+            self._post_connect_retry_counts.pop(peer_id, None)
+        count = int(getattr(self, '_post_connect_retry_counts', {}).get(peer_id, 0) or 0) + 1
+        self._post_connect_retry_counts[peer_id] = count
+        if count > int(getattr(self, '_POST_CONNECT_SYNC_MAX_RETRIES', 3) or 3):
+            logger.warning(
+                "post_connect_sync_retry_exhausted peer=%s reason=%s retry_count=%s",
+                peer_id,
+                reason,
+                count - 1,
+            )
+            return
+        if not hasattr(self, '_resync_after_current'):
+            self._resync_after_current = set()
+        self._resync_after_current.add(peer_id)
+        logger.info(
+            "post_connect_sync_retried peer=%s reason=%s retry_count=%s",
+            peer_id,
+            reason,
+            count,
+        )
+
     async def _wait_for_connection_settle(self, peer_id: str) -> bool:
         """Wait briefly so post-connect sync does not race a flapping session."""
         connection_manager = getattr(self, 'connection_manager', None)
@@ -1888,7 +1928,12 @@ class P2PNetworkManager:
             return True
         conn = connection_manager.get_connection(peer_id)
         if not conn or not conn.is_connected():
-            logger.info("Skipping post-connect sync for %s: peer not connected", peer_id)
+            logger.info(
+                "post_connect_sync_skipped peer=%s reason=peer_not_connected expected_token=%s current_token=%s",
+                peer_id,
+                self._connection_token(conn),
+                self._connection_token(connection_manager.get_connection(peer_id)),
+            )
             return False
         connected_at = float(getattr(conn, 'connected_at', 0.0) or 0.0)
         settle_window = float(getattr(self, '_POST_CONNECT_SETTLE_WINDOW_S', 1.5) or 0.0)
@@ -1905,8 +1950,10 @@ class P2PNetworkManager:
         current = connection_manager.get_connection(peer_id)
         if current is not conn or not current or not current.is_connected():
             logger.info(
-                "Skipping post-connect sync for %s: connection changed before settle completed",
+                "post_connect_sync_skipped peer=%s reason=connection_changed_before_settle expected_token=%s current_token=%s",
                 peer_id,
+                self._connection_token(conn),
+                self._connection_token(current),
             )
             return False
         return True
@@ -1927,6 +1974,14 @@ class P2PNetworkManager:
         try:
             self._refresh_peer_version_info(peer_id)
             if not await self._wait_for_connection_settle(peer_id):
+                connection_manager = getattr(self, 'connection_manager', None)
+                current = connection_manager.get_connection(peer_id) if connection_manager else None
+                reason = (
+                    'connection_changed_before_settle'
+                    if current and getattr(current, 'is_connected', lambda: False)()
+                    else 'peer_not_connected'
+                )
+                self._request_post_connect_sync_retry(peer_id, reason)
                 return
 
             # Only cancel reconnect once the current connection has survived the
@@ -1952,6 +2007,10 @@ class P2PNetworkManager:
             await self._send_channel_sync_to_peer(peer_id)
             await self._send_public_channel_metadata_replay_to_peer(peer_id)
 
+            # Profile/device metadata is lightweight and should not wait behind
+            # heavier recovery work such as membership, key replay, or catch-up.
+            await self._send_profile_to_peer(peer_id)
+
             # Ask connected peer for private-channel memberships relevant
             # to local users on this instance (missed announce/member-sync recovery).
             await self._send_membership_recovery_query(peer_id)
@@ -1959,9 +2018,6 @@ class P2PNetworkManager:
             # Retry key requests for E2E private channels where this instance
             # still lacks active key material and the connected peer may provide it.
             await self._retry_missing_channel_key_requests_for_peer(peer_id)
-
-            # Exchange profile cards
-            await self._send_profile_to_peer(peer_id)
 
             # Announce other connected peers to the new peer
             await self._send_peer_announcement_to(peer_id)
@@ -1977,6 +2033,8 @@ class P2PNetworkManager:
 
             # Catch-up request for any missed messages
             await self._send_catchup_request(peer_id)
+            self._post_connect_retry_counts.pop(peer_id, None)
+            self._post_connect_retry_tokens.pop(peer_id, None)
             logger.info(f"Post-connect sync completed for {peer_id}")
         except Exception as e:
             logger.error(f"Error in post-connect sync for {peer_id}: {e}", exc_info=True)

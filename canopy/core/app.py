@@ -5461,6 +5461,8 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
         # Profile hash cache — skip re-processing unchanged profiles
         _seen_profile_hashes: dict[tuple[str, str], str] = {}  # (peer_id, user_id) -> profile_hash
+        _device_profile_apply_counts: dict[str, int] = {}
+        _peer_profile_apply_counts: dict[str, int] = {}
 
         def _on_profile_sync(profile_data, from_peer):
             """Handle incoming PROFILE_SYNC / PROFILE_UPDATE from a peer.
@@ -5477,6 +5479,30 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     logger.info("Ignoring profile sync from untrusted peer %s", from_peer)
                     return
                 remote_peer_id = profile_data.get('peer_id', from_peer)
+
+                # ---- Store device profile FIRST (independent of user/hash) ----
+                # Device profiles are keyed by peer_id in a separate table and
+                # must be reapplied even when the user profile hash is unchanged,
+                # otherwise peer rows can go missing while shadow-user state stays
+                # present.
+                device_info = profile_data.get('device')
+                if device_info and remote_peer_id:
+                    channel_manager.store_peer_device_profile(
+                        peer_id=remote_peer_id,
+                        display_name=device_info.get('display_name'),
+                        description=device_info.get('description'),
+                        avatar_b64=device_info.get('avatar_b64'),
+                        avatar_mime=device_info.get('avatar_mime'),
+                    )
+                    count = _device_profile_apply_counts.get(remote_peer_id, 0) + 1
+                    _device_profile_apply_counts[remote_peer_id] = count
+                    logger.info(
+                        "peer_device_profile_sync_applied peer=%s count=%s has_avatar=%s display_name=%s",
+                        remote_peer_id,
+                        count,
+                        bool(device_info.get('avatar_b64')),
+                        str(device_info.get('display_name') or '').strip() or remote_peer_id[:12],
+                    )
 
                 # ---- Skip unchanged profiles (version hash dedup) ----
                 # Exception: if our copy of this user's avatar file is missing (e.g. after
@@ -5532,23 +5558,6 @@ def create_app(config: Optional[Config] = None) -> Flask:
                             "re-applying to recover avatar from peer"
                         )
                     _seen_profile_hashes[hash_key] = incoming_hash
-
-                # ---- Store device profile FIRST (independent of user) ----
-                # Device profiles are keyed by peer_id in a separate table,
-                # so they don't require a shadow user to exist.  This must
-                # happen before the early-return below, otherwise profiles
-                # arriving via relay (before any messages) would be lost.
-                device_info = profile_data.get('device')
-                if device_info and remote_peer_id:
-                    channel_manager.store_peer_device_profile(
-                        peer_id=remote_peer_id,
-                        display_name=device_info.get('display_name'),
-                        description=device_info.get('description'),
-                        avatar_b64=device_info.get('avatar_b64'),
-                        avatar_mime=device_info.get('avatar_mime'),
-                    )
-                    logger.debug(f"Stored device profile for {remote_peer_id} "
-                                 f"(device_name={device_info.get('display_name')})")
 
                 # ---- Re-broadcast to other peers (relay) ----
                 # Do this before the shadow-user check so profiles propagate
@@ -5652,8 +5661,15 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     remote_peer_id,
                     allow_remote_reassign=False,
                 )
-                logger.debug(f"Profile sync from {from_peer}: updated {target_user_id} "
-                             f"(display_name={profile_data.get('display_name')})")
+                count = _peer_profile_apply_counts.get(remote_peer_id, 0) + 1
+                _peer_profile_apply_counts[remote_peer_id] = count
+                logger.info(
+                    "peer_profile_sync_applied peer=%s user_id=%s count=%s display_name=%s",
+                    remote_peer_id,
+                    target_user_id,
+                    count,
+                    str(profile_data.get('display_name') or '').strip() or target_user_id,
+                )
 
             except Exception as e:
                 logger.error(f"Failed to handle profile sync: {e}", exc_info=True)

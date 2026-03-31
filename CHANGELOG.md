@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.30] - 2026-03-31
+
+### Fixed
+- **Peer device profiles now recover even when user profile hashes are unchanged** — Incoming profile sync now reapplies the peer-level device profile before hash-based user deduplication, so a missing `peer_device_profiles` row can be rebuilt from the next small profile sync instead of staying absent while user/avatar state looks partially healthy.
+- **Post-connect profile/device sync is now retried after settle-race skips** — When a stable winner connection is still forming, Canopy now logs structured `post_connect_sync_skipped` details, schedules bounded retries for that peer, and sends lightweight profile/device metadata earlier in the recovery sequence once the connection settles.
+- **Endpoint mismatch and oversized-drop diagnostics are more actionable** — Verified handshake peer-id mismatches now reset stale endpoint ownership toward the authenticated peer and emit explicit mapping-action logs, while oversized inbound drops now record the message type so profile/device transport can be distinguished from unrelated large content failures.
+
 ## [0.5.29] - 2026-03-31
 
 ### Fixed

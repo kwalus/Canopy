@@ -363,6 +363,13 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
         manager._refresh_peer_version_info = lambda peer_id: None
         cancelled: list[str] = []
         manager._cancel_reconnect = lambda peer_id: cancelled.append(peer_id)
+        manager.connection_manager = types.SimpleNamespace(
+            get_connection=lambda peer_id: None,
+        )
+        manager._post_connect_retry_counts = {}
+        manager._post_connect_retry_tokens = {}
+        manager._POST_CONNECT_SYNC_MAX_RETRIES = 3
+        manager._resync_after_current = set()
 
         async def _settle(peer_id: str) -> bool:
             return False
@@ -372,15 +379,19 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
         await manager._run_post_connect_sync_impl('peer-remote')
 
         self.assertEqual(cancelled, [])
+        self.assertEqual(manager._post_connect_retry_counts.get('peer-remote'), 1)
+        self.assertEqual(manager._resync_after_current, {'peer-remote'})
 
     async def test_post_connect_sync_impl_cancels_reconnect_task_after_settle_succeeds(self) -> None:
         manager = self._build_manager()
         manager.on_peer_connected = None
-        manager._peer_is_trusted_for_content = lambda peer_id: False
+        manager._peer_is_trusted_for_content = lambda peer_id: True
         manager._refresh_peer_version_info = lambda peer_id: None
         cancelled: list[str] = []
         calls: list[tuple[str, str]] = []
         manager._cancel_reconnect = lambda peer_id: cancelled.append(peer_id)
+        manager._post_connect_retry_counts = {'peer-remote': 2}
+        manager._post_connect_retry_tokens = {'peer-remote': 'out:1:deadbeef'}
 
         async def _settle(peer_id: str) -> bool:
             return True
@@ -391,6 +402,11 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
         manager._wait_for_connection_settle = _settle  # type: ignore[assignment]
         manager._send_channel_sync_to_peer = lambda peer_id: _record('channel_sync', peer_id)  # type: ignore[assignment]
         manager._send_public_channel_metadata_replay_to_peer = lambda peer_id: _record('metadata_replay', peer_id)  # type: ignore[assignment]
+        manager._send_profile_to_peer = lambda peer_id: _record('profile', peer_id)  # type: ignore[assignment]
+        manager._send_membership_recovery_query = lambda peer_id: _record('membership', peer_id)  # type: ignore[assignment]
+        manager._retry_missing_channel_key_requests_for_peer = lambda peer_id: _record('keys', peer_id)  # type: ignore[assignment]
+        manager._send_peer_announcement_to = lambda peer_id: _record('peer_announce', peer_id)  # type: ignore[assignment]
+        manager._announce_new_peer_to_others = lambda peer_id: _record('announce_others', peer_id)  # type: ignore[assignment]
         manager._send_catchup_request = lambda peer_id: _record('catchup', peer_id)  # type: ignore[assignment]
         manager.message_router = None
 
@@ -399,8 +415,45 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(cancelled, ['peer-remote'])
         self.assertEqual(
             calls,
-            [('channel_sync', 'peer-remote'), ('metadata_replay', 'peer-remote'), ('catchup', 'peer-remote')],
+            [
+                ('channel_sync', 'peer-remote'),
+                ('metadata_replay', 'peer-remote'),
+                ('profile', 'peer-remote'),
+                ('membership', 'peer-remote'),
+                ('keys', 'peer-remote'),
+                ('peer_announce', 'peer-remote'),
+                ('announce_others', 'peer-remote'),
+                ('catchup', 'peer-remote'),
+            ],
         )
+        self.assertEqual(manager._post_connect_retry_counts, {})
+        self.assertEqual(manager._post_connect_retry_tokens, {})
+
+    def test_request_post_connect_sync_retry_resets_counter_when_connection_changes(self) -> None:
+        manager = self._build_manager()
+        conn_a = types.SimpleNamespace(
+            is_outbound=True,
+            connected_at=1.0,
+        )
+        conn_b = types.SimpleNamespace(
+            is_outbound=False,
+            connected_at=2.0,
+        )
+        current = {'conn': conn_a}
+        manager.connection_manager = types.SimpleNamespace(
+            get_connection=lambda peer_id: current['conn'],
+        )
+        manager._post_connect_retry_counts = {}
+        manager._post_connect_retry_tokens = {}
+        manager._POST_CONNECT_SYNC_MAX_RETRIES = 3
+        manager._resync_after_current = set()
+
+        manager._request_post_connect_sync_retry('peer-remote', 'connection_changed_before_settle')
+        self.assertEqual(manager._post_connect_retry_counts.get('peer-remote'), 1)
+
+        current['conn'] = conn_b
+        manager._request_post_connect_sync_retry('peer-remote', 'connection_changed_before_settle')
+        self.assertEqual(manager._post_connect_retry_counts.get('peer-remote'), 1)
 
 
 if __name__ == '__main__':

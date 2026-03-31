@@ -30,6 +30,16 @@ from canopy.network.connection import ConnectionState, PeerConnection
 class _FakeIdentityManager:
     local_identity = None
 
+    def __init__(self) -> None:
+        self.removed: list[tuple[str, str]] = []
+        self.recorded: list[tuple[str, str, bool]] = []
+
+    def remove_endpoint(self, peer_id: str, endpoint: str) -> None:
+        self.removed.append((peer_id, endpoint))
+
+    def record_endpoint(self, peer_id: str, endpoint: str, *, claim: bool = True) -> None:
+        self.recorded.append((peer_id, endpoint, claim))
+
 
 class TestConnectionLogNoiseRegressions(unittest.IsolatedAsyncioTestCase):
     async def test_expected_connect_refusal_logs_warning_without_traceback(self):
@@ -93,6 +103,28 @@ class TestConnectionLogNoiseRegressions(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertTrue(manager._should_replace_existing_connection(existing, candidate))
+
+    async def test_handshake_peerid_mismatch_reassigns_endpoint_to_actual_peer(self):
+        identity_manager = _FakeIdentityManager()
+        manager = ConnectionManager(
+            local_peer_id='peer-local',
+            identity_manager=identity_manager,
+        )
+
+        manager._record_handshake_peerid_mismatch(
+            expected_peer_id='peer-expected',
+            actual_peer_id='peer-actual',
+            endpoint_uri='ws://192.168.1.50:7771/p2p',
+        )
+
+        self.assertEqual(
+            identity_manager.removed,
+            [('peer-expected', 'ws://192.168.1.50:7771')],
+        )
+        self.assertEqual(
+            identity_manager.recorded,
+            [('peer-actual', 'ws://192.168.1.50:7771', True)],
+        )
 
 
 if __name__ == '__main__':

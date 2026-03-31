@@ -881,9 +881,19 @@ class MessageRouter:
             import json as _json
             payload_bytes = len(_json.dumps(payload).encode('utf-8'))
             if payload_bytes > MAX_PAYLOAD_BYTES:
+                meta = payload.get('metadata', {}) if isinstance(payload, dict) else {}
+                payload_type = (
+                    str(meta.get('type') or '').strip()
+                    if isinstance(meta, dict)
+                    else ''
+                ) or message.type.value
                 logger.warning(
-                    f"Dropping oversized message {message.id} from {message.from_peer}: "
-                    f"{payload_bytes} bytes exceeds {MAX_PAYLOAD_BYTES} limit"
+                    "oversize_drop_by_message_type peer=%s message_id=%s type=%s payload_bytes=%s limit=%s",
+                    message.from_peer,
+                    message.id,
+                    payload_type,
+                    payload_bytes,
+                    MAX_PAYLOAD_BYTES,
                 )
                 return False
             content_val = payload.get('content', '')
