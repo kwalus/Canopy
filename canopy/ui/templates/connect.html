@@ -353,7 +353,16 @@
                 <hr>
                 <p class="text-muted small mb-2">
                     <i class="bi bi-globe"></i> <strong>Connecting from outside your LAN?</strong><br>
-                    If you've port-forwarded port <code>{{ mesh_port }}</code> on your router, enter your public IP below to generate an invite that works over the internet.
+                    If you use ngrok or another tunnel, generate the invite from your full external mesh endpoint. Port-forwarded host/port still works as a fallback.
+                </p>
+                <div class="input-group mb-2 public-host-group">
+                    <input type="text" class="form-control" id="externalEndpoint" placeholder="wss://example.ngrok-free.app or ws://0.tcp.ngrok.io:12345">
+                    <button class="btn btn-outline-primary" onclick="regenerateInvite()">
+                        <i class="bi bi-arrow-repeat"></i> Regenerate
+                    </button>
+                </div>
+                <p class="text-muted small mb-2">
+                    Port forwarding instead? Enter the public host and mesh port below.
                 </p>
                 <div class="input-group mb-2 public-host-group">
                     <input type="text" class="form-control" id="publicHost" placeholder="Public IP or hostname">
@@ -1014,19 +1023,25 @@ function copyInvite() {
 }
 
 function regenerateInvite() {
+    const externalEndpoint = document.getElementById('externalEndpoint').value.trim();
     const host = document.getElementById('publicHost').value.trim();
     const port = document.getElementById('publicPort').value.trim();
-    if (!host) {
-        alert('Enter your public IP or hostname.');
+    if (!externalEndpoint && !host) {
+        alert('Enter an external mesh endpoint or a public host.');
         return;
     }
-    let url = '/api/v1/p2p/invite?public_host=' + encodeURIComponent(host);
-    if (port) url += '&public_port=' + encodeURIComponent(port);
+    let url = '/api/v1/p2p/invite';
+    if (externalEndpoint) {
+        url += '?external_endpoint=' + encodeURIComponent(externalEndpoint);
+    } else {
+        url += '?public_host=' + encodeURIComponent(host);
+        if (port) url += '&public_port=' + encodeURIComponent(port);
+    }
     apiJsonFetch(url).then(data => {
         if (data.invite_code) {
             document.getElementById('inviteCode').value = data.invite_code;
             const s = document.getElementById('copySuccess');
-            s.textContent = 'Regenerated with public endpoint!';
+            s.textContent = externalEndpoint ? 'Regenerated with external endpoint!' : 'Regenerated with public endpoint!';
             s.style.display = 'block';
             setTimeout(() => { s.style.display = 'none'; s.innerHTML = '<i class="bi bi-check-circle"></i> Copied!'; }, 3000);
         } else {

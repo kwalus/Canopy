@@ -523,7 +523,7 @@ class ConnectionManager:
         
         logger.info("ConnectionManager stopped")
     
-    async def connect_to_peer(self, peer_id: str, address: str, port: int) -> bool:
+    async def connect_to_peer(self, peer_id: str, address: str, port: int, scheme: Optional[str] = None) -> bool:
         """
         Establish outbound connection to a peer.
         
@@ -531,6 +531,7 @@ class ConnectionManager:
             peer_id: Target peer ID
             address: Peer's IP address
             port: Peer's port
+            scheme: Optional explicit transport scheme ('ws' or 'wss')
             
         Returns:
             True if connection successful
@@ -561,6 +562,10 @@ class ConnectionManager:
             )
             return False
         
+        normalized_scheme = str(scheme or '').strip().lower()
+        if normalized_scheme not in ('ws', 'wss'):
+            normalized_scheme = ''
+
         logger.info(f"Connecting to peer {peer_id} at {address}:{port}...")
         
         # Create connection object
@@ -577,9 +582,9 @@ class ConnectionManager:
         try:
             # Connect via WebSocket — try wss:// first if TLS is enabled,
             # then fall back to ws:// for backward compatibility.
-            scheme = 'wss' if self.enable_tls else 'ws'
-            uri = f"{scheme}://{address}:{port}/p2p"
-            connection.endpoint_uri = f"{scheme}://{address}:{port}"
+            connect_scheme = normalized_scheme or ('wss' if self.enable_tls else 'ws')
+            uri = f"{connect_scheme}://{address}:{port}/p2p"
+            connection.endpoint_uri = f"{connect_scheme}://{address}:{port}"
             connect_kwargs: Dict[str, Any] = dict(
                 ping_interval=None,
                 ping_timeout=None,
@@ -587,13 +592,13 @@ class ConnectionManager:
                 max_size=20 * 1024 * 1024,  # 20MB — allow P2P image transfer
                 compression="deflate",  # permessage-deflate — matches server setting
             )
-            if self.enable_tls and self._client_ssl:
+            if connect_scheme == 'wss' and self._client_ssl:
                 connect_kwargs['ssl'] = self._client_ssl
 
             try:
                 websocket = await websockets.connect(uri, **connect_kwargs)
             except Exception as tls_err:
-                if self.enable_tls:
+                if connect_scheme == 'wss':
                     # Fall back to plain ws:// if wss failed
                     logger.debug(
                         f"wss:// failed to {address}:{port}, falling back to ws:// ({tls_err})"

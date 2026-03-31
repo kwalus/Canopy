@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.34] - 2026-03-31
+
+### Fixed
+- **Deck playback now stays anchored while you navigate between channels** — Persisting active media no longer re-docks an already-open deck session into the mini-player host during channel switches, which avoids unnecessary YouTube/video DOM churn that could restart playback.
+- **External invites now work more cleanly with ngrok and other tunnel endpoints** — Invite generation accepts a full external `ws://` or `wss://` mesh endpoint, connect/import/reconnect flows preserve that scheme when dialing, and explicit secure tunnel URLs without a typed port now normalize to the expected default port.
+- **Invalid external endpoint input now fails clearly instead of looking like a server fault** — Bad invite endpoint values return a focused `400` validation error so the connect UI and operators get actionable feedback instead of a generic invite-generation failure.
+
 ## [0.5.33] - 2026-03-31
 
 ### Fixed

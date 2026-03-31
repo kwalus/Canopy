@@ -28,7 +28,7 @@ if 'zeroconf' not in sys.modules:
     sys.modules['zeroconf'] = zeroconf_stub
 
 from canopy.network.discovery import DiscoveredPeer, PeerDiscovery
-from canopy.network.invite import InviteCode, import_invite
+from canopy.network.invite import InviteCode, import_invite, generate_invite
 from canopy.network.manager import P2PNetworkManager
 from canopy.network.identity import IdentityManager
 
@@ -116,6 +116,31 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
             ['ws://192.168.1.50:7771', 'ws://[2001:db8::10]:7771'],
         )
 
+    def test_generate_invite_accepts_explicit_external_mesh_endpoint(self) -> None:
+        identity_manager = IdentityManager(Path(self.tempdir) / 'peer_identity.json')
+        identity_manager.initialize()
+
+        invite = generate_invite(
+            identity_manager,
+            7771,
+            external_endpoint='wss://demo.ngrok-free.app:443',
+        )
+
+        self.assertEqual(invite.endpoints[0], 'wss://demo.ngrok-free.app:443')
+        self.assertTrue(any(endpoint.startswith('ws://') for endpoint in invite.endpoints[1:]))
+
+    def test_generate_invite_defaults_wss_external_endpoint_to_443(self) -> None:
+        identity_manager = IdentityManager(Path(self.tempdir) / 'peer_identity.json')
+        identity_manager.initialize()
+
+        invite = generate_invite(
+            identity_manager,
+            7771,
+            external_endpoint='wss://demo.ngrok-free.app',
+        )
+
+        self.assertEqual(invite.endpoints[0], 'wss://demo.ngrok-free.app:443')
+
     def test_discovery_preserves_all_advertised_addresses(self) -> None:
         discovery = PeerDiscovery('local-peer')
         captured: list[DiscoveredPeer] = []
@@ -165,6 +190,52 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
             ['ws://10.0.0.2:7771', 'ws://192.168.1.100:7771'],
         )
         self.assertEqual(sync_calls, ['peer-remote'])
+
+    async def test_connect_to_endpoint_preserves_explicit_wss_scheme(self) -> None:
+        manager = self._build_manager()
+        captured: list[tuple[str, str, int, str | None]] = []
+
+        async def _connect(peer_id: str, host: str, port: int, scheme=None) -> bool:
+            captured.append((peer_id, host, port, scheme))
+            return True
+
+        manager.connection_manager = types.SimpleNamespace(
+            enable_tls=False,
+            connect_to_peer=_connect,
+        )
+        manager._record_connection_event = lambda *args, **kwargs: None  # type: ignore[assignment]
+        manager._record_endpoint_result = lambda *args, **kwargs: None  # type: ignore[assignment]
+
+        ok = await manager._connect_to_endpoint('peer-remote', 'wss://demo.ngrok-free.app:443')
+
+        self.assertTrue(ok)
+        self.assertEqual(
+            captured,
+            [('peer-remote', 'demo.ngrok-free.app', 443, 'wss')],
+        )
+
+    async def test_connect_to_endpoint_defaults_missing_wss_port_to_443(self) -> None:
+        manager = self._build_manager()
+        captured: list[tuple[str, str, int, str | None]] = []
+
+        async def _connect(peer_id: str, host: str, port: int, scheme=None) -> bool:
+            captured.append((peer_id, host, port, scheme))
+            return True
+
+        manager.connection_manager = types.SimpleNamespace(
+            enable_tls=False,
+            connect_to_peer=_connect,
+        )
+        manager._record_connection_event = lambda *args, **kwargs: None  # type: ignore[assignment]
+        manager._record_endpoint_result = lambda *args, **kwargs: None  # type: ignore[assignment]
+
+        ok = await manager._connect_to_endpoint('peer-remote', 'wss://demo.ngrok-free.app')
+
+        self.assertTrue(ok)
+        self.assertEqual(
+            captured,
+            [('peer-remote', 'demo.ngrok-free.app', 443, 'wss')],
+        )
 
     def test_discovered_peer_endpoints_format_ipv6_for_dialing(self) -> None:
         manager = self._build_manager()

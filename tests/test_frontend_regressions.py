@@ -86,6 +86,13 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("purge_residue: true", connect_template)
         self.assertIn("showAlert('Peer removed from known list and local residue cleaned up.'", connect_template)
 
+    def test_connect_page_supports_external_mesh_endpoint_invites(self) -> None:
+        connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
+        self.assertIn('id="externalEndpoint"', connect_template)
+        self.assertIn('wss://example.ngrok-free.app or ws://0.tcp.ngrok.io:12345', connect_template)
+        self.assertIn('external_endpoint=', connect_template)
+        self.assertIn('Regenerated with external endpoint!', connect_template)
+
     def test_settings_device_profile_precedes_system_information(self) -> None:
         settings_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'settings.html').read_text(encoding='utf-8')
         device_pos = settings_template.find('Device Profile')
@@ -167,6 +174,14 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("function shouldPersistActiveYouTube(el) {", main_js)
         self.assertIn("if (!shouldPersistActiveYouTube(el)) {", main_js)
         self.assertIn("clearYouTubeDockResumeState(el);", main_js)
+
+    def test_persist_active_media_keeps_open_deck_media_in_stage(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        self.assertIn("window.canopyPersistActiveMedia = function() {", main_js)
+        self.assertIn("pinDeckOriginIdsFromSourceEl(sourceEl);", main_js)
+        self.assertIn("if (state.deckOpen) {", main_js)
+        self.assertIn("moveDockedMediaToHost(state.current.el, deckStage);", main_js)
+        self.assertIn("return;", main_js)
 
     def test_identity_modal_treats_local_peer_origin_as_local(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')

@@ -10163,6 +10163,27 @@
                 if (!state.current || !state.current.el) return;
                 const el = state.current.el;
                 const type = state.current.type;
+                const sourceEl = firstConnectedDeckAnchor(
+                    state.current.sourceEl,
+                    state.deckOriginSourceEl,
+                    state.deckSourceEl
+                );
+                if (sourceEl && sourceEl.isConnected) {
+                    state.current.sourceEl = sourceEl;
+                    if (!state.deckOriginSourceEl || !state.deckOriginSourceEl.isConnected) {
+                        state.deckOriginSourceEl = sourceEl;
+                    }
+                    if (!state.deckSourceEl || !state.deckSourceEl.isConnected) {
+                        state.deckSourceEl = sourceEl;
+                    }
+                    pinDeckOriginIdsFromSourceEl(sourceEl);
+                }
+                if (state.deckOpen) {
+                    if ((type === 'youtube' || type === 'video') && deckStage && state.current && state.current.el) {
+                        moveDockedMediaToHost(state.current.el, deckStage);
+                    }
+                    return;
+                }
                 if (type !== 'youtube' || !miniVideoHost) return;
                 if (!shouldPersistActiveYouTube(el)) {
                     clearYouTubeDockResumeState(el);
@@ -10177,7 +10198,6 @@
                 }
 
                 if (!state.dockedSubtitle) state.dockedSubtitle = sourceSubtitle(el);
-                const sourceEl = state.current.sourceEl;
                 const messageId = sourceEl && sourceEl.getAttribute('data-message-id');
                 state.returnUrl = messageId
                     ? '/channels/locate?message_id=' + encodeURIComponent(messageId)

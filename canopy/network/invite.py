@@ -22,7 +22,7 @@ import json
 import logging
 import socket
 from urllib.parse import urlparse
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
 
 import base58
@@ -38,22 +38,34 @@ def _format_endpoint_host(host: str) -> str:
     return text
 
 
-def _canonicalize_invite_endpoint(endpoint: str) -> Optional[str]:
-    """Normalize an invite endpoint and drop unusable values."""
+def parse_invite_endpoint(endpoint: str) -> Optional[Tuple[str, int, str]]:
+    """Parse a ws/wss invite endpoint into (host, port, scheme)."""
     text = str(endpoint or '').strip()
     if not text:
         return None
-    if '://' not in text:
+    had_explicit_scheme = '://' in text
+    if not had_explicit_scheme:
         text = f'ws://{text}'
     try:
         parsed = urlparse(text)
         host = parsed.hostname
-        port = parsed.port
         scheme = parsed.scheme or 'ws'
+        port = parsed.port
     except Exception:
         return None
+    if port is None and had_explicit_scheme:
+        port = 443 if scheme == 'wss' else 80 if scheme == 'ws' else None
     if scheme not in ('ws', 'wss') or not host or not port:
         return None
+    return host, port, scheme
+
+
+def canonicalize_invite_endpoint(endpoint: str) -> Optional[str]:
+    """Normalize an invite endpoint and drop unusable values."""
+    parsed = parse_invite_endpoint(endpoint)
+    if not parsed:
+        return None
+    host, port, scheme = parsed
     if host in ('0.0.0.0', 'localhost') or host.startswith('127.'):
         return None
     return f'{scheme}://{_format_endpoint_host(host)}:{port}'
@@ -64,7 +76,7 @@ def _sanitize_invite_endpoints(endpoints: List[str]) -> List[str]:
     out: List[str] = []
     seen = set()
     for endpoint in endpoints or []:
-        canon = _canonicalize_invite_endpoint(endpoint)
+        canon = canonicalize_invite_endpoint(endpoint)
         if not canon or canon in seen:
             continue
         seen.add(canon)
@@ -162,7 +174,8 @@ def get_local_ips() -> List[str]:
 
 def generate_invite(identity_manager: Any, mesh_port: int,
                     public_host: Optional[str] = None,
-                    public_port: Optional[int] = None) -> InviteCode:
+                    public_port: Optional[int] = None,
+                    external_endpoint: Optional[str] = None) -> InviteCode:
     """
     Generate an invite code from the local peer identity.
 
@@ -171,6 +184,7 @@ def generate_invite(identity_manager: Any, mesh_port: int,
         mesh_port: The local P2P mesh port (e.g. 7771)
         public_host: Optional public/external IP or hostname
         public_port: Optional public port (if port-forwarded)
+        external_endpoint: Optional full ws:// or wss:// endpoint
 
     Returns:
         InviteCode ready to .encode()
@@ -184,7 +198,14 @@ def generate_invite(identity_manager: Any, mesh_port: int,
 
     endpoints: List[str] = []
 
-    # Public / port-forwarded endpoint first
+    # Explicit external endpoint first (e.g. ngrok or another tunnel)
+    if external_endpoint:
+        canon = canonicalize_invite_endpoint(external_endpoint)
+        if not canon:
+            raise ValueError("Invalid external mesh endpoint")
+        endpoints.append(canon)
+
+    # Public / port-forwarded endpoint next
     if public_host:
         port = public_port or mesh_port
         endpoints.append(f"ws://{public_host}:{port}")

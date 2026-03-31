@@ -2711,6 +2711,7 @@ def create_api_blueprint() -> Blueprint:
         try:
             public_host = request.args.get('public_host')
             public_port = request.args.get('public_port', type=int)
+            external_endpoint = request.args.get('external_endpoint', type=str)
             mesh_port = config.network.mesh_port if config else 7771
 
             invite = generate_invite(
@@ -2718,6 +2719,7 @@ def create_api_blueprint() -> Blueprint:
                 mesh_port,
                 public_host=public_host,
                 public_port=public_port,
+                external_endpoint=external_endpoint,
             )
             return jsonify({
                 'invite_code': invite.encode(),
@@ -2725,6 +2727,9 @@ def create_api_blueprint() -> Blueprint:
                 'endpoints': invite.endpoints,
                 'raw': invite.to_dict(),
             })
+        except ValueError as e:
+            logger.warning(f"Invalid invite generation request: {e}")
+            return jsonify({'error': str(e)}), 400
         except Exception as e:
             logger.error(f"Failed to generate invite: {e}", exc_info=True)
             return jsonify({'error': 'Failed to generate invite'}), 500
@@ -2734,7 +2739,7 @@ def create_api_blueprint() -> Blueprint:
     def import_p2p_invite():
         """Import an invite code and attempt to connect to the peer."""
         import asyncio
-        from ..network.invite import InviteCode, import_invite
+        from ..network.invite import InviteCode, import_invite, parse_invite_endpoint
         *_, p2p_manager = _get_app_components_any(current_app)
 
         if not p2p_manager or not p2p_manager.identity_manager.local_identity:
@@ -2764,10 +2769,10 @@ def create_api_blueprint() -> Blueprint:
                             detail='Invite connection attempt',
                             endpoint=ep,
                         )
-                        # Parse ws://host:port
-                        addr = ep.replace('ws://', '').replace('wss://', '')
-                        host, port_str = addr.rsplit(':', 1)
-                        port = int(port_str)
+                        parsed = parse_invite_endpoint(ep)
+                        if not parsed:
+                            continue
+                        host, port, scheme = parsed
 
                         # Schedule connection on the P2P manager's event loop
                         # so the WebSocket stays on the persistent loop
@@ -2775,7 +2780,7 @@ def create_api_blueprint() -> Blueprint:
                         if ev_loop and not ev_loop.is_closed():
                             future = asyncio.run_coroutine_threadsafe(
                                 p2p_manager.connection_manager.connect_to_peer(
-                                    invite.peer_id, host, port
+                                    invite.peer_id, host, port, scheme=scheme
                                 ),
                                 ev_loop
                             )
@@ -2885,6 +2890,8 @@ def create_api_blueprint() -> Blueprint:
         if not ev_loop or ev_loop.is_closed():
             return jsonify({'error': 'P2P event loop unavailable'}), 500
 
+        from ..network.invite import parse_invite_endpoint
+
         direct_attempt_count = 0
         if force_broker:
             _record_connection_event(
@@ -2904,12 +2911,13 @@ def create_api_blueprint() -> Blueprint:
                         detail='Introduced peer connect attempt',
                         endpoint=ep,
                     )
-                    addr = ep.replace('ws://', '').replace('wss://', '')
-                    host, port_str = addr.rsplit(':', 1)
-                    port = int(port_str)
+                    parsed = parse_invite_endpoint(ep)
+                    if not parsed:
+                        continue
+                    host, port, scheme = parsed
                     future = asyncio.run_coroutine_threadsafe(
                         p2p_manager.connection_manager.connect_to_peer(
-                            peer_id, host, port),
+                            peer_id, host, port, scheme=scheme),
                         ev_loop
                     )
                     connected = future.result(timeout=10.0)
@@ -3090,6 +3098,8 @@ def create_api_blueprint() -> Blueprint:
         if not ev_loop or ev_loop.is_closed():
             return jsonify({'error': 'P2P event loop unavailable'}), 500
 
+        from ..network.invite import parse_invite_endpoint
+
         for ep in endpoints:
             try:
                 _record_connection_event(
@@ -3099,12 +3109,13 @@ def create_api_blueprint() -> Blueprint:
                     detail='Reconnect attempt',
                     endpoint=ep,
                 )
-                addr = ep.replace('ws://', '').replace('wss://', '')
-                host, port_str = addr.rsplit(':', 1)
-                port = int(port_str)
+                parsed = parse_invite_endpoint(ep)
+                if not parsed:
+                    continue
+                host, port, scheme = parsed
                 future = asyncio.run_coroutine_threadsafe(
                     p2p_manager.connection_manager.connect_to_peer(
-                        peer_id, host, port),
+                        peer_id, host, port, scheme=scheme),
                     ev_loop
                 )
                 connected = future.result(timeout=10.0)
@@ -3270,15 +3281,18 @@ def create_api_blueprint() -> Blueprint:
                 'message': 'No known endpoints for direct connection attempt',
             }), 400
 
+        from ..network.invite import parse_invite_endpoint
+
         # Try each endpoint
         for ep in endpoints:
             try:
-                addr = ep.replace('ws://', '').replace('wss://', '')
-                host, port_str = addr.rsplit(':', 1)
-                port = int(port_str)
+                parsed = parse_invite_endpoint(ep)
+                if not parsed:
+                    continue
+                host, port, scheme = parsed
                 future = _asyncio.run_coroutine_threadsafe(
                     p2p_manager.connection_manager.connect_to_peer(
-                        peer_id, host, port),
+                        peer_id, host, port, scheme=scheme),
                     ev_loop,
                 )
                 connected = future.result(timeout=10.0)

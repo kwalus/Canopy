@@ -1228,12 +1228,15 @@ class P2PNetworkManager:
         try:
             from urllib.parse import urlparse
             ep = endpoint.strip()
-            if '://' not in ep:
+            had_explicit_scheme = '://' in ep
+            if not had_explicit_scheme:
                 ep = f"ws://{ep}"
             parsed = urlparse(ep)
             host = parsed.hostname
-            port = parsed.port
             scheme = parsed.scheme or 'ws'
+            port = parsed.port
+            if port is None and had_explicit_scheme:
+                port = 443 if scheme == 'wss' else 80 if scheme == 'ws' else None
             if not host or not port:
                 return None
             return host, port, scheme
@@ -1536,7 +1539,7 @@ class P2PNetworkManager:
             detail='Attempting connection',
             endpoint=canon or endpoint,
         )
-        ok = await self.connection_manager.connect_to_peer(peer_id, host, port)
+        ok = await self.connection_manager.connect_to_peer(peer_id, host, port, scheme=scheme)
         if ok and canon:
             # Claim the endpoint so stale mappings don't keep retrying the wrong peer_id.
             self.identity_manager.record_endpoint(peer_id, canon, claim=True)
