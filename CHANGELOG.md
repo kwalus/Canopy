@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.28] - 2026-03-30
+
+### Fixed
+- **Duplicate inbound/outbound reconnect races now converge on one stable winner** — Competing authenticated sockets for the same peer now use deterministic connection arbitration instead of repeatedly replacing each other based on arrival timing, which reduces disconnect/reconnect thrash during simultaneous reconnect attempts.
+- **Post-connect sync now waits briefly for a stable session and coalesces duplicate work** — Canopy now gives a newly authenticated connection a short settle window before bulk sync starts and collapses repeated sync requests for the same peer into at most one active run plus one deferred rerun, reducing `channel_sync` zero-sent failures during churn.
+- **Avatar resync no longer trips on `sqlite3.Row.get` misuse** — The remote avatar recovery path now reads SQLite row values safely using row keys/indexes instead of `.get(...)`, removing the repeated runtime error noise seen during peer profile repair.
+
 ## [0.5.27] - 2026-03-30
 
 ### Fixed

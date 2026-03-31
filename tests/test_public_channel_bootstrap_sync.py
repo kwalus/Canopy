@@ -679,3 +679,22 @@ class TestPublicChannelBootstrapSync(unittest.TestCase):
             ).fetchone()
 
         self.assertIsNotNone(owner_membership)
+
+    def test_resync_user_avatar_reads_sqlite_rows_without_row_get(self) -> None:
+        with self.db_manager.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO users (
+                    id, username, public_key, password_hash, display_name,
+                    origin_peer, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """,
+                ('avatar-user', 'avatar-user', 'pk-avatar', None, 'Avatar User', 'peer-origin'),
+            )
+            conn.commit()
+
+        result = self.p2p_manager.resync_user_avatar('avatar-user')
+
+        self.assertTrue(result['ok'])
+        self.assertEqual(result['origin_peer'], 'peer-origin')
+        self.assertEqual(self.p2p_manager.sync_requests, ['peer-origin'])

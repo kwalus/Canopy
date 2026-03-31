@@ -287,6 +287,88 @@ class ConnectionManager:
         """Return deduplicated capability list advertised in handshakes."""
         return self._normalize_capabilities(self.handshake_capabilities)
 
+    def _preferred_connection_is_outbound(self, peer_id: str) -> bool:
+        """Return the deterministic winner direction for a peer pair."""
+        return str(self.local_peer_id or '').strip() < str(peer_id or '').strip()
+
+    @staticmethod
+    def _connection_state_rank(connection: Optional[PeerConnection]) -> int:
+        """Rank connection states for arbitration decisions."""
+        if not connection:
+            return -1
+        state = getattr(connection, 'state', None)
+        if state == ConnectionState.AUTHENTICATED:
+            return 3
+        if state == ConnectionState.CONNECTED:
+            return 2
+        if state == ConnectionState.HANDSHAKING:
+            return 1
+        if state == ConnectionState.CONNECTING:
+            return 0
+        return -1
+
+    def _should_replace_existing_connection(
+        self,
+        existing: Optional[PeerConnection],
+        candidate: PeerConnection,
+    ) -> bool:
+        """Decide whether a newly-authenticated connection should replace the current one."""
+        if existing is None or existing is candidate:
+            return True
+
+        existing_rank = self._connection_state_rank(existing)
+        candidate_rank = self._connection_state_rank(candidate)
+
+        # Once an authenticated session is already established, keep it rather
+        # than churning to a second authenticated socket that appears later.
+        if existing_rank >= 3:
+            return False
+
+        preferred_outbound = self._preferred_connection_is_outbound(candidate.peer_id)
+        existing_matches_preference = bool(getattr(existing, 'is_outbound', True)) == preferred_outbound
+        candidate_matches_preference = bool(getattr(candidate, 'is_outbound', True)) == preferred_outbound
+
+        # During simultaneous inbound/outbound handshakes, prefer one stable
+        # direction per peer pair so both sides converge on a single winner.
+        if existing_matches_preference != candidate_matches_preference:
+            return candidate_matches_preference
+
+        if candidate_rank != existing_rank:
+            return candidate_rank > existing_rank
+
+        return False
+
+    async def _adopt_authenticated_connection(self, connection: PeerConnection) -> bool:
+        """Install a newly-authenticated connection if it wins arbitration."""
+        peer_id = connection.peer_id
+        existing = self.connections.get(peer_id)
+        if existing and existing is not connection:
+            replace_existing = self._should_replace_existing_connection(existing, connection)
+            if not replace_existing:
+                logger.info(
+                    "Connection arbitration kept existing %s connection for %s; "
+                    "closing competing %s connection",
+                    'outbound' if getattr(existing, 'is_outbound', True) else 'inbound',
+                    peer_id,
+                    'outbound' if getattr(connection, 'is_outbound', True) else 'inbound',
+                )
+                await self._disconnect_connection(connection, notify=False)
+                return False
+            logger.info(
+                "Connection arbitration replacing existing %s connection for %s "
+                "with %s connection",
+                'outbound' if getattr(existing, 'is_outbound', True) else 'inbound',
+                peer_id,
+                'outbound' if getattr(connection, 'is_outbound', True) else 'inbound',
+            )
+            await self._disconnect_connection(existing, notify=False)
+
+        self.connections[peer_id] = connection
+        connection.state = ConnectionState.AUTHENTICATED
+        connection.connected_at = time.time()
+        connection.update_activity()
+        return True
+
     @staticmethod
     def _normalize_capabilities(raw: Any) -> List[str]:
         """Normalize capability payloads to a list of non-empty strings."""
@@ -491,8 +573,10 @@ class ConnectionManager:
 
             if success:
                 connection.state = ConnectionState.AUTHENTICATED
-                connection.connected_at = time.time()
-                connection.update_activity()
+                adopted = await self._adopt_authenticated_connection(connection)
+                if not adopted:
+                    current = self.connections.get(peer_id)
+                    return bool(current and current.is_connected())
                 self._clear_connect_failure(peer_id, address, port)
 
                 logger.info(f"Successfully connected to {peer_id}")
@@ -673,16 +757,10 @@ class ConnectionManager:
             success = await self._complete_handshake(connection, handshake_data)
             
             if success:
-                # If we already had a connection object for this peer_id, close it.
-                # (Otherwise its message-handler task may keep running and can cause churn.)
-                existing = self.connections.get(peer_id)
-                if existing and existing.websocket is not websocket:
-                    await self._disconnect_connection(existing, notify=False)
-
-                self.connections[peer_id] = connection
                 connection.state = ConnectionState.AUTHENTICATED
-                connection.connected_at = time.time()
-                connection.update_activity()
+                adopted = await self._adopt_authenticated_connection(connection)
+                if not adopted:
+                    return
                 
                 logger.debug(f"Accepted authenticated connection from {peer_id}")
                 

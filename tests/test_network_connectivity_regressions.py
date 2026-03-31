@@ -304,6 +304,58 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
             manager.identity_manager.peer_endpoints.get('peer-remote', []),
         )
 
+    async def test_enqueue_sync_coalesces_duplicate_peer_requests(self) -> None:
+        manager = self._build_manager()
+        manager._sync_queue = asyncio.Queue()
+        manager._queued_sync_peers = set()
+        manager._syncs_in_progress = set()
+        manager._resync_after_current = set()
+
+        await manager._enqueue_sync('peer-remote')
+        await manager._enqueue_sync('peer-remote')
+
+        self.assertEqual(manager._sync_queue.qsize(), 1)
+        self.assertEqual(manager._queued_sync_peers, {'peer-remote'})
+
+    async def test_enqueue_sync_marks_one_rerun_when_peer_already_in_progress(self) -> None:
+        manager = self._build_manager()
+        manager._sync_queue = asyncio.Queue()
+        manager._queued_sync_peers = set()
+        manager._syncs_in_progress = {'peer-remote'}
+        manager._resync_after_current = set()
+
+        await manager._enqueue_sync('peer-remote')
+
+        self.assertEqual(manager._sync_queue.qsize(), 0)
+        self.assertEqual(manager._resync_after_current, {'peer-remote'})
+
+    async def test_wait_for_connection_settle_sleeps_until_window_elapses(self) -> None:
+        manager = self._build_manager()
+        manager._POST_CONNECT_SETTLE_WINDOW_S = 1.5
+        conn = types.SimpleNamespace(
+            connected_at=100.0,
+            is_connected=lambda: True,
+        )
+        manager.connection_manager = types.SimpleNamespace(
+            get_connection=lambda peer_id: conn if peer_id == 'peer-remote' else None
+        )
+
+        sleeps: list[float] = []
+
+        async def _fake_sleep(delay: float) -> None:
+            sleeps.append(delay)
+            conn.connected_at = 98.0
+
+        with patch('canopy.network.manager.time.time', return_value=100.2), patch(
+            'canopy.network.manager.asyncio.sleep',
+            new=_fake_sleep,
+        ):
+            ok = await manager._wait_for_connection_settle('peer-remote')
+
+        self.assertTrue(ok)
+        self.assertEqual(len(sleeps), 1)
+        self.assertAlmostEqual(sleeps[0], 1.3, places=1)
+
 
 if __name__ == '__main__':
     unittest.main()

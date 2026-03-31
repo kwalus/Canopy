@@ -204,8 +204,12 @@ class P2PNetworkManager:
         # Startup grace period — serializes syncs and limits concurrency
         self._startup_time: Optional[float] = None
         self._STARTUP_GRACE_PERIOD = 10.0  # seconds
+        self._POST_CONNECT_SETTLE_WINDOW_S = 1.5
         self._sync_queue: asyncio.Queue[str] = asyncio.Queue()
         self._sync_queue_task: Optional[asyncio.Task] = None
+        self._queued_sync_peers: set[str] = set()
+        self._syncs_in_progress: set[str] = set()
+        self._resync_after_current: set[str] = set()
         self._active_catchups: set = set()
         self._MAX_CONCURRENT_CATCHUPS_STARTUP = 2
         self._MAX_CONCURRENT_CATCHUPS_NORMAL = 5
@@ -908,6 +912,8 @@ class P2PNetworkManager:
             try:
                 peer_id = await self._sync_queue.get()
                 try:
+                    self._queued_sync_peers.discard(peer_id)
+                    self._syncs_in_progress.add(peer_id)
                     if not await self._acquire_catchup_slot(peer_id):
                         # Wait a bit and retry if at capacity
                         await asyncio.sleep(2.0)
@@ -926,8 +932,13 @@ class P2PNetworkManager:
                 except Exception as e:
                     logger.error(f"Error processing sync for {peer_id}: {e}", exc_info=True)
                 finally:
+                    self._syncs_in_progress.discard(peer_id)
                     self._release_catchup_slot(peer_id)
                     self._sync_queue.task_done()
+                    if peer_id in self._resync_after_current:
+                        self._resync_after_current.discard(peer_id)
+                        if self.connection_manager and self.connection_manager.is_connected(peer_id):
+                            await self._enqueue_sync(peer_id)
             except asyncio.CancelledError:
                 logger.info("Sync queue processor cancelled")
                 break
@@ -1849,12 +1860,56 @@ class P2PNetworkManager:
 
     async def _enqueue_sync(self, peer_id: str) -> None:
         """Add a peer to the sync queue for serialized processing."""
+        if not peer_id:
+            return
         if self._sync_queue is not None:
+            queued = getattr(self, '_queued_sync_peers', set())
+            in_progress = getattr(self, '_syncs_in_progress', set())
+            if peer_id in queued:
+                logger.debug(f"Skipping duplicate queued sync for {peer_id}")
+                return
+            if peer_id in in_progress:
+                if not hasattr(self, '_resync_after_current'):
+                    self._resync_after_current = set()
+                self._resync_after_current.add(peer_id)
+                logger.debug(f"Deferring extra sync for {peer_id} until current run completes")
+                return
+            queued.add(peer_id)
             await self._sync_queue.put(peer_id)
             logger.debug(f"Enqueued post-connect sync for {peer_id}")
         else:
             # Fallback if queue not initialized yet
             await self._run_post_connect_sync_impl(peer_id)
+
+    async def _wait_for_connection_settle(self, peer_id: str) -> bool:
+        """Wait briefly so post-connect sync does not race a flapping session."""
+        connection_manager = getattr(self, 'connection_manager', None)
+        if not connection_manager:
+            return True
+        conn = connection_manager.get_connection(peer_id)
+        if not conn or not conn.is_connected():
+            logger.info("Skipping post-connect sync for %s: peer not connected", peer_id)
+            return False
+        connected_at = float(getattr(conn, 'connected_at', 0.0) or 0.0)
+        settle_window = float(getattr(self, '_POST_CONNECT_SETTLE_WINDOW_S', 1.5) or 0.0)
+        if connected_at > 0.0 and settle_window > 0.0:
+            elapsed = max(0.0, time.time() - connected_at)
+            remaining = settle_window - elapsed
+            if remaining > 0:
+                logger.debug(
+                    "Waiting %.2fs for peer %s connection settle before sync",
+                    remaining,
+                    peer_id,
+                )
+                await asyncio.sleep(remaining)
+        current = connection_manager.get_connection(peer_id)
+        if current is not conn or not current or not current.is_connected():
+            logger.info(
+                "Skipping post-connect sync for %s: connection changed before settle completed",
+                peer_id,
+            )
+            return False
+        return True
 
     async def _run_post_connect_sync(self, peer_id: str) -> None:
         """
@@ -1873,6 +1928,8 @@ class P2PNetworkManager:
             # Cancel any pending auto-reconnect task for this peer
             self._cancel_reconnect(peer_id)
             self._refresh_peer_version_info(peer_id)
+            if not await self._wait_for_connection_settle(peer_id):
+                return
 
             # Notify application layer
             if self.on_peer_connected:

@@ -5664,14 +5664,20 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         "SELECT origin_peer FROM users WHERE id = ?", (user_id,)
                     ).fetchone()
                     if row:
-                        origin_peer = row[0] if isinstance(row, (tuple, list)) else row.get('origin_peer', row[0])
+                        if hasattr(row, 'keys') and 'origin_peer' in row.keys():
+                            origin_peer = row['origin_peer']
+                        else:
+                            origin_peer = row[0]
                     if not origin_peer:
                         msg_row = conn.execute(
                             "SELECT origin_peer FROM channel_messages WHERE user_id = ? AND origin_peer IS NOT NULL AND origin_peer != '' LIMIT 1",
                             (user_id,)
                         ).fetchone()
                         if msg_row:
-                            origin_peer = msg_row[0] if isinstance(msg_row, (tuple, list)) else msg_row.get('origin_peer', msg_row[0])
+                            if hasattr(msg_row, 'keys') and 'origin_peer' in msg_row.keys():
+                                origin_peer = msg_row['origin_peer']
+                            else:
+                                origin_peer = msg_row[0]
             except Exception as e:
                 logger.warning(f"resync_user_avatar: DB lookup failed for {user_id}: {e}")
 

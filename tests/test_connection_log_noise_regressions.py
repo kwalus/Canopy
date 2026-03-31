@@ -24,6 +24,7 @@ if 'zeroconf' not in sys.modules:
     sys.modules['zeroconf'] = zeroconf_stub
 
 from canopy.network.connection import ConnectionManager
+from canopy.network.connection import ConnectionState, PeerConnection
 
 
 class _FakeIdentityManager:
@@ -48,6 +49,50 @@ class TestConnectionLogNoiseRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(ok)
         logger.warning.assert_called_once()
         logger.error.assert_not_called()
+
+    async def test_connection_arbitration_prefers_stable_outbound_winner_during_dual_handshake(self):
+        manager = ConnectionManager(
+            local_peer_id='peer-a',
+            identity_manager=_FakeIdentityManager(),
+        )
+        existing = PeerConnection(
+            peer_id='peer-z',
+            address='127.0.0.1',
+            port=7771,
+            state=ConnectionState.HANDSHAKING,
+            is_outbound=True,
+        )
+        candidate = PeerConnection(
+            peer_id='peer-z',
+            address='127.0.0.1',
+            port=7771,
+            state=ConnectionState.AUTHENTICATED,
+            is_outbound=False,
+        )
+
+        self.assertFalse(manager._should_replace_existing_connection(existing, candidate))
+
+    async def test_connection_arbitration_prefers_stable_inbound_winner_during_dual_handshake(self):
+        manager = ConnectionManager(
+            local_peer_id='peer-z',
+            identity_manager=_FakeIdentityManager(),
+        )
+        existing = PeerConnection(
+            peer_id='peer-a',
+            address='127.0.0.1',
+            port=7771,
+            state=ConnectionState.HANDSHAKING,
+            is_outbound=True,
+        )
+        candidate = PeerConnection(
+            peer_id='peer-a',
+            address='127.0.0.1',
+            port=7771,
+            state=ConnectionState.AUTHENTICATED,
+            is_outbound=False,
+        )
+
+        self.assertTrue(manager._should_replace_existing_connection(existing, candidate))
 
 
 if __name__ == '__main__':
