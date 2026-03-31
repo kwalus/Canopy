@@ -4480,6 +4480,12 @@ def create_ui_blueprint() -> Blueprint:
                 if pid and pid not in existing_peer_ids:
                     potential_peers.append(peer)
                     existing_peer_ids.add(pid)
+
+            if p2p_manager and hasattr(p2p_manager, 'get_peer_public_identity'):
+                for entry in potential_peers:
+                    pid = entry.get('peer_id') if isinstance(entry, dict) else None
+                    if pid:
+                        entry['public_identity'] = p2p_manager.get_peer_public_identity(pid)
             
             return render_template('trust.html',
                                  trust_scores=trust_scores,
@@ -4532,6 +4538,15 @@ def create_ui_blueprint() -> Blueprint:
             new_score = trust_manager.set_trust_score(peer_id, score, reason=reason_value)
             recovery = None
             if new_score >= 50 and p2p_manager and hasattr(p2p_manager, 'recover_peer_profile_state'):
+                if hasattr(p2p_manager, 'clear_peer_profile_cache'):
+                    try:
+                        p2p_manager.clear_peer_profile_cache(peer_id)
+                    except Exception as cache_err:
+                        logger.warning(
+                            "clear_peer_profile_cache failed for %s during trust update: %s",
+                            peer_id,
+                            cache_err,
+                        )
                 try:
                     recovery = p2p_manager.recover_peer_profile_state(
                         peer_id,
@@ -5894,6 +5909,11 @@ def create_ui_blueprint() -> Blueprint:
 
             # Peers introduced by contacts
             introduced_peers = p2p_manager.get_introduced_peers() if p2p_manager else []
+            if p2p_manager and hasattr(p2p_manager, 'get_peer_public_identity'):
+                for entry in introduced_peers:
+                    pid = entry.get('peer_id') if isinstance(entry, dict) else None
+                    if pid:
+                        entry['public_identity'] = p2p_manager.get_peer_public_identity(pid)
 
             # Relay status
             relay_status = p2p_manager.get_relay_status() if p2p_manager else {}

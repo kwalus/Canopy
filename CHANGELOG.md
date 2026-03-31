@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.31] - 2026-03-31
+
+### Fixed
+- **Trusted-peer metadata recovery now repairs more partial-loss cases** — Unchanged profile hashes no longer block recovery when a peer's avatar file, placeholder display name, or reconnect-time cached profile state has gone stale, so trusted peer names and avatars converge again without needing profile changes upstream.
+- **Peer cleanup and rebind now stay scoped to the correct origin** — Forget and re-trust flows now clear per-peer profile caches, and shadow-user fallback lookups are constrained by `origin_peer`, which prevents same-prefix peers from reusing each other's stale identity rows during recovery.
+- **Untrusted peer review now shows safe identity previews without exposing profile data** — Trust/connect views can show a public node label plus deterministic initials and color for unknown peers, giving users recognizable context before trust while intentionally withholding pre-trust avatar bytes and private profile fields.
+
 ## [0.5.30] - 2026-03-31
 
 ### Fixed

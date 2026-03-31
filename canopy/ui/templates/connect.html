@@ -283,6 +283,21 @@
         .connect-scroll-table {
             max-height: min(46vh, 300px);
         }
+
+        .peer-preview-avatar {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            margin-right: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.65rem;
+            font-weight: 700;
+            color: #fff;
+            border: 1px dashed rgba(255, 255, 255, 0.18);
+            flex-shrink: 0;
+        }
     }
 </style>
 {% endblock %}
@@ -561,12 +576,15 @@
                             {% for peer in introduced_peers %}
                             {% set idev = peer_device_profiles.get(peer.peer_id) if peer_device_profiles else None %}
                             {% set ibydev = peer_device_profiles.get(peer.introduced_by) if peer_device_profiles else None %}
+                            {% set pub = peer.public_identity if peer.public_identity else None %}
                             <tr>
                                 <td>
                                     <div class="d-flex align-items-center">
                                         {% if idev and idev.avatar_b64 and idev.avatar_mime %}
                                         <img src="data:{{ idev.avatar_mime }};base64,{{ idev.avatar_b64 }}"
                                              alt="" style="width:24px; height:24px; border-radius:50%; margin-right:6px; object-fit:cover;">
+                                        {% elif pub and pub.avatar_initials %}
+                                        <div class="peer-preview-avatar" style="background:{{ pub.avatar_color or '#334155' }};">{{ pub.avatar_initials }}</div>
                                         {% endif %}
                                         <div>
                                             {% if idev and idev.display_name %}
@@ -575,6 +593,9 @@
                                             {% elif peer.display_name %}
                                             <strong>{{ peer.display_name }}</strong>
                                             <small class="text-muted d-block" style="font-size:0.75rem;">{{ peer.peer_id[:12] }}...</small>
+                                            {% elif pub and pub.node_name %}
+                                            <strong>{{ pub.node_name }}</strong>
+                                            <small class="text-muted d-block" style="font-size:0.75rem;">{{ peer.peer_id[:12] }}... <span class="badge bg-secondary" style="font-size:0.6rem;">unverified</span></small>
                                             {% else %}
                                             <code>{{ peer.peer_id[:12] }}...</code>
                                             {% endif %}

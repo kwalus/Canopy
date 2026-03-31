@@ -590,6 +590,16 @@ def create_api_blueprint() -> Blueprint:
         elif not purge_residue:
             residue_cleanup = {'success': True, 'skipped': True}
 
+        if p2p_manager and hasattr(p2p_manager, 'clear_peer_profile_cache'):
+            try:
+                p2p_manager.clear_peer_profile_cache(clean_peer_id)
+            except Exception as cache_err:
+                logger.warning(
+                    "clear_peer_profile_cache failed for %s: %s",
+                    clean_peer_id,
+                    cache_err,
+                )
+
         try:
             p2p_manager.record_activity_event({
                 'id': f"conn_forget_{clean_peer_id}_{int(time.time() * 1000)}",

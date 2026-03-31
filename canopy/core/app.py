@@ -4325,6 +4325,23 @@ def create_app(config: Optional[Config] = None) -> Flask:
             if not peer_id:
                 return
 
+            try:
+                stale_keys = [key for key in _seen_profile_hashes if key[0] == peer_id]
+                for key in stale_keys:
+                    del _seen_profile_hashes[key]
+                if stale_keys:
+                    logger.info(
+                        "profile_hash_cache_cleared_on_reconnect peer=%s entries=%d",
+                        peer_id,
+                        len(stale_keys),
+                    )
+            except Exception as hash_clear_err:
+                logger.debug(
+                    "Failed to clear profile hash cache for %s: %s",
+                    peer_id,
+                    hash_clear_err,
+                )
+
             def _worker() -> None:
                 try:
                     _mark_stale_pending_decrypt()
@@ -5522,21 +5539,48 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                     f"peer-%-{uid[-8:] if len(uid) >= 8 else ''}",
                                 ):
                                     r = conn.execute(
-                                        "SELECT id, avatar_file_id FROM users WHERE username LIKE ?",
-                                        (pattern,),
+                                        "SELECT id, avatar_file_id FROM users WHERE username LIKE ? AND origin_peer = ?",
+                                        (pattern, peer_id),
                                     ).fetchone()
                                     if r:
                                         break
                             if not r:
-                                return False
+                                return True
                             fid_raw = r['avatar_file_id'] if 'avatar_file_id' in r.keys() else ''
                             fid = (fid_raw or '').strip() if isinstance(fid_raw, str) else str(fid_raw or '').strip()
                             if not fid:
-                                return False
+                                return True
                         profile_manager.file_manager.get_file_data(fid)
                         return False  # file exists
                     except Exception:
                         return True  # no user, no file_id, or get_file_data failed
+
+                def _display_name_stale_for_user(uid: str, peer_id: str) -> bool:
+                    if not uid:
+                        return False
+                    try:
+                        with db_manager.get_connection() as conn:
+                            r = conn.execute(
+                                "SELECT id, display_name FROM users WHERE id = ?", (uid,)
+                            ).fetchone()
+                            if not r:
+                                for pattern in (
+                                    f"peer-{peer_id[:8]}",
+                                    f"peer-{peer_id[:8]}-%",
+                                    f"peer-%-{uid[-8:] if len(uid) >= 8 else ''}",
+                                ):
+                                    r = conn.execute(
+                                        "SELECT id, display_name FROM users WHERE username LIKE ? AND origin_peer = ?",
+                                        (pattern, peer_id),
+                                    ).fetchone()
+                                    if r:
+                                        break
+                            if not r:
+                                return True
+                            current = str(r['display_name'] or '').strip()
+                            return not current or current.startswith('peer-') or current == uid
+                    except Exception:
+                        return True
 
                 incoming_hash = profile_data.get('profile_hash')
                 if incoming_hash:
@@ -5548,15 +5592,34 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                 profile_data.get('user_id', ''), remote_peer_id
                             )
                         )
-                        if not need_avatar:
-                            logger.debug(
-                                f"Profile from {from_peer} unchanged (hash={incoming_hash[:8]}), "
-                                f"skipping")
-                            return
-                        logger.info(
-                            "Profile hash unchanged but our avatar file is missing; "
-                            "re-applying to recover avatar from peer"
+                        need_display_name = (
+                            profile_data.get('display_name')
+                            and _display_name_stale_for_user(
+                                profile_data.get('user_id', ''), remote_peer_id
+                            )
                         )
+                        if not need_avatar and not need_display_name:
+                            logger.debug(
+                                "profile_sync_hash_dedup_skipped peer=%s user_id=%s hash=%s",
+                                from_peer,
+                                profile_data.get('user_id', ''),
+                                incoming_hash[:8],
+                            )
+                            return
+                        if need_avatar:
+                            logger.info(
+                                "profile_sync_reapply_missing_avatar peer=%s user_id=%s hash=%s",
+                                from_peer,
+                                profile_data.get('user_id', ''),
+                                incoming_hash[:8],
+                            )
+                        if need_display_name:
+                            logger.info(
+                                "profile_sync_reapply_stale_display_name peer=%s user_id=%s hash=%s",
+                                from_peer,
+                                profile_data.get('user_id', ''),
+                                incoming_hash[:8],
+                            )
                     _seen_profile_hashes[hash_key] = incoming_hash
 
                 # ---- Re-broadcast to other peers (relay) ----
@@ -5623,8 +5686,9 @@ def create_app(config: Optional[Config] = None) -> Flask:
                             f"peer-%-{remote_user_id[-8:]}",
                         ]:
                             row = conn.execute(
-                                "SELECT id FROM users WHERE username LIKE ?",
-                                (pattern,)
+                                "SELECT id FROM users WHERE username LIKE ?"
+                                " AND origin_peer = ?",
+                                (pattern, remote_peer_id),
                             ).fetchone()
                             if row:
                                 break
@@ -5731,6 +5795,32 @@ def create_app(config: Optional[Config] = None) -> Flask:
             return {"ok": True, "origin_peer": origin_peer, "hashes_cleared": cleared, "sync_triggered": synced}
 
         setattr(p2p_manager, 'resync_user_avatar', _resync_user_avatar)  # dynamic; route checks hasattr()
+
+        def _clear_peer_profile_cache(peer_id: str) -> dict:
+            """Clear per-peer profile dedup and relay cooldown state."""
+            clean_peer_id = str(peer_id or "").strip()
+            if not clean_peer_id:
+                return {'cleared_hashes': 0, 'cleared_relays': 0}
+
+            hash_keys = [key for key in _seen_profile_hashes if key[0] == clean_peer_id]
+            relay_keys = [key for key in _relayed_profiles if key[0] == clean_peer_id]
+
+            for key in hash_keys:
+                del _seen_profile_hashes[key]
+            for key in relay_keys:
+                del _relayed_profiles[key]
+
+            if hash_keys or relay_keys:
+                logger.info(
+                    "clear_peer_profile_cache: peer=%s hashes_cleared=%d relays_cleared=%d",
+                    clean_peer_id,
+                    len(hash_keys),
+                    len(relay_keys),
+                )
+
+            return {'cleared_hashes': len(hash_keys), 'cleared_relays': len(relay_keys)}
+
+        setattr(p2p_manager, 'clear_peer_profile_cache', _clear_peer_profile_cache)
 
         def _recover_peer_profile_state(peer_id: str = "", *, trigger_sync: bool = False) -> dict:
             """Backfill missing remote user avatars from trusted peer device profiles."""

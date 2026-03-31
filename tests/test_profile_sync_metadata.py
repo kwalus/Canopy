@@ -183,6 +183,53 @@ class TestProfileSyncMetadata(unittest.TestCase):
         row = conn.execute("SELECT account_type FROM users WHERE id = 'remote-agent'").fetchone()
         self.assertEqual(row['account_type'], 'agent')
 
+    def _make_test_app(self):
+        tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(tempdir.cleanup)
+
+        env_patcher = patch.dict(
+            os.environ,
+            {
+                'CANOPY_TESTING': 'true',
+                'CANOPY_DISABLE_MESH': 'true',
+                'CANOPY_DATA_DIR': tempdir.name,
+                'CANOPY_DATABASE_PATH': os.path.join(tempdir.name, 'canopy.db'),
+                'CANOPY_SECRET_KEY': 'test-secret',
+            },
+            clear=False,
+        )
+        env_patcher.start()
+        self.addCleanup(env_patcher.stop)
+
+        checkpoint_patcher = patch(
+            'canopy.core.database.DatabaseManager._start_checkpoint_thread',
+            lambda self: None,
+        )
+        checkpoint_patcher.start()
+        self.addCleanup(checkpoint_patcher.stop)
+
+        logging_patcher = patch(
+            'canopy.core.app.setup_logging',
+            lambda debug=False: None,
+        )
+        logging_patcher.start()
+        self.addCleanup(logging_patcher.stop)
+
+        p2p_patcher = patch(
+            'canopy.core.app.P2PNetworkManager',
+            _FakeP2PNetworkManager,
+        )
+        p2p_patcher.start()
+        self.addCleanup(p2p_patcher.stop)
+
+        app = create_app()
+        return (
+            app,
+            app.config['DB_MANAGER'],
+            app.config['TRUST_MANAGER'],
+            app.config['P2P_MANAGER'],
+        )
+
     def test_profile_sync_includes_local_key_only_users(self) -> None:
         tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(tempdir.cleanup)
@@ -324,48 +371,7 @@ class TestProfileSyncMetadata(unittest.TestCase):
             self.assertEqual((row or {}).get('account_type'), 'agent')
 
     def test_profile_sync_reapplies_device_profile_even_when_hash_is_unchanged(self) -> None:
-        tempdir = tempfile.TemporaryDirectory()
-        self.addCleanup(tempdir.cleanup)
-
-        env_patcher = patch.dict(
-            os.environ,
-            {
-                'CANOPY_TESTING': 'true',
-                'CANOPY_DISABLE_MESH': 'true',
-                'CANOPY_DATA_DIR': tempdir.name,
-                'CANOPY_DATABASE_PATH': os.path.join(tempdir.name, 'canopy.db'),
-                'CANOPY_SECRET_KEY': 'test-secret',
-            },
-            clear=False,
-        )
-        env_patcher.start()
-        self.addCleanup(env_patcher.stop)
-
-        checkpoint_patcher = patch(
-            'canopy.core.database.DatabaseManager._start_checkpoint_thread',
-            lambda self: None,
-        )
-        checkpoint_patcher.start()
-        self.addCleanup(checkpoint_patcher.stop)
-
-        logging_patcher = patch(
-            'canopy.core.app.setup_logging',
-            lambda debug=False: None,
-        )
-        logging_patcher.start()
-        self.addCleanup(logging_patcher.stop)
-
-        p2p_patcher = patch(
-            'canopy.core.app.P2PNetworkManager',
-            _FakeP2PNetworkManager,
-        )
-        p2p_patcher.start()
-        self.addCleanup(p2p_patcher.stop)
-
-        app = create_app()
-        db_manager = app.config['DB_MANAGER']
-        trust_manager = app.config['TRUST_MANAGER']
-        p2p_manager = app.config['P2P_MANAGER']
+        app, db_manager, trust_manager, p2p_manager = self._make_test_app()
 
         profile_payload = {
             'peer_id': 'peer-remote',
@@ -399,6 +405,191 @@ class TestProfileSyncMetadata(unittest.TestCase):
         self.assertIsNotNone(row)
         self.assertEqual(row['display_name'], 'Remote Node')
         self.assertEqual(row['avatar_b64'], 'abc123')
+
+    def test_profile_sync_reapplies_avatar_when_hash_is_unchanged_and_avatar_file_id_is_missing(self) -> None:
+        app, db_manager, trust_manager, p2p_manager = self._make_test_app()
+
+        profile_payload = {
+            'peer_id': 'peer-remote',
+            'user_id': 'remote-user',
+            'display_name': 'Remote User',
+            'username': 'remote_user',
+            'profile_hash': 'hash-remote-avatar',
+            'avatar_thumbnail': 'YWJj',
+            'avatar_content_type': 'image/png',
+        }
+
+        with app.app_context():
+            trust_manager.set_trust_score('peer-remote', 100, reason='test')
+            p2p_manager.on_profile_sync(profile_payload, 'peer-remote')
+            with db_manager.get_connection() as conn:
+                before = conn.execute(
+                    "SELECT avatar_file_id FROM users WHERE id = ?",
+                    ('remote-user',),
+                ).fetchone()
+                self.assertTrue(str(before['avatar_file_id'] or '').strip())
+                conn.execute(
+                    "UPDATE users SET avatar_file_id = NULL WHERE id = ?",
+                    ('remote-user',),
+                )
+                conn.commit()
+
+            p2p_manager.on_profile_sync(profile_payload, 'peer-remote')
+
+            with db_manager.get_connection() as conn:
+                after = conn.execute(
+                    "SELECT avatar_file_id FROM users WHERE id = ?",
+                    ('remote-user',),
+                ).fetchone()
+
+        self.assertTrue(str(after['avatar_file_id'] or '').strip())
+
+    def test_profile_sync_reapplies_display_name_when_hash_is_unchanged_and_name_is_placeholder(self) -> None:
+        app, db_manager, trust_manager, p2p_manager = self._make_test_app()
+
+        profile_payload = {
+            'peer_id': 'peer-remote',
+            'user_id': 'remote-user',
+            'display_name': 'Remote User',
+            'username': 'remote_user',
+            'profile_hash': 'hash-remote-display',
+        }
+
+        with app.app_context():
+            trust_manager.set_trust_score('peer-remote', 100, reason='test')
+            p2p_manager.on_profile_sync(profile_payload, 'peer-remote')
+            with db_manager.get_connection() as conn:
+                conn.execute(
+                    "UPDATE users SET display_name = ? WHERE id = ?",
+                    ('peer-remote', 'remote-user'),
+                )
+                conn.commit()
+
+            p2p_manager.on_profile_sync(profile_payload, 'peer-remote')
+
+            with db_manager.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT display_name FROM users WHERE id = ?",
+                    ('remote-user',),
+                ).fetchone()
+
+        self.assertEqual(row['display_name'], 'Remote User')
+
+    def test_peer_reconnect_clears_profile_hash_cache_for_reapply(self) -> None:
+        app, db_manager, trust_manager, p2p_manager = self._make_test_app()
+
+        profile_payload = {
+            'peer_id': 'peer-remote',
+            'user_id': 'remote-user',
+            'display_name': 'Remote User',
+            'username': 'remote_user',
+            'bio': 'Recovered bio',
+            'profile_hash': 'hash-remote-reconnect',
+        }
+
+        with app.app_context():
+            trust_manager.set_trust_score('peer-remote', 100, reason='test')
+            p2p_manager.on_profile_sync(profile_payload, 'peer-remote')
+            with db_manager.get_connection() as conn:
+                conn.execute(
+                    "UPDATE users SET bio = '' WHERE id = ?",
+                    ('remote-user',),
+                )
+                conn.commit()
+
+            p2p_manager.on_peer_connected('peer-remote')
+            p2p_manager.on_profile_sync(profile_payload, 'peer-remote')
+
+            with db_manager.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT bio FROM users WHERE id = ?",
+                    ('remote-user',),
+                ).fetchone()
+
+        self.assertEqual(row['bio'], 'Recovered bio')
+
+    def test_clear_peer_profile_cache_reapplies_same_hash_profile_and_clears_relays(self) -> None:
+        app, db_manager, trust_manager, p2p_manager = self._make_test_app()
+
+        profile_payload = {
+            'peer_id': 'peer-remote',
+            'user_id': 'remote-user',
+            'display_name': 'Remote User',
+            'username': 'remote_user',
+            'bio': 'Recovered after forget',
+            'profile_hash': 'hash-remote-clear-cache',
+        }
+
+        with app.app_context():
+            trust_manager.set_trust_score('peer-remote', 100, reason='test')
+            p2p_manager.on_profile_sync(profile_payload, 'peer-remote')
+            with db_manager.get_connection() as conn:
+                conn.execute(
+                    "UPDATE users SET bio = '' WHERE id = ?",
+                    ('remote-user',),
+                )
+                conn.commit()
+
+            p2p_manager.on_profile_sync(profile_payload, 'peer-remote')
+            stale = db_manager.get_user('remote-user') or {}
+            self.assertEqual(stale.get('bio'), '')
+
+            result = p2p_manager.clear_peer_profile_cache('peer-remote')
+            self.assertGreaterEqual(result.get('cleared_hashes', 0), 1)
+            self.assertGreaterEqual(result.get('cleared_relays', 0), 1)
+
+            p2p_manager.on_profile_sync(profile_payload, 'peer-remote')
+            recovered = db_manager.get_user('remote-user') or {}
+
+        self.assertEqual(recovered.get('bio'), 'Recovered after forget')
+
+    def test_profile_sync_fallback_lookup_is_scoped_to_origin_peer(self) -> None:
+        app, db_manager, trust_manager, p2p_manager = self._make_test_app()
+
+        peer_x = 'abcdef12-peer-x'
+        peer_y = 'abcdef12-peer-y'
+
+        with app.app_context():
+            trust_manager.set_trust_score(peer_x, 100, reason='test')
+            with db_manager.get_connection() as conn:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO users (
+                        id, username, public_key, password_hash, display_name,
+                        origin_peer, account_type, status, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    """,
+                    (
+                        'stale-shadow-y',
+                        'peer-abcdef12-shadow',
+                        'peer-y-public-key',
+                        None,
+                        'Peer Y Stale',
+                        peer_y,
+                        'human',
+                        'active',
+                    ),
+                )
+                conn.commit()
+
+            p2p_manager.on_profile_sync(
+                {
+                    'peer_id': peer_x,
+                    'user_id': 'user-from-peer-x',
+                    'display_name': 'Peer X Real',
+                    'username': 'peer_x_real',
+                    'profile_hash': 'hash-peer-x',
+                },
+                peer_x,
+            )
+
+            row_x = db_manager.get_user('user-from-peer-x') or {}
+            row_y = db_manager.get_user('stale-shadow-y') or {}
+
+        self.assertEqual(row_x.get('display_name'), 'Peer X Real')
+        self.assertEqual(row_x.get('origin_peer'), peer_x)
+        self.assertEqual(row_y.get('display_name'), 'Peer Y Stale')
+        self.assertEqual(row_y.get('origin_peer'), peer_y)
 
 
 if __name__ == '__main__':

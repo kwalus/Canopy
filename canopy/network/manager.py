@@ -9,6 +9,7 @@ License: Apache 2.0
 """
 
 import asyncio
+import hashlib
 import logging
 import os
 import threading
@@ -2349,6 +2350,60 @@ class P2PNetworkManager:
         if not hasattr(self, '_introduced_peers'):
             self._introduced_peers = {}
         return list(self._introduced_peers.values())
+
+    def get_peer_public_identity(self, peer_id: str) -> Dict[str, Any]:
+        """Return a public-safe identity preview for a peer before trust."""
+        clean_peer_id = str(peer_id or '').strip()
+        result: Dict[str, Any] = {
+            'peer_id': clean_peer_id,
+            'node_name': '',
+            'avatar_initials': '',
+            'avatar_color': '',
+            'avatar_b64': None,
+            'avatar_mime': None,
+            'source': 'fallback',
+            'unverified': True,
+        }
+        if not clean_peer_id:
+            return result
+
+        hash_int = int(hashlib.sha256(clean_peer_id.encode('utf-8')).hexdigest()[:8], 16)
+        result['avatar_color'] = f"hsl({hash_int % 360}, 55%, 48%)"
+
+        introduced = {}
+        if hasattr(self, '_introduced_peers'):
+            introduced = self._introduced_peers.get(clean_peer_id) or {}
+
+        node_name = ''
+        if isinstance(introduced, dict):
+            node_name = str(introduced.get('display_name') or '').strip()
+            if node_name:
+                result['source'] = 'announced'
+
+        if not node_name and getattr(self, 'identity_manager', None):
+            try:
+                node_name = str(
+                    getattr(self.identity_manager, 'peer_display_names', {}).get(clean_peer_id) or ''
+                ).strip()
+            except Exception:
+                node_name = ''
+            if node_name:
+                result['source'] = 'identity'
+
+        if not node_name:
+            node_name = clean_peer_id[:12]
+
+        result['node_name'] = node_name
+
+        words = [word for word in node_name.split() if word]
+        if len(words) >= 2:
+            initials = (words[0][0] + words[-1][0]).upper()
+        else:
+            initials = (node_name[:2] or clean_peer_id[:2]).upper()
+        result['avatar_initials'] = initials
+
+        # Intentionally keep avatar_b64/avatar_mime unset pre-trust.
+        return result
 
     # ------------------------------------------------------------------ #
     #  Connection brokering and relay                                      #

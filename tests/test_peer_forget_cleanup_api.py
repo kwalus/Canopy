@@ -135,9 +135,28 @@ class TestPeerForgetCleanupApi(unittest.TestCase):
         self.assertEqual(payload.get('runtime_cleanup', {}).get('discovered_removed'), 1)
         self.assertEqual(payload.get('residue_cleanup', {}).get('cleanup', {}).get('trust_scores_deleted'), 1)
         self.db_manager.forget_peer_residue.assert_called_once_with('peer-gone', remove_shadow_users=True)
+        self.p2p_manager.clear_peer_profile_cache.assert_called_once_with('peer-gone')
         self.p2p_manager.identity_manager.remove_known_peer.assert_called_once_with('peer-gone')
         self.assertIsNone(self.p2p_manager._reconnect_tasks.get('peer-gone'))
         self.reconnect_task.cancel.assert_called_once()
+
+    def test_forget_peer_clears_profile_cache_even_without_residue_purge(self) -> None:
+        self._set_authenticated_session(csrf_token='csrf-no-purge')
+
+        response = self.client.post(
+            '/api/v1/p2p/forget',
+            json={
+                'peer_id': 'peer-gone',
+                'purge_residue': False,
+            },
+            headers={'X-CSRFToken': 'csrf-no-purge'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertEqual(payload.get('status'), 'forgotten')
+        self.db_manager.forget_peer_residue.assert_not_called()
+        self.p2p_manager.clear_peer_profile_cache.assert_called_once_with('peer-gone')
 
     def test_forget_peer_requires_delete_data_for_api_keys(self) -> None:
         self.api_key_manager.validate_key.side_effect = lambda raw_key, required_permission=None: (

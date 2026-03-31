@@ -7,7 +7,7 @@ import sys
 import tempfile
 import types
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from flask import Flask
 
@@ -210,6 +210,13 @@ class TestTrustProfileRecovery(unittest.TestCase):
         payload = response.get_json() or {}
         self.assertTrue(payload.get('is_trusted'))
         self.assertEqual(payload.get('profile_recovery', {}).get('recovered_user_count'), 2)
+        self.assertEqual(
+            p2p_manager.method_calls[:2],
+            [
+                call.clear_peer_profile_cache('peer-1'),
+                call.recover_peer_profile_state('peer-1', trigger_sync=True),
+            ],
+        )
         p2p_manager.recover_peer_profile_state.assert_called_once_with('peer-1', trigger_sync=True)
 
 

@@ -273,6 +273,17 @@
         background: rgba(34, 197, 94, 0.12);
     }
 
+    .trust-node-unverified {
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: #94a3b8;
+        padding: 2px 6px;
+        border-radius: 999px;
+        border: 1px solid rgba(148, 163, 184, 0.3);
+        background: rgba(148, 163, 184, 0.08);
+    }
+
     .trust-node-meta {
         display: flex;
         align-items: center;
@@ -496,22 +507,31 @@
 
 {% macro render_potential_node(peer, peer_device_profiles) %}
     {% set peer_id = peer.peer_id %}
+    {% set public_identity = peer.public_identity if peer.public_identity else None %}
     {% set profile = peer.device_profile if peer.device_profile else (peer_device_profiles.get(peer_id) if peer_device_profiles else None) %}
-    {% set display_name = peer.display_name if peer.display_name else (profile.display_name if profile and profile.display_name else peer_id[:12]) %}
+    {% set display_name = profile.display_name if profile and profile.display_name else (peer.display_name if peer.display_name else (public_identity.node_name if public_identity and public_identity.node_name else peer_id[:12])) %}
     <div class="trust-node" draggable="true" data-peer-id="{{ peer_id }}" data-tier="potential">
-        <div class="trust-node-avatar">
+        <div class="trust-node-avatar"{% if not (profile and profile.avatar_b64) and public_identity and public_identity.avatar_color %} style="background: {{ public_identity.avatar_color }}; color: #fff; border: 1px dashed rgba(255, 255, 255, 0.22);"{% endif %}>
             {% if profile and profile.avatar_b64 %}
                 <img src="data:{{ profile.avatar_mime or 'image/png' }};base64,{{ profile.avatar_b64 }}" alt="{{ display_name }}">
             {% else %}
-                <span>{{ display_name[:1]|upper }}</span>
+                <span>{{ public_identity.avatar_initials if public_identity and public_identity.avatar_initials else display_name[:1]|upper }}</span>
             {% endif %}
         </div>
         <div class="trust-node-body">
             <div class="trust-node-name">
                 {{ display_name }}
+                {% if public_identity and public_identity.unverified %}
+                    <span class="trust-node-unverified">Unverified</span>
+                {% endif %}
             </div>
             <div class="trust-node-meta">
                 <span class="trust-node-id">{{ peer_id[:12] }}...</span>
+                {% if public_identity and public_identity.source == 'announced' %}
+                    <span class="trust-node-tag">Announced</span>
+                {% elif public_identity and public_identity.source == 'identity' %}
+                    <span class="trust-node-tag">Known Label</span>
+                {% endif %}
                 {% if peer.introduced_by %}
                     <span class="trust-node-tag">via {{ peer.introduced_by[:8] }}</span>
                 {% endif %}
