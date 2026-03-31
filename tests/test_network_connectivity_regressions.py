@@ -141,6 +141,19 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(invite.endpoints[0], 'wss://demo.ngrok-free.app:443')
 
+    def test_generate_invite_formats_ipv6_public_host(self) -> None:
+        identity_manager = IdentityManager(Path(self.tempdir) / 'peer_identity.json')
+        identity_manager.initialize()
+
+        invite = generate_invite(
+            identity_manager,
+            7771,
+            public_host='2001:db8::10',
+            public_port=9001,
+        )
+
+        self.assertIn('ws://[2001:db8::10]:9001', invite.endpoints)
+
     def test_discovery_preserves_all_advertised_addresses(self) -> None:
         discovery = PeerDiscovery('local-peer')
         captured: list[DiscoveredPeer] = []
@@ -237,6 +250,10 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
             [('peer-remote', 'demo.ngrok-free.app', 443, 'wss')],
         )
 
+    def test_parse_endpoint_rejects_non_websocket_schemes(self) -> None:
+        manager = self._build_manager()
+        self.assertIsNone(manager._parse_endpoint('https://demo.ngrok-free.app'))
+
     def test_discovered_peer_endpoints_format_ipv6_for_dialing(self) -> None:
         manager = self._build_manager()
         peer = DiscoveredPeer(
@@ -282,6 +299,21 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             captured[0][0]['endpoints'],
             ['ws://192.168.1.55:7771'],
+        )
+
+    def test_current_connection_endpoint_preserves_wss_scheme_from_endpoint_uri(self) -> None:
+        manager = self._build_manager()
+        manager.connection_manager = types.SimpleNamespace(
+            get_connection=lambda peer_id: types.SimpleNamespace(
+                endpoint_uri='wss://demo.ngrok-free.app:443',
+                address='10.99.0.8',
+                port=7771,
+            )
+        )
+
+        self.assertEqual(
+            manager._current_connection_endpoint('peer-remote'),
+            'wss://demo.ngrok-free.app:443',
         )
 
     async def test_reconnect_keeps_retrying_after_backoff_cap(self) -> None:

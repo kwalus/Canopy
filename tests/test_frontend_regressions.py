@@ -80,6 +80,16 @@ class TestFrontendRegressions(unittest.TestCase):
         trust_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'trust.html').read_text(encoding='utf-8')
         self.assertIn('Remove this peer? This will disconnect them, remove stored endpoints, stop auto-reconnect, and clean stored trust and shadow-user residue for that peer.', trust_template)
 
+    def test_trust_page_zone_metrics_and_pending_lane_have_live_bookkeeping(self) -> None:
+        trust_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'trust.html').read_text(encoding='utf-8')
+        self.assertIn('data-stat-guarded', trust_template)
+        self.assertIn('data-stat-restricted', trust_template)
+        self.assertIn('data-stat-quarantine', trust_template)
+        self.assertIn('data-potential-list data-empty-message="No pending peers are waiting for review."', trust_template)
+        self.assertIn("function syncEmptyState(container, message) {", trust_template)
+        self.assertIn("function refreshTrustEmptyStates() {", trust_template)
+        self.assertIn("refreshTrustEmptyStates();", trust_template)
+
     def test_connect_forget_peer_mentions_residue_cleanup(self) -> None:
         connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
         self.assertIn('clean stored trust/user residue for that peer', connect_template)
@@ -182,6 +192,12 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("if (state.deckOpen) {", main_js)
         self.assertIn("moveDockedMediaToHost(state.current.el, deckStage);", main_js)
         self.assertIn("return;", main_js)
+
+    def test_persist_active_media_clears_retry_handle_when_deck_open(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        self.assertIn("if (state.persistMediaRetryHandle) {", main_js)
+        self.assertIn("clearInterval(state.persistMediaRetryHandle);", main_js)
+        self.assertIn("state.persistMediaRetryHandle = null;", main_js)
 
     def test_identity_modal_treats_local_peer_origin_as_local(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')

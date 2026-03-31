@@ -208,7 +208,7 @@ def generate_invite(identity_manager: Any, mesh_port: int,
     # Public / port-forwarded endpoint next
     if public_host:
         port = public_port or mesh_port
-        endpoints.append(f"ws://{public_host}:{port}")
+        endpoints.append(f"ws://{_format_endpoint_host(public_host)}:{port}")
 
     # LAN endpoints
     for ip in get_local_ips():

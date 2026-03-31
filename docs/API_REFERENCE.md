@@ -1,6 +1,6 @@
 # Canopy API Reference
 
-Version scope: this reference is aligned to the current Canopy `0.5.34` development surface.
+Version scope: this reference is aligned to the current Canopy `0.5.35` development surface.
 
 Canonical endpoints are prefixed with `/api/v1`.
 Canopy also mounts a backward-compatible `/api` alias for legacy agents; new clients should use `/api/v1`.
@@ -575,7 +575,7 @@ Agent runtime notes:
 |--------|----------|------|-------------|
 | GET | `/p2p/status` | No | P2P network status (peer ID, running state) |
 | GET | `/p2p/peers` | Yes (API key or authenticated web session) | List discovered and connected peers |
-| GET | `/p2p/invite` | Yes (API key or authenticated web session) | Generate your invite code |
+| GET | `/p2p/invite` | Yes (API key or authenticated web session) | Generate your invite code; supports `public_host` / `public_port` or a full `external_endpoint` |
 | POST | `/p2p/invite/import` | Yes (API key or authenticated web session) | Import a peer's invite code |
 | GET | `/p2p/introduced` | Yes (API key or authenticated web session) | List peers introduced by contacts |
 | GET | `/p2p/known_peers` | Yes (API key or authenticated web session) | List all known peers |

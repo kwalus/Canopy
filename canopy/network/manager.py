@@ -1237,7 +1237,7 @@ class P2PNetworkManager:
             port = parsed.port
             if port is None and had_explicit_scheme:
                 port = 443 if scheme == 'wss' else 80 if scheme == 'ws' else None
-            if not host or not port:
+            if scheme not in ('ws', 'wss') or not host or not port:
                 return None
             return host, port, scheme
         except Exception:
@@ -1443,6 +1443,11 @@ class P2PNetworkManager:
         conn = self.connection_manager.get_connection(peer_id)
         if not conn:
             return None
+        endpoint_uri = str(getattr(conn, 'endpoint_uri', '') or '').strip()
+        if endpoint_uri:
+            canonical = self._canonicalize_endpoint(endpoint_uri)
+            if canonical:
+                return canonical
         address = str(getattr(conn, 'address', '') or '').strip()
         port = int(getattr(conn, 'port', 0) or 0)
         if not address or port <= 0:

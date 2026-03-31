@@ -10179,6 +10179,10 @@
                     pinDeckOriginIdsFromSourceEl(sourceEl);
                 }
                 if (state.deckOpen) {
+                    if (state.persistMediaRetryHandle) {
+                        clearInterval(state.persistMediaRetryHandle);
+                        state.persistMediaRetryHandle = null;
+                    }
                     if ((type === 'youtube' || type === 'video') && deckStage && state.current && state.current.el) {
                         moveDockedMediaToHost(state.current.el, deckStage);
                     }

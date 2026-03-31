@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.35] - 2026-03-31
+
+### Fixed
+- **Trust governance now surfaces peer quality and state more clearly without drifting after interaction** — The Trust page now builds normalized peer cards with label-source, role, connection, and endpoint context in the route, uses a denser governance layout for live/attention/pending review, and keeps zone metrics plus empty states accurate after peer reassignment.
+- **Deck handoff and tunnel reconnect behavior are hardened beyond the initial `0.5.34` patch** — Opening the deck now cancels any lingering mini-player playback retry loop before returning control to the deck, live endpoint diagnostics preserve the actual `wss://` scheme used to reach a peer, and endpoint parsing rejects non-WebSocket schemes instead of normalizing away the caller's intent.
+- **Invite/docs handling is cleaner for external and IPv6 endpoints** — Public-host invite generation now formats IPv6 endpoints correctly, and the peer-connect/API docs now describe both port-forwarded host/port invites and full external tunnel endpoints such as ngrok.
+
 ## [0.5.34] - 2026-03-31
 
 ### Fixed

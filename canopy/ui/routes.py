@@ -4436,6 +4436,15 @@ def create_ui_blueprint() -> Blueprint:
             # Connected and introduced peers
             connected_peers = p2p_manager.get_connected_peers() if p2p_manager else []
             introduced_peers = p2p_manager.get_introduced_peers() if p2p_manager else []
+            connected_set = set(connected_peers or [])
+            introduced_map = {
+                str(peer.get('peer_id') or '').strip(): peer
+                for peer in (introduced_peers or [])
+                if isinstance(peer, dict) and str(peer.get('peer_id') or '').strip()
+            }
+            identity_manager = getattr(p2p_manager, 'identity_manager', None) if p2p_manager else None
+            known_peers = getattr(identity_manager, 'known_peers', {}) or {}
+            peer_display_names = getattr(identity_manager, 'peer_display_names', {}) or {}
 
             # Device profiles for peer identification
             peer_device_profiles = channel_manager.get_all_peer_device_profiles() if channel_manager else {}
@@ -4448,6 +4457,156 @@ def create_ui_blueprint() -> Blueprint:
             
             # Get trusted peers
             trusted_peers = trust_manager.get_trusted_peers() if trust_manager else []
+
+            def _profile_value(profile: Any, key: str, default: Any = '') -> Any:
+                if isinstance(profile, dict):
+                    return profile.get(key, default)
+                return getattr(profile, key, default)
+
+            def _infer_role(profile: Any, public_identity: Any, display_name: str) -> tuple[str, str]:
+                description = str(_profile_value(profile, 'description', '') or '').strip()
+                node_name = ''
+                if isinstance(public_identity, dict):
+                    node_name = str(public_identity.get('node_name') or '').strip()
+                haystack = ' '.join(part for part in (description, display_name, node_name) if part).lower()
+                if any(token in haystack for token in (' agent', 'agent ', 'bot', 'automation', 'cursor', 'claude', 'gpt', 'ai ')):
+                    return 'Agent', 'agent'
+                if any(token in haystack for token in (' human', 'person', 'operator', 'owner')):
+                    return 'Human', 'human'
+                return 'Role unknown', 'unknown'
+
+            def _resolve_peer_card(peer_id: str, score_info: Optional[dict[str, Any]] = None, potential_entry: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+                clean_peer_id = str(peer_id or '').strip()
+                profile = peer_device_profiles.get(clean_peer_id) if peer_device_profiles else None
+                public_identity: dict[str, Any] = {}
+                if potential_entry and isinstance(potential_entry.get('public_identity'), dict):
+                    public_identity = dict(potential_entry.get('public_identity') or {})
+                elif p2p_manager and hasattr(p2p_manager, 'get_peer_public_identity'):
+                    try:
+                        public_identity = dict(p2p_manager.get_peer_public_identity(clean_peer_id) or {})
+                    except Exception:
+                        public_identity = {}
+
+                profile_name = str(_profile_value(profile, 'display_name', '') or '').strip()
+                announced_name = str(public_identity.get('node_name') or '').strip()
+                announced_source = str(public_identity.get('source') or '').strip() or 'announced'
+                identity_name = str(peer_display_names.get(clean_peer_id) or '').strip()
+
+                display_name = ''
+                label_source = 'fallback'
+                if profile_name:
+                    display_name = profile_name
+                    label_source = 'profile'
+                elif announced_name and announced_name != clean_peer_id[:12]:
+                    display_name = announced_name
+                    label_source = announced_source
+                elif identity_name and identity_name != clean_peer_id[:12]:
+                    display_name = identity_name
+                    label_source = 'identity'
+                else:
+                    display_name = clean_peer_id[:12]
+
+                role_label, role_state = _infer_role(profile, public_identity, display_name)
+                endpoint_rows: list[dict[str, Any]] = []
+                if p2p_manager and hasattr(p2p_manager, 'get_peer_endpoint_diagnostics'):
+                    try:
+                        endpoint_rows = list(p2p_manager.get_peer_endpoint_diagnostics(clean_peer_id) or [])
+                    except Exception:
+                        endpoint_rows = []
+                if not endpoint_rows:
+                    for endpoint in list(getattr(identity_manager, 'peer_endpoints', {}).get(clean_peer_id, []) or []):
+                        endpoint_rows.append({
+                            'endpoint': endpoint,
+                            'sources': ['stored'],
+                            'currently_connected': False,
+                            'last_failure_reason': '',
+                        })
+
+                endpoint_count = len(endpoint_rows)
+                active_endpoint = next((row.get('endpoint') for row in endpoint_rows if row.get('currently_connected')), '')
+                introduced_by = ''
+                if potential_entry and isinstance(potential_entry, dict):
+                    introduced_by = str(potential_entry.get('introduced_by') or '').strip()
+                if not introduced_by:
+                    intro = introduced_map.get(clean_peer_id) or {}
+                    if isinstance(intro, dict):
+                        introduced_by = str(intro.get('introduced_by') or '').strip()
+
+                connection_state = 'stale'
+                connection_label = 'Stale record'
+                connection_note = 'No live socket or remembered endpoint metadata is available.'
+                if clean_peer_id in connected_set:
+                    connection_state = 'live'
+                    connection_label = 'Connected'
+                    connection_note = active_endpoint or 'Direct socket is active.'
+                elif endpoint_count:
+                    connection_state = 'known'
+                    connection_label = 'Known offline'
+                    connection_note = f'{endpoint_count} remembered endpoint{"s" if endpoint_count != 1 else ""}'
+                elif clean_peer_id in introduced_map:
+                    connection_state = 'introduced'
+                    connection_label = 'Introduced'
+                    connection_note = 'Seen through another trusted peer but not yet anchored locally.'
+
+                needs_profile = not profile_name
+                needs_label = label_source == 'fallback'
+                attention_flags: list[str] = []
+                if needs_profile:
+                    attention_flags.append('Needs profile')
+                if role_state == 'unknown':
+                    attention_flags.append('Role unknown')
+                if connection_state == 'stale':
+                    attention_flags.append('Stale')
+
+                introduced_by_label = ''
+                if introduced_by:
+                    intro_profile = peer_device_profiles.get(introduced_by) if peer_device_profiles else None
+                    intro_name = str(_profile_value(intro_profile, 'display_name', '') or '').strip()
+                    introduced_by_label = intro_name or str(peer_display_names.get(introduced_by) or '') or introduced_by[:12]
+
+                score_value = None
+                if isinstance(score_info, dict):
+                    try:
+                        score_value = int(score_info.get('score', 0) or 0)
+                    except Exception:
+                        score_value = 0
+
+                connection_sort = {'live': 0, 'known': 1, 'introduced': 2, 'stale': 3}.get(connection_state, 4)
+                return {
+                    'peer_id': clean_peer_id,
+                    'short_id': f'{clean_peer_id[:12]}...',
+                    'display_name': display_name,
+                    'description': str(_profile_value(profile, 'description', '') or '').strip(),
+                    'display_name_source': label_source,
+                    'display_name_source_label': {
+                        'profile': 'Profile label',
+                        'announced': 'Announced label',
+                        'identity': 'Known label',
+                        'fallback': 'Fallback label',
+                    }.get(label_source, 'Known label'),
+                    'avatar_b64': _profile_value(profile, 'avatar_b64', ''),
+                    'avatar_mime': _profile_value(profile, 'avatar_mime', 'image/png'),
+                    'public_avatar_color': str(public_identity.get('avatar_color') or '').strip(),
+                    'public_avatar_initials': str(public_identity.get('avatar_initials') or '').strip(),
+                    'connected': clean_peer_id in connected_set,
+                    'connection_state': connection_state,
+                    'connection_label': connection_label,
+                    'connection_note': connection_note,
+                    'connection_sort': connection_sort,
+                    'role_label': role_label,
+                    'role_state': role_state,
+                    'score': score_value,
+                    'endpoint_count': endpoint_count,
+                    'active_endpoint': active_endpoint,
+                    'introduced_by': introduced_by,
+                    'introduced_by_label': introduced_by_label,
+                    'needs_profile': needs_profile,
+                    'needs_label': needs_label,
+                    'attention_flags': attention_flags,
+                    'has_profile': bool(profile_name),
+                    'is_unverified': bool(public_identity.get('unverified')),
+                    'public_identity': public_identity,
+                }
 
             # Build tiered trust buckets for UI
             trust_tiers: dict[str, list[dict[str, Any]]] = {
@@ -4466,7 +4625,7 @@ def create_ui_blueprint() -> Blueprint:
                     tier = 'restricted'
                 else:
                     tier = 'quarantine'
-                trust_tiers[tier].append({**score_info, 'peer_id': peer_id})
+                trust_tiers[tier].append(_resolve_peer_card(peer_id, score_info=score_info))
 
             # Potential peers list (introduced but not yet assigned a trust tier)
             potential_peers = []
@@ -4486,6 +4645,47 @@ def create_ui_blueprint() -> Blueprint:
                     pid = entry.get('peer_id') if isinstance(entry, dict) else None
                     if pid:
                         entry['public_identity'] = p2p_manager.get_peer_public_identity(pid)
+
+            potential_peers = [
+                _resolve_peer_card(str(entry.get('peer_id') or '').strip(), potential_entry=entry)
+                for entry in potential_peers
+                if isinstance(entry, dict) and str(entry.get('peer_id') or '').strip()
+            ]
+
+            for peers in trust_tiers.values():
+                peers.sort(key=lambda peer: (peer['connection_sort'], -(peer.get('score') or 0), str(peer.get('display_name') or '').lower()))
+            potential_peers.sort(key=lambda peer: (peer['connection_sort'], str(peer.get('display_name') or '').lower()))
+
+            peer_index: dict[str, dict[str, Any]] = {}
+            for peers in trust_tiers.values():
+                for peer in peers:
+                    peer_index[peer['peer_id']] = peer
+            for peer in potential_peers:
+                peer_index.setdefault(peer['peer_id'], peer)
+
+            connected_peer_cards = []
+            for pid in connected_peers:
+                clean_pid = str(pid or '').strip()
+                if not clean_pid:
+                    continue
+                connected_peer_cards.append(peer_index.get(clean_pid) or _resolve_peer_card(clean_pid))
+            connected_peer_cards.sort(key=lambda peer: str(peer.get('display_name') or '').lower())
+
+            attention_peers = [
+                peer for peer in peer_index.values()
+                if peer.get('needs_profile') or peer.get('role_state') == 'unknown' or peer.get('connection_state') == 'stale'
+            ]
+            attention_peers.sort(key=lambda peer: (peer['connection_sort'], str(peer.get('display_name') or '').lower()))
+
+            trust_overview = {
+                'safe_count': len(trust_tiers['safe']),
+                'guarded_count': len(trust_tiers['guarded']),
+                'restricted_count': len(trust_tiers['restricted']),
+                'quarantine_count': len(trust_tiers['quarantine']),
+                'connected_count': len(connected_peer_cards),
+                'pending_count': len(potential_peers),
+                'attention_count': len(attention_peers),
+            }
             
             return render_template('trust.html',
                                  trust_scores=trust_scores,
@@ -4497,6 +4697,9 @@ def create_ui_blueprint() -> Blueprint:
                                  introduced_peers=introduced_peers,
                                  potential_peers=potential_peers,
                                  peer_device_profiles=peer_device_profiles,
+                                 connected_peer_cards=connected_peer_cards,
+                                 attention_peers=attention_peers,
+                                 trust_overview=trust_overview,
                                  user_id=get_current_user())
                                  
         except Exception as e:

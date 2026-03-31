@@ -150,7 +150,7 @@ For bidirectional communication, Machine A should also import Machine B's invite
 
 ## 5. Connect Two Instances (Different Networks / Over the Internet)
 
-When machines are on different networks (e.g. different houses), you have two options: **VPN** (easiest) or **port forwarding**.
+When machines are on different networks (e.g. different houses), you have three main options: **VPN** (easiest), **port forwarding**, or a **tunnel endpoint** such as ngrok.
 
 ### Option A: Tailscale or WireGuard VPN (recommended)
 
@@ -211,6 +211,20 @@ If you don't have a VPN, one side needs to be reachable from the internet.
    curl -s http://localhost:7770/api/v1/p2p/peers -H "X-API-Key: YOUR_API_KEY"
    ```
 
+### Option C: Tunnel endpoint (ngrok or similar)
+
+If you expose the mesh port through a tunnel, generate the invite from the full tunnel endpoint instead of splitting host and port.
+
+**Web UI:** Go to Connect page → enter the full external mesh endpoint such as `wss://example.ngrok-free.app` or `ws://0.tcp.ngrok.io:12345` → click **Regenerate**
+
+**API:**
+```bash
+curl -s "http://localhost:7770/api/v1/p2p/invite?external_endpoint=wss://example.ngrok-free.app" \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+Canopy preserves the explicit `ws://` or `wss://` scheme from the invite during import, reconnect, and direct connect attempts.
+
 ---
 
 ## 6. Send a Message Between Peers
@@ -250,7 +264,8 @@ The web UI can call selected endpoints via authenticated browser session + CSRF.
 | `/api/v1/p2p/status` | GET | No | P2P network status (peer ID, running state) |
 | `/api/v1/p2p/peers` | GET | API key or authenticated web session | List discovered and connected peers |
 | `/api/v1/p2p/invite` | GET | API key or authenticated web session | Generate your invite code |
-| `/api/v1/p2p/invite?public_host=X&public_port=Y` | GET | API key or authenticated web session | Generate invite with public endpoint |
+| `/api/v1/p2p/invite?public_host=X&public_port=Y` | GET | API key or authenticated web session | Generate invite with public/port-forwarded endpoint |
+| `/api/v1/p2p/invite?external_endpoint=ws://...` | GET | API key or authenticated web session | Generate invite with a full external tunnel endpoint |
 | `/api/v1/p2p/invite/import` | POST | API key or authenticated web session | Import a friend's invite code |
 | `/api/v1/p2p/relay_status` | GET | API key or authenticated web session | Relay policy, active relays, routing table |
 | `/api/v1/p2p/relay_policy` | POST | API key or authenticated web session | Set relay policy (`off`, `broker_only`, `full_relay`) |
