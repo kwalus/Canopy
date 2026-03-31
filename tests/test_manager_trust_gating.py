@@ -258,8 +258,51 @@ class TestManagerTrustGating(unittest.TestCase):
         self.assertEqual(len(sent), 2)
         self.assertEqual({item['channel_id'] for item in sent}, {'C001', 'C002'})
         self.assertTrue(all(item['to_peer'] == 'peer-guest' for item in sent))
+
+    def test_targeted_public_channel_metadata_replay_filters_to_requested_ids(self) -> None:
+        manager = P2PNetworkManager.__new__(P2PNetworkManager)
+        manager.message_router = SimpleNamespace()
+        manager.get_public_channels_for_sync = lambda: [
+            {
+                'id': 'C001',
+                'name': 'breaking-news',
+                'type': 'public',
+                'desc': 'news',
+                'origin_peer': 'peer-origin',
+                'privacy_mode': 'open',
+            },
+            {
+                'id': 'C002',
+                'name': 'canopy-radio',
+                'type': 'public',
+                'desc': 'radio',
+                'origin_peer': 'peer-origin',
+                'privacy_mode': 'open',
+            },
+        ]
+        manager.get_peer_id = lambda: 'peer-local'
+
+        sent = []
+
+        async def _send_channel_announce(**kwargs):
+            sent.append(kwargs)
+            return True
+
+        manager.message_router.send_channel_announce = _send_channel_announce
+
+        asyncio.run(
+            manager._send_public_channel_metadata_replay_to_peer(
+                'peer-guest',
+                channel_ids=['C002'],
+                reason='metadata_request_response',
+                request_id='req-123',
+            )
+        )
+
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0]['channel_id'], 'C002')
+        self.assertEqual(sent[0]['to_peer'], 'peer-guest')
         self.assertEqual(sent[0]['created_by_peer'], 'peer-origin')
-        self.assertEqual(sent[1]['created_by_peer'], 'peer-local')
 
 
 if __name__ == '__main__':

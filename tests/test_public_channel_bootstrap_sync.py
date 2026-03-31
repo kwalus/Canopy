@@ -47,9 +47,12 @@ class _FakeP2PNetworkManager:
         self._running = False
         self.sent_catchup = []
         self.sync_requests = []
+        self.metadata_requests = []
+        self.metadata_replies = []
         self.on_channel_sync = None
         self.on_catchup_request = None
         self.on_catchup_response = None
+        self.on_channel_metadata_request = None
 
     def set_relay_policy(self, policy):
         self.relay_policy = policy
@@ -71,6 +74,28 @@ class _FakeP2PNetworkManager:
 
     def trigger_peer_sync(self, peer_id):
         self.sync_requests.append(peer_id)
+        return True
+
+    def send_channel_metadata_request(self, to_peer, channel_ids, request_id=None, reason=None):
+        self.metadata_requests.append(
+            {
+                'to_peer': to_peer,
+                'channel_ids': list(channel_ids or []),
+                'request_id': request_id,
+                'reason': reason,
+            }
+        )
+        return True
+
+    def replay_public_channel_metadata_to_peer(self, to_peer, channel_ids=None, reason='targeted_request', request_id=None):
+        self.metadata_replies.append(
+            {
+                'to_peer': to_peer,
+                'channel_ids': list(channel_ids or []),
+                'reason': reason,
+                'request_id': request_id,
+            }
+        )
         return True
 
     async def send_catchup_response_async(self, to_peer, messages, extra_data=None):
@@ -388,7 +413,9 @@ class TestPublicChannelBootstrapSync(unittest.TestCase):
         self.assertEqual(placeholder['name'], 'peer-channel-Creconci')
         self.assertEqual(placeholder['channel_type'], 'private')
         self.assertEqual(placeholder['privacy_mode'], 'private')
-        self.assertEqual(self.p2p_manager.sync_requests, ['peer-origin'])
+        self.assertEqual(len(self.p2p_manager.metadata_requests), 1)
+        self.assertEqual(self.p2p_manager.metadata_requests[0]['to_peer'], 'peer-origin')
+        self.assertEqual(self.p2p_manager.metadata_requests[0]['channel_ids'], ['Creconcile001'])
 
     def test_non_origin_public_name_hint_requests_reconcile_for_half_upgraded_placeholder(self) -> None:
         self.trust_manager.set_trust_score('peer-relay', 100, reason='test-relay-trusted')
@@ -426,7 +453,62 @@ class TestPublicChannelBootstrapSync(unittest.TestCase):
         self.assertEqual(placeholder['name'], 'peer-channel-Chalfpub')
         self.assertEqual(placeholder['channel_type'], 'public')
         self.assertEqual(placeholder['privacy_mode'], 'open')
-        self.assertEqual(self.p2p_manager.sync_requests, ['peer-origin'])
+        self.assertEqual(len(self.p2p_manager.metadata_requests), 1)
+        self.assertEqual(self.p2p_manager.metadata_requests[0]['to_peer'], 'peer-origin')
+        self.assertEqual(self.p2p_manager.metadata_requests[0]['channel_ids'], ['Chalfpub001'])
+
+    def test_authoritative_metadata_response_finalizes_placeholder_rename(self) -> None:
+        self.trust_manager.set_trust_score('peer-relay', 100, reason='test-relay-trusted')
+        self.trust_manager.set_trust_score('peer-origin', 100, reason='test-origin-trusted')
+
+        with self.db_manager.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO channels (
+                    id, name, channel_type, created_by, description, origin_peer, privacy_mode, created_at
+                ) VALUES (?, ?, 'public', ?, ?, ?, 'open', CURRENT_TIMESTAMP)
+                """,
+                ('Cfinalize001', 'peer-channel-Cfinaliz', 'owner-user', 'Auto-created from P2P catchup', 'peer-origin'),
+            )
+            conn.commit()
+
+        self.p2p_manager.on_channel_sync(
+            [
+                {
+                    'id': 'Cfinalize001',
+                    'name': 'canopy-radio',
+                    'type': 'public',
+                    'desc': 'relayed canonical public name',
+                    'privacy_mode': 'open',
+                },
+            ],
+            'peer-relay',
+        )
+
+        self.assertEqual(len(self.p2p_manager.metadata_requests), 1)
+        self.assertEqual(self.p2p_manager.metadata_requests[0]['channel_ids'], ['Cfinalize001'])
+
+        self.p2p_manager.on_channel_announce(
+            channel_id='Cfinalize001',
+            name='canopy-radio',
+            channel_type='public',
+            description='authoritative public name',
+            created_by_peer='peer-origin',
+            created_by_user_id='owner-user',
+            privacy_mode='open',
+            from_peer='peer-origin',
+            initial_members=None,
+        )
+
+        with self.db_manager.get_connection() as conn:
+            finalized = conn.execute(
+                "SELECT name, channel_type, privacy_mode FROM channels WHERE id = 'Cfinalize001'"
+            ).fetchone()
+
+        self.assertIsNotNone(finalized)
+        self.assertEqual(finalized['name'], 'canopy-radio')
+        self.assertEqual(finalized['channel_type'], 'public')
+        self.assertEqual(finalized['privacy_mode'], 'open')
 
     def test_membership_recovery_rebinds_private_visibility_to_instance_owner(self) -> None:
         self.trust_manager.set_trust_score('peer-origin', 100, reason='test-origin-trusted')

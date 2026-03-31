@@ -182,6 +182,7 @@ class MessageType(Enum):
     CHANNEL_REMOVAL_RESULT = "channel_removal_result"      # Finalized retirement result
     CHANNEL_MEMBERSHIP_QUERY = "channel_membership_query"      # Ask peer for private channel memberships
     CHANNEL_MEMBERSHIP_RESPONSE = "channel_membership_response"  # Recovery response with channel metadata
+    CHANNEL_METADATA_REQUEST = "channel_metadata_request"      # Ask origin peer to replay public channel metadata
     PRIVATE_CHANNEL_INVITE = "private_channel_invite"  # Invite peer to private channel
     CHANNEL_KEY_DISTRIBUTION = "channel_key_distribution"  # Wrapped channel key delivery
     CHANNEL_KEY_REQUEST = "channel_key_request"            # Request key delivery/re-send
@@ -278,6 +279,7 @@ class MessageRouter:
         MessageType.CHANNEL_REMOVAL_RESULT,
         MessageType.CHANNEL_MEMBERSHIP_QUERY,
         MessageType.CHANNEL_MEMBERSHIP_RESPONSE,
+        MessageType.CHANNEL_METADATA_REQUEST,
         MessageType.CHANNEL_KEY_DISTRIBUTION,
         MessageType.CHANNEL_KEY_REQUEST,
         MessageType.CHANNEL_KEY_ACK,
@@ -356,6 +358,7 @@ class MessageRouter:
         self.on_channel_removal_result: Optional[Any] = None
         self.on_channel_membership_query: Optional[Any] = None
         self.on_channel_membership_response: Optional[Any] = None
+        self.on_channel_metadata_request: Optional[Any] = None
         self.on_private_channel_invite: Optional[Any] = None
         self.on_channel_key_distribution: Optional[Any] = None
         self.on_channel_key_request: Optional[Any] = None
@@ -1148,6 +1151,18 @@ class MessageRouter:
             except Exception as e:
                 logger.error(f"Error delivering channel membership response locally: {e}", exc_info=True)
 
+        elif message.type == MessageType.CHANNEL_METADATA_REQUEST and self.on_channel_metadata_request:
+            try:
+                meta = payload.get('metadata', {})
+                self.on_channel_metadata_request(
+                    request_id=meta.get('request_id'),
+                    channel_ids=meta.get('channel_ids') or [],
+                    reason=meta.get('reason'),
+                    from_peer=message.from_peer,
+                )
+            except Exception as e:
+                logger.error(f"Error delivering channel metadata request locally: {e}", exc_info=True)
+
         elif message.type == MessageType.CHANNEL_KEY_DISTRIBUTION and self.on_channel_key_distribution:
             try:
                 meta = payload.get('metadata', {})
@@ -1806,6 +1821,32 @@ class MessageRouter:
             },
         }
         message = self.create_message(MessageType.CHANNEL_MEMBERSHIP_RESPONSE, to_peer, payload)
+        self.sign_message(message)
+        return await self._route_to_peer(message)
+
+    async def send_channel_metadata_request(
+        self,
+        to_peer: str,
+        channel_ids: list[str],
+        request_id: Optional[str] = None,
+        reason: Optional[str] = None,
+    ) -> bool:
+        """Request authoritative public channel metadata for specific channel IDs."""
+        normalized_ids = [
+            str(channel_id or "").strip()
+            for channel_id in (channel_ids or [])
+            if str(channel_id or "").strip()
+        ]
+        payload = {
+            'content': '',
+            'metadata': {
+                'type': 'channel_metadata_request',
+                'request_id': request_id or f"CMR{secrets.token_hex(8)}",
+                'channel_ids': normalized_ids,
+                'reason': str(reason or '').strip() or None,
+            },
+        }
+        message = self.create_message(MessageType.CHANNEL_METADATA_REQUEST, to_peer, payload)
         self.sign_message(message)
         return await self._route_to_peer(message)
 

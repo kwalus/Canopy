@@ -111,6 +111,7 @@ class P2PNetworkManager:
         self.on_member_sync_ack: Optional[Callable] = None
         self.on_channel_membership_query: Optional[Callable] = None
         self.on_channel_membership_response: Optional[Callable] = None
+        self.on_channel_metadata_request: Optional[Callable] = None
         self.on_channel_key_distribution: Optional[Callable] = None
         self.on_channel_key_request: Optional[Callable] = None
         self.on_channel_key_ack: Optional[Callable] = None
@@ -1042,6 +1043,8 @@ class P2PNetworkManager:
                 self.message_router.on_channel_membership_query = self.on_channel_membership_query
             if self.on_channel_membership_response:
                 self.message_router.on_channel_membership_response = self.on_channel_membership_response
+            if self.on_channel_metadata_request:
+                self.message_router.on_channel_metadata_request = self.on_channel_metadata_request
             if self.on_channel_key_distribution:
                 self.message_router.on_channel_key_distribution = self.on_channel_key_distribution
             if self.on_channel_key_request:
@@ -4208,6 +4211,66 @@ class P2PNetworkManager:
         future.add_done_callback(_on_done)
         return True
 
+    def send_channel_metadata_request(
+        self,
+        to_peer: str,
+        channel_ids: list[str],
+        request_id: Optional[str] = None,
+        reason: Optional[str] = None,
+    ) -> bool:
+        """Request authoritative public channel metadata for specific channel IDs."""
+        if not self._running or not self._event_loop:
+            return False
+        if not self.message_router:
+            return False
+        future = asyncio.run_coroutine_threadsafe(
+            self.message_router.send_channel_metadata_request(
+                to_peer=to_peer,
+                channel_ids=channel_ids,
+                request_id=request_id,
+                reason=reason,
+            ),
+            self._event_loop,
+        )
+
+        def _on_done(f: Any) -> None:
+            try:
+                f.result()
+            except Exception as exc:
+                logger.error("Error sending channel metadata request: %s", exc)
+
+        future.add_done_callback(_on_done)
+        return True
+
+    def replay_public_channel_metadata_to_peer(
+        self,
+        to_peer: str,
+        channel_ids: Optional[list[str]] = None,
+        reason: str = 'targeted_request',
+        request_id: Optional[str] = None,
+    ) -> bool:
+        """Replay public channel metadata to a peer without blocking the caller."""
+        if not self._running or not self._event_loop:
+            return False
+        future = asyncio.run_coroutine_threadsafe(
+            self._send_public_channel_metadata_replay_to_peer(
+                to_peer,
+                channel_ids=channel_ids,
+                reason=reason,
+                request_id=request_id,
+            ),
+            self._event_loop,
+        )
+
+        def _on_done(f: Any) -> None:
+            try:
+                f.result()
+            except Exception as exc:
+                logger.error("Error replaying targeted public metadata: %s", exc)
+
+        future.add_done_callback(_on_done)
+        return True
+
     async def _send_channel_sync_to_peer(self, peer_id: str) -> None:
         """
         Send all local public channels to a newly connected peer.
@@ -4261,7 +4324,13 @@ class P2PNetworkManager:
         except Exception as e:
             logger.error(f"Error sending channel sync to {peer_id}: {e}", exc_info=True)
 
-    async def _send_public_channel_metadata_replay_to_peer(self, peer_id: str) -> None:
+    async def _send_public_channel_metadata_replay_to_peer(
+        self,
+        peer_id: str,
+        channel_ids: Optional[list[str]] = None,
+        reason: str = 'post_connect',
+        request_id: Optional[str] = None,
+    ) -> None:
         """Replay lightweight per-channel metadata so names converge independently."""
         if not self.message_router:
             return
@@ -4270,6 +4339,26 @@ class P2PNetworkManager:
             if not channels:
                 logger.debug("No public channel metadata replay needed for %s", peer_id)
                 return
+
+            requested_ids = {
+                str(channel_id or '').strip()
+                for channel_id in (channel_ids or [])
+                if str(channel_id or '').strip()
+            }
+            if requested_ids:
+                channels = [
+                    ch for ch in channels
+                    if isinstance(ch, dict) and str(ch.get('id') or '').strip() in requested_ids
+                ]
+                if not channels:
+                    logger.info(
+                        "No requested public channel metadata available for %s (request_id=%s reason=%s ids=%s)",
+                        peer_id,
+                        request_id or 'none',
+                        reason,
+                        sorted(requested_ids),
+                    )
+                    return
 
             local_peer_id = str(self.get_peer_id() or '').strip()
             sent = 0
@@ -4302,9 +4391,11 @@ class P2PNetworkManager:
                     sent += 1
             if sent:
                 logger.info(
-                    "Replayed public channel metadata for %d channel(s) to %s",
+                    "Replayed public channel metadata for %d channel(s) to %s (reason=%s request_id=%s)",
                     sent,
                     peer_id,
+                    reason,
+                    request_id or 'none',
                 )
         except Exception as e:
             logger.error(f"Error replaying public channel metadata to {peer_id}: {e}", exc_info=True)

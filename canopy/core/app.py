@@ -2759,6 +2759,20 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
                 creator_hint = str(created_by_user_id or '').strip() or None
                 public_authority_peer = str(created_by_peer or from_peer or '').strip() or str(from_peer or '').strip()
+                pending_key = (str(channel_id or '').strip(), public_authority_peer)
+                pending_reconcile = _pending_placeholder_reconciles.get(pending_key)
+                if pending_reconcile:
+                    logger.info(
+                        "Placeholder reconcile response received for %s from %s "
+                        "(authority=%s request_id=%s incoming_name=%s incoming_type=%s incoming_privacy=%s)",
+                        channel_id,
+                        from_peer,
+                        public_authority_peer,
+                        pending_reconcile.get('request_id') or 'none',
+                        str(name or '').strip() or 'unknown',
+                        str(channel_type or '').strip() or 'unknown',
+                        mode,
+                    )
                 merge_result = channel_manager.merge_or_adopt_channel(
                     remote_id=channel_id,
                     remote_name=name,
@@ -2782,6 +2796,50 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 else:
                     logger.debug(f"Channel announce from {from_peer}: "
                                  f"'{name}' ({channel_id}) already exists, skipped")
+                if pending_reconcile:
+                    try:
+                        with db_manager.get_connection() as conn:
+                            row = conn.execute(
+                                "SELECT name, channel_type, privacy_mode FROM channels WHERE id = ?",
+                                (channel_id,),
+                            ).fetchone()
+                        final_name = str((row['name'] if row and hasattr(row, 'keys') else (row[0] if row else '')) or '').strip()
+                        final_type = str((row['channel_type'] if row and hasattr(row, 'keys') else (row[1] if row else '')) or '').strip()
+                        final_privacy = str((row['privacy_mode'] if row and hasattr(row, 'keys') else (row[2] if row else '')) or '').strip()
+                        finalized = bool(
+                            row
+                            and final_name
+                            and not final_name.startswith('peer-channel-')
+                        )
+                        if finalized:
+                            logger.info(
+                                "Placeholder reconcile finalized for %s "
+                                "(request_id=%s final_name=%s final_type=%s final_privacy=%s)",
+                                channel_id,
+                                pending_reconcile.get('request_id') or 'none',
+                                final_name,
+                                final_type or 'unknown',
+                                final_privacy or 'unknown',
+                            )
+                            _pending_placeholder_reconciles.pop(pending_key, None)
+                        else:
+                            logger.warning(
+                                "Placeholder reconcile finalize incomplete for %s "
+                                "(request_id=%s final_name=%s final_type=%s final_privacy=%s)",
+                                channel_id,
+                                pending_reconcile.get('request_id') or 'none',
+                                final_name or 'missing',
+                                final_type or 'unknown',
+                                final_privacy or 'unknown',
+                            )
+                    except Exception as finalize_err:
+                        logger.warning(
+                            "Placeholder reconcile finalize readback failed for %s "
+                            "(request_id=%s): %s",
+                            channel_id,
+                            pending_reconcile.get('request_id') or 'none',
+                            finalize_err,
+                        )
             except Exception as e:
                 logger.error(f"Failed to handle channel announce: {e}",
                              exc_info=True)
@@ -4412,6 +4470,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
         denied_catchup_audit_ts: dict[tuple[str, str], float] = {}
         denied_catchup_audit_interval_s = 120.0
         _placeholder_reconcile_last_requested: dict[tuple[str, str], float] = {}
+        _pending_placeholder_reconciles: dict[tuple[str, str], dict[str, Any]] = {}
         _PLACEHOLDER_RECONCILE_COOLDOWN_S = 120.0
 
         def _request_public_placeholder_reconcile(
@@ -4448,9 +4507,30 @@ def create_app(config: Optional[Config] = None) -> Flask:
             now = time.time()
             key = (clean_channel_id, clean_origin_peer)
             last_requested = float(_placeholder_reconcile_last_requested.get(key, 0.0) or 0.0)
+            pending_state = _pending_placeholder_reconciles.get(key) or {}
+            if pending_state and now - float(pending_state.get('requested_at', 0.0) or 0.0) >= _PLACEHOLDER_RECONCILE_COOLDOWN_S:
+                logger.warning(
+                    "Placeholder reconcile timed out waiting for authoritative metadata for %s via %s "
+                    "(last_requested_at=%s, last_incoming_name=%s)",
+                    clean_channel_id,
+                    clean_origin_peer,
+                    pending_state.get('requested_at'),
+                    pending_state.get('incoming_name') or 'unknown',
+                )
             if now - last_requested < _PLACEHOLDER_RECONCILE_COOLDOWN_S:
                 return False
             _placeholder_reconcile_last_requested[key] = now
+            request_id = f"reconcile-{clean_channel_id[:12]}-{int(now)}"
+            _pending_placeholder_reconciles[key] = {
+                'channel_id': clean_channel_id,
+                'origin_peer': clean_origin_peer,
+                'observed_from': clean_observed_from or 'unknown',
+                'incoming_name': str(remote_name or '').strip(),
+                'incoming_type': str(remote_type or '').strip(),
+                'incoming_privacy': str(privacy_mode or '').strip(),
+                'requested_at': now,
+                'request_id': request_id,
+            }
 
             logger.info(
                 "Placeholder reconcile started for %s via origin %s "
@@ -4463,10 +4543,45 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 str(privacy_mode or '').strip() or 'unknown',
             )
 
+            send_metadata_request = getattr(p2p_manager, 'send_channel_metadata_request', None)
+            if callable(send_metadata_request):
+                try:
+                    sent = bool(send_metadata_request(
+                        clean_origin_peer,
+                        [clean_channel_id],
+                        request_id=request_id,
+                        reason='placeholder_reconcile',
+                    ))
+                    logger.info(
+                        "Placeholder reconcile request sent for %s to %s "
+                        "(request_id=%s sent=%s)",
+                        clean_channel_id,
+                        clean_origin_peer,
+                        request_id,
+                        sent,
+                    )
+                    if sent:
+                        return True
+                except Exception as reconcile_err:
+                    logger.warning(
+                        "Placeholder reconcile request failed for %s via %s: %s",
+                        clean_channel_id,
+                        clean_origin_peer,
+                        reconcile_err,
+                    )
             trigger_sync = getattr(p2p_manager, 'trigger_peer_sync', None)
             if callable(trigger_sync):
                 try:
-                    return bool(trigger_sync(clean_origin_peer))
+                    fallback = bool(trigger_sync(clean_origin_peer))
+                    logger.info(
+                        "Placeholder reconcile fell back to generic peer sync for %s via %s "
+                        "(request_id=%s sent=%s)",
+                        clean_channel_id,
+                        clean_origin_peer,
+                        request_id,
+                        fallback,
+                    )
+                    return fallback
                 except Exception as reconcile_err:
                     logger.warning(
                         "Placeholder reconcile trigger failed for %s via %s: %s",
@@ -4475,6 +4590,45 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         reconcile_err,
                     )
             return False
+
+        def _on_channel_metadata_request(
+            request_id: Optional[str],
+            channel_ids: list[str],
+            reason: Optional[str],
+            from_peer: Optional[str],
+        ) -> None:
+            clean_peer = str(from_peer or '').strip()
+            normalized_ids = [
+                str(channel_id or '').strip()
+                for channel_id in (channel_ids or [])
+                if str(channel_id or '').strip()
+            ]
+            if not clean_peer or not normalized_ids or not p2p_manager:
+                return
+            logger.info(
+                "Received public channel metadata request from %s "
+                "(request_id=%s reason=%s ids=%s)",
+                clean_peer,
+                str(request_id or '').strip() or 'none',
+                str(reason or '').strip() or 'unknown',
+                normalized_ids,
+            )
+            replay_metadata = getattr(p2p_manager, 'replay_public_channel_metadata_to_peer', None)
+            if callable(replay_metadata):
+                sent = bool(replay_metadata(
+                    clean_peer,
+                    channel_ids=normalized_ids,
+                    reason='metadata_request_response',
+                    request_id=str(request_id or '').strip() or None,
+                ))
+                logger.info(
+                    "Responded to public channel metadata request from %s "
+                    "(request_id=%s sent=%s ids=%s)",
+                    clean_peer,
+                    str(request_id or '').strip() or 'none',
+                    sent,
+                    normalized_ids,
+                )
 
         def _reconcile_existing_public_placeholders_for_peer(peer_id: str) -> int:
             clean_peer = str(peer_id or '').strip()
@@ -4503,6 +4657,9 @@ def create_app(config: Optional[Config] = None) -> Flask:
             return started
 
         channel_manager.public_placeholder_reconcile_callback = _request_public_placeholder_reconcile
+        p2p_manager.on_channel_metadata_request = _on_channel_metadata_request
+        if getattr(p2p_manager, 'message_router', None):
+            p2p_manager.message_router.on_channel_metadata_request = _on_channel_metadata_request
 
         # --- Catch-up request handler ---
         def _on_catchup_request(channel_timestamps, from_peer,

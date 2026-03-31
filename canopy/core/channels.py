@@ -5129,6 +5129,16 @@ class ChannelManager:
                             needs_update = True
                     if needs_update:
                         try:
+                            if old_has_placeholder_marker and remote_has_canonical_name:
+                                logger.info(
+                                    "Placeholder reconcile DB update attempt for %s "
+                                    "(from_peer=%s can_apply=%s old_name=%s new_name=%s)",
+                                    remote_id,
+                                    from_peer,
+                                    can_apply_remote_metadata,
+                                    old_name,
+                                    new_name,
+                                )
                             conn.execute(
                                 """
                                 UPDATE channels
@@ -5170,6 +5180,19 @@ class ChannelManager:
                                 fallback_user_id=local_user_id,
                             )
                             conn.commit()
+                            if old_has_placeholder_marker and remote_has_canonical_name:
+                                readback = conn.execute(
+                                    "SELECT name, channel_type, privacy_mode FROM channels WHERE id = ?",
+                                    (remote_id,),
+                                ).fetchone()
+                                logger.info(
+                                    "Placeholder reconcile DB update committed for %s "
+                                    "(name=%s type=%s privacy=%s)",
+                                    remote_id,
+                                    str((readback['name'] if readback and hasattr(readback, 'keys') else (readback[0] if readback else '')) or '').strip() or 'missing',
+                                    str((readback['channel_type'] if readback and hasattr(readback, 'keys') else (readback[1] if readback else '')) or '').strip() or 'unknown',
+                                    str((readback['privacy_mode'] if readback and hasattr(readback, 'keys') else (readback[2] if readback else '')) or '').strip() or 'unknown',
+                                )
                             self.apply_remote_channel_posting_snapshot(
                                 remote_id,
                                 from_peer,
@@ -5183,7 +5206,7 @@ class ChannelManager:
                                         f"desc updated={old_desc != new_desc}")
                             return remote_id
                         except Exception as ue:
-                            logger.debug(f"Channel update for {remote_id} skipped: {ue}")
+                            logger.warning(f"Channel update for {remote_id} failed: {ue}")
                     # Still set origin_peer if not yet set (only for synced rows).
                     try:
                         if old_created_by == 'p2p-sync':

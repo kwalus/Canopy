@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.27] - 2026-03-30
+
+### Fixed
+- **Placeholder reconcile now asks the origin for exact public channel metadata** — When a trusted non-origin peer surfaces a canonical public name for a stuck `peer-channel-*` row, Canopy now sends a targeted metadata request for that channel ID instead of relying on an incidental full peer sync to eventually carry the rename.
+- **Origin replies now replay only the requested public channel announces** — The reconcile path has a dedicated request/response lane that replays authoritative `CHANNEL_ANNOUNCE` metadata for the requested public channel IDs, so canonical names can land even when heavier sync or catch-up traffic is noisy or delayed.
+- **Finalize failures are now visible and regression-covered** — Added explicit logging around reconcile request send/receive, DB update attempt/commit/readback, timeout handling, and focused tests that verify a placeholder row actually renames after the authoritative announce arrives.
+
 ## [0.5.26] - 2026-03-30
 
 ### Fixed
