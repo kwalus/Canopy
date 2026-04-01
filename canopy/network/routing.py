@@ -588,18 +588,19 @@ class MessageRouter:
             logger.error(f"Decryption failed: {e}", exc_info=True)
             return False
     
-    async def route_message(self, message: P2PMessage) -> bool:
+    async def route_message(self, message: P2PMessage, bypass_seen: bool = False) -> bool:
         """
         Route a message to its destination.
         
         Args:
             message: Message to route
+            bypass_seen: Allow pending-flush retries for already-seen messages
             
         Returns:
             True if routing successful
         """
         # Check if we've seen this message (prevent loops)
-        if message.id in self.seen_messages:
+        if message.id in self.seen_messages and not bypass_seen:
             logger.debug(f"Already seen message {message.id}, skipping")
             return False
 
@@ -2426,7 +2427,7 @@ class MessageRouter:
         logger.info(f"Flushing {len(messages)} pending messages to {peer_id}")
         
         for message in messages:
-            if await self.route_message(message):
+            if await self.route_message(message, bypass_seen=True):
                 sent_count += 1
         
         return sent_count

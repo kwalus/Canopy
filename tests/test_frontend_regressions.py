@@ -98,6 +98,11 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("runTrustPeerAction('{{ peer_id }}', 'sync_now')", trust_template)
         self.assertIn("href=\"#trust-peer-{{ peer.peer_id }}\"", trust_template)
 
+    def test_claim_admin_forms_include_hidden_csrf_token(self) -> None:
+        claim_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'claim_admin.html').read_text(encoding='utf-8')
+        self.assertEqual(claim_template.count('name="csrf_token"'), 2)
+        self.assertIn('value="{{ csrf_token() }}"', claim_template)
+
     def test_connect_forget_peer_mentions_residue_cleanup(self) -> None:
         connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
         self.assertIn('clean stored trust/user residue for that peer', connect_template)

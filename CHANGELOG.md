@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.37] - 2026-03-31
+
+### Fixed
+- **`claim-admin` recovery works from the normal web form again** — Both claim/recovery forms now include the required hidden CSRF token, so authenticated operators no longer hit a misleading generic `403` when trying to claim or recover instance admin through the browser.
+- **Queued targeted messages no longer get dropped when a peer reconnects** — Pending-message flush now bypasses the duplicate-seen gate only for the explicit flush path, which preserves store-and-forward delivery for already-seen local messages without weakening the normal duplicate-loop protection on regular routing.
+
 ## [0.5.36] - 2026-03-31
 
 ### Fixed

@@ -122,6 +122,31 @@ class TestTargetedMeshRelayRouting(unittest.IsolatedAsyncioTestCase):
         self.assertIn("peer-target", router.pending_messages)
         self.assertEqual(len(conn.sent), 0)
 
+    async def test_flush_pending_messages_bypasses_seen_gate(self):
+        conn = _DummyConnectionManager(["peer-target"])
+        router = MessageRouter("peer-local", _DummyIdentityManager(), conn)
+        message = _targeted_message(MessageType.CHANNEL_SYNC)
+        router.pending_messages["peer-target"] = [message]
+        router.seen_messages[message.id] = True
+
+        sent_count = await router.flush_pending_messages("peer-target")
+
+        self.assertEqual(sent_count, 1)
+        self.assertEqual(len(conn.sent), 1)
+        self.assertEqual(conn.sent[0][0], "peer-target")
+        self.assertNotIn("peer-target", router.pending_messages)
+
+    async def test_seen_gate_still_blocks_normal_duplicate_routing(self):
+        conn = _DummyConnectionManager(["peer-target"])
+        router = MessageRouter("peer-local", _DummyIdentityManager(), conn)
+        message = _targeted_message(MessageType.CHANNEL_SYNC)
+        router.seen_messages[message.id] = True
+
+        sent = await router.route_message(message)
+
+        self.assertFalse(sent)
+        self.assertEqual(len(conn.sent), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -17,6 +17,7 @@
                             enter the recovery secret configured by the server administrator (<code>CANOPY_ADMIN_CLAIM_SECRET</code>).
                         </p>
                         <form method="post" action="{{ url_for('ui.claim_admin') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <div class="mb-3">
                                 <label for="secret" class="form-label">Recovery secret</label>
                                 <input type="password" class="form-control" id="secret" name="secret" autocomplete="off" placeholder="Enter recovery secret" required>
@@ -30,6 +31,7 @@
                             You will be able to approve agents, manage users, and transfer admin to someone else later.
                         </p>
                         <form method="post" action="{{ url_for('ui.claim_admin') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <button type="submit" class="btn btn-primary">Claim instance admin</button>
                             <a href="{{ url_for('ui.dashboard') }}" class="btn btn-outline-secondary ms-2">Cancel</a>
                         </form>
