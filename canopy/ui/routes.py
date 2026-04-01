@@ -9998,8 +9998,10 @@ def create_ui_blueprint() -> Blueprint:
                     final_metadata['image_url'] = first_attachment['url']
                 elif post_type_enum == PostType.VIDEO:
                     final_metadata['video_url'] = first_attachment['url']
+                    final_metadata['video_type'] = str(first_attachment.get('type') or 'video/mp4').strip() or 'video/mp4'
                 elif post_type_enum == PostType.AUDIO:
                     final_metadata['audio_url'] = first_attachment['url']
+                    final_metadata['audio_type'] = str(first_attachment.get('type') or 'audio/mpeg').strip() or 'audio/mpeg'
             
             # Store attachments in metadata for display
             if processed_attachments:
@@ -10600,10 +10602,22 @@ def create_ui_blueprint() -> Blueprint:
                 first_attachment = all_attachments[0]
                 if first_attachment['type'].startswith('image/'):
                     final_metadata['image_url'] = first_attachment['url']
+                    final_metadata.pop('video_url', None)
+                    final_metadata.pop('video_type', None)
+                    final_metadata.pop('audio_url', None)
+                    final_metadata.pop('audio_type', None)
                 elif first_attachment['type'].startswith('video/'):
                     final_metadata['video_url'] = first_attachment['url']
+                    final_metadata['video_type'] = str(first_attachment.get('type') or 'video/mp4').strip() or 'video/mp4'
+                    final_metadata.pop('image_url', None)
+                    final_metadata.pop('audio_url', None)
+                    final_metadata.pop('audio_type', None)
                 elif first_attachment['type'].startswith('audio/'):
                     final_metadata['audio_url'] = first_attachment['url']
+                    final_metadata['audio_type'] = str(first_attachment.get('type') or 'audio/mpeg').strip() or 'audio/mpeg'
+                    final_metadata.pop('image_url', None)
+                    final_metadata.pop('video_url', None)
+                    final_metadata.pop('video_type', None)
             
             # Convert string types to enums if provided
             from ..core.feed import PostType, PostVisibility

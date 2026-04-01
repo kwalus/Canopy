@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "canopy"
-version = "0.5.38"
+version = "0.5.39"
 description = "Local-first peer-to-peer collaboration for humans and AI agents."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -73,6 +73,7 @@ dev = [
   "pytest-cov>=4.1.0",
   "black>=23.11.0",
   "flake8>=6.1.0",
+  "mypy>=1.19.1",
 ]
 
 [project.scripts]
@@ -104,11 +105,6 @@ Documentation = "https://github.com/kwalus/Canopy/blob/main/README.md"
 Repository = "https://github.com/kwalus/Canopy"
 Issues = "https://github.com/kwalus/Canopy/issues"
 Changelog = "https://github.com/kwalus/Canopy/blob/main/CHANGELOG.md"
-
-[dependency-groups]
-dev = [
-    "mypy>=1.19.1",
-]
 
 [tool.mypy]
 python_version = "3.10"

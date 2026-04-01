@@ -131,6 +131,12 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('external_endpoint=', connect_template)
         self.assertIn('Regenerated with external endpoint!', connect_template)
 
+    def test_feed_video_surfaces_preserve_actual_video_mime_type(self) -> None:
+        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        self.assertIn("metadata.video_type = firstType || 'video/mp4';", feed_template)
+        self.assertIn("type=\"{{ post.metadata.video_type or 'video/mp4' }}\"", feed_template)
+        self.assertIn("type=\"{{ em.get('video_type') or 'video/mp4' }}\"", feed_template)
+
     def test_settings_device_profile_precedes_system_information(self) -> None:
         settings_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'settings.html').read_text(encoding='utf-8')
         device_pos = settings_template.find('Device Profile')
@@ -151,6 +157,14 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("function setReplyFromButton(button)", channels_template)
         self.assertIn("onclick=\"setReplyFromButton(this)\"", channels_template)
         self.assertNotIn("onclick=\"setReplyTo('${message.id}'", channels_template)
+
+    def test_channel_thread_rendering_keeps_parent_context_and_depth(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        self.assertIn("function buildChannelThreadLayout(messages)", channels_template)
+        self.assertIn('class="thread-reply-context"', channels_template)
+        self.assertIn('data-thread-root-id="${threadRootId}"', channels_template)
+        self.assertIn('data-thread-depth="${threadDepth}"', channels_template)
+        self.assertIn("Replying to ${parentAuthor}", channels_template)
 
     def test_create_channel_defaults_to_private_and_resets_to_private(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')

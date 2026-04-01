@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.39] - 2026-04-01
+
+### Fixed
+- **Channel threads are easier to follow in deeper reply chains** — Channel replies now keep depth-aware indentation, direct parent context, and branch-aware ordering so reply-to-reply conversations stay visually attached to the message they answered instead of flattening into one ambiguous lane.
+- **Feed and repost video embeds now preserve real attachment MIME types** — Feed posts and repost previews now carry through the actual stored `video_type` / `audio_type`, which stops `.mov` uploads from being forced into `video/mp4` on those surfaces and improves inline playback compatibility when the browser supports the codec.
+
 ## [0.5.38] - 2026-04-01
 
 ### Fixed
@@ -23,7 +29,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 ## [0.5.36] - 2026-03-31
 
 ### Fixed
-- **Sparse public-channel history can now repair older holes instead of stalling at the newest local watermark** — Catch-up requests now include bounded channel history hints, and reconnect-time catch-up can return capped older public messages when a peer's local copy looks partial, which addresses incomplete backfill cases like Windy's `#aviation` gap without requiring oversized replay payloads.
+- **Sparse public-channel history can now repair older holes instead of stalling at the newest local watermark** — Catch-up requests now include bounded channel history hints, and reconnect-time catch-up can return capped older public messages when a peer's local copy looks partial, which addresses sparse backfill gaps without requiring oversized replay payloads.
 - **Trust review cards now expose remediation actions instead of only warning badges** — The Trust page now gives flagged peers direct `Connect`/`Reconnect`, `Sync now`, and `Refresh profile` actions, plus jump links from the review lane back to the full card, so operators can act on missing labels, stale sockets, and profile drift from the page that surfaced the issue.
 
 ## [0.5.35] - 2026-03-31
@@ -597,7 +603,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - **Version bump** — release-candidate alignment for current local testing; no functional runtime change in this commit.
 
 ### Documentation
-- **Agent note (local only)** — `agent_note/AGENT_NOTE_CANOPY_MODULE_RUNTIME_V1_SCAFFOLD_2026-03-20.md` revised: repo-relative paths, explicit capability allowlist and gating (`context.get` vs broker methods), `CanopyModule` API, CSP/sandbox notes, link to `docs/CANOPY_MODULE_RUNTIME_V1.md`.
+- **Canopy Modules runtime docs refined** — Runtime guidance was tightened around repo-relative paths, explicit capability allowlists, `context.get` gating, the `CanopyModule` API surface, and CSP/sandbox notes in the public module runtime docs.
 
 ## [0.4.120] - 2026-03-20
 

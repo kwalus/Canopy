@@ -1181,13 +1181,43 @@
 
     /* Threading styles */
     .thread-reply {
-        margin-left: 44px;
-        padding-left: 12px;
+        --thread-depth: 1;
+        margin-left: calc(24px + (min(var(--thread-depth), 4) - 1) * 18px);
+        padding-left: 14px;
         border-left: 2px solid var(--canopy-border);
-        opacity: 0.92;
+        opacity: 0.96;
         font-size: 0.95em;
     }
     .thread-reply .user-avatar { width: 28px !important; height: 28px !important; }
+    .thread-reply-context {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        min-width: 0;
+        margin-bottom: 0.45rem;
+        padding: 0.35rem 0.55rem;
+        border-radius: 0.65rem;
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 78%, transparent);
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 72%, transparent);
+        color: var(--canopy-text-secondary);
+        font-size: 0.78rem;
+        line-height: 1.3;
+    }
+    .thread-reply-context i {
+        flex-shrink: 0;
+        color: var(--canopy-primary);
+    }
+    .thread-reply-context-label {
+        flex-shrink: 0;
+        font-weight: 600;
+        color: var(--canopy-text-primary);
+    }
+    .thread-reply-context-preview {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
     .thread-toggle {
         cursor: pointer;
         color: var(--canopy-primary);
@@ -7078,51 +7108,11 @@ function displayMessages(messages, options = {}) {
     noMoreOlderMessages = messages.length < OLDER_MESSAGES_LIMIT;
     loadingOlderMessages = false;
 
-    // --- Threading: separate root messages from replies ---
-    // Build id→message lookup so we can walk parent chains
-    const msgById = {};
-    messages.forEach(m => { msgById[m.id] = m; });
-
-    // Resolve the thread root for a message by walking parent_message_id
-    function threadRoot(m) {
-        let cur = m;
-        const visited = new Set();
-        while (cur && cur.parent_message_id && msgById[cur.parent_message_id] && !visited.has(cur.parent_message_id)) {
-            visited.add(cur.id);
-            cur = msgById[cur.parent_message_id];
-        }
-        return cur;
-    }
-
-    const rootMessages = [];
-    const repliesByRoot = {};   // root_message_id -> [reply, ...]
-
-    messages.forEach(m => {
-        if (m.parent_message_id) {
-            const root = threadRoot(m);
-            const rootId = root.id;
-            if (!repliesByRoot[rootId])
-                repliesByRoot[rootId] = [];
-            repliesByRoot[rootId].push(m);
-        } else {
-            rootMessages.push(m);
-        }
-    });
-
-    // Sort replies within each thread by created_at so order is stable
-    Object.keys(repliesByRoot).forEach(rid => {
-        repliesByRoot[rid].sort((a, b) => {
-            const ta = (a.created_at || '').toString();
-            const tb = (b.created_at || '').toString();
-            return ta.localeCompare(tb);
-        });
-    });
-    // Sort roots by created_at so replies always render under the correct parent
-    rootMessages.sort((a, b) => {
-        const ta = (a.created_at || '').toString();
-        const tb = (b.created_at || '').toString();
-        return ta.localeCompare(tb);
-    });
+    const threadLayout = buildChannelThreadLayout(messages);
+    const rootMessages = threadLayout.rootMessages;
+    const repliesByRoot = threadLayout.repliesByRoot;
+    const replyMetaById = threadLayout.replyMetaById;
+    const orphanRootIds = threadLayout.orphanRootIds;
 
     // Get unique user IDs for avatar fetching (authors + task assignees)
     const userIdSet = new Set(messages.map(m => m.user_id));
@@ -7152,7 +7142,7 @@ function displayMessages(messages, options = {}) {
             let html = '';
 
             rootMessages.forEach(message => {
-                html += renderMessage(message, userInfo, false);
+                html += renderMessage(message, userInfo, replyMetaById[message.id] || false);
 
                 // Render all threaded replies (including reply-to-reply) under the root
                 const replies = repliesByRoot[message.id];
@@ -7164,21 +7154,19 @@ function displayMessages(messages, options = {}) {
                         <i class="bi bi-chat-dots me-1"></i>${replies.length} replies &mdash; click to expand
                     </div>`;
                         html += `<div class="thread-replies-hidden" style="display:none;">`;
-                        replies.slice(0, hidden).forEach(r => { html += renderMessage(r, userInfo, true); });
+                        replies.slice(0, hidden).forEach(r => { html += renderMessage(r, userInfo, replyMetaById[r.id] || true); });
                         html += `</div>`;
-                        replies.slice(hidden).forEach(r => { html += renderMessage(r, userInfo, true); });
+                        replies.slice(hidden).forEach(r => { html += renderMessage(r, userInfo, replyMetaById[r.id] || true); });
                     } else {
-                        replies.forEach(r => { html += renderMessage(r, userInfo, true); });
+                        replies.forEach(r => { html += renderMessage(r, userInfo, replyMetaById[r.id] || true); });
                     }
                 }
             });
 
             // Render orphan replies whose thread root isn't in view (O(n) via Set)
-            const rootIdSet = new Set(rootMessages.map(m => m.id));
-            Object.keys(repliesByRoot).forEach(rid => {
-                if (!rootIdSet.has(rid)) {
-                    repliesByRoot[rid].forEach(r => { html += renderMessage(r, userInfo, true); });
-                }
+            orphanRootIds.forEach(rid => {
+                const replies = repliesByRoot[rid] || [];
+                replies.forEach(r => { html += renderMessage(r, userInfo, replyMetaById[r.id] || true); });
             });
 
             // Prepend "Load older" banner if there may be more messages
@@ -7429,8 +7417,15 @@ function renderChannelVariantCard(message) {
 
 function renderMessage(message, userInfo, isReply) {
     const user = userInfo[message.user_id] || { display_name: message.user_id, avatar_url: null };
-    const replyClass = isReply ? 'thread-reply' : '';
-    const avatarSize = isReply ? '28' : '36';
+    const replyState = (isReply && typeof isReply === 'object')
+        ? isReply
+        : { isReply: !!isReply, depth: !!isReply ? 1 : 0, threadRootId: !!isReply ? (message.parent_message_id || message.id) : message.id };
+    const isThreadReply = !!replyState.isReply;
+    const replyClass = isThreadReply ? 'thread-reply' : '';
+    const threadDepth = Math.max(0, Number(replyState.depth) || 0);
+    const threadRootId = escapeHtml(String(replyState.threadRootId || message.id || ''));
+    const parentMessageId = escapeHtml(String(replyState.parentMessageId || message.parent_message_id || ''));
+    const avatarSize = isThreadReply ? '28' : '36';
     const isUnknownPeer = user.display_name && user.display_name.startsWith('peer-');
     const unknownBadge = isUnknownPeer ? 
         `<span class="badge bg-secondary bg-opacity-25 text-muted" style="font-size:0.65rem; font-weight:normal; padding:2px 5px;" title="This user's profile has not been synced yet"><i class="bi bi-question-circle me-1"></i>unknown peer</span>` : '';
@@ -7507,9 +7502,21 @@ function renderMessage(message, userInfo, isReply) {
     const sourceLayoutAttr = message.source_layout
         ? ` data-canopy-source-layout="${String(JSON.stringify(message.source_layout || {})).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')}"`
         : '';
+    let replyContextHtml = '';
+    if (isThreadReply && replyState.parentAuthorId) {
+        const parentAuthorInfo = userInfo[replyState.parentAuthorId] || {};
+        const parentAuthor = escapeHtml(String(parentAuthorInfo.display_name || parentAuthorInfo.username || replyState.parentAuthorId || 'Unknown'));
+        const parentPreview = escapeHtml(String(replyState.parentPreview || '(attachment)').replace(/\s+/g, ' ').trim());
+        replyContextHtml = `
+                <div class="thread-reply-context" role="note" aria-label="Reply context">
+                    <i class="bi bi-arrow-return-right" aria-hidden="true"></i>
+                    <span class="thread-reply-context-label">Replying to ${parentAuthor}</span>
+                    <span class="thread-reply-context-preview">${parentPreview}</span>
+                </div>`;
+    }
 
     return `
-    <div class="message-item message-card ${replyClass}" data-message-id="${message.id}">
+    <div class="message-item message-card ${replyClass}" data-message-id="${message.id}" data-thread-root-id="${threadRootId}" data-thread-depth="${threadDepth}"${isThreadReply ? ` data-parent-message-id="${parentMessageId}" style="--thread-depth:${Math.min(threadDepth, 4)};"` : ''}>
         <div class="d-flex align-items-start">
             <div class="user-avatar me-3" style="width: ${avatarSize}px; height: ${avatarSize}px;"
                  data-user-id="${message.user_id}"
@@ -7524,6 +7531,7 @@ function renderMessage(message, userInfo, isReply) {
                 }
             </div>
             <div class="flex-grow-1">
+                ${replyContextHtml}
                 <div class="d-flex align-items-center gap-2 mb-1">
                     <strong>${user.display_name}</strong>
                     ${unknownBadge}
@@ -9425,25 +9433,8 @@ function appendNewMessages(allMessages) {
         existingIds.add(el.getAttribute('data-message-id'));
     });
 
-    // Build id→message lookup for parent-chain walking
-    const allById = {};
-    allMessages.forEach(m => { if (m && m.id) allById[m.id] = m; });
-
-    function findThreadRoot(m) {
-        let cur = m;
-        const visited = new Set();
-        while (
-            cur &&
-            cur.parent_message_id &&
-            !visited.has(cur.parent_message_id)
-        ) {
-            const parent = allById[cur.parent_message_id] || channelMessageCache[cur.parent_message_id];
-            if (!parent) break;
-            visited.add(cur.id);
-            cur = parent;
-        }
-        return cur;
-    }
+    const threadLayout = buildChannelThreadLayout(allMessages);
+    const replyMetaById = threadLayout.replyMetaById;
 
     // Separate new root messages and new replies (grouped by thread root)
     const newRoots = [];
@@ -9454,9 +9445,9 @@ function appendNewMessages(allMessages) {
         if (existingIds.has(m.id) || channelMessageRenderInFlight.has(m.id)) return; // already rendered (or queued)
         channelMessageRenderInFlight.add(m.id);
         reservedIds.add(m.id);
-        if (m.parent_message_id) {
-            const root = findThreadRoot(m);
-            const rootId = root && root.id ? root.id : m.parent_message_id;
+        const meta = replyMetaById[m.id] || { isReply: !!m.parent_message_id, threadRootId: m.parent_message_id || m.id };
+        if (meta.isReply) {
+            const rootId = meta.threadRootId || m.parent_message_id;
             if (!newReplies[rootId]) newReplies[rootId] = [];
             newReplies[rootId].push(m);
         } else {
@@ -9491,7 +9482,7 @@ function appendNewMessages(allMessages) {
         // Append new root messages at the end
         if (newRoots.length > 0) {
             let html = '';
-            newRoots.forEach(m => { html += renderMessage(m, userInfo, false); });
+            newRoots.forEach(m => { html += renderMessage(m, userInfo, replyMetaById[m.id] || false); });
             const fragment = document.createElement('div');
             fragment.innerHTML = html;
             while (fragment.firstChild) {
@@ -9510,26 +9501,33 @@ function appendNewMessages(allMessages) {
         // Append new replies after their thread root
         Object.keys(newReplies).forEach(rootId => {
             const replies = newReplies[rootId];
-            replies.sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''));
+            replies.sort((a, b) => {
+                const da = Number((replyMetaById[a.id] || {}).depth || 0);
+                const db = Number((replyMetaById[b.id] || {}).depth || 0);
+                if (da !== db) return da - db;
+                return (a.created_at || '').localeCompare(b.created_at || '');
+            });
             let html = '';
-            replies.forEach(r => { html += renderMessage(r, userInfo, true); });
+            replies.forEach(r => { html += renderMessage(r, userInfo, replyMetaById[r.id] || true); });
             const fragment = document.createElement('div');
             fragment.innerHTML = html;
 
-            // Find the thread root message or last sibling reply in the DOM
-            const rootEl = messagesContainer.querySelector(
-                `.message-item[data-message-id="${rootId}"]`
-            );
-            if (!rootEl) {
-                // If the parent/root is not in the DOM, fall back to a full render
-                // to avoid orphaned replies being appended as loose bottom items.
+            const firstReplyMeta = replies.length > 0 ? (replyMetaById[replies[0].id] || null) : null;
+            const anchorId = (firstReplyMeta && firstReplyMeta.parentMessageId) ? firstReplyMeta.parentMessageId : rootId;
+            const anchorEl = messagesContainer.querySelector(`.message-item[data-message-id="${CSS.escape(anchorId)}"]`);
+            if (!anchorEl) {
                 needsFullReload = true;
                 return;
             }
-            let insertAfter = rootEl;
-            // Walk forward to find the last existing reply in this thread
-            let sibling = rootEl.nextElementSibling;
-            while (sibling && sibling.classList.contains('thread-reply')) {
+            let insertAfter = anchorEl;
+            const anchorDepth = parseInt(anchorEl.getAttribute('data-thread-depth') || '0', 10);
+            let sibling = anchorEl.nextElementSibling;
+            while (sibling) {
+                const siblingRoot = String(sibling.getAttribute('data-thread-root-id') || '').trim();
+                const siblingDepth = parseInt(sibling.getAttribute('data-thread-depth') || '0', 10);
+                if (siblingRoot !== rootId) break;
+                if (!sibling.classList.contains('thread-reply')) break;
+                if (siblingDepth <= anchorDepth) break;
                 insertAfter = sibling;
                 sibling = sibling.nextElementSibling;
             }
@@ -9550,7 +9548,7 @@ function appendNewMessages(allMessages) {
             }
         });
 
-        if (needsFullReload) {
+            if (needsFullReload) {
             displayMessages(allMessages, { forceScroll: wasNearBottom });
             return;
         }
@@ -9581,6 +9579,117 @@ function appendNewMessages(allMessages) {
     });
 
     return true;
+}
+
+function buildChannelThreadLayout(messages) {
+    const msgById = {};
+    (messages || []).forEach((message) => {
+        if (message && message.id) msgById[message.id] = message;
+    });
+
+    function getKnownMessage(messageId) {
+        const cleanId = String(messageId || '').trim();
+        if (!cleanId) return null;
+        return msgById[cleanId] || channelMessageCache[cleanId] || null;
+    }
+
+    function summarizeMessage(message) {
+        if (!message) return '(attachment)';
+        const raw = String(message.display_content || message.content || '').replace(/\s+/g, ' ').trim();
+        if (raw) return raw.slice(0, 96);
+        if (Array.isArray(message.attachments) && message.attachments.length > 0) return '(attachment)';
+        if (message.source_layout) return '(source item)';
+        return '(attachment)';
+    }
+
+    function describeMessage(message) {
+        if (!message || !message.id || !message.parent_message_id) {
+            return {
+                isReply: false,
+                depth: 0,
+                threadRootId: message && message.id ? message.id : '',
+                parentMessageId: '',
+                parentAuthorId: '',
+                parentPreview: '',
+            };
+        }
+        let depth = 0;
+        let cur = message;
+        let root = message;
+        const visited = new Set();
+        const parent = getKnownMessage(message.parent_message_id);
+        while (cur && cur.parent_message_id && !visited.has(cur.parent_message_id)) {
+            const next = getKnownMessage(cur.parent_message_id);
+            if (!next) break;
+            visited.add(cur.parent_message_id);
+            depth += 1;
+            root = next;
+            cur = next;
+        }
+        return {
+            isReply: true,
+            depth: Math.max(1, depth || 1),
+            threadRootId: root && root.id ? root.id : String(message.parent_message_id || message.id || ''),
+            parentMessageId: String(message.parent_message_id || '').trim(),
+            parentAuthorId: parent ? String(parent.user_id || '').trim() : '',
+            parentPreview: summarizeMessage(parent),
+        };
+    }
+
+    const rootMessages = [];
+    const childrenByParent = {};
+    const replyMetaById = {};
+
+    (messages || []).forEach((message) => {
+        if (!message || !message.id) return;
+        const meta = describeMessage(message);
+        replyMetaById[message.id] = meta;
+        if (meta.isReply) {
+            const parentId = meta.parentMessageId;
+            if (!childrenByParent[parentId]) childrenByParent[parentId] = [];
+            childrenByParent[parentId].push(message);
+        } else {
+            rootMessages.push(message);
+        }
+    });
+
+    rootMessages.sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''));
+    Object.values(childrenByParent).forEach((items) => {
+        items.sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''));
+    });
+
+    function flattenChildren(parentId) {
+        const ordered = [];
+        const children = childrenByParent[parentId] || [];
+        children.forEach((child) => {
+            ordered.push(child);
+            flattenChildren(child.id).forEach((nested) => ordered.push(nested));
+        });
+        return ordered;
+    }
+
+    const repliesByRoot = {};
+    rootMessages.forEach((root) => {
+        repliesByRoot[root.id] = flattenChildren(root.id);
+    });
+
+    const rootIdSet = new Set(rootMessages.map((message) => message.id));
+    const orphanRootIds = [];
+    Object.keys(replyMetaById).forEach((messageId) => {
+        const meta = replyMetaById[messageId];
+        if (!meta || !meta.isReply) return;
+        if (rootIdSet.has(meta.threadRootId)) return;
+        if (orphanRootIds.includes(meta.threadRootId)) return;
+        orphanRootIds.push(meta.threadRootId);
+        repliesByRoot[meta.threadRootId] = flattenChildren(meta.threadRootId);
+    });
+
+    return {
+        rootMessages,
+        repliesByRoot,
+        replyMetaById,
+        orphanRootIds,
+    };
 }
 
 /**
@@ -9634,34 +9743,11 @@ function loadOlderMessages() {
                 return;
             }
 
-            // Separate roots and replies (walk parent chain to find thread root)
-            const olderById = {};
-            newMsgs.forEach(m => { if (m && m.id) olderById[m.id] = m; });
-            function olderThreadRoot(m) {
-                let cur = m;
-                const visited = new Set();
-                while (cur && cur.parent_message_id && olderById[cur.parent_message_id] && !visited.has(cur.parent_message_id)) {
-                    visited.add(cur.id);
-                    cur = olderById[cur.parent_message_id];
-                }
-                return cur;
-            }
-            const roots = [];
-            const replies = {};
-            newMsgs.forEach(m => {
-                if (m.parent_message_id) {
-                    const root = olderThreadRoot(m);
-                    const rootId = root.id;
-                    if (!replies[rootId]) replies[rootId] = [];
-                    replies[rootId].push(m);
-                } else {
-                    roots.push(m);
-                }
-            });
-            roots.sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''));
-            Object.values(replies).forEach(arr =>
-                arr.sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''))
-            );
+            const olderThreadLayout = buildChannelThreadLayout(newMsgs);
+            const roots = olderThreadLayout.rootMessages;
+            const replies = olderThreadLayout.repliesByRoot;
+            const replyMetaById = olderThreadLayout.replyMetaById;
+            const orphanRootIds = olderThreadLayout.orphanRootIds;
 
             // Get user info
             const userIds = [...new Set(newMsgs.map(m => m.user_id))];
@@ -9682,15 +9768,13 @@ function loadOlderMessages() {
 
                 let html = '';
                 roots.forEach(m => {
-                    html += renderMessage(m, userInfo, false);
+                    html += renderMessage(m, userInfo, replyMetaById[m.id] || false);
                     const reps = replies[m.id];
-                    if (reps) reps.forEach(r => { html += renderMessage(r, userInfo, true); });
+                    if (reps) reps.forEach(r => { html += renderMessage(r, userInfo, replyMetaById[r.id] || true); });
                 });
                 // Orphan replies whose root isn't in this batch
-                Object.keys(replies).forEach(rid => {
-                    if (!roots.find(m => m.id === rid)) {
-                        replies[rid].forEach(r => { html += renderMessage(r, userInfo, true); });
-                    }
+                orphanRootIds.forEach(rid => {
+                    (replies[rid] || []).forEach(r => { html += renderMessage(r, userInfo, replyMetaById[r.id] || true); });
                 });
 
                 const scrollContainer = document.getElementById('messages-container');
