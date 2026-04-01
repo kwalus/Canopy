@@ -76,10 +76,25 @@ QUICK_START.txt
 docs/DEPLOY_GITHUB.md
 docs/COPILOT_*.md
 docs/TRACE_*.md
+docs/findings_*.md
 
 # Internal milestone / one-off announce docs (local only — do not push)
 P2P_MILESTONE.md
 scripts/announce_*.txt
+start_canopy_mcp.sh
+scripts/post_canopy_dev_bot_announcement.py
+scripts/setup_canopy_dev_bot_and_post.py
+scripts/create_copilot_review_issues_mcp.py
+scripts/create_launch_hardening_issues_mcp.py
+scripts/create_ui_ux_review_issues_mcp.py
+scripts/merge_copilot_prs.py
+scripts/cleanup_github_repo.py
+scripts/recover_db_lock.py
+scripts/test_channel_image_and_delete.py
+scripts/post_inbox_audit_request_to_general.py
+scripts/fetch_recent_general_messages.py
+scripts/post_tool_tips_to_general.py
+scripts/post_poll_example_to_general.py
 docs/P2P_ARCHITECTURE.md
 docs/P2P_IMPLEMENTATION.md
 build_handover_zip.py
