@@ -676,15 +676,15 @@
                 <div class="trust-brief-actions">
                     <a class="btn btn-outline-light btn-sm" href="#trust-peer-{{ peer.peer_id }}">Open card</a>
                     {% if peer.can_connect_now %}
-                        <button type="button" class="btn btn-outline-primary btn-sm" onclick="runTrustPeerAction('{{ peer.peer_id }}', 'connect_introduced')">Connect</button>
+                        <button type="button" class="btn btn-outline-primary btn-sm" onclick="runTrustPeerAction('{{ peer.peer_id }}', 'connect_introduced', this)">Connect</button>
                     {% elif peer.can_reconnect %}
-                        <button type="button" class="btn btn-outline-primary btn-sm" onclick="runTrustPeerAction('{{ peer.peer_id }}', 'reconnect')">Reconnect</button>
+                        <button type="button" class="btn btn-outline-primary btn-sm" onclick="runTrustPeerAction('{{ peer.peer_id }}', 'reconnect', this)">Reconnect</button>
                     {% endif %}
                     {% if peer.can_sync_now %}
-                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="runTrustPeerAction('{{ peer.peer_id }}', 'sync_now')">Sync now</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="runTrustPeerAction('{{ peer.peer_id }}', 'sync_now', this)">Sync now</button>
                     {% endif %}
                     {% if peer.can_refresh_profile %}
-                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="runTrustPeerAction('{{ peer.peer_id }}', 'refresh_profile')">Refresh profile</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="runTrustPeerAction('{{ peer.peer_id }}', 'refresh_profile', this)">Refresh profile</button>
                     {% endif %}
                 </div>
             {% endif %}
@@ -750,6 +750,9 @@
 
         <div class="trust-peer-footer">
             <select class="trust-tier-select" data-peer-id="{{ peer.peer_id }}">
+                {% if tier == 'potential' %}
+                    <option value="" selected disabled>Assign tier...</option>
+                {% endif %}
                 <option value="safe" {% if tier == 'safe' %}selected{% endif %}>Safe</option>
                 <option value="guarded" {% if tier == 'guarded' %}selected{% endif %}>Guarded</option>
                 <option value="restricted" {% if tier == 'restricted' %}selected{% endif %}>Restricted</option>
@@ -757,21 +760,21 @@
             </select>
             <div class="trust-peer-actions">
                 {% if peer.can_connect_now %}
-                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="runTrustPeerAction('{{ peer_id }}', 'connect_introduced')">
+                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="runTrustPeerAction('{{ peer_id }}', 'connect_introduced', this)">
                         Connect
                     </button>
                 {% elif peer.can_reconnect %}
-                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="runTrustPeerAction('{{ peer_id }}', 'reconnect')">
+                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="runTrustPeerAction('{{ peer_id }}', 'reconnect', this)">
                         Reconnect
                     </button>
                 {% endif %}
                 {% if peer.can_sync_now %}
-                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="runTrustPeerAction('{{ peer_id }}', 'sync_now')">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="runTrustPeerAction('{{ peer_id }}', 'sync_now', this)">
                         Sync now
                     </button>
                 {% endif %}
                 {% if peer.can_refresh_profile %}
-                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="runTrustPeerAction('{{ peer_id }}', 'refresh_profile')">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="runTrustPeerAction('{{ peer_id }}', 'refresh_profile', this)">
                         Refresh profile
                     </button>
                 {% endif %}
@@ -1108,10 +1111,13 @@
         });
     }
 
-    function runTrustPeerAction(peerId, action) {
+    function runTrustPeerAction(peerId, action, triggerEl) {
         const cleanPeerId = String(peerId || '').trim();
         const cleanAction = String(action || '').trim();
         if (!cleanPeerId || !cleanAction) return;
+        if (triggerEl) {
+            triggerEl.disabled = true;
+        }
         apiCall('/trust/peer_action', {
             method: 'POST',
             body: JSON.stringify({
@@ -1126,6 +1132,9 @@
             }
         })
         .catch(error => {
+            if (triggerEl) {
+                triggerEl.disabled = false;
+            }
             showAlert(error.error || 'Peer action failed', 'danger');
         });
     }
@@ -1251,7 +1260,7 @@
         .then(data => {
             if (data.status === 'forgotten' || data.status === 'not_found') {
                 showAlert('Peer removed and local residue cleaned up.', 'success');
-                setTimeout(refreshTrust, 150);
+                setTimeout(refreshTrust, 1500);
             } else {
                 showAlert(data.message || 'Failed to remove peer', 'danger');
             }

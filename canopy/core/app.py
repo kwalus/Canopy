@@ -4774,10 +4774,6 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         continue
                     bounds = local_bounds.get(ch_id) or {}
                     local_oldest = str(bounds.get('oldest') or '').strip()
-                    try:
-                        local_count = int(bounds.get('message_count') or 0)
-                    except Exception:
-                        local_count = 0
                     remote_digest = remote_digest_channels.get(ch_id)
                     local_digest = local_digest_channels.get(ch_id)
                     if remote_digest is not None:
@@ -4814,10 +4810,6 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     peer_latest = channel_timestamps.get(ch_id)
                     peer_range = remote_channel_ranges.get(ch_id) if isinstance(remote_channel_ranges.get(ch_id), dict) else {}
                     peer_oldest = str((peer_range or {}).get('oldest') or '').strip()
-                    try:
-                        peer_count = int((peer_range or {}).get('message_count') or 0)
-                    except Exception:
-                        peer_count = 0
                     should_send_incremental = False
                     since = ''
                     if peer_latest is None:
@@ -4839,7 +4831,6 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         bool(peer_oldest)
                         and bool(local_oldest)
                         and local_oldest < peer_oldest
-                        and local_count > max(peer_count, 0)
                     )
                     if should_backfill:
                         older_msgs = channel_manager.get_messages_before(ch_id, peer_oldest, limit=50)

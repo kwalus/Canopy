@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.38] - 2026-04-01
+
+### Fixed
+- **Trust review actions are clearer and less error-prone during operator triage** — Peers with no reconnectable endpoints now surface that state directly, untiered peers no longer look implicitly `Safe`, review-action buttons disable while requests are in flight, and the forget-peer success notice stays visible long enough to confirm the action before reload.
+- **Sparse public-history repair no longer depends on the wrong message-count heuristic** — Bounded catch-up backfill now triggers whenever the local node has genuinely older public history than the remote peer, even if both sides happen to report the same total message count.
+
 ## [0.5.37] - 2026-03-31
 
 ### Fixed

@@ -319,6 +319,66 @@ class TestTrustProfileRecovery(unittest.TestCase):
         self.assertTrue(payload.get('success'))
         p2p_manager.trigger_peer_sync.assert_called_once_with('peer-1')
 
+    def test_trust_view_marks_introduced_peer_with_no_endpoints_for_attention(self) -> None:
+        trust_manager = _FakeTrustManager()
+        trust_manager.get_all_trust_scores = MagicMock(return_value={})
+        trust_manager.get_trust_statistics = MagicMock(return_value={})
+        trust_manager.get_pending_delete_signals = MagicMock(return_value=[])
+        trust_manager.get_trusted_peers = MagicMock(return_value=[])
+
+        channel_manager = MagicMock()
+        channel_manager.get_all_peer_device_profiles.return_value = {}
+
+        p2p_manager = MagicMock()
+        p2p_manager.get_connected_peers.return_value = []
+        p2p_manager.get_introduced_peers.return_value = [
+            {'peer_id': 'peer-1', 'introduced_by': 'peer-2', 'public_identity': {'node_name': 'Peer One'}}
+        ]
+        p2p_manager.get_peer_id.return_value = 'peer-local'
+        p2p_manager.get_peer_public_identity.return_value = {'node_name': 'Peer One'}
+        p2p_manager.identity_manager = types.SimpleNamespace(
+            known_peers={},
+            peer_display_names={},
+            peer_endpoints={},
+        )
+
+        components = (
+            MagicMock(),
+            MagicMock(),
+            trust_manager,
+            MagicMock(),
+            channel_manager,
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            p2p_manager,
+        )
+
+        patcher = patch('canopy.ui.routes._get_app_components_any', return_value=components)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+        app = Flask(__name__)
+        app.config['TESTING'] = True
+        app.secret_key = 'test-secret'
+        app.register_blueprint(create_ui_blueprint())
+        client = app.test_client()
+
+        with client.session_transaction() as sess:
+            sess['authenticated'] = True
+            sess['user_id'] = 'owner'
+            sess['username'] = 'owner'
+            sess['_csrf_token'] = 'csrf-trust-view'
+
+        response = client.get('/trust')
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn('No endpoints', body)
+        self.assertNotIn("runTrustPeerAction('peer-1', 'connect_introduced', this)", body)
+
 
 if __name__ == '__main__':
     unittest.main()

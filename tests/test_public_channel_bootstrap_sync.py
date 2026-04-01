@@ -297,6 +297,65 @@ class TestPublicChannelBootstrapSync(unittest.TestCase):
         delivered_oldest = next(msg for msg in payload['messages'] if msg.get('id') == rows[0]['id'])
         self.assertEqual(delivered_oldest.get('created_at'), oldest_ts)
 
+    def test_trusted_catchup_backfill_does_not_require_higher_local_message_count(self) -> None:
+        self.trust_manager.set_trust_score('peer-origin', 100, reason='test-trusted')
+
+        public_channel = self.channel_manager.create_channel(
+            name='aviation-equal-count',
+            channel_type=ChannelType.PUBLIC,
+            created_by='owner-user',
+            description='public room',
+            privacy_mode='open',
+        )
+        assert public_channel is not None
+        self.channel_manager.send_message(channel_id=public_channel.id, user_id='owner-user', content='older local message')
+        self.channel_manager.send_message(channel_id=public_channel.id, user_id='owner-user', content='newer local message')
+        with self.db_manager.get_connection() as conn:
+            inserted_rows = conn.execute(
+                "SELECT id, content FROM channel_messages WHERE channel_id = ? ORDER BY rowid ASC",
+                (public_channel.id,),
+            ).fetchall()
+            older_id = next(row['id'] for row in inserted_rows if row['content'] == 'older local message')
+            newer_id = next(row['id'] for row in inserted_rows if row['content'] == 'newer local message')
+            conn.execute(
+                "UPDATE channel_messages SET created_at = ? WHERE id = ?",
+                ('2026-03-28 09:00:00', older_id),
+            )
+            conn.execute(
+                "UPDATE channel_messages SET created_at = ? WHERE id = ?",
+                ('2026-03-31 09:00:00', newer_id),
+            )
+            conn.commit()
+
+        with self.db_manager.get_connection() as conn:
+            rows = conn.execute(
+                "SELECT id, created_at FROM channel_messages WHERE channel_id = ? ORDER BY created_at ASC",
+                (public_channel.id,),
+            ).fetchall()
+        oldest_ts = rows[0]['created_at']
+        newest_ts = rows[-1]['created_at']
+
+        with patch('asyncio.ensure_future', lambda coro: asyncio.run(coro)):
+            self.p2p_manager.on_catchup_request(
+                {public_channel.id: newest_ts},
+                'peer-origin',
+                channel_ranges={
+                    public_channel.id: {
+                        'latest': newest_ts,
+                        'oldest': newest_ts,
+                        'message_count': 2,
+                    }
+                },
+            )
+
+        self.assertEqual(len(self.p2p_manager.sent_catchup), 1)
+        payload = self.p2p_manager.sent_catchup[0]
+        message_ids = [msg.get('id') for msg in payload['messages']]
+        self.assertIn(rows[0]['id'], message_ids)
+        delivered_oldest = next(msg for msg in payload['messages'] if msg.get('id') == rows[0]['id'])
+        self.assertEqual(delivered_oldest.get('created_at'), oldest_ts)
+
+
     def test_untrusted_catchup_response_materializes_public_channel_only(self) -> None:
         self._mark_peer_untrusted('peer-guest')
 

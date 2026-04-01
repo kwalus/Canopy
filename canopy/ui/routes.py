@@ -4557,6 +4557,8 @@ def create_ui_blueprint() -> Blueprint:
                     attention_flags.append('Role unknown')
                 if connection_state == 'stale':
                     attention_flags.append('Stale')
+                if connection_state in ('stale', 'introduced') and endpoint_count == 0:
+                    attention_flags.append('No endpoints')
 
                 introduced_by_label = ''
                 if introduced_by:
@@ -4590,7 +4592,7 @@ def create_ui_blueprint() -> Blueprint:
                     'public_avatar_color': str(public_identity.get('avatar_color') or '').strip(),
                     'public_avatar_initials': str(public_identity.get('avatar_initials') or '').strip(),
                     'connected': clean_peer_id in connected_set,
-                    'can_connect_now': clean_peer_id in introduced_map,
+                    'can_connect_now': clean_peer_id in introduced_map and endpoint_count > 0,
                     'can_reconnect': bool(endpoint_count) and clean_peer_id not in connected_set,
                     'can_sync_now': clean_peer_id in connected_set,
                     'can_refresh_profile': bool(

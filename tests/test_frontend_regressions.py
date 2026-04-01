@@ -92,11 +92,26 @@ class TestFrontendRegressions(unittest.TestCase):
 
     def test_trust_page_exposes_review_actions_for_flagged_peers(self) -> None:
         trust_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'trust.html').read_text(encoding='utf-8')
-        self.assertIn("function runTrustPeerAction(peerId, action) {", trust_template)
+        self.assertIn("function runTrustPeerAction(peerId, action, triggerEl) {", trust_template)
         self.assertIn("apiCall('/trust/peer_action', {", trust_template)
-        self.assertIn("runTrustPeerAction('{{ peer_id }}', 'refresh_profile')", trust_template)
-        self.assertIn("runTrustPeerAction('{{ peer_id }}', 'sync_now')", trust_template)
+        self.assertIn("runTrustPeerAction('{{ peer_id }}', 'refresh_profile', this)", trust_template)
+        self.assertIn("runTrustPeerAction('{{ peer_id }}', 'sync_now', this)", trust_template)
         self.assertIn("href=\"#trust-peer-{{ peer.peer_id }}\"", trust_template)
+
+    def test_trust_page_disables_review_action_buttons_while_request_is_in_flight(self) -> None:
+        trust_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'trust.html').read_text(encoding='utf-8')
+        self.assertIn("if (triggerEl) {", trust_template)
+        self.assertIn("triggerEl.disabled = true;", trust_template)
+        self.assertIn("triggerEl.disabled = false;", trust_template)
+
+    def test_trust_page_potential_peers_require_explicit_tier_assignment(self) -> None:
+        trust_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'trust.html').read_text(encoding='utf-8')
+        self.assertIn("{% if tier == 'potential' %}", trust_template)
+        self.assertIn('<option value="" selected disabled>Assign tier...</option>', trust_template)
+
+    def test_trust_page_forget_peer_success_alert_stays_visible_before_reload(self) -> None:
+        trust_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'trust.html').read_text(encoding='utf-8')
+        self.assertIn('setTimeout(refreshTrust, 1500);', trust_template)
 
     def test_claim_admin_forms_include_hidden_csrf_token(self) -> None:
         claim_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'claim_admin.html').read_text(encoding='utf-8')
