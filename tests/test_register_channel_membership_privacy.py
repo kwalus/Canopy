@@ -41,7 +41,9 @@ class _FakeDbManager:
                 username TEXT UNIQUE NOT NULL,
                 public_key TEXT,
                 password_hash TEXT,
-                display_name TEXT
+                display_name TEXT,
+                account_type TEXT DEFAULT 'human',
+                status TEXT DEFAULT 'active'
             );
 
             CREATE TABLE user_keys (
@@ -98,14 +100,23 @@ class _FakeDbManager:
         ).fetchone()
         return dict(row) if row else None
 
-    def create_user(self, user_id: str, username: str, public_key: str, password_hash: str, display_name: str):
+    def create_user(
+        self,
+        user_id: str,
+        username: str,
+        public_key: str,
+        password_hash: str,
+        display_name: str,
+        account_type: str = 'human',
+        status: str = 'active',
+    ):
         try:
             self.conn.execute(
                 """
-                INSERT INTO users (id, username, public_key, password_hash, display_name)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO users (id, username, public_key, password_hash, display_name, account_type, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (user_id, username, public_key, password_hash, display_name),
+                (user_id, username, public_key, password_hash, display_name, account_type, status),
             )
             self.conn.commit()
             return True
@@ -234,6 +245,55 @@ class TestRegisterChannelMembershipPrivacy(unittest.TestCase):
             self.assertTrue(sess.get('authenticated'))
             self.assertEqual(sess.get('user_id'), user_id)
             self.assertEqual(sess.get('username'), 'owner')
+
+    def test_register_second_human_starts_pending_without_login(self) -> None:
+        self.db_manager.create_user(
+            user_id='owner',
+            username='owner',
+            public_key='pub-owner',
+            password_hash='hash-owner',
+            display_name='Owner',
+            status='active',
+        )
+        self.db_manager.set_instance_owner_user_id('owner')
+
+        response = self.client.post(
+            '/register',
+            data={
+                'username': 'new_user',
+                'display_name': 'New User',
+                'password': 'StrongPass123!',
+                'password_confirm': 'StrongPass123!',
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('awaiting admin approval', response.get_data(as_text=True))
+
+        row = self.db_manager.conn.execute(
+            "SELECT id, status FROM users WHERE username = ?",
+            ('new_user',),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(row['status'], 'pending_approval')
+
+        with self.client.session_transaction() as sess:
+            self.assertFalse(bool(sess.get('authenticated')))
+
+        login_response = self.client.post(
+            '/login',
+            data={
+                'username': 'new_user',
+                'password': 'StrongPass123!',
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(login_response.status_code, 200)
+        login_html = login_response.get_data(as_text=True)
+        self.assertIn('Account awaiting approval', login_html)
+        self.assertIn('No action is required from you right now.', login_html)
+        self.assertIn('alert-pending', login_html)
+        self.assertNotIn('alert-danger mb-3">Your account is pending admin approval.', login_html)
 
 
 if __name__ == '__main__':

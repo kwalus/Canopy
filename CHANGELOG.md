@@ -8,6 +8,91 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.56] - 2026-04-04
+
+### Changed
+- **YouTube deck title lookups now behave more conservatively while Meshspaces docs better reflect current branch behavior** — the client stops eagerly resolving titles for every queued YouTube item, failed title lookups back off instead of retrying immediately, the server now caches successful and negative `oembed` responses briefly to reduce upstream bursts, and the top-level docs now call out Meshspaces as the supported multi-workspace path on one machine.
+
+## [0.5.55] - 2026-04-04
+
+### Changed
+- **Pending-approval onboarding now gives humans and agents clearer next steps across login, admin review, and API polling** — blocked sign-ins now render a dedicated awaiting-approval notice instead of a generic error, post-registration copy no longer invites premature login attempts, `/api/v1/auth/status` now returns machine-readable pending/approved guidance, and the admin pending queue explains the practical effect of approving a human versus an agent.
+
+## [0.5.54] - 2026-04-04
+
+### Changed
+- **Follow-up meshspace onboarding polish now keeps agent key defaults and notification defaults easier to understand** — the API keys page now preselects and explains the active mesh's agent permission template for agent accounts, agent-facing docs/API reference now describe mesh-local template fallback consistently across registration and self-service key creation, and the notification bell reset control now clearly communicates that brand-new accounts start inbox-only instead of implying an "all activity" default.
+
+## [0.5.53] - 2026-04-04
+
+### Changed
+- **Admin approval and agent onboarding defaults are now more deliberate for mixed human/agent meshes** — non-first web registrations now wait for admin approval without being auto-logged in, API registrations that pick `human` receive an explicit hint when `agent` is probably the correct automation type, each meshspace can now carry its own default agent API permission template in Admin and use it for both admin-created and self-service agent keys, and brand-new bell filter state now starts inbox-only instead of enabling overlapping attention lanes by default.
+
+## [0.5.52] - 2026-04-03
+
+### Fixed
+- **Cross-mesh shell badges now recover faster from remote activity without weakening mesh isolation** — inbound P2P channel/feed writes now always schedule a shell-summary refresh even when no workspace event targets are emitted, non-current mesh cards can pull a fresh shell-safe summary from the live child runtime when the registry is behind, and that summary probe is restricted to same-machine loopback access instead of being broadly public.
+
+## [0.5.51] - 2026-04-03
+
+### Changed
+- **Meshspaces header notification sync now stays aligned with the shared shell snapshot contract** — the persistent header rail now refreshes against `/ajax/meshspaces_snapshot`, current-mesh attention refreshes emit a shell event the header consumes immediately, presence sublines include mentions, and attention badges now show real counts when available instead of hiding active unread/mention pressure behind severity-only markers.
+
+## [0.5.50] - 2026-04-03
+
+### Changed
+- **Meshspaces now integrates the strongest parts of the latest Copilot optimization, usability, and compatibility passes while fixing review findings before rollout** — the shell now deduplicates meshspace registry/probe work within a request, surfaces clearer state-mismatch and blocked-open guidance, adds better crashed/restarting recovery copy, and improves browser compatibility with `CSS.escape` fallback, clipboard fallback, and visibility-aware restart polling.
+
+### Fixed
+- **Cross-platform mesh lifecycle handling is more conservative and truthful** — POSIX PID liveness now treats permission-denied probes as still alive, Linux can fall back to `ss` for listener PID lookup, restart handoff waits correctly on Windows parent exit, non-Windows child launch diagnostics run too, and Windows child stop requests can use `CTRL_BREAK_EVENT` when available so supervised restarts shut down more cleanly.
+
+## [0.5.49] - 2026-04-03
+
+### Fixed
+- **Windows runtime probing now hides `netstat -ano` when resolving listener PIDs** — meshspace port probes now launch the Windows `netstat` helper with hidden-window startup info and `CREATE_NO_WINDOW`, closing another path that could still flash stray console windows while the Meshspaces UI checks runtime state.
+
+## [0.5.48] - 2026-04-03
+
+### Fixed
+- **Windows silent launch paths now prefer `pythonw.exe` where appropriate instead of still routing some background starts through `python.exe`** — meshspace child spawn, self-restart relaunch, the silent `start_canopy_dev.ps1` path, and unfrozen tray auto-start now prefer `pythonw.exe` on Windows when available, which should reduce stray console popups from nominally background Canopy launch flows.
+
+## [0.5.47] - 2026-04-03
+
+### Fixed
+- **Remote mesh opens now resolve loopback child launch URLs more usefully, and mesh runtimes honor explicit discovery-port env overrides** — mesh open redirects now rewrite loopback launch hosts to the current shell request host when appropriate, which helps remote LAN/admin sessions open child meshes, and meshspace runtime config now respects `CANOPY_DISCOVERY_PORT` alongside the existing HTTP and mesh port overrides.
+
+## [0.5.46] - 2026-04-02
+
+### Fixed
+- **Windows mesh start no longer trips over stale registry PIDs as easily, and launcher metadata survives child self-registration** — PID liveness probing now fails closed instead of bubbling non-`OSError` probe failures, runtime self-registration preserves launcher-owned fields such as `pid` and `launch_log_path`, and the Windows launcher records a short delayed post-spawn diagnostic so abrupt child death leaves clearer evidence.
+
+## [0.5.45] - 2026-04-02
+
+### Fixed
+- **Windows child meshes now launch in a more stable detached mode instead of riding the parent console session** — supervised mesh starts now scrub inherited mesh-runtime `CANOPY_*` selectors, use Windows detached process flags rather than plain `start_new_session`, and write manager-owned per-mesh run logs so multi-mesh failures are attributable without flashing console windows.
+
+## [0.5.44] - 2026-04-02
+
+### Fixed
+- **Meshspace shell warnings are clearer when runtime state is ambiguous** — `/meshes`, mesh detail, and down-mesh recovery views now surface port-overlap callouts and stale-runtime copy so operators can see when shared ports or stale registry state make restart/open actions less trustworthy.
+- **Meshspace control polling is lighter and stopped meshes no longer look artificially active** — Live-runtime probe results now reuse a short cache window, the mesh snapshot poll backs off to a calmer cadence, and stopped/crashed meshes clear stale peer/activity shell signals instead of lingering as if they were still busy.
+
+## [0.5.43] - 2026-04-02
+
+### Fixed
+- **Meshspace start and restart controls now recover from stale shell state more reliably** — Child mesh runtime PIDs now persist in the local registry, mesh cards/detail pages can refresh and reconcile live runtime state, and start/stop/restart controls now follow a live probe when registry status drifts from what is actually listening on the assigned ports.
+- **Opening a stopped mesh now lands on a useful recovery surface instead of a dead login page** — Non-current mesh links now pass through a runtime guard that opens live meshes normally but routes stopped meshes to a start/restart/refresh page so the shell can help recover them directly.
+
+## [0.5.42] - 2026-04-02
+
+### Fixed
+- **Shared Meshspaces notifications now stay canonical instead of drifting between local user sessions** — The live mesh header/card notification system remains in place, but registry summary republishing now stays anchored to the instance owner account so other authenticated shell sessions do not overwrite the shared mesh summary with the wrong user's counts.
+
+## [0.5.41] - 2026-04-02
+
+### Fixed
+- **Meshspace header presence is richer without turning the registry into a cross-user notification cache** — The Meshspaces header and `/meshes` cards now surface shallow per-mesh activity and status more clearly, while user-specific unread, mention, and approval counts stay attached only to the current mesh session instead of being persisted into the machine-local registry.
+
 ## [0.5.39] - 2026-04-01
 
 ### Fixed

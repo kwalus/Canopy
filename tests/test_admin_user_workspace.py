@@ -54,6 +54,12 @@ class _FakeDbManager:
         rows = self._conn.execute("SELECT * FROM users ORDER BY username ASC").fetchall()
         return [dict(row) for row in rows]
 
+    def get_pending_approval_count(self):
+        row = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM users WHERE COALESCE(status, 'active') = 'pending_approval'"
+        ).fetchone()
+        return int((row['n'] if row else 0) or 0)
+
 
 class _FakeProfileManager:
     def __init__(self, conn: sqlite3.Connection) -> None:
@@ -420,6 +426,52 @@ class _FakeChannelManager:
         }
 
 
+class _FakeMeshspaceRegistryManager:
+    def __init__(self) -> None:
+        self.record = {
+            'meshspace_id': 'default-mesh',
+            'name': 'Default Mesh',
+            'default_agent_permissions': [
+                Permission.READ_MESSAGES.value,
+                Permission.WRITE_MESSAGES.value,
+                Permission.READ_FEED.value,
+                Permission.WRITE_FEED.value,
+            ],
+        }
+
+    def get_meshspace(self, meshspace_id: str):
+        if meshspace_id == self.record['meshspace_id']:
+            return dict(self.record)
+        return None
+
+    def list_meshspaces(self):
+        return [dict(self.record)]
+
+    def update_meshspace_metadata(self, meshspace_id: str, **kwargs):
+        if meshspace_id != self.record['meshspace_id']:
+            return None
+        if 'default_agent_permissions' in kwargs and kwargs['default_agent_permissions'] is not None:
+            self.record['default_agent_permissions'] = list(kwargs['default_agent_permissions'])
+        return dict(self.record)
+
+    def update_shell_summary(self, meshspace_id: str, summary):
+        if meshspace_id != self.record['meshspace_id']:
+            return None
+        self.record['summary'] = dict(summary or {})
+        return dict(self.record)
+
+    def launch_environment(self, meshspace_id: str):
+        if meshspace_id != self.record['meshspace_id']:
+            return None
+        return {
+            'CANOPY_MESHSPACE_ID': self.record['meshspace_id'],
+            'CANOPY_MESHSPACE_NAME': self.record['name'],
+            'CANOPY_PORT': '7800',
+            'CANOPY_MESH_PORT': '7801',
+            'CANOPY_DISCOVERY_PORT': '7802',
+        }
+
+
 class TestAdminUserWorkspace(unittest.TestCase):
     def setUp(self) -> None:
         self.conn = sqlite3.connect(':memory:')
@@ -582,6 +634,7 @@ class TestAdminUserWorkspace(unittest.TestCase):
             Permission.READ_FEED,
             Permission.WRITE_FEED,
         ]
+        self.meshspace_registry_manager = _FakeMeshspaceRegistryManager()
 
         p2p_manager = MagicMock()
         p2p_manager.is_running.return_value = False
@@ -614,6 +667,11 @@ class TestAdminUserWorkspace(unittest.TestCase):
         app.config['INBOX_MANAGER'] = self.inbox_manager
         app.config['MENTION_MANAGER'] = self.mention_manager
         app.config['WORKSPACE_EVENT_MANAGER'] = self.workspace_event_manager
+        app.config['CANOPY_CONFIG'] = SimpleNamespace(
+            meshspace=SimpleNamespace(meshspace_id='default-mesh', name='Default Mesh')
+        )
+        app.config['MESHSPACE_RECORD'] = dict(self.meshspace_registry_manager.record)
+        app.config['MESHSPACE_REGISTRY_MANAGER'] = self.meshspace_registry_manager
         app.register_blueprint(create_ui_blueprint())
 
         self.client = app.test_client()
@@ -685,6 +743,7 @@ class TestAdminUserWorkspace(unittest.TestCase):
         self.assertIn('Stage current memberships', html)
         self.assertIn('Quarantine preset', html)
         self.assertIn('Agent default', html)
+        self.assertIn('Meshspace Agent API Template', html)
         self.assertIn('Read only', html)
         self.assertNotIn('Subsystem Visibility', html)
         self.assertNotIn('Mesh Sync Diagnostics', html)
@@ -706,6 +765,78 @@ class TestAdminUserWorkspace(unittest.TestCase):
         self.assertEqual((diagnostics.get('items') or [])[0].get('payload_preview'), 'hello from remote')
         self.assertIn('supported_types', diagnostics)
         self.assertIn('workspace_event_seq', heartbeat)
+
+    def test_admin_can_update_meshspace_agent_permission_template(self) -> None:
+        csrf_token = 'csrf-meshspace-template'
+        self._set_authenticated_session(csrf_token=csrf_token)
+
+        response = self.client.post(
+            '/ajax/admin/meshspace/agent-permissions',
+            json={
+                'permissions': [
+                    Permission.READ_MESSAGES.value,
+                    Permission.WRITE_MESSAGES.value,
+                    Permission.READ_FILES.value,
+                    Permission.WRITE_FILES.value,
+                ]
+            },
+            headers={'X-CSRFToken': csrf_token},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertEqual(
+            payload.get('default_agent_permissions'),
+            [
+                Permission.READ_MESSAGES.value,
+                Permission.WRITE_MESSAGES.value,
+                Permission.READ_FILES.value,
+                Permission.WRITE_FILES.value,
+            ],
+        )
+
+    def test_agent_self_service_key_generation_uses_meshspace_template_defaults(self) -> None:
+        csrf_token = 'csrf-self-key'
+        self._set_authenticated_session(user_id='agent-local', csrf_token=csrf_token)
+        self.api_key_manager.generate_key.return_value = 'raw-agent-key'
+        self.meshspace_registry_manager.record['default_agent_permissions'] = [
+            Permission.READ_MESSAGES.value,
+            Permission.WRITE_MESSAGES.value,
+            Permission.READ_FILES.value,
+            Permission.WRITE_FILES.value,
+        ]
+
+        response = self.client.post(
+            '/ajax/generate_key',
+            json={},
+            headers={'X-CSRFToken': csrf_token},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertEqual(payload.get('api_key'), 'raw-agent-key')
+        self.assertEqual(
+            payload.get('permissions'),
+            [
+                Permission.READ_MESSAGES.value,
+                Permission.WRITE_MESSAGES.value,
+                Permission.READ_FILES.value,
+                Permission.WRITE_FILES.value,
+            ],
+        )
+        self.api_key_manager.generate_key.assert_called_once()
+        _, permissions, expires_days = self.api_key_manager.generate_key.call_args[0]
+        self.assertEqual(expires_days, None)
+        self.assertEqual(
+            permissions,
+            [
+                Permission.READ_MESSAGES,
+                Permission.WRITE_MESSAGES,
+                Permission.READ_FILES,
+                Permission.WRITE_FILES,
+            ],
+        )
 
     def test_admin_can_update_local_user_profile(self) -> None:
         csrf_token = 'csrf-profile'

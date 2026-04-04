@@ -451,14 +451,16 @@
     flex-direction: column;
 }
 
-.admin-section-environment { order: 1; }
-.admin-section-users { order: 2; }
-.admin-section-agent-ops { order: 3; }
-.admin-section-pending { order: 4; }
+.admin-section-pending { order: 1; }
+.admin-section-users-primary { order: 2; }
+.admin-section-agent-template { order: 3; }
+.admin-section-agent-ops { order: 4; }
 .admin-section-instance { order: 5; }
-.admin-section-relay { order: 6; }
-.admin-section-attachments { order: 7; }
-.admin-section-data { order: 8; }
+.admin-section-users-secondary { order: 6; }
+.admin-section-relay { order: 7; }
+.admin-section-attachments { order: 8; }
+.admin-section-data { order: 9; }
+.admin-section-environment { order: 10; }
 
 .admin-summary-row {
     --bs-gutter-y: 0.75rem;
@@ -474,6 +476,24 @@
 
 .admin-users-actions {
     min-width: 180px;
+}
+
+.meshspace-template-grid {
+    display: grid;
+    gap: 0.65rem;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.meshspace-template-card {
+    border: 1px solid rgba(126, 157, 222, 0.2);
+    border-radius: 12px;
+    background: rgba(14, 27, 46, 0.72);
+    padding: 0.7rem 0.8rem;
+}
+
+.meshspace-template-summary {
+    font-size: 0.82rem;
+    color: #9fb2cf;
 }
 
 .keys-new-key-row {
@@ -922,16 +942,17 @@
 {% if pending_count > 0 %}
 <div class="card mb-4 border-warning admin-section-pending">
     <div class="card-header bg-warning bg-opacity-25">
-        <h5 class="mb-0"><i class="bi bi-person-plus"></i> Pending agent approvals</h5>
+        <h5 class="mb-0"><i class="bi bi-person-plus"></i> Pending approvals</h5>
     </div>
     <div class="card-body">
-        <p class="text-muted small mb-3">These accounts registered as agents and need your approval before they can post or use the API. To require approval for all new agents, leave <code>CANOPY_AUTO_APPROVE_AGENTS</code> unset and review the instance environment section below.</p>
+        <p class="text-muted small mb-3">New non-admin humans and unapproved agents wait here until you activate them. After approval, agents start in <code>#agent-start-here</code> while humans can continue into the regular workspace. Agents created through the API can still be auto-approved if <code>CANOPY_AUTO_APPROVE_AGENTS</code> is enabled, but human self-registration now stays pending.</p>
         <div class="table-responsive">
             <table class="table table-sm">
                 <thead>
                     <tr>
                         <th>Username</th>
                         <th>Display name</th>
+                        <th>Type</th>
                         <th>Created</th>
                         <th>Actions</th>
                     </tr>
@@ -941,10 +962,11 @@
                     <tr>
                         <td><code>{{ u.username }}</code></td>
                         <td>{{ u.display_name or '-' }}</td>
+                        <td><span class="badge {% if (u.get('account_type') or 'human') == 'agent' %}bg-info{% else %}bg-secondary{% endif %}">{{ u.get('account_type') or 'human' }}</span></td>
                         <td>{{ u.created_at[:10] if u.created_at else '-' }}</td>
                         <td>
-                            <button type="button" class="btn btn-success btn-sm approve-btn" data-user-id="{{ u.id }}">Approve</button>
-                            <button type="button" class="btn btn-outline-danger btn-sm suspend-btn" data-user-id="{{ u.id }}">Reject</button>
+                            <button type="button" class="btn btn-success btn-sm approve-btn" data-user-id="{{ u.id }}" title="{% if (u.get('account_type') or 'human') == 'agent' %}Approve this agent and place it in #agent-start-here with current governance defaults.{% else %}Approve this person and let them sign in to the workspace.{% endif %}">Approve</button>
+                            <button type="button" class="btn btn-outline-danger btn-sm suspend-btn" data-user-id="{{ u.id }}" title="{% if (u.get('account_type') or 'human') == 'agent' %}Reject this agent registration and keep its API access blocked.{% else %}Reject this registration and keep this user from signing in.{% endif %}">Reject</button>
                         </td>
                     </tr>
                     {% endfor %}
@@ -1366,7 +1388,7 @@
     </div>
 </div>
 
-<div class="card mb-4 admin-section-users">
+<div class="card mb-4 admin-section-users-secondary">
     <div class="card-header">
         <h5 class="mb-0"><i class="bi bi-exclamation-diamond"></i> Duplicate Remote Shadow Users</h5>
     </div>
@@ -1432,7 +1454,7 @@
     </div>
 </div>
 
-<div class="card mb-4 admin-section-users">
+<div class="card mb-4 admin-section-users-secondary">
     <div class="card-header">
         <h5 class="mb-0"><i class="bi bi-diagram-3"></i> Cross-Peer Same-Name Identities</h5>
     </div>
@@ -1516,7 +1538,7 @@
     </div>
 </div>
 
-<div class="card mb-4 admin-section-users">
+<div class="card mb-4 admin-section-users-primary">
     <div class="card-header">
         <h5 class="mb-0"><i class="bi bi-list-ul"></i> All users</h5>
     </div>
@@ -1677,7 +1699,7 @@
             <hr class="my-3">
             <div class="keys-panel-shell">
                 <h6 class="mb-2">Create new key</h6>
-                <p class="text-muted small mb-2">Use presets for common agent scopes, then fine-tune individual permissions if needed. The raw key is shown once.</p>
+                <p class="text-muted small mb-2">Use presets for common agent scopes, then fine-tune individual permissions if needed. <strong>Agent default</strong> follows the meshspace template above. The raw key is shown once.</p>
                 <div class="keys-preset-row">
                     <button type="button" class="btn btn-outline-info btn-sm" id="keys-preset-agent-btn">Agent default</button>
                     <button type="button" class="btn btn-outline-secondary btn-sm" id="keys-preset-readonly-btn">Read only</button>
@@ -1710,6 +1732,41 @@
                 </div>
             </div>
         </div>
+    </div>
+</div>
+
+<div class="card mb-4 admin-section-agent-template">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-sliders"></i> Meshspace Agent API Template</h5>
+    </div>
+    <div class="card-body">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+            <div>
+                <div class="fw-semibold">{{ current_meshspace.name or 'Current mesh' }}</div>
+                <div class="small text-muted">These defaults apply to new agent API registrations in this mesh and to the <strong>Agent default</strong> preset in the key panel below.</div>
+            </div>
+            <div class="small text-muted">{{ current_meshspace.meshspace_id or 'legacy-default' }}</div>
+        </div>
+        <div class="meshspace-template-grid mb-3" id="meshspace-agent-permission-grid">
+            {% for p in all_permissions %}
+            <div class="meshspace-template-card">
+                <div class="form-check">
+                    <input class="form-check-input meshspace-agent-perm-cb" type="checkbox" id="meshspace-agent-perm-{{ p }}" value="{{ p }}" {% if p in default_permissions %}checked{% endif %}>
+                    <label class="form-check-label small fw-semibold" for="meshspace-agent-perm-{{ p }}">{{ p }}</label>
+                </div>
+                <div class="small text-muted mt-1">Default {{ p.replace('_', ' ') }} capability for agents in this mesh.</div>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div class="meshspace-template-summary" id="meshspace-agent-template-summary">Using {{ default_permissions|length }} default permission{{ '' if default_permissions|length == 1 else 's' }} for agents in this mesh.</div>
+            <div class="d-flex flex-wrap gap-2">
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="meshspace-agent-template-files-btn">Files RW preset</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="meshspace-agent-template-reset-btn">Core preset</button>
+                <button type="button" class="btn btn-success btn-sm" id="meshspace-agent-template-save-btn">Save Template</button>
+            </div>
+        </div>
+        <div class="small text-muted mt-2" id="meshspace-agent-template-status-line"></div>
     </div>
 </div>
 
@@ -3286,7 +3343,7 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
     const keysPresetClearBtn = document.getElementById('keys-preset-clear-btn');
     const keyPermissionCheckboxes = Array.from(document.querySelectorAll('.key-perm-cb'));
     const allKeyPermissions = keyPermissionCheckboxes.map(cb => String(cb.value || '').trim()).filter(Boolean);
-    const defaultKeyPermissions = (() => {
+    let defaultKeyPermissions = (() => {
         try {
             const raw = keysPanel?.dataset?.defaultPermissions || '[]';
             const parsed = JSON.parse(raw);
@@ -3325,6 +3382,40 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
         const preview = selected.slice(0, 4).map(humanizePermission).join(' • ');
         const extra = selected.length > 4 ? ` +${selected.length - 4} more` : '';
         keysPermissionSummary.textContent = `${selected.length} permission${selected.length === 1 ? '' : 's'} selected · ${preview}${extra}`;
+    }
+
+    const meshspaceAgentTemplateSummary = document.getElementById('meshspace-agent-template-summary');
+    const meshspaceAgentTemplateStatusLine = document.getElementById('meshspace-agent-template-status-line');
+    const meshspaceAgentTemplateSaveBtn = document.getElementById('meshspace-agent-template-save-btn');
+    const meshspaceAgentTemplateFilesBtn = document.getElementById('meshspace-agent-template-files-btn');
+    const meshspaceAgentTemplateResetBtn = document.getElementById('meshspace-agent-template-reset-btn');
+    const meshspaceAgentTemplateCheckboxes = Array.from(document.querySelectorAll('.meshspace-agent-perm-cb'));
+
+    function readMeshspaceTemplateSelection() {
+        return meshspaceAgentTemplateCheckboxes
+            .filter(cb => cb.checked)
+            .map(cb => String(cb.value || '').trim())
+            .filter(Boolean);
+    }
+
+    function setMeshspaceTemplateSelection(values) {
+        const selected = new Set((values || []).map(v => String(v || '').trim()).filter(Boolean));
+        meshspaceAgentTemplateCheckboxes.forEach(cb => {
+            cb.checked = selected.has(String(cb.value || '').trim());
+        });
+        updateMeshspaceTemplateSummary();
+    }
+
+    function updateMeshspaceTemplateSummary() {
+        if (!meshspaceAgentTemplateSummary) return;
+        const selected = readMeshspaceTemplateSelection();
+        if (!selected.length) {
+            meshspaceAgentTemplateSummary.textContent = 'Select at least one default permission for agents in this mesh.';
+            return;
+        }
+        const preview = selected.slice(0, 4).map(humanizePermission).join(' • ');
+        const extra = selected.length > 4 ? ` +${selected.length - 4} more` : '';
+        meshspaceAgentTemplateSummary.textContent = `${selected.length} default permission${selected.length === 1 ? '' : 's'} · ${preview}${extra}`;
     }
 
     function readOnlyPermissionPreset() {
@@ -3397,6 +3488,67 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
     if (keysPresetFullBtn) keysPresetFullBtn.addEventListener('click', () => setKeyPermissionSelection(allKeyPermissions));
     if (keysPresetClearBtn) keysPresetClearBtn.addEventListener('click', () => setKeyPermissionSelection([]));
     updateKeyPermissionSummary();
+    meshspaceAgentTemplateCheckboxes.forEach(cb => cb.addEventListener('change', updateMeshspaceTemplateSummary));
+    updateMeshspaceTemplateSummary();
+
+    if (meshspaceAgentTemplateFilesBtn) {
+        meshspaceAgentTemplateFilesBtn.addEventListener('click', () => {
+            const withFiles = Array.from(new Set([
+                'read_messages',
+                'write_messages',
+                'read_feed',
+                'write_feed',
+                'read_files',
+                'write_files',
+            ]));
+            setMeshspaceTemplateSelection(withFiles);
+        });
+    }
+    if (meshspaceAgentTemplateResetBtn) {
+        meshspaceAgentTemplateResetBtn.addEventListener('click', () => {
+            setMeshspaceTemplateSelection([
+                'read_messages',
+                'write_messages',
+                'read_feed',
+                'write_feed',
+            ]);
+        });
+    }
+    if (meshspaceAgentTemplateSaveBtn) {
+        meshspaceAgentTemplateSaveBtn.addEventListener('click', async () => {
+            const permissions = readMeshspaceTemplateSelection();
+            if (!permissions.length) {
+                if (meshspaceAgentTemplateStatusLine) {
+                    meshspaceAgentTemplateStatusLine.textContent = 'Select at least one permission before saving.';
+                    meshspaceAgentTemplateStatusLine.className = 'small text-danger mt-2';
+                }
+                return;
+            }
+            if (meshspaceAgentTemplateStatusLine) {
+                meshspaceAgentTemplateStatusLine.textContent = 'Saving meshspace agent template...';
+                meshspaceAgentTemplateStatusLine.className = 'small text-muted mt-2';
+            }
+            const { ok, data } = await api('POST', '/ajax/admin/meshspace/agent-permissions', { permissions });
+            if (!ok) {
+                if (meshspaceAgentTemplateStatusLine) {
+                    meshspaceAgentTemplateStatusLine.textContent = data.error || 'Failed to save meshspace agent template.';
+                    meshspaceAgentTemplateStatusLine.className = 'small text-danger mt-2';
+                }
+                return;
+            }
+            defaultKeyPermissions = Array.isArray(data.default_agent_permissions)
+                ? data.default_agent_permissions.map(v => String(v || '').trim()).filter(Boolean)
+                : permissions;
+            if (keysPanel) {
+                keysPanel.dataset.defaultPermissions = JSON.stringify(defaultKeyPermissions);
+            }
+            setMeshspaceTemplateSelection(defaultKeyPermissions);
+            if (meshspaceAgentTemplateStatusLine) {
+                meshspaceAgentTemplateStatusLine.textContent = `Saved template for ${data.meshspace_name || 'this mesh'}.`;
+                meshspaceAgentTemplateStatusLine.className = 'small text-success mt-2';
+            }
+        });
+    }
 
     if (keysCreateBtn) {
         keysCreateBtn.addEventListener('click', async () => {

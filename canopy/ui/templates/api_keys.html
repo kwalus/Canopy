@@ -43,6 +43,14 @@
                     Choose what this API key will be allowed to do. You can select multiple permissions.
                     <a href="#permissions-reference" class="text-decoration-none">See descriptions below.</a>
                 </p>
+                {% if is_agent_account %}
+                <div class="alert alert-secondary py-2 px-3 mb-2 small">
+                    <i class="bi bi-diagram-3"></i>
+                    <strong>Mesh template:</strong>
+                    Pre-selected permissions follow the active mesh's default agent API template{% if current_meshspace and current_meshspace.get('name') %} for <strong>{{ current_meshspace.get('name') }}</strong>{% endif %}.
+                    You can customize them here, or adjust the template from the Admin workspace.
+                </div>
+                {% endif %}
                 <div class="row">
                     {% for permission in all_permissions %}
                         <div class="col-md-6 col-lg-4 mb-2">

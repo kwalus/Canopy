@@ -30,7 +30,8 @@ def _install_signal_handlers(app):
     """Install SIGTERM/SIGINT handlers for graceful shutdown.
 
     Ensures background threads (P2P network, WAL checkpoint) get a chance to
-    clean up when the process is stopped by a process manager (systemd, Docker).
+    clean up when the process is stopped by a process manager (systemd, Docker,
+    or the meshspace supervisor).
     """
     def _shutdown(signum, frame):
         print(f"\nCanopy received signal {signum}, shutting down gracefully...")
@@ -45,6 +46,9 @@ def _install_signal_handlers(app):
     try:
         signal.signal(signal.SIGTERM, _shutdown)
         signal.signal(signal.SIGINT, _shutdown)
+        sigbreak = getattr(signal, "SIGBREAK", None)
+        if sigbreak is not None:
+            signal.signal(sigbreak, _shutdown)
     except (OSError, ValueError):
         # signal handlers can only be set from the main thread; safe to skip
         pass
@@ -55,8 +59,9 @@ def _serve_production(app: Any, host: str, port: int, threads: int) -> None:
     try:
         from waitress import serve
     except ImportError:
-        print("ERROR: waitress is not installed. Run: pip install waitress")
-        print("       Or install all dependencies: pip install -r requirements.txt")
+        print("ERROR: waitress is not installed.")
+        print("       Recommended: uv pip install -e .")
+        print("       Or:          pip install -r requirements.txt")
         sys.exit(1)
 
     thread_count = max(1, int(threads))
@@ -98,10 +103,27 @@ def main():
     parser.add_argument('--threads', type=int, default=_WAITRESS_THREADS,
                         help=f'Number of waitress worker threads (default: {_WAITRESS_THREADS})')
     parser.add_argument('--config', help='Path to configuration file')
+    parser.add_argument('--meshspace-id', default=None,
+                        help='Run this instance as a specific meshspace id')
+    parser.add_argument('--meshspace-name', default=None,
+                        help='Human-readable meshspace name for this runtime')
+    parser.add_argument('--meshspace-root', default=None,
+                        help='Data root for this meshspace runtime')
+    parser.add_argument('--meshspace-supervised', action='store_true',
+                        help='Mark this runtime as supervisor-managed')
 
     args = parser.parse_args()
 
     try:
+        if args.meshspace_id is not None:
+            os.environ['CANOPY_MESHSPACE_ID'] = str(args.meshspace_id)
+        if args.meshspace_name is not None:
+            os.environ['CANOPY_MESHSPACE_NAME'] = str(args.meshspace_name)
+        if args.meshspace_root is not None:
+            os.environ['CANOPY_MESHSPACE_ROOT'] = str(args.meshspace_root)
+        if args.meshspace_supervised:
+            os.environ['CANOPY_MESHSPACE_SUPERVISED'] = 'true'
+
         config = Config.from_env()
 
         if args.host is not None:
@@ -125,8 +147,10 @@ def main():
         print("=" * 50)
         print(f"  Host:     {config.network.host}")
         print(f"  Port:     {config.network.port}")
+        print(f"  Mesh:     {config.network.mesh_port}")
         print(f"  Debug:    {config.debug}")
         print(f"  Database: {config.storage.database_path}")
+        print(f"  Meshspace:{config.meshspace.meshspace_id} ({config.meshspace.name})")
         print("=" * 50)
         print(f"  Open: http://localhost:{config.network.port}")
         print("  Press Ctrl+C to stop")

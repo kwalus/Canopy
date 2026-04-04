@@ -279,6 +279,7 @@ class TestAgentRegistrationQuarantine(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         payload = response.get_json() or {}
         self.assertEqual(payload.get('status'), 'pending_approval')
+        self.assertIn('account_type="agent"', payload.get('registration_hint') or '')
 
         row = self.db_manager.conn.execute(
             "SELECT id FROM users WHERE username = ?",
@@ -291,6 +292,36 @@ class TestAgentRegistrationQuarantine(unittest.TestCase):
         ).fetchall()
         channel_ids = [m['channel_id'] for m in memberships]
         self.assertEqual(channel_ids, ['general'])
+
+    def test_agent_api_register_uses_current_meshspace_permission_template(self) -> None:
+        self.client.application.config['MESHSPACE_RECORD'] = {
+            'meshspace_id': 'private-mesh',
+            'default_agent_permissions': [
+                Permission.READ_MESSAGES.value,
+                Permission.WRITE_MESSAGES.value,
+                Permission.READ_FILES.value,
+                Permission.WRITE_FILES.value,
+            ],
+        }
+        response = self.client.post(
+            '/api/v1/register',
+            json={
+                'username': 'file-agent',
+                'password': 'StrongPass123!',
+                'display_name': 'File Agent',
+                'account_type': 'agent',
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(
+            self.api_key_manager.last_permissions,
+            [
+                Permission.READ_MESSAGES,
+                Permission.WRITE_MESSAGES,
+                Permission.READ_FILES,
+                Permission.WRITE_FILES,
+            ],
+        )
 
     def test_auto_approved_agent_falls_back_to_pending_if_quarantine_bootstrap_fails(self) -> None:
         failing_channel_manager = _FakeChannelManager(self.db_manager, should_quarantine_succeed=False)

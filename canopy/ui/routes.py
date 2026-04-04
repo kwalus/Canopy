@@ -18,6 +18,7 @@ import base64
 import time
 import re
 import socket
+import signal
 import ipaddress
 import sqlite3
 import tempfile
@@ -25,11 +26,12 @@ import html as html_lib
 import threading
 import xml.etree.ElementTree as ET
 from functools import wraps
-from flask import Blueprint, render_template, request, jsonify, current_app, session, redirect, url_for, flash, send_file, Response
+from pathlib import Path
+from flask import Blueprint, render_template, request, jsonify, current_app, session, redirect, url_for, flash, send_file, Response, g
 from datetime import datetime, timezone, timedelta
 from werkzeug.utils import secure_filename
 from typing import Any, Optional, cast
-from urllib.parse import urlparse, parse_qs, urlencode, quote_plus
+from urllib.parse import urlparse, parse_qs, urlencode, quote_plus, urlunparse
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 
@@ -97,6 +99,12 @@ from ..core.large_attachments import (
     normalize_large_attachment_download_mode,
     set_large_attachment_settings,
 )
+from ..core.meshspaces import (
+    build_meshspace_notification_summary,
+    build_meshspace_shell_summary,
+    build_runtime_environment_from_config,
+    schedule_self_restart,
+)
 from ..network.routing import (
     encrypt_key_for_peer,
     encode_channel_key_material,
@@ -108,6 +116,523 @@ _CUSTOM_EMOJI_LOCK = threading.Lock()
 
 def _get_app_components_any(app: Any) -> tuple[Any, ...]:
     return cast(tuple[Any, ...], get_app_components(app))
+
+
+def _get_meshspace_registry_manager() -> Any:
+    return current_app.config.get('MESHSPACE_REGISTRY_MANAGER')
+
+
+def _current_meshspace_record() -> dict[str, Any]:
+    config = current_app.config.get('CANOPY_CONFIG')
+    mesh_cfg = getattr(config, 'meshspace', None)
+    if not mesh_cfg:
+        return {}
+    manager = _get_meshspace_registry_manager()
+    current_meshspace_id = str(getattr(mesh_cfg, 'meshspace_id', '') or '').strip()
+    if manager and current_meshspace_id:
+        fresh = manager.get_meshspace(current_meshspace_id)
+        if isinstance(fresh, dict) and fresh:
+            current_app.config['MESHSPACE_RECORD'] = dict(fresh)
+            return dict(fresh)
+    record = current_app.config.get('MESHSPACE_RECORD')
+    if isinstance(record, dict):
+        return dict(record)
+    return {
+        'meshspace_id': str(getattr(mesh_cfg, 'meshspace_id', '') or ''),
+        'name': str(getattr(mesh_cfg, 'name', '') or ''),
+        'runtime_mode': str(getattr(mesh_cfg, 'runtime_mode', '') or ''),
+        'status': 'running',
+    }
+
+
+def _current_meshspace_default_agent_permissions() -> list[str]:
+    record = _current_meshspace_record()
+    raw = record.get('default_agent_permissions') if isinstance(record, dict) else None
+    if isinstance(raw, list):
+        values = [str(value or '').strip() for value in raw if str(value or '').strip()]
+        if values:
+            return values
+    return [
+        Permission.READ_MESSAGES.value,
+        Permission.WRITE_MESSAGES.value,
+        Permission.READ_FEED.value,
+        Permission.WRITE_FEED.value,
+    ]
+
+
+def _meshspace_status_meta(status: Any) -> dict[str, str]:
+    normalized = str(status or 'defined').strip().lower() or 'defined'
+    mapping = {
+        'running': {'label': 'Running', 'class': 'running', 'icon': 'bi-broadcast'},
+        'starting': {'label': 'Starting', 'class': 'starting', 'icon': 'bi-arrow-repeat'},
+        'stopping': {'label': 'Stopping', 'class': 'stopping', 'icon': 'bi-stop-circle'},
+        'stopped': {'label': 'Stopped', 'class': 'stopped', 'icon': 'bi-pause-circle'},
+        'degraded': {'label': 'Degraded', 'class': 'degraded', 'icon': 'bi-exclamation-triangle'},
+        'crashed': {'label': 'Crashed', 'class': 'crashed', 'icon': 'bi-x-octagon'},
+        'defined': {'label': 'Defined', 'class': 'defined', 'icon': 'bi-circle'},
+    }
+    return mapping.get(normalized, {'label': normalized.title(), 'class': 'defined', 'icon': 'bi-circle'})
+
+
+def _meshspace_direct_url(
+    record: dict[str, Any],
+    current_meshspace_id: Optional[str] = None,
+    *,
+    request_host: str = "",
+) -> str:
+    meshspace_id = str(record.get('meshspace_id') or '').strip()
+    if current_meshspace_id and meshspace_id == current_meshspace_id:
+        return url_for('ui.dashboard')
+    requested_host = str(request_host or '').strip()
+
+    def _preferred_host(host: str) -> str:
+        host_value = str(host or '').strip() or '127.0.0.1'
+        if requested_host and host_value in {'127.0.0.1', 'localhost', '0.0.0.0', '::'}:
+            return requested_host
+        if host_value in {'0.0.0.0', '::'}:
+            return '127.0.0.1'
+        return host_value
+
+    raw = str(record.get('launch_url') or '').strip()
+    if raw:
+        parsed = urlparse(raw)
+        if parsed.scheme and parsed.netloc:
+            host = _preferred_host(parsed.hostname or '')
+            netloc = host
+            if parsed.port:
+                netloc = f"{host}:{parsed.port}"
+            normalized = parsed._replace(netloc=netloc, path='', params='', query='', fragment='')
+            return urlunparse(normalized).rstrip('/') + '/login'
+        return raw.rstrip('/') + '/login'
+    host = _preferred_host(str(record.get('http_host') or '127.0.0.1').strip())
+    try:
+        port = int(record.get('http_port') or 0)
+    except Exception:
+        port = 0
+    if port > 0:
+        return f"http://{host}:{port}/login"
+    return '#'
+
+
+def _meshspace_launch_url(record: dict[str, Any], current_meshspace_id: Optional[str] = None) -> str:
+    meshspace_id = str(record.get('meshspace_id') or '').strip()
+    if current_meshspace_id and meshspace_id == current_meshspace_id:
+        return url_for('ui.dashboard')
+    return url_for('ui.meshspace_open', meshspace_id=meshspace_id) if meshspace_id else '#'
+
+
+def _meshspace_launch_command(record: dict[str, Any], manager: Any = None) -> str:
+    meshspace_id = str(record.get('meshspace_id') or '').strip()
+    env_map = manager.launch_environment(meshspace_id) if manager else None
+    if not env_map:
+        env_map = {
+            'CANOPY_MESHSPACE_ID': meshspace_id,
+            'CANOPY_MESHSPACE_NAME': str(record.get('name') or meshspace_id),
+            'CANOPY_MESHSPACE_ROOT': str(record.get('data_dir') or ''),
+            'CANOPY_MESHSPACE_SUPERVISED': 'true' if record.get('supervised') else 'false',
+            'CANOPY_MESHSPACE_NETWORK_QUARANTINED': 'true' if record.get('network_quarantined') else 'false',
+            'CANOPY_PORT': str(record.get('http_port') or ''),
+            'CANOPY_MESH_PORT': str(record.get('mesh_port') or ''),
+            'CANOPY_DISCOVERY_PORT': str(record.get('discovery_port') or ''),
+        }
+    ordered = [
+        'CANOPY_MESHSPACE_ID',
+        'CANOPY_MESHSPACE_NAME',
+        'CANOPY_MESHSPACE_ROOT',
+        'CANOPY_MESHSPACE_SUPERVISED',
+        'CANOPY_MESHSPACE_NETWORK_QUARANTINED',
+        'CANOPY_PORT',
+        'CANOPY_MESH_PORT',
+        'CANOPY_DISCOVERY_PORT',
+    ]
+    parts = [f'{key}="{env_map[key]}"' for key in ordered if env_map.get(key)]
+    parts.append('python -m canopy.main')
+    return ' '.join(parts)
+
+
+def _meshspace_avatar_url(record: dict[str, Any]) -> str:
+    meshspace_id = str(record.get('meshspace_id') or '').strip()
+    avatar_path = str(record.get('avatar_path') or '').strip()
+    if not meshspace_id or not avatar_path:
+        return ''
+    version = str(record.get('avatar_updated_at') or record.get('updated_at') or '').strip()
+    kwargs: dict[str, Any] = {'meshspace_id': meshspace_id}
+    if version:
+        kwargs['v'] = version
+    return url_for('ui.meshspace_avatar', **kwargs)
+
+
+def _meshspace_needs_naming(record: dict[str, Any]) -> bool:
+    runtime_mode = str(record.get('runtime_mode') or '').strip().lower()
+    if runtime_mode != 'legacy-default':
+        return False
+    current_name = str(record.get('name') or '').strip().lower()
+    return current_name in {'default mesh', 'primary mesh', 'current mesh', ''}
+
+
+def _meshspace_accent_meta(accent: Any) -> dict[str, str]:
+    palette = {
+        'emerald': {'rgb': '34,197,94', 'hex': '#22c55e'},
+        'cyan': {'rgb': '6,182,212', 'hex': '#06b6d4'},
+        'amber': {'rgb': '245,158,11', 'hex': '#f59e0b'},
+        'rose': {'rgb': '244,63,94', 'hex': '#f43f5e'},
+    }
+    return palette.get(str(accent or 'emerald').strip().lower(), palette['emerald'])
+
+
+def _meshspace_initials(name: Any) -> str:
+    raw = str(name or '').strip()
+    if not raw:
+        return 'C'
+    parts = [part[:1] for part in re.split(r'[\s\-_]+', raw) if part]
+    if len(parts) >= 2:
+        return ''.join(parts[:2]).upper()
+    return raw[:1].upper()
+
+
+def _meshspace_parse_datetime(value: Any) -> Optional[datetime]:
+    raw = str(value or '').strip()
+    if not raw:
+        return None
+    normalized = raw.replace('Z', '+00:00')
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except Exception:
+        for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M:%S.%f'):
+            try:
+                parsed = datetime.strptime(raw, fmt).replace(tzinfo=timezone.utc)
+                break
+            except Exception:
+                parsed = None
+        if parsed is None:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _meshspace_recent_activity(value: Any, *, window_minutes: int = 90) -> bool:
+    parsed = _meshspace_parse_datetime(value)
+    if not parsed:
+        return False
+    return (datetime.now(timezone.utc) - parsed) <= timedelta(minutes=max(1, int(window_minutes or 90)))
+
+
+def _meshspace_activity_label(value: Any, *, running: bool = False) -> str:
+    parsed = _meshspace_parse_datetime(value)
+    if not parsed:
+        return 'Awaiting activity' if running else 'No recent runtime activity'
+    delta = datetime.now(timezone.utc) - parsed
+    seconds = max(0, int(delta.total_seconds()))
+    if seconds < 180:
+        return 'Active now'
+    minutes = max(1, seconds // 60)
+    if minutes < 60:
+        return f'Active {minutes}m ago'
+    hours = minutes // 60
+    if hours < 24:
+        return f'Active {hours}h ago'
+    days = hours // 24
+    return f'Active {days}d ago'
+
+
+def _latest_workspace_activity_iso(db_manager: Any) -> Optional[str]:
+    if not db_manager:
+        return None
+    try:
+        with db_manager.get_connection() as conn:
+            row = conn.execute("SELECT MAX(created_at) AS created_at FROM workspace_events").fetchone()
+            if row and row['created_at']:
+                return str(row['created_at'])
+    except Exception:
+        return None
+    return None
+
+
+def _session_is_authenticated() -> bool:
+    return bool(session.get('authenticated', False) and session.get('user_id'))
+
+
+def _shell_message_unread_count(db_manager: Any, user_id: str) -> int:
+    if not db_manager or not user_id:
+        return 0
+    try:
+        with db_manager.get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(DISTINCT m.id) AS unread_count
+                FROM messages m
+                WHERE m.read_at IS NULL
+                  AND COALESCE(m.sender_id, '') != ?
+                  AND (
+                      m.recipient_id = ?
+                      OR EXISTS (
+                          SELECT 1
+                          FROM json_each(
+                              CASE WHEN json_valid(m.metadata) THEN m.metadata ELSE '{}' END,
+                              '$.group_members'
+                          ) gm
+                          WHERE CAST(gm.value AS TEXT) = ?
+                      )
+                  )
+                """,
+                (user_id, user_id, user_id),
+            ).fetchone()
+            return max(0, int((row['unread_count'] if row else 0) or 0))
+    except Exception:
+        return 0
+
+
+def _shell_channel_unread_count(channel_manager: Any, p2p_manager: Any, user_id: str) -> int:
+    if not channel_manager or not user_id:
+        return 0
+    try:
+        return sum(
+            max(0, int(getattr(channel, 'unread_count', 0) or 0))
+            for channel in (channel_manager.get_user_channels(user_id) or [])
+        )
+    except Exception:
+        return 0
+
+
+def _shell_feed_unread_count(feed_manager: Any, user_id: str) -> int:
+    if not feed_manager or not user_id or not hasattr(feed_manager, 'count_unread_posts'):
+        return 0
+    try:
+        return max(0, int(feed_manager.count_unread_posts(user_id) or 0))
+    except Exception:
+        return 0
+
+
+def _shell_recent_mention_count(db_manager: Any, user_id: str) -> int:
+    if not db_manager or not user_id:
+        return 0
+    try:
+        with db_manager.get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS n
+                FROM workspace_events
+                WHERE target_user_id = ?
+                  AND event_type IN (?, ?, ?)
+                  AND created_at >= datetime('now', '-7 days')
+                """,
+                (user_id, EVENT_MENTION_CREATED, EVENT_INBOX_ITEM_CREATED, EVENT_INBOX_ITEM_UPDATED),
+            ).fetchone()
+            return max(0, int((row['n'] if row else 0) or 0))
+    except Exception:
+        return 0
+
+
+def _current_session_meshspace_attention() -> Optional[dict[str, int]]:
+    """Return per-user attention for the current mesh only."""
+    if not _session_is_authenticated():
+        return None
+    current_user_id = str(session.get('user_id') or '').strip()
+    if not current_user_id:
+        return None
+    try:
+        db_manager, _, _, _, channel_manager, _, feed_manager, _, _, _, p2p_manager = _get_app_components_any(current_app)
+    except Exception:
+        return None
+
+    return build_meshspace_notification_summary(
+        db_manager,
+        channel_manager,
+        feed_manager,
+        p2p_manager,
+        current_user_id,
+    )
+
+
+def _apply_current_session_meshspace_attention(item: dict[str, Any]) -> dict[str, Any]:
+    """Overlay current-session user attention onto the active mesh only."""
+    if not item or not item.get('is_current'):
+        return item
+    session_attention = _current_session_meshspace_attention()
+    if not session_attention:
+        return item
+    item['unread_count'] = max(0, int(session_attention.get('unread_count') or 0))
+    item['mention_count'] = max(0, int(session_attention.get('mention_count') or 0))
+    item['pending_review_count'] = max(0, int(session_attention.get('pending_review_count') or 0))
+    item['session_attention_count'] = max(0, int(session_attention.get('attention_count') or 0))
+    status_attention = 1 if str(item.get('status') or '').strip().lower() in {'degraded', 'crashed', 'stopping'} else 0
+    item['attention_count'] = max(status_attention, item['session_attention_count'])
+
+    presence_parts: list[str] = []
+    active_peer_count = max(0, int(item.get('active_peer_count') or 0))
+    if active_peer_count:
+        presence_parts.append(f"{active_peer_count} peer" + ('' if active_peer_count == 1 else 's'))
+    if item['unread_count']:
+        presence_parts.append(f"{item['unread_count']} unread")
+    if item['mention_count']:
+        presence_parts.append(f"{item['mention_count']} mention" + ('' if item['mention_count'] == 1 else 's'))
+    elif item.get('has_recent_activity'):
+        presence_parts.append(str(item.get('activity_label') or 'Recent activity'))
+    if item['pending_review_count']:
+        presence_parts.append(f"{item['pending_review_count']} pending")
+    elif item.get('network_quarantined'):
+        presence_parts.append('Isolated')
+    item['presence_subline'] = ' · '.join(presence_parts[:3]) or str(item.get('runtime_summary') or '')
+
+    badge_count = item['session_attention_count']
+    item['attention_badge'] = '99+' if badge_count > 99 else (str(badge_count) if badge_count else ('!' if status_attention else ''))
+    return item
+
+
+def _sync_current_meshspace_shell_summary(
+    manager: Any,
+    current_record: dict[str, Any],
+    *,
+    user_id: Optional[str] = None,
+) -> None:
+    if not manager or not current_record:
+        return
+    meshspace_id = str(current_record.get('meshspace_id') or '').strip()
+    if not meshspace_id:
+        return
+
+    try:
+        db_manager, _, _, _, channel_manager, _, feed_manager, _, _, _, p2p_manager = _get_app_components_any(current_app)
+    except Exception:
+        return
+
+    last_activity_at = _latest_workspace_activity_iso(db_manager) or str(current_record.get('last_seen_at') or '')
+    # Persist a canonical mesh summary for the local owner user so shared shell
+    # cards do not drift when different authenticated sessions hit the shell.
+    publish_user_id = ''
+    if db_manager:
+        try:
+            publish_user_id = str(db_manager.get_instance_owner_user_id() or '').strip()
+        except Exception:
+            publish_user_id = ''
+    summary = build_meshspace_shell_summary(
+        db_manager,
+        channel_manager,
+        feed_manager,
+        p2p_manager,
+        user_id=publish_user_id or None,
+        status=str(current_record.get('status') or ''),
+        last_activity_at=last_activity_at,
+        fallback_last_seen_at=str(current_record.get('last_seen_at') or ''),
+    )
+
+    cache = current_app.config.setdefault('MESHSPACE_SHELL_SUMMARY_CACHE', {})
+    current_key = (
+        int(summary.get('active_peer_count') or 0),
+        int(summary.get('attention_count') or 0),
+        int(summary.get('unread_count') or 0),
+        int(summary.get('mention_count') or 0),
+        int(summary.get('pending_review_count') or 0),
+        str(summary.get('last_activity_at') or ''),
+        str(summary.get('attention_level') or ''),
+    )
+    previous = cache.get(meshspace_id)
+    if previous and previous.get('key') == current_key and (time.time() - float(previous.get('at') or 0)) < 20:
+        return
+    updated = manager.update_shell_summary(meshspace_id, summary)
+    if isinstance(updated, dict):
+        current_app.config['MESHSPACE_RECORD'] = dict(updated)
+    cache[meshspace_id] = {'key': current_key, 'at': time.time()}
+
+
+def _meshspace_runtime_probe(manager: Any, meshspace_id: str) -> dict[str, Any]:
+    """Return a short-lived cached live-runtime probe for one meshspace."""
+    if not manager or not meshspace_id:
+        return {}
+    req_cache: Optional[dict[str, dict[str, Any]]]
+    try:
+        req_cache = getattr(g, '_meshspace_runtime_probe_cache', None)
+    except RuntimeError:
+        req_cache = None
+    if req_cache is None:
+        req_cache = {}
+        try:
+            g._meshspace_runtime_probe_cache = req_cache  # type: ignore[attr-defined]
+        except RuntimeError:
+            pass
+    if meshspace_id in req_cache:
+        return dict(req_cache[meshspace_id])
+    cache = current_app.config.setdefault('MESHSPACE_RUNTIME_PROBE_CACHE', {})
+    now = time.time()
+    cached = cache.get(meshspace_id)
+    if cached and (now - float(cached.get('at') or 0)) < 5.0:
+        value = dict(cached.get('value') or {})
+        req_cache[meshspace_id] = value
+        return value
+    try:
+        value = manager.probe_meshspace_runtime(meshspace_id) or {}
+    except Exception:
+        value = {}
+    cache[meshspace_id] = {'at': now, 'value': dict(value)}
+    req_cache[meshspace_id] = dict(value)
+    return dict(value)
+
+
+def _list_meshspaces_request_cached(manager: Any) -> list[dict[str, Any]]:
+    """Return ``manager.list_meshspaces()`` deduped within the current request."""
+    if not manager:
+        return []
+    try:
+        cached = getattr(g, '_meshspaces_list_cache', None)
+    except RuntimeError:
+        cached = None
+    if cached is not None:
+        return cached
+    records = manager.list_meshspaces()
+    try:
+        g._meshspaces_list_cache = records  # type: ignore[attr-defined]
+    except RuntimeError:
+        pass
+    return records
+
+
+def _meshspace_port_overlap_map(records: list[dict[str, Any]]) -> dict[str, list[str]]:
+    """Map meshspace ids to sibling ids that share HTTP or mesh ports."""
+    port_index: dict[tuple[str, int], list[str]] = {}
+    overlaps: dict[str, set[str]] = {}
+    for record in records:
+        meshspace_id = str(record.get('meshspace_id') or '').strip()
+        if not meshspace_id:
+            continue
+        for key in ('http_port', 'mesh_port'):
+            try:
+                port = int(record.get(key) or 0)
+            except Exception:
+                port = 0
+            if port <= 0:
+                continue
+            port_index.setdefault((key, port), []).append(meshspace_id)
+    for ids in port_index.values():
+        if len(ids) < 2:
+            continue
+        for meshspace_id in ids:
+            overlaps.setdefault(meshspace_id, set()).update(other for other in ids if other != meshspace_id)
+    return {
+        meshspace_id: sorted(siblings)
+        for meshspace_id, siblings in overlaps.items()
+        if siblings
+    }
+
+
+def _meshspace_nav_sort_key(item: dict[str, Any]) -> tuple[Any, ...]:
+    status_rank = {
+        'running': 0,
+        'starting': 1,
+        'degraded': 1,
+        'stopping': 2,
+        'defined': 3,
+        'stopped': 4,
+        'crashed': 5,
+    }
+    return (
+        0 if item.get('is_current') else 1,
+        status_rank.get(str(item.get('status') or '').strip().lower(), 6),
+        0 if item.get('attention_count') else 1,
+        -int(item.get('attention_count') or 0),
+        0 if item.get('has_recent_activity') else 1,
+        str(item.get('name') or '').lower(),
+    )
 
 
 def _is_private_ip(host: str) -> bool:
@@ -558,9 +1083,12 @@ def create_ui_blueprint() -> Blueprint:
 
     def _custom_emoji_dir() -> str:
         """Return the filesystem directory for custom emojis, creating it if needed."""
-        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'custom_emojis'))
+        canopy_config = current_app.config.get('CANOPY_CONFIG')
+        base_dir = Path(
+            str(getattr(getattr(canopy_config, 'storage', None), 'data_dir', '') or Path('./data'))
+        ) / 'custom_emojis'
         os.makedirs(base_dir, exist_ok=True)
-        return base_dir
+        return str(base_dir)
 
     def _custom_emoji_index_path() -> str:
         return os.path.join(_custom_emoji_dir(), 'index.json')
@@ -617,6 +1145,64 @@ def create_ui_blueprint() -> Blueprint:
             return {'canopy_version': '0.0.0'}
 
     @ui.app_context_processor
+    def inject_meshspace_context():
+        """Inject current meshspace identity and machine-local registry summary."""
+        config = current_app.config.get('CANOPY_CONFIG')
+        if not config:
+            return {}
+        manager = _get_meshspace_registry_manager()
+        current_record = _current_meshspace_record()
+        if not current_record:
+            return {}
+        if _is_authenticated() and manager:
+            _sync_current_meshspace_shell_summary(
+                manager,
+                current_record,
+                user_id=str(session.get('user_id') or '').strip() or None,
+            )
+            current_record = _current_meshspace_record()
+        current_record = _meshspace_card_payload(
+            current_record,
+            str(getattr(config.meshspace, 'meshspace_id', '') or ''),
+            manager,
+        )
+        if _is_authenticated():
+            current_record = _apply_current_session_meshspace_attention(current_record)
+
+        out = {
+            'current_meshspace': current_record,
+            'meshspace_runtime_mode': str(getattr(config.meshspace, 'runtime_mode', '') or ''),
+            'meshspace_can_manage': bool(_is_authenticated() and _is_admin()),
+        }
+        if _is_authenticated() and manager:
+            entries = [
+                _meshspace_card_payload(
+                    record,
+                    str(current_record.get('meshspace_id') or ''),
+                    manager,
+                )
+                for record in _list_meshspaces_request_cached(manager)
+            ]
+            if _is_authenticated():
+                entries = [
+                    _apply_current_session_meshspace_attention(item) if item.get('is_current') else item
+                    for item in entries
+                ]
+            entries.sort(key=_meshspace_nav_sort_key)
+            quick_entries = [
+                item for item in entries
+                if not item.get('is_current') and item.get('is_active_runtime')
+            ][:3]
+            out['navbar_meshspaces'] = entries
+            out['navbar_meshspaces_quick'] = quick_entries
+            out['meshspace_registry_count'] = len(entries)
+        else:
+            out['navbar_meshspaces'] = []
+            out['navbar_meshspaces_quick'] = []
+            out['meshspace_registry_count'] = 1
+        return out
+
+    @ui.app_context_processor
     def inject_sidebar_peers():
         """Inject connected peer context and admin context for the sidebar."""
         if not _is_authenticated():
@@ -642,6 +1228,15 @@ def create_ui_blueprint() -> Blueprint:
                 'recent_dm_contacts': [],
                 'dm_rev': _stable_ui_revision([]),
             }
+            attention_snapshot = _build_sidebar_attention_snapshot(
+                db_manager,
+                profile_manager,
+                channel_manager,
+                feed_manager,
+                p2p_manager,
+                workspace_event_manager,
+                current_user_id,
+            )
             out = {
                 'sidebar_connected_peers': peer_snapshot['connected_peer_ids'],
                 'sidebar_peer_profiles': peer_snapshot['peer_profiles'],
@@ -652,21 +1247,11 @@ def create_ui_blueprint() -> Blueprint:
                 'sidebar_dm_event_cursor': int((workspace_event_manager.get_latest_seq() if workspace_event_manager else 0) or 0),
                 'sidebar_local_peer_id': local_peer_id,
             }
-            attention_snapshot = _build_sidebar_attention_snapshot(
-                db_manager,
-                profile_manager,
-                channel_manager,
-                feed_manager,
-                p2p_manager,
-                workspace_event_manager,
-                current_user_id,
-            )
             out['sidebar_attention_summary'] = attention_snapshot['summary']
             out['sidebar_attention_rev'] = attention_snapshot['summary_rev']
             out['sidebar_attention_items'] = attention_snapshot['items']
             out['sidebar_attention_activity_rev'] = attention_snapshot['activity_rev']
             out['sidebar_attention_event_cursor'] = attention_snapshot['workspace_event_cursor']
-            # Admin link and badge (instance owner only)
             owner_id = db_manager.get_instance_owner_user_id()
             if owner_id and session.get('user_id') == owner_id:
                 out['is_admin'] = True
@@ -675,7 +1260,6 @@ def create_ui_blueprint() -> Blueprint:
             else:
                 out['is_admin'] = False
                 out['admin_pending_count'] = 0
-                # Show "Claim admin" when no owner, or when recovery secret is set (take-over)
                 out['show_claim_admin'] = (not owner_id) or bool(os.environ.get('CANOPY_ADMIN_CLAIM_SECRET', '').strip())
             return out
         except Exception as e:
@@ -722,6 +1306,20 @@ def create_ui_blueprint() -> Blueprint:
             logger.warning(f"Failed login attempt for '{username}' from {request.remote_addr}")
             return render_template('login.html', show_register=False,
                                  error='Invalid username or password')
+
+        account_status = str(user.get('status') or 'active').strip().lower()
+        if account_status == 'pending_approval':
+            return render_template(
+                'login.html',
+                show_register=False,
+                pending=True,
+            )
+        if account_status == 'suspended':
+            return render_template(
+                'login.html',
+                show_register=False,
+                error='Your account has been suspended. Contact the instance admin.',
+            )
         
         # Migrate legacy password to bcrypt if needed
         from ..security.password import is_legacy_hash
@@ -801,7 +1399,8 @@ def create_ui_blueprint() -> Blueprint:
             username=username,
             public_key=keypair['ed25519_public'],
             password_hash=pw_hash,
-            display_name=display_name
+            display_name=display_name,
+            status='active' if not has_users else 'pending_approval',
         )
         
         if not success:
@@ -855,15 +1454,20 @@ def create_ui_blueprint() -> Blueprint:
             logger.warning(f"Could not add user to channels: {e}")
         
         logger.info(f"New user registered: '{username}' ({user_id}) with crypto keypair")
-        
-        # Auto-login after registration
-        session['authenticated'] = True
-        session['user_id'] = user_id
-        session['username'] = username
-        session['display_name'] = display_name
-        session.permanent = True
-        
-        return redirect(url_for('ui.dashboard'))
+
+        if not has_users:
+            session['authenticated'] = True
+            session['user_id'] = user_id
+            session['username'] = username
+            session['display_name'] = display_name
+            session.permanent = True
+            return redirect(url_for('ui.dashboard'))
+
+        return render_template(
+            'login.html',
+            show_register=False,
+            success='Account created and awaiting admin approval. You will be able to sign in once an admin activates it.',
+        )
 
     @ui.route('/setup', methods=['GET', 'POST'])
     def setup():
@@ -4396,7 +5000,7 @@ def create_ui_blueprint() -> Blueprint:
     def api_keys():
         """API key management interface."""
         try:
-            _, api_key_manager, _, _, _, _, _, _, _, _, _ = _get_app_components_any(current_app)
+            db_manager, api_key_manager, _, _, _, _, _, _, _, _, _ = _get_app_components_any(current_app)
             user_id = get_current_user()
             
             # Get user's API keys
@@ -4404,7 +5008,15 @@ def create_ui_blueprint() -> Blueprint:
             
             # Get available permissions
             all_permissions = api_key_manager.get_all_permissions()
-            default_permissions = api_key_manager.get_default_permissions()
+            user = db_manager.get_user(user_id) if db_manager else None
+            is_agent_account = ((user or {}).get('account_type') or 'human') == 'agent'
+            if is_agent_account:
+                default_permissions = [
+                    Permission(value)
+                    for value in _current_meshspace_default_agent_permissions()
+                ]
+            else:
+                default_permissions = api_key_manager.get_default_permissions()
             
             # Get current time for expiration checks
             from datetime import datetime
@@ -4414,6 +5026,8 @@ def create_ui_blueprint() -> Blueprint:
                                  keys=keys,
                                  all_permissions=all_permissions,
                                  default_permissions=default_permissions,
+                                 is_agent_account=is_agent_account,
+                                 current_meshspace=_current_meshspace_record(),
                                  user_id=user_id,
                                  now=now)
                                  
@@ -5944,6 +6558,673 @@ def create_ui_blueprint() -> Blueprint:
             flash('Error loading settings', 'error')
             return render_template('error.html', error=str(e))
 
+    def _meshspace_card_payload(
+        record: dict[str, Any],
+        current_meshspace_id: str,
+        manager: Any,
+        *,
+        port_overlap_map: Optional[dict[str, list[str]]] = None,
+    ) -> dict[str, Any]:
+        item = dict(record)
+        meshspace_id = str(item.get('meshspace_id') or '').strip()
+        probe = _meshspace_runtime_probe(manager, meshspace_id)
+        effective_status = str(probe.get('effective_status') or item.get('status') or 'defined').strip().lower() or 'defined'
+        item['status'] = effective_status
+        item['registry_status'] = str(record.get('status') or 'defined').strip().lower() or 'defined'
+        item['live_detected'] = bool(probe.get('live'))
+        item['status_mismatch'] = bool(probe.get('status_mismatch'))
+        item['status_source'] = 'probe' if item['status_mismatch'] else 'registry'
+        item['detected_pid'] = max(0, int(probe.get('detected_pid') or item.get('pid') or 0))
+        item['detected_version'] = str(probe.get('version') or '').strip()
+        item['detected_peer_id'] = str(probe.get('peer_id') or '').strip()
+        meta = _meshspace_status_meta(item.get('status'))
+        item['status_label'] = meta['label']
+        item['status_class'] = meta['class']
+        item['status_icon'] = meta['icon']
+        item['display_icon'] = str(item.get('icon') or 'bi-grid-1x2').strip() or 'bi-grid-1x2'
+        item['is_current'] = item.get('meshspace_id') == current_meshspace_id
+        item['needs_naming'] = _meshspace_needs_naming(item)
+        item['is_legacy_adopted'] = str(item.get('runtime_mode') or '').strip().lower() == 'legacy-default'
+        item['network_quarantined'] = bool(item.get('network_quarantined'))
+        if probe.get('launch_url'):
+            item['launch_url'] = str(probe.get('launch_url') or '').strip()
+        item['launch_href'] = _meshspace_launch_url(item, current_meshspace_id)
+        item['open_label'] = 'Open current mesh' if item['is_current'] else 'Open mesh'
+        status_lower = str(item.get('status') or 'defined').strip().lower()
+        item['is_running'] = status_lower == 'running'
+        item['is_active_runtime'] = bool(item['live_detected'] or status_lower in {'running', 'starting', 'degraded', 'stopping'})
+        item['is_startable'] = bool((not item['live_detected']) and status_lower in ('defined', 'stopped', 'crashed') and not item['is_current'])
+        item['is_stoppable'] = bool((not item['is_current']) and item['live_detected'] and item['detected_pid'] > 0)
+        item['is_restartable'] = bool(item['is_current'] or (item.get('supervised') and item['live_detected'] and item['detected_pid'] > 0))
+        item['can_refresh_state'] = bool(manager and meshspace_id)
+        item['runtime_summary'] = f"HTTP {item.get('http_port')} · Mesh {item.get('mesh_port')}"
+        if item['detected_version']:
+            item['runtime_summary'] += f" · v{item['detected_version']}"
+        item['launch_command'] = _meshspace_launch_command(item, manager)
+        peer_id = str(item.get('peer_id') or '').strip()
+        item['short_meshspace_id'] = (meshspace_id[:14] + '…') if len(meshspace_id) > 14 else (meshspace_id or 'Pending')
+        item['short_peer_id'] = (peer_id[:14] + '…') if len(peer_id) > 14 else (peer_id or 'Pending')
+        avatar_path_raw = str(item.get('avatar_path') or '').strip()
+        avatar_path = Path(avatar_path_raw).expanduser() if avatar_path_raw else None
+        item['avatar_url'] = _meshspace_avatar_url(item) if avatar_path and avatar_path.exists() else ''
+        summary = item.get('summary') if isinstance(item.get('summary'), dict) else {}
+        probed_summary = probe.get('shell_summary') if isinstance(probe.get('shell_summary'), dict) else {}
+        if probed_summary and not item.get('is_current') and item.get('live_detected'):
+            summary = probed_summary
+            if manager:
+                try:
+                    manager.update_shell_summary(meshspace_id, probed_summary)
+                except Exception as exc:
+                    logger.debug(
+                        'Failed to persist probed shell summary for mesh %s: %s',
+                        meshspace_id,
+                        exc,
+                    )
+        item['active_peer_count'] = max(0, int(summary.get('active_peer_count') or 0))
+        item['attention_count'] = max(0, int(summary.get('attention_count') or 0))
+        item['unread_count'] = max(0, int(summary.get('unread_count') or 0))
+        item['mention_count'] = max(0, int(summary.get('mention_count') or 0))
+        item['pending_review_count'] = max(0, int(summary.get('pending_review_count') or 0))
+        item['session_attention_count'] = 0
+        item['last_activity_at'] = str(summary.get('last_activity_at') or item.get('last_seen_at') or '').strip()
+        item['has_recent_activity'] = bool(summary.get('has_recent_activity')) or _meshspace_recent_activity(item['last_activity_at'])
+        item['attention_level'] = str(summary.get('attention_level') or 'quiet').strip() or 'quiet'
+        if not item['is_active_runtime']:
+            item['active_peer_count'] = 0
+            item['has_recent_activity'] = False
+        item['activity_label'] = _meshspace_activity_label(item['last_activity_at'], running=item['is_active_runtime'])
+        accent = _meshspace_accent_meta(item.get('accent'))
+        item['accent_rgb'] = accent['rgb']
+        item['accent_hex'] = accent['hex']
+        item['crest_text'] = _meshspace_initials(item.get('name'))
+        item['port_overlap_ids'] = list((port_overlap_map or {}).get(meshspace_id, []))
+        item['port_overlap_warning'] = bool(item['port_overlap_ids'])
+        item['port_overlap_siblings'] = []
+        if item['attention_count'] > 0:
+            item['attention_badge'] = '99+' if item['attention_count'] > 99 else str(item['attention_count'])
+        elif item['attention_level'] in {'warning', 'critical'}:
+            item['attention_badge'] = '!'
+        else:
+            item['attention_badge'] = ''
+        presence_parts: list[str] = []
+        if item['active_peer_count']:
+            presence_parts.append(f"{item['active_peer_count']} peer" + ('' if item['active_peer_count'] == 1 else 's'))
+        if item['unread_count']:
+            presence_parts.append(f"{item['unread_count']} unread")
+        if item['mention_count']:
+            presence_parts.append(f"{item['mention_count']} mention" + ('' if item['mention_count'] == 1 else 's'))
+        elif item['has_recent_activity']:
+            presence_parts.append(item['activity_label'])
+        if item['pending_review_count']:
+            presence_parts.append(f"{item['pending_review_count']} pending")
+        elif item['network_quarantined']:
+            presence_parts.append('Isolated')
+        item['presence_subline'] = ' · '.join(presence_parts[:3]) or item['runtime_summary']
+        item['control_note'] = ''
+        if item['status_mismatch'] and item['live_detected']:
+            item['control_note'] = (
+                'A live process was found on this mesh\'s ports, but the registry showed it as '
+                'stopped or inactive. Controls now reflect the live state. Use Stop or Restart '
+                'to resync the registry, or Refresh state to reconcile without interrupting the process.'
+            )
+        elif item['status_mismatch'] and not item['live_detected']:
+            item['control_note'] = (
+                'The registry shows this mesh as running, but no live process was found on its assigned '
+                'ports. Refresh state to update the registry. If the mesh is needed, use Start to bring '
+                'it back online.'
+            )
+        if item['port_overlap_warning'] and not item['control_note']:
+            item['control_note'] = (
+                'This mesh shares a runtime port with another registry entry. Runtime status may be '
+                'ambiguous until each mesh has its own unique port pair. Go to the conflicting mesh\'s '
+                'detail page, assign a different port, then refresh state to restore accurate controls.'
+            )
+        open_blocked_reasons = {
+            'stopped': 'Mesh stopped cleanly. Use Start to bring it back online.',
+            'crashed': 'Mesh process crashed. Check the launch log or use Restart to recover.',
+            'defined': 'Mesh has not been started yet. Use Start to launch it.',
+            'starting': 'Mesh is still starting. Wait a moment or refresh state, then try again.',
+            'stopping': 'Mesh is still stopping. Wait a moment or refresh state, then try again.',
+        }
+        item['open_blocked_reason'] = open_blocked_reasons.get(status_lower, 'Start the mesh first to open it.')
+        return item
+
+    @ui.route('/meshes/<meshspace_id>/avatar')
+    @require_login
+    def meshspace_avatar(meshspace_id: str):
+        """Serve the shell-managed avatar image for a meshspace."""
+        manager = _get_meshspace_registry_manager()
+        if not manager:
+            return ('', 404)
+        avatar_path = manager.get_meshspace_avatar_path(meshspace_id)
+        if not avatar_path or not avatar_path.exists():
+            return ('', 404)
+        record = manager.get_meshspace(meshspace_id) or {}
+        mimetype = str(record.get('avatar_mime') or 'image/png').strip() or 'image/png'
+        return send_file(avatar_path, mimetype=mimetype, conditional=True, max_age=3600)
+
+    def _meshspaces_snapshot_payload() -> dict[str, Any]:
+        manager = _get_meshspace_registry_manager()
+        config = current_app.config.get('CANOPY_CONFIG')
+        current_meshspace = _current_meshspace_record()
+        records = _list_meshspaces_request_cached(manager) if manager else [current_meshspace]
+        port_overlap_map = _meshspace_port_overlap_map(records)
+        cards = [
+            _meshspace_card_payload(
+                record,
+                str(getattr(config.meshspace, 'meshspace_id', '') or ''),
+                manager,
+                port_overlap_map=port_overlap_map,
+            )
+            for record in records
+        ]
+        if _is_authenticated():
+            cards = [
+                _apply_current_session_meshspace_attention(item) if item.get('is_current') else item
+                for item in cards
+            ]
+        current_card = next((item for item in cards if item.get('is_current')), None)
+        running_count = sum(1 for item in cards if item.get('is_active_runtime'))
+        peer_count_total = sum(max(0, int(item.get('active_peer_count') or 0)) for item in cards)
+        isolated_count = sum(1 for item in cards if item.get('network_quarantined'))
+        attention_mesh_count = sum(
+            1
+            for item in cards
+            if int(item.get('attention_count') or 0) > 0 or item.get('status') in {'degraded', 'crashed', 'stopping'}
+        )
+        attention_count = sum(
+            max(1, int(item.get('attention_count') or 0))
+            for item in cards
+            if int(item.get('attention_count') or 0) > 0 or item.get('status') in {'degraded', 'crashed', 'stopping'}
+        )
+        rev = _stable_ui_revision([
+            {
+                'meshspace_id': item.get('meshspace_id'),
+                'status': item.get('status'),
+                'status_label': item.get('status_label'),
+                'status_class': item.get('status_class'),
+                'runtime_summary': item.get('runtime_summary'),
+                'active_peer_count': item.get('active_peer_count'),
+                'attention_count': item.get('attention_count'),
+                'unread_count': item.get('unread_count'),
+                'mention_count': item.get('mention_count'),
+                'pending_review_count': item.get('pending_review_count'),
+                'activity_label': item.get('activity_label'),
+                'presence_subline': item.get('presence_subline'),
+                'has_recent_activity': item.get('has_recent_activity'),
+                'network_quarantined': item.get('network_quarantined'),
+                'attention_badge': item.get('attention_badge'),
+            }
+            for item in cards
+        ])
+        return {
+            'meshspaces': cards,
+            'current_meshspace': current_card,
+            'current_meshspace_needs_naming': bool(current_card and current_card.get('needs_naming')),
+            'current_meshspace_id': str(getattr(config.meshspace, 'meshspace_id', '') or ''),
+            'running_count': running_count,
+            'peer_count_total': peer_count_total,
+            'isolated_count': isolated_count,
+            'attention_mesh_count': attention_mesh_count,
+            'attention_count': attention_count,
+            'has_port_overlaps': any(bool(item.get('port_overlap_warning')) for item in cards),
+            'current_meshspace_has_overlap': bool(current_card and current_card.get('port_overlap_warning')),
+            'total_meshspaces': len(cards),
+            'meshspaces_rev': rev,
+        }
+
+    @ui.route('/meshes')
+    @require_login
+    def meshes_home():
+        """Machine-local meshspace registry and runtime overview."""
+        if not _is_admin():
+            flash('Meshspaces are managed by the instance admin.', 'warning')
+            return redirect(url_for('ui.dashboard'))
+        payload = _meshspaces_snapshot_payload()
+        manager = _get_meshspace_registry_manager()
+        return render_template(
+            'meshes.html',
+            **payload,
+            next_port_block=(manager.allocate_port_block() if manager else None),
+            is_admin=True,
+        )
+
+    @ui.route('/ajax/meshspaces_snapshot', methods=['GET'])
+    @require_login
+    def ajax_meshspaces_snapshot():
+        """Return machine-local meshspace card state for live shell updates."""
+        if not _is_admin():
+            return jsonify({'success': False, 'error': 'Admin only'}), 403
+        manager = _get_meshspace_registry_manager()
+        current_record = _current_meshspace_record()
+        if manager and current_record:
+            _sync_current_meshspace_shell_summary(manager, current_record, user_id=get_current_user())
+        client_rev = str(request.args.get('rev') or '').strip()
+        payload = _meshspaces_snapshot_payload()
+        changed = str(payload.get('meshspaces_rev') or '') != client_rev
+        return jsonify({
+            'success': True,
+            'changed': changed,
+            'rev': payload.get('meshspaces_rev') or '',
+            'meshspaces': payload.get('meshspaces') if changed else [],
+            'running_count': payload.get('running_count', 0),
+            'peer_count_total': payload.get('peer_count_total', 0),
+            'isolated_count': payload.get('isolated_count', 0),
+            'attention_mesh_count': payload.get('attention_mesh_count', 0),
+            'attention_count': payload.get('attention_count', 0),
+            'total_meshspaces': payload.get('total_meshspaces', 0),
+        })
+
+    @ui.route('/meshes/new', methods=['GET', 'POST'])
+    @require_login
+    def meshspace_create():
+        """Create a new machine-local meshspace record and isolated data root."""
+        if not _is_admin():
+            flash('Only the instance admin can create meshspaces.', 'warning')
+            return redirect(url_for('ui.dashboard'))
+        manager = _get_meshspace_registry_manager()
+        if not manager:
+            flash('Meshspace registry is unavailable.', 'error')
+            return redirect(url_for('ui.meshes_home'))
+
+        next_ports = manager.allocate_port_block()
+        if request.method == 'GET':
+            return render_template(
+                'meshspace_create.html',
+                next_port_block=next_ports,
+                defaults={'icon': 'bi-grid-1x2', 'accent': 'emerald'},
+                is_admin=True,
+            )
+
+        name = str(request.form.get('name') or '').strip()
+        description = str(request.form.get('description') or '').strip()
+        icon = str(request.form.get('icon') or 'bi-grid-1x2').strip() or 'bi-grid-1x2'
+        accent = str(request.form.get('accent') or 'emerald').strip() or 'emerald'
+        meshspace_id = str(request.form.get('meshspace_id') or '').strip()
+        avatar_file = request.files.get('avatar')
+
+        if len(name) < 2:
+            flash('Mesh name must be at least 2 characters.', 'error')
+            return render_template(
+                'meshspace_create.html',
+                next_port_block=next_ports,
+                defaults={'name': name, 'description': description, 'icon': icon, 'accent': accent, 'meshspace_id': meshspace_id},
+                is_admin=True,
+            )
+
+        try:
+            record = manager.create_meshspace(
+                name=name,
+                description=description,
+                icon=icon,
+                accent=accent,
+                meshspace_id=meshspace_id or None,
+            )
+        except ValueError as exc:
+            flash(str(exc), 'error')
+            return render_template(
+                'meshspace_create.html',
+                next_port_block=next_ports,
+                defaults={'name': name, 'description': description, 'icon': icon, 'accent': accent, 'meshspace_id': meshspace_id},
+                is_admin=True,
+            )
+        except Exception as exc:
+            logger.error("Meshspace creation failed: %s", exc, exc_info=True)
+            flash('Failed to create meshspace.', 'error')
+            return render_template(
+                'meshspace_create.html',
+                next_port_block=next_ports,
+                defaults={'name': name, 'description': description, 'icon': icon, 'accent': accent, 'meshspace_id': meshspace_id},
+                is_admin=True,
+            )
+
+        if avatar_file and avatar_file.filename:
+            try:
+                manager.set_meshspace_avatar(
+                    str(record.get('meshspace_id') or ''),
+                    avatar_file.read(),
+                    filename=secure_filename(avatar_file.filename or ''),
+                    content_type=str(avatar_file.content_type or ''),
+                )
+            except ValueError as exc:
+                flash(f"Mesh created, but avatar was not applied: {exc}", 'warning')
+            except Exception as exc:
+                logger.error("Meshspace avatar upload failed during create: %s", exc, exc_info=True)
+                flash("Mesh created, but the avatar upload failed.", 'warning')
+
+        flash(
+            f"Created meshspace '{record.get('name')}'. It starts isolated by default. "
+            "Enable networking only when you want this meshspace to discover or sync with peers.",
+            'success',
+        )
+        return redirect(url_for('ui.meshspace_detail', meshspace_id=record.get('meshspace_id')))
+
+    @ui.route('/meshes/<meshspace_id>')
+    @require_login
+    def meshspace_detail(meshspace_id: str):
+        """Detailed shell-safe runtime and storage view for one meshspace."""
+        if not _is_admin():
+            flash('Meshspaces are managed by the instance admin.', 'warning')
+            return redirect(url_for('ui.dashboard'))
+        manager = _get_meshspace_registry_manager()
+        if not manager:
+            flash('Meshspace registry is unavailable.', 'error')
+            return redirect(url_for('ui.meshes_home'))
+        record = manager.get_meshspace(meshspace_id)
+        if not record:
+            flash('Meshspace not found.', 'error')
+            return redirect(url_for('ui.meshes_home'))
+        config = current_app.config.get('CANOPY_CONFIG')
+        port_overlap_map = _meshspace_port_overlap_map(_list_meshspaces_request_cached(manager))
+        item = _meshspace_card_payload(
+            record,
+            str(getattr(config.meshspace, 'meshspace_id', '') or ''),
+            manager,
+            port_overlap_map=port_overlap_map,
+        )
+        item['port_overlap_siblings'] = [
+            str((manager.get_meshspace(sibling_id) or {}).get('name') or sibling_id)
+            for sibling_id in item.get('port_overlap_ids') or []
+        ]
+        item['launch_env'] = manager.launch_environment(item.get('meshspace_id')) or {}
+        item['data_dir_exists'] = Path(str(item.get('data_dir') or '')).exists()
+        item['database_exists'] = Path(str(item.get('database_path') or '')).exists()
+        return render_template(
+            'meshspace_detail.html',
+            meshspace=item,
+            is_admin=True,
+        )
+
+    @ui.route('/meshes/<meshspace_id>/open')
+    @require_login
+    def meshspace_open(meshspace_id: str):
+        """Open a mesh if it is live, otherwise show a useful recovery surface."""
+        manager = _get_meshspace_registry_manager()
+        if not manager:
+            flash('Meshspace registry is unavailable.', 'error')
+            return redirect(url_for('ui.meshes_home' if _is_admin() else 'ui.dashboard'))
+        record = manager.get_meshspace(meshspace_id)
+        if not record:
+            flash('Meshspace not found.', 'error')
+            return redirect(url_for('ui.meshes_home' if _is_admin() else 'ui.dashboard'))
+        config = current_app.config.get('CANOPY_CONFIG')
+        current_mid = str(getattr(getattr(config, 'meshspace', None), 'meshspace_id', '') or '')
+        if meshspace_id == current_mid:
+            return redirect(url_for('ui.dashboard'))
+        try:
+            manager.reconcile_meshspace_runtime(meshspace_id)
+            record = manager.get_meshspace(meshspace_id) or record
+        except Exception:
+            pass
+        item = _meshspace_card_payload(record, current_mid, manager)
+        item['open_stale_detected'] = bool(item.get('status_mismatch') and not item.get('live_detected'))
+        open_status = str(item.get('status') or '').strip().lower()
+        item['open_status_is_stopped'] = open_status == 'stopped'
+        item['open_status_is_crashed'] = open_status == 'crashed'
+        item['open_status_is_restarting'] = open_status in {'starting', 'stopping'}
+        if item.get('live_detected'):
+            request_host = str((request.host or '')).split(':', 1)[0].strip()
+            return redirect(_meshspace_direct_url(item, current_mid, request_host=request_host))
+        if not _is_admin():
+            flash(
+                f"Mesh '{item.get('name')}' is not running right now. Ask the instance admin to start it.",
+                'warning',
+            )
+            return redirect(url_for('ui.dashboard'))
+        return render_template(
+            'meshspace_open_unavailable.html',
+            meshspace=item,
+            is_admin=True,
+        )
+
+    @ui.route('/meshes/<meshspace_id>/edit', methods=['POST'])
+    @require_login
+    def meshspace_edit(meshspace_id: str):
+        """Update shell-safe meshspace metadata without changing runtime roots."""
+        if not _is_admin():
+            flash('Only the instance admin can edit meshspaces.', 'warning')
+            return redirect(url_for('ui.dashboard'))
+        manager = _get_meshspace_registry_manager()
+        if not manager:
+            flash('Meshspace registry is unavailable.', 'error')
+            return redirect(url_for('ui.meshes_home'))
+        name = str(request.form.get('name') or '').strip()
+        description = str(request.form.get('description') or '').strip()
+        icon = str(request.form.get('icon') or 'bi-grid-1x2').strip() or 'bi-grid-1x2'
+        accent = str(request.form.get('accent') or 'emerald').strip() or 'emerald'
+        avatar_file = request.files.get('avatar')
+        clear_avatar = str(request.form.get('clear_avatar') or '').strip() == '1'
+        try:
+            record = manager.update_meshspace_metadata(
+                meshspace_id,
+                name=name,
+                description=description,
+                icon=icon,
+                accent=accent,
+            )
+        except ValueError as exc:
+            flash(str(exc), 'error')
+            return redirect(url_for('ui.meshspace_detail', meshspace_id=meshspace_id))
+        except Exception as exc:
+            logger.error("Meshspace metadata update failed: %s", exc, exc_info=True)
+            flash('Failed to update meshspace metadata.', 'error')
+            return redirect(url_for('ui.meshspace_detail', meshspace_id=meshspace_id))
+        if not record:
+            flash('Meshspace not found.', 'error')
+            return redirect(url_for('ui.meshes_home'))
+        try:
+            if clear_avatar:
+                record = manager.clear_meshspace_avatar(meshspace_id) or record
+            elif avatar_file and avatar_file.filename:
+                record = manager.set_meshspace_avatar(
+                    meshspace_id,
+                    avatar_file.read(),
+                    filename=secure_filename(avatar_file.filename or ''),
+                    content_type=str(avatar_file.content_type or ''),
+                ) or record
+        except ValueError as exc:
+            flash(str(exc), 'error')
+            return redirect(url_for('ui.meshspace_detail', meshspace_id=meshspace_id))
+        except Exception as exc:
+            logger.error("Meshspace avatar update failed: %s", exc, exc_info=True)
+            flash('Failed to update meshspace avatar.', 'error')
+            return redirect(url_for('ui.meshspace_detail', meshspace_id=meshspace_id))
+        config = current_app.config.get('CANOPY_CONFIG')
+        current_meshspace_id = str(getattr(getattr(config, 'meshspace', None), 'meshspace_id', '') or '')
+        if meshspace_id == current_meshspace_id:
+            config.meshspace.name = str(record.get('name') or config.meshspace.name)
+            config.meshspace.description = str(record.get('description') or '')
+            current_app.config['MESHSPACE_RECORD'] = dict(record)
+        flash(f"Updated meshspace '{record.get('name')}'.", 'success')
+        return redirect(url_for('ui.meshspace_detail', meshspace_id=meshspace_id))
+
+    @ui.route('/meshes/<meshspace_id>/restart', methods=['POST'])
+    @require_login
+    def meshspace_restart(meshspace_id: str):
+        """Restart a local meshspace runtime."""
+        if not _is_admin():
+            flash('Only the instance admin can restart meshspaces.', 'warning')
+            return redirect(url_for('ui.dashboard'))
+        manager = _get_meshspace_registry_manager()
+        if not manager:
+            flash('Meshspace registry is unavailable.', 'error')
+            return redirect(url_for('ui.meshes_home'))
+        config = current_app.config.get('CANOPY_CONFIG')
+        current_mid = str(getattr(getattr(config, 'meshspace', None), 'meshspace_id', '') or '')
+        if meshspace_id == current_mid:
+            env_map = build_runtime_environment_from_config(config)
+            try:
+                schedule_self_restart(
+                    env_map,
+                    cwd=str(Path(__file__).resolve().parents[2]),
+                    parent_pid=os.getpid(),
+                    delay_seconds=0.9,
+                )
+                peer_id = ''
+                p2p_manager = current_app.config.get('P2P_MANAGER')
+                if p2p_manager:
+                    try:
+                        peer_id = str(p2p_manager.get_peer_id() or '').strip()
+                    except Exception:
+                        peer_id = ''
+                updated = manager.update_runtime_state(meshspace_id, 'starting', peer_id=peer_id)
+                if updated:
+                    current_app.config['MESHSPACE_RECORD'] = dict(updated)
+
+                def _terminate_current_runtime() -> None:
+                    time.sleep(0.45)
+                    try:
+                        os.kill(os.getpid(), signal.SIGTERM)
+                    except Exception:
+                        logger.warning("Failed to terminate current meshspace process during restart", exc_info=True)
+
+                threading.Thread(target=_terminate_current_runtime, daemon=True).start()
+                return render_template(
+                    'meshspace_restarting.html',
+                    meshspace=_meshspace_card_payload(
+                        updated or _current_meshspace_record(),
+                        current_mid,
+                        manager,
+                    ),
+                    target_url=_meshspace_launch_url(updated or _current_meshspace_record(), current_mid),
+                    is_admin=True,
+                )
+            except Exception as exc:
+                logger.error("Failed to restart current meshspace %s: %s", meshspace_id, exc, exc_info=True)
+                flash(f'Failed to restart current meshspace: {exc}', 'error')
+                return redirect(url_for('ui.meshspace_detail', meshspace_id=meshspace_id))
+        try:
+            record = manager.restart_meshspace(meshspace_id)
+            flash(
+                f"Restarting meshspace '{record.get('name')}' (PID {record.get('pid')}). "
+                "It may take a few seconds to become available again.",
+                'success',
+            )
+        except ValueError as exc:
+            flash(str(exc), 'warning')
+        except Exception as exc:
+            logger.error("Failed to restart meshspace %s: %s", meshspace_id, exc, exc_info=True)
+            flash(f'Failed to restart meshspace: {exc}', 'error')
+        return redirect(url_for('ui.meshspace_detail', meshspace_id=meshspace_id))
+
+    @ui.route('/meshes/<meshspace_id>/refresh', methods=['POST'])
+    @require_login
+    def meshspace_refresh(meshspace_id: str):
+        """Refresh the registry view of a meshspace's live runtime state."""
+        if not _is_admin():
+            flash('Only the instance admin can refresh meshspace state.', 'warning')
+            return redirect(url_for('ui.dashboard'))
+        manager = _get_meshspace_registry_manager()
+        if not manager:
+            flash('Meshspace registry is unavailable.', 'error')
+            return redirect(url_for('ui.meshes_home'))
+        try:
+            record = manager.reconcile_meshspace_runtime(meshspace_id)
+            if not record:
+                flash('Meshspace not found.', 'error')
+                return redirect(url_for('ui.meshes_home'))
+            probe = manager.probe_meshspace_runtime(meshspace_id)
+            if probe.get('live'):
+                flash(
+                    f"Refreshed meshspace '{record.get('name')}'. A live runtime was detected on the assigned ports.",
+                    'success',
+                )
+            else:
+                flash(
+                    f"Refreshed meshspace '{record.get('name')}'. No live runtime was detected on the assigned ports.",
+                    'info',
+                )
+        except Exception as exc:
+            logger.error("Failed to refresh meshspace %s: %s", meshspace_id, exc, exc_info=True)
+            flash(f'Failed to refresh meshspace state: {exc}', 'error')
+        return redirect(url_for('ui.meshspace_detail', meshspace_id=meshspace_id))
+
+    @ui.route('/meshes/<meshspace_id>/start', methods=['POST'])
+    @require_login
+    def meshspace_start(meshspace_id: str):
+        """Spawn a child Canopy process for a meshspace."""
+        if not _is_admin():
+            flash('Only the instance admin can start meshspaces.', 'warning')
+            return redirect(url_for('ui.dashboard'))
+        manager = _get_meshspace_registry_manager()
+        if not manager:
+            flash('Meshspace registry is unavailable.', 'error')
+            return redirect(url_for('ui.meshes_home'))
+        config = current_app.config.get('CANOPY_CONFIG')
+        current_mid = str(getattr(getattr(config, 'meshspace', None), 'meshspace_id', '') or '')
+        if meshspace_id == current_mid:
+            flash('This meshspace is the currently running instance.', 'info')
+            return redirect(url_for('ui.meshspace_detail', meshspace_id=meshspace_id))
+        try:
+            record = manager.start_meshspace(meshspace_id)
+            flash(
+                f"Starting meshspace '{record.get('name')}' (PID {record.get('pid')}). "
+                "It may take a few seconds to become available.",
+                'success',
+            )
+        except ValueError as exc:
+            flash(str(exc), 'error')
+        except Exception as exc:
+            logger.error("Failed to start meshspace %s: %s", meshspace_id, exc, exc_info=True)
+            flash(f'Failed to start meshspace: {exc}', 'error')
+        return redirect(url_for('ui.meshspace_detail', meshspace_id=meshspace_id))
+
+    @ui.route('/meshes/<meshspace_id>/stop', methods=['POST'])
+    @require_login
+    def meshspace_stop(meshspace_id: str):
+        """Send SIGTERM to a running meshspace child process."""
+        if not _is_admin():
+            flash('Only the instance admin can stop meshspaces.', 'warning')
+            return redirect(url_for('ui.dashboard'))
+        manager = _get_meshspace_registry_manager()
+        if not manager:
+            flash('Meshspace registry is unavailable.', 'error')
+            return redirect(url_for('ui.meshes_home'))
+        config = current_app.config.get('CANOPY_CONFIG')
+        current_mid = str(getattr(getattr(config, 'meshspace', None), 'meshspace_id', '') or '')
+        if meshspace_id == current_mid:
+            flash('Cannot stop the currently running instance from the UI.', 'warning')
+            return redirect(url_for('ui.meshspace_detail', meshspace_id=meshspace_id))
+        try:
+            record = manager.stop_meshspace(meshspace_id)
+            flash(f"Stopping meshspace '{record.get('name')}'...", 'success')
+        except ValueError as exc:
+            flash(str(exc), 'warning')
+        except Exception as exc:
+            logger.error("Failed to stop meshspace %s: %s", meshspace_id, exc, exc_info=True)
+            flash(f'Failed to stop meshspace: {exc}', 'error')
+        return redirect(url_for('ui.meshspace_detail', meshspace_id=meshspace_id))
+
+    @ui.route('/meshes/<meshspace_id>/network', methods=['POST'])
+    @require_login
+    def meshspace_network(meshspace_id: str):
+        """Toggle isolated networking mode for future launches."""
+        if not _is_admin():
+            flash('Only the instance admin can change meshspace network mode.', 'warning')
+            return redirect(url_for('ui.dashboard'))
+        manager = _get_meshspace_registry_manager()
+        if not manager:
+            flash('Meshspace registry is unavailable.', 'error')
+            return redirect(url_for('ui.meshes_home'))
+        desired = str(request.form.get('network_mode') or 'quarantined').strip().lower()
+        quarantined = desired != 'enabled'
+        record = manager.set_network_quarantine(meshspace_id, quarantined)
+        if not record:
+            flash('Meshspace not found.', 'error')
+            return redirect(url_for('ui.meshes_home'))
+        if quarantined:
+            flash(
+                f"Meshspace '{record.get('name')}' is now isolated from automatic network sync. "
+                "Restart it for the new network mode to take effect.",
+                'success',
+            )
+        else:
+            flash(
+                f"Meshspace '{record.get('name')}' will allow automatic networking after restart.",
+                'success',
+            )
+        return redirect(url_for('ui.meshspace_detail', meshspace_id=meshspace_id))
+
     @ui.route('/ajax/settings/large-attachments', methods=['POST'])
     @require_login
     @require_admin
@@ -6178,7 +7459,8 @@ def create_ui_blueprint() -> Blueprint:
                 except Exception:
                     cross_peer_same_name_groups = []
             all_permissions = [p.value for p in api_key_manager.get_all_permissions()]
-            default_permissions = [p.value for p in api_key_manager.get_default_permissions()]
+            current_meshspace = _current_meshspace_record()
+            default_permissions = _current_meshspace_default_agent_permissions()
 
             return render_template('admin.html',
                                  users=users,
@@ -6194,6 +7476,7 @@ def create_ui_blueprint() -> Blueprint:
                                  large_attachment_download_mode=get_large_attachment_download_mode(db_manager),
                                  all_permissions=all_permissions,
                                  default_permissions=default_permissions,
+                                 current_meshspace=current_meshspace,
                                  agent_users=agent_users,
                                  workspace_users=workspace_users,
                                  remote_shadow_duplicate_groups=remote_shadow_duplicate_groups,
@@ -6457,6 +7740,8 @@ def create_ui_blueprint() -> Blueprint:
         try:
             db_manager, _, _, _, channel_manager, _, feed_manager, _, _, _, p2p_manager = _get_app_components_any(current_app)
             workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
+            manager = _get_meshspace_registry_manager()
+            current_record = _current_meshspace_record()
             client_rev = str(request.args.get('rev') or '').strip()
             snapshot = _build_sidebar_attention_summary(
                 db_manager,
@@ -6465,6 +7750,8 @@ def create_ui_blueprint() -> Blueprint:
                 p2p_manager,
                 get_current_user(),
             )
+            if manager and current_record:
+                _sync_current_meshspace_shell_summary(manager, current_record, user_id=get_current_user())
             changed = snapshot['rev'] != client_rev
             return jsonify({
                 'success': True,
@@ -6491,6 +7778,8 @@ def create_ui_blueprint() -> Blueprint:
         try:
             db_manager, _, _, _, channel_manager, _, feed_manager, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
             workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
+            manager = _get_meshspace_registry_manager()
+            current_record = _current_meshspace_record()
             snapshot = _build_sidebar_attention_snapshot(
                 db_manager,
                 profile_manager,
@@ -6500,6 +7789,8 @@ def create_ui_blueprint() -> Blueprint:
                 workspace_event_manager,
                 get_current_user(),
             )
+            if manager and current_record:
+                _sync_current_meshspace_shell_summary(manager, current_record, user_id=get_current_user())
             return jsonify({
                 'success': True,
                 'summary': snapshot['summary'],
@@ -7072,7 +8363,7 @@ def create_ui_blueprint() -> Blueprint:
     def ajax_generate_key():
         """AJAX endpoint to generate an API key."""
         try:
-            _, api_key_manager, _, _, _, _, _, _, _, _, _ = _get_app_components_any(current_app)
+            db_manager, api_key_manager, _, _, _, _, _, _, _, _, _ = _get_app_components_any(current_app)
             user_id = get_current_user()
             
             data = request.get_json() or {}
@@ -7086,9 +8377,14 @@ def create_ui_blueprint() -> Blueprint:
             if not isinstance(permissions_raw, list):
                 return jsonify({'error': 'permissions must be a list'}), 400
 
-            # Omitted/empty permissions default to the standard agent scope.
+            # Omitted/empty permissions follow the current meshspace template for
+            # agent accounts, otherwise they fall back to the global default.
             if not permissions_raw:
-                permissions = ApiKeyManager.get_default_permissions()
+                user = db_manager.get_user(user_id) if db_manager else None
+                if (user or {}).get('account_type') == 'agent':
+                    permissions = [Permission(value) for value in _current_meshspace_default_agent_permissions()]
+                else:
+                    permissions = ApiKeyManager.get_default_permissions()
                 permissions_list = [p.value for p in permissions]
             else:
                 # Convert permission strings to Permission enums
@@ -7652,6 +8948,52 @@ def create_ui_blueprint() -> Blueprint:
             logger.error(f"Admin apply default directives error: {e}")
             return jsonify({'error': 'Internal server error'}), 500
 
+    @ui.route('/ajax/admin/meshspace/agent-permissions', methods=['POST'])
+    @require_login
+    @require_admin
+    def ajax_admin_update_meshspace_agent_permissions():
+        """Persist the current meshspace's default agent API permission template."""
+        try:
+            manager = _get_meshspace_registry_manager()
+            current_meshspace = _current_meshspace_record()
+            meshspace_id = str(current_meshspace.get('meshspace_id') or '').strip()
+            if not manager or not meshspace_id:
+                return jsonify({'error': 'Current meshspace is unavailable'}), 503
+
+            data = request.get_json(silent=True) or {}
+            raw_permissions = data.get('permissions')
+            if not isinstance(raw_permissions, list):
+                return jsonify({'error': 'permissions must be a list'}), 400
+
+            valid_values = {permission.value for permission in Permission}
+            normalized: list[str] = []
+            for value in raw_permissions:
+                text = str(value or '').strip()
+                if text and text in valid_values and text not in normalized:
+                    normalized.append(text)
+            if not normalized:
+                return jsonify({'error': 'Select at least one permission'}), 400
+
+            updated = manager.update_meshspace_metadata(
+                meshspace_id,
+                default_agent_permissions=normalized,
+            )
+            if not updated:
+                return jsonify({'error': 'Meshspace not found'}), 404
+
+            current_app.config['MESHSPACE_RECORD'] = dict(updated)
+            return jsonify({
+                'success': True,
+                'meshspace_id': meshspace_id,
+                'meshspace_name': str(updated.get('name') or meshspace_id),
+                'default_agent_permissions': list(updated.get('default_agent_permissions') or normalized),
+            })
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
+        except Exception as e:
+            logger.error(f"Admin meshspace agent permission update error: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @ui.route('/ajax/admin/users/<user_id>/approve', methods=['POST'])
     @require_login
     @require_admin
@@ -7833,7 +9175,10 @@ def create_ui_blueprint() -> Blueprint:
             data = request.get_json() or {}
             perms_raw = data.get('permissions', [])
             if not perms_raw:
-                perms_raw = [p.value for p in api_key_manager.get_all_permissions()]
+                if (user.get('account_type') or 'human') == 'agent':
+                    perms_raw = _current_meshspace_default_agent_permissions()
+                else:
+                    perms_raw = [p.value for p in api_key_manager.get_all_permissions()]
             try:
                 permissions = [Permission(p) for p in perms_raw]
             except ValueError as e:

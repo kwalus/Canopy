@@ -63,6 +63,10 @@ from canopy.security.api_keys import Permission
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("canopy-mcp")
 
+# How often (in seconds) the MCP server re-validates its cached API key against
+# the database, so revocation and mesh-binding changes are detected promptly.
+_KEY_REVALIDATION_INTERVAL = 300
+
 
 def _get_app_components_any(app: Any) -> tuple[Any, ...]:
     """Typed-any wrapper for dynamic app component wiring."""
@@ -84,6 +88,7 @@ class CanopyMCPServer:
         
         self.user_id: str = ""  # Will be set after authentication
         self.key_info: Any = None  # Will be set after authentication
+        self._last_validated_at: float = 0.0  # epoch seconds of last successful validation
         self._setup_handlers()
     
     async def _authenticate(self) -> bool:
@@ -93,22 +98,36 @@ class CanopyMCPServer:
             
             app = create_app()
             with app.app_context():
-                (_, api_key_manager, _, _, _, _, _, _, _, _, _) = _get_app_components_any(app)
+                (_, api_key_manager, _, _, _, _, _, _, _, config, _) = _get_app_components_any(app)
                 
+                # Pass the runtime meshspace_id so mesh-bound keys are enforced
+                mesh_cfg = getattr(config, 'meshspace', None)
+                requesting_mesh_id = getattr(mesh_cfg, 'meshspace_id', None) or None
+
                 # Validate the API key
-                self.key_info = api_key_manager.validate_key(self.api_key)
+                self.key_info = api_key_manager.validate_key(
+                    self.api_key, requesting_mesh_id=requesting_mesh_id
+                )
                 
                 if not self.key_info:
                     logger.error("Invalid API key provided to MCP server")
                     return False
                 
                 self.user_id = str(self.key_info.user_id)
+                self._last_validated_at = datetime.now(timezone.utc).timestamp()
                 logger.info(f"MCP server authenticated as user: {self.user_id}")
                 return True
                 
         except Exception as e:
             logger.error(f"Authentication failed: {e}")
             return False
+
+    def _is_revalidation_due(self) -> bool:
+        """Return True if the cached key should be re-validated against the database."""
+        if not self.key_info:
+            return True
+        elapsed = datetime.now(timezone.utc).timestamp() - self._last_validated_at
+        return elapsed >= _KEY_REVALIDATION_INTERVAL
     
     def _check_permission(self, required_permission: Permission) -> bool:
         """Check if the authenticated key has required permission."""
@@ -1019,6 +1038,15 @@ class CanopyMCPServer:
                         return [TextContent(
                             type="text",
                             text="Error: Authentication failed. Please check your API key."
+                        )]
+                elif self._is_revalidation_due():
+                    # Periodically re-validate the cached key so revocation and
+                    # mesh-binding changes are detected within _KEY_REVALIDATION_INTERVAL.
+                    logger.info("MCP server: re-validating API key (TTL expired)")
+                    if not await self._authenticate():
+                        return [TextContent(
+                            type="text",
+                            text="Error: API key is no longer valid. Please check your API key."
                         )]
 
                 # Pending-approval accounts may only use check_auth_status

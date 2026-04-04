@@ -164,6 +164,48 @@ class TestApiSessionFallback(unittest.TestCase):
         logger.error.assert_not_called()
         logger.info.assert_called_once()
 
+    def test_youtube_title_lookup_caches_success_by_video_id(self) -> None:
+        self._set_authenticated_session()
+        app = self.app
+        key = 'fa6R4NUl8BQ'
+        with app.app_context():
+            routes = app.view_functions['api.deck_youtube_title_api'].__globals__
+            routes['_youtube_oembed_cache'].clear()
+        response = MagicMock()
+        response.read.return_value = b'{"title":"Cached Title","author_name":"Tester","provider_name":"YouTube","thumbnail_url":"https://img.youtube.com/x.jpg"}'
+        response.headers = {'Content-Type': 'application/json; charset=utf-8'}
+        response.__enter__.return_value = response
+        response.__exit__.return_value = None
+        with patch('canopy.api.routes.urlopen', return_value=response) as http_get:
+            first = self.client.get(f'/api/v1/deck/youtube-title?video_id={key}')
+            second = self.client.get(f'/api/v1/deck/youtube-title?video_id={key}')
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual((first.get_json() or {}).get('title'), 'Cached Title')
+        self.assertEqual((second.get_json() or {}).get('title'), 'Cached Title')
+        self.assertEqual(http_get.call_count, 1)
+
+    def test_youtube_title_lookup_caches_upstream_404_briefly(self) -> None:
+        self._set_authenticated_session()
+        app = self.app
+        key = 'fa6R4NUl8BQ'
+        with app.app_context():
+            routes = app.view_functions['api.deck_youtube_title_api'].__globals__
+            routes['_youtube_oembed_cache'].clear()
+        err = HTTPError(
+            url='https://www.youtube.com/oembed',
+            code=404,
+            msg='Not Found',
+            hdrs=None,
+            fp=None,
+        )
+        with patch('canopy.api.routes.urlopen', side_effect=err) as http_get:
+            first = self.client.get(f'/api/v1/deck/youtube-title?video_id={key}')
+            second = self.client.get(f'/api/v1/deck/youtube-title?video_id={key}')
+        self.assertEqual(first.status_code, 404)
+        self.assertEqual(second.status_code, 404)
+        self.assertEqual(http_get.call_count, 1)
+
     def test_authenticated_session_can_access_p2p_activity_endpoint(self) -> None:
         self._set_authenticated_session()
         response = self.client.get('/api/v1/p2p/activity?kind=connection&limit=20')
@@ -235,6 +277,81 @@ class TestApiSessionFallback(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.get_json() or {}
         self.assertEqual(payload.get('user_id'), 'test-user')
+
+    def test_auth_status_returns_pending_next_step_for_pending_accounts(self) -> None:
+        key_info = ApiKeyInfo(
+            id='key-test',
+            user_id='test-user',
+            key_hash='hash',
+            permissions={
+                Permission.READ_MESSAGES,
+                Permission.WRITE_MESSAGES,
+            },
+            created_at=datetime.now(timezone.utc),
+        )
+        self.api_key_manager.validate_key.return_value = key_info
+        for account_type in ('agent', 'human'):
+            self.db_manager.get_user.return_value = {
+                'id': 'test-user',
+                'username': 'test-user',
+                'display_name': 'Test User',
+                'account_type': account_type,
+                'status': 'pending_approval',
+            }
+            response = self.client.get(
+                '/api/v1/auth/status',
+                headers={'Authorization': 'bearer test-key'},
+            )
+            self.assertEqual(response.status_code, 200)
+            payload = response.get_json() or {}
+            self.assertEqual(payload.get('status'), 'pending_approval')
+            self.assertIn('Poll GET /api/v1/auth/status until status is "active".', payload.get('next_step', ''))
+            self.assertNotIn('approved_hint', payload)
+
+    def test_auth_status_returns_type_specific_approved_hint_for_active_accounts(self) -> None:
+        key_info = ApiKeyInfo(
+            id='key-test',
+            user_id='test-user',
+            key_hash='hash',
+            permissions={
+                Permission.READ_MESSAGES,
+                Permission.WRITE_MESSAGES,
+            },
+            created_at=datetime.now(timezone.utc),
+        )
+        self.api_key_manager.validate_key.return_value = key_info
+
+        self.db_manager.get_user.return_value = {
+            'id': 'test-user',
+            'username': 'test-user',
+            'display_name': 'Test User',
+            'account_type': 'agent',
+            'status': 'active',
+        }
+        response = self.client.get(
+            '/api/v1/auth/status',
+            headers={'Authorization': 'bearer test-key'},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertIn('#agent-start-here', payload.get('approved_hint', ''))
+        self.assertNotIn('next_step', payload)
+
+        self.db_manager.get_user.return_value = {
+            'id': 'test-user',
+            'username': 'test-user',
+            'display_name': 'Test User',
+            'account_type': 'human',
+            'status': 'active',
+        }
+        response = self.client.get(
+            '/api/v1/auth/status',
+            headers={'Authorization': 'bearer test-key'},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertEqual(payload.get('approved_hint'), 'Your account is active. You can now access the full API.')
+        self.assertNotIn('next_step', payload)
 
 
 if __name__ == '__main__':

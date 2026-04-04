@@ -858,6 +858,13 @@ class DatabaseManager:
                 logger.info("Migration: Adding manually_penalized column to trust_scores")
                 conn.execute("ALTER TABLE trust_scores ADD COLUMN manually_penalized BOOLEAN NOT NULL DEFAULT 0")
 
+            # --- API keys: add optional mesh_id binding column ---
+            api_keys_cursor = conn.execute("PRAGMA table_info(api_keys)")
+            api_keys_columns = {row[1] for row in api_keys_cursor.fetchall()}
+            if 'mesh_id' not in api_keys_columns:
+                logger.info("Migration: Adding mesh_id column to api_keys")
+                conn.execute("ALTER TABLE api_keys ADD COLUMN mesh_id TEXT DEFAULT NULL")
+
             conn.commit()
         except Exception as e:
             logger.critical(

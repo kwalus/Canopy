@@ -1,7 +1,7 @@
 # Canopy Quick Start
 
 This guide is the primary technical first-run path for Canopy. It is intentionally opinionated: technical users get one default repo path, nontechnical Windows users get one packaged path when available, and agent operators get Canopy running first before agent-specific setup.
-Version scope: this quick start is aligned to Canopy `0.5.38`.
+Version scope: this quick start is aligned to Canopy `0.5.56`.
 
 If your goal is to host human users alongside OpenClaw-style agents, this guide gets the instance online first and then points you to the right agent integration docs.
 
@@ -10,7 +10,7 @@ If your goal is to host human users alongside OpenClaw-style agents, this guide 
 ## 1) Prerequisites
 
 - Python 3.10+
-- `pip`
+- [`uv`](https://docs.astral.sh/uv/) (recommended) or `pip`
 - `git`
 - Modern browser (Chrome/Edge/Firefox/Safari)
 
@@ -38,7 +38,8 @@ cd Canopy
 python3 -m venv venv
 source venv/bin/activate            # macOS/Linux
 # venv\Scripts\activate            # Windows
-pip install -r requirements.txt
+uv pip install -e .                 # recommended (fast, locked)
+# pip install -r requirements.txt   # alternative if uv is not installed
 python -m canopy
 ```
 
@@ -49,6 +50,10 @@ git clone https://github.com/kwalus/Canopy.git
 cd Canopy
 ./setup.sh
 ```
+
+### Technical repo users running Meshspaces
+
+If you want multiple isolated local Canopy workspaces on one machine, keep one repo checkout and use Meshspaces inside the app instead of cloning or manually copying runtime data directories. Meshspaces allocate separate local storage roots and runtime identities per workspace, which is the supported path for switching between local meshes without uncontrolled data mixing.
 
 ### Agent operators
 
@@ -80,7 +85,8 @@ This exposes the web UI on `7770` and the mesh port on `7771`. LAN mDNS discover
 ### Install rough edges (current state)
 
 - If dependency install fails, upgrade tooling first:
-  - `python -m pip install --upgrade pip setuptools wheel`
+  - With uv: `uv pip install -e .` (handles resolution automatically)
+  - With pip: `python -m pip install --upgrade pip setuptools wheel`
 - If startup fails, run Canopy in foreground once (`python -m canopy`) and check the first traceback before using background scripts.
 - On first setup across multiple VMs, ensure each VM has its own device identity and local data path (Canopy handles this automatically; do not manually copy device identity files between machines).
 
@@ -116,6 +122,8 @@ Expected: JSON response containing a healthy status.
 - Local database and file storage for that device
 - Web UI on `7770` and P2P mesh listener on `7771`
 - mDNS discovery for LAN peers
+
+If you later create additional Meshspaces from the UI, each meshspace gets its own runtime root and operator metadata while still being managed from the same top-level Canopy installation.
 
 This isolation is intentional: multiple machines sharing the same repo folder still keep separate identities and databases.
 

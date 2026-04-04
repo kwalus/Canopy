@@ -1,0 +1,625 @@
+{% extends "base.html" %}
+
+{% block title %}{{ meshspace.name }} - Meshspace Detail{% endblock %}
+
+{% block extra_css %}
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=Space+Grotesk:wght@400;500;700&display=swap');
+
+    .mesh-detail-page {
+        font-family: 'IBM Plex Sans', sans-serif;
+        color: var(--canopy-text-primary);
+    }
+
+    .mesh-detail-shell {
+        display: grid;
+        gap: 18px;
+    }
+
+    .mesh-detail-hero,
+    .mesh-detail-panel {
+        border-radius: 24px;
+        border: 1px solid rgba(148, 163, 184, 0.14);
+        background: rgba(15, 23, 42, 0.62);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+
+    .mesh-detail-hero {
+        padding: 18px 20px;
+        background:
+            radial-gradient(circle at 12% 18%, rgba(34, 197, 94, 0.18), transparent 40%),
+            radial-gradient(circle at 88% 20%, rgba(59, 130, 246, 0.16), transparent 34%),
+            linear-gradient(145deg, rgba(8, 15, 31, 0.98), rgba(17, 24, 39, 0.92));
+    }
+
+    .mesh-detail-head {
+        display: flex;
+        align-items: flex-start;
+        gap: 14px;
+        flex-wrap: wrap;
+    }
+
+    .mesh-detail-icon {
+        width: 52px;
+        height: 52px;
+        border-radius: 16px;
+        flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, rgba(34, 197, 94, 0.28), rgba(6, 182, 212, 0.22));
+        color: #dcfce7;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        font-size: 1.35rem;
+        overflow: hidden;
+    }
+
+    .mesh-detail-icon img,
+    .mesh-avatar-preview img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    .mesh-detail-title {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: clamp(1.9rem, 3vw, 2.8rem);
+        line-height: 1.02;
+        margin: 0 0 8px;
+    }
+
+    .mesh-detail-subtitle {
+        margin: 0;
+        color: rgba(226, 232, 240, 0.82);
+        max-width: 780px;
+        line-height: 1.6;
+    }
+
+    .mesh-detail-badges {
+        margin-top: 14px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .mesh-detail-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.28rem 0.7rem;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.7);
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: rgba(226, 232, 240, 0.84);
+    }
+
+    .mesh-detail-actions {
+        margin-top: 14px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .mesh-detail-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1.7fr) minmax(320px, 0.9fr);
+        gap: 18px;
+        align-items: start;
+    }
+
+    .mesh-detail-main,
+    .mesh-detail-side {
+        display: grid;
+        gap: 16px;
+    }
+
+    .mesh-detail-panel {
+        padding: 16px;
+    }
+
+    .mesh-detail-panel h2 {
+        margin: 0 0 10px;
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 1.18rem;
+    }
+
+    .mesh-detail-panel p {
+        margin: 0 0 12px;
+        color: var(--canopy-text-secondary);
+        line-height: 1.48;
+    }
+
+    .mesh-kv-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+    }
+
+    .mesh-kv-card {
+        padding: 0.64rem 0.74rem;
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(148, 163, 184, 0.12);
+    }
+
+    .mesh-kv-label {
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: rgba(148, 163, 184, 0.88);
+    }
+
+    .mesh-kv-value {
+        margin-top: 0.3rem;
+        font-weight: 700;
+        word-break: break-word;
+    }
+
+    .mesh-code {
+        padding: 0.8rem 0.92rem;
+        border-radius: 16px;
+        background: rgba(2, 6, 23, 0.8);
+        border: 1px solid rgba(148, 163, 184, 0.12);
+        color: #dbeafe;
+        font-family: 'IBM Plex Mono', ui-monospace, monospace;
+        font-size: 0.84rem;
+        line-height: 1.55;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+
+    .mesh-health-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+    }
+
+    .mesh-health-item {
+        padding: 0.68rem 0.76rem;
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(148, 163, 184, 0.12);
+    }
+
+    .mesh-health-label {
+        display: block;
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: rgba(148, 163, 184, 0.88);
+        margin-bottom: 0.24rem;
+    }
+
+    .mesh-health-value {
+        font-weight: 700;
+        line-height: 1.35;
+        color: var(--canopy-text-primary);
+    }
+
+    .mesh-detail-form {
+        display: grid;
+        gap: 12px;
+    }
+
+    .mesh-detail-form-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+    }
+
+    .mesh-detail-form-grid .full {
+        grid-column: 1 / -1;
+    }
+
+    .mesh-detail-callout {
+        padding: 0.95rem 1rem;
+        border-radius: 16px;
+        background: rgba(250, 204, 21, 0.08);
+        border: 1px solid rgba(250, 204, 21, 0.18);
+        color: rgba(254, 240, 138, 0.94);
+    }
+
+    .mesh-avatar-panel {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 0.82rem;
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(148, 163, 184, 0.12);
+    }
+
+    .mesh-avatar-preview {
+        width: 72px;
+        height: 72px;
+        border-radius: 22px;
+        flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, rgba(34, 197, 94, 0.22), rgba(6, 182, 212, 0.18));
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        overflow: hidden;
+        color: #dcfce7;
+        font-size: 1.7rem;
+    }
+
+    .mesh-avatar-copy {
+        min-width: 0;
+        flex: 1;
+        display: grid;
+        gap: 0.35rem;
+    }
+
+    .mesh-avatar-title {
+        font-weight: 700;
+    }
+
+    .mesh-avatar-sub {
+        color: var(--canopy-text-secondary);
+        line-height: 1.45;
+        font-size: 0.92rem;
+    }
+
+    @media (max-width: 1100px) {
+        .mesh-detail-layout {
+            grid-template-columns: minmax(0, 1fr);
+        }
+    }
+
+    @media (max-width: 768px) {
+        .mesh-kv-grid {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .mesh-detail-form-grid {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .mesh-health-grid {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .mesh-detail-head {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .mesh-detail-icon {
+            align-self: flex-start;
+        }
+
+        .mesh-detail-actions {
+            flex-direction: column;
+        }
+
+        .mesh-detail-actions .btn,
+        .mesh-detail-actions form {
+            width: 100%;
+        }
+
+        .mesh-detail-actions form .btn {
+            width: 100%;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    function fallbackCopy(text, onDone) {
+        try {
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0';
+            document.body.appendChild(ta);
+            ta.focus();
+            ta.select();
+            var ok = document.execCommand('copy');
+            document.body.removeChild(ta);
+            if (ok && onDone) onDone();
+        } catch (_) {}
+    }
+
+    window.meshDetailCopyLaunchCmd = function (btn) {
+        var el = document.getElementById('launch-cmd');
+        if (!el) return;
+        var text = el.textContent || el.innerText || '';
+        var resetLabel = '<i class="bi bi-clipboard me-1"></i>Copy command';
+        var doneLabel = '<i class="bi bi-check2 me-1"></i>Copied!';
+        function markDone() {
+            btn.innerHTML = doneLabel;
+            window.setTimeout(function () { btn.innerHTML = resetLabel; }, 2000);
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(markDone).catch(function () {
+                fallbackCopy(text, markDone);
+            });
+        } else {
+            fallbackCopy(text, markDone);
+        }
+    };
+})();
+</script>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid mesh-detail-page py-4">
+    <div class="mesh-detail-shell">
+        <section class="mesh-detail-hero">
+                <div class="mesh-detail-head">
+                <div class="mesh-detail-icon">
+                    {% if meshspace.avatar_url %}
+                    <img src="{{ meshspace.avatar_url }}" alt="{{ meshspace.name }}">
+                    {% else %}
+                    <i class="bi {{ meshspace.display_icon }}"></i>
+                    {% endif %}
+                </div>
+                <div style="min-width:0; flex:1;">
+                    <h1 class="mesh-detail-title">{{ meshspace.name }}</h1>
+                    <p class="mesh-detail-subtitle">{{ meshspace.description or 'Isolated Canopy runtime with its own identity, storage, ports, and trust boundary.' }}</p>
+                    <div class="mesh-detail-badges">
+                        <span class="mesh-detail-badge"><i class="bi {{ meshspace.status_icon }}"></i>{{ meshspace.status_label }}</span>
+                        <span class="mesh-detail-badge">{{ meshspace.runtime_mode|replace('-', ' ')|title }}</span>
+                        {% if meshspace.is_current %}<span class="mesh-detail-badge">Current mesh</span>{% endif %}
+                        {% if meshspace.is_default %}<span class="mesh-detail-badge">Default mesh</span>{% endif %}
+                        {% if meshspace.network_quarantined %}<span class="mesh-detail-badge">Network isolated</span>{% endif %}
+                        {% if meshspace.status_source == 'probe' and meshspace.live_detected %}<span class="mesh-detail-badge">Live probe override</span>{% endif %}
+                    </div>
+                    {% if meshspace.control_note %}
+                    <div class="mesh-detail-callout mt-3">{{ meshspace.control_note }}</div>
+                    {% endif %}
+                    {% if meshspace.port_overlap_warning %}
+                    <div class="mesh-detail-callout mt-3" style="border-color:rgba(251,191,36,0.4);background:rgba(251,191,36,0.08);" data-meshspace-overlap-callout>
+                        <i class="bi bi-exclamation-triangle me-1"></i>
+                        This mesh shares an HTTP or mesh port with
+                        {% if meshspace.port_overlap_siblings %}
+                        {{ meshspace.port_overlap_siblings|join(', ') }}.
+                        {% else %}
+                        another registry entry.
+                        {% endif %}
+                        Runtime status may be ambiguous until each mesh has its own unique port pair.
+                        Assign a different port in the conflicting mesh&#8217;s detail page, then use <strong>Refresh state</strong> on both meshes to restore accurate controls.
+                    </div>
+                    {% endif %}
+                    <div class="mesh-detail-actions">
+                        {% if meshspace.is_startable %}
+                        <form method="POST" action="{{ url_for('ui.meshspace_start', meshspace_id=meshspace.meshspace_id) }}" style="display:inline">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-success"><i class="bi bi-play-fill me-2"></i>Start mesh</button>
+                        </form>
+                        {% elif meshspace.is_stoppable %}
+                        <form method="POST" action="{{ url_for('ui.meshspace_stop', meshspace_id=meshspace.meshspace_id) }}" style="display:inline">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-warning"><i class="bi bi-stop-fill me-2"></i>Stop mesh</button>
+                        </form>
+                        {% endif %}
+                        {% if meshspace.is_restartable %}
+                        <form method="POST" action="{{ url_for('ui.meshspace_restart', meshspace_id=meshspace.meshspace_id) }}" style="display:inline">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-outline-info"><i class="bi bi-arrow-clockwise me-2"></i>Restart mesh</button>
+                        </form>
+                        {% endif %}
+                        {% if meshspace.can_refresh_state %}
+                        <form method="POST" action="{{ url_for('ui.meshspace_refresh', meshspace_id=meshspace.meshspace_id) }}" style="display:inline">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-outline-secondary"><i class="bi bi-arrow-repeat me-2"></i>Refresh state</button>
+                        </form>
+                        {% endif %}
+                        {% if meshspace.is_running or meshspace.is_current or meshspace.live_detected %}
+                        <a class="btn btn-outline-success" href="{{ meshspace.launch_href }}">
+                            <i class="bi bi-box-arrow-up-right me-2"></i>{{ meshspace.open_label }}
+                        </a>
+                        {% else %}
+                        <span class="btn btn-outline-secondary disabled" title="{{ meshspace.open_blocked_reason }}">
+                            <i class="bi bi-box-arrow-up-right me-2"></i>Open mesh
+                        </span>
+                        {% endif %}
+                        <a class="btn btn-outline-light" href="{{ url_for('ui.meshes_home') }}">Back to meshes</a>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <div class="mesh-detail-layout">
+            <div class="mesh-detail-main">
+                <section class="mesh-detail-panel">
+                    <h2>Runtime</h2>
+                    <p>Identity, ports, and storage for this mesh.</p>
+                    <div class="mesh-kv-grid">
+                        <div class="mesh-kv-card">
+                            <div class="mesh-kv-label">Mesh ID</div>
+                            <div class="mesh-kv-value">{{ meshspace.meshspace_id }}</div>
+                        </div>
+                        <div class="mesh-kv-card">
+                            <div class="mesh-kv-label">Peer ID</div>
+                            <div class="mesh-kv-value">{{ meshspace.peer_id or 'Not started yet' }}</div>
+                        </div>
+                        <div class="mesh-kv-card">
+                            <div class="mesh-kv-label">HTTP</div>
+                            <div class="mesh-kv-value">{{ meshspace.http_host }}:{{ meshspace.http_port }}</div>
+                        </div>
+                        <div class="mesh-kv-card">
+                            <div class="mesh-kv-label">Mesh / Discovery</div>
+                            <div class="mesh-kv-value">{{ meshspace.mesh_port }} / {{ meshspace.discovery_port }}</div>
+                        </div>
+                        <div class="mesh-kv-card">
+                            <div class="mesh-kv-label">Data root</div>
+                            <div class="mesh-kv-value">{{ meshspace.data_dir }}</div>
+                        </div>
+                        <div class="mesh-kv-card">
+                            <div class="mesh-kv-label">Database</div>
+                            <div class="mesh-kv-value">{{ meshspace.database_path }}</div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="mesh-detail-panel">
+                    <h2>Launch</h2>
+                    <p>Use this only if you want to run the mesh manually from a terminal.</p>
+                    <div class="mesh-code" id="launch-cmd">{{ meshspace.launch_command }}</div>
+                    <button class="btn btn-sm btn-outline-light mt-2" type="button" onclick="meshDetailCopyLaunchCmd(this)">
+                        <i class="bi bi-clipboard me-1"></i>Copy command
+                    </button>
+                </section>
+
+                <section class="mesh-detail-panel">
+                    <h2>Networking</h2>
+                    {% if meshspace.network_quarantined %}
+                    <div class="mesh-detail-callout mb-3">
+                        This meshspace is currently isolated. It will not auto-discover peers, auto-reconnect to known peers, or accept untrusted remote sync/catchup until you enable networking and restart it.
+                    </div>
+                    {% else %}
+                    <p>This mesh can discover and sync with peers while running.</p>
+                    {% endif %}
+                    <form method="POST" action="{{ url_for('ui.meshspace_network', meshspace_id=meshspace.meshspace_id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="network_mode" value="{{ 'enabled' if meshspace.network_quarantined else 'quarantined' }}">
+                        {% if meshspace.network_quarantined %}
+                        <button type="submit" class="btn btn-outline-warning">Enable networking after restart</button>
+                        {% else %}
+                        <button type="submit" class="btn btn-outline-warning">Isolate network after restart</button>
+                        {% endif %}
+                    </form>
+                </section>
+
+                <section class="mesh-detail-panel">
+                    <h2>Identity</h2>
+                    {% if meshspace.needs_naming %}
+                    <div class="mesh-detail-callout mb-3">
+                        This runtime is the default meshspace on this machine. Its channels, trust, users, files, and peer identity are still exactly where they were before. Only the shell label is provisional. Rename it now before you create additional meshspaces.
+                    </div>
+                    {% endif %}
+                    <p>Update the label, look, and avatar for this mesh. Storage, ports, and peer identity stay unchanged.</p>
+                    <form class="mesh-detail-form" method="POST" action="{{ url_for('ui.meshspace_edit', meshspace_id=meshspace.meshspace_id) }}" enctype="multipart/form-data">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <div class="mesh-avatar-panel">
+                            <div class="mesh-avatar-preview">
+                                {% if meshspace.avatar_url %}
+                                <img src="{{ meshspace.avatar_url }}" alt="{{ meshspace.name }}">
+                                {% else %}
+                                <i class="bi {{ meshspace.display_icon }}"></i>
+                                {% endif %}
+                            </div>
+                            <div class="mesh-avatar-copy">
+                                <div class="mesh-avatar-title">Mesh avatar</div>
+                                <div class="mesh-avatar-sub">Shown in the mesh header rail, quick-switch orbs, and mesh cards. Leave blank to keep the current image.</div>
+                            </div>
+                        </div>
+                        <div class="mesh-detail-form-grid">
+                            <div>
+                                <label class="form-label">Mesh name</label>
+                                <input type="text" class="form-control" name="name" value="{{ meshspace.name }}" required>
+                            </div>
+                            <div>
+                                <label class="form-label">Icon</label>
+                                <input type="text" class="form-control" name="icon" value="{{ meshspace.icon or 'bi-grid-1x2' }}">
+                            </div>
+                            <div class="full">
+                                <label class="form-label">Description</label>
+                                <textarea class="form-control" name="description" rows="3" placeholder="Describe what belongs in this mesh.">{{ meshspace.description or '' }}</textarea>
+                            </div>
+                            <div>
+                                <label class="form-label">Accent</label>
+                                <select class="form-select" name="accent">
+                                    {% for option in ['emerald', 'cyan', 'amber', 'rose'] %}
+                                    <option value="{{ option }}" {% if (meshspace.accent or 'emerald') == option %}selected{% endif %}>{{ option|title }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div>
+                                <label class="form-label">Upload avatar</label>
+                                <input type="file" class="form-control" name="avatar" accept="image/*">
+                            </div>
+                        </div>
+                        <div class="d-flex flex-wrap gap-2">
+                            <button type="submit" class="btn btn-success">
+                                <i class="bi bi-save me-2"></i>Save mesh identity
+                            </button>
+                            {% if meshspace.avatar_url %}
+                            <button type="submit" class="btn btn-outline-warning" name="clear_avatar" value="1">
+                                <i class="bi bi-eraser me-2"></i>Use crest instead
+                            </button>
+                            {% endif %}
+                            {% if meshspace.is_running or meshspace.is_current %}
+                            <a class="btn btn-outline-light" href="{{ meshspace.launch_href }}">{{ meshspace.open_label }}</a>
+                            {% endif %}
+                        </div>
+                    </form>
+                </section>
+            </div>
+
+            <aside class="mesh-detail-side">
+                <section class="mesh-detail-panel">
+                    <h2>Health snapshot</h2>
+                    <div class="mesh-health-grid">
+                        <div class="mesh-health-item">
+                            <span class="mesh-health-label">Status</span>
+                            <div class="mesh-health-value">{{ meshspace.status_label }}</div>
+                        </div>
+                        <div class="mesh-health-item">
+                            <span class="mesh-health-label">Control source</span>
+                            <div class="mesh-health-value">{{ 'Live probe' if meshspace.status_source == 'probe' else 'Registry' }}</div>
+                        </div>
+                        <div class="mesh-health-item">
+                            <span class="mesh-health-label">Peers</span>
+                            <div class="mesh-health-value">{{ meshspace.active_peer_count or 0 }}</div>
+                        </div>
+                        <div class="mesh-health-item">
+                            <span class="mesh-health-label">Attention</span>
+                            <div class="mesh-health-value">{{ meshspace.attention_count or 0 }}</div>
+                        </div>
+                        <div class="mesh-health-item">
+                            <span class="mesh-health-label">Last activity</span>
+                            <div class="mesh-health-value">{{ meshspace.activity_label }}</div>
+                        </div>
+                        <div class="mesh-health-item">
+                            <span class="mesh-health-label">Session</span>
+                            <div class="mesh-health-value">{{ meshspace.session_cookie_name }}</div>
+                        </div>
+                        <div class="mesh-health-item">
+                            <span class="mesh-health-label">Runtime version</span>
+                            <div class="mesh-health-value">{{ meshspace.detected_version or 'Unknown' }}</div>
+                        </div>
+                        <div class="mesh-health-item">
+                            <span class="mesh-health-label">Detected PID</span>
+                            <div class="mesh-health-value">{{ meshspace.detected_pid or 'Unknown' }}</div>
+                        </div>
+                        <div class="mesh-health-item">
+                            <span class="mesh-health-label">Storage</span>
+                            <div class="mesh-health-value">{% if meshspace.data_dir_exists and meshspace.database_exists %}Ready{% elif meshspace.data_dir_exists %}Data only{% else %}Missing{% endif %}</div>
+                        </div>
+                    </div>
+                </section>
+
+                {% if meshspace.is_legacy_adopted %}
+                <section class="mesh-detail-panel">
+                    <h2>Default mesh</h2>
+                    <p>This mesh is your original runtime adopted in place. Nothing was moved.</p>
+                    <div class="mesh-health-grid">
+                        <div class="mesh-health-item">
+                            <span class="mesh-health-label">Data root</span>
+                            <div class="mesh-health-value">Preserved</div>
+                        </div>
+                        <div class="mesh-health-item">
+                            <span class="mesh-health-label">Peer identity</span>
+                            <div class="mesh-health-value">Preserved</div>
+                        </div>
+                        <div class="mesh-health-item">
+                            <span class="mesh-health-label">Next step</span>
+                            <div class="mesh-health-value">Rename, then add more meshes.</div>
+                        </div>
+                    </div>
+                </section>
+                {% endif %}
+            </aside>
+        </div>
+    </div>
+</div>
+{% endblock %}

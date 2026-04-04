@@ -47,6 +47,7 @@ class ApiKeyInfo:
     expires_at: Optional[datetime] = None
     revoked: bool = False
     account_pending: bool = False  # True if user status is pending_approval (agent not yet approved)
+    mesh_id: Optional[str] = None  # When set, key is only valid for this meshspace
     
     def has_permission(self, permission: Permission) -> bool:
         """Check if key has a specific permission."""
@@ -80,7 +81,8 @@ class ApiKeyManager:
         self.db = db_manager
     
     def generate_key(self, user_id: str, permissions: List[Permission], 
-                    expires_days: Optional[int] = None) -> Optional[str]:
+                    expires_days: Optional[int] = None,
+                    mesh_id: Optional[str] = None) -> Optional[str]:
         """Generate a new API key with specified permissions."""
         try:
             # Backward-compatible safety: prevent unusable zero-permission keys.
@@ -104,12 +106,13 @@ class ApiKeyManager:
             # Store in database
             with self.db.get_connection() as conn:
                 conn.execute("""
-                    INSERT INTO api_keys (id, user_id, key_hash, permissions, expires_at)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO api_keys (id, user_id, key_hash, permissions, expires_at, mesh_id)
+                    VALUES (?, ?, ?, ?, ?, ?)
                 """, (
                     key_id, user_id, key_hash, 
                     json.dumps([p.value for p in permissions]),
-                    expires_at.isoformat() if expires_at else None
+                    expires_at.isoformat() if expires_at else None,
+                    mesh_id,
                 ))
                 conn.commit()
             
@@ -120,14 +123,22 @@ class ApiKeyManager:
             logger.error(f"Failed to generate API key: {e}")
             return None
     
-    def validate_key(self, raw_key: str, required_permission: Optional[Permission] = None) -> Optional[ApiKeyInfo]:
-        """Validate an API key and return key information if valid."""
+    def validate_key(self, raw_key: str, required_permission: Optional[Permission] = None,
+                     requesting_mesh_id: Optional[str] = None) -> Optional[ApiKeyInfo]:
+        """Validate an API key and return key information if valid.
+        
+        Args:
+            raw_key: The raw API key string to validate.
+            required_permission: Optional permission the key must have.
+            requesting_mesh_id: The meshspace ID of the runtime making the request.
+                If the key has a bound mesh_id and it doesn't match, the key is rejected.
+        """
         try:
             key_hash = self._hash_key(raw_key)
             
             with self.db.get_connection() as conn:
                 cursor = conn.execute("""
-                    SELECT id, user_id, key_hash, permissions, created_at, expires_at, revoked
+                    SELECT id, user_id, key_hash, permissions, created_at, expires_at, revoked, mesh_id
                     FROM api_keys WHERE key_hash = ?
                 """, (key_hash,))
                 
@@ -143,12 +154,22 @@ class ApiKeyManager:
                     permissions={Permission(p) for p in json.loads(row['permissions'])},
                     created_at=datetime.fromisoformat(row['created_at']).replace(tzinfo=None),
                     expires_at=datetime.fromisoformat(row['expires_at']).replace(tzinfo=None) if row['expires_at'] else None,
-                    revoked=bool(row['revoked'])
+                    revoked=bool(row['revoked']),
+                    mesh_id=row['mesh_id'] if row['mesh_id'] else None,
                 )
                 
                 # Check if key is valid
                 if not key_info.is_valid():
                     logger.warning(f"Invalid API key used: {key_info.id}")
+                    return None
+                
+                # Enforce mesh_id binding: if key is bound to a specific meshspace,
+                # only accept it when the requesting meshspace matches.
+                if key_info.mesh_id and requesting_mesh_id and key_info.mesh_id != requesting_mesh_id:
+                    logger.warning(
+                        "API key %s is bound to meshspace %r but request came from %r — rejecting",
+                        key_info.id, key_info.mesh_id, requesting_mesh_id,
+                    )
                     return None
                 
                 # Check required permission if specified
@@ -176,7 +197,7 @@ class ApiKeyManager:
                             id=key_info.id, user_id=key_info.user_id, key_hash=key_info.key_hash,
                             permissions=key_info.permissions, created_at=key_info.created_at,
                             expires_at=key_info.expires_at, revoked=key_info.revoked,
-                            account_pending=True
+                            account_pending=True, mesh_id=key_info.mesh_id,
                         )
                 
                 return key_info
@@ -211,7 +232,7 @@ class ApiKeyManager:
         try:
             with self.db.get_connection() as conn:
                 cursor = conn.execute("""
-                    SELECT id, user_id, key_hash, permissions, created_at, expires_at, revoked
+                    SELECT id, user_id, key_hash, permissions, created_at, expires_at, revoked, mesh_id
                     FROM api_keys WHERE user_id = ?
                     ORDER BY created_at DESC
                 """, (user_id,))
@@ -225,7 +246,8 @@ class ApiKeyManager:
                         permissions={Permission(p) for p in json.loads(row['permissions'])},
                         created_at=datetime.fromisoformat(row['created_at']).replace(tzinfo=None),
                         expires_at=datetime.fromisoformat(row['expires_at']).replace(tzinfo=None) if row['expires_at'] else None,
-                        revoked=bool(row['revoked'])
+                        revoked=bool(row['revoked']),
+                        mesh_id=row['mesh_id'] if row['mesh_id'] else None,
                     )
                     keys.append(key_info)
                 

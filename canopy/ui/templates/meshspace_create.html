@@ -1,0 +1,279 @@
+{% extends "base.html" %}
+
+{% block title %}Create Meshspace - Canopy{% endblock %}
+
+{% block extra_css %}
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=Space+Grotesk:wght@400;500;700&display=swap');
+
+    .mesh-create-page {
+        font-family: 'IBM Plex Sans', sans-serif;
+        color: var(--canopy-text-primary);
+    }
+
+    .mesh-create-shell {
+        display: grid;
+        gap: 22px;
+    }
+
+    .mesh-create-hero,
+    .mesh-create-form,
+    .mesh-create-side {
+        border-radius: 24px;
+        border: 1px solid rgba(148, 163, 184, 0.14);
+        background: rgba(15, 23, 42, 0.62);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+
+    .mesh-create-hero {
+        padding: 20px 24px;
+        background:
+            radial-gradient(circle at 12% 18%, rgba(34, 197, 94, 0.18), transparent 38%),
+            radial-gradient(circle at 88% 16%, rgba(59, 130, 246, 0.16), transparent 34%),
+            linear-gradient(135deg, rgba(8, 15, 31, 0.98), rgba(17, 24, 39, 0.92));
+    }
+
+    .mesh-create-kicker {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.66);
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        color: rgba(191, 219, 254, 0.95);
+        font-size: 0.74rem;
+        font-weight: 600;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+    }
+
+    .mesh-create-title {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: clamp(1.9rem, 3vw, 2.8rem);
+        line-height: 1.02;
+        margin: 14px 0 10px;
+    }
+
+    .mesh-create-subtitle {
+        margin: 0;
+        max-width: 760px;
+        line-height: 1.6;
+        color: rgba(226, 232, 240, 0.82);
+    }
+
+    .mesh-create-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1.8fr) minmax(300px, 0.9fr);
+        gap: 22px;
+        align-items: start;
+    }
+
+    .mesh-create-form {
+        padding: 20px;
+        display: grid;
+        gap: 20px;
+    }
+
+    .mesh-section {
+        display: grid;
+        gap: 14px;
+        padding-bottom: 18px;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+    }
+
+    .mesh-section:last-child {
+        border-bottom: none;
+        padding-bottom: 0;
+    }
+
+    .mesh-section-title {
+        margin: 0;
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 1.16rem;
+    }
+
+    .mesh-section-sub {
+        margin: 0;
+        color: var(--canopy-text-secondary);
+        line-height: 1.5;
+    }
+
+    .mesh-form-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+    }
+
+    .mesh-form-grid .full {
+        grid-column: 1 / -1;
+    }
+
+    .mesh-create-side {
+        padding: 18px;
+        display: grid;
+        gap: 16px;
+    }
+
+    .mesh-side-card {
+        padding: 14px;
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(148, 163, 184, 0.12);
+    }
+
+    .mesh-side-card h3 {
+        margin: 0 0 8px;
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 1rem;
+    }
+
+    .mesh-side-card p,
+    .mesh-side-card li {
+        color: var(--canopy-text-secondary);
+        line-height: 1.5;
+    }
+
+    .mesh-port-block {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+    }
+
+    .mesh-port-card {
+        padding: 0.68rem 0.78rem;
+        border-radius: 14px;
+        background: rgba(15, 23, 42, 0.58);
+        border: 1px solid rgba(148, 163, 184, 0.16);
+    }
+
+    .mesh-port-label {
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: rgba(148, 163, 184, 0.88);
+    }
+
+    .mesh-port-value {
+        margin-top: 0.28rem;
+        font-weight: 700;
+    }
+
+    @media (max-width: 992px) {
+        .mesh-create-layout {
+            grid-template-columns: minmax(0, 1fr);
+        }
+    }
+
+    @media (max-width: 768px) {
+        .mesh-form-grid,
+        .mesh-port-block {
+            grid-template-columns: minmax(0, 1fr);
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid mesh-create-page py-4">
+    <div class="mesh-create-shell">
+        <section class="mesh-create-hero">
+            <div class="mesh-create-kicker">
+                <i class="bi bi-plus-circle"></i>
+                <span>New Meshspace</span>
+            </div>
+            <h1 class="mesh-create-title">New mesh</h1>
+            <p class="mesh-create-subtitle">
+                Create another isolated Canopy world on this machine.
+            </p>
+        </section>
+
+        <div class="mesh-create-layout">
+            <form class="mesh-create-form" method="POST" action="{{ url_for('ui.meshspace_create') }}" enctype="multipart/form-data">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <section class="mesh-section">
+                    <h2 class="mesh-section-title">Identity</h2>
+                    <p class="mesh-section-sub">Give the mesh a clear name and look.</p>
+                    <div class="mesh-form-grid">
+                        <div>
+                            <label class="form-label">Mesh name</label>
+                            <input type="text" class="form-control" name="name" value="{{ defaults.name if defaults is defined and defaults.name is defined else '' }}" placeholder="Family Mesh" required>
+                        </div>
+                        <div>
+                            <label class="form-label">Mesh ID</label>
+                            <input type="text" class="form-control" name="meshspace_id" value="{{ defaults.meshspace_id if defaults is defined and defaults.meshspace_id is defined else '' }}" placeholder="family-mesh">
+                        </div>
+                        <div class="full">
+                            <label class="form-label">Description</label>
+                            <textarea class="form-control" name="description" rows="3" placeholder="Private family coordination, media, and shared memory.">{{ defaults.description if defaults is defined and defaults.description is defined else '' }}</textarea>
+                        </div>
+                        <div>
+                            <label class="form-label">Icon</label>
+                            <input type="text" class="form-control" name="icon" value="{{ defaults.icon if defaults is defined and defaults.icon is defined else 'bi-grid-1x2' }}" placeholder="bi-people-fill">
+                        </div>
+                        <div>
+                            <label class="form-label">Accent</label>
+                            <select class="form-select" name="accent">
+                                {% set accent = defaults.accent if defaults is defined and defaults.accent is defined else 'emerald' %}
+                                {% for option in ['emerald', 'cyan', 'amber', 'rose'] %}
+                                <option value="{{ option }}" {% if accent == option %}selected{% endif %}>{{ option|title }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="full">
+                            <label class="form-label">Mesh avatar</label>
+                            <input type="file" class="form-control" name="avatar" accept="image/*">
+                            <div class="form-text">Optional. Used in the shell header, quick switcher, and mesh cards. PNG/JPEG/WebP work best.</div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="mesh-section">
+                    <h2 class="mesh-section-title">Runtime allocation</h2>
+                    <p class="mesh-section-sub">Reserved local ports for web, mesh, and discovery.</p>
+                    <div class="mesh-port-block">
+                        <div class="mesh-port-card">
+                            <div class="mesh-port-label">HTTP</div>
+                            <div class="mesh-port-value">{{ next_port_block.http_port }}</div>
+                        </div>
+                        <div class="mesh-port-card">
+                            <div class="mesh-port-label">Mesh</div>
+                            <div class="mesh-port-value">{{ next_port_block.mesh_port }}</div>
+                        </div>
+                        <div class="mesh-port-card">
+                            <div class="mesh-port-label">Discovery</div>
+                            <div class="mesh-port-value">{{ next_port_block.discovery_port }}</div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="mesh-section">
+                    <h2 class="mesh-section-title">Review</h2>
+                    <p class="mesh-section-sub">Create the shell record now. Start the mesh when you're ready.</p>
+                    <div class="d-flex flex-wrap gap-2">
+                        <button type="submit" class="btn btn-success">
+                            <i class="bi bi-check2-circle me-2"></i>Create mesh
+                        </button>
+                        <a class="btn btn-outline-light" href="{{ url_for('ui.meshes_home') }}">Cancel</a>
+                    </div>
+                </section>
+            </form>
+
+            <aside class="mesh-create-side">
+                <section class="mesh-side-card">
+                    <h3>What happens now</h3>
+                    <p>The created meshspace becomes an additional isolated Canopy world on top of the machine's default mesh. It gets its own storage root, DB path, cookie namespace, and future peer identity. It does not inherit channels, agents, or trust from the current mesh.</p>
+                </section>
+                <section class="mesh-side-card">
+                    <h3>Current v0.6-first posture</h3>
+                    <ul class="mb-0 ps-3">
+                        <li>Separate origins and ports per child runtime</li>
+                        <li>No shared social views across meshes</li>
+                        <li>No auto-import from invites yet in this first slice</li>
+                    </ul>
+                </section>
+            </aside>
+        </div>
+    </div>
+</div>
+{% endblock %}

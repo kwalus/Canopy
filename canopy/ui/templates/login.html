@@ -122,6 +122,24 @@
             color: #86efac;
             margin-top: 0.5rem;
         }
+        .alert-pending {
+            background: rgba(234, 179, 8, 0.12);
+            border: 1px solid rgba(234, 179, 8, 0.35);
+            border-radius: 10px;
+            color: #fef08a;
+            padding: 1rem 1.25rem;
+            text-align: left;
+        }
+        .alert-pending .pending-title {
+            font-weight: 600;
+            font-size: 0.95rem;
+            margin-bottom: 0.35rem;
+        }
+        .alert-pending .pending-note {
+            margin: 0;
+            color: rgba(254, 240, 138, 0.95);
+            font-size: 0.9rem;
+        }
     </style>
 </head>
 <body>
@@ -187,6 +205,12 @@
             <h2>Canopy</h2>
             <p class="subtitle">Sign in to continue</p>
             
+            {% if pending %}
+                <div class="alert-pending mb-3">
+                    <div class="pending-title"><i class="bi bi-hourglass-split me-1"></i>Account awaiting approval</div>
+                    <p class="pending-note">Your registration was received and is waiting for an admin to activate it. No action is required from you right now. You will be able to sign in once approval is complete.</p>
+                </div>
+            {% endif %}
             {% if error %}
                 <div class="alert alert-danger mb-3">{{ error }}</div>
             {% endif %}

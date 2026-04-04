@@ -31,6 +31,7 @@ from .bookmarks import BookmarkManager
 from .tasks import TaskManager
 from .search import SearchManager
 from .streams import StreamManager
+from .meshspaces import MeshspaceRegistryManager, build_meshspace_shell_summary
 from ..security.api_keys import ApiKeyManager
 from ..security.trust import TrustManager
 from .messaging import (
@@ -262,10 +263,14 @@ def create_app(config: Optional[Config] = None) -> Flask:
     app.config['DEBUG'] = config.debug
     app.config['TESTING'] = config.testing
     app.config['GOOGLE_MAPS_EMBED_API_KEY'] = os.getenv('CANOPY_GOOGLE_MAPS_EMBED_API_KEY', '').strip()
+    app.config['CANOPY_STARTED_AT'] = time.time()
 
     # Harden session cookies: HTTPOnly prevents JS access; Lax SameSite blocks
     # most CSRF vectors; Secure is enabled only when TLS is configured so that
     # plain-HTTP local deployments still work.
+    app.config['SESSION_COOKIE_NAME'] = (
+        config.meshspace.session_cookie_name or 'canopy_session'
+    )
     app.config['SESSION_COOKIE_HTTPONLY'] = True
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
     app.config['SESSION_COOKIE_SECURE'] = bool(
@@ -428,6 +433,85 @@ def create_app(config: Optional[Config] = None) -> Flask:
         # Safely get relay policy for logging
         relay_policy = getattr(p2p_manager, 'relay_policy', 'broker_only')
         logger.info(f"P2P network manager initialized (relay_policy={relay_policy})")
+
+        logger.info("Initializing meshspace registry manager...")
+        meshspace_registry = MeshspaceRegistryManager()
+        local_peer_id = None
+        try:
+            local_peer_id = p2p_manager.get_peer_id()
+        except Exception:
+            local_peer_id = None
+        meshspace_record = meshspace_registry.ensure_runtime_registered(
+            config,
+            peer_id=local_peer_id,
+        )
+        app.config['MESHSPACE_REGISTRY_MANAGER'] = meshspace_registry
+        app.config['MESHSPACE_RECORD'] = meshspace_record
+        logger.info(
+            "Meshspace runtime registered: id=%s name=%s mode=%s",
+            meshspace_record.get('meshspace_id'),
+            meshspace_record.get('name'),
+            meshspace_record.get('runtime_mode'),
+        )
+
+        _meshspace_summary_debounce_lock = threading.Lock()
+        _meshspace_summary_timer: dict[str, Optional[threading.Timer]] = {'timer': None}
+
+        def _publish_runtime_meshspace_shell_summary() -> None:
+            try:
+                owner_user_id = str(db_manager.get_instance_owner_user_id() or '').strip()
+                record = app.config.get('MESHSPACE_RECORD') or {}
+                meshspace_id = str(record.get('meshspace_id') or '').strip()
+                if not meshspace_id:
+                    return
+                last_activity_at = ''
+                try:
+                    with db_manager.get_connection() as conn:
+                        row = conn.execute(
+                            "SELECT MAX(created_at) AS latest_created_at FROM workspace_events"
+                        ).fetchone()
+                        last_activity_at = str((row['latest_created_at'] if row else '') or '').strip()
+                except Exception:
+                    last_activity_at = str(record.get('last_seen_at') or '').strip()
+                summary = build_meshspace_shell_summary(
+                    db_manager,
+                    channel_manager,
+                    feed_manager,
+                    p2p_manager,
+                    user_id=owner_user_id or None,
+                    status=str(record.get('status') or ''),
+                    last_activity_at=last_activity_at,
+                    fallback_last_seen_at=str(record.get('last_seen_at') or ''),
+                )
+                updated = meshspace_registry.update_shell_summary(meshspace_id, summary)
+                if isinstance(updated, dict):
+                    app.config['MESHSPACE_RECORD'] = dict(updated)
+            except Exception as exc:
+                logger.debug("Runtime meshspace shell summary publish failed: %s", exc)
+
+        def _schedule_runtime_meshspace_shell_summary_publish(**_: Any) -> None:
+            if app.config.get('TESTING'):
+                _publish_runtime_meshspace_shell_summary()
+                return
+            with _meshspace_summary_debounce_lock:
+                existing = _meshspace_summary_timer.get('timer')
+                if existing and existing.is_alive():
+                    return
+
+                def _run() -> None:
+                    try:
+                        _publish_runtime_meshspace_shell_summary()
+                    finally:
+                        with _meshspace_summary_debounce_lock:
+                            _meshspace_summary_timer['timer'] = None
+
+                timer = threading.Timer(0.35, _run)
+                timer.daemon = True
+                _meshspace_summary_timer['timer'] = timer
+                timer.start()
+
+        workspace_event_manager.on_event_emitted = _schedule_runtime_meshspace_shell_summary_publish
+        _publish_runtime_meshspace_shell_summary()
 
         _large_attachment_state_lock = threading.Lock()
         _incoming_large_attachment_states: dict[str, dict[str, Any]] = {}
@@ -1956,6 +2040,11 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 except Exception:
                     pass
 
+                try:
+                    _schedule_runtime_meshspace_shell_summary_publish()
+                except Exception as _sched_err:
+                    logger.debug("Shell summary publish schedule failed after P2P channel message: %s", _sched_err)
+
                 # Inline circles from [circle] blocks (allow update-only)
                 try:
                     from .circles import parse_circle_blocks, derive_circle_id
@@ -3304,6 +3393,23 @@ def create_app(config: Optional[Config] = None) -> Flask:
             except Exception:
                 return False
 
+        def _meshspace_network_quarantined() -> bool:
+            canopy_config = app.config.get('CANOPY_CONFIG')
+            mesh_cfg = getattr(canopy_config, 'meshspace', None) if canopy_config else None
+            current_id = str(getattr(mesh_cfg, 'meshspace_id', '') or '').strip()
+            registry = app.config.get('MESHSPACE_REGISTRY_MANAGER')
+            if registry and current_id:
+                try:
+                    record = registry.get_meshspace(current_id)
+                    if isinstance(record, dict):
+                        return bool(record.get('network_quarantined'))
+                except Exception:
+                    pass
+            return bool(getattr(mesh_cfg, 'network_quarantined', False))
+
+        def _meshspace_blocks_untrusted_sync(peer_id: Any) -> bool:
+            return _meshspace_network_quarantined() and not _peer_is_trusted_for_content(peer_id)
+
         def _channel_definition_is_public(channel_type: Any, privacy_mode: Any) -> bool:
             if not channel_manager:
                 return False
@@ -4371,6 +4477,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
             """Handle a CHANNEL_SYNC (bulk list) from a connected peer."""
             try:
                 trusted_content = _peer_is_trusted_for_content(from_peer)
+                if _meshspace_blocks_untrusted_sync(from_peer):
+                    logger.info(
+                        "Ignoring channel sync from untrusted peer %s because this meshspace is isolated",
+                        from_peer,
+                    )
+                    return
                 if not trusted_content:
                     logger.info(
                         "Applying channel sync from untrusted peer %s in public-only mode",
@@ -4711,6 +4823,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
             """
             try:
                 trusted_content = _peer_is_trusted_for_content(from_peer)
+                if _meshspace_blocks_untrusted_sync(from_peer):
+                    logger.info(
+                        "Ignoring catchup request from untrusted peer %s because this meshspace is isolated",
+                        from_peer,
+                    )
+                    return
                 if not trusted_content:
                     logger.info(
                         "Handling catchup request from untrusted peer %s in public-only mode",
@@ -5138,6 +5256,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
             if not has_messages and not has_extra:
                 return
             trusted_content = _peer_is_trusted_for_content(from_peer)
+            if _meshspace_blocks_untrusted_sync(from_peer):
+                logger.info(
+                    "Ignoring catchup response from untrusted peer %s because this meshspace is isolated",
+                    from_peer,
+                )
+                return
             if not trusted_content:
                 logger.info(
                     "Applying catchup response from untrusted peer %s in public-only mode",
@@ -6110,6 +6234,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
             them from the Connect page.
             """
             try:
+                if _meshspace_blocks_untrusted_sync(from_peer):
+                    logger.info(
+                        "Ignoring peer announcement from untrusted peer %s because this meshspace is isolated",
+                        from_peer,
+                    )
+                    return
                 import base58
                 for p in introduced_peers:
                     pid = p.get('peer_id')
@@ -6456,6 +6586,10 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                     pid,
                                     workspace_event_err,
                                 )
+                            try:
+                                _schedule_runtime_meshspace_shell_summary_publish()
+                            except Exception as _sched_err:
+                                logger.debug("Shell summary publish schedule failed after P2P feed update: %s", _sched_err)
                         return
                     conn.execute("""
                         INSERT OR IGNORE INTO feed_posts
@@ -6481,6 +6615,10 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         pid,
                         workspace_event_err,
                     )
+                try:
+                    _schedule_runtime_meshspace_shell_summary_publish()
+                except Exception as _sched_err:
+                    logger.debug("Shell summary publish schedule failed after P2P feed create: %s", _sched_err)
 
                 if is_new_post:
                     mentions = extract_mentions(content or '')
@@ -8075,6 +8213,11 @@ def _install_security_headers(app: Flask) -> None:
     def _add_security_headers(response):
         response.headers.setdefault('X-Content-Type-Options', 'nosniff')
         response.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
+        mesh_cfg = app.config.get('CANOPY_CONFIG').meshspace if app.config.get('CANOPY_CONFIG') else None
+        if mesh_cfg:
+            response.headers.setdefault('X-Canopy-Mesh-ID', str(mesh_cfg.meshspace_id or ''))
+            response.headers.setdefault('X-Canopy-Mesh-Name', str(mesh_cfg.name or ''))
+            response.headers.setdefault('X-Canopy-Runtime-Mode', str(mesh_cfg.runtime_mode or ''))
         return response
 
 
@@ -8179,6 +8322,21 @@ def register_shutdown_handlers(app: Flask) -> None:
     def cleanup_on_shutdown():
         """Cleanup function called on app shutdown."""
         try:
+            meshspace_registry = app.config.get('MESHSPACE_REGISTRY_MANAGER')
+            canopy_config = app.config.get('CANOPY_CONFIG')
+            p2p_manager = app.config.get('P2P_MANAGER')
+            if meshspace_registry and canopy_config:
+                peer_id = None
+                try:
+                    if p2p_manager:
+                        peer_id = p2p_manager.get_peer_id()
+                except Exception:
+                    peer_id = None
+                meshspace_registry.update_runtime_state(
+                    canopy_config.meshspace.meshspace_id,
+                    'stopped',
+                    peer_id=peer_id,
+                )
             # Close any open connections
             # Cleanup temporary files
             # Save any pending data
