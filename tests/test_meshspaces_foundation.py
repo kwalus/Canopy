@@ -1235,6 +1235,57 @@ class WindowsMeshspaceLaunchTest(MeshspaceFoundationTest):
             meshspaces_mod._windows_creation_flags(include_breakaway=False),
         )
 
+    def test_windows_stop_converges_to_stopped_when_signal_failure_finds_no_live_runtime(self) -> None:
+        manager = self.app.config.get('MESHSPACE_REGISTRY_MANAGER')
+        manager.create_meshspace(
+            name='Research Lab',
+            meshspace_id='research-lab',
+            description='Experimental mesh for testing.',
+        )
+        record = manager.get_meshspace('research-lab')
+        self.assertIsNotNone(record)
+        record['status'] = 'running'
+        record['pid'] = 73312
+        manager._upsert_record(record)
+
+        with patch('canopy.core.meshspaces._is_windows_platform', return_value=True), \
+             patch.object(manager, 'reconcile_meshspace_runtime', side_effect=[record, record]), \
+             patch.object(manager, 'probe_meshspace_runtime', side_effect=[
+                 {'live': True, 'detected_pid': 73312},
+                 {'live': False, 'effective_status': 'stopped'},
+             ]), \
+             patch('canopy.core.meshspaces.os.kill', side_effect=SystemError('returned a result with an error set')):
+            stopped = manager.stop_meshspace('research-lab')
+
+        self.assertEqual(stopped.get('status'), 'stopped')
+        self.assertEqual(int(stopped.get('pid') or 0), 0)
+        stored = manager.get_meshspace('research-lab')
+        self.assertEqual((stored or {}).get('status'), 'stopped')
+        self.assertEqual(int((stored or {}).get('pid') or 0), 0)
+
+    def test_windows_stop_raises_clean_error_when_runtime_still_looks_live_after_signal_failure(self) -> None:
+        manager = self.app.config.get('MESHSPACE_REGISTRY_MANAGER')
+        manager.create_meshspace(
+            name='Research Lab',
+            meshspace_id='research-lab',
+            description='Experimental mesh for testing.',
+        )
+        record = manager.get_meshspace('research-lab')
+        self.assertIsNotNone(record)
+        record['status'] = 'running'
+        record['pid'] = 73312
+        manager._upsert_record(record)
+
+        with patch('canopy.core.meshspaces._is_windows_platform', return_value=True), \
+             patch.object(manager, 'reconcile_meshspace_runtime', side_effect=[record, record]), \
+             patch.object(manager, 'probe_meshspace_runtime', side_effect=[
+                 {'live': True, 'detected_pid': 73312},
+                 {'live': True, 'detected_pid': 73312},
+             ]), \
+             patch('canopy.core.meshspaces.os.kill', side_effect=SystemError('returned a result with an error set')):
+            with self.assertRaisesRegex(ValueError, 'could not be stopped cleanly'):
+                manager.stop_meshspace('research-lab')
+
 
 if __name__ == '__main__':
     unittest.main()

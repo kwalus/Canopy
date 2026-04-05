@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.57] - 2026-04-04
+
+### Fixed
+- **Windows meshspace stop now handles stale or already-vanished child PIDs more gracefully** — stop attempts that hit the low-level Windows `os.kill` failure path now re-check actual runtime reality before surfacing an error, stale/dead runtimes converge cleanly back to `stopped`, and live failures now return a Canopy-level stop error instead of leaking the raw platform exception shape.
+
 ## [0.5.56] - 2026-04-04
 
 ### Changed

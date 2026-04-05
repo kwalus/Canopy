@@ -1457,20 +1457,40 @@ class MeshspaceRegistryManager:
                 f"Meshspace '{meshspace_id}' is live on port {record.get('http_port')} but no process ID was detected"
             )
 
+        def _converge_stopped_after_signal_failure() -> Optional[Dict[str, Any]]:
+            refreshed = self.reconcile_meshspace_runtime(meshspace_id) or self.get_meshspace(meshspace_id) or record
+            probe_after = self.probe_meshspace_runtime(meshspace_id)
+            if not probe_after.get("live"):
+                refreshed["status"] = "stopped"
+                refreshed["pid"] = 0
+                refreshed["updated_at"] = _utcnow_iso()
+                return self._upsert_record(refreshed)
+            return None
+
+        signal_error: Optional[Exception] = None
         try:
             if _is_windows_platform():
                 ctrl_break = getattr(signal, "CTRL_BREAK_EVENT", None)
                 if ctrl_break is not None:
                     try:
                         os.kill(pid, ctrl_break)
-                    except OSError:
+                    except Exception:
                         os.kill(pid, signal.SIGTERM)
                 else:
                     os.kill(pid, signal.SIGTERM)
             else:
                 os.kill(pid, signal.SIGTERM)
-        except OSError as exc:
+        except Exception as exc:
+            signal_error = exc
             logger.warning("Failed to send stop signal to PID %d: %s", pid, exc)
+            stopped = _converge_stopped_after_signal_failure()
+            if stopped is not None:
+                logger.info(
+                    "Meshspace %s already converged to stopped state after signal failure for PID %d",
+                    meshspace_id,
+                    pid,
+                )
+                return stopped
 
         record["status"] = "stopping"
         summary = record.get("summary") if isinstance(record.get("summary"), dict) else _default_summary()
@@ -1481,6 +1501,10 @@ class MeshspaceRegistryManager:
         record["summary"] = summary
         record["updated_at"] = _utcnow_iso()
         self._upsert_record(record)
+        if signal_error is not None and _is_windows_platform():
+            raise ValueError(
+                f"Meshspace '{meshspace_id}' could not be stopped cleanly; please refresh state and try again"
+            ) from signal_error
         logger.info("Sent stop signal to meshspace %s (PID %d)", meshspace_id, pid)
         return record
 
