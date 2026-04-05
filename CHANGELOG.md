@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.59] - 2026-04-05
+
+### Fixed
+- **Meshspace header attention now counts unread channels correctly for the active mesh** — the meshspace notification summary now uses the real channel-manager API signature instead of falling back through an exception path that zeroed channel unread totals, so the current-mesh header badge and subline stay aligned with sidebar channel/feed unread counts while preserving the viewer-specific cross-mesh overlay behavior.
+
 ## [0.5.57] - 2026-04-04
 
 ### Fixed

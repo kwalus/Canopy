@@ -224,7 +224,10 @@ def count_meshspace_channel_unread(channel_manager: Any, p2p_manager: Any, user_
     if not channel_manager or not user_id:
         return 0
     try:
-        channels = channel_manager.get_user_channels(user_id, p2p_manager) or []
+        # Keep meshspace shell counts aligned with the sidebar path. The channel
+        # manager API takes only ``user_id``; passing extra args silently zeroed
+        # mesh header unread totals via this exception path.
+        channels = channel_manager.get_user_channels(user_id) or []
     except Exception:
         return 0
     total = 0

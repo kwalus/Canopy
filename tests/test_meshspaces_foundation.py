@@ -29,6 +29,7 @@ if 'zeroconf' not in sys.modules:
     sys.modules['zeroconf'] = zeroconf_stub
 
 from canopy.core.app import create_app
+from canopy.core.meshspaces import build_meshspace_notification_summary
 
 _PNG_1X1 = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg=="
@@ -262,6 +263,25 @@ class MeshspaceFoundationTest(unittest.TestCase):
         self.assertEqual(int(summary.get('unread_count') or 0), 0)
         self.assertEqual(int(summary.get('mention_count') or 0), 0)
         self.assertIn(summary.get('attention_level'), {'warning', 'active', 'critical'})
+
+    def test_meshspace_notification_summary_counts_channel_unread_with_real_manager_signature(self) -> None:
+        channel_manager = SimpleNamespace(
+            get_user_channels=lambda user_id: [
+                SimpleNamespace(unread_count=9),
+                SimpleNamespace(unread_count=4),
+            ]
+        )
+
+        summary = build_meshspace_notification_summary(
+            None,
+            channel_manager,
+            None,
+            None,
+            'owner-user',
+        )
+
+        self.assertEqual(int(summary.get('unread_count') or 0), 13)
+        self.assertEqual(int(summary.get('attention_count') or 0), 13)
 
     def test_meshes_page_uses_authenticated_session_user_not_local_user_fallback(self) -> None:
         self._authenticate()
