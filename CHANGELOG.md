@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.61] - 2026-04-05
+
+### Fixed
+- **Bell clear now clears the lingering meshspace mention count instead of only dismissing the local bell list** — the sidebar clear action now calls a session-authenticated UI route that acknowledges current-user mention events before refreshing sidebar and meshspace snapshots, so the bell UI and the meshspace header badge no longer disagree when the last remaining attention item is a mention.
+
 ## [0.5.60] - 2026-04-05
 
 ### Fixed

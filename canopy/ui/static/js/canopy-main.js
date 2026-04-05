@@ -5576,12 +5576,35 @@
             };
 
             if (clearBtn) {
-                clearBtn.addEventListener('click', () => {
-                    canopySidebarAttentionState.items = [];
-                    saveCanopyAttentionDismissCursor(canopySidebarAttentionState.currentEventCursor);
-                    saveCanopyAttentionSeenCursor(canopySidebarAttentionState.currentEventCursor);
-                    if (window.renderCanopyAttentionBell) {
-                        window.renderCanopyAttentionBell([]);
+                clearBtn.addEventListener('click', async () => {
+                    const routes = (window.CANOPY_VARS && window.CANOPY_VARS.urls) || {};
+                    const endpoint = routes.sidebarAttentionClear || '/ajax/sidebar_attention_clear';
+                    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+                    try {
+                        const res = await fetch(endpoint, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest',
+                                'X-CSRFToken': csrfToken,
+                            },
+                            body: JSON.stringify({}),
+                        });
+                        if (!res.ok) throw new Error(`Sidebar attention clear failed (${res.status})`);
+                        const data = await res.json();
+                        if (!data || data.success === false) throw new Error('Sidebar attention clear failed');
+                        canopySidebarAttentionState.items = [];
+                        saveCanopyAttentionDismissCursor(canopySidebarAttentionState.currentEventCursor);
+                        saveCanopyAttentionSeenCursor(canopySidebarAttentionState.currentEventCursor);
+                        if (window.renderCanopyAttentionBell) {
+                            window.renderCanopyAttentionBell([]);
+                        }
+                        requestCanopySidebarAttentionRefresh({ force: true }).catch(() => {});
+                        if (window.requestCanopyMeshspaceSnapshotRefresh) {
+                            window.requestCanopyMeshspaceSnapshotRefresh({ force: true });
+                        }
+                    } catch (error) {
+                        console.warn('Canopy sidebar attention clear failed:', error);
                     }
                 });
             }

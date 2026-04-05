@@ -31,6 +31,7 @@ from canopy.core.events import (
     EVENT_MENTION_CREATED,
     WorkspaceEventManager,
 )
+from canopy.core.mentions import MentionManager
 
 
 class _FakeDbManager:
@@ -140,8 +141,10 @@ class TestSidebarAttentionSummary(unittest.TestCase):
                 source_type TEXT NOT NULL,
                 source_id TEXT NOT NULL,
                 author_id TEXT,
+                origin_peer TEXT,
                 channel_id TEXT,
                 preview TEXT,
+                metadata TEXT,
                 status TEXT NOT NULL DEFAULT 'new',
                 acknowledged_at TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -269,6 +272,7 @@ class TestSidebarAttentionSummary(unittest.TestCase):
         app.config['TESTING'] = True
         app.secret_key = 'test-secret'
         app.config['WORKSPACE_EVENT_MANAGER'] = self.workspace_events
+        app.config['MENTION_MANAGER'] = MentionManager(self.db_manager)
         app.register_blueprint(create_ui_blueprint())
         self.client = app.test_client()
         with self.client.session_transaction() as sess:
@@ -276,6 +280,7 @@ class TestSidebarAttentionSummary(unittest.TestCase):
             sess['user_id'] = 'owner'
             sess['username'] = 'owner'
             sess['display_name'] = 'Owner'
+            sess['_csrf_token'] = 'csrf-sidebar'
 
     def tearDown(self) -> None:
         self.conn.close()
@@ -452,6 +457,32 @@ class TestSidebarAttentionSummary(unittest.TestCase):
             summary.get('total'),
             (summary.get('messages') or 0) + (summary.get('channels') or 0) + (summary.get('feed') or 0),
         )
+
+    def test_sidebar_attention_clear_acknowledges_mentions(self) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO mention_events (id, user_id, source_type, source_id, author_id, preview, status)
+            VALUES (?, ?, ?, ?, ?, ?, 'new')
+            """,
+            ('sid-clear-mention-1', 'owner', 'channel_message', 'msg-clear-1', 'peer-a', 'Clear me'),
+        )
+        self.conn.commit()
+
+        before = (self.client.get('/ajax/sidebar_attention_summary').get_json() or {}).get('summary') or {}
+        self.assertEqual(before.get('mention_count'), 1)
+
+        response = self.client.post(
+            '/ajax/sidebar_attention_clear',
+            json={},
+            headers={'X-CSRFToken': 'csrf-sidebar'},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertEqual(int(payload.get('acknowledged_mentions') or 0), 1)
+
+        after = (self.client.get('/ajax/sidebar_attention_summary').get_json() or {}).get('summary') or {}
+        self.assertEqual(after.get('mention_count'), 0)
 
 
 if __name__ == '__main__':

@@ -7932,6 +7932,36 @@ def create_ui_blueprint() -> Blueprint:
                 'error': 'Failed to load sidebar attention snapshot',
             }), 500
 
+    @ui.route('/ajax/sidebar_attention_clear', methods=['POST'])
+    @require_login
+    def ajax_sidebar_attention_clear():
+        """Acknowledge current-user mentions so bell clear matches mesh badge state."""
+        try:
+            mention_manager = current_app.config.get('MENTION_MANAGER')
+            manager = _get_meshspace_registry_manager()
+            current_record = _current_meshspace_record()
+            user_id = str(get_current_user() or '').strip()
+            acknowledged = 0
+            if mention_manager and user_id:
+                pending_mentions = mention_manager.get_mentions(
+                    user_id,
+                    limit=200,
+                    include_acknowledged=False,
+                )
+                mention_ids = [
+                    str(item.get('id') or '').strip()
+                    for item in (pending_mentions or [])
+                    if str(item.get('id') or '').strip()
+                ]
+                if mention_ids:
+                    acknowledged = int(mention_manager.acknowledge_mentions(user_id, mention_ids) or 0)
+            if manager and current_record:
+                _sync_current_meshspace_shell_summary(manager, current_record, user_id=user_id)
+            return jsonify({'success': True, 'acknowledged_mentions': acknowledged})
+        except Exception as e:
+            logger.error(f"Sidebar attention clear error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Failed to clear sidebar attention'}), 500
+
     @ui.route('/ajax/p2p/diagnostics', methods=['GET'])
     @require_login
     def ajax_p2p_diagnostics():

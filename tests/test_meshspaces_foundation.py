@@ -425,6 +425,44 @@ class MeshspaceFoundationTest(unittest.TestCase):
         self.assertGreaterEqual(int(payload.get('mention_count') or 0), 1)
         self.assertGreaterEqual(int(payload.get('attention_count') or 0), 2)
 
+    def test_sidebar_attention_clear_removes_current_mesh_mention_count(self) -> None:
+        self._authenticate()
+
+        with self.db_manager.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO users (
+                    id, username, public_key, password_hash, display_name,
+                    origin_peer, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """,
+                ('sender-user', 'sender', 'pk-sender', 'pw-sender', 'Sender', None),
+            )
+            conn.execute(
+                """
+                INSERT INTO mention_events (id, user_id, source_type, source_id, author_id, preview, status)
+                VALUES (?, ?, ?, ?, ?, ?, 'new')
+                """,
+                ('MENTION-CLEAR-001', 'owner-user', 'channel_message', 'MSG-CLEAR-001', 'sender-user', 'Clear mention'),
+            )
+            conn.commit()
+
+        before = self.client.get('/ajax/meshspaces_snapshot').get_json() or {}
+        before_meshes = {item['meshspace_id']: item for item in (before.get('meshspaces') or [])}
+        self.assertEqual(int((before_meshes['family-lab'].get('mention_count') or 0)), 1)
+
+        cleared = self.client.post(
+            '/ajax/sidebar_attention_clear',
+            json={},
+            headers={'X-CSRFToken': 'csrf-mesh'},
+        )
+        self.assertEqual(cleared.status_code, 200)
+        self.assertTrue((cleared.get_json() or {}).get('success'))
+
+        after = self.client.get('/ajax/meshspaces_snapshot').get_json() or {}
+        after_meshes = {item['meshspace_id']: item for item in (after.get('meshspaces') or [])}
+        self.assertEqual(int((after_meshes['family-lab'].get('mention_count') or 0)), 0)
+
     def test_probe_meshspace_runtime_includes_live_shell_summary(self) -> None:
         manager = self.app.config.get('MESHSPACE_REGISTRY_MANAGER')
         manager.create_meshspace(

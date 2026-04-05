@@ -8548,6 +8548,7 @@
                 messages: {{ url_for('ui.messages')|tojson }},
                 sidebarAttentionSummary: {{ url_for('ui.ajax_sidebar_attention_summary')|tojson }},
                 sidebarAttentionSnapshot: {{ url_for('ui.ajax_sidebar_attention_snapshot')|tojson }},
+                sidebarAttentionClear: {{ url_for('ui.ajax_sidebar_attention_clear')|tojson }},
                 peerActivity: {{ url_for('ui.ajax_peer_activity')|tojson }},
                 meshspacesSnapshot: {{ (url_for('ui.ajax_meshspaces_snapshot') if meshspace_can_manage else '')|tojson }}
             }

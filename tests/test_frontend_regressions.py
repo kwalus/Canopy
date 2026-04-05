@@ -1153,3 +1153,13 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('data-mesh-open-reason="restarting"', open_template)
         self.assertIn("State mismatch", base_template)
         self.assertIn("Port conflict", base_template)
+
+    def test_attention_clear_uses_server_backed_sidebar_clear_route(self) -> None:
+        base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        self.assertIn('sidebarAttentionClear', base_template)
+        self.assertIn("const endpoint = routes.sidebarAttentionClear || '/ajax/sidebar_attention_clear';", main_js)
+        self.assertIn("method: 'POST'", main_js)
+        self.assertIn("'X-CSRFToken': csrfToken", main_js)
+        self.assertIn("requestCanopySidebarAttentionRefresh({ force: true }).catch(() => {});", main_js)
+        self.assertIn("window.requestCanopyMeshspaceSnapshotRefresh({ force: true });", main_js)
