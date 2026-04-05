@@ -8,7 +8,7 @@ Project: Canopy - Local Mesh Communication
 License: Apache 2.0
 """
 
-__version__ = "0.5.57"
+__version__ = "0.5.58"
 __protocol_version__ = 1
 __author__ = "Canopy Contributors"
 __license__ = "Apache-2.0"
