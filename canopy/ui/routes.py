@@ -445,17 +445,18 @@ def _current_session_meshspace_attention() -> Optional[dict[str, int]]:
     )
 
 
-def _apply_current_session_meshspace_attention(item: dict[str, Any]) -> dict[str, Any]:
-    """Overlay current-session user attention onto the active mesh only."""
-    if not item or not item.get('is_current'):
+def _apply_meshspace_attention_overlay(
+    item: dict[str, Any],
+    attention: Optional[dict[str, int]],
+) -> dict[str, Any]:
+    """Overlay viewer-specific attention onto a mesh card without persisting it."""
+    if not item or not attention:
         return item
-    session_attention = _current_session_meshspace_attention()
-    if not session_attention:
-        return item
-    item['unread_count'] = max(0, int(session_attention.get('unread_count') or 0))
-    item['mention_count'] = max(0, int(session_attention.get('mention_count') or 0))
-    item['pending_review_count'] = max(0, int(session_attention.get('pending_review_count') or 0))
-    item['session_attention_count'] = max(0, int(session_attention.get('attention_count') or 0))
+
+    item['unread_count'] = max(0, int(attention.get('unread_count') or 0))
+    item['mention_count'] = max(0, int(attention.get('mention_count') or 0))
+    item['pending_review_count'] = max(0, int(attention.get('pending_review_count') or 0))
+    item['session_attention_count'] = max(0, int(attention.get('attention_count') or 0))
     status_attention = 1 if str(item.get('status') or '').strip().lower() in {'degraded', 'crashed', 'stopping'} else 0
     item['attention_count'] = max(status_attention, item['session_attention_count'])
 
@@ -478,6 +479,96 @@ def _apply_current_session_meshspace_attention(item: dict[str, Any]) -> dict[str
     badge_count = item['session_attention_count']
     item['attention_badge'] = '99+' if badge_count > 99 else (str(badge_count) if badge_count else ('!' if status_attention else ''))
     return item
+
+
+def _apply_current_session_meshspace_attention(item: dict[str, Any]) -> dict[str, Any]:
+    """Overlay current-session user attention onto the active mesh only."""
+    if not item or not item.get('is_current'):
+        return item
+    return _apply_meshspace_attention_overlay(item, _current_session_meshspace_attention())
+
+
+def _meshspace_viewer_attention(record: dict[str, Any]) -> Optional[dict[str, int]]:
+    """Fetch viewer-specific counts from another live mesh using its own session cookie."""
+    if not _session_is_authenticated():
+        return None
+
+    meshspace_id = str(record.get('meshspace_id') or '').strip()
+    cookie_name = str(record.get('session_cookie_name') or '').strip()
+    cookie_value = request.cookies.get(cookie_name) if cookie_name else None
+    try:
+        port = int(record.get('http_port') or 0)
+    except Exception:
+        port = 0
+    if not meshspace_id or not cookie_name or not cookie_value or port <= 0:
+        return None
+
+    host = str(record.get('http_host') or '127.0.0.1').strip() or '127.0.0.1'
+    if host == '0.0.0.0':
+        host = '127.0.0.1'
+
+    cache_key = hashlib.sha1(
+        f"{meshspace_id}:{cookie_name}:{cookie_value}".encode('utf-8')
+    ).hexdigest()
+    req_cache = getattr(g, '_meshspace_viewer_attention_cache', None)
+    if req_cache is None:
+        req_cache = {}
+        g._meshspace_viewer_attention_cache = req_cache  # type: ignore[attr-defined]
+    if cache_key in req_cache:
+        cached_value = req_cache[cache_key]
+        return dict(cached_value) if isinstance(cached_value, dict) else None
+
+    cache = current_app.config.setdefault('MESHSPACE_VIEWER_ATTENTION_CACHE', {})
+    now = time.time()
+    cached = cache.get(cache_key)
+    if cached and (now - float(cached.get('at') or 0)) < 5.0:
+        value = cached.get('value')
+        req_cache[cache_key] = dict(value) if isinstance(value, dict) else None
+        return dict(value) if isinstance(value, dict) else None
+
+    value: Optional[dict[str, int]] = None
+    try:
+        remote_request = Request(
+            f"http://{host}:{port}/api/v1/meshspace/viewer_attention",
+            headers={
+                'Accept': 'application/json',
+                'Cookie': f'{cookie_name}={cookie_value}',
+            },
+        )
+        with urlopen(remote_request, timeout=0.9) as remote:
+            payload = json.loads(remote.read().decode('utf-8'))
+        if isinstance(payload, dict):
+            value = {
+                'unread_count': max(0, int(payload.get('unread_count') or 0)),
+                'mention_count': max(0, int(payload.get('mention_count') or 0)),
+                'pending_review_count': max(0, int(payload.get('pending_review_count') or 0)),
+                'attention_count': max(0, int(payload.get('attention_count') or 0)),
+            }
+    except (HTTPError, URLError, TimeoutError, ValueError):
+        value = None
+    except Exception:
+        value = None
+
+    cache[cache_key] = {'at': now, 'value': dict(value) if isinstance(value, dict) else None}
+    req_cache[cache_key] = dict(value) if isinstance(value, dict) else None
+    return dict(value) if isinstance(value, dict) else None
+
+
+def _apply_other_mesh_viewer_attention(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Overlay viewer-specific counts for other live meshes at render time only."""
+    if not _session_is_authenticated():
+        return items
+    for item in items:
+        if item.get('is_current'):
+            continue
+        if not item.get('live_detected') or not item.get('is_active_runtime'):
+            continue
+        if item.get('port_overlap_warning'):
+            continue
+        attention = _meshspace_viewer_attention(item)
+        if attention:
+            _apply_meshspace_attention_overlay(item, attention)
+    return items
 
 
 def _sync_current_meshspace_shell_summary(
@@ -1188,6 +1279,7 @@ def create_ui_blueprint() -> Blueprint:
                     _apply_current_session_meshspace_attention(item) if item.get('is_current') else item
                     for item in entries
                 ]
+                entries = _apply_other_mesh_viewer_attention(entries)
             entries.sort(key=_meshspace_nav_sort_key)
             quick_entries = [
                 item for item in entries
@@ -6723,6 +6815,7 @@ def create_ui_blueprint() -> Blueprint:
                 _apply_current_session_meshspace_attention(item) if item.get('is_current') else item
                 for item in cards
             ]
+            cards = _apply_other_mesh_viewer_attention(cards)
         current_card = next((item for item in cards if item.get('is_current')), None)
         running_count = sum(1 for item in cards if item.get('is_active_runtime'))
         peer_count_total = sum(max(0, int(item.get('active_peer_count') or 0)) for item in cards)
