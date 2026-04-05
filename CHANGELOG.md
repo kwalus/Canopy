@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.58] - 2026-04-04
+
+### Fixed
+- **Loopback mesh launches now normalize to `localhost` for local app-window flows** — opening another local mesh from a loopback-served runtime now prefers `localhost` instead of preserving `127.0.0.1`, which should reduce Chrome/PWA-style security treatment mismatches between two local meshes while still preserving non-loopback LAN hosts for remote access.
+
 ## [0.5.57] - 2026-04-04
 
 ### Fixed
