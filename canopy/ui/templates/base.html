@@ -8532,7 +8532,7 @@
             recentDmContacts: {{ sidebar_recent_dm_contacts|tojson if sidebar_recent_dm_contacts is defined else '[]' }},
             dmRev: {{ sidebar_dm_rev|tojson if sidebar_dm_rev is defined else '""' }},
             dmEventCursor: {{ sidebar_dm_event_cursor|tojson if sidebar_dm_event_cursor is defined else '0' }},
-            attentionSummary: {{ sidebar_attention_summary|tojson if sidebar_attention_summary is defined else {'messages': 0, 'channels': 0, 'feed': 0, 'total': 0}|tojson }},
+            attentionSummary: {{ sidebar_attention_summary|tojson if sidebar_attention_summary is defined else {'messages': 0, 'channels': 0, 'feed': 0, 'mention_count': 0, 'total': 0}|tojson }},
             attentionRev: {{ sidebar_attention_rev|tojson if sidebar_attention_rev is defined else '""' }},
             attentionActivityRev: {{ sidebar_attention_activity_rev|tojson if sidebar_attention_activity_rev is defined else '""' }},
             attentionItems: {{ sidebar_attention_items|tojson if sidebar_attention_items is defined else '[]' }},

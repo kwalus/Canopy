@@ -103,6 +103,7 @@ from ..core.meshspaces import (
     build_meshspace_notification_summary,
     build_meshspace_shell_summary,
     build_runtime_environment_from_config,
+    count_meshspace_unacked_mentions,
     schedule_self_restart,
 )
 from ..network.routing import (
@@ -112,6 +113,8 @@ from ..network.routing import (
 
 logger = logging.getLogger(__name__)
 _CUSTOM_EMOJI_LOCK = threading.Lock()
+_VIEWER_ATTENTION_BASE_TTL: float = 5.0
+_VIEWER_ATTENTION_MAX_BACKOFF: float = 60.0
 
 
 def _get_app_components_any(app: Any) -> tuple[Any, ...]:
@@ -521,7 +524,8 @@ def _meshspace_viewer_attention(record: dict[str, Any]) -> Optional[dict[str, in
     cache = current_app.config.setdefault('MESHSPACE_VIEWER_ATTENTION_CACHE', {})
     now = time.time()
     cached = cache.get(cache_key)
-    if cached and (now - float(cached.get('at') or 0)) < 5.0:
+    entry_ttl = float(cached.get('backoff_ttl') or _VIEWER_ATTENTION_BASE_TTL) if cached else _VIEWER_ATTENTION_BASE_TTL
+    if cached and (now - float(cached.get('at') or 0)) < entry_ttl:
         value = cached.get('value')
         req_cache[cache_key] = dict(value) if isinstance(value, dict) else None
         return dict(value) if isinstance(value, dict) else None
@@ -549,7 +553,24 @@ def _meshspace_viewer_attention(record: dict[str, Any]) -> Optional[dict[str, in
     except Exception:
         value = None
 
-    cache[cache_key] = {'at': now, 'value': dict(value) if isinstance(value, dict) else None}
+    if value is not None:
+        cache[cache_key] = {
+            'at': now,
+            'value': dict(value),
+            'error_count': 0,
+            'backoff_ttl': _VIEWER_ATTENTION_BASE_TTL,
+        }
+    else:
+        prev_error_count = int((cached or {}).get('error_count') or 0) + 1
+        cache[cache_key] = {
+            'at': now,
+            'value': None,
+            'error_count': prev_error_count,
+            'backoff_ttl': min(
+                _VIEWER_ATTENTION_BASE_TTL * (2 ** (prev_error_count - 1)),
+                _VIEWER_ATTENTION_MAX_BACKOFF,
+            ),
+        }
     req_cache[cache_key] = dict(value) if isinstance(value, dict) else None
     return dict(value) if isinstance(value, dict) else None
 
@@ -3067,7 +3088,7 @@ def create_ui_blueprint() -> Blueprint:
         p2p_manager: Any,
         user_id: str,
     ) -> dict[str, Any]:
-        """Build aggregate unread counts for sidebar navigation badges."""
+        """Build sidebar attention counts without changing existing unread semantics."""
         messages_unread = _count_sidebar_message_unread(db_manager, user_id)
 
         channels_unread = 0
@@ -3087,10 +3108,17 @@ def create_ui_blueprint() -> Blueprint:
         except Exception:
             feed_unread = 0
 
+        mention_count = 0
+        try:
+            mention_count = count_meshspace_unacked_mentions(db_manager, user_id)
+        except Exception:
+            mention_count = 0
+
         summary = {
             'messages': messages_unread,
             'channels': channels_unread,
             'feed': feed_unread,
+            'mention_count': mention_count,
             'total': messages_unread + channels_unread + feed_unread,
         }
         return {

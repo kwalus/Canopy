@@ -134,6 +134,20 @@ class TestSidebarAttentionSummary(unittest.TestCase):
                 post_id TEXT NOT NULL,
                 user_id TEXT NOT NULL
             );
+            CREATE TABLE mention_events (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                source_type TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                author_id TEXT,
+                channel_id TEXT,
+                preview TEXT,
+                status TEXT NOT NULL DEFAULT 'new',
+                acknowledged_at TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_mention_events_unique
+                ON mention_events(user_id, source_type, source_id);
             """
         )
         self.conn.executemany(
@@ -272,12 +286,12 @@ class TestSidebarAttentionSummary(unittest.TestCase):
         payload = response.get_json() or {}
         self.assertTrue(payload.get('success'))
         self.assertTrue(payload.get('changed'))
-        self.assertEqual(payload.get('summary'), {
-            'messages': 2,
-            'channels': 5,
-            'feed': 4,
-            'total': 11,
-        })
+        summary = payload.get('summary') or {}
+        self.assertEqual(summary.get('messages'), 2)
+        self.assertEqual(summary.get('channels'), 5)
+        self.assertEqual(summary.get('feed'), 4)
+        self.assertEqual(summary.get('mention_count'), 0)
+        self.assertEqual(summary.get('total'), 11)
 
         rev = payload.get('rev')
         repeat = self.client.get(f'/ajax/sidebar_attention_summary?rev={rev}')
@@ -322,6 +336,7 @@ class TestSidebarAttentionSummary(unittest.TestCase):
         payload = response.get_json() or {}
         self.assertTrue(payload.get('success'))
         self.assertEqual(payload.get('summary', {}).get('total'), 11)
+        self.assertEqual(payload.get('summary', {}).get('mention_count'), 0)
         self.assertIsInstance(payload.get('workspace_event_cursor'), int)
         items = payload.get('items') or []
         self.assertGreaterEqual(len(items), 2)
@@ -379,6 +394,64 @@ class TestSidebarAttentionSummary(unittest.TestCase):
         response = self.client.get('/feed')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.feed_manager.marked_users, ['owner'])
+
+    def test_sidebar_attention_summary_mention_count_uses_mention_events_table(self) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO mention_events (id, user_id, source_type, source_id, author_id, preview, status)
+            VALUES (?, ?, ?, ?, ?, ?, 'new')
+            """,
+            ('sid-mention-1', 'owner', 'channel_message', 'msg-chan-1', 'peer-a', 'You were mentioned'),
+        )
+        self.conn.execute(
+            """
+            INSERT INTO mention_events (id, user_id, source_type, source_id, author_id, preview, status, acknowledged_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'acknowledged', '2026-03-16T11:00:00+00:00')
+            """,
+            ('sid-mention-2', 'owner', 'channel_message', 'msg-chan-2', 'peer-b', 'Already seen'),
+        )
+        self.conn.commit()
+
+        response = self.client.get('/ajax/sidebar_attention_summary')
+        self.assertEqual(response.status_code, 200)
+        summary = (response.get_json() or {}).get('summary') or {}
+        self.assertEqual(summary.get('mention_count'), 1)
+        self.assertEqual(summary.get('total'), 11)
+
+    def test_sidebar_attention_rev_changes_when_mention_count_changes(self) -> None:
+        first = self.client.get('/ajax/sidebar_attention_summary')
+        rev_baseline = (first.get_json() or {}).get('rev') or ''
+
+        self.conn.execute(
+            """
+            INSERT INTO mention_events (id, user_id, source_type, source_id, author_id, preview, status)
+            VALUES (?, ?, ?, ?, ?, ?, 'new')
+            """,
+            ('sid-rev-mention-1', 'owner', 'channel_message', 'msg-rev-1', 'peer-a', 'Rev-change mention'),
+        )
+        self.conn.commit()
+
+        second = self.client.get('/ajax/sidebar_attention_summary')
+        rev_after = (second.get_json() or {}).get('rev') or ''
+        self.assertNotEqual(rev_baseline, rev_after)
+
+    def test_sidebar_summary_total_excludes_mention_count(self) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO mention_events (id, user_id, source_type, source_id, author_id, preview, status)
+            VALUES (?, ?, ?, ?, ?, ?, 'new')
+            """,
+            ('sid-excl-mention-1', 'owner', 'channel_message', 'msg-excl-1', 'peer-a', 'Excluded from total'),
+        )
+        self.conn.commit()
+
+        summary = (self.client.get('/ajax/sidebar_attention_summary').get_json() or {}).get('summary') or {}
+        self.assertEqual(summary.get('mention_count'), 1)
+        self.assertEqual(summary.get('total'), 11)
+        self.assertEqual(
+            summary.get('total'),
+            (summary.get('messages') or 0) + (summary.get('channels') or 0) + (summary.get('feed') or 0),
+        )
 
 
 if __name__ == '__main__':

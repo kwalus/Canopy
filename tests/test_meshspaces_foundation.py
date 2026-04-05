@@ -1115,6 +1115,45 @@ class MeshspaceFoundationTest(unittest.TestCase):
                 data_dir=str(self.mesh_root / 'nested'),
             )
 
+    def test_sidebar_summary_unread_matches_meshspace_notification_unread_count(self) -> None:
+        self._authenticate()
+
+        with self.db_manager.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO users (
+                    id, username, public_key, password_hash, display_name,
+                    origin_peer, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """,
+                ('sender-parity', 'sender_parity', 'pk-parity', 'pw-parity', 'Sender Parity', None),
+            )
+            conn.execute(
+                "INSERT INTO messages (id, sender_id, recipient_id, content, message_type, metadata)"
+                " VALUES (?, ?, ?, ?, 'text', '{}')",
+                ('PAR-DM-1', 'sender-parity', 'owner-user', 'Parity DM 1'),
+            )
+            conn.execute(
+                "INSERT INTO messages (id, sender_id, recipient_id, content, message_type, metadata)"
+                " VALUES (?, ?, ?, ?, 'text', '{}')",
+                ('PAR-DM-2', 'sender-parity', 'owner-user', 'Parity DM 2'),
+            )
+            conn.commit()
+
+        sidebar_summary = (self.client.get('/ajax/sidebar_attention_summary').get_json() or {}).get('summary') or {}
+        sidebar_total = int(sidebar_summary.get('total') or 0)
+        self.assertEqual(
+            sidebar_total,
+            int(sidebar_summary.get('messages') or 0)
+            + int(sidebar_summary.get('channels') or 0)
+            + int(sidebar_summary.get('feed') or 0),
+        )
+
+        payload = self.client.get('/ajax/meshspaces_snapshot').get_json() or {}
+        meshes = {item['meshspace_id']: item for item in (payload.get('meshspaces') or [])}
+        current_mesh = meshes.get('family-lab') or {}
+        self.assertEqual(int(current_mesh.get('unread_count') or 0), sidebar_total)
+
 
 class LegacyMeshspaceAdoptionTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -1425,6 +1464,183 @@ class WindowsMeshspaceLaunchTest(MeshspaceFoundationTest):
              patch('canopy.core.meshspaces.os.kill', side_effect=SystemError('returned a result with an error set')):
             with self.assertRaisesRegex(ValueError, 'could not be stopped cleanly'):
                 manager.stop_meshspace('research-lab')
+
+    def test_viewer_attention_cache_uses_backoff_ttl_after_failure(self) -> None:
+        self._authenticate()
+
+        manager = self.app.config.get('MESHSPACE_REGISTRY_MANAGER')
+        manager.create_meshspace(
+            name='Research Lab',
+            meshspace_id='research-lab',
+            description='Experimental mesh for testing.',
+        )
+        manager.update_runtime_state('research-lab', 'running', peer_id='peer-research')
+        manager.update_shell_summary('research-lab', {
+            'active_peer_count': 1,
+            'unread_count': 3,
+            'mention_count': 0,
+            'pending_review_count': 0,
+            'attention_count': 3,
+            'last_activity_at': '2026-04-04T10:00:00+00:00',
+            'has_recent_activity': True,
+            'attention_level': 'active',
+        })
+        research = manager.get_meshspace('research-lab') or {}
+        self.client.set_cookie(str(research.get('session_cookie_name') or 'canopy_session_research-lab'), 'sess-tok')
+        self.app.config.pop('MESHSPACE_VIEWER_ATTENTION_CACHE', None)
+
+        from urllib.error import URLError
+
+        probe_return = {
+            'live': True,
+            'effective_status': 'running',
+            'status_mismatch': False,
+            'detected_pid': 9001,
+            'launch_url': 'http://127.0.0.1:7801',
+            'version': '0.5.59',
+            'peer_id': 'peer-research',
+            'shell_summary': None,
+        }
+
+        with patch.object(manager, 'probe_meshspace_runtime', return_value=probe_return), \
+             patch('canopy.ui.routes.urlopen', side_effect=URLError('connection refused')) as mock_urlopen:
+            with patch('canopy.ui.routes.time') as mock_time:
+                mock_time.time.return_value = 1000.0
+                self.client.get('/ajax/meshspaces_snapshot')
+
+            first_count = mock_urlopen.call_count
+
+            with patch('canopy.ui.routes.time') as mock_time:
+                mock_time.time.return_value = 1003.0
+                self.client.get('/ajax/meshspaces_snapshot')
+
+            self.assertEqual(first_count, mock_urlopen.call_count)
+
+        cache = self.app.config.get('MESHSPACE_VIEWER_ATTENTION_CACHE') or {}
+        entry = next(iter(cache.values()), None)
+        self.assertIsNotNone(entry)
+        self.assertGreater(int((entry or {}).get('error_count') or 0), 0)
+        self.assertGreater(float((entry or {}).get('backoff_ttl') or 0.0), 0.0)
+
+    def test_viewer_attention_backoff_ttl_escalates_on_repeated_failures(self) -> None:
+        self._authenticate()
+
+        manager = self.app.config.get('MESHSPACE_REGISTRY_MANAGER')
+        manager.create_meshspace(
+            name='Research Lab',
+            meshspace_id='research-lab',
+            description='Experimental mesh for testing.',
+        )
+        manager.update_runtime_state('research-lab', 'running', peer_id='peer-research')
+        manager.update_shell_summary('research-lab', {
+            'active_peer_count': 1,
+            'unread_count': 2,
+            'mention_count': 0,
+            'pending_review_count': 0,
+            'attention_count': 2,
+            'last_activity_at': '2026-04-04T10:00:00+00:00',
+            'has_recent_activity': True,
+            'attention_level': 'active',
+        })
+        research = manager.get_meshspace('research-lab') or {}
+        self.client.set_cookie(str(research.get('session_cookie_name') or 'canopy_session_research-lab'), 'sess-tok2')
+        self.app.config.pop('MESHSPACE_VIEWER_ATTENTION_CACHE', None)
+
+        from urllib.error import URLError
+
+        probe_return = {
+            'live': True,
+            'effective_status': 'running',
+            'status_mismatch': False,
+            'detected_pid': 9002,
+            'launch_url': 'http://127.0.0.1:7802',
+            'version': '0.5.59',
+            'peer_id': 'peer-research',
+            'shell_summary': None,
+        }
+        backoff_ttls = []
+
+        with patch.object(manager, 'probe_meshspace_runtime', return_value=probe_return), \
+             patch('canopy.ui.routes.urlopen', side_effect=URLError('connection refused')):
+            for i in range(4):
+                with patch('canopy.ui.routes.time') as mock_time:
+                    mock_time.time.return_value = 1000.0 + i * 200.0
+                    self.client.get('/ajax/meshspaces_snapshot')
+                cache = self.app.config.get('MESHSPACE_VIEWER_ATTENTION_CACHE') or {}
+                entry = next(iter(cache.values()), None)
+                backoff_ttls.append(float((entry or {}).get('backoff_ttl') or 0.0))
+
+        self.assertEqual(backoff_ttls, [5.0, 10.0, 20.0, 40.0])
+
+    def test_viewer_attention_backoff_resets_on_success(self) -> None:
+        self._authenticate()
+
+        manager = self.app.config.get('MESHSPACE_REGISTRY_MANAGER')
+        manager.create_meshspace(
+            name='Research Lab',
+            meshspace_id='research-lab',
+            description='Experimental mesh for testing.',
+        )
+        manager.update_runtime_state('research-lab', 'running', peer_id='peer-research')
+        manager.update_shell_summary('research-lab', {
+            'active_peer_count': 1,
+            'unread_count': 1,
+            'mention_count': 0,
+            'pending_review_count': 0,
+            'attention_count': 1,
+            'last_activity_at': '2026-04-04T10:00:00+00:00',
+            'has_recent_activity': True,
+            'attention_level': 'active',
+        })
+        research = manager.get_meshspace('research-lab') or {}
+        self.client.set_cookie(str(research.get('session_cookie_name') or 'canopy_session_research-lab'), 'sess-tok3')
+        self.app.config.pop('MESHSPACE_VIEWER_ATTENTION_CACHE', None)
+
+        from urllib.error import URLError
+
+        probe_return = {
+            'live': True,
+            'effective_status': 'running',
+            'status_mismatch': False,
+            'detected_pid': 9003,
+            'launch_url': 'http://127.0.0.1:7803',
+            'version': '0.5.59',
+            'peer_id': 'peer-research',
+            'shell_summary': None,
+        }
+
+        with patch.object(manager, 'probe_meshspace_runtime', return_value=probe_return), \
+             patch('canopy.ui.routes.urlopen', side_effect=URLError('connection refused')):
+            with patch('canopy.ui.routes.time') as mock_time:
+                mock_time.time.return_value = 2000.0
+                self.client.get('/ajax/meshspaces_snapshot')
+
+        cache = self.app.config.get('MESHSPACE_VIEWER_ATTENTION_CACHE') or {}
+        failed_entry = next(iter(cache.values()), None)
+        self.assertGreater(int((failed_entry or {}).get('error_count') or 0), 0)
+
+        success_response = MagicMock()
+        success_response.read.return_value = json.dumps({
+            'viewer_specific': True,
+            'meshspace_id': 'research-lab',
+            'unread_count': 1,
+            'mention_count': 0,
+            'pending_review_count': 0,
+            'attention_count': 1,
+        }).encode('utf-8')
+        success_response.__enter__.return_value = success_response
+        success_response.__exit__.return_value = None
+
+        with patch.object(manager, 'probe_meshspace_runtime', return_value=probe_return), \
+             patch('canopy.ui.routes.urlopen', return_value=success_response):
+            with patch('canopy.ui.routes.time') as mock_time:
+                mock_time.time.return_value = 2500.0
+                self.client.get('/ajax/meshspaces_snapshot')
+
+        cache = self.app.config.get('MESHSPACE_VIEWER_ATTENTION_CACHE') or {}
+        success_entry = next(iter(cache.values()), None)
+        self.assertEqual(int((success_entry or {}).get('error_count') or 0), 0)
+        self.assertAlmostEqual(float((success_entry or {}).get('backoff_ttl') or 0.0), 5.0)
 
 
 if __name__ == '__main__':

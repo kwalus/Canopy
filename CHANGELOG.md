@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.60] - 2026-04-05
+
+### Fixed
+- **Meshspace notification follow-up now keeps parity metadata richer while backing off repeated child-mesh fetch failures** — sidebar attention summaries now expose mention counts from the same unacknowledged-mention source as meshspace badges, preserving existing unread total semantics while helping cross-surface parity checks, and repeated viewer-attention fetch failures now exponentially back off in the parent-shell cache so unreachable child meshes do not get hammered every poll cycle.
+
 ## [0.5.59] - 2026-04-05
 
 ### Fixed
