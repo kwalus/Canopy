@@ -842,32 +842,6 @@ class MeshspaceFoundationTest(unittest.TestCase):
         )
         self.assertEqual(target, 'http://192.168.1.77:7800/login')
 
-    def test_meshspace_direct_url_normalizes_loopback_request_host_to_localhost(self) -> None:
-        from canopy.ui.routes import _meshspace_direct_url
-
-        target = _meshspace_direct_url(
-            {
-                'meshspace_id': 'research-lab',
-                'launch_url': 'http://127.0.0.1:7800',
-            },
-            current_meshspace_id='family-lab',
-            request_host='127.0.0.1',
-        )
-        self.assertEqual(target, 'http://localhost:7800/login')
-
-    def test_meshspace_direct_url_prefers_localhost_for_loopback_http_host_without_request_host(self) -> None:
-        from canopy.ui.routes import _meshspace_direct_url
-
-        target = _meshspace_direct_url(
-            {
-                'meshspace_id': 'research-lab',
-                'http_host': '127.0.0.1',
-                'http_port': 7800,
-            },
-            current_meshspace_id='family-lab',
-        )
-        self.assertEqual(target, 'http://localhost:7800/login')
-
     def test_meshspace_open_shows_stale_runtime_copy_when_registry_is_stale(self) -> None:
         self._authenticate()
 

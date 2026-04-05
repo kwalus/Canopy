@@ -187,16 +187,10 @@ def _meshspace_direct_url(
 
     def _preferred_host(host: str) -> str:
         host_value = str(host or '').strip() or '127.0.0.1'
-        loopback_hosts = {'127.0.0.1', 'localhost', '0.0.0.0', '::', '::1'}
-        if host_value in loopback_hosts:
-            if requested_host in {'127.0.0.1', 'localhost', '::1'}:
-                return 'localhost'
         if requested_host and host_value in {'127.0.0.1', 'localhost', '0.0.0.0', '::'}:
             return requested_host
         if host_value in {'0.0.0.0', '::'}:
-            return 'localhost'
-        if host_value == '127.0.0.1':
-            return 'localhost'
+            return '127.0.0.1'
         return host_value
 
     raw = str(record.get('launch_url') or '').strip()
