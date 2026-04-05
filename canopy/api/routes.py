@@ -68,6 +68,7 @@ from ..core.agent_presence import (
     build_agent_presence_payload,
 )
 from ..core.agent_runtime import record_agent_runtime_state
+from ..core.meshspaces import build_meshspace_notification_summary
 from ..core.agent_event_subscriptions import (
     AGENT_DEFAULT_EVENT_TYPES,
     AGENT_MESSAGE_EVENT_TYPES,
@@ -2545,6 +2546,38 @@ def create_api_blueprint() -> Blueprint:
             'attention_level': str(summary.get('attention_level') or 'quiet'),
             'last_activity_at': str(summary.get('last_activity_at') or ''),
             'last_summary_at': str(summary.get('last_summary_at') or ''),
+        })
+
+    @api.route('/meshspace/viewer_attention', methods=['GET'])
+    @require_auth(allow_session=True)
+    def meshspace_viewer_attention():
+        """Return current viewer counts for this mesh via same-machine session forwarding."""
+        if not _request_is_loopback():
+            return jsonify({'error': 'loopback access required'}), 403
+        if not (session.get('authenticated', False) and session.get('user_id')):
+            return jsonify({
+                'error': 'Authentication required',
+                'message': 'Sign in to this mesh in the web UI first',
+            }), 401
+
+        config = current_app.config.get('CANOPY_CONFIG')
+        mesh_cfg = getattr(config, 'meshspace', None)
+        meshspace_id = str(getattr(mesh_cfg, 'meshspace_id', '') or '').strip()
+        db_manager, _, _, _, channel_manager, _, feed_manager, _, _, _, p2p_manager = _get_app_components_any(current_app)
+        summary = build_meshspace_notification_summary(
+            db_manager,
+            channel_manager,
+            feed_manager,
+            p2p_manager,
+            str(session.get('user_id') or '').strip(),
+        )
+        return jsonify({
+            'viewer_specific': True,
+            'meshspace_id': meshspace_id,
+            'unread_count': max(0, int(summary.get('unread_count') or 0)),
+            'mention_count': max(0, int(summary.get('mention_count') or 0)),
+            'pending_review_count': max(0, int(summary.get('pending_review_count') or 0)),
+            'attention_count': max(0, int(summary.get('attention_count') or 0)),
         })
 
     # ------------------------------------------------------------------ #

@@ -2,6 +2,7 @@
 
 import base64
 import io
+import json
 import os
 import sys
 import tempfile
@@ -10,7 +11,7 @@ import types
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
@@ -363,6 +364,47 @@ class MeshspaceFoundationTest(unittest.TestCase):
         )
         self.assertEqual(blocked.status_code, 403)
 
+    def test_meshspace_viewer_attention_endpoint_returns_session_counts(self) -> None:
+        self._authenticate()
+
+        with self.db_manager.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO users (
+                    id, username, public_key, password_hash, display_name,
+                    origin_peer, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """,
+                ('sender-user', 'sender', 'pk-sender', 'pw-sender', 'Sender', None),
+            )
+            conn.execute(
+                """
+                INSERT INTO messages (id, sender_id, recipient_id, content, message_type, metadata)
+                VALUES (?, ?, ?, ?, 'text', '{}')
+                """,
+                ('DM-VIEWER-001', 'sender-user', 'owner-user', 'Unread DM for viewer summary'),
+            )
+            conn.execute(
+                """
+                INSERT INTO mention_events (id, user_id, source_type, source_id, author_id, preview, status)
+                VALUES (?, ?, ?, ?, ?, ?, 'new')
+                """,
+                ('MENTION-VIEWER-001', 'owner-user', 'channel_message', 'MSG-VIEWER-001', 'sender-user', 'Viewer mention'),
+            )
+            conn.commit()
+
+        response = self.client.get(
+            '/api/v1/meshspace/viewer_attention',
+            environ_overrides={'REMOTE_ADDR': '127.0.0.1'},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('viewer_specific'))
+        self.assertEqual(payload.get('meshspace_id'), 'family-lab')
+        self.assertGreaterEqual(int(payload.get('unread_count') or 0), 1)
+        self.assertGreaterEqual(int(payload.get('mention_count') or 0), 1)
+        self.assertGreaterEqual(int(payload.get('attention_count') or 0), 2)
+
     def test_probe_meshspace_runtime_includes_live_shell_summary(self) -> None:
         manager = self.app.config.get('MESHSPACE_REGISTRY_MANAGER')
         manager.create_meshspace(
@@ -454,6 +496,84 @@ class MeshspaceFoundationTest(unittest.TestCase):
         refreshed = manager.get_meshspace('research-lab')
         refreshed_summary = (refreshed or {}).get('summary') or {}
         self.assertEqual(int(refreshed_summary.get('attention_count') or 0), 8)
+
+    def test_snapshot_overlays_cross_mesh_viewer_attention_without_persisting_it(self) -> None:
+        self._authenticate()
+
+        manager = self.app.config.get('MESHSPACE_REGISTRY_MANAGER')
+        manager.create_meshspace(
+            name='Research Lab',
+            meshspace_id='research-lab',
+            description='Experimental mesh for testing.',
+        )
+        manager.update_runtime_state('research-lab', 'running', peer_id='peer-research')
+        manager.update_shell_summary('research-lab', {
+            'active_peer_count': 2,
+            'unread_count': 5,
+            'mention_count': 1,
+            'pending_review_count': 0,
+            'attention_count': 6,
+            'last_activity_at': '2026-04-03T12:00:00+00:00',
+            'last_summary_at': '2026-04-03T12:00:01+00:00',
+            'has_recent_activity': True,
+            'attention_level': 'active',
+        })
+        research = manager.get_meshspace('research-lab') or {}
+        self.client.set_cookie(str(research.get('session_cookie_name') or 'canopy_session_research-lab'), 'child-session')
+
+        remote_response = MagicMock()
+        remote_response.read.return_value = json.dumps({
+            'viewer_specific': True,
+            'meshspace_id': 'research-lab',
+            'unread_count': 2,
+            'mention_count': 1,
+            'pending_review_count': 1,
+            'attention_count': 4,
+        }).encode('utf-8')
+        remote_response.__enter__.return_value = remote_response
+        remote_response.__exit__.return_value = None
+
+        with patch.object(manager, 'probe_meshspace_runtime', return_value={
+            'live': True,
+            'effective_status': 'running',
+            'status_mismatch': False,
+            'detected_pid': 4242,
+            'launch_url': 'http://127.0.0.1:7800',
+            'version': '0.5.57',
+            'peer_id': 'peer-research',
+            'shell_summary': {
+                'active_peer_count': 2,
+                'unread_count': 5,
+                'mention_count': 1,
+                'pending_review_count': 0,
+                'attention_count': 6,
+                'last_activity_at': '2026-04-03T12:00:00+00:00',
+                'last_summary_at': '2026-04-03T12:00:01+00:00',
+                'has_recent_activity': True,
+                'attention_level': 'active',
+            },
+        }), patch('canopy.ui.routes.urlopen', return_value=remote_response) as remote_get:
+            snapshot_response = self.client.get('/ajax/meshspaces_snapshot')
+
+        self.assertEqual(snapshot_response.status_code, 200)
+        payload = snapshot_response.get_json() or {}
+        meshes = {item['meshspace_id']: item for item in (payload.get('meshspaces') or [])}
+        self.assertEqual(int((meshes['research-lab'].get('unread_count') or 0)), 2)
+        self.assertEqual(int((meshes['research-lab'].get('mention_count') or 0)), 1)
+        self.assertEqual(int((meshes['research-lab'].get('pending_review_count') or 0)), 1)
+        self.assertEqual(str(meshes['research-lab'].get('attention_badge') or ''), '4')
+        self.assertIn('2 unread', str(meshes['research-lab'].get('presence_subline') or ''))
+
+        forwarded_request = remote_get.call_args.args[0]
+        self.assertEqual(
+            forwarded_request.headers.get('Cookie'),
+            f"{research.get('session_cookie_name')}=child-session",
+        )
+
+        refreshed = manager.get_meshspace('research-lab')
+        refreshed_summary = (refreshed or {}).get('summary') or {}
+        self.assertEqual(int(refreshed_summary.get('unread_count') or 0), 5)
+        self.assertEqual(int(refreshed_summary.get('attention_count') or 0), 6)
 
     def test_meshspace_snapshot_uses_warning_badge_when_status_has_no_count(self) -> None:
         self._authenticate()
