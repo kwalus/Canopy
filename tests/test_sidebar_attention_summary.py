@@ -396,9 +396,11 @@ class TestSidebarAttentionSummary(unittest.TestCase):
         self.assertEqual(items[1].get('created_at'), '2026-03-16T10:00:00+00:00')
 
     def test_feed_route_marks_feed_viewed_on_page_open(self) -> None:
-        response = self.client.get('/feed')
+        with patch('canopy.ui.routes._refresh_current_meshspace_shell_summary') as refresh_mock:
+            response = self.client.get('/feed')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.feed_manager.marked_users, ['owner'])
+        refresh_mock.assert_called_once_with('owner')
 
     def test_feed_route_acknowledges_feed_mentions_on_page_open(self) -> None:
         self.conn.execute(

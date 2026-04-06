@@ -419,11 +419,20 @@ def _acknowledge_current_user_mentions(
         return 0
 
     if acknowledged > 0:
-        manager = _get_meshspace_registry_manager()
-        current_record = _current_meshspace_record()
-        if manager and current_record:
-            _sync_current_meshspace_shell_summary(manager, current_record, user_id=user_id)
+        _refresh_current_meshspace_shell_summary(user_id)
     return acknowledged
+
+
+def _refresh_current_meshspace_shell_summary(user_id: Optional[str] = None) -> None:
+    """Republish the current mesh's shell summary after local attention changes."""
+    manager = _get_meshspace_registry_manager()
+    current_record = _current_meshspace_record()
+    if manager and current_record:
+        _sync_current_meshspace_shell_summary(
+            manager,
+            current_record,
+            user_id=str(user_id or session.get('user_id') or '').strip() or None,
+        )
 
 
 def _shell_message_unread_count(db_manager: Any, user_id: str) -> int:
@@ -4910,13 +4919,17 @@ def create_ui_blueprint() -> Blueprint:
                         active_messages = message_manager.get_group_conversation(user_id, fallback_group_id, limit=200)
             else:
                 active_messages = message_manager.get_conversation(user_id, str(active_thread.get('user_id') or ''), limit=200)
+            any_marked_read = False
             for message in active_messages:
                 if getattr(message, 'sender_id', None) != user_id and not getattr(message, 'read_at', None):
-                    message_manager.mark_message_read(message.id, user_id)
+                    if message_manager.mark_message_read(message.id, user_id):
+                        any_marked_read = True
             _acknowledge_current_user_mentions(
                 source_type='dm',
                 source_ids=[str(getattr(message, 'id', '') or '').strip() for message in active_messages],
             )
+            if any_marked_read:
+                _refresh_current_meshspace_shell_summary(user_id)
             for entry in conversation_entries:
                 if active_thread.get('kind') == 'group' and entry.get('kind') == 'group' and _group_thread_matches(entry, active_thread):
                     entry['unread_count'] = 0
@@ -5713,7 +5726,8 @@ def create_ui_blueprint() -> Blueprint:
             user_id = get_current_user()
             if feed_manager and hasattr(feed_manager, 'mark_feed_viewed'):
                 try:
-                    feed_manager.mark_feed_viewed(user_id)
+                    if feed_manager.mark_feed_viewed(user_id):
+                        _refresh_current_meshspace_shell_summary(user_id)
                 except Exception:
                     pass
             _acknowledge_current_user_mentions(source_type='feed_post')
@@ -7153,20 +7167,36 @@ def create_ui_blueprint() -> Blueprint:
         except Exception:
             pass
         item = _meshspace_card_payload(record, current_mid, manager)
+        request_host = str((request.host or '')).split(':', 1)[0].strip()
+        direct_open_url = _meshspace_direct_url(item, current_mid, request_host=request_host)
+        probe_host = str(item.get('http_host') or '127.0.0.1').strip() or '127.0.0.1'
+        if probe_host == '0.0.0.0':
+            probe_host = '127.0.0.1'
+        try:
+            probe_port = int(item.get('http_port') or 0)
+        except Exception:
+            probe_port = 0
+        probe_target = f"http://{probe_host}:{probe_port}/login" if probe_port > 0 else direct_open_url
+        item['open_direct_url'] = direct_open_url if direct_open_url != '#' else ''
+        item['open_probe_target'] = probe_target if probe_target and probe_target != '#' else ''
         item['open_stale_detected'] = bool(item.get('status_mismatch') and not item.get('live_detected'))
         open_status = str(item.get('status') or '').strip().lower()
         item['open_status_is_stopped'] = open_status == 'stopped'
         item['open_status_is_crashed'] = open_status == 'crashed'
         item['open_status_is_restarting'] = open_status in {'starting', 'stopping'}
         if item.get('live_detected'):
-            request_host = str((request.host or '')).split(':', 1)[0].strip()
-            return redirect(_meshspace_direct_url(item, current_mid, request_host=request_host))
+            return redirect(direct_open_url)
         if not _is_admin():
             flash(
                 f"Mesh '{item.get('name')}' is not running right now. Ask the instance admin to start it.",
                 'warning',
             )
             return redirect(url_for('ui.dashboard'))
+        flash(
+            f"Open was blocked for '{item.get('name')}' because no live runtime was detected at "
+            f"{item.get('open_probe_target') or 'the assigned mesh address'}.",
+            'warning',
+        )
         return render_template(
             'meshspace_open_unavailable.html',
             meshspace=item,
@@ -13756,6 +13786,8 @@ def create_ui_blueprint() -> Blueprint:
                 return jsonify({'error': 'You are not a member of this channel'}), 403
             # Mark channel as read now that the user is viewing it.
             marked_read = channel_manager.mark_channel_read(channel_id, user_id) is True
+            if marked_read:
+                _refresh_current_meshspace_shell_summary(user_id)
             acknowledged_mentions = _acknowledge_current_user_mentions(
                 source_type='channel_message',
                 channel_id=channel_id,

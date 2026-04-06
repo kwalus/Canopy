@@ -984,6 +984,8 @@ class MeshspaceFoundationTest(unittest.TestCase):
         self.assertIn('Research Lab is not running', body)
         self.assertIn('Start mesh', body)
         self.assertIn('/meshes/research-lab/start', body)
+        self.assertIn('Open was blocked because no live runtime was detected', body)
+        self.assertIn('Try direct open anyway', body)
 
     def test_meshspace_open_redirects_when_mesh_is_live(self) -> None:
         self._authenticate()
@@ -1046,6 +1048,7 @@ class MeshspaceFoundationTest(unittest.TestCase):
         body = response.get_data(as_text=True)
         self.assertIn('no live process was found on its assigned ports', body)
         self.assertIn('Refresh state', body)
+        self.assertIn('Try direct open anyway', body)
 
     def test_meshspace_open_shows_crashed_runtime_copy(self) -> None:
         self._authenticate()

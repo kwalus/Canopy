@@ -125,6 +125,15 @@
         <div class="mesh-open-meta">{{ meshspace.control_note }}</div>
         {% endif %}
 
+        {% if meshspace.open_probe_target %}
+        <div class="mesh-open-meta">
+            Open was blocked because no live runtime was detected at <span class="font-monospace">{{ meshspace.open_probe_target }}</span>.
+            {% if meshspace.open_direct_url %}
+            If the detector is wrong on this machine, you can still try the direct child URL below.
+            {% endif %}
+        </div>
+        {% endif %}
+
         <div class="mesh-open-actions">
             {% if meshspace.is_startable %}
             <form method="POST" action="{{ url_for('ui.meshspace_start', meshspace_id=meshspace.meshspace_id) }}" style="display:inline">
@@ -143,6 +152,9 @@
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="btn btn-outline-secondary"><i class="bi bi-arrow-repeat me-2"></i>Refresh state</button>
             </form>
+            {% endif %}
+            {% if meshspace.open_direct_url %}
+            <a class="btn btn-outline-warning" href="{{ meshspace.open_direct_url }}"><i class="bi bi-box-arrow-up-right me-2"></i>Try direct open anyway</a>
             {% endif %}
             <a class="btn btn-outline-light" href="{{ url_for('ui.meshspace_detail', meshspace_id=meshspace.meshspace_id) }}">Details</a>
             <a class="btn btn-outline-secondary" href="{{ url_for('ui.meshes_home') }}">Back to meshes</a>

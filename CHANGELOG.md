@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.63] - 2026-04-06
+
+### Fixed
+- **Meshspace badges now stay truthful after you switch away from the mesh you just reviewed** — normal channel, DM, and feed read paths now republish the current mesh's shell summary when unread state changes, so a mesh that just burned down its badge does not revert to stale counts the moment it becomes non-current again.
+- **Blocked mesh opens now explain what failed and offer a deliberate direct-open fallback** — when a switch target is not detected as live, the recovery surface now tells the operator which child URL/port was probed and offers a `Try direct open anyway` action for cases where runtime detection is wrong on that machine.
+
 ## [0.5.62] - 2026-04-06
 
 ### Fixed

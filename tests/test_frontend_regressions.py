@@ -1154,6 +1154,8 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("meshspace.open_blocked_reason", detail_template)
         self.assertIn('data-mesh-open-reason="crashed"', open_template)
         self.assertIn('data-mesh-open-reason="restarting"', open_template)
+        self.assertIn('Try direct open anyway', open_template)
+        self.assertIn('Open was blocked because no live runtime was detected', open_template)
         self.assertIn("State mismatch", base_template)
         self.assertIn("Port conflict", base_template)
         self.assertIn("inset: 1px 1px auto auto;", base_template)

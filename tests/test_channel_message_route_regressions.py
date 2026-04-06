@@ -242,11 +242,13 @@ class TestChannelMessageRouteRegressions(unittest.TestCase):
     def test_channel_messages_reports_when_view_marks_channel_read(self) -> None:
         self.channel_manager.mark_channel_read.return_value = True
 
-        response = self.client.get('/ajax/channel_messages/general')
+        with patch('canopy.ui.routes._refresh_current_meshspace_shell_summary') as refresh_mock:
+            response = self.client.get('/ajax/channel_messages/general')
 
         self.assertEqual(response.status_code, 200)
         payload = response.get_json() or {}
         self.assertTrue(payload.get('marked_read'))
+        refresh_mock.assert_called_once_with('owner')
 
     def test_channel_messages_acknowledges_mentions_for_viewed_channel(self) -> None:
         self.channel_manager.mark_channel_read.return_value = False

@@ -287,6 +287,12 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertTrue(after['acknowledged_at'])
         self.assertEqual(after['status'], 'acknowledged')
 
+    def test_messages_page_refreshes_shell_summary_when_open_thread_marks_dm_read(self) -> None:
+        with patch('canopy.ui.routes._refresh_current_meshspace_shell_summary') as refresh_mock:
+            response = self.client.get('/messages?with=peer-a')
+        self.assertEqual(response.status_code, 200)
+        refresh_mock.assert_called_once_with('owner')
+
     def test_messages_page_renders_source_layout_metadata_for_structured_dm_sources(self) -> None:
         self.conn.execute(
             """
