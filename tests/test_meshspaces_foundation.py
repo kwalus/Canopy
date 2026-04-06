@@ -500,6 +500,34 @@ class MeshspaceFoundationTest(unittest.TestCase):
         self.assertEqual((probe.get('shell_summary') or {}).get('attention_count'), 7)
         self.assertEqual((probe.get('shell_summary') or {}).get('mention_count'), 2)
 
+    def test_probe_meshspace_runtime_rejects_health_from_different_meshspace(self) -> None:
+        manager = self.app.config.get('MESHSPACE_REGISTRY_MANAGER')
+        manager.create_meshspace(
+            name='Research Lab',
+            meshspace_id='research-lab',
+            description='Experimental mesh for testing.',
+        )
+        manager.update_runtime_state('research-lab', 'running', peer_id='peer-research')
+        manager._probe_cache.clear()
+
+        with patch('canopy.core.meshspaces._pid_is_alive', return_value=False), \
+             patch('canopy.core.meshspaces._listener_pid_for_port', return_value=4242), \
+             patch('canopy.core.meshspaces._port_accepts_connections', return_value=True), \
+             patch(
+                 'canopy.core.meshspaces._http_json',
+                 return_value={
+                     'ready': True,
+                     'version': '0.5.63',
+                     'meshspace': {'meshspace_id': 'family-lab'},
+                     'peer': {'peer_id': 'peer-family'},
+                 },
+             ):
+            probe = manager.probe_meshspace_runtime('research-lab')
+
+        self.assertFalse(probe.get('live'))
+        self.assertTrue(probe.get('wrong_meshspace_detected'))
+        self.assertEqual(probe.get('health_meshspace_id'), 'family-lab')
+
     def test_snapshot_prefers_live_probe_shell_summary_for_other_mesh(self) -> None:
         self._authenticate()
 
@@ -1049,6 +1077,36 @@ class MeshspaceFoundationTest(unittest.TestCase):
         self.assertIn('no live process was found on its assigned ports', body)
         self.assertIn('Refresh state', body)
         self.assertIn('Try direct open anyway', body)
+
+    def test_meshspace_open_explains_when_different_mesh_answers_on_recorded_port(self) -> None:
+        self._authenticate()
+
+        manager = self.app.config.get('MESHSPACE_REGISTRY_MANAGER')
+        manager.create_meshspace(
+            name='Research Lab',
+            meshspace_id='research-lab',
+            description='Experimental mesh for testing.',
+        )
+
+        with patch.object(manager, 'probe_meshspace_runtime', return_value={
+            'live': False,
+            'effective_status': 'stopped',
+            'status_mismatch': True,
+            'detected_pid': 4242,
+            'launch_url': 'http://127.0.0.1:7770',
+            'version': '0.5.63',
+            'peer_id': 'peer-family',
+            'health_meshspace_id': 'family-lab',
+            'health_meshspace_match': False,
+            'wrong_meshspace_detected': True,
+            'shell_summary': {},
+        }):
+            response = self.client.get('/meshes/research-lab/open')
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn('data-mesh-open-reason="wrong-mesh"', body)
+        self.assertIn('family-lab', body)
+        self.assertNotIn('Try direct open anyway', body)
 
     def test_meshspace_open_shows_crashed_runtime_copy(self) -> None:
         self._authenticate()

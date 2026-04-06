@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.64] - 2026-04-06
+
+### Fixed
+- **Meshspace switching no longer trusts a healthy response from the wrong meshspace** — runtime probes now treat `/api/v1/health` as authoritative only when it identifies the same `meshspace_id`, which prevents one mesh answering on a reused HTTP port from being mistaken for another and stops switch clicks from silently redirecting back into the wrong runtime.
+- **Blocked open diagnostics now explicitly call out cross-mesh port misrouting** — when another meshspace responds on the recorded child URL/port, the unavailable page now says which mesh answered and suppresses the misleading direct-open fallback, so operators can fix the registry/port conflict instead of being bounced into the wrong mesh again.
+
 ## [0.5.63] - 2026-04-06
 
 ### Fixed

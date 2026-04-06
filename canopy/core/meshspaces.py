@@ -1308,12 +1308,16 @@ class MeshspaceRegistryManager:
         detected_pid = _listener_pid_for_port(http_port) or _listener_pid_for_port(mesh_port)
         http_listening = _port_accepts_connections(probe_host, http_port) if http_port > 0 else False
         health = _http_json(f"http://{probe_host}:{http_port}/api/v1/health", timeout=0.9) if http_port > 0 else {}
-        health_ok = bool(health) and (
+        health_meshspace = (health.get("meshspace") or {}) if isinstance(health.get("meshspace"), dict) else {}
+        health_meshspace_id = str(health_meshspace.get("meshspace_id") or "").strip()
+        health_meshspace_match = not health_meshspace_id or health_meshspace_id == meshspace_id
+        wrong_meshspace_detected = bool(health_meshspace_id) and health_meshspace_id != meshspace_id
+        health_ok = health_meshspace_match and bool(health) and (
             bool(health.get("ready"))
             or str(health.get("status") or "").strip().lower() in {"healthy", "ready"}
         )
         registry_status = str(record.get("status") or "defined").strip().lower() or "defined"
-        live = bool(registry_pid_alive or detected_pid > 0 or http_listening or health_ok)
+        live = bool((registry_pid_alive or detected_pid > 0 or http_listening or health_ok) and not wrong_meshspace_detected)
         effective_status = registry_status
         if live:
             if health_ok or http_listening:
@@ -1338,6 +1342,9 @@ class MeshspaceRegistryManager:
             "detected_pid": int(detected_pid or 0),
             "http_listening": http_listening,
             "health_ok": health_ok,
+            "health_meshspace_id": health_meshspace_id,
+            "health_meshspace_match": health_meshspace_match,
+            "wrong_meshspace_detected": wrong_meshspace_detected,
             "version": str(health.get("version") or "").strip(),
             "peer_id": str(((health.get("peer") or {}) if isinstance(health.get("peer"), dict) else {}).get("peer_id") or "").strip(),
             "launch_url": f"http://{probe_host}:{http_port}" if http_port > 0 else str(record.get("launch_url") or ""),

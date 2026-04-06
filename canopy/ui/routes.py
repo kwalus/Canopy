@@ -6786,6 +6786,8 @@ def create_ui_blueprint() -> Blueprint:
         item['detected_pid'] = max(0, int(probe.get('detected_pid') or item.get('pid') or 0))
         item['detected_version'] = str(probe.get('version') or '').strip()
         item['detected_peer_id'] = str(probe.get('peer_id') or '').strip()
+        item['detected_meshspace_id'] = str(probe.get('health_meshspace_id') or '').strip()
+        item['wrong_meshspace_detected'] = bool(probe.get('wrong_meshspace_detected'))
         meta = _meshspace_status_meta(item.get('status'))
         item['status_label'] = meta['label']
         item['status_class'] = meta['class']
@@ -6870,7 +6872,13 @@ def create_ui_blueprint() -> Blueprint:
             presence_parts.append('Isolated')
         item['presence_subline'] = ' · '.join(presence_parts[:3]) or item['runtime_summary']
         item['control_note'] = ''
-        if item['status_mismatch'] and item['live_detected']:
+        if item['wrong_meshspace_detected']:
+            wrong_id = str(item.get('detected_meshspace_id') or '').strip() or 'another mesh'
+            item['control_note'] = (
+                'A different meshspace responded on this mesh\'s recorded HTTP port '
+                f'({wrong_id}). Switching will not work until each mesh points at its own unique HTTP endpoint.'
+            )
+        elif item['status_mismatch'] and item['live_detected']:
             item['control_note'] = (
                 'A live process was found on this mesh\'s ports, but the registry showed it as '
                 'stopped or inactive. Controls now reflect the live state. Use Stop or Restart '
@@ -6896,6 +6904,11 @@ def create_ui_blueprint() -> Blueprint:
             'stopping': 'Mesh is still stopping. Wait a moment or refresh state, then try again.',
         }
         item['open_blocked_reason'] = open_blocked_reasons.get(status_lower, 'Start the mesh first to open it.')
+        if item['wrong_meshspace_detected']:
+            item['open_blocked_reason'] = (
+                'Another meshspace is answering on this mesh\'s recorded HTTP port. '
+                'Refresh state, fix the conflicting port assignment, then try again.'
+            )
         return item
 
     @ui.route('/meshes/<meshspace_id>/avatar')
@@ -7177,9 +7190,14 @@ def create_ui_blueprint() -> Blueprint:
         except Exception:
             probe_port = 0
         probe_target = f"http://{probe_host}:{probe_port}/login" if probe_port > 0 else direct_open_url
-        item['open_direct_url'] = direct_open_url if direct_open_url != '#' else ''
+        item['open_direct_url'] = (
+            direct_open_url
+            if direct_open_url != '#' and not item.get('wrong_meshspace_detected')
+            else ''
+        )
         item['open_probe_target'] = probe_target if probe_target and probe_target != '#' else ''
         item['open_stale_detected'] = bool(item.get('status_mismatch') and not item.get('live_detected'))
+        item['open_wrong_mesh_detected'] = bool(item.get('wrong_meshspace_detected'))
         open_status = str(item.get('status') or '').strip().lower()
         item['open_status_is_stopped'] = open_status == 'stopped'
         item['open_status_is_crashed'] = open_status == 'crashed'
@@ -7192,11 +7210,19 @@ def create_ui_blueprint() -> Blueprint:
                 'warning',
             )
             return redirect(url_for('ui.dashboard'))
-        flash(
-            f"Open was blocked for '{item.get('name')}' because no live runtime was detected at "
-            f"{item.get('open_probe_target') or 'the assigned mesh address'}.",
-            'warning',
-        )
+        if item.get('open_wrong_mesh_detected'):
+            flash(
+                f"Open was blocked for '{item.get('name')}' because a different meshspace "
+                f"({item.get('detected_meshspace_id') or 'unknown'}) answered at "
+                f"{item.get('open_probe_target') or 'the assigned mesh address'}.",
+                'warning',
+            )
+        else:
+            flash(
+                f"Open was blocked for '{item.get('name')}' because no live runtime was detected at "
+                f"{item.get('open_probe_target') or 'the assigned mesh address'}.",
+                'warning',
+            )
         return render_template(
             'meshspace_open_unavailable.html',
             meshspace=item,

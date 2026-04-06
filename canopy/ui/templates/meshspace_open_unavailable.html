@@ -102,7 +102,9 @@
             </div>
             <div>
                 <h1 class="mesh-open-title">{{ meshspace.name }} is not running</h1>
-                {% if meshspace.open_stale_detected %}
+                {% if meshspace.open_wrong_mesh_detected %}
+                <p class="mesh-open-sub" data-mesh-open-reason="wrong-mesh">A different meshspace is responding on this mesh's recorded HTTP port, so switching here would land on the wrong runtime. Refresh state and give each mesh its own HTTP port before trying again.</p>
+                {% elif meshspace.open_stale_detected %}
                 <p class="mesh-open-sub">The registry showed this mesh as active, but no live process was found on its assigned ports. Refresh state to clear the stale runtime view, then start it when ready.</p>
                 {% elif meshspace.open_status_is_crashed %}
                 <p class="mesh-open-sub" data-mesh-open-reason="crashed">This mesh process crashed unexpectedly. Check the launch log in the detail page for clues, then use Restart to recover or Start to launch a fresh process.</p>
@@ -127,7 +129,11 @@
 
         {% if meshspace.open_probe_target %}
         <div class="mesh-open-meta">
+            {% if meshspace.open_wrong_mesh_detected %}
+            Open was blocked because <strong>{{ meshspace.detected_meshspace_id or 'another meshspace' }}</strong> answered at <span class="font-monospace">{{ meshspace.open_probe_target }}</span>.
+            {% else %}
             Open was blocked because no live runtime was detected at <span class="font-monospace">{{ meshspace.open_probe_target }}</span>.
+            {% endif %}
             {% if meshspace.open_direct_url %}
             If the detector is wrong on this machine, you can still try the direct child URL below.
             {% endif %}
