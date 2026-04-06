@@ -356,6 +356,76 @@ def _session_is_authenticated() -> bool:
     return bool(session.get('authenticated', False) and session.get('user_id'))
 
 
+def _acknowledge_current_user_mentions(
+    *,
+    source_type: Optional[str] = None,
+    source_ids: Optional[list[str]] = None,
+    channel_id: Optional[str] = None,
+) -> int:
+    """Acknowledge pending mentions that the current user has effectively handled."""
+    mention_manager = current_app.config.get('MENTION_MANAGER')
+    user_id = str(session.get('user_id') or '').strip()
+    if not mention_manager or not user_id:
+        return 0
+
+    clean_source_type = str(source_type or '').strip().lower()
+    clean_channel_id = str(channel_id or '').strip()
+    clean_source_ids = {
+        str(source_id or '').strip()
+        for source_id in (source_ids or [])
+        if str(source_id or '').strip()
+    }
+    if not clean_source_type and not clean_channel_id and not clean_source_ids:
+        return 0
+
+    try:
+        pending_mentions = mention_manager.get_mentions(
+            user_id,
+            limit=200,
+            include_acknowledged=False,
+        )
+    except Exception:
+        return 0
+
+    mention_ids: list[str] = []
+    for item in pending_mentions or []:
+        item_id = str(item.get('id') or '').strip()
+        if not item_id:
+            continue
+        item_source_type = str(item.get('source_type') or '').strip().lower()
+        item_source_id = str(item.get('source_id') or '').strip()
+        item_channel_id = str(item.get('channel_id') or '').strip()
+        metadata = item.get('metadata') or {}
+        if not item_channel_id and isinstance(metadata, dict):
+            item_channel_id = str(metadata.get('channel_id') or '').strip()
+
+        if clean_source_type and item_source_type != clean_source_type:
+            continue
+        if clean_source_ids and item_source_id in clean_source_ids:
+            mention_ids.append(item_id)
+            continue
+        if clean_channel_id and item_channel_id == clean_channel_id:
+            mention_ids.append(item_id)
+            continue
+        if clean_source_type and not clean_source_ids and not clean_channel_id:
+            mention_ids.append(item_id)
+
+    if not mention_ids:
+        return 0
+
+    try:
+        acknowledged = int(mention_manager.acknowledge_mentions(user_id, mention_ids) or 0)
+    except Exception:
+        return 0
+
+    if acknowledged > 0:
+        manager = _get_meshspace_registry_manager()
+        current_record = _current_meshspace_record()
+        if manager and current_record:
+            _sync_current_meshspace_shell_summary(manager, current_record, user_id=user_id)
+    return acknowledged
+
+
 def _shell_message_unread_count(db_manager: Any, user_id: str) -> int:
     if not db_manager or not user_id:
         return 0
@@ -4843,6 +4913,10 @@ def create_ui_blueprint() -> Blueprint:
             for message in active_messages:
                 if getattr(message, 'sender_id', None) != user_id and not getattr(message, 'read_at', None):
                     message_manager.mark_message_read(message.id, user_id)
+            _acknowledge_current_user_mentions(
+                source_type='dm',
+                source_ids=[str(getattr(message, 'id', '') or '').strip() for message in active_messages],
+            )
             for entry in conversation_entries:
                 if active_thread.get('kind') == 'group' and entry.get('kind') == 'group' and _group_thread_matches(entry, active_thread):
                     entry['unread_count'] = 0
@@ -5642,6 +5716,7 @@ def create_ui_blueprint() -> Blueprint:
                     feed_manager.mark_feed_viewed(user_id)
                 except Exception:
                     pass
+            _acknowledge_current_user_mentions(source_type='feed_post')
             
             # Get query parameters
             algorithm = request.args.get('algorithm', 'chronological')
@@ -13681,6 +13756,10 @@ def create_ui_blueprint() -> Blueprint:
                 return jsonify({'error': 'You are not a member of this channel'}), 403
             # Mark channel as read now that the user is viewing it.
             marked_read = channel_manager.mark_channel_read(channel_id, user_id) is True
+            acknowledged_mentions = _acknowledge_current_user_mentions(
+                source_type='channel_message',
+                channel_id=channel_id,
+            )
             try:
                 workspace_event_cursor = int((workspace_event_manager.get_latest_seq() if workspace_event_manager else 0) or 0)
             except Exception:
@@ -14403,6 +14482,7 @@ def create_ui_blueprint() -> Blueprint:
                 'channel_id': channel_id,
                 'count': len(messages_data),
                 'marked_read': marked_read,
+                'acknowledged_mentions': acknowledged_mentions,
                 'workspace_event_cursor': workspace_event_cursor,
                 'focus_message_id': focus_message_id or None,
                 'focus_message_found': focus_message_found,

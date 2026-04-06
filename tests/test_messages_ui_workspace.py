@@ -30,6 +30,7 @@ if 'zeroconf' not in sys.modules:
 
 from canopy.core.messaging import MessageManager
 from canopy.core.messaging import compute_group_id
+from canopy.core.mentions import MentionManager
 from canopy.ui.routes import create_ui_blueprint
 
 
@@ -203,6 +204,7 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         app.config['TESTING'] = True
         app.secret_key = 'test-secret'
         app.config['WORKSPACE_EVENT_MANAGER'] = self.workspace_event_manager
+        app.config['MENTION_MANAGER'] = MentionManager(self.db_manager)
         app.register_blueprint(create_ui_blueprint())
         self.app = app
         self.client = app.test_client()
@@ -256,6 +258,34 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertNotIn("threadPane.addEventListener('paste'", body)
         self.assertIn('grid-template-rows: auto minmax(0, 1fr);', body)
         self.assertIn('position: sticky;', body)
+
+    def test_messages_page_acknowledges_dm_mentions_for_open_thread(self) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO mention_events (id, user_id, source_type, source_id, author_id, preview, status)
+            VALUES (?, ?, ?, ?, ?, ?, 'new')
+            """,
+            ('MN-dm-open-1', 'owner', 'dm', 'DM-root', 'peer-a', 'Reply needed'),
+        )
+        self.conn.commit()
+
+        before = self.conn.execute(
+            "SELECT acknowledged_at FROM mention_events WHERE id = ?",
+            ('MN-dm-open-1',),
+        ).fetchone()
+        self.assertIsNotNone(before)
+        self.assertIsNone(before['acknowledged_at'])
+
+        response = self.client.get('/messages?with=peer-a')
+        self.assertEqual(response.status_code, 200)
+
+        after = self.conn.execute(
+            "SELECT acknowledged_at, status FROM mention_events WHERE id = ?",
+            ('MN-dm-open-1',),
+        ).fetchone()
+        self.assertIsNotNone(after)
+        self.assertTrue(after['acknowledged_at'])
+        self.assertEqual(after['status'], 'acknowledged')
 
     def test_messages_page_renders_source_layout_metadata_for_structured_dm_sources(self) -> None:
         self.conn.execute(

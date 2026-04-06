@@ -6973,7 +6973,7 @@ function loadChannelMessages(channelId, options = {}) {
                         if (loadToken !== activeChannelLoadToken || String(currentChannelId) !== requestedChannelId) {
                             return;
                         }
-                        if (data && data.marked_read && typeof window.requestCanopySidebarAttentionRefresh === 'function') {
+                        if (data && (data.marked_read || Number(data.acknowledged_mentions || 0) > 0) && typeof window.requestCanopySidebarAttentionRefresh === 'function') {
                             window.requestCanopySidebarAttentionRefresh({ force: true }).catch(() => {});
                         }
                     })
@@ -6987,7 +6987,7 @@ function loadChannelMessages(channelId, options = {}) {
             }
             const hint = data.warning ? ` <small class="d-block mt-2 text-muted">${escapeHtml(String(data.warning).slice(0, 120))}</small>` : '';
             messagesContainer.innerHTML = '<div class="text-center text-muted p-4">No messages yet' + hint + '</div>';
-            if (data && data.marked_read && typeof window.requestCanopySidebarAttentionRefresh === 'function') {
+            if (data && (data.marked_read || Number(data.acknowledged_mentions || 0) > 0) && typeof window.requestCanopySidebarAttentionRefresh === 'function') {
                 window.requestCanopySidebarAttentionRefresh({ force: true }).catch(() => {});
             }
             return undefined;

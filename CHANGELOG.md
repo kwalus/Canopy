@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.62] - 2026-04-06
+
+### Fixed
+- **Meshspace shell badges now decay during normal reading instead of only after bell clear** — opening a channel, DM thread, or feed view now acknowledges matching mention pressure and refreshes the attention snapshot path, so mesh badges finally count back down the way operators expect while preserving cross-mesh viewer overlays.
+- **Meshspace header rail status and quick-switch hints are easier to scan** — the crest status dot now renders fully inside the orb/chip instead of clipping, and non-current quick-switch orbs can surface one compact hint for isolation, mentions, unread pressure, or connected peers without opening the dropdown.
+
 ## [0.5.61] - 2026-04-05
 
 ### Fixed

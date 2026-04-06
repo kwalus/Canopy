@@ -400,6 +400,25 @@ class TestSidebarAttentionSummary(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.feed_manager.marked_users, ['owner'])
 
+    def test_feed_route_acknowledges_feed_mentions_on_page_open(self) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO mention_events (id, user_id, source_type, source_id, author_id, preview, status)
+            VALUES (?, ?, ?, ?, ?, ?, 'new')
+            """,
+            ('sid-feed-mention-1', 'owner', 'feed_post', 'feed-1', 'peer-a', 'Feed ping'),
+        )
+        self.conn.commit()
+
+        before = (self.client.get('/ajax/sidebar_attention_summary').get_json() or {}).get('summary') or {}
+        self.assertEqual(before.get('mention_count'), 1)
+
+        response = self.client.get('/feed')
+        self.assertEqual(response.status_code, 200)
+
+        after = (self.client.get('/ajax/sidebar_attention_summary').get_json() or {}).get('summary') or {}
+        self.assertEqual(after.get('mention_count'), 0)
+
     def test_sidebar_attention_summary_mention_count_uses_mention_events_table(self) -> None:
         self.conn.execute(
             """

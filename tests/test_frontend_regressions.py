@@ -335,7 +335,10 @@ class TestFrontendRegressions(unittest.TestCase):
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         self.assertIn("if (currentChannelId && channelId === currentChannelId) {", channels_template)
         self.assertIn("requestChannelThreadRefresh();", channels_template)
-        self.assertIn("if (data && data.marked_read && typeof window.requestCanopySidebarAttentionRefresh === 'function') {", channels_template)
+        self.assertIn(
+            "if (data && (data.marked_read || Number(data.acknowledged_mentions || 0) > 0) && typeof window.requestCanopySidebarAttentionRefresh === 'function') {",
+            channels_template,
+        )
         self.assertIn("window.requestCanopySidebarAttentionRefresh({ force: true }).catch(() => {});", channels_template)
 
     def test_notification_bell_uses_attention_snapshot_and_peer_polling_stays_separate(self) -> None:
@@ -1153,6 +1156,12 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('data-mesh-open-reason="restarting"', open_template)
         self.assertIn("State mismatch", base_template)
         self.assertIn("Port conflict", base_template)
+        self.assertIn("inset: 1px 1px auto auto;", base_template)
+        self.assertIn(".meshspace-orb-glyph.attention", base_template)
+        self.assertIn(".meshspace-orb-glyph.live", base_template)
+        self.assertIn("elif mesh.mention_count", base_template)
+        self.assertIn("elif mesh.unread_count", base_template)
+        self.assertIn("elif mesh.active_peer_count", base_template)
 
     def test_attention_clear_uses_server_backed_sidebar_clear_route(self) -> None:
         base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
@@ -1163,3 +1172,10 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("'X-CSRFToken': csrfToken", main_js)
         self.assertIn("requestCanopySidebarAttentionRefresh({ force: true }).catch(() => {});", main_js)
         self.assertIn("window.requestCanopyMeshspaceSnapshotRefresh({ force: true });", main_js)
+
+    def test_channel_view_refreshes_attention_when_mentions_are_acknowledged(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        self.assertIn(
+            "if (data && (data.marked_read || Number(data.acknowledged_mentions || 0) > 0) && typeof window.requestCanopySidebarAttentionRefresh === 'function') {",
+            channels_template,
+        )

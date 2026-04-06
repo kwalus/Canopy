@@ -340,7 +340,7 @@
 
         .meshspace-status-dot {
             position: absolute;
-            inset: -1px -1px auto auto;
+            inset: 1px 1px auto auto;
             width: 10px;
             height: 10px;
             border-radius: 999px;
@@ -463,6 +463,18 @@
         .meshspace-rail-orb .meshspace-orb-glyph {
             position: absolute;
             inset: auto -4px -4px auto;
+        }
+
+        .meshspace-orb-glyph.attention {
+            background: rgba(244, 63, 94, 0.14);
+            color: #fda4af;
+            border-color: rgba(244, 63, 94, 0.24);
+        }
+
+        .meshspace-orb-glyph.live {
+            background: rgba(34, 197, 94, 0.14);
+            color: #86efac;
+            border-color: rgba(34, 197, 94, 0.24);
         }
 
         .meshspace-rail-orb.has-recent-activity::after {
@@ -7914,6 +7926,12 @@
                                 {% endif %}
                                 {% if mesh.network_quarantined %}
                                 <span class="meshspace-orb-glyph"><i class="bi bi-shield-lock"></i></span>
+                                {% elif mesh.mention_count %}
+                                <span class="meshspace-orb-glyph attention" title="{{ mesh.mention_count }} mention{% if mesh.mention_count != 1 %}s{% endif %}"><i class="bi bi-at"></i></span>
+                                {% elif mesh.unread_count %}
+                                <span class="meshspace-orb-glyph attention" title="{{ mesh.unread_count }} unread"><i class="bi bi-bell"></i></span>
+                                {% elif mesh.active_peer_count %}
+                                <span class="meshspace-orb-glyph live" title="{{ mesh.active_peer_count }} peer{% if mesh.active_peer_count != 1 %}s{% endif %} connected"><i class="bi bi-link-45deg"></i></span>
                                 {% endif %}
                             </a>
                             {% endfor %}
@@ -8631,12 +8649,25 @@
             }
 
             function quickItemHtml(mesh) {
+                let glyphHtml = '';
+                if (mesh.network_quarantined) {
+                    glyphHtml = '<span class="meshspace-orb-glyph"><i class="bi bi-shield-lock"></i></span>';
+                } else if (Number(mesh.mention_count || 0) > 0) {
+                    const mentions = Number(mesh.mention_count || 0);
+                    glyphHtml = `<span class="meshspace-orb-glyph attention" title="${escapeHtml(`${mentions} mention${mentions === 1 ? '' : 's'}`)}"><i class="bi bi-at"></i></span>`;
+                } else if (Number(mesh.unread_count || 0) > 0) {
+                    const unread = Number(mesh.unread_count || 0);
+                    glyphHtml = `<span class="meshspace-orb-glyph attention" title="${escapeHtml(`${unread} unread`)}"><i class="bi bi-bell"></i></span>`;
+                } else if (Number(mesh.active_peer_count || 0) > 0) {
+                    const peers = Number(mesh.active_peer_count || 0);
+                    glyphHtml = `<span class="meshspace-orb-glyph live" title="${escapeHtml(`${peers} peer${peers === 1 ? '' : 's'} connected`)}"><i class="bi bi-link-45deg"></i></span>`;
+                }
                 return `<a class="meshspace-rail-orb ${mesh.has_recent_activity ? 'has-recent-activity' : ''}" data-meshspace-quick-item data-meshspace-id="${escapeHtml(mesh.meshspace_id || '')}" href="${escapeHtml(mesh.launch_href || '#')}" title="${escapeHtml(meshTitle(mesh))}">
                     <span class="meshspace-crest is-orb" style="--mesh-accent-rgb: ${escapeHtml(mesh.accent_rgb || '34,197,94')};">
                         ${crestInner(mesh)}
                     </span>
                     ${mesh.attention_badge ? `<span class="meshspace-orb-badge">${escapeHtml(mesh.attention_badge)}</span>` : ''}
-                    ${mesh.network_quarantined ? '<span class="meshspace-orb-glyph"><i class="bi bi-shield-lock"></i></span>' : ''}
+                    ${glyphHtml}
                 </a>`;
             }
 
