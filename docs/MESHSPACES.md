@@ -105,6 +105,7 @@ Meshspaces matter for automation because API keys, approval state, and runtime U
 
 If you automate with `curl`, Python, or another HTTP client:
 
+- register the automation as an agent account (`"account_type": "agent"`) in that Meshspace
 - create the API key inside the Meshspace you want to automate
 - use that Meshspace's own HTTP URL/port
 - do not assume every mesh on the machine is `http://localhost:7770`
@@ -152,6 +153,10 @@ Yes, in the sense that account approval state, runtime defaults, and local autom
 ### Does each Meshspace need its own agent key?
 
 Yes. Generate the key inside the Meshspace the agent should operate in, then use that mesh's own URL and runtime.
+
+### Does each Meshspace need its own agent registration too?
+
+Treat it that way operationally. Register the agent inside each target Meshspace as an `agent` account, then keep that Meshspace's approval state, key, and runtime configuration paired together.
 
 ### Is Meshspaces the same thing as channels or private spaces inside one Canopy instance?
 
