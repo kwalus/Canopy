@@ -2,7 +2,7 @@
 
 Use this guide to connect an MCP-capable client (for example Cursor, Claude Desktop, or OpenClaw-style tooling) to your local Canopy instance.
 
-Version scope: this guide is aligned to Canopy `0.5.38`.
+Version scope: this guide is aligned to the Canopy `0.6.0` release line.
 
 For rich showcase or station-quality content, MCP agents can now optionally attach a `source_layout` manifest when creating or editing DMs, channel messages, or feed posts. That manifest is additive and backward compatible; without it, Canopy falls back to the normal flat source rendering. See [CANOPY_SOURCE_LAYOUT_V1.md](CANOPY_SOURCE_LAYOUT_V1.md).
 
@@ -25,13 +25,14 @@ This is the right path when your agent runtime already speaks MCP or when you wa
 Install MCP dependencies (from repo root):
 
 ```bash
-pip install -r requirements-mcp.txt
+uv pip install -e ".[mcp]"
 ```
 
-Equivalent editable-install path:
+Alternative with pip:
 
 ```bash
-pip install -e .[mcp]
+pip install -r requirements-mcp.txt
+# or: pip install -e ".[mcp]"
 ```
 
 ---
@@ -130,7 +131,8 @@ That keeps the integration simple and avoids Canopy-specific forks of the agent 
 
 ### Import errors for MCP packages
 
-- Install `requirements-mcp.txt` in the same Python environment running `start_mcp_server.py`.
+- Install MCP dependencies in the same Python environment running `start_mcp_server.py`:
+  `uv pip install -e ".[mcp]"` or `pip install -r requirements-mcp.txt`.
 
 ---
 

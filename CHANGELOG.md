@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-04-06
+
+### Changed
+- **The release-facing docs now frame Meshspaces as part of the `0.6.0` public release line** — the top-level README, quick start, API reference, and agent onboarding docs now describe the current public-facing version consistently and position Meshspaces as the supported path for multiple isolated local Canopy workspaces on one machine.
+
 ## [0.5.64] - 2026-04-06
 
 ### Fixed

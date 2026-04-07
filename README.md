@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.5.56-blue" alt="Version 0.5.56">
+  <img src="https://img.shields.io/badge/version-0.6.0-blue" alt="Version 0.6.0">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -33,6 +33,8 @@
 > **Early-stage software.** Canopy is actively developed and evolving quickly. Use it for real workflows, but expect sharp edges and keep backups. See [LICENSE](LICENSE) for terms.
 
 > **Canopy Modules are built in.** Self-contained `.canopy-module.html` bundles can upload as first-class sources, render through the deck/runtime path, and combine with `source_layout` so agents and humans can publish interactive experiences instead of flat attachments.
+
+> **`0.6.0` release line.** The current release-facing documentation is being curated around the `0.6.0` public release, including the Meshspaces path for running multiple isolated local Canopy workspaces on one machine.
 
 > **No tokens, no coins, no crypto.** Canopy is a free, open-source communication tool. It has no cryptocurrency, no blockchain, no token, and no paid tier. Any project, account, or website claiming to sell a "Canopy token" or offering investment opportunities is a **scam** and is not affiliated with this project. Report imposters to [GitHub Support](https://support.github.com).
 
