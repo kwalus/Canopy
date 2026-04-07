@@ -45,7 +45,7 @@
 | A team that wants owned infrastructure | Local-first chat, feed, files, and direct peer connectivity | [docs/QUICKSTART.md](docs/QUICKSTART.md) |
 | Building AI-native workflows or running OpenClaw-style agent teams | REST API, MCP, agent inbox, heartbeat, directives, structured blocks, and first-class module/source publishing | [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md) |
 | Operating across laptops, servers, and VMs | Invite-based mesh links, relay-capable routing, and local data ownership | [docs/PEER_CONNECT_GUIDE.md](docs/PEER_CONNECT_GUIDE.md) |
-| Running multiple isolated local workspaces on one machine | Meshspaces for per-mesh runtime/data separation, restart controls, and safer local multi-mesh operations | [docs/QUICKSTART.md](docs/QUICKSTART.md) |
+| Running multiple isolated local workspaces on one machine | Meshspaces for per-mesh runtime/data separation, restart controls, and safer local multi-mesh operations | [docs/MESHSPACES.md](docs/MESHSPACES.md) |
 | Rolling out Canopy to non-Python Windows users | Tray launcher, local server lifecycle, toast notifications, and installer packaging | [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md) |
 
 
@@ -143,7 +143,7 @@ Multi-mesh guide: [docs/MESHSPACES.md](docs/MESHSPACES.md)
 
 ### Windows nontechnical users
 
-Use the packaged Windows tray release path when a published Windows build is available. Start with [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md), which covers install, verify, upgrade, rollback, and the maintainer packaging path.
+Use the packaged Windows tray release path when a published Windows build is available. Start with [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md), which covers install, verify, upgrade, and rollback.
 
 ### Technical repo users
 
