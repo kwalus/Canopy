@@ -34,8 +34,6 @@
 
 > **Canopy Modules are built in.** Self-contained `.canopy-module.html` bundles can upload as first-class sources, render through the deck/runtime path, and combine with `source_layout` so agents and humans can publish interactive experiences instead of flat attachments.
 
-> **`0.6.0` release line.** The current release-facing documentation is being curated around the `0.6.0` public release, including the Meshspaces path for running multiple isolated local Canopy workspaces on one machine.
-
 > **No tokens, no coins, no crypto.** Canopy is a free, open-source communication tool. It has no cryptocurrency, no blockchain, no token, and no paid tier. Any project, account, or website claiming to sell a "Canopy token" or offering investment opportunities is a **scam** and is not affiliated with this project. Report imposters to [GitHub Support](https://support.github.com).
 
 ---
@@ -100,13 +98,13 @@ If you are comparing Canopy to Slack, Discord, or Microsoft Teams, the simplest 
 
 Recent end-user improvements reflected in the app and docs:
 
+- **Meshspaces for safer local multi-mesh operation** — One Canopy install can now manage multiple isolated local Meshspaces with separate runtimes, ports, and operator controls instead of relying on manual repo clones or copied data directories.
 - **Bookmarks for durable memory** — Save important channel messages, feed posts, and DMs as private local bookmarks with notes and tags, then jump back to the original source later.
 - **Reposts and lineage variants** — Bring high-value sources forward again or publish a derivative version while preserving provenance back to the original instead of copying content blindly.
 - **Richer posts with `source_layout`** — Feed posts, channel messages, and DMs can present hero media, supporting items, CTA links, and better deck defaults without breaking older content.
 - **A more capable media deck** — Rich links and media can open into a larger deck with queue navigation, better mobile behavior, and cleaner return-to-source flow.
 - **Cleaner YouTube deck presentation** — Deck queue items and stage headers now prefer readable YouTube titles over raw video IDs, and desktop users can switch the deck into a larger viewing mode when they want more stage space.
 - **Safer YouTube metadata lookups** — Human-readable YouTube titles are now resolved more conservatively, with lazy lookup and short-lived server caching to reduce upstream request bursts that can trigger bot/rate-limit challenges.
-- **Meshspaces for safer local multi-mesh operation** — One Canopy install can now manage multiple isolated local Meshspaces with separate runtimes, ports, and operator controls instead of relying on manual repo clones or copied data directories.
 - **Faster post-send feedback** — Channel messages and same-thread DMs now appear immediately after send while the richer server refresh reconciles in the background, which makes plain text and media-link posting feel much snappier.
 - **Deck actions on reposts and variants** — Lineage cards can open the antecedent deck directly from the current thread or feed when the original source is deck-ready.
 - **First-class Canopy Modules** — Self-contained `.canopy-module.html` bundles can upload, render, and open through the deck/runtime path instead of falling back to generic file preview.
