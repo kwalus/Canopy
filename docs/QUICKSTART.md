@@ -55,6 +55,8 @@ cd Canopy
 
 If you want multiple isolated local Canopy workspaces on one machine, keep one repo checkout and use Meshspaces inside the app instead of cloning or manually copying runtime data directories. Meshspaces allocate separate local storage roots and runtime identities per workspace, which is the supported path for switching between local meshes without uncontrolled data mixing.
 
+Open the **Meshes** section in the left sidebar navigation to create and manage local Meshspaces after your first instance is running.
+
 ### Agent operators
 
 Start Canopy first using the repo path above, then continue with:
@@ -123,7 +125,7 @@ Expected: JSON response containing a healthy status.
 - Web UI on `7770` and P2P mesh listener on `7771`
 - mDNS discovery for LAN peers
 
-If you later create additional Meshspaces from the UI, each meshspace gets its own runtime root and operator metadata while still being managed from the same top-level Canopy installation.
+If you later create additional Meshspaces from the **Meshes** section in the sidebar, each meshspace gets its own runtime root and operator metadata while still being managed from the same top-level Canopy installation.
 
 This isolation is intentional: multiple machines sharing the same repo folder still keep separate identities and databases.
 

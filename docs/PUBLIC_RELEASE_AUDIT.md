@@ -1,7 +1,23 @@
 # Public Release Audit - Canopy 0.6.0
 
+> **Canopy-Dev internal - do not include in the public `kwalus/Canopy` promotion PR.**
+> This document is a working audit log for the private dev mirror only.
+
 **Date:** 2026-04-07  
 **Scope:** Public-release readiness for the 0.6.0 line - repo hygiene, docs clarity, public-safe wording, accidental internal-only leakage, first-run/setup friction, and obvious release blockers.
+
+---
+
+## Files to Exclude from Public Canopy Promotion
+
+The following files live in `kwalus/Canopy-Dev` for good reasons but must **not** be copied or promoted into the public `kwalus/Canopy` repo:
+
+| File | Reason |
+|------|--------|
+| `docs/PUBLIC_RELEASE_AUDIT.md` | Canopy-Dev-internal audit log; references private dev-mirror workflow details |
+| `scripts/push_to_github.py` | Dev-mirror push helper; defaults to `Canopy-Dev`, uses `localhost:8000` MCP Manager endpoint, and contains Canopy-Dev/Canopy distinction logic that is meaningless outside the private mirror |
+
+When assembling the public promotion PR, omit these files entirely. All other committed files in `main` are public-safe as of this audit pass.
 
 ---
 
@@ -73,7 +89,7 @@
 | Database files and `data/` directory | Not committed - excluded by `.gitignore` |
 | `config/production.ini` / `config/secrets.env` | Not committed - excluded by `.gitignore` |
 | `cursor-mcp-config.json` (live) | Not committed - excluded by `.gitignore` |
-| `scripts/push_to_github.py` | Uses a local MCP Manager endpoint (`localhost:8000`); no credentials hardcoded; defaults to `Canopy-Dev` and requires explicit opt-in for public `Canopy` pushes |
+| `scripts/push_to_github.py` | Uses a local MCP Manager endpoint (`localhost:8000`); no credentials hardcoded; defaults to `Canopy-Dev` and requires explicit opt-in for public `Canopy` pushes - **exclude from public promotion** (see section above) |
 | `docs/SECURITY_ASSESSMENT.md` | Public-appropriate security documentation; no sensitive specifics |
 | `docs/RECOVERY_LOCK_STORM.md` | Mentions Dropbox as a general WAL-contention scenario; appropriate operational context |
 | Version alignment | `pyproject.toml`, README badges, CHANGELOG, QUICKSTART, AGENT_ONBOARDING, WINDOWS_TRAY all reference `0.6.0` consistently |
@@ -103,3 +119,5 @@ No gaps identified that require additions.
 ## Summary
 
 Three changes were made in the 0.6.0 release pass. Personal machine paths (a Dropbox repo path and a hardcoded username) were removed from `scripts/start_canopy_dev.ps1` and replaced with portable defaults. The internal "Canopy-Dev" repo name was removed from the public release announcement draft. No credentials, tokens, or other genuinely sensitive material were found in committed files. The `.gitignore` rules are thorough and correctly exclude local-only artifacts. Version references, Meshspaces public explanation, first-run UX, and Windows nontechnical clarity are all in good shape for the 0.6.0 release line.
+
+Two files are identified for exclusion from the public Canopy promotion: `docs/PUBLIC_RELEASE_AUDIT.md` (this file, a Canopy-Dev-internal audit log) and `scripts/push_to_github.py` (dev-mirror push helper that defaults to `Canopy-Dev` and uses the local MCP Manager). All other committed files are public-safe.

@@ -38,7 +38,7 @@ loop every poll_hint_seconds:
       PATCH /api/v1/agents/me/inbox  {"ids": [item.id], "status": "completed", ...}
 ```
 
-Steps 3-8 below explain each part in full detail with working `curl` examples.
+Steps 1-8 below explain each part in full detail with working `curl` examples.
 
 ---
 
