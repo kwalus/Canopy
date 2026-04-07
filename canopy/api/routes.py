@@ -3107,7 +3107,18 @@ def create_api_blueprint() -> Blueprint:
 
             if not connected:
                 result['status'] = 'imported_not_connected'
-                result['message'] = 'Peer registered but could not connect to any endpoint. Make sure the peer is online and reachable.'
+                if not list(result.get('endpoints') or []):
+                    result['diagnostic_code'] = 'invite_has_no_usable_endpoints'
+                    result['message'] = (
+                        'Peer registered, but the invite did not contain any usable direct endpoints. '
+                        'Ask the remote peer to regenerate the invite with a public or tunnel endpoint.'
+                    )
+                else:
+                    result['diagnostic_code'] = 'direct_connect_failed'
+                    result['message'] = (
+                        'Peer registered but could not connect to any advertised endpoint. '
+                        'The peer may be offline, the endpoint may be stale, or the connection may require broker/relay help.'
+                    )
                 _record_connection_event(
                     p2p_manager,
                     invite.peer_id,
@@ -3178,17 +3189,47 @@ def create_api_blueprint() -> Blueprint:
         if not intro:
             return jsonify({'error': 'Peer not found in introduced list'}), 404
 
-        endpoints = intro.get('endpoints', [])
-        if not endpoints:
-            return jsonify({'error': 'No endpoints available for this peer'}), 400
-
         ev_loop = p2p_manager._event_loop
         if not ev_loop or ev_loop.is_closed():
             return jsonify({'error': 'P2P event loop unavailable'}), 500
 
-        from ..network.invite import parse_invite_endpoint
+        from ..network.invite import canonicalize_invite_endpoint, parse_invite_endpoint
 
         direct_attempt_count = 0
+        endpoints: list[str] = []
+        seen_endpoints: set[str] = set()
+        for group in (
+            intro.get('endpoints', []),
+            getattr(getattr(p2p_manager, 'identity_manager', None), 'peer_endpoints', {}).get(peer_id, []),
+        ):
+            if not isinstance(group, list):
+                continue
+            for endpoint in group:
+                canon = canonicalize_invite_endpoint(endpoint)
+                if not canon or canon in seen_endpoints:
+                    continue
+                seen_endpoints.add(canon)
+                endpoints.append(canon)
+        get_discovered = getattr(p2p_manager, '_get_discovered_peer_endpoints', None)
+        if callable(get_discovered):
+            try:
+                for endpoint in list(get_discovered(peer_id) or []):
+                    canon = canonicalize_invite_endpoint(endpoint)
+                    if not canon or canon in seen_endpoints:
+                        continue
+                    seen_endpoints.add(canon)
+                    endpoints.insert(0, canon)
+            except Exception:
+                pass
+
+        broker_candidates = []
+        get_broker_candidates = getattr(p2p_manager, 'get_introduced_peer_broker_candidates', None)
+        if callable(get_broker_candidates):
+            try:
+                broker_candidates = list(get_broker_candidates(peer_id) or [])
+            except Exception:
+                broker_candidates = []
+
         if force_broker:
             _record_connection_event(
                 p2p_manager,
@@ -3196,7 +3237,7 @@ def create_api_blueprint() -> Blueprint:
                 status='forced_failover',
                 detail='Direct connect skipped by caller; testing broker/relay path',
             )
-        else:
+        elif endpoints:
             for ep in endpoints:
                 direct_attempt_count += 1
                 try:
@@ -3240,53 +3281,53 @@ def create_api_blueprint() -> Blueprint:
                 except Exception as ce:
                     logger.warning(f"Connect to introduced {ep} failed: {ce}")
                     continue
+        else:
+            _record_connection_event(
+                p2p_manager,
+                peer_id,
+                status='broker_only',
+                detail='No direct endpoints announced; trying broker path',
+            )
 
         # Direct connection failed — try connection brokering.
         # Prefer connected introducers, then other connected peers as fallback.
         attempted_brokers: list[str] = []
         if p2p_manager.relay_policy != 'off':
-            broker_candidates: list[str] = []
-            seen_brokers: set[str] = set()
+            if not broker_candidates:
+                seen_brokers: set[str] = set()
+                connected_peers: list[str] = []
+                try:
+                    connected_peers = list(p2p_manager.get_connected_peers() or [])
+                except Exception:
+                    connected_peers = []
+                connected_set = set(connected_peers)
 
-            connected_peers: list[str] = []
-            try:
-                connected_peers = list(p2p_manager.get_connected_peers() or [])
-            except Exception:
-                connected_peers = []
-            connected_set = set(connected_peers)
-
-            local_peer_id = ''
-            try:
-                local_peer_id = p2p_manager.get_peer_id() or ''
-            except Exception:
                 local_peer_id = ''
+                try:
+                    local_peer_id = p2p_manager.get_peer_id() or ''
+                except Exception:
+                    local_peer_id = ''
 
-            introducers: list[str] = []
-            introduced_via = intro.get('introduced_via', [])
-            if isinstance(introduced_via, list):
-                for pid in introduced_via:
-                    if isinstance(pid, str) and pid:
-                        introducers.append(pid)
-            introduced_by = intro.get('introduced_by')
-            if isinstance(introduced_by, str) and introduced_by:
-                introducers.append(introduced_by)
+                introducers: list[str] = []
+                introduced_via = intro.get('introduced_via', [])
+                if isinstance(introduced_via, list):
+                    for pid in introduced_via:
+                        if isinstance(pid, str) and pid:
+                            introducers.append(pid)
+                introduced_by = intro.get('introduced_by')
+                if isinstance(introduced_by, str) and introduced_by:
+                    introducers.append(introduced_by)
 
-            connected_introducers = [pid for pid in introducers if pid in connected_set]
-            disconnected_introducers = [pid for pid in introducers if pid not in connected_set]
+                connected_introducers = [pid for pid in introducers if pid in connected_set]
 
-            for pid in connected_introducers:
-                if pid not in seen_brokers:
-                    seen_brokers.add(pid)
-                    broker_candidates.append(pid)
+                for pid in connected_introducers:
+                    if pid not in seen_brokers:
+                        seen_brokers.add(pid)
+                        broker_candidates.append(pid)
 
-            for pid in connected_peers:
-                if not pid or pid == peer_id or pid == local_peer_id or pid in seen_brokers:
-                    continue
-                seen_brokers.add(pid)
-                broker_candidates.append(pid)
-
-            for pid in disconnected_introducers:
-                if pid not in seen_brokers:
+                for pid in connected_peers:
+                    if not pid or pid == peer_id or pid == local_peer_id or pid in seen_brokers:
+                        continue
                     seen_brokers.add(pid)
                     broker_candidates.append(pid)
 
@@ -3315,9 +3356,13 @@ def create_api_blueprint() -> Blueprint:
                         'via_peer': broker_peer,
                         'attempted_brokers': attempted_brokers,
                         'forced_failover': force_broker,
-                        'direct_attempted': not force_broker,
+                        'direct_attempted': bool(endpoints) and not force_broker,
                         'direct_attempt_count': direct_attempt_count,
+                        'diagnostic_code': 'introduced_peer_broker_connect',
                         'message': (
+                            'No direct endpoints were announced; broker request sent. '
+                            'The introducer or relay peer will attempt to connect the target back.'
+                            if not endpoints else
                             'Direct connection failed; broker request sent. '
                             'The target peer will attempt to connect back. '
                             'If both peers remain unreachable, use a broker with Full Relay enabled.'
@@ -3330,7 +3375,26 @@ def create_api_blueprint() -> Blueprint:
             status='failed',
             detail='Introduced peer connection failed',
         )
-        guidance = 'Could not connect to any endpoint'
+        if not endpoints:
+            guidance = (
+                'This introduced peer does not currently advertise any direct endpoints. '
+                'Keep the introducer online, retry through a broker, or import a fresh raw invite from the target peer.'
+            )
+            if attempted_brokers:
+                guidance += f" ({len(attempted_brokers)} broker{'s' if len(attempted_brokers) != 1 else ''} tried)"
+            return jsonify({
+                'status': 'failed',
+                'error': 'No endpoints available for this introduced peer record',
+                'diagnostic_code': 'introduced_peer_has_no_direct_endpoints',
+                'message': guidance,
+                'attempted_brokers': attempted_brokers,
+                'relay_policy': getattr(p2p_manager, 'relay_policy', 'broker_only'),
+                'forced_failover': force_broker,
+                'direct_attempted': False,
+                'direct_attempt_count': 0,
+            }), 502
+
+        guidance = 'Could not connect to any advertised endpoint'
         if attempted_brokers:
             guidance += f" and no broker succeeded ({len(attempted_brokers)} attempted)"
         if p2p_manager.relay_policy != 'full_relay':
@@ -3341,10 +3405,11 @@ def create_api_blueprint() -> Blueprint:
         return jsonify({
             'status': 'failed',
             'message': guidance,
+            'diagnostic_code': 'introduced_peer_direct_connect_failed',
             'attempted_brokers': attempted_brokers,
             'relay_policy': getattr(p2p_manager, 'relay_policy', 'broker_only'),
             'forced_failover': force_broker,
-            'direct_attempted': not force_broker,
+            'direct_attempted': bool(endpoints) and not force_broker,
             'direct_attempt_count': direct_attempt_count,
         }), 502
 

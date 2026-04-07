@@ -570,7 +570,7 @@
                 <h5 class="mb-0"><i class="bi bi-people-fill"></i> Peers via Your Contacts</h5>
             </div>
             <div class="card-body">
-                <p class="text-muted small">These peers were introduced by your connected contacts. Click <strong>Connect</strong> to establish a direct link.</p>
+                <p class="text-muted small">These peers were introduced by your connected contacts. If a peer has no direct endpoint, Canopy will fall back to broker-assisted connection through the introducer.</p>
                 <div class="table-responsive connect-scroll-table">
                     <table class="table table-sm" style="color:var(--canopy-text-primary);">
                         <thead>
@@ -612,9 +612,25 @@
                                     </div>
                                 </td>
                                 <td>
-                                    {% for ep in peer.endpoints %}
-                                    <span class="badge bg-secondary me-1">{{ ep }}</span>
-                                    {% endfor %}
+                                    {% if peer.endpoints %}
+                                        {% for ep in peer.endpoints %}
+                                        <span class="badge bg-secondary me-1">{{ ep }}</span>
+                                        {% endfor %}
+                                        {% if peer.endpoint_sources %}
+                                        <div class="mt-1">
+                                            {% for source in peer.endpoint_sources %}
+                                            <span class="badge bg-dark-subtle text-secondary border border-secondary-subtle me-1" style="font-size:0.62rem;">{{ source }}</span>
+                                            {% endfor %}
+                                        </div>
+                                        {% endif %}
+                                    {% else %}
+                                    <div class="text-muted small">No direct endpoint announced</div>
+                                    {% if peer.broker_candidates %}
+                                    <div class="text-muted small">Broker path available via {{ peer.broker_candidates|length }} peer{{ '' if peer.broker_candidates|length == 1 else 's' }}</div>
+                                    {% else %}
+                                    <div class="text-warning small">Needs a fresh invite or active broker</div>
+                                    {% endif %}
+                                    {% endif %}
                                 </td>
                                 <td>
                                     {% if ibydev and ibydev.display_name %}
@@ -626,7 +642,8 @@
                                 <td>
                                     <button class="btn btn-sm btn-outline-success"
                                             onclick="connectToIntroduced('{{ peer.peer_id }}', this)">
-                                        <i class="bi bi-plug"></i> Connect
+                                        <i class="bi {% if peer.connect_strategy == 'broker_only' %}bi-diagram-3{% else %}bi-plug{% endif %}"></i>
+                                        {% if peer.connect_strategy == 'broker_only' %}Broker Connect{% else %}Connect{% endif %}
                                     </button>
                                 </td>
                             </tr>
@@ -908,7 +925,7 @@
                         <ul class="list-unstyled mb-0">
                             <li class="mb-2">
                                 <i class="bi bi-router text-info me-2"></i>
-                                <strong>Port forwarding</strong> — Make sure port <code id="ts-port-hint">{{ mesh_port }}</code> is forwarded on your router if connecting over the internet.
+                                <strong>Reachable endpoint</strong> — If the peer is on a home network, port-forward <code id="ts-port-hint">{{ mesh_port }}</code>. On a VPS or tunnel, make sure the advertised public endpoint is actually the one Canopy is sharing.
                             </li>
                             <li class="mb-2">
                                 <i class="bi bi-shield-lock text-warning me-2"></i>
@@ -920,7 +937,7 @@
                             </li>
                             <li class="mb-2">
                                 <i class="bi bi-globe text-success me-2"></i>
-                                <strong>Public endpoint</strong> — Use the "Regenerate" button above with your public IP to create an invite that works over the internet.
+                                <strong>Public endpoint</strong> — Use the "Regenerate" button above with a public IP or full tunnel endpoint so the invite contains a dialable address.
                             </li>
                         </ul>
                     </div>
@@ -952,7 +969,7 @@
                 </div>
                 <div class="col-md-4 mb-3">
                     <h6><span class="badge bg-primary me-1">2</span> Different location</h6>
-                    <p class="small text-muted mb-0">One person port-forwards <code>{{ mesh_port }}</code> on their router, enters their public IP above, then sends the invite code to the friend.</p>
+                    <p class="small text-muted mb-0">One person shares a reachable endpoint: public IP plus port-forwarding, a VPS public IP, or a full tunnel endpoint such as <code>wss://...</code>.</p>
                 </div>
                 <div class="col-md-4 mb-3">
                     <h6><span class="badge bg-primary me-1">3</span> Friend imports the code</h6>
@@ -1077,8 +1094,11 @@ function importInvite() {
             res.innerHTML = '<i class="bi bi-check-circle-fill"></i> Connected to <code>' + safePeerId + '</code> via <code>' + safeEndpoint + '</code>!';
         } else if (data.status === 'imported_not_connected') {
             res.className = 'mt-3 alert alert-warning';
-            res.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Peer <code>' + safePeerId + '</code> registered but could not connect. ' +
-                'Make sure the peer is online and the endpoint is reachable (port forwarded?).';
+            if (data.diagnostic_code === 'invite_has_no_usable_endpoints') {
+                res.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Peer <code>' + safePeerId + '</code> registered, but the invite did not include any usable direct endpoints. Ask the remote peer to regenerate the invite with a public or tunnel endpoint.';
+            } else {
+                res.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Peer <code>' + safePeerId + '</code> registered but could not connect to any advertised endpoint. The peer may be offline, the endpoint may be stale, or the connection may require broker/relay help.';
+            }
         } else if (data.error) {
             res.className = 'mt-3 alert alert-danger';
             res.innerHTML = '<i class="bi bi-x-circle-fill"></i> Error: ' + safeError;

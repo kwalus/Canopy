@@ -21,6 +21,22 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger('canopy.network.connection')
 
+
+class _ExpectedWebSocketServerNoiseFilter(logging.Filter):
+    """Suppress noisy early-disconnect errors from the websockets server logger."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno < logging.ERROR:
+            return True
+        if record.getMessage() != "opening handshake failed":
+            return True
+        exc = record.exc_info[1] if record.exc_info else None
+        return not isinstance(exc, websockets.exceptions.ConnectionClosedError)
+
+
+_ws_server_logger = logging.getLogger('canopy.network.connection.websockets_server')
+_ws_server_logger.addFilter(_ExpectedWebSocketServerNoiseFilter())
+
 _EXPECTED_CONNECT_ERRNOS = {51, 61, 64, 65, 110, 111, 113}
 
 
@@ -156,6 +172,7 @@ class PeerConnection:
     canopy_version: Optional[str] = None
     protocol_version: Optional[int] = None
     endpoint_uri: Optional[str] = None
+    advertised_endpoints: List[str] = field(default_factory=list)
     failure_reason: Optional[str] = None
     failure_detail: Optional[str] = None
     _send_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
@@ -190,6 +207,7 @@ class ConnectionManager:
                  tls_key_path: Optional[str] = None,
                  enable_tls: bool = False,
                  handshake_capabilities: Optional[List[str]] = None,
+                 advertised_endpoints_provider: Optional[Callable[[], List[str]]] = None,
                  canopy_version: str = "0.1.0",
                  protocol_version: int = 1,
                  reject_protocol_mismatch: bool = False):
@@ -214,6 +232,7 @@ class ConnectionManager:
             cap for cap in (str(item).strip() for item in base_capabilities)
             if cap
         ] or ['chat', 'files', 'voice']
+        self.advertised_endpoints_provider = advertised_endpoints_provider
         self.local_canopy_version = str(canopy_version or '0.1.0').strip() or '0.1.0'
         self.local_protocol_version = self._coerce_protocol_version(protocol_version, default=1)
         self.reject_protocol_mismatch = bool(reject_protocol_mismatch)
@@ -451,7 +470,40 @@ class ConnectionManager:
             extra['canopy_version'] = payload.get('canopy_version')
         if 'protocol_version' in payload:
             extra['protocol_version'] = payload.get('protocol_version')
+        if 'advertised_endpoints' in payload:
+            extra['advertised_endpoints'] = payload.get('advertised_endpoints')
         return extra
+
+    @staticmethod
+    def _normalize_endpoint_payload(raw: Any) -> List[str]:
+        """Normalize a handshake endpoint payload into a trimmed string list."""
+        if isinstance(raw, str):
+            raw_values = [raw]
+        elif isinstance(raw, (list, tuple, set)):
+            raw_values = list(raw)
+        else:
+            raw_values = []
+
+        out: List[str] = []
+        seen = set()
+        for endpoint in raw_values:
+            text = str(endpoint or '').strip()
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            out.append(text)
+        return out
+
+    def _get_advertised_endpoints(self) -> List[str]:
+        """Return the local node's self-advertised dial-back endpoints."""
+        provider = self.advertised_endpoints_provider
+        if not callable(provider):
+            return []
+        try:
+            return self._normalize_endpoint_payload(provider() or [])
+        except Exception as exc:
+            logger.debug("Could not compute handshake advertised_endpoints: %s", exc)
+            return []
     
     async def start(self) -> None:
         """Start connection manager and WebSocket server."""
@@ -473,6 +525,7 @@ class ConnectionManager:
                 ping_timeout=None,
                 max_size=20 * 1024 * 1024,  # 20MB — allow P2P image transfer
                 compression="deflate",  # permessage-deflate — ~40-70% savings on JSON frames
+                logger=_ws_server_logger,
             )
             if self.enable_tls and self._server_ssl:
                 serve_kwargs['ssl'] = self._server_ssl
@@ -777,6 +830,9 @@ class ConnectionManager:
                     handshake_data.get('capabilities', [])
                 )
             }
+            connection.advertised_endpoints = self._normalize_endpoint_payload(
+                handshake_data.get('advertised_endpoints', [])
+            )
 
             remote_protocol = connection.protocol_version or 1
             remote_canopy = str(connection.canopy_version or '0.1.0')
@@ -822,6 +878,7 @@ class ConnectionManager:
                             'canopy_version': connection.canopy_version,
                             'protocol_version': connection.protocol_version,
                             'capabilities': list(connection.capabilities or {}),
+                            'advertised_endpoints': list(connection.advertised_endpoints or []),
                         }
                         self.on_peer_authenticated(peer_id, peer_meta)
                     except TypeError:
@@ -893,6 +950,7 @@ class ConnectionManager:
                 **signed_payload,
                 'canopy_version': self.local_canopy_version,
                 'protocol_version': self.local_protocol_version,
+                'advertised_endpoints': self._get_advertised_endpoints(),
                 'signature': signature.hex()
             }
             
@@ -1010,6 +1068,9 @@ class ConnectionManager:
                     response.get('capabilities', [])
                 )
             }
+            connection.advertised_endpoints = self._normalize_endpoint_payload(
+                response.get('advertised_endpoints', [])
+            )
 
             remote_protocol = connection.protocol_version or 1
             remote_canopy = str(connection.canopy_version or '0.1.0')
@@ -1089,6 +1150,7 @@ class ConnectionManager:
                 **signed_payload,
                 'canopy_version': self.local_canopy_version,
                 'protocol_version': self.local_protocol_version,
+                'advertised_endpoints': self._get_advertised_endpoints(),
                 'signature': signature.hex()
             }
             
