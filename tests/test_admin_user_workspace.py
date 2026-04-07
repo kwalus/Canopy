@@ -29,6 +29,7 @@ if 'zeroconf' not in sys.modules:
     sys.modules['zeroconf'] = zeroconf_stub
 
 from canopy.ui.routes import create_ui_blueprint
+from canopy.security.api_keys import Permission
 
 
 class _FakeDbManager:
@@ -48,6 +49,16 @@ class _FakeDbManager:
             (user_id,),
         ).fetchone()
         return dict(row) if row else None
+
+    def get_all_users_for_admin(self):
+        rows = self._conn.execute("SELECT * FROM users ORDER BY username ASC").fetchall()
+        return [dict(row) for row in rows]
+
+    def get_pending_approval_count(self):
+        row = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM users WHERE COALESCE(status, 'active') = 'pending_approval'"
+        ).fetchone()
+        return int((row['n'] if row else 0) or 0)
 
 
 class _FakeProfileManager:
@@ -105,10 +116,14 @@ class _FakeInboxManager:
     def __init__(self) -> None:
         self.rebuild_calls = []
 
-    def count_items(self, user_id: str, status=None):
+    def count_items(self, user_id: str, status=None, include_handled: bool = False):
+        if include_handled:
+            return 5
         if status == 'pending':
             return 3
-        return 5
+        if status == 'seen':
+            return 0
+        return 3
 
     def list_items(self, user_id: str, status=None, limit: int = 50, include_handled: bool = False, since=None):
         return [
@@ -122,9 +137,34 @@ class _FakeInboxManager:
                 'status': 'pending',
                 'priority': 'normal',
                 'created_at': '2026-02-22T10:00:00+00:00',
+                'seen_at': None,
                 'handled_at': None,
+                'completed_at': None,
+                'completion_ref': None,
+                'last_resolution_status': None,
+                'last_resolution_at': None,
+                'last_completion_ref': None,
                 'payload': {'preview': 'Please check this issue.'},
-            }
+            },
+            {
+                'id': 'INB-2',
+                'source_type': 'feed_post',
+                'source_id': 'post-9',
+                'channel_id': None,
+                'sender_user_id': 'user-beta',
+                'trigger_type': 'mention',
+                'status': 'completed',
+                'priority': 'normal',
+                'created_at': '2026-02-22T09:00:00+00:00',
+                'seen_at': '2026-02-22T09:01:00+00:00',
+                'handled_at': '2026-02-22T09:04:00+00:00',
+                'completed_at': '2026-02-22T09:04:00+00:00',
+                'completion_ref': None,
+                'last_resolution_status': 'completed',
+                'last_resolution_at': '2026-02-22T09:04:00+00:00',
+                'last_completion_ref': None,
+                'payload': {'preview': 'Responded privately without linking evidence.'},
+            },
         ][: max(1, limit)]
 
     def list_audit(self, user_id: str, limit: int = 50, since=None):
@@ -144,8 +184,12 @@ class _FakeInboxManager:
     def get_stats(self, user_id: str, window_hours: int = 24):
         return {
             'window_hours': window_hours,
-            'status_counts': {'pending': 3, 'handled': 2},
+            'status_counts': {'pending': 3, 'completed': 2},
             'rejection_counts': {'cooldown': 2},
+            'discrepancy_counts': {
+                'completed_without_completion_ref': 1,
+                'skipped_without_completion_ref': 0,
+            },
         }
 
     def get_config(self, user_id: str):
@@ -246,6 +290,7 @@ class _FakeChannelManager:
                 'name': 'general',
                 'channel_type': 'public',
                 'privacy_mode': 'open',
+                'origin_peer': None,
                 'member_count': 10,
                 'members': {'agent-local'},
             },
@@ -254,6 +299,7 @@ class _FakeChannelManager:
                 'name': 'private-test',
                 'channel_type': 'private',
                 'privacy_mode': 'private',
+                'origin_peer': None,
                 'member_count': 2,
                 'members': {'agent-local'},
             },
@@ -262,7 +308,35 @@ class _FakeChannelManager:
                 'name': 'public-room',
                 'channel_type': 'public',
                 'privacy_mode': 'open',
+                'origin_peer': None,
                 'member_count': 6,
+                'members': {'agent-local'},
+            },
+            {
+                'id': 'CremotePrivate',
+                'name': 'ops-room',
+                'channel_type': 'private',
+                'privacy_mode': 'private',
+                'origin_peer': 'peer-xyz',
+                'member_count': 2,
+                'members': {'agent-local'},
+            },
+            {
+                'id': 'CremotePrivateOther',
+                'name': 'ops-room-secret',
+                'channel_type': 'private',
+                'privacy_mode': 'private',
+                'origin_peer': 'peer-xyz',
+                'member_count': 2,
+                'members': set(),
+            },
+            {
+                'id': 'CremotePublic',
+                'name': 'ops-room',
+                'channel_type': 'public',
+                'privacy_mode': 'open',
+                'origin_peer': 'peer-xyz',
+                'member_count': 5,
                 'members': {'agent-local'},
             },
         ]
@@ -295,6 +369,7 @@ class _FakeChannelManager:
                 'name': row['name'],
                 'channel_type': row['channel_type'],
                 'privacy_mode': row['privacy_mode'],
+                'origin_peer': row.get('origin_peer'),
                 'member_count': row['member_count'],
                 'is_public_open': row['privacy_mode'] == 'open' and row['channel_type'] in {'public', 'general'},
             }
@@ -351,6 +426,52 @@ class _FakeChannelManager:
         }
 
 
+class _FakeMeshspaceRegistryManager:
+    def __init__(self) -> None:
+        self.record = {
+            'meshspace_id': 'default-mesh',
+            'name': 'Default Mesh',
+            'default_agent_permissions': [
+                Permission.READ_MESSAGES.value,
+                Permission.WRITE_MESSAGES.value,
+                Permission.READ_FEED.value,
+                Permission.WRITE_FEED.value,
+            ],
+        }
+
+    def get_meshspace(self, meshspace_id: str):
+        if meshspace_id == self.record['meshspace_id']:
+            return dict(self.record)
+        return None
+
+    def list_meshspaces(self):
+        return [dict(self.record)]
+
+    def update_meshspace_metadata(self, meshspace_id: str, **kwargs):
+        if meshspace_id != self.record['meshspace_id']:
+            return None
+        if 'default_agent_permissions' in kwargs and kwargs['default_agent_permissions'] is not None:
+            self.record['default_agent_permissions'] = list(kwargs['default_agent_permissions'])
+        return dict(self.record)
+
+    def update_shell_summary(self, meshspace_id: str, summary):
+        if meshspace_id != self.record['meshspace_id']:
+            return None
+        self.record['summary'] = dict(summary or {})
+        return dict(self.record)
+
+    def launch_environment(self, meshspace_id: str):
+        if meshspace_id != self.record['meshspace_id']:
+            return None
+        return {
+            'CANOPY_MESHSPACE_ID': self.record['meshspace_id'],
+            'CANOPY_MESHSPACE_NAME': self.record['name'],
+            'CANOPY_PORT': '7800',
+            'CANOPY_MESH_PORT': '7801',
+            'CANOPY_DISCOVERY_PORT': '7802',
+        }
+
+
 class TestAdminUserWorkspace(unittest.TestCase):
     def setUp(self) -> None:
         self.conn = sqlite3.connect(':memory:')
@@ -383,6 +504,30 @@ class TestAdminUserWorkspace(unittest.TestCase):
                 created_at TEXT,
                 acknowledged_at TEXT,
                 status TEXT
+            );
+            CREATE TABLE agent_inbox (
+                id TEXT PRIMARY KEY,
+                agent_user_id TEXT NOT NULL,
+                status TEXT,
+                created_at TEXT
+            );
+            CREATE TABLE agent_runtime_state (
+                user_id TEXT PRIMARY KEY,
+                last_event_fetch_at TEXT,
+                last_event_cursor_seen INTEGER,
+                last_inbox_fetch_at TEXT,
+                updated_at TEXT
+            );
+            CREATE TABLE agent_event_subscription_state (
+                user_id TEXT PRIMARY KEY,
+                custom_enabled INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT
+            );
+            CREATE TABLE agent_event_subscriptions (
+                user_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                updated_at TEXT,
+                PRIMARY KEY (user_id, event_type)
             );
             """
         )
@@ -431,6 +576,48 @@ class TestAdminUserWorkspace(unittest.TestCase):
                 ),
             ],
         )
+        self.conn.executemany(
+            """
+            INSERT INTO agent_inbox (
+                id, agent_user_id, status, created_at
+            ) VALUES (?, ?, ?, ?)
+            """,
+            [
+                ('INB-L-1', 'agent-local', 'pending', '2026-02-22T08:30:00+00:00'),
+                ('INB-L-2', 'agent-local', 'handled', '2026-02-22T09:30:00+00:00'),
+            ],
+        )
+        self.conn.execute(
+            """
+            INSERT INTO agent_runtime_state (
+                user_id, last_event_fetch_at, last_event_cursor_seen, last_inbox_fetch_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                'agent-local',
+                '2026-02-22T10:15:00+00:00',
+                57,
+                '2026-02-22T10:10:00+00:00',
+                '2026-02-22T10:15:00+00:00',
+            ),
+        )
+        self.conn.execute(
+            """
+            INSERT INTO agent_event_subscription_state (user_id, custom_enabled, updated_at)
+            VALUES (?, ?, ?)
+            """,
+            ('agent-local', 1, '2026-02-22T10:12:00+00:00'),
+        )
+        self.conn.executemany(
+            """
+            INSERT INTO agent_event_subscriptions (user_id, event_type, updated_at)
+            VALUES (?, ?, ?)
+            """,
+            [
+                ('agent-local', 'mention.created', '2026-02-22T10:12:00+00:00'),
+                ('agent-local', 'inbox.item.created', '2026-02-22T10:12:00+00:00'),
+            ],
+        )
         self.conn.commit()
 
         self.db_manager = _FakeDbManager(self.conn, owner_user_id='admin-user')
@@ -439,13 +626,23 @@ class TestAdminUserWorkspace(unittest.TestCase):
         self.mention_manager = _FakeMentionManager()
         self.workspace_event_manager = _FakeWorkspaceEventManager()
         self.channel_manager = _FakeChannelManager()
+        self.api_key_manager = MagicMock()
+        self.api_key_manager.get_all_permissions.return_value = list(Permission)
+        self.api_key_manager.get_default_permissions.return_value = [
+            Permission.READ_MESSAGES,
+            Permission.WRITE_MESSAGES,
+            Permission.READ_FEED,
+            Permission.WRITE_FEED,
+        ]
+        self.meshspace_registry_manager = _FakeMeshspaceRegistryManager()
 
         p2p_manager = MagicMock()
         p2p_manager.is_running.return_value = False
+        p2p_manager.get_peer_id.return_value = 'peer-local'
 
         components = (
             self.db_manager,          # db_manager
-            MagicMock(),              # api_key_manager
+            self.api_key_manager,     # api_key_manager
             MagicMock(),              # trust_manager
             MagicMock(),              # message_manager
             self.channel_manager,     # channel_manager
@@ -470,6 +667,11 @@ class TestAdminUserWorkspace(unittest.TestCase):
         app.config['INBOX_MANAGER'] = self.inbox_manager
         app.config['MENTION_MANAGER'] = self.mention_manager
         app.config['WORKSPACE_EVENT_MANAGER'] = self.workspace_event_manager
+        app.config['CANOPY_CONFIG'] = SimpleNamespace(
+            meshspace=SimpleNamespace(meshspace_id='default-mesh', name='Default Mesh')
+        )
+        app.config['MESHSPACE_RECORD'] = dict(self.meshspace_registry_manager.record)
+        app.config['MESHSPACE_REGISTRY_MANAGER'] = self.meshspace_registry_manager
         app.register_blueprint(create_ui_blueprint())
 
         self.client = app.test_client()
@@ -501,11 +703,52 @@ class TestAdminUserWorkspace(unittest.TestCase):
         workspace = payload.get('workspace') or {}
         self.assertEqual((workspace.get('user') or {}).get('id'), 'agent-local')
         self.assertEqual((workspace.get('inbox') or {}).get('pending_count'), 3)
+        discrepancies = (workspace.get('inbox') or {}).get('discrepancies') or {}
+        self.assertEqual(discrepancies.get('completed_without_completion_ref'), 1)
+        self.assertEqual(len(discrepancies.get('items') or []), 1)
+        self.assertEqual((discrepancies.get('items') or [])[0].get('id'), 'INB-2')
         self.assertEqual((workspace.get('mentions') or {}).get('unacked_count'), 1)
+        runtime = workspace.get('runtime') or {}
+        self.assertEqual(runtime.get('last_event_cursor_seen'), 57)
+        self.assertEqual(runtime.get('last_event_fetch_at'), '2026-02-22T10:15:00+00:00')
+        self.assertEqual(runtime.get('last_inbox_fetch_at'), '2026-02-22T10:10:00+00:00')
+        self.assertEqual(runtime.get('event_subscription_source'), 'stored')
+        self.assertTrue(runtime.get('event_subscription_custom_enabled'))
+        self.assertEqual(
+            runtime.get('event_subscription_types'),
+            ['inbox.item.created', 'mention.created'],
+        )
+        self.assertEqual(runtime.get('event_subscription_count'), 2)
+        self.assertEqual(runtime.get('event_subscription_updated_at'), '2026-02-22T10:12:00+00:00')
+        self.assertIsNotNone(runtime.get('oldest_pending_inbox_age_seconds'))
+        self.assertIsNotNone(runtime.get('oldest_unacked_mention_age_seconds'))
+        self.assertRegex(runtime.get('oldest_pending_inbox_age_text') or '', r'^\d+[smhd]$')
+        self.assertRegex(runtime.get('oldest_unacked_mention_age_text') or '', r'^\d+[smhd]$')
         governance = workspace.get('governance') or {}
         self.assertTrue(governance.get('available'))
         self.assertTrue((governance.get('policy') or {}).get('enabled'))
         self.assertGreaterEqual(len(governance.get('channels') or []), 1)
+        channel_ids = {row.get('id') for row in (governance.get('channels') or [])}
+        self.assertIn('CremotePrivate', channel_ids)
+        self.assertNotIn('CremotePrivateOther', channel_ids)
+        self.assertIn('CremotePublic', channel_ids)
+
+    def test_admin_page_renders_governance_manager_and_permission_presets(self) -> None:
+        self._set_authenticated_session()
+
+        response = self.client.get('/admin')
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('Stage current memberships', html)
+        self.assertIn('Quarantine preset', html)
+        self.assertIn('Agent default', html)
+        self.assertIn('Meshspace Agent API Template', html)
+        self.assertIn('Read only', html)
+        self.assertNotIn('Subsystem Visibility', html)
+        self.assertNotIn('Mesh Sync Diagnostics', html)
+        self.assertNotIn('Workspace Event Journal', html)
+        self.assertNotIn('Identity Portability (Phase 1)', html)
 
     def test_admin_workspace_event_status_snapshot(self) -> None:
         self._set_authenticated_session()
@@ -522,6 +765,78 @@ class TestAdminUserWorkspace(unittest.TestCase):
         self.assertEqual((diagnostics.get('items') or [])[0].get('payload_preview'), 'hello from remote')
         self.assertIn('supported_types', diagnostics)
         self.assertIn('workspace_event_seq', heartbeat)
+
+    def test_admin_can_update_meshspace_agent_permission_template(self) -> None:
+        csrf_token = 'csrf-meshspace-template'
+        self._set_authenticated_session(csrf_token=csrf_token)
+
+        response = self.client.post(
+            '/ajax/admin/meshspace/agent-permissions',
+            json={
+                'permissions': [
+                    Permission.READ_MESSAGES.value,
+                    Permission.WRITE_MESSAGES.value,
+                    Permission.READ_FILES.value,
+                    Permission.WRITE_FILES.value,
+                ]
+            },
+            headers={'X-CSRFToken': csrf_token},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertEqual(
+            payload.get('default_agent_permissions'),
+            [
+                Permission.READ_MESSAGES.value,
+                Permission.WRITE_MESSAGES.value,
+                Permission.READ_FILES.value,
+                Permission.WRITE_FILES.value,
+            ],
+        )
+
+    def test_agent_self_service_key_generation_uses_meshspace_template_defaults(self) -> None:
+        csrf_token = 'csrf-self-key'
+        self._set_authenticated_session(user_id='agent-local', csrf_token=csrf_token)
+        self.api_key_manager.generate_key.return_value = 'raw-agent-key'
+        self.meshspace_registry_manager.record['default_agent_permissions'] = [
+            Permission.READ_MESSAGES.value,
+            Permission.WRITE_MESSAGES.value,
+            Permission.READ_FILES.value,
+            Permission.WRITE_FILES.value,
+        ]
+
+        response = self.client.post(
+            '/ajax/generate_key',
+            json={},
+            headers={'X-CSRFToken': csrf_token},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertEqual(payload.get('api_key'), 'raw-agent-key')
+        self.assertEqual(
+            payload.get('permissions'),
+            [
+                Permission.READ_MESSAGES.value,
+                Permission.WRITE_MESSAGES.value,
+                Permission.READ_FILES.value,
+                Permission.WRITE_FILES.value,
+            ],
+        )
+        self.api_key_manager.generate_key.assert_called_once()
+        _, permissions, expires_days = self.api_key_manager.generate_key.call_args[0]
+        self.assertEqual(expires_days, None)
+        self.assertEqual(
+            permissions,
+            [
+                Permission.READ_MESSAGES,
+                Permission.WRITE_MESSAGES,
+                Permission.READ_FILES,
+                Permission.WRITE_FILES,
+            ],
+        )
 
     def test_admin_can_update_local_user_profile(self) -> None:
         csrf_token = 'csrf-profile'
@@ -629,6 +944,30 @@ class TestAdminUserWorkspace(unittest.TestCase):
         self.assertEqual(self.channel_manager.enforce_calls, ['agent-local'])
         enforcement = payload.get('enforcement') or {}
         self.assertEqual(enforcement.get('removed_count'), 2)
+
+    def test_admin_governance_update_ignores_remote_private_channel_ids(self) -> None:
+        csrf_token = 'csrf-governance-filter'
+        self._set_authenticated_session(csrf_token=csrf_token)
+
+        response = self.client.post(
+            '/ajax/admin/users/agent-local/governance',
+            json={
+                'enabled': True,
+                'block_public_channels': False,
+                'restrict_to_allowed_channels': True,
+                'allowed_channel_ids': ['Cprivate', 'CremotePrivate', 'CremotePrivateOther', 'CremotePublic'],
+                'enforce_now': False,
+            },
+            headers={'X-CSRFToken': csrf_token},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertEqual(
+            self.channel_manager.saved_payloads[-1]['allowed_channel_ids'],
+            ['Cprivate', 'CremotePrivate', 'CremotePublic'],
+        )
 
     def test_admin_governance_update_rejects_remote_user(self) -> None:
         csrf_token = 'csrf-governance-remote'

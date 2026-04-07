@@ -1,0 +1,846 @@
+{% extends "base.html" %}
+
+{% block title %}Meshes - Canopy{% endblock %}
+
+{% block extra_css %}
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=Space+Grotesk:wght@400;500;700&display=swap');
+
+    .meshes-page {
+        font-family: 'IBM Plex Sans', sans-serif;
+        color: var(--canopy-text-primary);
+    }
+
+    .meshes-shell {
+        display: grid;
+        gap: 16px;
+    }
+
+    .meshes-hero {
+        position: relative;
+        overflow: hidden;
+        border-radius: 24px;
+        padding: 16px 18px;
+        background:
+            radial-gradient(circle at 10% 18%, rgba(34, 197, 94, 0.18), transparent 40%),
+            radial-gradient(circle at 88% 20%, rgba(59, 130, 246, 0.16), transparent 34%),
+            linear-gradient(140deg, rgba(8, 15, 31, 0.98), rgba(17, 24, 39, 0.92));
+        border: 1px solid rgba(148, 163, 184, 0.16);
+        box-shadow: 0 28px 64px rgba(0, 0, 0, 0.28);
+    }
+
+    .meshes-hero::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(120deg, rgba(255, 255, 255, 0.05), transparent 55%);
+        pointer-events: none;
+    }
+
+    .meshes-kicker {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.66);
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        color: rgba(191, 219, 254, 0.95);
+        font-size: 0.74rem;
+        font-weight: 600;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+    }
+
+    .meshes-title {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: clamp(1.8rem, 2.6vw, 2.5rem);
+        line-height: 1.02;
+        margin: 12px 0 8px;
+    }
+
+    .meshes-subtitle {
+        max-width: 720px;
+        margin: 0;
+        font-size: 0.96rem;
+        line-height: 1.5;
+        color: rgba(226, 232, 240, 0.8);
+    }
+
+    .meshes-hero-actions {
+        margin-top: 12px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .meshes-kpis {
+        margin-top: 14px;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+        gap: 8px;
+    }
+
+    .meshes-kpi {
+        min-width: 0;
+        padding: 9px 11px;
+        border-radius: 14px;
+        background: rgba(15, 23, 42, 0.58);
+        border: 1px solid rgba(148, 163, 184, 0.16);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    }
+
+    .meshes-kpi-label {
+        font-size: 0.73rem;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: rgba(148, 163, 184, 0.9);
+    }
+
+    .meshes-kpi-value {
+        margin-top: 5px;
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 1.12rem;
+        line-height: 1;
+    }
+
+    .mesh-migration-callout {
+        margin-top: 12px;
+        padding: 11px 12px;
+        border-radius: 18px;
+        background: rgba(8, 15, 31, 0.72);
+        border: 1px solid rgba(250, 204, 21, 0.24);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+
+    .mesh-migration-copy {
+        display: flex;
+        align-items: center;
+        gap: 0.65rem;
+        margin: 0;
+        font-size: 0.92rem;
+        color: rgba(226, 232, 240, 0.82);
+        line-height: 1.45;
+    }
+
+    .mesh-migration-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .mesh-panel {
+        border-radius: 24px;
+        background: rgba(15, 23, 42, 0.62);
+        border: 1px solid rgba(148, 163, 184, 0.14);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+
+    .mesh-grid-panel {
+        padding: 16px;
+    }
+
+    .mesh-grid-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 14px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+    }
+
+    .mesh-grid-title {
+        margin: 0;
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 1.26rem;
+    }
+
+    .mesh-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(292px, 1fr));
+        gap: 12px;
+    }
+
+    .mesh-card {
+        position: relative;
+        overflow: hidden;
+        border-radius: 20px;
+        padding: 14px;
+        background:
+            radial-gradient(circle at top left, rgba(34, 197, 94, 0.12), transparent 38%),
+            linear-gradient(180deg, rgba(10, 18, 33, 0.96), rgba(12, 20, 38, 0.92));
+        border: 1px solid rgba(148, 163, 184, 0.14);
+        box-shadow: 0 16px 28px rgba(0, 0, 0, 0.2);
+        display: grid;
+        gap: 10px;
+    }
+
+    .mesh-card.is-current {
+        border-color: rgba(74, 222, 128, 0.28);
+        box-shadow: 0 20px 40px rgba(8, 145, 178, 0.16);
+    }
+
+    .mesh-card-top {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+    }
+
+    .mesh-card-icon {
+        --mesh-accent-rgb: 34, 197, 94;
+        position: relative;
+        width: 50px;
+        height: 50px;
+        border-radius: 18px;
+        flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background:
+            radial-gradient(circle at 28% 24%, rgba(var(--mesh-accent-rgb), 0.42), transparent 46%),
+            linear-gradient(155deg, rgba(8, 15, 29, 0.96), rgba(15, 23, 42, 0.92));
+        color: #f8fafc;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: 0 14px 24px rgba(0, 0, 0, 0.2);
+        font-size: 1.24rem;
+        overflow: hidden;
+    }
+
+    .mesh-card-icon img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    .mesh-card-icon-initial {
+        position: absolute;
+        inset: auto 5px 4px auto;
+        font-size: 0.48rem;
+        line-height: 1;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: rgba(240, 253, 244, 0.86);
+    }
+
+    .mesh-card-meta {
+        min-width: 0;
+        flex: 1;
+        display: grid;
+        gap: 0.18rem;
+    }
+
+    .mesh-card-title-row {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        flex-wrap: wrap;
+    }
+
+    .mesh-card-title {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 1.08rem;
+        font-weight: 700;
+        line-height: 1.05;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .mesh-card-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        padding: 0.2rem 0.55rem;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.7);
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        font-size: 0.64rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: rgba(226, 232, 240, 0.84);
+    }
+
+    .mesh-card-desc {
+        margin: 0;
+        color: rgba(226, 232, 240, 0.78);
+        line-height: 1.42;
+        min-height: 0;
+        display: -webkit-box;
+        -webkit-line-clamp: 1;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    .mesh-card-state {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 0.62rem 0.72rem;
+        border-radius: 16px;
+        background: rgba(15, 23, 42, 0.58);
+        border: 1px solid rgba(148, 163, 184, 0.16);
+    }
+
+    .mesh-card-state-left {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.65rem;
+        min-width: 0;
+    }
+
+    .mesh-card-state-dot {
+        width: 11px;
+        height: 11px;
+        border-radius: 999px;
+        background: #64748b;
+        box-shadow: 0 0 0 5px rgba(100, 116, 139, 0.12);
+        flex-shrink: 0;
+    }
+
+    .mesh-card-state-dot.running { background: #22c55e; box-shadow: 0 0 0 5px rgba(34, 197, 94, 0.14); }
+    .mesh-card-state-dot.starting,
+    .mesh-card-state-dot.stopping { background: #38bdf8; box-shadow: 0 0 0 5px rgba(56, 189, 248, 0.14); }
+    .mesh-card-state-dot.degraded { background: #f59e0b; box-shadow: 0 0 0 5px rgba(245, 158, 11, 0.14); }
+    .mesh-card-state-dot.crashed { background: #ef4444; box-shadow: 0 0 0 5px rgba(239, 68, 68, 0.14); }
+
+    .mesh-card-state-label {
+        font-weight: 700;
+    }
+
+    .mesh-card-state-sub {
+        font-size: 0.78rem;
+        color: var(--canopy-text-secondary);
+    }
+
+    .mesh-card-presence {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .mesh-presence-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.36rem;
+        padding: 0.26rem 0.56rem;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(148, 163, 184, 0.12);
+        font-size: 0.65rem;
+        font-weight: 700;
+        color: rgba(226, 232, 240, 0.9);
+    }
+
+    .mesh-presence-pill.attention {
+        background: rgba(244, 63, 94, 0.1);
+        border-color: rgba(244, 63, 94, 0.18);
+        color: #fecdd3;
+    }
+
+    .mesh-presence-pill.warning {
+        background: rgba(245, 158, 11, 0.1);
+        border-color: rgba(245, 158, 11, 0.16);
+        color: #fde68a;
+    }
+
+    .mesh-presence-pill.live {
+        background: rgba(20, 184, 166, 0.12);
+        border-color: rgba(45, 212, 191, 0.18);
+        color: #ccfbf1;
+    }
+
+    .mesh-card-kv {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+    }
+
+    .mesh-card-kv-item {
+        padding: 0.55rem 0.64rem;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(148, 163, 184, 0.12);
+    }
+
+    .mesh-card-kv-label {
+        font-size: 0.64rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: rgba(148, 163, 184, 0.88);
+    }
+
+    .mesh-card-kv-value {
+        margin-top: 0.18rem;
+        font-weight: 700;
+        color: var(--canopy-text-primary);
+        line-height: 1.25;
+        word-break: break-word;
+    }
+
+    .mesh-card-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .mesh-card-actions .btn {
+        padding-top: 0.3rem;
+        padding-bottom: 0.3rem;
+    }
+
+    @media (max-width: 768px) {
+        .mesh-card-kv {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .mesh-migration-callout {
+            align-items: flex-start;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(() => {
+    if (typeof CSS === 'undefined' || typeof CSS.escape !== 'function') {
+        CSS.escape = function (value) {
+            var str = String(value);
+            var result = '';
+            for (var i = 0; i < str.length; i++) {
+                var code = str.charCodeAt(i);
+                if (code === 0) { result += '\uFFFD'; continue; }
+                if ((code >= 0x0001 && code <= 0x001F) || code === 0x007F ||
+                    (i === 0 && code >= 0x0030 && code <= 0x0039) ||
+                    (i === 1 && code >= 0x0030 && code <= 0x0039 && str.charCodeAt(0) === 0x002D)) {
+                    result += '\\' + code.toString(16) + ' ';
+                    continue;
+                }
+                if (i === 0 && str.length === 1 && code === 0x002D) { result += '\\' + str[i]; continue; }
+                if (code >= 0x0080 || code === 0x002D || code === 0x005F ||
+                    (code >= 0x0030 && code <= 0x0039) ||
+                    (code >= 0x0041 && code <= 0x005A) ||
+                    (code >= 0x0061 && code <= 0x007A)) {
+                    result += str[i];
+                } else {
+                    result += '\\' + str[i];
+                }
+            }
+            return result;
+        };
+    }
+
+    const page = document.getElementById('meshes-page');
+    if (!page) return;
+    const meshCsrfToken = {{ csrf_token()|tojson }};
+
+    const state = {
+        rev: String(page.dataset.meshesRev || ''),
+        inFlight: false,
+        timerId: null,
+    };
+
+    function setKpi(name, value) {
+        const node = document.querySelector(`[data-meshes-kpi="${name}"]`);
+        if (node) node.textContent = String(value ?? 0);
+    }
+
+    function buildPostAction(action, btnClass, icon, label) {
+        return `<form method="POST" action="${action}" style="display:inline">
+            <input type="hidden" name="csrf_token" value="${meshCsrfToken}">
+            <button type="submit" class="btn ${btnClass} btn-sm"><i class="bi ${icon} me-1"></i>${label}</button>
+        </form>`;
+    }
+
+    function renderActions(card, mesh) {
+        const wrap = card.querySelector('[data-meshspace-actions]');
+        if (!wrap) return;
+        const id = encodeURIComponent(String(mesh.meshspace_id || ''));
+        const actions = [];
+        if (mesh.is_startable) {
+            actions.push(buildPostAction(`/meshes/${id}/start`, 'btn-success', 'bi-play-fill', 'Start'));
+        } else if (mesh.is_stoppable) {
+            actions.push(buildPostAction(`/meshes/${id}/stop`, 'btn-warning', 'bi-stop-fill', 'Stop'));
+        }
+        if (mesh.is_restartable) {
+            actions.push(buildPostAction(`/meshes/${id}/restart`, 'btn-outline-info', 'bi-arrow-clockwise', 'Restart'));
+        }
+        if (mesh.can_refresh_state) {
+            actions.push(buildPostAction(`/meshes/${id}/refresh`, 'btn-outline-secondary', 'bi-arrow-repeat', 'Refresh state'));
+        }
+        if (mesh.is_running || mesh.is_current || mesh.live_detected) {
+            actions.push(`<a class="btn btn-outline-success btn-sm" href="${String(mesh.launch_href || '#')}">${String(mesh.open_label || 'Open mesh')}</a>`);
+        } else {
+            const blockedReason = String(mesh.open_blocked_reason || 'Start the mesh first to open it.');
+            actions.push(`<span class="btn btn-outline-secondary btn-sm disabled" title="${blockedReason}">Open mesh</span>`);
+        }
+        actions.push(`<a class="btn btn-outline-light btn-sm" href="/meshes/${id}">Details</a>`);
+        wrap.innerHTML = actions.join('');
+    }
+
+    function renderPresence(card, mesh) {
+        const wrap = card.querySelector('[data-meshspace-presence]');
+        if (!wrap) return;
+        const pills = [];
+        const activePeers = Math.max(0, Number(mesh.active_peer_count || 0));
+        const unread = Math.max(0, Number(mesh.unread_count || 0));
+        const mentions = Math.max(0, Number(mesh.mention_count || 0));
+        const pending = Math.max(0, Number(mesh.pending_review_count || 0));
+        const recent = Boolean(mesh.has_recent_activity);
+        const isolated = Boolean(mesh.network_quarantined);
+        const activityLabel = String(mesh.activity_label || 'Quiet');
+
+        if (activePeers) {
+            pills.push(`<span class="mesh-presence-pill" aria-label="${activePeers} active peer${activePeers === 1 ? '' : 's'}"><i class="bi bi-link-45deg" aria-hidden="true"></i>${activePeers} peer${activePeers === 1 ? '' : 's'}</span>`);
+        }
+        if (unread) {
+            pills.push(`<span class="mesh-presence-pill attention" aria-label="${unread} unread"><i class="bi bi-bell" aria-hidden="true"></i>${unread} unread</span>`);
+        }
+        if (mentions) {
+            pills.push(`<span class="mesh-presence-pill attention" aria-label="${mentions} mentions"><i class="bi bi-at" aria-hidden="true"></i>${mentions} mentions</span>`);
+        }
+        if (pending) {
+            pills.push(`<span class="mesh-presence-pill warning" aria-label="${pending} pending review"><i class="bi bi-hourglass-split" aria-hidden="true"></i>${pending} pending review</span>`);
+        }
+        if (!unread && !mentions && !pending && recent) {
+            pills.push(`<span class="mesh-presence-pill live" aria-label="${activityLabel}"><i class="bi bi-lightning-charge" aria-hidden="true"></i>${activityLabel}</span>`);
+        }
+        if (isolated) {
+            pills.push(`<span class="mesh-presence-pill warning" aria-label="Network isolated"><i class="bi bi-shield-lock" aria-hidden="true"></i>Isolated</span>`);
+        }
+        if (!pills.length) {
+            pills.push('<span class="mesh-presence-pill" aria-label="No recent activity"><i class="bi bi-moon-stars" aria-hidden="true"></i>Quiet</span>');
+        }
+        wrap.innerHTML = pills.join('');
+    }
+
+    function updateMeshCard(mesh) {
+        const card = document.querySelector(`[data-meshspace-card][data-meshspace-id="${CSS.escape(String(mesh.meshspace_id || ''))}"]`);
+        if (!card) return;
+        const statusLabel = card.querySelector('[data-meshspace-status-label]');
+        const statusSub = card.querySelector('[data-meshspace-status-sub]');
+        const activity = card.querySelector('[data-meshspace-activity]');
+        const dot = card.querySelector('[data-meshspace-status-dot]');
+        const note = card.querySelector('[data-meshspace-control-note]');
+
+        if (statusLabel) statusLabel.textContent = String(mesh.status_label || '');
+        if (statusSub) statusSub.textContent = String(mesh.runtime_summary || '');
+        if (activity) activity.textContent = String(mesh.activity_label || 'Quiet');
+        if (dot) {
+            dot.className = `mesh-card-state-dot ${String(mesh.status_class || '').trim()}`.trim();
+        }
+        if (note) {
+            const text = String(mesh.control_note || '');
+            note.textContent = text;
+            note.style.display = text ? '' : 'none';
+        }
+        renderPresence(card, mesh);
+        renderActions(card, mesh);
+    }
+
+    function applySnapshot(data) {
+        setKpi('total', data.total_meshspaces || 0);
+        setKpi('running', data.running_count || 0);
+        setKpi('peers', data.peer_count_total || 0);
+        setKpi('attention', data.attention_count || 0);
+        setKpi('isolated', data.isolated_count || 0);
+        (Array.isArray(data.meshspaces) ? data.meshspaces : []).forEach(updateMeshCard);
+        if (data.rev) {
+            state.rev = String(data.rev);
+            page.dataset.meshesRev = state.rev;
+        }
+    }
+
+    async function pollMeshesSnapshot() {
+        if (state.inFlight || document.hidden) return;
+        state.inFlight = true;
+        try {
+            const params = new URLSearchParams();
+            if (state.rev) params.set('rev', state.rev);
+            const res = await fetch(`/ajax/meshspaces_snapshot?${params.toString()}`, {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
+            if (!res.ok) throw new Error(`Mesh snapshot failed (${res.status})`);
+            const data = await res.json();
+            if (!data || data.success === false) return;
+            if (!data.changed) {
+                if (data.rev) {
+                    state.rev = String(data.rev);
+                    page.dataset.meshesRev = state.rev;
+                }
+                setKpi('running', data.running_count || 0);
+                setKpi('peers', data.peer_count_total || 0);
+                setKpi('attention', data.attention_count || 0);
+                setKpi('isolated', data.isolated_count || 0);
+                return;
+            }
+            applySnapshot(data);
+        } catch (error) {
+            console.warn('Canopy meshes snapshot poll failed:', error);
+        } finally {
+            state.inFlight = false;
+        }
+    }
+
+    function startMeshesSnapshotPolling() {
+        if (state.timerId) window.clearInterval(state.timerId);
+        pollMeshesSnapshot();
+        state.timerId = window.setInterval(pollMeshesSnapshot, 5000);
+    }
+
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+            pollMeshesSnapshot();
+        }
+    });
+
+    startMeshesSnapshotPolling();
+})();
+</script>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid meshes-page py-4" id="meshes-page" data-meshes-rev="{{ meshspaces_rev }}">
+    <div class="meshes-shell">
+        <section class="meshes-hero">
+            <div class="meshes-kicker">
+                <i class="bi bi-grid-1x2-fill"></i>
+                <span>Meshspaces</span>
+            </div>
+            <h1 class="meshes-title">Meshes</h1>
+            <p class="meshes-subtitle">
+                Switch isolated Canopy worlds, inspect live status, and launch additional local meshes.
+            </p>
+            <div class="meshes-hero-actions">
+                <a class="btn btn-success btn-sm" href="{{ url_for('ui.meshspace_create') }}">
+                    <i class="bi bi-plus-lg me-2"></i>New mesh
+                </a>
+                {% if current_meshspace_id %}
+                <a class="btn btn-outline-light btn-sm" href="{{ url_for('ui.dashboard') }}">
+                    <i class="bi bi-box-arrow-up-right me-2"></i>Open current
+                </a>
+                {% endif %}
+            </div>
+            <div class="meshes-kpis">
+                <div class="meshes-kpi">
+                    <div class="meshes-kpi-label">Meshspaces</div>
+                    <div class="meshes-kpi-value" data-meshes-kpi="total">{{ total_meshspaces }}</div>
+                </div>
+                <div class="meshes-kpi">
+                    <div class="meshes-kpi-label">Running</div>
+                    <div class="meshes-kpi-value" data-meshes-kpi="running">{{ running_count }}</div>
+                </div>
+                <div class="meshes-kpi">
+                    <div class="meshes-kpi-label">Peers</div>
+                    <div class="meshes-kpi-value" data-meshes-kpi="peers">{{ peer_count_total }}</div>
+                </div>
+                <div class="meshes-kpi">
+                    <div class="meshes-kpi-label">Attention</div>
+                    <div class="meshes-kpi-value" data-meshes-kpi="attention">{{ attention_count }}</div>
+                </div>
+                <div class="meshes-kpi">
+                    <div class="meshes-kpi-label">Isolated</div>
+                    <div class="meshes-kpi-value" data-meshes-kpi="isolated">{{ isolated_count }}</div>
+                </div>
+                <div class="meshes-kpi">
+                    <div class="meshes-kpi-label">Next ports</div>
+                    <div class="meshes-kpi-value" style="font-size:1.05rem;">
+                        {% if next_port_block %}
+                            {{ next_port_block.http_port }}/{{ next_port_block.mesh_port }}/{{ next_port_block.discovery_port }}
+                        {% else %}
+                            N/A
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% if current_meshspace_needs_naming and current_meshspace %}
+            <div class="mesh-migration-callout">
+                <p class="mesh-migration-copy">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <span>Rename the default mesh before adding more so each world stays clear.</span>
+                    {% if current_meshspace_has_overlap %}
+                    <span class="ms-1">It also shares a port with another registry entry, so fix the overlap too.</span>
+                    {% endif %}
+                </p>
+                <div class="mesh-migration-actions">
+                    <a class="btn btn-warning btn-sm" href="{{ url_for('ui.meshspace_detail', meshspace_id=current_meshspace.meshspace_id) }}">
+                        <i class="bi bi-pencil-square me-2"></i>Rename
+                    </a>
+                </div>
+            </div>
+            {% endif %}
+            {% if has_port_overlaps %}
+            <div class="mesh-migration-callout" data-meshspace-overlap-banner>
+                <p class="mesh-migration-copy">
+                    <i class="bi bi-exclamation-octagon"></i>
+                    <span>One or more mesh registry entries share an HTTP or mesh port. Runtime status can become ambiguous until each mesh has its own port pair.</span>
+                </p>
+            </div>
+            {% endif %}
+        </section>
+
+        <section class="mesh-panel mesh-grid-panel">
+            <div class="mesh-grid-header">
+                <div>
+                    <h2 class="mesh-grid-title">Local meshes</h2>
+                </div>
+            </div>
+            <div class="mesh-grid">
+                {% for mesh in meshspaces %}
+                <article class="mesh-card {% if mesh.is_current %}is-current{% endif %}" data-meshspace-card data-meshspace-id="{{ mesh.meshspace_id }}">
+                    <div class="mesh-card-top">
+                        <div class="mesh-card-icon" style="--mesh-accent-rgb: {{ mesh.accent_rgb or '34,197,94' }};">
+                            {% if mesh.avatar_url %}
+                            <img src="{{ mesh.avatar_url }}" alt="{{ mesh.name }}">
+                            {% else %}
+                            <i class="bi {{ mesh.display_icon }}"></i>
+                            <span class="mesh-card-icon-initial">{{ mesh.crest_text }}</span>
+                            {% endif %}
+                        </div>
+                        <div class="mesh-card-meta">
+                            <div class="mesh-card-title-row">
+                                <div class="mesh-card-title">{{ mesh.name }}</div>
+                                {% if mesh.is_current %}
+                                <span class="mesh-card-badge">Current</span>
+                                {% endif %}
+                                {% if mesh.is_default %}
+                                <span class="mesh-card-badge">Default</span>
+                                {% endif %}
+                                {% if mesh.needs_naming %}
+                                <span class="mesh-card-badge">Needs name</span>
+                                {% endif %}
+                                {% if mesh.port_overlap_warning %}
+                                <span class="mesh-card-badge" title="Port conflict: runtime status may be ambiguous until the overlap is resolved.">Port conflict</span>
+                                {% endif %}
+                            </div>
+                            {% if mesh.description %}
+                            <p class="mesh-card-desc">{{ mesh.description }}</p>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="mesh-card-state">
+                        <div class="mesh-card-state-left">
+                            <span class="mesh-card-state-dot {{ mesh.status_class }}" data-meshspace-status-dot></span>
+                            <div>
+                                <div class="mesh-card-state-label" data-meshspace-status-label>{{ mesh.status_label }}</div>
+                                <div class="mesh-card-state-sub" data-meshspace-status-sub>{{ mesh.runtime_summary }}</div>
+                            </div>
+                        </div>
+                        <span class="mesh-card-badge" data-meshspace-runtime-mode>{{ mesh.runtime_mode|replace('-', ' ')|title }}</span>
+                    </div>
+                    {% if mesh.control_note %}
+                    <div class="mesh-card-state-sub mt-2" data-meshspace-control-note>{{ mesh.control_note }}</div>
+                    {% else %}
+                    <div class="mesh-card-state-sub mt-2" data-meshspace-control-note style="display:none;"></div>
+                    {% endif %}
+                    {% if mesh.port_overlap_warning %}
+                    <div class="mesh-card-state-sub mt-1" data-meshspace-overlap-note>
+                        Shares a runtime port with another mesh entry. Assign a different port, then refresh state before trusting control state.
+                    </div>
+                    {% endif %}
+
+                    <div class="mesh-card-presence" data-meshspace-presence>
+                        {% if mesh.active_peer_count %}
+                        <span class="mesh-presence-pill" aria-label="{{ mesh.active_peer_count }} active peer{% if mesh.active_peer_count != 1 %}s{% endif %}">
+                            <i class="bi bi-link-45deg" aria-hidden="true"></i>{{ mesh.active_peer_count }} peer{% if mesh.active_peer_count != 1 %}s{% endif %}
+                        </span>
+                        {% endif %}
+                        {% if mesh.unread_count %}
+                        <span class="mesh-presence-pill attention" aria-label="{{ mesh.unread_count }} unread">
+                            <i class="bi bi-bell" aria-hidden="true"></i>{{ mesh.unread_count }} unread
+                        </span>
+                        {% endif %}
+                        {% if mesh.mention_count %}
+                        <span class="mesh-presence-pill attention" aria-label="{{ mesh.mention_count }} mentions">
+                            <i class="bi bi-at" aria-hidden="true"></i>{{ mesh.mention_count }} mentions
+                        </span>
+                        {% endif %}
+                        {% if mesh.pending_review_count %}
+                        <span class="mesh-presence-pill warning" aria-label="{{ mesh.pending_review_count }} pending review">
+                            <i class="bi bi-hourglass-split" aria-hidden="true"></i>{{ mesh.pending_review_count }} pending review
+                        </span>
+                        {% endif %}
+                        {% if mesh.has_recent_activity and not mesh.unread_count and not mesh.pending_review_count %}
+                        <span class="mesh-presence-pill live" aria-label="{{ mesh.activity_label }}">
+                            <i class="bi bi-lightning-charge" aria-hidden="true"></i>{{ mesh.activity_label }}
+                        </span>
+                        {% endif %}
+                        {% if mesh.network_quarantined %}
+                        <span class="mesh-presence-pill warning" aria-label="Network isolated">
+                            <i class="bi bi-shield-lock" aria-hidden="true"></i>Isolated
+                        </span>
+                        {% endif %}
+                        {% if not mesh.active_peer_count and not mesh.unread_count and not mesh.mention_count and not mesh.pending_review_count and not mesh.has_recent_activity and not mesh.network_quarantined %}
+                        <span class="mesh-presence-pill" aria-label="No recent activity">
+                            <i class="bi bi-moon-stars" aria-hidden="true"></i>Quiet
+                        </span>
+                        {% endif %}
+                    </div>
+
+                    <div class="mesh-card-kv">
+                        <div class="mesh-card-kv-item">
+                                <div class="mesh-card-kv-label">ID</div>
+                                <div class="mesh-card-kv-value" title="{{ mesh.meshspace_id }}">{{ mesh.short_meshspace_id }}</div>
+                            </div>
+                            <div class="mesh-card-kv-item">
+                                <div class="mesh-card-kv-label">Peer</div>
+                                <div class="mesh-card-kv-value" title="{{ mesh.peer_id or 'Pending' }}">{{ mesh.short_peer_id }}</div>
+                            </div>
+                            <div class="mesh-card-kv-item">
+                                <div class="mesh-card-kv-label">Ports</div>
+                                <div class="mesh-card-kv-value">{{ mesh.http_port }}/{{ mesh.mesh_port }}/{{ mesh.discovery_port }}</div>
+                            </div>
+                            <div class="mesh-card-kv-item">
+                            <div class="mesh-card-kv-label">Activity</div>
+                                <div class="mesh-card-kv-value" data-meshspace-activity>{{ mesh.activity_label }}</div>
+                            </div>
+                        </div>
+
+                    <div class="mesh-card-actions" data-meshspace-actions>
+                        {% if mesh.is_startable %}
+                        <form method="POST" action="{{ url_for('ui.meshspace_start', meshspace_id=mesh.meshspace_id) }}" style="display:inline">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-success btn-sm"><i class="bi bi-play-fill me-1"></i>Start</button>
+                        </form>
+                        {% elif mesh.is_stoppable %}
+                        <form method="POST" action="{{ url_for('ui.meshspace_stop', meshspace_id=mesh.meshspace_id) }}" style="display:inline">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-warning btn-sm"><i class="bi bi-stop-fill me-1"></i>Stop</button>
+                        </form>
+                        {% endif %}
+                        {% if mesh.is_restartable %}
+                        <form method="POST" action="{{ url_for('ui.meshspace_restart', meshspace_id=mesh.meshspace_id) }}" style="display:inline">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-outline-info btn-sm"><i class="bi bi-arrow-clockwise me-1"></i>Restart</button>
+                        </form>
+                        {% endif %}
+                        {% if mesh.can_refresh_state %}
+                        <form method="POST" action="{{ url_for('ui.meshspace_refresh', meshspace_id=mesh.meshspace_id) }}" style="display:inline">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-repeat me-1"></i>Refresh state</button>
+                        </form>
+                        {% endif %}
+                        {% if mesh.is_running or mesh.is_current or mesh.live_detected %}
+                        <a class="btn btn-outline-success btn-sm" href="{{ mesh.launch_href }}">{{ mesh.open_label }}</a>
+                        {% else %}
+                        <span class="btn btn-outline-secondary btn-sm disabled" title="{{ mesh.open_blocked_reason }}">Open mesh</span>
+                        {% endif %}
+                        <a class="btn btn-outline-light btn-sm" href="{{ url_for('ui.meshspace_detail', meshspace_id=mesh.meshspace_id) }}">Details</a>
+                    </div>
+                </article>
+                {% endfor %}
+            </div>
+        </section>
+    </div>
+</div>
+{% endblock %}

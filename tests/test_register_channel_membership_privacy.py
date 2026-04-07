@@ -5,6 +5,7 @@ import sqlite3
 import sys
 import types
 import unittest
+from unittest.mock import patch
 
 from flask import Flask
 
@@ -32,6 +33,7 @@ class _FakeDbManager:
     def __init__(self) -> None:
         self.conn = sqlite3.connect(':memory:')
         self.conn.row_factory = sqlite3.Row
+        self.owner_user_id = None
         self.conn.executescript(
             """
             CREATE TABLE users (
@@ -39,7 +41,9 @@ class _FakeDbManager:
                 username TEXT UNIQUE NOT NULL,
                 public_key TEXT,
                 password_hash TEXT,
-                display_name TEXT
+                display_name TEXT,
+                account_type TEXT DEFAULT 'human',
+                status TEXT DEFAULT 'active'
             );
 
             CREATE TABLE user_keys (
@@ -96,14 +100,23 @@ class _FakeDbManager:
         ).fetchone()
         return dict(row) if row else None
 
-    def create_user(self, user_id: str, username: str, public_key: str, password_hash: str, display_name: str):
+    def create_user(
+        self,
+        user_id: str,
+        username: str,
+        public_key: str,
+        password_hash: str,
+        display_name: str,
+        account_type: str = 'human',
+        status: str = 'active',
+    ):
         try:
             self.conn.execute(
                 """
-                INSERT INTO users (id, username, public_key, password_hash, display_name)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO users (id, username, public_key, password_hash, display_name, account_type, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (user_id, username, public_key, password_hash, display_name),
+                (user_id, username, public_key, password_hash, display_name, account_type, status),
             )
             self.conn.commit()
             return True
@@ -121,10 +134,48 @@ class _FakeDbManager:
         )
         self.conn.commit()
 
+    def get_instance_owner_user_id(self):
+        return self.owner_user_id
+
+    def set_instance_owner_user_id(self, user_id: str) -> None:
+        self.owner_user_id = user_id
+
+
+class _FakeChannelManager:
+    def ensure_default_channels_exist(self) -> None:
+        return None
+
+    def get_agent_quarantine_channel_id(self) -> str:
+        return 'agent-start-here'
+
 
 class TestRegisterChannelMembershipPrivacy(unittest.TestCase):
     def setUp(self) -> None:
         self.db_manager = _FakeDbManager()
+        self.channel_manager = _FakeChannelManager()
+        components = (
+            self.db_manager,
+            None,
+            None,
+            None,
+            self.channel_manager,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        self.get_components_any_patcher = patch(
+            'canopy.ui.routes._get_app_components_any',
+            return_value=components,
+        )
+        self.get_components_patcher = patch(
+            'canopy.ui.routes.get_app_components',
+            return_value=components,
+        )
+        self.get_components_any_patcher.start()
+        self.get_components_patcher.start()
 
         app = Flask(__name__)
         app.config['TESTING'] = True
@@ -134,6 +185,8 @@ class TestRegisterChannelMembershipPrivacy(unittest.TestCase):
         self.client = app.test_client()
 
     def tearDown(self) -> None:
+        self.get_components_any_patcher.stop()
+        self.get_components_patcher.stop()
         self.db_manager.conn.close()
 
     def test_register_joins_only_open_public_channels(self) -> None:
@@ -165,6 +218,82 @@ class TestRegisterChannelMembershipPrivacy(unittest.TestCase):
         self.assertIn('general', channel_ids)
         self.assertIn('Copen', channel_ids)
         self.assertNotIn('Crestricted', channel_ids)
+
+    def test_setup_creates_first_user_and_redirects_without_500(self) -> None:
+        response = self.client.post(
+            '/setup',
+            data={
+                'username': 'owner',
+                'display_name': 'Owner',
+                'password': 'StrongPass123!',
+                'password_confirm': 'StrongPass123!',
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+
+        row = self.db_manager.conn.execute(
+            "SELECT id FROM users WHERE username = ?",
+            ('owner',),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        user_id = row['id']
+
+        self.assertEqual(self.db_manager.get_instance_owner_user_id(), user_id)
+
+        with self.client.session_transaction() as sess:
+            self.assertTrue(sess.get('authenticated'))
+            self.assertEqual(sess.get('user_id'), user_id)
+            self.assertEqual(sess.get('username'), 'owner')
+
+    def test_register_second_human_starts_pending_without_login(self) -> None:
+        self.db_manager.create_user(
+            user_id='owner',
+            username='owner',
+            public_key='pub-owner',
+            password_hash='hash-owner',
+            display_name='Owner',
+            status='active',
+        )
+        self.db_manager.set_instance_owner_user_id('owner')
+
+        response = self.client.post(
+            '/register',
+            data={
+                'username': 'new_user',
+                'display_name': 'New User',
+                'password': 'StrongPass123!',
+                'password_confirm': 'StrongPass123!',
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('awaiting admin approval', response.get_data(as_text=True))
+
+        row = self.db_manager.conn.execute(
+            "SELECT id, status FROM users WHERE username = ?",
+            ('new_user',),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(row['status'], 'pending_approval')
+
+        with self.client.session_transaction() as sess:
+            self.assertFalse(bool(sess.get('authenticated')))
+
+        login_response = self.client.post(
+            '/login',
+            data={
+                'username': 'new_user',
+                'password': 'StrongPass123!',
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(login_response.status_code, 200)
+        login_html = login_response.get_data(as_text=True)
+        self.assertIn('Account awaiting approval', login_html)
+        self.assertIn('No action is required from you right now.', login_html)
+        self.assertIn('alert-pending', login_html)
+        self.assertNotIn('alert-danger mb-3">Your account is pending admin approval.', login_html)
 
 
 if __name__ == '__main__':

@@ -1,6 +1,7 @@
 """Regression tests for stream API endpoints and tokenized playback flow."""
 
 import os
+import json
 import sqlite3
 import sys
 import tempfile
@@ -9,6 +10,7 @@ import unittest
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -83,6 +85,8 @@ class _FakeApiKeyManager:
 class _FakeP2PManager:
     def __init__(self) -> None:
         self.broadcasts = []
+        self.identity_manager = SimpleNamespace(peer_endpoints={})
+        self.discovery = SimpleNamespace(get_peer=lambda _peer_id: None)
 
     def get_peer_id(self) -> str:
         return 'peer-local'
@@ -116,6 +120,13 @@ class TestApiStreamEndpoints(unittest.TestCase):
                 channel_id TEXT NOT NULL,
                 user_id TEXT NOT NULL,
                 role TEXT DEFAULT 'member'
+            );
+            CREATE TABLE channel_messages (
+                id TEXT PRIMARY KEY,
+                channel_id TEXT,
+                origin_peer TEXT,
+                attachments TEXT,
+                created_at TEXT
             );
             """
         )
@@ -198,6 +209,13 @@ class TestApiStreamEndpoints(unittest.TestCase):
             'X-API-Key': key,
             'Content-Type': 'application/json',
         }
+
+    def _set_authenticated_session(self, user_id: str = 'u-member') -> None:
+        with self.client.session_transaction() as sess:
+            sess['authenticated'] = True
+            sess['user_id'] = user_id
+            sess['username'] = user_id
+            sess['_csrf_token'] = 'csrf-test-token'
 
     def test_create_stream_requires_membership(self) -> None:
         allowed = self.client.post(
@@ -386,6 +404,175 @@ class TestApiStreamEndpoints(unittest.TestCase):
             f'/api/v1/streams/{stream_id}/manifest.m3u8?token={old_token}',
         )
         self.assertEqual(old_manifest.status_code, 404)
+
+    def test_stream_proxy_requires_authentication(self) -> None:
+        response = self.client.get('/api/v1/stream-proxy/remote-stream-auth/manifest.m3u8')
+        self.assertEqual(response.status_code, 401)
+        payload = response.get_json() or {}
+        self.assertEqual(payload.get('error'), 'Authentication required')
+
+    def test_stream_proxy_allows_known_private_peer_host(self) -> None:
+        self.conn.execute(
+            "INSERT INTO channel_messages (id, channel_id, origin_peer, attachments, created_at) VALUES (?, ?, ?, ?, ?)",
+            (
+                'Mremote1',
+                'C1',
+                'peer-remote',
+                json.dumps([{
+                    'stream_id': 'remote-stream-ok',
+                    'host_addrs': ['http://10.0.0.5:7770'],
+                }]),
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        self.conn.commit()
+        self.p2p_manager.identity_manager.peer_endpoints = {
+            'peer-remote': ['10.0.0.5:7771'],
+        }
+        self._set_authenticated_session()
+
+        class _FakeUrlopenResponse:
+            def __init__(self, payload: bytes, headers: Optional[dict[str, str]] = None) -> None:
+                self._payload = payload
+                self.headers = headers or {}
+
+            def read(self, amount: int = -1) -> bytes:
+                if amount is None or amount < 0:
+                    return self._payload
+                return self._payload[:amount]
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        with patch(
+            'urllib.request.urlopen',
+            side_effect=[
+                _FakeUrlopenResponse(b'#'),
+                _FakeUrlopenResponse(b'#EXTM3U\n#EXTINF:4,\nseg01.ts\n'),
+            ],
+        ) as mocked_urlopen:
+            response = self.client.get('/api/v1/stream-proxy/remote-stream-ok/manifest.m3u8')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, 'application/vnd.apple.mpegurl')
+        self.assertIn('/api/v1/stream-proxy/remote-stream-ok/segments/seg01.ts', response.data.decode('utf-8'))
+        called_urls = [call.args[0] for call in mocked_urlopen.call_args_list]
+        self.assertEqual(
+            called_urls,
+            [
+                'http://10.0.0.5:7770/api/v1/streams/remote-stream-ok/manifest.m3u8',
+                'http://10.0.0.5:7770/api/v1/streams/remote-stream-ok/manifest.m3u8',
+            ],
+        )
+
+    def test_stream_proxy_ignores_private_host_not_linked_to_origin_peer(self) -> None:
+        self.conn.execute(
+            "INSERT INTO channel_messages (id, channel_id, origin_peer, attachments, created_at) VALUES (?, ?, ?, ?, ?)",
+            (
+                'Mremote2',
+                'C1',
+                'peer-remote',
+                json.dumps([{
+                    'stream_id': 'remote-stream-blocked',
+                    'host_addrs': ['http://127.0.0.1:7770'],
+                }]),
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        self.conn.commit()
+        self.p2p_manager.identity_manager.peer_endpoints = {
+            'peer-remote': ['10.0.0.5:7771'],
+        }
+        self._set_authenticated_session()
+
+        class _FakeUrlopenResponse:
+            def __init__(self, payload: bytes) -> None:
+                self._payload = payload
+                self.headers = {}
+
+            def read(self, amount: int = -1) -> bytes:
+                if amount is None or amount < 0:
+                    return self._payload
+                return self._payload[:amount]
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        with patch(
+            'urllib.request.urlopen',
+            side_effect=[
+                _FakeUrlopenResponse(b'#'),
+                _FakeUrlopenResponse(b'#EXTM3U\n#EXTINF:4,\nseg02.ts\n'),
+            ],
+        ) as mocked_urlopen:
+            response = self.client.get('/api/v1/stream-proxy/remote-stream-blocked/manifest.m3u8')
+
+        self.assertEqual(response.status_code, 200)
+        called_urls = [call.args[0] for call in mocked_urlopen.call_args_list]
+        self.assertTrue(all('127.0.0.1' not in url for url in called_urls))
+        self.assertTrue(all('10.0.0.5' in url for url in called_urls))
+
+    def test_stream_proxy_segment_rejects_invalid_segment_name(self) -> None:
+        self._set_authenticated_session()
+        response = self.client.get('/api/v1/stream-proxy/remote-stream-ok/segments/seg%2001.ts')
+        self.assertEqual(response.status_code, 400)
+        payload = response.get_json() or {}
+        self.assertEqual(payload.get('error'), 'Invalid segment name')
+
+    def test_stream_proxy_segment_forces_binary_type_for_unsafe_remote_content_type(self) -> None:
+        self.conn.execute(
+            "INSERT INTO channel_messages (id, channel_id, origin_peer, attachments, created_at) VALUES (?, ?, ?, ?, ?)",
+            (
+                'Mremote3',
+                'C1',
+                'peer-remote',
+                json.dumps([{
+                    'stream_id': 'remote-stream-segment',
+                    'host_addrs': ['http://10.0.0.5:7770'],
+                }]),
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        self.conn.commit()
+        self.p2p_manager.identity_manager.peer_endpoints = {
+            'peer-remote': ['10.0.0.5:7771'],
+        }
+        self._set_authenticated_session()
+
+        class _FakeUrlopenResponse:
+            def __init__(self, payload: bytes, headers: Optional[dict[str, str]] = None) -> None:
+                self._payload = payload
+                self.headers = headers or {}
+
+            def read(self, amount: int = -1) -> bytes:
+                if amount is None or amount < 0:
+                    return self._payload
+                return self._payload[:amount]
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        with patch(
+            'urllib.request.urlopen',
+            side_effect=[
+                _FakeUrlopenResponse(b'#'),
+                _FakeUrlopenResponse(b'<html>nope</html>', headers={'Content-Type': 'text/html; charset=utf-8'}),
+            ],
+        ):
+            response = self.client.get('/api/v1/stream-proxy/remote-stream-segment/segments/seg01.ts')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, 'application/octet-stream')
+        self.assertEqual(response.data, b'<html>nope</html>')
 
     def test_empty_manifest_ingest_returns_actionable_hint(self) -> None:
         create_resp = self.client.post(

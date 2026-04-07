@@ -92,6 +92,7 @@ class WorkspaceEventManager:
     def __init__(self, db_manager: Any):
         self.db = db_manager
         self._emit_counter = 0
+        self.on_event_emitted: Optional[Any] = None
         self._ensure_tables()
         self.prune_old_events()
 
@@ -197,6 +198,17 @@ class WorkspaceEventManager:
             self._emit_counter += 1
             if self._emit_counter % 50 == 0:
                 self.prune_old_events()
+            callback = getattr(self, "on_event_emitted", None)
+            if callable(callback):
+                try:
+                    callback(
+                        seq=seq,
+                        event_type=event_type,
+                        target_user_id=target_user_id,
+                        visibility_scope=visibility_scope,
+                    )
+                except Exception as callback_exc:
+                    logger.debug("Workspace event callback failed: %s", callback_exc)
             return seq or None
         except Exception as e:
             logger.warning("Failed to emit workspace event %s: %s", event_type, e)

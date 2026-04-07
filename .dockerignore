@@ -27,5 +27,4 @@ tests/
 screenshots/
 docs/
 
-# Lock files (not needed in Docker — pip uses requirements.txt)
-uv.lock
+# Lock files (uv.lock is included for reproducible Docker builds)

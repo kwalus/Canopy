@@ -28,12 +28,12 @@ from canopy.core.mentions import extract_mentions, _normalize_display_handle, re
 class TestMentionExtraction(unittest.TestCase):
     def test_extracts_markdown_wrapped_mentions(self) -> None:
         text = (
-            "1. **@ProjectLead** asked **@Agent_One** and **@Agent_Two**.\n"
-            "2. Also ping @Automation_Bot."
+            "1. **@Maddog** asked **@Asmon_McClaw** and **@Mo_Money**.\n"
+            "2. Also ping @Codex_Agent."
         )
         self.assertEqual(
             extract_mentions(text),
-            ['ProjectLead', 'Agent_One', 'Agent_Two', 'Automation_Bot'],
+            ['Maddog', 'Asmon_McClaw', 'Mo_Money', 'Codex_Agent'],
         )
 
     def test_ignores_email_addresses(self) -> None:
@@ -49,8 +49,8 @@ class TestNormalizeDisplayHandle(unittest.TestCase):
     """Regression: display_name with spaces/trim normalizes like SQL so mention resolution matches."""
 
     def test_collapse_spaces_and_underscore(self) -> None:
-        self.assertEqual(_normalize_display_handle("Automation  Bot"), "Automation_Bot")
-        self.assertEqual(_normalize_display_handle("  Automation  Bot  "), "Automation_Bot")
+        self.assertEqual(_normalize_display_handle("Codex  Agent"), "Codex_Agent")
+        self.assertEqual(_normalize_display_handle("  Codex  Agent  "), "Codex_Agent")
 
     def test_empty_or_none(self) -> None:
         self.assertEqual(_normalize_display_handle(""), "")

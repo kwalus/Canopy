@@ -2,6 +2,7 @@
 # Keep this aligned with files that are shipped in the public repo and do not
 # depend on private notes, local-only infrastructure, or non-deterministic state.
 
+tests/test_agent_reliability_endpoints.py
 tests/test_connection_diagnostics_endpoint.py
 tests/test_routing_rate_limits.py
 tests/test_network_connectivity_regressions.py

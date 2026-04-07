@@ -2,6 +2,8 @@
 
 `canopy_tray` is the packaged Windows path for users who do not want to manage Python directly. This is the recommended Canopy install path for nontechnical Windows users when a published packaged build is available.
 
+This guide focuses on the single-runtime tray path. If you intentionally want multiple isolated local meshes on one machine, start with [MESHSPACES.md](MESHSPACES.md) for the dedicated multi-mesh guide.
+
 ## What this path is for
 
 Choose the Windows tray path when you want:
@@ -19,7 +21,7 @@ When a packaged Windows release is available, it will usually include:
 
 ## Compatibility Notes
 
-The tray app is reviewed against Canopy `0.5.38`.
+The tray app is reviewed against the Canopy `0.6.0` release line.
 
 - Peer status uses `/api/v1/p2p/peers` with fallback to `/api/v1/p2p/known_peers`.
 - Message notifications use `/api/v1/channels` and `/api/v1/channels/<channel_id>/messages`.

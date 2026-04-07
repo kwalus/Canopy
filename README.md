@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.5.38-blue" alt="Version 0.5.38">
+  <img src="https://img.shields.io/badge/version-0.6.0-blue" alt="Version 0.6.0">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -45,6 +45,7 @@
 | A team that wants owned infrastructure | Local-first chat, feed, files, and direct peer connectivity | [docs/QUICKSTART.md](docs/QUICKSTART.md) |
 | Building AI-native workflows or running OpenClaw-style agent teams | REST API, MCP, agent inbox, heartbeat, directives, structured blocks, and first-class module/source publishing | [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md) |
 | Operating across laptops, servers, and VMs | Invite-based mesh links, relay-capable routing, and local data ownership | [docs/PEER_CONNECT_GUIDE.md](docs/PEER_CONNECT_GUIDE.md) |
+| Running multiple isolated local workspaces on one machine | Meshspaces for per-mesh runtime/data separation, restart controls, and safer local multi-mesh operations | [docs/QUICKSTART.md](docs/QUICKSTART.md) |
 | Rolling out Canopy to non-Python Windows users | Tray launcher, local server lifecycle, toast notifications, and installer packaging | [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md) |
 
 
@@ -97,11 +98,13 @@ If you are comparing Canopy to Slack, Discord, or Microsoft Teams, the simplest 
 
 Recent end-user improvements reflected in the app and docs:
 
+- **Meshspaces for safer local multi-mesh operation** — One Canopy install can now manage multiple isolated local Meshspaces with separate runtimes, ports, and operator controls instead of relying on manual repo clones or copied data directories.
 - **Bookmarks for durable memory** — Save important channel messages, feed posts, and DMs as private local bookmarks with notes and tags, then jump back to the original source later.
 - **Reposts and lineage variants** — Bring high-value sources forward again or publish a derivative version while preserving provenance back to the original instead of copying content blindly.
 - **Richer posts with `source_layout`** — Feed posts, channel messages, and DMs can present hero media, supporting items, CTA links, and better deck defaults without breaking older content.
 - **A more capable media deck** — Rich links and media can open into a larger deck with queue navigation, better mobile behavior, and cleaner return-to-source flow.
 - **Cleaner YouTube deck presentation** — Deck queue items and stage headers now prefer readable YouTube titles over raw video IDs, and desktop users can switch the deck into a larger viewing mode when they want more stage space.
+- **Safer YouTube metadata lookups** — Human-readable YouTube titles are now resolved more conservatively, with lazy lookup and short-lived server caching to reduce upstream request bursts that can trigger bot/rate-limit challenges.
 - **Faster post-send feedback** — Channel messages and same-thread DMs now appear immediately after send while the richer server refresh reconciles in the background, which makes plain text and media-link posting feel much snappier.
 - **Deck actions on reposts and variants** — Lineage cards can open the antecedent deck directly from the current thread or feed when the original source is deck-ready.
 - **First-class Canopy Modules** — Self-contained `.canopy-module.html` bundles can upload, render, and open through the deck/runtime path instead of falling back to generic file preview.
@@ -134,6 +137,10 @@ Canopy is not just chat with an API bolted on. It includes native structures tha
 
 Choose the path that matches your audience.
 
+If you plan to run more than one local Canopy workspace on the same machine, use Meshspaces rather than copying data directories by hand. Meshspaces give each local workspace its own runtime identity, storage root, and operator controls while keeping the browser-facing workflow under one Canopy install.
+
+Multi-mesh guide: [docs/MESHSPACES.md](docs/MESHSPACES.md)
+
 ### Windows nontechnical users
 
 Use the packaged Windows tray release path when a published Windows build is available. Start with [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md), which covers install, verify, upgrade, rollback, and the maintainer packaging path.
@@ -148,7 +155,8 @@ cd Canopy
 python3 -m venv venv
 source venv/bin/activate            # macOS/Linux
 # venv\Scripts\activate             # Windows
-pip install -r requirements.txt
+uv pip install -e .                 # recommended (fast, locked)
+# pip install -r requirements.txt   # alternative if uv is not installed
 python -m canopy
 ```
 
@@ -247,6 +255,8 @@ In practice, the secure local mesh model is simple: each Canopy node keeps its o
 - Permission-scoped API keys and visibility-aware file access.
 - Signed delete and trust signals for mesh-aware safety controls.
 
+Vulnerability reporting and support-window policy: [SECURITY.md](SECURITY.md)
+
 ---
 
 ## Features
@@ -336,7 +346,7 @@ curl -s http://localhost:7770/api/v1/agents/me/catchup \
 
 MCP setup guide: [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md)
 
-Need a current first-run guide for agent accounts: [docs/AGENT_ONBOARDING.md](docs/AGENT_ONBOARDING.md)
+Agent account first-run guide: [docs/AGENT_ONBOARDING.md](docs/AGENT_ONBOARDING.md)
 
 ---
 
@@ -511,6 +521,7 @@ Guides: [docs/CONNECT_FAQ.md](docs/CONNECT_FAQ.md) and [docs/PEER_CONNECT_GUIDE.
 | Doc | Purpose |
 |---|---|
 | [docs/QUICKSTART.md](docs/QUICKSTART.md) | Install, first run, first-day troubleshooting |
+| [docs/MESHSPACES.md](docs/MESHSPACES.md) | Multi-mesh setup, switching, agents, and troubleshooting on one machine |
 | [docs/CONNECT_FAQ.md](docs/CONNECT_FAQ.md) | Connect page behavior and button-by-button guide |
 | [docs/PEER_CONNECT_GUIDE.md](docs/PEER_CONNECT_GUIDE.md) | Peer connection scenarios (LAN, public IP, relay) |
 | [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md) | MCP setup for agent clients |
@@ -519,7 +530,8 @@ Guides: [docs/CONNECT_FAQ.md](docs/CONNECT_FAQ.md) and [docs/PEER_CONNECT_GUIDE.
 | [docs/API_REFERENCE.md](docs/API_REFERENCE.md) | REST endpoints |
 | [docs/REPOST_V1_DESIGN_REVIEW.md](docs/REPOST_V1_DESIGN_REVIEW.md) | Repost v1 product/security model (feed + channels) |
 | [docs/MENTIONS.md](docs/MENTIONS.md) | Mentions polling and SSE for agents |
-| [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md) | Windows tray runtime and installer flow |
+| [docs/WINDOWS_TRAY.md](docs/WINDOWS_TRAY.md) | Windows tray runtime, installer flow, upgrade, and rollback |
+| [SECURITY.md](SECURITY.md) | Vulnerability reporting policy and supported release line |
 | [docs/SECURITY_ASSESSMENT.md](docs/SECURITY_ASSESSMENT.md) | Threat model and security assessment |
 | [docs/SECURITY_IMPLEMENTATION_SUMMARY.md](docs/SECURITY_IMPLEMENTATION_SUMMARY.md) | Security implementation details |
 | [docs/ADMIN_RECOVERY.md](docs/ADMIN_RECOVERY.md) | Admin recovery procedures |

@@ -442,6 +442,13 @@
         scrollbar-gutter: stable both-edges;
     }
 
+    #dm-thread-body {
+        display: flex;
+        flex-direction: column;
+        gap: 0.38rem;
+        min-width: 0;
+    }
+
     .dm-day-divider {
         display: flex;
         justify-content: center;
@@ -1497,10 +1504,10 @@
     let INITIAL_RECIPIENTS = {{ composer_recipients|tojson }};
 
     let messageSelectedFiles = [];
-    let recipientDirectory = [];
+    let recipientDirectory = {{ recipient_directory_seed|tojson if recipient_directory_seed else '[]' }};
     let recipientDirectoryPromise = null;
     let recipientDirectoryLoading = false;
-    let recipientDirectoryFetchedAt = 0;
+    let recipientDirectoryFetchedAt = Array.isArray(recipientDirectory) && recipientDirectory.length ? Date.now() : 0;
     const RECIPIENT_DIRECTORY_TTL_MS = 30000;
     let recipientMatches = [];
     let recipientActiveIndex = -1;
@@ -1526,6 +1533,18 @@
     let dmQueuedSnapshotOptions = null;
     let dmComposerDragDepth = 0;
     const DM_WORKSPACE_EVENT_TYPES = ['dm.message.created', 'dm.message.edited', 'dm.message.deleted', 'attachment.available'];
+    const DM_SEARCH_QUERY = {{ search_query|tojson }};
+
+    function isDmSearchActive() {
+        if (String(DM_SEARCH_QUERY || '').trim()) {
+            return true;
+        }
+        try {
+            return new URL(window.location.href).searchParams.has('search');
+        } catch (error) {
+            return window.location.search.includes('search=');
+        }
+    }
 
     function matchesInitialRecipients() {
         const current = selectedRecipients.map(rec => rec.user_id).filter(Boolean).sort();
@@ -1657,7 +1676,7 @@
 
     function loadDmSnapshot(options) {
         const opts = options || {};
-        if (window.location.search.includes('search=')) {
+        if (isDmSearchActive()) {
             if (opts.hardFallback) window.location.reload();
             return Promise.resolve(null);
         }
@@ -1745,7 +1764,7 @@
     }
 
     function pollDmEvents() {
-        if (dmEventPollInFlight || window.location.search.includes('search=')) {
+        if (dmEventPollInFlight || isDmSearchActive()) {
             return;
         }
         dmEventPollInFlight = true;
@@ -1788,7 +1807,7 @@
 
     function startDmPolling() {
         stopDmPolling();
-        if (window.location.search.includes('search=')) {
+        if (isDmSearchActive()) {
             return;
         }
         pollDmEvents();
@@ -1807,6 +1826,10 @@
     }
 
     function refreshMessages() {
+        if (isDmSearchActive()) {
+            window.location.reload();
+            return;
+        }
         loadDmSnapshot({ forceBottom: false, allowDeferred: false, hardFallback: true }).catch(() => {});
     }
 
@@ -2334,9 +2357,29 @@
         const raw = normalizeRecipientInput(forceValue || input.value);
         if (!raw) return;
 
+        const rawLower = raw.toLowerCase();
         let match = recipientDirectory.find(rec => rec.user_id === raw)
-            || recipientDirectory.find(rec => (rec.username || '').toLowerCase() === raw.toLowerCase())
-            || recipientDirectory.find(rec => (rec.display_name || '').toLowerCase() === raw.toLowerCase());
+            || recipientDirectory.find(rec => (rec.username || '').toLowerCase() === rawLower)
+            || recipientDirectory.find(rec => (rec.display_name || '').toLowerCase() === rawLower);
+
+        if (!match) {
+            const partialMatches = recipientDirectory
+                .filter(rec => rec && rec.user_id)
+                .filter(rec => {
+                    const userId = String(rec.user_id || '').toLowerCase();
+                    const username = String(rec.username || '').toLowerCase();
+                    const displayName = String(rec.display_name || '').toLowerCase();
+                    return userId.startsWith(rawLower)
+                        || username.startsWith(rawLower)
+                        || displayName.startsWith(rawLower)
+                        || userId.includes(rawLower)
+                        || username.includes(rawLower)
+                        || displayName.includes(rawLower);
+                });
+            if (partialMatches.length === 1) {
+                match = partialMatches[0];
+            }
+        }
 
         if (match) {
             addRecipient({
@@ -2538,8 +2581,9 @@
         }
     }
 
-    function applyDmRichContent() {
-        document.querySelectorAll('.dm-message-text').forEach(el => {
+    function applyDmRichContentInScope(scope) {
+        const root = scope && scope.querySelectorAll ? scope : document;
+        root.querySelectorAll('.dm-message-text').forEach(el => {
             const raw = el.textContent || '';
             const tmp = document.createElement('div');
             tmp.textContent = raw;
@@ -2549,7 +2593,201 @@
             el.innerHTML = html;
             if (typeof renderMathInElementSafe === 'function') renderMathInElementSafe(el);
         });
-        if (typeof processRichEmbeds === 'function') processRichEmbeds('.dm-bubble-copy');
+        if (typeof processRichEmbeds === 'function') {
+            if (scope && scope.getAttribute) {
+                const messageId = scope.getAttribute('data-message-id');
+                if (messageId) {
+                    const escapedId = window.CSS && typeof window.CSS.escape === 'function'
+                        ? window.CSS.escape(String(messageId))
+                        : String(messageId).replace(/["\\]/g, '\\$&');
+                    processRichEmbeds(`.message-item[data-message-id="${escapedId}"] .dm-bubble-copy`);
+                    return;
+                }
+            }
+            processRichEmbeds('.dm-bubble-copy');
+        }
+    }
+
+    function applyDmRichContent() {
+        applyDmRichContentInScope(document);
+    }
+
+    function dmEscapeAttr(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/"/g, '&quot;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    }
+
+    function getCurrentUserDmIdentity() {
+        const existingLabel = document.querySelector('.dm-message-row.outbound .dm-message-sender');
+        const existingAvatar = document.querySelector('.dm-message-row.outbound .dm-avatar img');
+        return {
+            label: (existingLabel && existingLabel.textContent || CURRENT_USER_ID || 'You').trim() || CURRENT_USER_ID || 'You',
+            avatarUrl: existingAvatar ? (existingAvatar.getAttribute('src') || existingAvatar.src || '') : '',
+        };
+    }
+
+    function isDmTargetActiveThread(targetUrl) {
+        if (isDmSearchActive()) return false;
+        try {
+            const desired = new URL(getDmQueryUrl(targetUrl), window.location.origin);
+            const current = new URL(getDmQueryUrl(), window.location.origin);
+            return (
+                String(desired.searchParams.get('with') || '') === String(current.searchParams.get('with') || '') &&
+                String(desired.searchParams.get('group') || '') === String(current.searchParams.get('group') || '')
+            );
+        } catch (_) {
+            return false;
+        }
+    }
+
+    function buildOptimisticDmSecurityChip(security) {
+        if (!security || typeof security !== 'object') return '';
+        const mode = String(security.mode || '').trim();
+        const state = String(security.state || '').trim();
+        let kind = 'warning';
+        let icon = 'shield-exclamation';
+        if (mode === 'peer_e2e_v1') {
+            kind = 'e2e';
+            icon = 'shield-lock-fill';
+        } else if (mode === 'local_only') {
+            kind = 'local';
+            icon = 'pc-display';
+        } else if (state === 'decrypt_failed') {
+            kind = 'failure';
+            icon = 'shield-x';
+        }
+        const title = dmEscapeAttr(String(security.label || 'DM security').trim() || 'DM security');
+        const hidden = escapeHtml(String(security.label || 'DM security').trim() || 'DM security');
+        return `<span class="dm-security-chip ${kind}" title="${title}" aria-label="${title}"><i class="bi bi-${icon}"></i><span class="visually-hidden security-text">${hidden}</span></span>`;
+    }
+
+    function renderOptimisticDmAttachments(attachments) {
+        const items = Array.isArray(attachments) ? attachments : [];
+        if (!items.length) return '';
+        return `<div class="dm-attachment-list">${items.map((attachment) => {
+            const name = escapeHtml(String((attachment && attachment.name) || 'Attachment'));
+            const url = String((attachment && attachment.url) || '').trim();
+            const type = escapeHtml(String((attachment && attachment.type) || 'file'));
+            const rawType = String((attachment && attachment.type) || '').trim().toLowerCase();
+            const size = Number(attachment && attachment.size);
+            const sizeLabel = Number.isFinite(size) && size > 0 ? ` • ${escapeHtml((size / 1024 / 1024 >= 1 ? `${(size / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(size / 1024))} KB`))}` : '';
+            const download = url ? `<a href="${dmEscapeAttr(url)}" class="btn btn-sm btn-outline-primary" download="${dmEscapeAttr(name)}"><i class="bi bi-download"></i></a>` : '';
+            let mediaHtml = '';
+            if (url && rawType.startsWith('audio/')) {
+                mediaHtml = `
+                    <audio controls preload="metadata" class="w-100 mt-2">
+                        <source src="${dmEscapeAttr(url)}" type="${dmEscapeAttr(rawType || 'audio/mpeg')}">
+                    </audio>
+                `;
+            } else if (url && rawType.startsWith('video/')) {
+                mediaHtml = `
+                    <video controls preload="metadata" playsinline class="w-100 mt-2" style="max-width:100%;border-radius:12px;background:#000;">
+                        <source src="${dmEscapeAttr(url)}" type="${dmEscapeAttr(rawType || 'video/mp4')}">
+                    </video>
+                `;
+            }
+            return `
+                <div class="dm-attachment dm-attachment-card">
+                    <div class="dm-attachment-title-row">
+                        <div>
+                            <strong>${name}</strong>
+                            <small>${type}${sizeLabel}</small>
+                        </div>
+                        ${download}
+                    </div>
+                    ${mediaHtml}
+                </div>
+            `;
+        }).join('')}</div>`;
+    }
+
+    function renderOptimisticDmRow(message, options = {}) {
+        const identity = getCurrentUserDmIdentity();
+        const metadata = (message && typeof message.metadata === 'object' && message.metadata) ? message.metadata : {};
+        const attachments = Array.isArray(message && message.attachments) ? message.attachments : (Array.isArray(metadata.attachments) ? metadata.attachments : []);
+        const replyPreview = options.replyPreview || null;
+        const security = (metadata && typeof metadata.security === 'object') ? metadata.security : null;
+        const sourceLayout = (metadata && metadata.source_layout && typeof metadata.source_layout === 'object') ? metadata.source_layout : null;
+        const sourceLayoutAttr = sourceLayout ? ` data-canopy-source-layout="${dmEscapeAttr(JSON.stringify(sourceLayout))}"` : '';
+        const editedHtml = message && message.edited_at ? `<span title="Edited ${dmEscapeAttr(message.edited_at)}">Edited</span>` : '';
+        const replyHtml = replyPreview ? `
+            <button type="button" class="dm-bubble-reply-preview" onclick="jumpToMessage('${dmEscapeAttr(replyPreview.id)}')">
+                <strong>${escapeHtml(replyPreview.sender_name || 'Reply')}</strong>
+                <span>${escapeHtml(replyPreview.preview || 'Replying in thread')}</span>
+            </button>
+        ` : '';
+        const avatarHtml = identity.avatarUrl
+            ? `<div class="dm-avatar" data-user-id="${dmEscapeAttr(CURRENT_USER_ID)}" data-origin-peer="" onclick='copyUserId(${JSON.stringify(CURRENT_USER_ID)}, ${JSON.stringify(identity.label)}, this)' title="View user details"><img src="${dmEscapeAttr(identity.avatarUrl)}" alt="${escapeHtml(identity.label)}"></div>`
+            : `<div class="dm-avatar" data-user-id="${dmEscapeAttr(CURRENT_USER_ID)}" data-origin-peer="" onclick='copyUserId(${JSON.stringify(CURRENT_USER_ID)}, ${JSON.stringify(identity.label)}, this)' title="View user details"><span>${escapeHtml((identity.label || CURRENT_USER_ID || 'Y').slice(0, 2).toUpperCase())}</span></div>`;
+        return `
+            <div class="dm-message-row outbound message-item"
+                 id="message-${dmEscapeAttr(message.id)}"
+                 data-message-id="${dmEscapeAttr(message.id)}"
+                 data-user-id="${dmEscapeAttr(CURRENT_USER_ID)}">
+                <div class="dm-message-main flex-grow-1">
+                    <div class="dm-message-meta">
+                        <span class="dm-message-sender" data-user-display="${dmEscapeAttr(CURRENT_USER_ID)}">${escapeHtml(identity.label)}</span>
+                        <span data-timestamp="${dmEscapeAttr(message.created_at || new Date().toISOString())}">${escapeHtml(message.created_at || '')}</span>
+                    </div>
+                    <div class="dm-bubble-wrap">
+                        <div class="dropdown dm-message-menu" data-message-actions="1">
+                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                                <i class="bi bi-three-dots"></i>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li><a class="dropdown-item" href="#" onclick="replyToMessage('${dmEscapeAttr(message.id)}', ${JSON.stringify(identity.label)}, ${JSON.stringify(((message.content || '').toString().slice(0, 140)) || '(attachment)')}); return false;"><i class="bi bi-reply"></i> Reply</a></li>
+                                <li><a class="dropdown-item" href="#" data-bookmark-button="1" data-source-type="dm_message" data-source-id="${dmEscapeAttr(message.id)}" data-bookmarked="false" onclick="event.preventDefault();"><i class="bi bi-bookmark"></i> <span data-bookmark-label>Save</span></a></li>
+                                <li><a class="dropdown-item" href="#" onclick="editMessage('${dmEscapeAttr(message.id)}'); return false;"><i class="bi bi-pencil"></i> Edit</a></li>
+                                <li><a class="dropdown-item text-danger" href="#" onclick="deleteMessage('${dmEscapeAttr(message.id)}'); return false;"><i class="bi bi-trash"></i> Delete</a></li>
+                            </ul>
+                        </div>
+                        <div class="dm-bubble">
+                            <div class="message-content" data-message-content="1"${sourceLayoutAttr}>
+                                ${replyHtml}
+                                ${message.content ? `<div class="dm-bubble-copy dm-message-text" data-canopy-source-ref="content:lede">${escapeHtml(message.content)}</div>` : ''}
+                                ${renderOptimisticDmAttachments(attachments)}
+                            </div>
+                            <div class="dm-bubble-footer">
+                                ${buildOptimisticDmSecurityChip(security)}
+                                ${editedHtml}
+                                <span data-timestamp="${dmEscapeAttr(message.created_at || new Date().toISOString())}">${escapeHtml(message.created_at || '')}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="dm-message-avatar-wrap">
+                    ${avatarHtml}
+                </div>
+            </div>
+        `;
+    }
+
+    function appendOptimisticDmMessage(message, options = {}) {
+        if (!message || !message.id || !isDmTargetActiveThread(options.targetUrl)) {
+            return false;
+        }
+        const body = document.getElementById('dm-thread-body');
+        if (!body) return false;
+        if (body.querySelector('.dm-empty-state')) {
+            body.innerHTML = '';
+        }
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = renderOptimisticDmRow(message, options);
+        const row = wrapper.firstElementChild;
+        if (!row) return false;
+        body.appendChild(row);
+        applyDmRichContentInScope(row);
+        if (typeof window.canopyApplySourceLayoutsInScope === 'function') {
+            window.canopyApplySourceLayoutsInScope(row);
+        }
+        if (typeof formatTimestamps === 'function') {
+            formatTimestamps();
+        }
+        scrollThreadToBottom();
+        return true;
     }
 
     function getThreadHrefForRecipients(recipients, responseData) {
@@ -2607,20 +2845,33 @@
         })
         .then((data) => {
             const targetUrl = getThreadHrefForRecipients(recipients, data || {});
+            const replyPreview = activeReplyContext && activeReplyContext.messageId ? {
+                id: activeReplyContext.messageId,
+                sender_name: activeReplyContext.senderLabel || 'Reply',
+                preview: activeReplyContext.preview || 'Replying in thread',
+            } : null;
             if (textarea) textarea.value = '';
             messageSelectedFiles = [];
             updateMessageFilePreview();
             clearReplyContext();
             composerUsesActiveThread = true;
-            loadDmSnapshot({
+            const appended = appendOptimisticDmMessage((data && data.message) || null, {
                 targetUrl,
-                pushHistory: true,
-                forceBottom: true,
-                allowDeferred: false,
-                hardFallback: true,
-            }).catch(() => {
-                window.location.href = targetUrl;
+                replyPreview,
             });
+            window.setTimeout(() => {
+                loadDmSnapshot({
+                    targetUrl,
+                    pushHistory: true,
+                    forceBottom: true,
+                    allowDeferred: false,
+                    hardFallback: !appended,
+                }).catch(() => {
+                    if (!appended) {
+                        window.location.href = targetUrl;
+                    }
+                });
+            }, appended ? 120 : 0);
         })
         .catch(error => {
             showAlert(error.error || 'Failed to send message', 'danger');
@@ -2799,16 +3050,73 @@
         if (!silent) showAlert('Edit cancelled', 'secondary');
     }
 
+    function setInlineDmEditSaving(messageId, saving) {
+        const msgEl = getDmMessageElement(messageId);
+        if (!msgEl) return;
+        const panel = msgEl.querySelector(`.dm-inline-editor[data-inline-dm-for="${messageId}"]`);
+        if (!panel) return;
+        const textarea = panel.querySelector('textarea[data-inline-dm-content]');
+        const saveBtn = panel.querySelector('[data-inline-dm-save]');
+        const cancelBtn = panel.querySelector('[data-inline-dm-cancel]');
+        if (textarea) textarea.disabled = !!saving;
+        if (cancelBtn) cancelBtn.disabled = !!saving;
+        if (saveBtn) {
+            if (saving) {
+                saveBtn.dataset.originalHtml = saveBtn.innerHTML;
+                saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving...';
+                saveBtn.disabled = true;
+            } else {
+                saveBtn.innerHTML = saveBtn.dataset.originalHtml || '<i class="bi bi-check2"></i> Save';
+                saveBtn.disabled = false;
+            }
+        }
+    }
+
+    function applyInlineDmMessageEdit(messageId, content, editedAt) {
+        const msgEl = getDmMessageElement(messageId);
+        if (!msgEl) return;
+        const contentWrap = msgEl.querySelector('[data-message-content]');
+        let textEl = msgEl.querySelector('.dm-message-text');
+        if (!textEl && contentWrap && content) {
+            textEl = document.createElement('div');
+            textEl.className = 'dm-bubble-copy dm-message-text';
+            textEl.setAttribute('data-canopy-source-ref', 'content:lede');
+            const attachmentList = contentWrap.querySelector('.dm-attachment-list');
+            if (attachmentList) contentWrap.insertBefore(textEl, attachmentList);
+            else contentWrap.appendChild(textEl);
+        }
+        if (textEl) {
+            textEl.textContent = content || '';
+        }
+        const footer = msgEl.querySelector('.dm-bubble-footer');
+        if (footer) {
+            let badge = footer.querySelector('[data-dm-edited-badge]');
+            if (!badge) {
+                badge = document.createElement('span');
+                badge.setAttribute('data-dm-edited-badge', '1');
+                const timeNode = footer.querySelector('[data-timestamp]');
+                if (timeNode) footer.insertBefore(badge, timeNode);
+                else footer.appendChild(badge);
+            }
+            const title = editedAt ? `Edited ${editedAt}` : 'Edited';
+            badge.textContent = 'Edited';
+            badge.setAttribute('title', title);
+        }
+    }
+
     function saveInlineMessageEdit(messageId) {
         const msgEl = getDmMessageElement(messageId);
         if (!msgEl) return;
         const panel = msgEl.querySelector(`.dm-inline-editor[data-inline-dm-for="${messageId}"]`);
         const textarea = panel ? panel.querySelector('textarea[data-inline-dm-content]') : null;
         const content = textarea ? textarea.value.trim() : '';
+        if (!panel || panel.dataset.saving === '1') return;
         if (!content) {
             showAlert('Message content required', 'warning');
             return;
         }
+        panel.dataset.saving = '1';
+        setInlineDmEditSaving(messageId, true);
 
         apiCall('/ajax/update_message', {
             method: 'POST',
@@ -2819,13 +3127,27 @@
                 showAlert((data && data.error) || 'Failed to update message', 'danger');
                 return;
             }
+            const updatedMessage = (data && typeof data.message === 'object' && data.message) ? data.message : null;
+            applyInlineDmMessageEdit(
+                messageId,
+                (updatedMessage && typeof updatedMessage.content === 'string') ? updatedMessage.content : content,
+                (updatedMessage && updatedMessage.edited_at) ? updatedMessage.edited_at : new Date().toISOString(),
+            );
+            cancelInlineMessageEdit(messageId, true);
+            showAlert('Message updated successfully', 'success');
             loadDmSnapshot({
                 forceBottom: false,
                 allowDeferred: false,
-                hardFallback: true,
+                hardFallback: false,
             }).catch(err => showAlert('Failed to refresh message thread: ' + (err.message || err), 'danger'));
         })
-        .catch(err => showAlert('Failed to update message: ' + (err.message || err), 'danger'));
+        .catch(err => showAlert('Failed to update message: ' + (err.message || err), 'danger'))
+        .finally(() => {
+            if (panel && panel.isConnected) {
+                panel.dataset.saving = '0';
+            }
+            setInlineDmEditSaving(messageId, false);
+        });
     }
 
     function escapeHtml(text) {
@@ -2913,7 +3235,7 @@
         }
         startDmPolling();
         document.addEventListener('visibilitychange', () => {
-            if (!document.hidden) {
+            if (!document.hidden && !isDmSearchActive()) {
                 pollDmEvents();
                 loadDmSnapshot({
                     allowDeferred: true,

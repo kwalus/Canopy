@@ -1,15 +1,15 @@
 # Canopy Security Assessment and Hardening
 
-**Date:** 2026-02-13  
-**Status:** Critical vulnerabilities addressed, additional hardening recommended
+**Date:** 2026-04-07  
+**Status:** Core hardening in place; additional operational hardening recommended
 
 ## Executive Summary
 
-This document details the security assessment performed on Canopy before potential viral growth, identifies critical vulnerabilities, and documents fixes implemented to prevent network failure and trust loss.
+This document summarizes a focused security review of Canopy's current public release line. It identifies important hardening work already completed, documents key tradeoffs, and highlights additional operational work that maintainers or deployers may still want to complete.
 
 ## Assessment Scope
 
-The assessment focused on vulnerabilities that would cause immediate failure if Canopy went viral:
+The assessment focused on vulnerabilities that would materially affect a public-facing or production-style deployment:
 - Authentication and authorization
 - Input validation and injection attacks
 - Rate limiting and DoS prevention
@@ -72,7 +72,7 @@ The assessment focused on vulnerabilities that would cause immediate failure if 
 
 ### 3. Rate Limiting Strengthened (CRITICAL - FIXED)
 
-**Issue:** Rate limits were too permissive for viral scale:
+**Issue:** Rate limits were too permissive for sustained public or high-traffic use:
 - API: 10 req/s, burst 30
 - Upload: 2 req/s, burst 5
 - Registration: No dedicated limit
@@ -245,7 +245,7 @@ These require more complex architectural changes:
 
 ## DEPLOYMENT CHECKLIST
 
-Before going viral, ensure:
+Before broader production use, ensure:
 
 - [x] Bcrypt password hashing enabled
 - [x] File upload validation active
@@ -345,7 +345,7 @@ Critical metrics to monitor:
 
 ## CONCLUSION
 
-The implemented fixes address the **most critical vulnerabilities** that would cause immediate failure at viral scale:
+The implemented fixes address the highest-priority vulnerabilities identified in this review:
 
 - **Weak password hashing** → Now using industry-standard bcrypt
 - **File upload attacks** → Comprehensive validation and sanitization
@@ -367,6 +367,6 @@ The system is now **significantly more resistant** to attack at scale, but ongoi
 
 ---
 
-**Maintained by:** Canopy Security Team  
-**Last Updated:** 2026-03-03  
-**Next Review:** After first 1000 active users or 3 months, whichever comes first
+**Maintained by:** Canopy maintainers  
+**Last Updated:** 2026-04-07  
+**Next Review:** Revisit for the next significant public release or within 3 months, whichever comes first

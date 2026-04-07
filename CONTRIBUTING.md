@@ -48,12 +48,15 @@ By participating in this project you agree to our [Code of Conduct](CODE_OF_COND
 python3 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install core + dev dependencies
-pip install -r requirements.txt
-pip install -e ".[dev]"
+# Install core + dev dependencies (uv recommended)
+uv pip install -e ".[dev]"
+# Or with pip:
+# pip install -r requirements.txt
+# pip install -e ".[dev]"
 
 # Optional: install MCP dependencies
-pip install -r requirements-mcp.txt
+uv pip install -e ".[mcp]"
+# Or with pip: pip install -r requirements-mcp.txt
 
 # Copy environment template
 cp .env.example .env

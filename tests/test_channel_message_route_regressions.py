@@ -29,6 +29,7 @@ if 'zeroconf' not in sys.modules:
     sys.modules['zeroconf'] = zeroconf_stub
 
 from canopy.ui.routes import create_ui_blueprint
+from canopy.core.mentions import MentionManager
 
 
 class _FakeDbManager:
@@ -73,6 +74,20 @@ class TestChannelMessageRouteRegressions(unittest.TestCase):
                 target_type TEXT,
                 target_id TEXT,
                 author_id TEXT
+            );
+            CREATE TABLE mention_events (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                source_type TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                author_id TEXT,
+                origin_peer TEXT,
+                channel_id TEXT,
+                preview TEXT,
+                metadata TEXT,
+                status TEXT NOT NULL DEFAULT 'new',
+                acknowledged_at TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
             """
         )
@@ -152,6 +167,7 @@ class TestChannelMessageRouteRegressions(unittest.TestCase):
         app.config['WORKSPACE_EVENT_MANAGER'] = self.workspace_events
         app.config['CHANNEL_MANAGER'] = self.channel_manager
         app.config['SKILL_MANAGER'] = self.skill_manager
+        app.config['MENTION_MANAGER'] = MentionManager(self.db_manager)
         app.register_blueprint(create_ui_blueprint())
         self.client = app.test_client()
         with self.client.session_transaction() as sess:
@@ -222,6 +238,42 @@ class TestChannelMessageRouteRegressions(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.get_json() or {}
         self.assertEqual(payload.get('workspace_event_cursor'), 5)
+
+    def test_channel_messages_reports_when_view_marks_channel_read(self) -> None:
+        self.channel_manager.mark_channel_read.return_value = True
+
+        with patch('canopy.ui.routes._refresh_current_meshspace_shell_summary') as refresh_mock:
+            response = self.client.get('/ajax/channel_messages/general')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('marked_read'))
+        refresh_mock.assert_called_once_with('owner')
+
+    def test_channel_messages_acknowledges_mentions_for_viewed_channel(self) -> None:
+        self.channel_manager.mark_channel_read.return_value = False
+        self.conn.execute(
+            """
+            INSERT INTO mention_events (
+                id, user_id, source_type, source_id, author_id, channel_id, preview, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'new')
+            """,
+            ('MN-general-1', 'owner', 'channel_message', 'M-mention', 'peer-a', 'general', 'Please review'),
+        )
+        self.conn.commit()
+
+        response = self.client.get('/ajax/channel_messages/general')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertEqual(int(payload.get('acknowledged_mentions') or 0), 1)
+        row = self.conn.execute(
+            "SELECT acknowledged_at, status FROM mention_events WHERE id = ?",
+            ('MN-general-1',),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertTrue(row['acknowledged_at'])
+        self.assertEqual(row['status'], 'acknowledged')
 
     def test_channel_messages_snapshot_refreshes_remote_stream_attachment_status(self) -> None:
         message = MagicMock()
