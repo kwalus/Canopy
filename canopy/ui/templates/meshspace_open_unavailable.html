@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+
+{% block title %}{{ meshspace.name }} Unavailable - Canopy{% endblock %}
+
+{% block extra_css %}
+<style>
+    .mesh-open-page {
+        min-height: calc(100vh - 88px);
+        display: grid;
+        place-items: center;
+        padding: 2rem 1rem;
+    }
+
+    .mesh-open-card {
+        width: min(700px, 100%);
+        padding: 26px 28px;
+        border-radius: 28px;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        background:
+            radial-gradient(circle at 18% 18%, rgba(245, 158, 11, 0.12), transparent 36%),
+            radial-gradient(circle at 84% 14%, rgba(6, 182, 212, 0.14), transparent 28%),
+            linear-gradient(145deg, rgba(8, 15, 31, 0.98), rgba(17, 24, 39, 0.94));
+        box-shadow: 0 28px 64px rgba(0, 0, 0, 0.28);
+        display: grid;
+        gap: 16px;
+    }
+
+    .mesh-open-head {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+    }
+
+    .mesh-open-crest {
+        width: 56px;
+        height: 56px;
+        border-radius: 18px;
+        overflow: hidden;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: linear-gradient(135deg, rgba(34, 197, 94, 0.22), rgba(6, 182, 212, 0.16));
+        color: #dcfce7;
+        font-size: 1.5rem;
+        flex-shrink: 0;
+    }
+
+    .mesh-open-crest img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    .mesh-open-title {
+        margin: 0;
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: clamp(1.7rem, 2vw, 2.25rem);
+    }
+
+    .mesh-open-sub {
+        margin: 0.25rem 0 0;
+        color: rgba(226, 232, 240, 0.82);
+        line-height: 1.55;
+    }
+
+    .mesh-open-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.55rem;
+        padding: 0.78rem 0.92rem;
+        border-radius: 18px;
+        background: rgba(15, 23, 42, 0.58);
+        border: 1px solid rgba(148, 163, 184, 0.16);
+        color: rgba(191, 219, 254, 0.92);
+    }
+
+    .mesh-open-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .mesh-open-meta {
+        color: rgba(148, 163, 184, 0.9);
+        font-size: 0.92rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="mesh-open-page">
+    <section class="mesh-open-card">
+        <div class="mesh-open-head">
+            <div class="mesh-open-crest">
+                {% if meshspace.avatar_url %}
+                <img src="{{ meshspace.avatar_url }}" alt="{{ meshspace.name }}">
+                {% else %}
+                <i class="bi {{ meshspace.display_icon }}"></i>
+                {% endif %}
+            </div>
+            <div>
+                <h1 class="mesh-open-title">{{ meshspace.name }} is not running</h1>
+                {% if meshspace.open_wrong_mesh_detected %}
+                <p class="mesh-open-sub" data-mesh-open-reason="wrong-mesh">A different meshspace is responding on this mesh's recorded HTTP port, so switching here would land on the wrong runtime. Refresh state and give each mesh its own HTTP port before trying again.</p>
+                {% elif meshspace.open_stale_detected %}
+                <p class="mesh-open-sub">The registry showed this mesh as active, but no live process was found on its assigned ports. Refresh state to clear the stale runtime view, then start it when ready.</p>
+                {% elif meshspace.open_status_is_crashed %}
+                <p class="mesh-open-sub" data-mesh-open-reason="crashed">This mesh process crashed unexpectedly. Check the launch log in the detail page for clues, then use Restart to recover or Start to launch a fresh process.</p>
+                {% elif meshspace.open_status_is_restarting %}
+                <p class="mesh-open-sub" data-mesh-open-reason="restarting">This mesh is currently starting up or shutting down. Wait a moment and refresh, or use Refresh state to check if the runtime is now available.</p>
+                {% elif meshspace.open_status_is_stopped %}
+                <p class="mesh-open-sub" data-mesh-open-reason="stopped">This mesh stopped cleanly. Use Start to bring it back online, or open the detail page to inspect its ports and storage before launching.</p>
+                {% else %}
+                <p class="mesh-open-sub">This mesh is currently unavailable. Start it, refresh its runtime state, or open the detail page to manage it.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="mesh-open-status">
+            <i class="bi {{ meshspace.status_icon }}"></i>
+            <span>{{ meshspace.status_label }} · {{ meshspace.runtime_summary }}</span>
+        </div>
+
+        {% if meshspace.control_note %}
+        <div class="mesh-open-meta">{{ meshspace.control_note }}</div>
+        {% endif %}
+
+        {% if meshspace.open_probe_target %}
+        <div class="mesh-open-meta">
+            {% if meshspace.open_wrong_mesh_detected %}
+            Open was blocked because <strong>{{ meshspace.detected_meshspace_id or 'another meshspace' }}</strong> answered at <span class="font-monospace">{{ meshspace.open_probe_target }}</span>.
+            {% else %}
+            Open was blocked because no live runtime was detected at <span class="font-monospace">{{ meshspace.open_probe_target }}</span>.
+            {% endif %}
+            {% if meshspace.open_direct_url %}
+            If the detector is wrong on this machine, you can still try the direct child URL below.
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <div class="mesh-open-actions">
+            {% if meshspace.is_startable %}
+            <form method="POST" action="{{ url_for('ui.meshspace_start', meshspace_id=meshspace.meshspace_id) }}" style="display:inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-success"><i class="bi bi-play-fill me-2"></i>Start mesh</button>
+            </form>
+            {% endif %}
+            {% if meshspace.is_restartable %}
+            <form method="POST" action="{{ url_for('ui.meshspace_restart', meshspace_id=meshspace.meshspace_id) }}" style="display:inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-outline-info"><i class="bi bi-arrow-clockwise me-2"></i>Restart mesh</button>
+            </form>
+            {% endif %}
+            {% if meshspace.can_refresh_state %}
+            <form method="POST" action="{{ url_for('ui.meshspace_refresh', meshspace_id=meshspace.meshspace_id) }}" style="display:inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-outline-secondary"><i class="bi bi-arrow-repeat me-2"></i>Refresh state</button>
+            </form>
+            {% endif %}
+            {% if meshspace.open_direct_url %}
+            <a class="btn btn-outline-warning" href="{{ meshspace.open_direct_url }}"><i class="bi bi-box-arrow-up-right me-2"></i>Try direct open anyway</a>
+            {% endif %}
+            <a class="btn btn-outline-light" href="{{ url_for('ui.meshspace_detail', meshspace_id=meshspace.meshspace_id) }}">Details</a>
+            <a class="btn btn-outline-secondary" href="{{ url_for('ui.meshes_home') }}">Back to meshes</a>
+        </div>
+    </section>
+</div>
+{% endblock %}

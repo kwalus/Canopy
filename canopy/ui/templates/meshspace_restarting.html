@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+
+{% block title %}Restarting {{ meshspace.name }} - Canopy{% endblock %}
+
+{% block extra_css %}
+<style>
+    .mesh-restart-page {
+        min-height: calc(100vh - 88px);
+        display: grid;
+        place-items: center;
+        padding: 2rem 1rem;
+    }
+
+    .mesh-restart-card {
+        width: min(640px, 100%);
+        padding: 26px 28px;
+        border-radius: 28px;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        background:
+            radial-gradient(circle at 18% 18%, rgba(34, 197, 94, 0.18), transparent 36%),
+            radial-gradient(circle at 84% 14%, rgba(6, 182, 212, 0.16), transparent 28%),
+            linear-gradient(145deg, rgba(8, 15, 31, 0.98), rgba(17, 24, 39, 0.94));
+        box-shadow: 0 28px 64px rgba(0, 0, 0, 0.28);
+        display: grid;
+        gap: 16px;
+    }
+
+    .mesh-restart-head {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+    }
+
+    .mesh-restart-crest {
+        width: 56px;
+        height: 56px;
+        border-radius: 18px;
+        overflow: hidden;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: linear-gradient(135deg, rgba(34, 197, 94, 0.22), rgba(6, 182, 212, 0.16));
+        color: #dcfce7;
+        font-size: 1.5rem;
+        flex-shrink: 0;
+    }
+
+    .mesh-restart-crest img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    .mesh-restart-title {
+        margin: 0;
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: clamp(1.7rem, 2vw, 2.25rem);
+    }
+
+    .mesh-restart-sub {
+        margin: 0.25rem 0 0;
+        color: rgba(226, 232, 240, 0.82);
+        line-height: 1.55;
+    }
+
+    .mesh-restart-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.55rem;
+        padding: 0.78rem 0.92rem;
+        border-radius: 18px;
+        background: rgba(15, 23, 42, 0.58);
+        border: 1px solid rgba(148, 163, 184, 0.16);
+        color: rgba(191, 219, 254, 0.92);
+    }
+
+    .mesh-restart-spinner {
+        width: 16px;
+        height: 16px;
+        border-radius: 999px;
+        border: 2px solid rgba(56, 189, 248, 0.22);
+        border-top-color: rgba(56, 189, 248, 0.95);
+        animation: mesh-restart-spin 0.85s linear infinite;
+    }
+
+    .mesh-restart-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    @media (max-width: 480px) {
+        .mesh-restart-card {
+            padding: 18px 16px;
+        }
+
+        .mesh-restart-head {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
+        .mesh-restart-title {
+            font-size: clamp(1.4rem, 5vw, 1.9rem);
+        }
+
+        .mesh-restart-actions {
+            flex-direction: column;
+        }
+
+        .mesh-restart-actions .btn {
+            width: 100%;
+            text-align: center;
+        }
+    }
+
+    @keyframes mesh-restart-spin {
+        to { transform: rotate(360deg); }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="mesh-restart-page">
+    <section class="mesh-restart-card">
+        <div class="mesh-restart-head">
+            <div class="mesh-restart-crest">
+                {% if meshspace.avatar_url %}
+                <img src="{{ meshspace.avatar_url }}" alt="{{ meshspace.name }}">
+                {% else %}
+                <i class="bi {{ meshspace.display_icon }}"></i>
+                {% endif %}
+            </div>
+            <div>
+                <h1 class="mesh-restart-title">Restarting {{ meshspace.name }}</h1>
+                <p class="mesh-restart-sub">The current runtime is shutting down and relaunching with the same mesh contract. This page will reconnect automatically when the mesh is available again.</p>
+            </div>
+        </div>
+
+        <div class="mesh-restart-status">
+            <span class="mesh-restart-spinner" aria-hidden="true"></span>
+            <span>Waiting for the replacement runtime to come online…</span>
+        </div>
+
+        <div class="mesh-restart-actions">
+            <a class="btn btn-outline-light" href="{{ target_url }}">Try now</a>
+            <a class="btn btn-outline-secondary" href="{{ url_for('ui.meshes_home') }}">Back to meshes</a>
+        </div>
+    </section>
+</div>
+
+<script>
+(function () {
+    const targetUrl = {{ target_url|tojson }};
+    if (!targetUrl) return;
+    let retryHandle = null;
+    const scheduleRetry = () => {
+        if (retryHandle) window.clearTimeout(retryHandle);
+        retryHandle = window.setTimeout(tryReconnect, 1500);
+    };
+    const tryReconnect = () => {
+        retryHandle = null;
+        if (document.hidden) return;
+        fetch(targetUrl, { method: 'HEAD', cache: 'no-store', credentials: 'same-origin' })
+            .then((resp) => {
+                if (resp && resp.ok) {
+                    window.location.href = targetUrl;
+                    return;
+                }
+                scheduleRetry();
+            })
+            .catch(() => {
+                scheduleRetry();
+            });
+    };
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+            scheduleRetry();
+        }
+    });
+    scheduleRetry();
+})();
+</script>
+{% endblock %}

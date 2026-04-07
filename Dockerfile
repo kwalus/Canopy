@@ -3,17 +3,18 @@
 
 FROM python:3.12-slim
 
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
 # Create a non-root user for security
 RUN useradd --create-home --shell /bin/bash canopy
 
 WORKDIR /app
 
-# Install dependencies first for better layer caching
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
-
 # Copy the full project source
 COPY . .
+
+# Install the package and all runtime dependencies (locked, system Python)
+RUN uv pip install --system --no-cache .
 
 # Create data and logs directories and make the entrypoint executable
 RUN mkdir -p /app/data /app/logs && \

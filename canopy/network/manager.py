@@ -241,6 +241,10 @@ class P2PNetworkManager:
         
         logger.info("P2PNetworkManager initialized")
 
+    def _meshspace_network_quarantined(self) -> bool:
+        mesh_cfg = getattr(self.config, 'meshspace', None)
+        return bool(getattr(mesh_cfg, 'network_quarantined', False))
+
     def _build_local_capabilities(self) -> list[str]:
         """Compute P2P capability advertisement for this node."""
         caps = ['chat', 'files', 'voice']
@@ -1122,6 +1126,16 @@ class P2PNetworkManager:
             
             self._running = True
             logger.info("P2P WebSocket mesh started successfully")
+
+            if self._meshspace_network_quarantined():
+                logger.info(
+                    "Meshspace networking is quarantined; skipping discovery and startup reconnect"
+                )
+                self._sync_queue = asyncio.Queue()
+                self._startup_time = time.time()
+                self._sync_queue_task = asyncio.ensure_future(self._process_sync_queue())
+                asyncio.ensure_future(self._periodic_catchup_loop())
+                return
             
             # Start mDNS discovery in a SEPARATE thread to avoid zeroconf
             # corrupting the P2P asyncio event loop (known issue on Windows).
@@ -1170,6 +1184,9 @@ class P2PNetworkManager:
         
         Runs after a short delay to let the mesh listener settle.
         """
+        if self._meshspace_network_quarantined():
+            logger.info("Startup reconnect skipped because meshspace networking is quarantined")
+            return
         await asyncio.sleep(3)  # Let WebSocket server and mDNS settle first
         
         known_peer_ids = set(self.identity_manager.peer_endpoints.keys())
@@ -1206,6 +1223,9 @@ class P2PNetworkManager:
 
     def reconnect_known_peers(self) -> bool:
         """Public method: schedule reconnect to all known peers now."""
+        if self._meshspace_network_quarantined():
+            logger.info("Reconnect refused because meshspace networking is quarantined")
+            return False
         if not self._event_loop or self._event_loop.is_closed():
             logger.warning("Reconnect: event loop not available")
             return False
@@ -1732,6 +1752,12 @@ class P2PNetworkManager:
             peer: Discovered peer
             added: True if peer was added, False if removed
         """
+        if self._meshspace_network_quarantined():
+            logger.info(
+                "Ignoring discovered peer %s because meshspace networking is quarantined",
+                getattr(peer, 'peer_id', 'unknown'),
+            )
+            return
         if added:
             logger.info(f"Peer discovered: {peer.peer_id} at {peer.address}:{peer.port}")
 
@@ -1981,6 +2007,13 @@ class P2PNetworkManager:
         (works for both incoming and outgoing invite-code connections).
         """
         try:
+            trusted_content = self._peer_is_trusted_for_content(peer_id)
+            if self._meshspace_network_quarantined() and not trusted_content:
+                logger.info(
+                    "Skipping automatic post-connect sync for untrusted peer %s because meshspace networking is isolated",
+                    peer_id,
+                )
+                return
             self._refresh_peer_version_info(peer_id)
             if not await self._wait_for_connection_settle(peer_id):
                 connection_manager = getattr(self, 'connection_manager', None)
@@ -2001,7 +2034,6 @@ class P2PNetworkManager:
             if self.on_peer_connected:
                 self.on_peer_connected(peer_id)
 
-            trusted_content = self._peer_is_trusted_for_content(peer_id)
             if not trusted_content:
                 logger.info(
                     "Post-connect sync running in public-only mode for untrusted peer %s",

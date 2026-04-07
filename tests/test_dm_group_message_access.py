@@ -137,6 +137,21 @@ class _FakeDbManager:
                         }
                     ),
                 ),
+                # Message sent to a group recipient but WITHOUT a group_members list.
+                # A non-member who knows the group ID must NOT be able to read it.
+                (
+                    "DM-group-no-members-meta",
+                    "peer-a",
+                    "group:orphan-group",
+                    "message with no group_members in metadata",
+                    "text",
+                    "delivered",
+                    "2026-03-07T10:04:00+00:00",
+                    "2026-03-07T10:04:01+00:00",
+                    None,
+                    None,
+                    json.dumps({"group_id": "group:orphan-group"}),
+                ),
             ],
         )
         self.conn.commit()
@@ -193,6 +208,31 @@ class TestDmGroupMessageAccess(unittest.TestCase):
         visible = self.message_manager.get_group_conversation("agent-local", canonical_group_id, limit=20)
 
         self.assertEqual([message.id for message in visible], ["DM-group-visible", "DM-group-relayed"])
+
+    # --- Security regression tests ---
+
+    def test_get_group_conversation_blocks_non_member_from_empty_group_members_message(self) -> None:
+        """A non-member must not read a group message that has no group_members list.
+
+        Regression: the SQL WHERE clause uses `recipient_id LIKE 'group:%'` which
+        fetches all group-recipient rows regardless of membership.  Without an
+        explicit guard on the Python side, a user who knows the group_id can read
+        messages from groups they don't belong to.
+        """
+        # "agent-local" is NOT a member of "group:orphan-group"
+        messages = self.message_manager.get_group_conversation(
+            "agent-local", "group:orphan-group", limit=20
+        )
+        self.assertEqual(messages, [], "non-member must not see group messages with empty group_members")
+
+    def test_get_group_conversation_sender_can_read_own_group_message_without_members_list(self) -> None:
+        """The original sender of a group message may retrieve it even when
+        group_members metadata is absent (e.g. an in-transit/legacy message)."""
+        messages = self.message_manager.get_group_conversation(
+            "peer-a", "group:orphan-group", limit=20
+        )
+        ids = [m.id for m in messages]
+        self.assertIn("DM-group-no-members-meta", ids, "sender must still see their own group message")
 
 
 if __name__ == "__main__":

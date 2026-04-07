@@ -69,14 +69,22 @@ do_install() {
     # Re-detect python after venv creation
     PYTHON=$(find_python)
 
-    # Install requirements
-    if [ -f "$CANOPY_DIR/requirements.txt" ]; then
-        info "Installing from requirements.txt..."
+    # Install requirements — prefer uv, fall back to pip
+    if command -v uv &>/dev/null; then
+        info "Installing with uv..."
+        uv pip install --python "$PYTHON" -e . 2>&1 | tail -5
+        ok "Dependencies installed (uv)"
+    elif [ -f "$HOME/.local/bin/uv" ]; then
+        info "Installing with uv..."
+        "$HOME/.local/bin/uv" pip install --python "$PYTHON" -e . 2>&1 | tail -5
+        ok "Dependencies installed (uv)"
+    elif [ -f "$CANOPY_DIR/requirements.txt" ]; then
+        info "Installing from requirements.txt (pip fallback)..."
         $PYTHON -m pip install --quiet --upgrade pip 2>/dev/null || true
         $PYTHON -m pip install --quiet -r requirements.txt 2>&1 | tail -5
-        ok "Dependencies installed"
+        ok "Dependencies installed (pip)"
     else
-        err "requirements.txt not found in $CANOPY_DIR"
+        err "No installer found. Install uv (https://docs.astral.sh/uv/) or ensure requirements.txt exists."
         exit 1
     fi
 

@@ -306,6 +306,7 @@ class TestFirstRunWorkspaceGuidance(unittest.TestCase):
         body = response.get_data(as_text=True)
         self.assertNotIn('First-day guide', body)
 
+
     def test_feed_page_renders_first_day_guide(self) -> None:
         response = self.client.get('/feed')
         self.assertEqual(response.status_code, 200)

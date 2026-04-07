@@ -121,7 +121,7 @@ class TestDmSecurityClassification(unittest.TestCase):
                     'human', 'active', None, '', '2026-03-08T00:00:00+00:00'
                 ),
                 (
-                    'remote-human', 'remote_user', 'Remote User', 'pk-remote', None,
+                    'remote-human', 'homie', 'Homie', 'pk-remote', None,
                     'human', 'active', None, '', '2026-03-08T00:01:00+00:00'
                 ),
                 (

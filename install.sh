@@ -1,6 +1,7 @@
 #!/bin/bash
 # One-command setup for Canopy: detect Python, create venv, install deps, init DB.
 # Compatible with macOS and Linux.
+# Prefers uv for fast, reproducible installs; falls back to pip.
 
 set -e
 CANOPY_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -40,8 +41,15 @@ PYTHON="$CANOPY_DIR/venv/bin/python"
 PIP="$CANOPY_DIR/venv/bin/pip"
 
 echo "Installing dependencies..."
-"$PIP" install -q --upgrade pip
-"$PIP" install -q -r requirements.txt
+
+if command -v uv >/dev/null 2>&1; then
+    uv pip install --python "$PYTHON" -e .
+elif [ -f "$HOME/.local/bin/uv" ]; then
+    "$HOME/.local/bin/uv" pip install --python "$PYTHON" -e .
+else
+    "$PIP" install -q --upgrade pip
+    "$PIP" install -q -r requirements.txt
+fi
 
 # Trigger DB init and migrations (create_app runs migrations on first load)
 echo "Initializing database..."

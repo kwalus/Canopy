@@ -1,5 +1,8 @@
 # Canopy Tray - additional dependencies
 # (on top of canopy/requirements.txt)
+#
+# COMPATIBILITY SHIM — prefer:  uv pip install -e ".[tray]"
+# This file is kept temporarily for pip-only build environments.
 
 pystray>=0.19.5        # System tray icon
 winotify>=1.1.0; sys_platform == "win32"  # Windows 10/11 toast notifications

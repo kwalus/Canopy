@@ -17,7 +17,7 @@
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='icons/canopy-logo.png') }}">
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/canopy-logo.png') }}">
     
-    <title>{% block title %}Canopy - Local Mesh Communication{% endblock %}</title>
+    <title>{% if current_meshspace is defined and current_meshspace.name %}{{ current_meshspace.name }} · {% endif %}{% block title %}Canopy - Local Mesh Communication{% endblock %}</title>
     
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -229,6 +229,393 @@
         .navbar-text {
             color: var(--canopy-text-secondary) !important;
             font-weight: 500;
+        }
+
+        .meshspace-rail {
+            display: flex;
+            align-items: center;
+            gap: 0.42rem;
+            min-width: 0;
+            flex: 0 1 auto;
+            max-width: min(480px, 44vw);
+        }
+
+        .meshspace-switcher,
+        .meshspace-context-chip {
+            min-width: 0;
+            max-width: min(260px, 28vw);
+        }
+
+        .meshspace-current-btn,
+        .meshspace-context-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.6rem;
+            min-width: 0;
+            max-width: 100%;
+            padding: 0.28rem 0.42rem 0.28rem 0.34rem;
+            border-radius: 999px;
+            border: 1px solid rgba(94, 234, 212, 0.14);
+            background:
+                radial-gradient(circle at top left, rgba(16, 185, 129, 0.1), transparent 42%),
+                linear-gradient(145deg, rgba(9, 16, 31, 0.94), rgba(11, 18, 35, 0.9));
+            color: var(--canopy-text-primary);
+            box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+            backdrop-filter: blur(16px) saturate(140%);
+        }
+
+        .meshspace-current-btn {
+            border: none;
+            text-align: left;
+            width: auto;
+            max-width: 100%;
+        }
+
+        .meshspace-current-btn:hover,
+        .meshspace-current-btn:focus-visible {
+            color: var(--canopy-text-primary);
+            box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+        }
+
+        .meshspace-current-btn:focus-visible {
+            outline: none;
+        }
+
+        .meshspace-rail-links {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.32rem;
+            min-width: 0;
+        }
+
+        .meshspace-crest {
+            --mesh-accent-rgb: 34, 197, 94;
+            position: relative;
+            width: 34px;
+            height: 34px;
+            border-radius: 12px;
+            flex-shrink: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background:
+                radial-gradient(circle at 28% 24%, rgba(var(--mesh-accent-rgb), 0.42), transparent 48%),
+                linear-gradient(155deg, rgba(8, 15, 29, 0.96), rgba(15, 23, 42, 0.92));
+            color: #f8fafc;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow:
+                inset 0 1px 0 rgba(255, 255, 255, 0.08),
+                0 10px 18px rgba(0, 0, 0, 0.22);
+            overflow: hidden;
+        }
+
+        .meshspace-crest.is-orb {
+            width: 36px;
+            height: 36px;
+            border-radius: 14px;
+        }
+
+        .meshspace-crest img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .meshspace-crest i {
+            font-size: 0.94rem;
+            line-height: 1;
+        }
+
+        .meshspace-crest-initial {
+            position: absolute;
+            inset: auto 4px 3px auto;
+            font-size: 0.44rem;
+            line-height: 1;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: rgba(240, 253, 244, 0.86);
+        }
+
+        .meshspace-status-dot {
+            position: absolute;
+            inset: 1px 1px auto auto;
+            width: 10px;
+            height: 10px;
+            border-radius: 999px;
+            background: #64748b;
+            border: 2px solid rgba(8, 15, 29, 0.92);
+            box-shadow: 0 0 0 3px rgba(100, 116, 139, 0.12);
+        }
+
+        .meshspace-status-dot.running { background: #22c55e; box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.16); }
+        .meshspace-status-dot.starting,
+        .meshspace-status-dot.stopping { background: #38bdf8; box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.14); }
+        .meshspace-status-dot.degraded { background: #f59e0b; box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.16); }
+        .meshspace-status-dot.crashed { background: #ef4444; box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.16); }
+
+        .meshspace-current-copy,
+        .meshspace-context-meta {
+            min-width: 0;
+            display: grid;
+            gap: 0.08rem;
+            flex: 1;
+        }
+
+        .meshspace-current-label,
+        .meshspace-context-label {
+            font-size: 0.8rem;
+            font-weight: 800;
+            line-height: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .meshspace-current-sub,
+        .meshspace-context-sub {
+            font-size: 0.64rem;
+            line-height: 1.1;
+            color: rgba(191, 219, 254, 0.78);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .meshspace-context-chip {
+            width: auto;
+            max-width: min(240px, 28vw);
+        }
+
+        .meshspace-attention-badge,
+        .meshspace-orb-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 1.12rem;
+            height: 1.12rem;
+            padding: 0 0.32rem;
+            border-radius: 999px;
+            background: linear-gradient(135deg, rgba(244, 63, 94, 0.98), rgba(251, 113, 133, 0.94));
+            color: #fff;
+            font-size: 0.62rem;
+            font-weight: 800;
+            line-height: 1;
+            box-shadow: 0 8px 16px rgba(127, 29, 29, 0.28);
+        }
+
+        .meshspace-attention-badge.is-inline {
+            flex-shrink: 0;
+        }
+
+        .meshspace-chip-glyph,
+        .meshspace-orb-glyph {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 1.08rem;
+            height: 1.08rem;
+            border-radius: 999px;
+            background: rgba(245, 158, 11, 0.12);
+            color: #fde68a;
+            border: 1px solid rgba(245, 158, 11, 0.2);
+            font-size: 0.64rem;
+            flex-shrink: 0;
+        }
+
+        .meshspace-current-caret {
+            color: rgba(191, 219, 254, 0.82);
+            font-size: 0.72rem;
+            line-height: 1;
+            flex-shrink: 0;
+            padding-inline-end: 0.1rem;
+        }
+
+        .meshspace-rail-orb {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 42px;
+            height: 42px;
+            border-radius: 16px;
+            border: 1px solid rgba(148, 163, 184, 0.14);
+            background: rgba(8, 15, 29, 0.82);
+            box-shadow: 0 8px 18px rgba(0, 0, 0, 0.2);
+            text-decoration: none;
+            transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+        }
+
+        .meshspace-rail-orb:hover,
+        .meshspace-rail-orb:focus-visible {
+            transform: translateY(-1px);
+            box-shadow: 0 12px 24px rgba(0, 0, 0, 0.24);
+            border-color: rgba(96, 165, 250, 0.18);
+            outline: none;
+        }
+
+        .meshspace-rail-orb .meshspace-orb-badge {
+            position: absolute;
+            inset: -4px -4px auto auto;
+        }
+
+        .meshspace-rail-orb .meshspace-orb-glyph {
+            position: absolute;
+            inset: auto -4px -4px auto;
+        }
+
+        .meshspace-orb-glyph.attention {
+            background: rgba(244, 63, 94, 0.14);
+            color: #fda4af;
+            border-color: rgba(244, 63, 94, 0.24);
+        }
+
+        .meshspace-orb-glyph.live {
+            background: rgba(34, 197, 94, 0.14);
+            color: #86efac;
+            border-color: rgba(34, 197, 94, 0.24);
+        }
+
+        .meshspace-rail-orb.has-recent-activity::after {
+            content: "";
+            position: absolute;
+            inset: 2px;
+            border-radius: 13px;
+            border: 1px solid rgba(94, 234, 212, 0.22);
+            pointer-events: none;
+        }
+
+        .meshspace-switcher-menu {
+            min-width: 340px;
+            max-width: min(420px, calc(100vw - 24px));
+            padding: 0.5rem;
+            border-radius: 20px;
+            background: linear-gradient(180deg, rgba(7, 13, 26, 0.98), rgba(8, 15, 31, 0.96));
+            border: 1px solid rgba(148, 163, 184, 0.16);
+            box-shadow: 0 24px 52px rgba(0, 0, 0, 0.34);
+            backdrop-filter: blur(16px) saturate(140%);
+        }
+
+        .meshspace-switcher-section {
+            padding: 0.45rem 0.62rem 0.34rem;
+            font-size: 0.64rem;
+            text-transform: uppercase;
+            letter-spacing: 0.14em;
+            color: rgba(148, 163, 184, 0.88);
+        }
+
+        .meshspace-switcher-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.72rem;
+            padding: 0.72rem;
+            border-radius: 16px;
+            color: var(--canopy-text-primary);
+            text-decoration: none;
+            border: 1px solid transparent;
+            transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+        }
+
+        .meshspace-switcher-item:hover,
+        .meshspace-switcher-item:focus-visible {
+            color: var(--canopy-text-primary);
+            text-decoration: none;
+            background: rgba(34, 197, 94, 0.08);
+            border-color: rgba(74, 222, 128, 0.18);
+            transform: translateY(-1px);
+            outline: none;
+        }
+
+        .meshspace-switcher-item.is-current {
+            background: rgba(34, 197, 94, 0.1);
+            border-color: rgba(74, 222, 128, 0.22);
+        }
+
+        .meshspace-switcher-item-body {
+            min-width: 0;
+            flex: 1;
+            display: grid;
+            gap: 0.14rem;
+        }
+
+        .meshspace-switcher-item-name {
+            font-weight: 800;
+            line-height: 1.1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .meshspace-switcher-item-meta {
+            font-size: 0.72rem;
+            color: var(--canopy-text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .meshspace-switcher-item-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.38rem;
+            margin-top: 0.3rem;
+        }
+
+        .meshspace-switcher-metric {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.18rem 0.44rem;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(148, 163, 184, 0.12);
+            font-size: 0.62rem;
+            font-weight: 700;
+            color: rgba(226, 232, 240, 0.88);
+        }
+
+        .meshspace-switcher-rail {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: rgba(226, 232, 240, 0.72);
+            font-size: 0.7rem;
+            flex-shrink: 0;
+        }
+
+        @media (max-width: 1199.98px) {
+            .meshspace-rail {
+                max-width: min(360px, 44vw);
+            }
+
+            .meshspace-current-sub {
+                display: none;
+            }
+        }
+
+        @media (max-width: 991.98px) {
+            .meshspace-rail {
+                max-width: none;
+                width: 100%;
+                margin: 0.75rem 0 0;
+            }
+
+            .meshspace-switcher,
+            .meshspace-context-chip {
+                max-width: none;
+                width: 100%;
+            }
+
+            .meshspace-current-btn,
+            .meshspace-context-chip {
+                width: 100%;
+                justify-content: flex-start;
+            }
+
+            .meshspace-rail-links {
+                display: none;
+            }
         }
 
         .navbar .dropdown-menu {
@@ -868,6 +1255,14 @@
             max-height: min(82vh, 860px);
         }
 
+        .sidebar-media-deck.is-desktop-large {
+            width: min(820px, calc(100vw - 52px));
+        }
+
+        .sidebar-media-deck.is-desktop-large.is-visible {
+            max-height: min(96vh, 1080px);
+        }
+
         .sidebar-media-deck-shell {
             border-radius: 26px;
             overflow: hidden;
@@ -885,6 +1280,10 @@
             flex: 1 1 auto;
             min-height: 0;
             max-height: min(82vh, 860px);
+        }
+
+        .sidebar-media-deck.is-desktop-large .sidebar-media-deck-shell {
+            max-height: min(96vh, 1080px);
         }
 
         /* Scrollable middle: stage, queue, meta / station / widget — not transport controls */
@@ -1065,6 +1464,13 @@
             transition: all 0.2s ease;
         }
 
+        .sidebar-media-deck-action-btn.is-active {
+            border-color: rgba(96, 165, 250, 0.42);
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.16), rgba(34, 197, 94, 0.14));
+            color: #dbeafe;
+            box-shadow: inset 0 0 0 1px rgba(147, 197, 253, 0.1);
+        }
+
         .sidebar-media-deck-action-label {
             display: none;
             line-height: 1;
@@ -1091,6 +1497,23 @@
             padding: 0 18px 14px;
         }
 
+        .sidebar-media-deck.is-desktop-large .sidebar-media-deck-header {
+            padding: 18px 20px 14px;
+        }
+
+        .sidebar-media-deck.is-desktop-large .sidebar-media-deck-stage-shell,
+        .sidebar-media-deck.is-desktop-large .sidebar-media-deck-detail,
+        .sidebar-media-deck.is-desktop-large .sidebar-media-deck-queue-shell {
+            padding-left: 20px;
+            padding-right: 20px;
+        }
+
+        .sidebar-media-deck.is-desktop-large .sidebar-media-deck-footer {
+            padding-left: 20px;
+            padding-right: 20px;
+            padding-bottom: 20px;
+        }
+
         .sidebar-media-deck-stage {
             position: relative;
             width: 100%;
@@ -1100,6 +1523,11 @@
             background: linear-gradient(180deg, rgba(2, 6, 23, 0.95), rgba(15, 23, 42, 0.98));
             border: 1px solid rgba(255, 255, 255, 0.08);
             box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+        }
+
+        .sidebar-media-deck.is-desktop-large .sidebar-media-deck-stage {
+            min-height: clamp(352px, 57vh, 770px);
+            max-height: min(66vh, 770px);
         }
 
         .sidebar-media-deck-stage.is-empty {
@@ -1678,6 +2106,12 @@
             transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
         }
 
+        .sidebar-media-deck.is-desktop-large .sidebar-media-deck-item {
+            min-width: 152px;
+            width: 152px;
+            flex-basis: 152px;
+        }
+
         .sidebar-media-deck-item:hover {
             transform: translateY(-1px);
             border-color: rgba(96, 165, 250, 0.3);
@@ -2051,6 +2485,10 @@
                 padding: 0.25rem 0.45rem;
                 gap: 0.3rem;
                 font-size: 0.68rem;
+            }
+
+            #sidebar-media-deck-large-toggle {
+                display: none !important;
             }
         }
 
@@ -2571,6 +3009,37 @@
 	            overflow-y: auto;
 	            overflow-x: hidden;
 	            padding: 2px 0;
+	        }
+
+	        .notification-menu .notification-section {
+	            padding: 4px 0 2px;
+	        }
+
+	        .notification-menu .notification-section + .notification-section {
+	            border-top: 1px solid rgba(255, 255, 255, 0.06);
+	            margin-top: 4px;
+	            padding-top: 8px;
+	        }
+
+	        .notification-menu .notification-section-label {
+	            display: flex;
+	            align-items: center;
+	            justify-content: space-between;
+	            gap: 10px;
+	            padding: 0 16px 6px;
+	            font-size: 0.68rem;
+	            letter-spacing: 0.08em;
+	            text-transform: uppercase;
+	            color: var(--canopy-text-muted);
+	            font-weight: 700;
+	        }
+
+	        .notification-menu .notification-section-count {
+	            font-size: 0.66rem;
+	            letter-spacing: 0;
+	            text-transform: none;
+	            color: var(--canopy-text-secondary);
+	            font-weight: 600;
 	        }
 
 	        .notification-menu .dropdown-item.notification-item {
@@ -7320,6 +7789,173 @@
                     <span class="badge rounded-pill {% if sidebar_connected_peers|length > 0 %}bg-success{% else %}bg-secondary{% endif %}" id="header-peer-count">{{ sidebar_connected_peers|length }}</span>
                 </a>
                 {% endif %}
+                {% if current_meshspace is defined and current_meshspace %}
+                    <div class="meshspace-rail me-2"
+                         data-meshspace-header-rail
+                         data-meshspace-current-id="{{ current_meshspace.meshspace_id }}"
+                         data-meshspace-can-manage="{{ '1' if meshspace_can_manage else '0' }}"
+                         data-meshspace-manage-href="{{ url_for('ui.meshes_home') if meshspace_can_manage else '' }}"
+                         data-meshspace-create-href="{{ url_for('ui.meshspace_create') if meshspace_can_manage else '' }}"
+                         data-meshspace-snapshot-href="{{ url_for('ui.ajax_meshspaces_snapshot') if meshspace_can_manage else '' }}">
+                        {% if navbar_meshspaces is defined and navbar_meshspaces %}
+                        <div class="dropdown meshspace-switcher">
+                            <button class="meshspace-current-btn"
+                                    type="button"
+                                    data-bs-toggle="dropdown"
+                                    data-meshspace-current-btn
+                                    aria-expanded="false"
+                                    aria-label="Switch meshspace"
+                                    title="{{ current_meshspace.name }} · {{ current_meshspace.status_label }} · {{ current_meshspace.presence_subline }}">
+                                <span class="meshspace-crest" data-meshspace-current-crest style="--mesh-accent-rgb: {{ current_meshspace.accent_rgb or '34,197,94' }};">
+                                    {% if current_meshspace.avatar_url %}
+                                    <img src="{{ current_meshspace.avatar_url }}" alt="{{ current_meshspace.name }}" data-meshspace-current-avatar>
+                                    {% else %}
+                                    <i class="bi {{ current_meshspace.display_icon }}" data-meshspace-current-icon></i>
+                                    <span class="meshspace-crest-initial" data-meshspace-current-initial>{{ current_meshspace.crest_text }}</span>
+                                    {% endif %}
+                                    <span class="meshspace-status-dot {{ current_meshspace.status_class }}" data-meshspace-current-status-dot></span>
+                                </span>
+                                <span class="meshspace-current-copy">
+                                    <span class="meshspace-current-label" data-meshspace-current-label>{{ current_meshspace.name }}</span>
+                                    <span class="meshspace-current-sub" data-meshspace-current-sub>{{ current_meshspace.presence_subline }}</span>
+                                </span>
+                                <span class="meshspace-attention-badge {% if not current_meshspace.attention_badge %}d-none{% endif %}" data-meshspace-current-badge>{{ current_meshspace.attention_badge }}</span>
+                                {% if current_meshspace.network_quarantined %}
+                                <span class="meshspace-chip-glyph" data-meshspace-current-glyph title="Network isolated"><i class="bi bi-shield-lock"></i></span>
+                                {% else %}
+                                <span class="meshspace-chip-glyph d-none" data-meshspace-current-glyph title="Network isolated"><i class="bi bi-shield-lock"></i></span>
+                                {% endif %}
+                                <span class="meshspace-current-caret"><i class="bi bi-chevron-down"></i></span>
+                            </button>
+                            <ul class="dropdown-menu meshspace-switcher-menu" data-meshspace-switcher-menu>
+                                <li><div class="meshspace-switcher-section">Meshspaces</div></li>
+                                <li class="meshspace-switcher-dynamic">
+                                <div data-meshspace-switcher-items>
+                                {% for mesh in navbar_meshspaces %}
+                                    <a class="meshspace-switcher-item {% if mesh.is_current %}is-current{% endif %}" data-meshspace-switcher-item data-meshspace-id="{{ mesh.meshspace_id }}" href="{{ mesh.launch_href }}" title="{{ mesh.name }} · {{ mesh.status_label }} · {{ mesh.presence_subline }}{% if mesh.control_note %} · {{ mesh.control_note }}{% endif %}">
+                                        <span class="meshspace-crest" style="--mesh-accent-rgb: {{ mesh.accent_rgb or '34,197,94' }};">
+                                            {% if mesh.avatar_url %}
+                                            <img src="{{ mesh.avatar_url }}" alt="{{ mesh.name }}">
+                                            {% else %}
+                                            <i class="bi {{ mesh.display_icon }}"></i>
+                                            <span class="meshspace-crest-initial">{{ mesh.crest_text }}</span>
+                                            {% endif %}
+                                            <span class="meshspace-status-dot {{ mesh.status_class }}"></span>
+                                        </span>
+                                        <span class="meshspace-switcher-item-body">
+                                            <span class="meshspace-switcher-item-name">{{ mesh.name }}</span>
+                                            <span class="meshspace-switcher-item-meta">{{ mesh.activity_label }} · {{ mesh.runtime_mode|replace('-', ' ')|title }}</span>
+                                            <span class="meshspace-switcher-item-badges">
+                                                <span class="meshspace-switcher-metric">{{ mesh.status_label }}</span>
+                                                {% if mesh.status_mismatch %}
+                                                <span class="meshspace-switcher-metric" title="{{ mesh.control_note }}"><i class="bi bi-exclamation-triangle"></i>State mismatch</span>
+                                                {% endif %}
+                                                {% if mesh.port_overlap_warning %}
+                                                <span class="meshspace-switcher-metric" title="Port conflict: runtime status may be unreliable until the overlap is resolved."><i class="bi bi-exclamation-circle"></i>Port conflict</span>
+                                                {% endif %}
+                                                {% if mesh.active_peer_count %}
+                                                <span class="meshspace-switcher-metric"><i class="bi bi-link-45deg"></i>{{ mesh.active_peer_count }} peer{% if mesh.active_peer_count != 1 %}s{% endif %}</span>
+                                                {% endif %}
+                                                {% if mesh.unread_count %}
+                                                <span class="meshspace-switcher-metric"><i class="bi bi-bell"></i>{{ mesh.unread_count }} unread</span>
+                                                {% endif %}
+                                                {% if mesh.mention_count %}
+                                                <span class="meshspace-switcher-metric"><i class="bi bi-at"></i>{{ mesh.mention_count }} mentions</span>
+                                                {% endif %}
+                                                {% if mesh.pending_review_count %}
+                                                <span class="meshspace-switcher-metric"><i class="bi bi-hourglass-split"></i>{{ mesh.pending_review_count }} pending</span>
+                                                {% endif %}
+                                                {% if mesh.network_quarantined %}
+                                                <span class="meshspace-switcher-metric"><i class="bi bi-shield-lock"></i>Isolated</span>
+                                                {% endif %}
+                                            </span>
+                                        </span>
+                                        {% if mesh.attention_badge %}
+                                        <span class="meshspace-attention-badge is-inline">{{ mesh.attention_badge }}</span>
+                                        {% elif mesh.has_recent_activity %}
+                                        <span class="meshspace-switcher-rail"><i class="bi bi-lightning-charge"></i></span>
+                                        {% else %}
+                                        <span class="meshspace-switcher-rail"><i class="bi bi-arrow-right"></i></span>
+                                        {% endif %}
+                                    </a>
+                                {% endfor %}
+                                </div>
+                                </li>
+                                {% if meshspace_can_manage %}
+                                <li><hr class="dropdown-divider"></li>
+                                <li><a class="meshspace-switcher-item" data-meshspace-manage-link href="{{ url_for('ui.meshes_home') }}">
+                                    <span class="meshspace-crest" style="--mesh-accent-rgb: 56,189,248;">
+                                        <i class="bi bi-sliders"></i>
+                                        <span class="meshspace-status-dot running"></span>
+                                    </span>
+                                    <span class="meshspace-switcher-item-body">
+                                        <span class="meshspace-switcher-item-name">Manage meshspaces</span>
+                                        <span class="meshspace-switcher-item-meta">{{ meshspace_registry_count }} local meshes</span>
+                                    </span>
+                                    <span class="meshspace-switcher-rail"><i class="bi bi-arrow-right"></i></span>
+                                </a></li>
+                                <li><a class="meshspace-switcher-item" data-meshspace-create-link href="{{ url_for('ui.meshspace_create') }}">
+                                    <span class="meshspace-crest" style="--mesh-accent-rgb: 34,197,94;">
+                                        <i class="bi bi-plus-lg"></i>
+                                        <span class="meshspace-status-dot running"></span>
+                                    </span>
+                                    <span class="meshspace-switcher-item-body">
+                                        <span class="meshspace-switcher-item-name">Create meshspace</span>
+                                        <span class="meshspace-switcher-item-meta">Create another isolated Canopy world</span>
+                                    </span>
+                                    <span class="meshspace-switcher-rail"><i class="bi bi-arrow-right"></i></span>
+                                </a></li>
+                                {% endif %}
+                            </ul>
+                        </div>
+                        <div class="meshspace-rail-links {% if not (navbar_meshspaces_quick is defined and navbar_meshspaces_quick) %}d-none{% endif %}" data-meshspace-quick-links aria-label="Quick switch active meshspaces">
+                            {% if navbar_meshspaces_quick is defined and navbar_meshspaces_quick %}
+                            {% for mesh in navbar_meshspaces_quick %}
+                            <a class="meshspace-rail-orb {% if mesh.has_recent_activity %}has-recent-activity{% endif %}" data-meshspace-quick-item data-meshspace-id="{{ mesh.meshspace_id }}" href="{{ mesh.launch_href }}" title="{{ mesh.name }} · {{ mesh.status_label }} · {{ mesh.presence_subline }}{% if mesh.status_mismatch %} · State mismatch{% endif %}{% if mesh.port_overlap_warning %} · Port conflict{% endif %}">
+                                <span class="meshspace-crest is-orb" style="--mesh-accent-rgb: {{ mesh.accent_rgb or '34,197,94' }};">
+                                    {% if mesh.avatar_url %}
+                                    <img src="{{ mesh.avatar_url }}" alt="{{ mesh.name }}">
+                                    {% else %}
+                                    <i class="bi {{ mesh.display_icon }}"></i>
+                                    <span class="meshspace-crest-initial">{{ mesh.crest_text }}</span>
+                                    {% endif %}
+                                    <span class="meshspace-status-dot {{ mesh.status_class }}"></span>
+                                </span>
+                                {% if mesh.attention_badge %}
+                                <span class="meshspace-orb-badge">{{ mesh.attention_badge }}</span>
+                                {% endif %}
+                                {% if mesh.network_quarantined %}
+                                <span class="meshspace-orb-glyph"><i class="bi bi-shield-lock"></i></span>
+                                {% elif mesh.mention_count %}
+                                <span class="meshspace-orb-glyph attention" title="{{ mesh.mention_count }} mention{% if mesh.mention_count != 1 %}s{% endif %}"><i class="bi bi-at"></i></span>
+                                {% elif mesh.unread_count %}
+                                <span class="meshspace-orb-glyph attention" title="{{ mesh.unread_count }} unread"><i class="bi bi-bell"></i></span>
+                                {% elif mesh.active_peer_count %}
+                                <span class="meshspace-orb-glyph live" title="{{ mesh.active_peer_count }} peer{% if mesh.active_peer_count != 1 %}s{% endif %} connected"><i class="bi bi-link-45deg"></i></span>
+                                {% endif %}
+                            </a>
+                            {% endfor %}
+                            {% endif %}
+                        </div>
+                        {% else %}
+                        <div class="meshspace-context-chip" aria-label="Current meshspace" title="{{ current_meshspace.name }} · {{ current_meshspace.status_label }}">
+                            <span class="meshspace-crest" style="--mesh-accent-rgb: {{ current_meshspace.accent_rgb or '34,197,94' }};">
+                                {% if current_meshspace.avatar_url %}
+                                <img src="{{ current_meshspace.avatar_url }}" alt="{{ current_meshspace.name }}">
+                                {% else %}
+                                <i class="bi {{ current_meshspace.display_icon }}"></i>
+                                <span class="meshspace-crest-initial">{{ current_meshspace.crest_text }}</span>
+                                {% endif %}
+                                <span class="meshspace-status-dot {{ current_meshspace.status_class }}"></span>
+                            </span>
+                            <span class="meshspace-context-meta">
+                                <span class="meshspace-context-label">{{ current_meshspace.name }}</span>
+                                <span class="meshspace-context-sub">{{ current_meshspace.presence_subline }}</span>
+                            </span>
+                        </div>
+                        {% endif %}
+                    </div>
+                {% endif %}
                 <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                     <span class="navbar-toggler-icon"></span>
                 </button>
@@ -7340,8 +7976,8 @@
                                 <li class="dropdown-header">Activity</li>
                                 <li class="notification-filter-wrap">
                                     <div class="notification-filter-label">
-                                        <span>Show in bell</span>
-                                        <button type="button" class="notification-filter-reset" id="notificationFilterReset">All</button>
+                                        <span title="New accounts start with inbox items only in the bell until you customize the filters.">Show in bell</span>
+                                        <button type="button" class="notification-filter-reset" id="notificationFilterReset">Reset</button>
                                     </div>
                                     <div class="notification-filter-bar" id="notificationFilterBar" aria-label="Notification type filters"></div>
                                 </li>
@@ -7364,7 +8000,7 @@
                                 <div class="profile-avatar me-2" id="navbar-avatar" style="width: 32px; height: 32px;">
                                     <i class="bi bi-person-circle fs-4"></i>
                                 </div>
-                                <span class="fw-medium" id="navbar-username">{{ session.get('display_name') or session.get('username') or user_id or 'User' }}</span>
+                                <span class="fw-medium" id="navbar-username">{{ session.get('display_name') or session.get('username') or session.get('user_id') or user_id or 'User' }}</span>
                             </a>
                             <ul class="dropdown-menu dropdown-menu-end">
                                 <li><a class="dropdown-item" href="{{ url_for('ui.profile') }}">
@@ -7451,6 +8087,12 @@
                            href="{{ url_for('ui.bookmarks_page') }}" data-title="Bookmarks">
                             <i class="bi bi-bookmarks"></i> <span>Bookmarks</span>
                         </a>
+                        {% if is_admin is defined and is_admin %}
+                        <a class="nav-link {% if request.endpoint in ['ui.meshes_home', 'ui.meshspace_create', 'ui.meshspace_detail'] %}active{% endif %}"
+                           href="{{ url_for('ui.meshes_home') }}" data-title="Meshes">
+                            <i class="bi bi-grid-1x2"></i> <span>Meshes</span>
+                        </a>
+                        {% endif %}
                         <a class="nav-link {% if request.endpoint == 'ui.api_keys' %}active{% endif %}" 
                            href="{{ url_for('ui.api_keys') }}" data-title="API Keys">
                             <i class="bi bi-key"></i> <span>API Keys</span>
@@ -7702,6 +8344,10 @@
                         <div class="sidebar-media-deck-source" id="sidebar-media-deck-source">Now playing from Canopy</div>
                     </div>
                     <div class="sidebar-media-deck-actions">
+                        <button type="button" class="sidebar-media-deck-action-btn" id="sidebar-media-deck-large-toggle" aria-label="Use larger Canopy deck view" title="Use larger Canopy deck view">
+                            <i class="bi bi-arrows-fullscreen"></i>
+                            <span class="sidebar-media-deck-action-label">Large view</span>
+                        </button>
                         <button type="button" class="sidebar-media-deck-action-btn" id="sidebar-media-deck-minimize" aria-label="Minimize Canopy deck">
                             <i class="bi bi-dash-lg"></i>
                             <span class="sidebar-media-deck-action-label">Minimize</span>
@@ -7904,12 +8550,12 @@
             recentDmContacts: {{ sidebar_recent_dm_contacts|tojson if sidebar_recent_dm_contacts is defined else '[]' }},
             dmRev: {{ sidebar_dm_rev|tojson if sidebar_dm_rev is defined else '""' }},
             dmEventCursor: {{ sidebar_dm_event_cursor|tojson if sidebar_dm_event_cursor is defined else '0' }},
-            attentionSummary: {{ sidebar_attention_summary|tojson if sidebar_attention_summary is defined else {'messages': 0, 'channels': 0, 'feed': 0, 'total': 0}|tojson }},
+            attentionSummary: {{ sidebar_attention_summary|tojson if sidebar_attention_summary is defined else {'messages': 0, 'channels': 0, 'feed': 0, 'mention_count': 0, 'total': 0}|tojson }},
             attentionRev: {{ sidebar_attention_rev|tojson if sidebar_attention_rev is defined else '""' }},
             attentionActivityRev: {{ sidebar_attention_activity_rev|tojson if sidebar_attention_activity_rev is defined else '""' }},
             attentionItems: {{ sidebar_attention_items|tojson if sidebar_attention_items is defined else '[]' }},
             attentionEventCursor: {{ sidebar_attention_event_cursor|tojson if sidebar_attention_event_cursor is defined else '0' }},
-            userId: {{ (user_id or 'local_user')|tojson }},
+            userId: {{ (session.get('user_id') or user_id or 'local_user')|tojson }},
             profileTheme: {{ (profile.theme_preference if profile else 'dark')|tojson }},
             localUserId: {{ session.get('user_id')|tojson }},
             localPeerId: {{ sidebar_local_peer_id|tojson if sidebar_local_peer_id is defined else 'null' }},
@@ -7920,12 +8566,250 @@
                 messages: {{ url_for('ui.messages')|tojson }},
                 sidebarAttentionSummary: {{ url_for('ui.ajax_sidebar_attention_summary')|tojson }},
                 sidebarAttentionSnapshot: {{ url_for('ui.ajax_sidebar_attention_snapshot')|tojson }},
-                peerActivity: {{ url_for('ui.ajax_peer_activity')|tojson }}
+                sidebarAttentionClear: {{ url_for('ui.ajax_sidebar_attention_clear')|tojson }},
+                peerActivity: {{ url_for('ui.ajax_peer_activity')|tojson }},
+                meshspacesSnapshot: {{ (url_for('ui.ajax_meshspaces_snapshot') if meshspace_can_manage else '')|tojson }}
             }
         };
     </script>
     <script src="{{ url_for('ui.static', filename='js/canopy-sheet.js') }}?v={{ canopy_version }}"></script>
     <script src="{{ url_for('ui.static', filename='js/canopy-main.js') }}?v={{ canopy_version }}"></script>
+    <script>
+        (function() {
+            function escapeHtml(value) {
+                return String(value || '')
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+            }
+
+            function humanizeRuntimeMode(value) {
+                return String(value || '')
+                    .replace(/[-_]+/g, ' ')
+                    .replace(/\b\w/g, function(match) { return match.toUpperCase(); });
+            }
+
+            function meshTitle(mesh) {
+                const extras = [];
+                if (mesh.status_mismatch) extras.push('State mismatch');
+                if (mesh.port_overlap_warning) extras.push('Port conflict');
+                return [mesh.name, mesh.status_label, mesh.presence_subline].concat(extras).filter(Boolean).join(' · ');
+            }
+
+            function crestInner(mesh) {
+                const statusClass = escapeHtml(String(mesh.status_class || '').trim());
+                if (mesh.avatar_url) {
+                    return `<img src="${escapeHtml(mesh.avatar_url)}" alt="${escapeHtml(mesh.name || 'Mesh')}"><span class="meshspace-status-dot ${statusClass}"></span>`;
+                }
+                return `<i class="bi ${escapeHtml(mesh.display_icon || 'bi-grid-1x2')}"></i><span class="meshspace-crest-initial">${escapeHtml(mesh.crest_text || 'C')}</span><span class="meshspace-status-dot ${statusClass}"></span>`;
+            }
+
+            function metricHtml(mesh) {
+                const metrics = [`<span class="meshspace-switcher-metric">${escapeHtml(mesh.status_label || '')}</span>`];
+                if (mesh.status_mismatch) {
+                    metrics.push(`<span class="meshspace-switcher-metric" title="${escapeHtml(mesh.control_note || 'State mismatch')}"><i class="bi bi-exclamation-triangle"></i>State mismatch</span>`);
+                }
+                if (mesh.port_overlap_warning) {
+                    metrics.push('<span class="meshspace-switcher-metric" title="Port conflict: runtime status may be unreliable until the overlap is resolved."><i class="bi bi-exclamation-circle"></i>Port conflict</span>');
+                }
+                if (Number(mesh.active_peer_count || 0) > 0) {
+                    const peers = Number(mesh.active_peer_count || 0);
+                    metrics.push(`<span class="meshspace-switcher-metric"><i class="bi bi-link-45deg"></i>${peers} peer${peers === 1 ? '' : 's'}</span>`);
+                }
+                if (Number(mesh.unread_count || 0) > 0) {
+                    metrics.push(`<span class="meshspace-switcher-metric"><i class="bi bi-bell"></i>${Number(mesh.unread_count || 0)} unread</span>`);
+                }
+                if (Number(mesh.mention_count || 0) > 0) {
+                    const mentions = Number(mesh.mention_count || 0);
+                    metrics.push(`<span class="meshspace-switcher-metric"><i class="bi bi-at"></i>${mentions} mention${mentions === 1 ? '' : 's'}</span>`);
+                }
+                if (Number(mesh.pending_review_count || 0) > 0) {
+                    metrics.push(`<span class="meshspace-switcher-metric"><i class="bi bi-hourglass-split"></i>${Number(mesh.pending_review_count || 0)} pending</span>`);
+                }
+                if (mesh.network_quarantined) {
+                    metrics.push('<span class="meshspace-switcher-metric"><i class="bi bi-shield-lock"></i>Isolated</span>');
+                }
+                return metrics.join('');
+            }
+
+            function switcherItemHtml(mesh) {
+                return `<a class="meshspace-switcher-item ${mesh.is_current ? 'is-current' : ''}" data-meshspace-switcher-item data-meshspace-id="${escapeHtml(mesh.meshspace_id || '')}" href="${escapeHtml(mesh.launch_href || '#')}" title="${escapeHtml(meshTitle(mesh))}">
+                    <span class="meshspace-crest" style="--mesh-accent-rgb: ${escapeHtml(mesh.accent_rgb || '34,197,94')};">
+                        ${crestInner(mesh)}
+                    </span>
+                    <span class="meshspace-switcher-item-body">
+                        <span class="meshspace-switcher-item-name">${escapeHtml(mesh.name || 'Mesh')}</span>
+                        <span class="meshspace-switcher-item-meta">${escapeHtml(mesh.activity_label || 'Quiet')} · ${escapeHtml(humanizeRuntimeMode(mesh.runtime_mode || 'meshspace'))}</span>
+                        <span class="meshspace-switcher-item-badges">${metricHtml(mesh)}</span>
+                    </span>
+                    ${mesh.attention_badge ? `<span class="meshspace-attention-badge is-inline">${escapeHtml(mesh.attention_badge)}</span>` : (mesh.has_recent_activity ? '<span class="meshspace-switcher-rail"><i class="bi bi-lightning-charge"></i></span>' : '<span class="meshspace-switcher-rail"><i class="bi bi-arrow-right"></i></span>')}
+                </a>`;
+            }
+
+            function quickItemHtml(mesh) {
+                let glyphHtml = '';
+                if (mesh.network_quarantined) {
+                    glyphHtml = '<span class="meshspace-orb-glyph"><i class="bi bi-shield-lock"></i></span>';
+                } else if (Number(mesh.mention_count || 0) > 0) {
+                    const mentions = Number(mesh.mention_count || 0);
+                    glyphHtml = `<span class="meshspace-orb-glyph attention" title="${escapeHtml(`${mentions} mention${mentions === 1 ? '' : 's'}`)}"><i class="bi bi-at"></i></span>`;
+                } else if (Number(mesh.unread_count || 0) > 0) {
+                    const unread = Number(mesh.unread_count || 0);
+                    glyphHtml = `<span class="meshspace-orb-glyph attention" title="${escapeHtml(`${unread} unread`)}"><i class="bi bi-bell"></i></span>`;
+                } else if (Number(mesh.active_peer_count || 0) > 0) {
+                    const peers = Number(mesh.active_peer_count || 0);
+                    glyphHtml = `<span class="meshspace-orb-glyph live" title="${escapeHtml(`${peers} peer${peers === 1 ? '' : 's'} connected`)}"><i class="bi bi-link-45deg"></i></span>`;
+                }
+                return `<a class="meshspace-rail-orb ${mesh.has_recent_activity ? 'has-recent-activity' : ''}" data-meshspace-quick-item data-meshspace-id="${escapeHtml(mesh.meshspace_id || '')}" href="${escapeHtml(mesh.launch_href || '#')}" title="${escapeHtml(meshTitle(mesh))}">
+                    <span class="meshspace-crest is-orb" style="--mesh-accent-rgb: ${escapeHtml(mesh.accent_rgb || '34,197,94')};">
+                        ${crestInner(mesh)}
+                    </span>
+                    ${mesh.attention_badge ? `<span class="meshspace-orb-badge">${escapeHtml(mesh.attention_badge)}</span>` : ''}
+                    ${glyphHtml}
+                </a>`;
+            }
+
+            function manageLinkHtml(href, count) {
+                return `<li><a class="meshspace-switcher-item" data-meshspace-manage-link href="${escapeHtml(href)}">
+                    <span class="meshspace-crest" style="--mesh-accent-rgb: 56,189,248;">
+                        <i class="bi bi-sliders"></i>
+                        <span class="meshspace-status-dot running"></span>
+                    </span>
+                    <span class="meshspace-switcher-item-body">
+                        <span class="meshspace-switcher-item-name">Manage meshspaces</span>
+                        <span class="meshspace-switcher-item-meta">${escapeHtml(String(count || 0))} local meshes</span>
+                    </span>
+                    <span class="meshspace-switcher-rail"><i class="bi bi-arrow-right"></i></span>
+                </a></li>`;
+            }
+
+            function createLinkHtml(href) {
+                return `<li><a class="meshspace-switcher-item" data-meshspace-create-link href="${escapeHtml(href)}">
+                    <span class="meshspace-crest" style="--mesh-accent-rgb: 34,197,94;">
+                        <i class="bi bi-plus-lg"></i>
+                        <span class="meshspace-status-dot running"></span>
+                    </span>
+                    <span class="meshspace-switcher-item-body">
+                        <span class="meshspace-switcher-item-name">Create meshspace</span>
+                        <span class="meshspace-switcher-item-meta">Create another isolated Canopy world</span>
+                    </span>
+                    <span class="meshspace-switcher-rail"><i class="bi bi-arrow-right"></i></span>
+                </a></li>`;
+            }
+
+            function updateCurrentMeshSummary(rail, mesh) {
+                const btn = rail.querySelector('[data-meshspace-current-btn]');
+                if (!btn || !mesh) return;
+                btn.title = meshTitle(mesh);
+                const crest = rail.querySelector('[data-meshspace-current-crest]');
+                if (crest) {
+                    crest.style.setProperty('--mesh-accent-rgb', String(mesh.accent_rgb || '34,197,94'));
+                    crest.innerHTML = crestInner(mesh);
+                }
+                const label = rail.querySelector('[data-meshspace-current-label]');
+                if (label) label.textContent = String(mesh.name || 'Mesh');
+                const sub = rail.querySelector('[data-meshspace-current-sub]');
+                if (sub) sub.textContent = String(mesh.presence_subline || mesh.runtime_summary || '');
+                const badge = rail.querySelector('[data-meshspace-current-badge]');
+                if (badge) {
+                    const raw = String(mesh.attention_badge || '').trim();
+                    badge.textContent = raw;
+                    badge.classList.toggle('d-none', !raw);
+                }
+                const glyph = rail.querySelector('[data-meshspace-current-glyph]');
+                if (glyph) glyph.classList.toggle('d-none', !mesh.network_quarantined);
+            }
+
+            function updateDropdownAndQuickRail(rail, meshes) {
+                const dynamicWrap = rail.querySelector('[data-meshspace-switcher-items]');
+                const quickWrap = rail.querySelector('[data-meshspace-quick-links]');
+                if (dynamicWrap) {
+                    dynamicWrap.innerHTML = (Array.isArray(meshes) ? meshes : []).map(switcherItemHtml).join('');
+                }
+                if (quickWrap) {
+                    const quick = (Array.isArray(meshes) ? meshes : []).filter((mesh) => !mesh.is_current && mesh.is_active_runtime).slice(0, 3);
+                    quickWrap.innerHTML = quick.map(quickItemHtml).join('');
+                    quickWrap.classList.toggle('d-none', !quick.length);
+                }
+
+                const manageHref = rail.dataset.meshspaceManageHref || '';
+                const createHref = rail.dataset.meshspaceCreateHref || '';
+                const canManage = rail.dataset.meshspaceCanManage === '1';
+                const menu = rail.querySelector('[data-meshspace-switcher-menu]');
+                if (menu) {
+                    const divider = menu.querySelector('.dropdown-divider');
+                    const manageItem = menu.querySelector('[data-meshspace-manage-link]')?.closest('li');
+                    const createItem = menu.querySelector('[data-meshspace-create-link]')?.closest('li');
+                    if (canManage && manageHref && createHref && divider && manageItem && createItem) {
+                        manageItem.outerHTML = manageLinkHtml(manageHref, (Array.isArray(meshes) ? meshes : []).length);
+                        createItem.outerHTML = createLinkHtml(createHref);
+                    }
+                }
+            }
+
+            function applyMeshspaceHeaderSnapshot(data, rail) {
+                const meshes = Array.isArray(data.meshspaces) ? data.meshspaces : [];
+                if (!meshes.length) return;
+                const currentId = String(rail.dataset.meshspaceCurrentId || '');
+                const current = meshes.find((mesh) => String(mesh.meshspace_id || '') === currentId || mesh.is_current) || null;
+                if (current) updateCurrentMeshSummary(rail, current);
+                updateDropdownAndQuickRail(rail, meshes);
+            }
+
+            function initMeshspaceHeaderLiveSync() {
+                const rail = document.querySelector('[data-meshspace-header-rail]');
+                if (!rail) return;
+                const endpoint = String(rail.dataset.meshspaceSnapshotHref || (((window.CANOPY_VARS || {}).urls || {}).meshspacesSnapshot || '')).trim();
+                if (!endpoint) return;
+
+                const state = {
+                    rev: '',
+                    inFlight: false,
+                    timerId: null,
+                };
+
+                async function refresh(force) {
+                    if (state.inFlight) return;
+                    if (document.hidden && !force) return;
+                    state.inFlight = true;
+                    try {
+                        const params = new URLSearchParams();
+                        if (state.rev) params.set('rev', state.rev);
+                        const res = await fetch(`${endpoint}?${params.toString()}`, {
+                            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                        });
+                        if (!res.ok) throw new Error(`Meshspace header snapshot failed (${res.status})`);
+                        const data = await res.json();
+                        if (!data || data.success === false) return;
+                        if (data.rev) state.rev = String(data.rev || '');
+                        if (data.changed && Array.isArray(data.meshspaces)) {
+                            applyMeshspaceHeaderSnapshot(data, rail);
+                        }
+                    } catch (error) {
+                        console.warn('Canopy meshspace header sync failed:', error);
+                    } finally {
+                        state.inFlight = false;
+                    }
+                }
+
+                window.requestCanopyMeshspaceSnapshotRefresh = function(options) {
+                    return refresh(Boolean(options && options.force));
+                };
+
+                refresh(true);
+                state.timerId = window.setInterval(function() { refresh(false); }, 5000);
+                document.addEventListener('visibilitychange', function() {
+                    if (!document.hidden) refresh(true);
+                });
+                window.addEventListener('focus', function() { refresh(true); });
+                window.addEventListener('canopy:attention-updated', function() { refresh(true); });
+            }
+
+            document.addEventListener('DOMContentLoaded', initMeshspaceHeaderLiveSync);
+        })();
+    </script>
 
     <!-- File Access Inspector Modal -->
     <div class="modal fade" id="fileAccessInspectorModal" tabindex="-1" aria-labelledby="fileAccessInspectorLabel" aria-hidden="true">

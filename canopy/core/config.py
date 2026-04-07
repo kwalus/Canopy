@@ -16,6 +16,14 @@ from pathlib import Path
 from typing import Dict, Any, Optional, cast
 from dataclasses import dataclass, field
 
+from .meshspaces import (
+    build_legacy_meshspace_id,
+    default_meshspace_root,
+    meshspace_cookie_name,
+    meshspaces_root_dir,
+    sanitize_meshspace_id,
+)
+
 logger = logging.getLogger('canopy.config')
 
 
@@ -69,6 +77,22 @@ class UIConfig:
     language: str = "en"
     auto_refresh: int = 5  # seconds
     max_feed_items: int = 50
+
+
+@dataclass
+class MeshspaceConfig:
+    """Meshspace runtime configuration."""
+    enabled: bool = False
+    meshspace_id: str = ""
+    name: str = ""
+    description: str = ""
+    data_root: str = ""
+    registry_root: str = ""
+    runtime_mode: str = "legacy-default"
+    is_default: bool = True
+    supervised: bool = False
+    network_quarantined: bool = False
+    session_cookie_name: str = ""
 
 
 def _load_or_create_secret_key(data_dir: Optional[Path] = None) -> str:
@@ -167,6 +191,59 @@ def _apply_device_paths(config: 'Config') -> None:
     )
 
 
+def _apply_meshspace_paths(
+    config: 'Config',
+    *,
+    meshspace_id: str,
+    meshspace_name: str,
+    meshspace_root: Optional[str] = None,
+    supervised: bool = False,
+    network_quarantined: bool = False,
+) -> None:
+    """Configure storage and identity paths for an explicit meshspace runtime."""
+    normalized_id = sanitize_meshspace_id(meshspace_id, fallback="meshspace")
+    root = Path(meshspace_root).expanduser() if meshspace_root else default_meshspace_root(normalized_id)
+    root.mkdir(parents=True, exist_ok=True)
+
+    config.storage.data_dir = str(root)
+    config.storage.database_path = str(root / 'canopy.db')
+    config.secret_key = _load_or_create_secret_key(root)
+    config.meshspace.enabled = True
+    config.meshspace.meshspace_id = normalized_id
+    config.meshspace.name = str(meshspace_name or normalized_id).strip() or normalized_id
+    config.meshspace.data_root = str(root)
+    config.meshspace.registry_root = str(meshspaces_root_dir())
+    config.meshspace.runtime_mode = "meshspace"
+    config.meshspace.is_default = False
+    config.meshspace.supervised = bool(supervised)
+    config.meshspace.network_quarantined = bool(network_quarantined)
+    config.meshspace.session_cookie_name = meshspace_cookie_name(normalized_id)
+
+    logger.info(
+        "Meshspace runtime configured: id=%s name=%s data_dir=%s",
+        normalized_id,
+        config.meshspace.name,
+        root,
+    )
+
+
+def _finalize_legacy_meshspace(config: 'Config') -> None:
+    """Populate meshspace metadata for the current legacy/single-mesh runtime."""
+    device_id = str(config.device_id or "device").strip() or "device"
+    data_dir = str(config.storage.data_dir or "")
+    meshspace_id = build_legacy_meshspace_id(device_id, data_dir)
+    config.meshspace.enabled = False
+    config.meshspace.meshspace_id = meshspace_id
+    config.meshspace.name = "Default Mesh"
+    config.meshspace.data_root = data_dir
+    config.meshspace.registry_root = str(meshspaces_root_dir())
+    config.meshspace.runtime_mode = "legacy-default"
+    config.meshspace.is_default = True
+    config.meshspace.supervised = False
+    config.meshspace.network_quarantined = False
+    config.meshspace.session_cookie_name = meshspace_cookie_name(meshspace_id)
+
+
 @dataclass
 class Config:
     """Main application configuration."""
@@ -180,6 +257,7 @@ class Config:
     security: SecurityConfig = field(default_factory=SecurityConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
     ui: UIConfig = field(default_factory=UIConfig)
+    meshspace: MeshspaceConfig = field(default_factory=MeshspaceConfig)
     
     @classmethod
     def from_env(cls) -> 'Config':
@@ -236,36 +314,65 @@ class Config:
             config.network.port = int(port)
         if mesh_port := os.getenv('CANOPY_MESH_PORT'):
             config.network.mesh_port = int(mesh_port)
+        if discovery_port := os.getenv('CANOPY_DISCOVERY_PORT'):
+            config.network.discovery_port = int(discovery_port)
         if relay := os.getenv('CANOPY_RELAY_POLICY'):
             if relay in ('off', 'broker_only', 'full_relay'):
                 config.network.relay_policy = relay
 
-        # Apply device-specific data paths (database, secret key, files)
-        # This must happen before CANOPY_DATABASE_PATH override so the user
-        # can still force a specific path via env var.
-        _apply_device_paths(config)
-
-        # Store device info on config for display
+        # Store device info on config for display. The peer identity remains mesh-local
+        # because it lives under config.storage.data_dir, but the machine device label is
+        # still useful in the shell and diagnostics.
         from .device import get_device_id, get_device_label
         config.device_id = get_device_id()
         config.device_label = get_device_label()
 
-        # Allow explicit env-var override (e.g. for tests or isolated testnet instances)
+        meshspace_id = os.getenv('CANOPY_MESHSPACE_ID', '').strip()
+        meshspace_name = os.getenv('CANOPY_MESHSPACE_NAME', '').strip()
+        meshspace_root = os.getenv('CANOPY_MESHSPACE_ROOT', '').strip()
+        meshspace_supervised = _env_bool('CANOPY_MESHSPACE_SUPERVISED', False)
+        meshspace_network_quarantined = _env_bool('CANOPY_MESHSPACE_NETWORK_QUARANTINED', False)
+
+        if meshspace_id:
+            _apply_meshspace_paths(
+                config,
+                meshspace_id=meshspace_id,
+                meshspace_name=meshspace_name or meshspace_id,
+                meshspace_root=meshspace_root or None,
+                supervised=meshspace_supervised,
+                network_quarantined=meshspace_network_quarantined,
+            )
+            if os.getenv('CANOPY_DATA_DIR') or os.getenv('CANOPY_DATABASE_PATH'):
+                logger.warning(
+                    "Ignoring CANOPY_DATA_DIR/CANOPY_DATABASE_PATH because CANOPY_MESHSPACE_ID is set; "
+                    "use CANOPY_MESHSPACE_ROOT for meshspace runtimes"
+                )
+        else:
+            # Apply device-specific data paths (database, secret key, files)
+            # This must happen before legacy overrides so the user can still force
+            # a specific path via env var in single-mesh mode.
+            _apply_device_paths(config)
+
+            # Allow explicit env-var override (e.g. for tests or isolated testnet instances)
+            if secret_key := os.getenv('CANOPY_SECRET_KEY'):
+                config.secret_key = secret_key
+            if db_path := os.getenv('CANOPY_DATABASE_PATH'):
+                config.storage.database_path = db_path
+            # Override the whole data directory (e.g. for a testnet that uses its own files/ folder)
+            if data_dir_override := os.getenv('CANOPY_DATA_DIR'):
+                data_dir_path = Path(data_dir_override)
+                data_dir_path.mkdir(parents=True, exist_ok=True)
+                config.storage.data_dir = str(data_dir_path)
+                # Re-apply DB path from this directory only if no explicit DB path was given
+                if not os.getenv('CANOPY_DATABASE_PATH'):
+                    config.storage.database_path = str(data_dir_path / 'canopy.db')
+                # Re-generate secret key from this directory so sessions are isolated
+                if not os.getenv('CANOPY_SECRET_KEY'):
+                    config.secret_key = _load_or_create_secret_key(data_dir_path)
+            _finalize_legacy_meshspace(config)
+
         if secret_key := os.getenv('CANOPY_SECRET_KEY'):
             config.secret_key = secret_key
-        if db_path := os.getenv('CANOPY_DATABASE_PATH'):
-            config.storage.database_path = db_path
-        # Override the whole data directory (e.g. for a testnet that uses its own files/ folder)
-        if data_dir_override := os.getenv('CANOPY_DATA_DIR'):
-            data_dir_path = Path(data_dir_override)
-            data_dir_path.mkdir(parents=True, exist_ok=True)
-            config.storage.data_dir = str(data_dir_path)
-            # Re-apply DB path from this directory only if no explicit DB path was given
-            if not os.getenv('CANOPY_DATABASE_PATH'):
-                config.storage.database_path = str(data_dir_path / 'canopy.db')
-            # Re-generate secret key from this directory so sessions are isolated
-            if not os.getenv('CANOPY_SECRET_KEY'):
-                config.secret_key = _load_or_create_secret_key(data_dir_path)
 
         return config
     
@@ -303,6 +410,18 @@ class Config:
                 'data_dir': self.storage.data_dir,
                 'max_message_size': self.storage.max_message_size,
                 'max_file_size': self.storage.max_file_size,
+            },
+            'meshspace': {
+                'enabled': self.meshspace.enabled,
+                'meshspace_id': self.meshspace.meshspace_id,
+                'name': self.meshspace.name,
+                'data_root': self.meshspace.data_root,
+                'registry_root': self.meshspace.registry_root,
+                'runtime_mode': self.meshspace.runtime_mode,
+                'is_default': self.meshspace.is_default,
+                'supervised': self.meshspace.supervised,
+                'network_quarantined': self.meshspace.network_quarantined,
+                'session_cookie_name': self.meshspace.session_cookie_name,
             },
             'ui': {
                 'theme': self.ui.theme,
