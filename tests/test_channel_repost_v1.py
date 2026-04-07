@@ -147,6 +147,96 @@ class TestChannelRepostManager(unittest.TestCase):
         self.assertEqual(resolved['deck_default_ref'], 'attachment:F1')
         self.assertIn('attachment_images', resolved['embed'])
 
+    def test_resolve_repost_reference_deck_flag_without_source_layout(self) -> None:
+        """Deck control on repost rows when antecedent has module/media but no source_layout."""
+        original = self.manager.send_message(
+            channel_id=self.channel.id,
+            user_id='author-user',
+            content='SiDB module only',
+            attachments=[
+                {'id': 'M1', 'name': 'Widget.canopy-module.html', 'type': 'text/html'},
+            ],
+        )
+        self.assertIsNotNone(original)
+        repost = self.manager.create_repost(original.id, 'viewer-user', self.channel.id, 'Boost')
+        self.assertIsNotNone(repost)
+        resolved = self.manager.resolve_repost_reference(repost, 'viewer-user')
+        self.assertTrue(resolved['available'])
+        self.assertTrue(resolved['has_source_layout'])
+
+    def test_resolve_repost_reference_deck_flag_for_plain_html_file_attachment(self) -> None:
+        from canopy.core.channels import MessageType
+
+        original = self.manager.send_message(
+            channel_id=self.channel.id,
+            user_id='author-user',
+            content='Interactive HTML demo',
+            message_type=MessageType.FILE,
+            attachments=[
+                {
+                    'id': 'H1',
+                    'filename': 'stego-demo.html',
+                    'type': 'application/octet-stream',
+                },
+            ],
+        )
+        self.assertIsNotNone(original)
+        repost = self.manager.create_repost(original.id, 'viewer-user', self.channel.id, 'Boost')
+        self.assertIsNotNone(repost)
+        resolved = self.manager.resolve_repost_reference(repost, 'viewer-user')
+        self.assertTrue(resolved['available'])
+        self.assertTrue(resolved['has_source_layout'])
+
+    def test_resolve_repost_reference_deck_flag_text_with_youtube_in_body(self) -> None:
+        """TEXT + YouTube URL in body (no attachments) should expose Deck + link embed like the source row."""
+        original = self.manager.send_message(
+            channel_id=self.channel.id,
+            user_id='author-user',
+            content='Check this out https://youtu.be/dQw4w9WgXcQ — classic',
+        )
+        self.assertIsNotNone(original)
+        repost = self.manager.create_repost(original.id, 'viewer-user', self.channel.id, 'Sharing')
+        self.assertIsNotNone(repost)
+        resolved = self.manager.resolve_repost_reference(repost, 'viewer-user')
+        self.assertTrue(resolved['available'])
+        self.assertTrue(resolved['has_source_layout'])
+        emb = resolved.get('embed') or {}
+        self.assertEqual(emb.get('youtube_video_id'), 'dQw4w9WgXcQ')
+        self.assertIn('watch?v=dQw4w9WgXcQ', str(emb.get('link_url') or ''))
+
+    def test_resolve_repost_reference_embed_lists_multiple_youtube_ids(self) -> None:
+        original = self.manager.send_message(
+            channel_id=self.channel.id,
+            user_id='author-user',
+            content='A https://youtu.be/dQw4w9WgXcQ and B https://www.youtube.com/watch?v=abcdefghijk extra',
+        )
+        self.assertIsNotNone(original)
+        repost = self.manager.create_repost(original.id, 'viewer-user', self.channel.id, 'Both')
+        self.assertIsNotNone(repost)
+        resolved = self.manager.resolve_repost_reference(repost, 'viewer-user')
+        emb = resolved.get('embed') or {}
+        ids = emb.get('youtube_video_ids')
+        self.assertIsInstance(ids, list)
+        self.assertEqual(ids, ['dQw4w9WgXcQ', 'abcdefghijk'])
+
+    def test_resolve_repost_reference_deck_flag_file_message_id_only_attachment(self) -> None:
+        """FILE messages often sync as {id} only; repost should still offer Deck."""
+        from canopy.core.channels import MessageType
+
+        original = self.manager.send_message(
+            channel_id=self.channel.id,
+            user_id='author-user',
+            content='Attachment below — metadata may omit names after sync',
+            message_type=MessageType.FILE,
+            attachments=[{'id': 'F9', 'type': 'application/octet-stream', 'name': 'unnamed_file'}],
+        )
+        self.assertIsNotNone(original)
+        repost = self.manager.create_repost(original.id, 'viewer-user', self.channel.id, 'Boost')
+        self.assertIsNotNone(repost)
+        resolved = self.manager.resolve_repost_reference(repost, 'viewer-user')
+        self.assertTrue(resolved['available'])
+        self.assertTrue(resolved['has_source_layout'])
+
     def test_generic_send_and_update_strip_forged_source_reference(self) -> None:
         forged = self.manager.send_message(
             channel_id=self.channel.id,

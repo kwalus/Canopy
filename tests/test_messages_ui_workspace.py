@@ -30,6 +30,7 @@ if 'zeroconf' not in sys.modules:
 
 from canopy.core.messaging import MessageManager
 from canopy.core.messaging import compute_group_id
+from canopy.core.mentions import MentionManager
 from canopy.ui.routes import create_ui_blueprint
 
 
@@ -203,6 +204,7 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         app.config['TESTING'] = True
         app.secret_key = 'test-secret'
         app.config['WORKSPACE_EVENT_MANAGER'] = self.workspace_event_manager
+        app.config['MENTION_MANAGER'] = MentionManager(self.db_manager)
         app.register_blueprint(create_ui_blueprint())
         self.app = app
         self.client = app.test_client()
@@ -248,11 +250,94 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertIn("if (isDmSearchActive()) {", body)
         self.assertIn("loadDmSnapshot({ forceBottom: false, allowDeferred: false, hardFallback: true }).catch(() => {});", body)
         self.assertIn('/ajax/mention_suggestions?', body)
+        self.assertIn('let recipientDirectory = [', body)
+        self.assertIn('"user_id": "peer-a"', body)
+        self.assertIn('"user_id": "peer-b"', body)
         self.assertIn('setupMessageDropzone();', body)
         self.assertIn("composer.addEventListener('drop'", body)
         self.assertNotIn("threadPane.addEventListener('paste'", body)
         self.assertIn('grid-template-rows: auto minmax(0, 1fr);', body)
         self.assertIn('position: sticky;', body)
+
+    def test_messages_page_acknowledges_dm_mentions_for_open_thread(self) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO mention_events (id, user_id, source_type, source_id, author_id, preview, status)
+            VALUES (?, ?, ?, ?, ?, ?, 'new')
+            """,
+            ('MN-dm-open-1', 'owner', 'dm', 'DM-root', 'peer-a', 'Reply needed'),
+        )
+        self.conn.commit()
+
+        before = self.conn.execute(
+            "SELECT acknowledged_at FROM mention_events WHERE id = ?",
+            ('MN-dm-open-1',),
+        ).fetchone()
+        self.assertIsNotNone(before)
+        self.assertIsNone(before['acknowledged_at'])
+
+        response = self.client.get('/messages?with=peer-a')
+        self.assertEqual(response.status_code, 200)
+
+        after = self.conn.execute(
+            "SELECT acknowledged_at, status FROM mention_events WHERE id = ?",
+            ('MN-dm-open-1',),
+        ).fetchone()
+        self.assertIsNotNone(after)
+        self.assertTrue(after['acknowledged_at'])
+        self.assertEqual(after['status'], 'acknowledged')
+
+    def test_messages_page_refreshes_shell_summary_when_open_thread_marks_dm_read(self) -> None:
+        with patch('canopy.ui.routes._refresh_current_meshspace_shell_summary') as refresh_mock:
+            response = self.client.get('/messages?with=peer-a')
+        self.assertEqual(response.status_code, 200)
+        refresh_mock.assert_called_once_with('owner')
+
+    def test_messages_page_renders_source_layout_metadata_for_structured_dm_sources(self) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO messages (
+                id, sender_id, recipient_id, content, message_type, status,
+                created_at, delivered_at, read_at, edited_at, metadata
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                'DM-layout',
+                'peer-a',
+                'owner',
+                'Structured lesson brief',
+                'text',
+                'delivered',
+                '2026-03-07T10:08:00+00:00',
+                '2026-03-07T10:08:01+00:00',
+                None,
+                None,
+                json.dumps(
+                    {
+                        'source_layout': {
+                            'version': 1,
+                            'hero': {'ref': 'attachment:F-module'},
+                            'lede': {'kind': 'rich_text', 'ref': 'content:lede'},
+                            'deck': {'default_ref': 'attachment:F-module'},
+                        },
+                        'attachments': [
+                            {
+                                'id': 'F-module',
+                                'name': 'lesson.canopy-module.html',
+                                'type': 'text/html',
+                            }
+                        ],
+                    }
+                ),
+            ),
+        )
+        self.conn.commit()
+
+        response = self.client.get('/messages?with=peer-a')
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn('data-canopy-source-layout=', body)
+        self.assertIn('data-canopy-source-ref="content:lede"', body)
 
     def test_messages_search_renders_matching_results(self) -> None:
         response = self.client.get('/messages?search=relay')
@@ -374,6 +459,29 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         payload = response.get_json() or {}
         self.assertTrue(payload.get('success'))
         self.assertEqual(payload.get('workspace_event_cursor'), 5)
+
+    def test_thread_snapshot_token_changes_when_existing_message_is_edited(self) -> None:
+        before = self.client.get('/ajax/messages/thread_snapshot?with=peer-a').get_json() or {}
+        before_token = before.get('thread_state_token')
+
+        self.conn.execute(
+            """
+            UPDATE messages
+            SET content = ?, edited_at = ?
+            WHERE id = ?
+            """,
+            (
+                'Need update (edited)',
+                '2026-03-07T10:08:00+00:00',
+                'DM-reply',
+            ),
+        )
+        self.conn.commit()
+
+        after = self.client.get('/ajax/messages/thread_snapshot?with=peer-a').get_json() or {}
+        self.assertTrue(after.get('success'))
+        self.assertNotEqual(before_token, after.get('thread_state_token'))
+        self.assertIn('Need update (edited)', after.get('thread_body_html') or '')
 
     def test_ajax_send_message_preserves_reply_to_metadata(self) -> None:
         response = self.client.post(

@@ -31,6 +31,7 @@ class _FakeDbManager:
     def __init__(self) -> None:
         self.conn = sqlite3.connect(':memory:')
         self.conn.row_factory = sqlite3.Row
+        self._system_state = {}
         self.conn.execute(
             """
             CREATE TABLE users (
@@ -38,19 +39,21 @@ class _FakeDbManager:
                 username TEXT,
                 public_key TEXT,
                 password_hash TEXT,
-                origin_peer TEXT
+                origin_peer TEXT,
+                account_type TEXT DEFAULT 'human',
+                created_at TIMESTAMP
             )
             """
         )
         self.conn.executemany(
             """
-            INSERT INTO users (id, username, public_key, password_hash, origin_peer)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO users (id, username, public_key, password_hash, origin_peer, account_type, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """,
             [
-                ('owner-user', 'owner', 'pk-owner', 'hash-owner', None),
-                ('agent-user', 'agent', 'pk-agent', 'hash-agent', None),
-                ('member-user', 'member', 'pk-member', 'hash-member', None),
+                ('owner-user', 'owner', 'pk-owner', 'hash-owner', None, 'human'),
+                ('agent-user', 'agent', 'pk-agent', 'hash-agent', None, 'agent'),
+                ('member-user', 'member', 'pk-member', 'hash-member', None, 'human'),
             ],
         )
         self.conn.commit()
@@ -64,6 +67,16 @@ class _FakeDbManager:
     def get_user(self, user_id: str):
         row = self.conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
         return dict(row) if row else None
+
+    def get_system_state(self, key: str):
+        return self._system_state.get(key)
+
+    def set_system_state(self, key: str, value):
+        if value is None:
+            self._system_state.pop(key, None)
+        else:
+            self._system_state[key] = value
+        return True
 
 
 class TestChannelGovernance(unittest.TestCase):
@@ -80,6 +93,61 @@ class TestChannelGovernance(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.db.conn.close()
+
+    def test_default_agent_start_here_channel_exists(self) -> None:
+        self.assertNotEqual(
+            self.channel_manager.AGENT_START_CHANNEL_ID,
+            self.channel_manager.LEGACY_AGENT_START_CHANNEL_ID,
+        )
+        row = self.db.conn.execute(
+            """
+            SELECT id, name, channel_type, privacy_mode, lifecycle_preserved
+            FROM channels
+            WHERE id = ?
+            """,
+            (self.channel_manager.AGENT_START_CHANNEL_ID,),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(row['name'], self.channel_manager.AGENT_START_CHANNEL_NAME)
+        self.assertEqual(row['channel_type'], 'private')
+        self.assertEqual(row['privacy_mode'], 'private')
+        self.assertEqual(int(row['lifecycle_preserved'] or 0), 1)
+
+        members = self.db.conn.execute(
+            "SELECT user_id FROM channel_members WHERE channel_id = ? ORDER BY user_id",
+            (self.channel_manager.AGENT_START_CHANNEL_ID,),
+        ).fetchall()
+        member_ids = [row['user_id'] for row in members]
+        self.assertIn('local_user', member_ids)
+        self.assertIn('owner-user', member_ids)
+
+    def test_ensure_agent_quarantine_assignment_sets_allowlist_policy(self) -> None:
+        saved = self.channel_manager.ensure_agent_quarantine_assignment(
+            'agent-user',
+            updated_by='owner-user',
+        )
+        self.assertTrue(saved)
+
+        policy = self.channel_manager.get_user_channel_governance('agent-user')
+        self.assertTrue(policy.get('enabled'))
+        self.assertTrue(policy.get('block_public_channels'))
+        self.assertTrue(policy.get('restrict_to_allowed_channels'))
+        self.assertEqual(
+            policy.get('allowed_channel_ids'),
+            [self.channel_manager.AGENT_START_CHANNEL_ID],
+        )
+
+        visible = self.channel_manager.get_user_channels('agent-user')
+        visible_ids = {channel.id for channel in visible}
+        self.assertIn(self.channel_manager.AGENT_START_CHANNEL_ID, visible_ids)
+        self.assertNotIn('general', visible_ids)
+
+        denied = self.channel_manager.send_message(
+            channel_id='general',
+            user_id='agent-user',
+            content='should stay quarantined',
+        )
+        self.assertIsNone(denied)
 
     def test_governance_filters_and_prunes_public_channels(self) -> None:
         open_channel = self.channel_manager.create_channel(

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass, asdict, field
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Set, cast
@@ -411,6 +412,10 @@ def strip_request_blocks(text: str, remove_unconfirmed: bool = False) -> str:
 class RequestManager:
     """Manages structured Requests."""
 
+    _SET_MEMBERS_BUSY_TIMEOUT_MS = 5000
+    _SET_MEMBERS_MAX_ATTEMPTS = 3
+    _SET_MEMBERS_BACKOFF_SECONDS = 0.1
+
     def __init__(self, db: DatabaseManager):
         self.db = db
         logger.info("Initializing RequestManager")
@@ -509,30 +514,55 @@ class RequestManager:
             logger.error(f"Failed to list request members: {e}")
             return []
 
+    def _set_members(self, conn: Any, request_id: str, members: List[Dict[str, Any]],
+                     added_by: Optional[str] = None) -> None:
+        conn.execute("DELETE FROM request_members WHERE request_id = ?", (request_id,))
+        for member in members or []:
+            uid = member.get('user_id')
+            if not uid:
+                continue
+            role = (member.get('role') or 'assignee').strip().lower()
+            if role not in REQUEST_ROLES:
+                role = 'assignee'
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO request_members (request_id, user_id, role, added_by)
+                VALUES (?, ?, ?, ?)
+                """,
+                (request_id, uid, role, added_by)
+            )
+
+    def _is_retryable_lock_error(self, exc: BaseException) -> bool:
+        err = str(exc).lower()
+        return 'database is locked' in err or 'database table is locked' in err or 'busy' in err
+
     def set_members(self, request_id: str, members: List[Dict[str, Any]],
                     added_by: Optional[str] = None) -> None:
         if not request_id:
             return
-        try:
-            with self.db.get_connection() as conn:
-                conn.execute("DELETE FROM request_members WHERE request_id = ?", (request_id,))
-                for member in members or []:
-                    uid = member.get('user_id')
-                    if not uid:
-                        continue
-                    role = (member.get('role') or 'assignee').strip().lower()
-                    if role not in REQUEST_ROLES:
-                        role = 'assignee'
-                    conn.execute(
-                        """
-                        INSERT OR IGNORE INTO request_members (request_id, user_id, role, added_by)
-                        VALUES (?, ?, ?, ?)
-                        """,
-                        (request_id, uid, role, added_by)
+        for attempt in range(1, self._SET_MEMBERS_MAX_ATTEMPTS + 1):
+            try:
+                with self.db.get_connection(
+                    busy_timeout_ms=self._SET_MEMBERS_BUSY_TIMEOUT_MS
+                ) as conn:
+                    self._set_members(conn, request_id, members, added_by=added_by)
+                    conn.commit()
+                return
+            except Exception as e:
+                if self._is_retryable_lock_error(e) and attempt < self._SET_MEMBERS_MAX_ATTEMPTS:
+                    delay = self._SET_MEMBERS_BACKOFF_SECONDS * attempt
+                    logger.warning(
+                        "Retrying request member update for %s after lock contention "
+                        "(attempt %s/%s, delay=%.2fs)",
+                        request_id,
+                        attempt,
+                        self._SET_MEMBERS_MAX_ATTEMPTS,
+                        delay,
                     )
-                conn.commit()
-        except Exception as e:
-            logger.error(f"Failed to set request members: {e}")
+                    time.sleep(delay)
+                    continue
+                logger.error(f"Failed to set request members: {e}")
+                return
 
     def upsert_request(self,
                        request_id: str,
@@ -610,7 +640,7 @@ class RequestManager:
                     if updates:
                         conn.execute(f"UPDATE requests SET {', '.join(updates)} WHERE id = ?", values)
                     if members_defined and members is not None:
-                        self.set_members(request_id, members, added_by=actor_id or created_by)
+                        self._set_members(conn, request_id, members, added_by=actor_id or created_by)
                 else:
                     conn.execute(
                         """
@@ -641,7 +671,7 @@ class RequestManager:
                         )
                     )
                     if members:
-                        self.set_members(request_id, members, added_by=actor_id or created_by)
+                        self._set_members(conn, request_id, members, added_by=actor_id or created_by)
                 conn.commit()
             return self.get_request(request_id, include_members=True)
         except Exception as e:
@@ -756,10 +786,9 @@ class RequestManager:
                     values.append(_now_utc().isoformat())
                     values.append(request_id)
                     conn.execute(f"UPDATE requests SET {', '.join(fields)} WHERE id = ?", values)
+                if replace_members and members is not None:
+                    self._set_members(conn, request_id, members, added_by=actor_id)
                 conn.commit()
-
-            if replace_members and members is not None:
-                self.set_members(request_id, members, added_by=actor_id)
 
             return self.get_request(request_id, include_members=True)
         except PermissionError:

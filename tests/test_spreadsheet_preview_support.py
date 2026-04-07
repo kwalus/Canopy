@@ -117,7 +117,7 @@ class TestSpreadsheetPreviewSupport(unittest.TestCase):
   <title>Module</title>
 </head>
 <body>
-  <div id="app">Lesson Module</div>
+  <div id="app">Piano Lab</div>
   <script>
     window.addEventListener('load', function () {
       document.getElementById('app').setAttribute('data-ready', '1');
@@ -129,7 +129,7 @@ class TestSpreadsheetPreviewSupport(unittest.TestCase):
         is_valid, error, validated_type = validate_file_upload(
             module_bytes,
             'text/html',
-            'lesson-module.canopy-module.html',
+            'piano-lab-v1.canopy-module.html',
         )
         self.assertTrue(is_valid, error)
         self.assertIsNone(error)
@@ -189,7 +189,7 @@ class TestSpreadsheetPreviewSupport(unittest.TestCase):
         module_bytes = b"""<!doctype html><html><body><script>console.log('hi')</script></body></html>"""
         preview = build_file_preview(
             module_bytes,
-            'lesson-module.canopy-module.html',
+            'piano-lab-v1.canopy-module.html',
             'text/html',
         )
         self.assertFalse(preview['previewable'])

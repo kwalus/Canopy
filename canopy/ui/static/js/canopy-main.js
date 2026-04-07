@@ -1113,13 +1113,34 @@
             return `canopy.attention.filters.${userId || 'local_user'}`;
         })();
 
+        function defaultCanopyAttentionFilters() {
+            return {
+                mention: false,
+                inbox: true,
+                dm: false,
+                channel: false,
+                feed: false,
+            };
+        }
+
         function normalizeCanopyAttentionFilters(raw) {
+            const defaults = defaultCanopyAttentionFilters();
             const normalized = {};
-            const source = raw && typeof raw === 'object' ? raw : {};
+            const source = raw && typeof raw === 'object' ? raw : null;
             CANOPY_ATTENTION_FILTER_DEFS.forEach((def) => {
-                normalized[def.key] = source[def.key] !== false;
+                if (source && Object.prototype.hasOwnProperty.call(source, def.key)) {
+                    normalized[def.key] = source[def.key] !== false;
+                } else {
+                    normalized[def.key] = defaults[def.key] === true;
+                }
             });
             return normalized;
+        }
+
+        function isDefaultCanopyAttentionFilters(filters) {
+            const defaults = defaultCanopyAttentionFilters();
+            const normalized = normalizeCanopyAttentionFilters(filters);
+            return CANOPY_ATTENTION_FILTER_DEFS.every((def) => normalized[def.key] === defaults[def.key]);
         }
 
         function loadCanopyAttentionFilters() {
@@ -1330,6 +1351,17 @@
                     renderSidebarAttentionSummary(canopySidebarAttentionState.summary);
                     if (window.renderCanopyAttentionBell) {
                         window.renderCanopyAttentionBell(filterCanopyAttentionItems(canopySidebarAttentionState.items));
+                    }
+                    try {
+                        window.dispatchEvent(new CustomEvent('canopy:attention-updated', {
+                            detail: {
+                                summary: canopySidebarAttentionState.summary,
+                                items: canopySidebarAttentionState.items,
+                                rev: String(data.summary_rev || ''),
+                            }
+                        }));
+                    } catch (error) {
+                        // no-op
                     }
                     return data;
                 })
@@ -5408,6 +5440,13 @@
             function renderFilterBar() {
                 if (!filterBar) return;
                 const filters = normalizeCanopyAttentionFilters(canopySidebarAttentionState.filters);
+                if (filterResetBtn) {
+                    const usingDefaults = isDefaultCanopyAttentionFilters(filters);
+                    filterResetBtn.title = usingDefaults
+                        ? 'New accounts show inbox items only. Click a filter chip to customise.'
+                        : 'Reset to inbox-only default';
+                    filterResetBtn.classList.toggle('is-custom', !usingDefaults);
+                }
                 filterBar.innerHTML = '';
                 CANOPY_ATTENTION_FILTER_DEFS.forEach((def) => {
                     const btn = document.createElement('button');
@@ -5537,12 +5576,35 @@
             };
 
             if (clearBtn) {
-                clearBtn.addEventListener('click', () => {
-                    canopySidebarAttentionState.items = [];
-                    saveCanopyAttentionDismissCursor(canopySidebarAttentionState.currentEventCursor);
-                    saveCanopyAttentionSeenCursor(canopySidebarAttentionState.currentEventCursor);
-                    if (window.renderCanopyAttentionBell) {
-                        window.renderCanopyAttentionBell([]);
+                clearBtn.addEventListener('click', async () => {
+                    const routes = (window.CANOPY_VARS && window.CANOPY_VARS.urls) || {};
+                    const endpoint = routes.sidebarAttentionClear || '/ajax/sidebar_attention_clear';
+                    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+                    try {
+                        const res = await fetch(endpoint, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest',
+                                'X-CSRFToken': csrfToken,
+                            },
+                            body: JSON.stringify({}),
+                        });
+                        if (!res.ok) throw new Error(`Sidebar attention clear failed (${res.status})`);
+                        const data = await res.json();
+                        if (!data || data.success === false) throw new Error('Sidebar attention clear failed');
+                        canopySidebarAttentionState.items = [];
+                        saveCanopyAttentionDismissCursor(canopySidebarAttentionState.currentEventCursor);
+                        saveCanopyAttentionSeenCursor(canopySidebarAttentionState.currentEventCursor);
+                        if (window.renderCanopyAttentionBell) {
+                            window.renderCanopyAttentionBell([]);
+                        }
+                        requestCanopySidebarAttentionRefresh({ force: true }).catch(() => {});
+                        if (window.requestCanopyMeshspaceSnapshotRefresh) {
+                            window.requestCanopyMeshspaceSnapshotRefresh({ force: true });
+                        }
+                    } catch (error) {
+                        console.warn('Canopy sidebar attention clear failed:', error);
                     }
                 });
             }
@@ -5990,11 +6052,13 @@
                 const videoId = getYouTubeVideoId(el);
                 if (!videoId) return;
                 const cached = youtubeDeckTitleCache.get(videoId);
+                const now = Date.now();
                 if (cached && cached.title) {
                     applyResolvedYouTubeTitle(videoId, cached.title);
                     return;
                 }
                 if (cached && cached.pending) return;
+                if (cached && cached.retryAt && cached.retryAt > now) return;
                 youtubeDeckTitleCache.set(videoId, { pending: true, title: '', error: '' });
                 fetch(`/api/v1/deck/youtube-title?video_id=${encodeURIComponent(videoId)}`, {
                     method: 'GET',
@@ -6014,11 +6078,12 @@
                             pending: false,
                             title: '',
                             error: error && error.message ? String(error.message) : 'lookup failed',
+                            retryAt: Date.now() + (5 * 60 * 1000),
                         });
                     });
             }
 
-            function preferredMediaTitle(el, type, currentTitle) {
+            function preferredMediaTitle(el, type, currentTitle, options = {}) {
                 if (!el) return String(currentTitle || '').trim() || 'Now Playing';
                 if (type !== 'youtube') return String(currentTitle || '').trim() || titleFromMedia(el, type);
                 const domTitle = getYouTubeReadableTitleFromDom(el);
@@ -6026,7 +6091,9 @@
                 const playerTitle = titleFromMedia(el, type);
                 const normalizedPlayer = normalizeYouTubeReadableTitle(playerTitle, getYouTubeVideoId(el));
                 if (normalizedPlayer) return normalizedPlayer;
-                requestYouTubeReadableTitle(el);
+                if (options && options.allowLookup === true) {
+                    requestYouTubeReadableTitle(el);
+                }
                 const fallback = normalizeYouTubeReadableTitle(currentTitle, getYouTubeVideoId(el));
                 return fallback || 'YouTube video';
             }
@@ -6560,7 +6627,6 @@
                             }
                         } catch (_) {}
                     }
-                    requestYouTubeReadableTitle(el);
                     return 'YouTube video';
                 }
 
@@ -8583,7 +8649,7 @@
 
                 items.forEach((item, index) => {
                     if (item && item.el && isDeckMediaItem(item)) {
-                        item.title = preferredMediaTitle(item.el, item.type, item.title);
+                        item.title = preferredMediaTitle(item.el, item.type, item.title, { allowLookup: false });
                     }
                     const btn = document.createElement('button');
                     btn.type = 'button';
@@ -8786,7 +8852,7 @@
 
                 const type = selectedItem.type;
                 const mediaTitle = selectedItem && selectedItem.el
-                    ? preferredMediaTitle(selectedItem.el, type, selectedItem.title)
+                    ? preferredMediaTitle(selectedItem.el, type, selectedItem.title, { allowLookup: true })
                     : (selectedItem.title || titleFromMedia(selectedItem.el, type));
                 selectedItem.title = mediaTitle;
                 const subtitle = deckItemContextSubtitle(selectedItem);

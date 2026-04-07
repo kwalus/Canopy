@@ -216,35 +216,6 @@
         box-shadow: 0 8px 25px rgba(6, 182, 212, 0.4);
     }
     
-    .stats-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-        gap: 1rem;
-        margin-top: 1rem;
-    }
-    
-    .stat-card {
-        background: var(--canopy-bg-tertiary);
-        border: 1px solid var(--canopy-border);
-        border-radius: 12px;
-        padding: 1rem;
-        text-align: center;
-    }
-    
-    .stat-value {
-        font-size: 1.5rem;
-        font-weight: 700;
-        color: var(--canopy-primary);
-        margin-bottom: 0.25rem;
-    }
-    
-    .stat-label {
-        font-size: 0.85rem;
-        color: var(--canopy-text-muted);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-    
     .file-drop-zone {
         border: 2px dashed var(--canopy-border);
         border-radius: 12px;
@@ -363,7 +334,7 @@
                             Appearance
                         </div>
                         <p class="text-muted small mb-3">
-                            Choose a visual theme for Canopy. Your selection is saved and syncs across your devices.
+                            Choose your personal visual theme for Canopy. This preference is per-user and overrides the instance default.
                         </p>
                         
                         <div class="theme-options">
@@ -411,34 +382,6 @@
         </div>
 
         <div class="col-lg-4">
-            <!-- Profile Stats -->
-            <div class="card">
-                <div class="card-header">
-                    <i class="bi bi-graph-up me-2"></i>
-                    Your Activity
-                </div>
-                <div class="card-body">
-                    <div class="stats-grid">
-                        <div class="stat-card">
-                            <div class="stat-value">{{ profile_stats.messages if profile_stats is defined else 0 }}</div>
-                            <div class="stat-label">Messages</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-value">{{ profile_stats.channels if profile_stats is defined else 0 }}</div>
-                            <div class="stat-label">Channels</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-value">{{ profile_stats.posts if profile_stats is defined else 0 }}</div>
-                            <div class="stat-label">Posts</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-value">{{ profile_stats.api_keys if profile_stats is defined else 0 }}</div>
-                            <div class="stat-label">API Keys</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
             <!-- Change Password -->
             <div class="card mb-4">
                 <div class="card-header">

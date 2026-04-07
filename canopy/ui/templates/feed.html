@@ -18,8 +18,6 @@
     </div>
 </div>
 
-{% include '_workspace_onboarding.html' %}
-
 <!-- Post Composer (inline; avoids modal sizing issues on smaller screens) -->
 <div class="card mb-4" id="post-composer">
     <div class="card-header d-flex justify-content-between align-items-center">
@@ -562,7 +560,7 @@
                                     {% set others = [] %}
                                     {% set image_layout = namespace(value='') %}
                                     {% for attachment in post.metadata.attachments %}
-                                        {% if attachment.type.startswith('image/') and attachment.url %}
+                                        {% if attachment.type.startswith('image/') %}
                                             {% if images.append(attachment) %}{% endif %}
                                             {% if not image_layout.value %}
                                                 {% set candidate = (attachment.layout_hint or '')|lower %}
@@ -1380,7 +1378,7 @@
                                                     {% if em.get('video_url') %}
                                                         <div class="post-repost-embed-media mt-2 text-center">
                                                             <video controls class="img-fluid rounded post-repost-embed-video" preload="metadata">
-                                                                <source src="{{ em.video_url }}" type="video/mp4">
+                                                                <source src="{{ em.video_url }}" type="{{ em.get('video_type') or 'video/mp4' }}">
                                                             </video>
                                                         </div>
                                                     {% endif %}
@@ -1489,7 +1487,7 @@
                                     {% if post.metadata and post.metadata.video_url %}
                                         <div class="text-center">
                                             <video controls class="img-fluid rounded" style="max-height: 400px;">
-                                                <source src="{{ post.metadata.video_url }}" type="video/mp4">
+                                                <source src="{{ post.metadata.video_url }}" type="{{ post.metadata.video_type or 'video/mp4' }}">
                                                 Your browser does not support the video tag.
                                             </video>
                                         </div>
@@ -6276,9 +6274,25 @@
             metadata.attachments = allAttachments;
             const first = allAttachments[0] || {};
             const firstType = String(first.type || '');
-            if (firstType.startsWith('image/')) metadata.image_url = first.url;
-            else if (firstType.startsWith('video/')) metadata.video_url = first.url;
-            else if (firstType.startsWith('audio/')) metadata.audio_url = first.url;
+            if (firstType.startsWith('image/')) {
+                metadata.image_url = first.url;
+                delete metadata.video_url;
+                delete metadata.video_type;
+                delete metadata.audio_url;
+                delete metadata.audio_type;
+            } else if (firstType.startsWith('video/')) {
+                metadata.video_url = first.url;
+                metadata.video_type = firstType || 'video/mp4';
+                delete metadata.image_url;
+                delete metadata.audio_url;
+                delete metadata.audio_type;
+            } else if (firstType.startsWith('audio/')) {
+                metadata.audio_url = first.url;
+                metadata.audio_type = firstType || 'audio/mpeg';
+                delete metadata.image_url;
+                delete metadata.video_url;
+                delete metadata.video_type;
+            }
         }
 
         state.saving = true;

@@ -33,6 +33,17 @@ from .icons import (
 logger = logging.getLogger(__name__)
 
 
+def _windows_preferred_pythonw_executable(executable: str) -> str:
+    """Prefer ``pythonw.exe`` for unfrozen Windows tray auto-start commands."""
+    import ntpath
+
+    candidate = str(executable or "")
+    if os.name != "nt" or ntpath.basename(candidate).lower() != "python.exe":
+        return candidate
+    pythonw = ntpath.join(ntpath.dirname(candidate), "pythonw.exe")
+    return pythonw if os.path.exists(pythonw) else candidate
+
+
 class TrayApp:
     """Canopy system tray application."""
 
@@ -363,7 +374,7 @@ class TrayApp:
                 cmd = f'"{sys.executable}"'
             else:
                 # Running as Python script
-                cmd = f'"{sys.executable}" -m canopy_tray'
+                cmd = f'"{_windows_preferred_pythonw_executable(sys.executable)}" -m canopy_tray'
 
             key = winreg.OpenKey(
                 winreg.HKEY_CURRENT_USER, self._REG_KEY, 0, winreg.KEY_SET_VALUE

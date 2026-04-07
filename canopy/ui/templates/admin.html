@@ -446,6 +446,22 @@
     flex-wrap: wrap;
 }
 
+.admin-sections {
+    display: flex;
+    flex-direction: column;
+}
+
+.admin-section-pending { order: 1; }
+.admin-section-users-primary { order: 2; }
+.admin-section-agent-template { order: 3; }
+.admin-section-agent-ops { order: 4; }
+.admin-section-instance { order: 5; }
+.admin-section-users-secondary { order: 6; }
+.admin-section-relay { order: 7; }
+.admin-section-attachments { order: 8; }
+.admin-section-data { order: 9; }
+.admin-section-environment { order: 10; }
+
 .admin-summary-row {
     --bs-gutter-y: 0.75rem;
 }
@@ -462,6 +478,24 @@
     min-width: 180px;
 }
 
+.meshspace-template-grid {
+    display: grid;
+    gap: 0.65rem;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.meshspace-template-card {
+    border: 1px solid rgba(126, 157, 222, 0.2);
+    border-radius: 12px;
+    background: rgba(14, 27, 46, 0.72);
+    padding: 0.7rem 0.8rem;
+}
+
+.meshspace-template-summary {
+    font-size: 0.82rem;
+    color: #9fb2cf;
+}
+
 .keys-new-key-row {
     display: flex;
     gap: 0.5rem;
@@ -470,6 +504,262 @@
 
 .keys-new-key-row .form-control {
     min-width: 0;
+}
+
+.governance-shell {
+    border: 1px solid rgba(122, 151, 215, 0.22);
+    border-radius: 16px;
+    background: linear-gradient(145deg, rgba(15, 30, 52, 0.8), rgba(10, 23, 41, 0.72));
+    padding: 1rem;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.governance-status-banner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.85rem;
+    padding: 0.7rem 0.85rem;
+    border-radius: 12px;
+    border: 1px solid rgba(122, 151, 215, 0.18);
+    background: rgba(8, 19, 35, 0.45);
+}
+
+.governance-status-banner.is-dirty {
+    border-color: rgba(250, 204, 21, 0.4);
+    background: rgba(74, 54, 8, 0.28);
+}
+
+.governance-dirty-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border-radius: 999px;
+    padding: 0.22rem 0.6rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    border: 1px solid rgba(122, 151, 215, 0.2);
+    background: rgba(8, 19, 35, 0.56);
+    color: #cbd9f2;
+}
+
+.governance-dirty-indicator.is-dirty {
+    border-color: rgba(250, 204, 21, 0.38);
+    background: rgba(92, 65, 6, 0.42);
+    color: #fde68a;
+}
+
+.governance-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.65rem;
+    margin-bottom: 0.85rem;
+}
+
+.governance-stat {
+    border: 1px solid rgba(122, 151, 215, 0.22);
+    border-radius: 12px;
+    background: rgba(8, 19, 35, 0.55);
+    padding: 0.65rem 0.75rem;
+}
+
+.governance-stat-label {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #9cb2cf;
+}
+
+.governance-stat-value {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #e7f0ff;
+}
+
+.governance-toolbar {
+    border: 1px solid rgba(122, 151, 215, 0.18);
+    border-radius: 14px;
+    background: rgba(8, 19, 35, 0.42);
+    padding: 0.75rem;
+}
+
+.governance-channel-list {
+    max-height: 360px;
+    overflow-y: auto;
+    padding-right: 4px;
+    margin-top: 0.85rem;
+}
+
+.governance-channel-grid {
+    display: grid;
+    gap: 0.65rem;
+}
+
+.governance-channel-card {
+    border: 1px solid rgba(122, 151, 215, 0.18);
+    border-radius: 14px;
+    background: linear-gradient(145deg, rgba(18, 33, 56, 0.82), rgba(12, 24, 43, 0.78));
+    padding: 0.8rem 0.9rem;
+    transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+}
+
+.governance-channel-card:hover {
+    border-color: rgba(74, 220, 191, 0.48);
+    transform: translateY(-1px);
+    box-shadow: 0 10px 18px rgba(3, 9, 22, 0.3);
+}
+
+.governance-channel-card.selected {
+    border-color: rgba(74, 220, 191, 0.85);
+    box-shadow: 0 0 0 1px rgba(74, 220, 191, 0.35);
+}
+
+.governance-channel-card.blocked {
+    border-color: rgba(248, 113, 113, 0.28);
+}
+
+.governance-channel-card.readonly {
+    opacity: 0.68;
+}
+
+.governance-channel-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    align-items: flex-start;
+    margin-bottom: 0.4rem;
+}
+
+.governance-channel-title {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-width: 0;
+}
+
+.governance-channel-name {
+    font-weight: 700;
+    color: #e7f0ff;
+}
+
+.governance-channel-meta {
+    color: #9cb2cf;
+    font-size: 0.76rem;
+}
+
+.governance-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 0.45rem;
+}
+
+.governance-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border-radius: 999px;
+    padding: 0.16rem 0.52rem;
+    border: 1px solid rgba(122, 151, 215, 0.22);
+    background: rgba(8, 18, 33, 0.56);
+    color: #cbd9f2;
+    font-size: 0.71rem;
+}
+
+.governance-chip.good {
+    border-color: rgba(74, 222, 128, 0.28);
+    color: #86efac;
+}
+
+.governance-chip.warn {
+    border-color: rgba(250, 204, 21, 0.35);
+    color: #fde68a;
+}
+
+.governance-chip.bad {
+    border-color: rgba(248, 113, 113, 0.32);
+    color: #fca5a5;
+}
+
+.governance-helper {
+    font-size: 0.76rem;
+    color: #9cb2cf;
+}
+
+.governance-action-bar {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    margin-top: 0.85rem;
+    padding: 0.8rem 0.9rem;
+    border-radius: 14px;
+    border: 1px solid rgba(122, 151, 215, 0.22);
+    background: linear-gradient(145deg, rgba(17, 33, 56, 0.95), rgba(10, 24, 42, 0.96));
+    box-shadow: 0 -10px 24px rgba(3, 9, 22, 0.22);
+}
+
+.governance-action-bar.is-dirty {
+    border-color: rgba(250, 204, 21, 0.35);
+}
+
+.keys-panel-shell {
+    border: 1px solid rgba(122, 151, 215, 0.18);
+    border-radius: 14px;
+    background: linear-gradient(145deg, rgba(16, 31, 53, 0.78), rgba(11, 23, 40, 0.72));
+    padding: 0.9rem;
+}
+
+.keys-preset-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    margin-bottom: 0.65rem;
+}
+
+.keys-permission-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.45rem;
+}
+
+.keys-permission-card {
+    border: 1px solid rgba(122, 151, 215, 0.18);
+    border-radius: 12px;
+    background: rgba(8, 19, 35, 0.5);
+    padding: 0.55rem 0.65rem;
+}
+
+.keys-permission-card .form-check {
+    margin: 0;
+}
+
+.keys-permission-hint {
+    font-size: 0.72rem;
+    color: #9cb2cf;
+    margin-top: 0.2rem;
+}
+
+.keys-summary-line {
+    font-size: 0.78rem;
+    color: #b7c8e6;
+}
+
+.keys-permission-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+}
+
+.keys-permission-badge {
+    border-radius: 999px;
+    border: 1px solid rgba(122, 151, 215, 0.22);
+    background: rgba(8, 18, 33, 0.56);
+    color: #d7e4fb;
+    padding: 0.12rem 0.45rem;
+    font-size: 0.7rem;
 }
 
 @media (max-width: 1400px) {
@@ -647,438 +937,22 @@
     </h1>
 </div>
 
-<div class="row mb-4 admin-summary-row">
-    <div class="col-md-4 admin-summary-col">
-        <div class="card">
-            <div class="card-body d-flex align-items-center">
-                <div class="me-3"><i class="bi bi-people fs-2 text-primary"></i></div>
-                <div>
-                    <div class="text-muted small">Total users</div>
-                    <div class="h4 mb-0">{{ users|length }}</div>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-4 admin-summary-col">
-        <div class="card">
-            <div class="card-body d-flex align-items-center">
-                <div class="me-3"><i class="bi bi-hourglass-split fs-2 text-warning"></i></div>
-                <div>
-                    <div class="text-muted small">Pending approvals</div>
-                    <div class="h4 mb-0">{{ pending_count }}</div>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-4 admin-summary-col">
-        <div class="card">
-            <div class="card-body d-flex align-items-center">
-                <div class="me-3"><i class="bi bi-robot fs-2 text-info"></i></div>
-                <div>
-                    <div class="text-muted small">Active agents</div>
-                    <div class="h4 mb-0">{{ active_agents_count }}</div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<div class="card subsystem-shell mb-4">
-    <div class="card-header">
-        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
-            <div>
-                <h5 class="mb-0"><i class="bi bi-diagram-3 me-1"></i> v0.3.67 Subsystem Visibility</h5>
-                <div class="small text-muted">Operational readout for heartbeat, community-note verification, and trust-weighted skills.</div>
-            </div>
-            <button type="button" class="btn btn-outline-info btn-sm" id="heartbeat-refresh-btn">
-                <i class="bi bi-arrow-clockwise me-1"></i>Refresh Heartbeat
-            </button>
-        </div>
-    </div>
-    <div class="card-body">
-        <div class="row g-3">
-            <div class="col-lg-5">
-                <div class="ops-grid">
-                    <div class="ops-tile">
-                        <div class="ops-label">Unacked Mentions</div>
-                        <div class="ops-value" id="heartbeat-mentions">{{ heartbeat_snapshot.unacked_mentions or 0 }}</div>
-                    </div>
-                    <div class="ops-tile">
-                        <div class="ops-label">Pending Inbox</div>
-                        <div class="ops-value" id="heartbeat-inbox">{{ heartbeat_snapshot.pending_inbox or 0 }}</div>
-                    </div>
-                    <div class="ops-tile">
-                        <div class="ops-label">Active Tasks</div>
-                        <div class="ops-value" id="heartbeat-tasks">{{ heartbeat_snapshot.active_tasks or 0 }}</div>
-                    </div>
-                    <div class="ops-tile">
-                        <div class="ops-label">Needs Catchup</div>
-                        <div class="ops-value" id="heartbeat-catchup">{{ 'yes' if heartbeat_snapshot.needs_catchup else 'no' }}</div>
-                        <div class="ops-meta">Directives hash: <code id="heartbeat-hash">{{ heartbeat_snapshot.directives_hash or 'none' }}</code></div>
-                    </div>
-                    <div class="ops-tile">
-                        <div class="ops-label">Community Notes</div>
-                        <div class="ops-value">{{ community_note_counts.total or 0 }}</div>
-                        <div class="ops-meta">
-                            proposed {{ community_note_counts.proposed or 0 }} •
-                            accepted {{ community_note_counts.accepted or 0 }} •
-                            rejected {{ community_note_counts.rejected or 0 }}
-                        </div>
-                    </div>
-                    <div class="ops-tile">
-                        <div class="ops-label">Profile Mode</div>
-                        <div class="ops-value">{{ 'agent' if current_user_is_agent else 'human' }}</div>
-                        <div class="ops-meta">Heartbeat endpoint supports adaptive polling clients.</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-lg-7">
-                <div class="row g-3">
-                    <div class="col-md-6">
-                        <h6 class="mb-2">Trust-Weighted Skills</h6>
-                        {% if top_skill_trust %}
-                            {% for skill in top_skill_trust %}
-                                <div class="skill-leader-item">
-                                    <div class="skill-leader-head">
-                                        <div class="fw-semibold text-truncate" title="{{ skill.name }}">{{ skill.name }}</div>
-                                        {% if skill.trust_percent is not none %}
-                                            <span class="skill-score-chip {% if skill.trust_percent < 55 %}low{% elif skill.trust_percent < 75 %}mid{% endif %}">{{ skill.trust_percent }}%</span>
-                                        {% else %}
-                                            <span class="skill-score-chip">No score</span>
-                                        {% endif %}
-                                    </div>
-                                    <div class="skill-leader-meta">
-                                        {{ skill.invocation_count or 0 }} invocations • {{ skill.endorsement_count or 0 }} endorsements
-                                    </div>
-                                </div>
-                            {% endfor %}
-                        {% else %}
-                            <p class="text-muted small mb-0">No skills discovered yet.</p>
-                        {% endif %}
-                    </div>
-                    <div class="col-md-6">
-                        <h6 class="mb-2">Community Notes Queue</h6>
-                        {% if community_note_queue %}
-                            <div class="queue-list">
-                                {% for note in community_note_queue %}
-                                    <div class="queue-item">
-                                        <div class="queue-head">
-                                            <span class="queue-type">{{ note.note_type_label }}</span>
-                                            <span class="queue-status">{{ note.status_label }}</span>
-                                        </div>
-                                        <div class="queue-body">{{ note.content }}</div>
-                                        <div class="queue-meta">
-                                            {{ note.author_id }} • {{ note.ratings.total }} ratings • target {{ note.target_type }}:{{ note.target_id }}
-                                        </div>
-                                    </div>
-                                {% endfor %}
-                            </div>
-                        {% else %}
-                            <p class="text-muted small mb-0">No proposed notes awaiting consensus.</p>
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<div class="card subsystem-shell mb-4">
-    <div class="card-header">
-        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
-            <div>
-                <h5 class="mb-0"><i class="bi bi-diagram-2 me-1"></i> Mesh Sync Diagnostics</h5>
-                <div class="small text-muted">Live digest-assisted catch-up telemetry and mesh health counters.</div>
-            </div>
-            <button type="button" class="btn btn-outline-info btn-sm" id="mesh-diag-refresh-btn">
-                <i class="bi bi-arrow-clockwise me-1"></i>Refresh Mesh
-            </button>
-        </div>
-    </div>
-    <div class="card-body">
-        <div class="ops-grid mb-3">
-            <div class="ops-tile">
-                <div class="ops-label">Connected Peers</div>
-                <div class="ops-value" id="mesh-diag-connected">—</div>
-            </div>
-            <div class="ops-tile">
-                <div class="ops-label">Known Peers</div>
-                <div class="ops-value" id="mesh-diag-known">—</div>
-            </div>
-            <div class="ops-tile">
-                <div class="ops-label">Sync Queue Depth</div>
-                <div class="ops-value" id="mesh-diag-queue">—</div>
-            </div>
-            <div class="ops-tile">
-                <div class="ops-label">Digest Enabled</div>
-                <div class="ops-value" id="mesh-diag-enabled">—</div>
-            </div>
-            <div class="ops-tile">
-                <div class="ops-label">Capability Gate</div>
-                <div class="ops-value" id="mesh-diag-capability">—</div>
-            </div>
-            <div class="ops-tile">
-                <div class="ops-label">Max Channels/Req</div>
-                <div class="ops-value" id="mesh-diag-max-channels">—</div>
-            </div>
-            <div class="ops-tile">
-                <div class="ops-label">Digest Requests</div>
-                <div class="ops-value" id="mesh-diag-requests">—</div>
-            </div>
-            <div class="ops-tile">
-                <div class="ops-label">Channels Checked</div>
-                <div class="ops-value" id="mesh-diag-checked">—</div>
-            </div>
-            <div class="ops-tile">
-                <div class="ops-label">Channels Matched</div>
-                <div class="ops-value" id="mesh-diag-matched">—</div>
-            </div>
-            <div class="ops-tile">
-                <div class="ops-label">Channels Mismatched</div>
-                <div class="ops-value" id="mesh-diag-mismatched">—</div>
-            </div>
-            <div class="ops-tile">
-                <div class="ops-label">Digest Fallbacks</div>
-                <div class="ops-value" id="mesh-diag-fallbacks">—</div>
-            </div>
-            <div class="ops-tile">
-                <div class="ops-label">Digest Match Rate</div>
-                <div class="ops-value" id="mesh-diag-match-rate">—</div>
-                <div class="ops-meta">Last used: <span id="mesh-diag-last-used">—</span></div>
-            </div>
-        </div>
-        <h6 class="mb-2">Recent failures / security blocks</h6>
-        <div id="mesh-diag-failures" class="small text-muted">
-            No recent failures.
-        </div>
-    </div>
-</div>
-
-<div class="card subsystem-shell mb-4">
-    <div class="card-header">
-        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
-            <div>
-                <h5 class="mb-0"><i class="bi bi-broadcast-pin me-1"></i> Workspace Event Journal</h5>
-                <div class="small text-muted">Operator view of the local Patch 1 event spine before UI consumers migrate onto it.</div>
-            </div>
-            <button type="button" class="btn btn-outline-info btn-sm" id="workspace-event-refresh-btn">
-                <i class="bi bi-arrow-clockwise me-1"></i>Refresh Events
-            </button>
-        </div>
-    </div>
-    <div class="card-body">
-        <div class="ops-grid mb-3">
-            <div class="ops-tile">
-                <div class="ops-label">Journal Rows</div>
-                <div class="ops-value" id="workspace-event-count">—</div>
-            </div>
-            <div class="ops-tile">
-                <div class="ops-label">Latest Seq</div>
-                <div class="ops-value" id="workspace-event-latest-seq">—</div>
-            </div>
-            <div class="ops-tile">
-                <div class="ops-label">Oldest Row Age</div>
-                <div class="ops-value" id="workspace-event-oldest-age">—</div>
-            </div>
-            <div class="ops-tile">
-                <div class="ops-label">Newest Row Age</div>
-                <div class="ops-value" id="workspace-event-latest-age">—</div>
-            </div>
-            <div class="ops-tile">
-                <div class="ops-label">Admin Cursor</div>
-                <div class="ops-value" id="workspace-event-admin-cursor">—</div>
-                <div class="ops-meta">Legacy cursor: <span id="workspace-event-legacy-cursor">—</span></div>
-            </div>
-            <div class="ops-tile">
-                <div class="ops-label">Needs Action</div>
-                <div class="ops-value" id="workspace-event-needs-action">—</div>
-                <div class="ops-meta">Inbox <span id="workspace-event-pending-inbox">—</span> · Mentions <span id="workspace-event-unacked-mentions">—</span></div>
-            </div>
-        </div>
-
-        <div class="mb-3">
-            <div class="small text-muted mb-2">Type distribution</div>
-            <div class="workspace-event-counts" id="workspace-event-type-counts">
-                <span class="text-muted small">Loading...</span>
-            </div>
-        </div>
-
-        <div>
-            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-                <div class="small text-muted">Most recent journal rows</div>
-                <div class="small text-muted">Owner-only diagnostics view</div>
-            </div>
-            <div class="workspace-event-list" id="workspace-event-items">
-                <div class="small text-muted">Loading workspace events...</div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<div class="card subsystem-shell mb-4">
-    <div class="card-header">
-        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
-            <div>
-                <h5 class="mb-0"><i class="bi bi-person-vcard me-1"></i> Identity Portability (Phase 1)</h5>
-                <div class="small text-muted">Feature-gated principal metadata + bootstrap grants. No cross-peer login/admin transfer.</div>
-            </div>
-            <button type="button" class="btn btn-outline-info btn-sm" id="identity-port-refresh-btn">
-                <i class="bi bi-arrow-clockwise me-1"></i>Refresh Identity
-            </button>
-        </div>
-    </div>
-    <div class="card-body id-port-panel">
-        <div class="ops-grid mb-3">
-            <div class="ops-tile">
-                <div class="ops-label">Enabled</div>
-                <div class="ops-value" id="id-port-enabled">—</div>
-            </div>
-            <div class="ops-tile">
-                <div class="ops-label">Local Peer</div>
-                <div class="ops-value" id="id-port-peer" style="font-size: 0.95rem;">—</div>
-            </div>
-            <div class="ops-tile">
-                <div class="ops-label">Principals</div>
-                <div class="ops-value" id="id-port-principals">—</div>
-            </div>
-            <div class="ops-tile">
-                <div class="ops-label">Links</div>
-                <div class="ops-value" id="id-port-links">—</div>
-            </div>
-            <div class="ops-tile">
-                <div class="ops-label">Grants</div>
-                <div class="ops-value" id="id-port-grants">—</div>
-            </div>
-            <div class="ops-tile">
-                <div class="ops-label">Capable Peers</div>
-                <div class="ops-value" id="id-port-capable">—</div>
-            </div>
-        </div>
-
-        <div class="row g-2 mb-2">
-            <div class="col-xl-3 col-lg-4">
-                <label class="form-label small mb-1" for="id-port-user-id">Local user</label>
-                <select class="form-select form-select-sm" id="id-port-user-id">
-                    <option value="">Choose local user...</option>
-                    {% for u in users %}
-                    {% if u.get('is_registered') and not u.get('origin_peer') and (u.get('status') or 'active') == 'active' %}
-                    <option value="{{ u.id }}">{{ u.display_name or u.username }} ({{ u.username }})</option>
-                    {% endif %}
-                    {% endfor %}
-                </select>
-            </div>
-            <div class="col-xl-3 col-lg-4">
-                <label class="form-label small mb-1" for="id-port-target-peer">Deliver to peer</label>
-                <select class="form-select form-select-sm font-monospace" id="id-port-target-peer">
-                    <option value="">All capable connected peers</option>
-                </select>
-                <div class="small text-muted mt-1 id-port-token-hint" id="id-port-target-peer-hint">Loading capable peers...</div>
-            </div>
-            <div class="col-xl-2 col-lg-4">
-                <label class="form-label small mb-1" for="id-port-audience-peer">Audience lock (optional)</label>
-                <input type="text" class="form-control form-control-sm font-monospace" id="id-port-audience-peer" placeholder="peer_id">
-            </div>
-            <div class="col-xl-2 col-lg-3">
-                <label class="form-label small mb-1" for="id-port-expire-hours">Expire (hours)</label>
-                <input type="number" class="form-control form-control-sm" id="id-port-expire-hours" min="1" max="336" value="24">
-            </div>
-            <div class="col-xl-1 col-lg-2">
-                <label class="form-label small mb-1" for="id-port-max-uses">Max uses</label>
-                <input type="number" class="form-control form-control-sm" id="id-port-max-uses" min="1" max="50" value="1">
-            </div>
-            <div class="col-xl-1 col-lg-3 d-flex align-items-end">
-                <button type="button" class="btn btn-outline-success btn-sm w-100" id="id-port-create-grant-btn" title="Create grant">
-                    <i class="bi bi-plus-circle"></i>
-                </button>
-            </div>
-        </div>
-        <div class="small text-muted mb-2" id="id-port-status">No identity actions yet.</div>
-        <pre id="id-port-output" class="small p-2 rounded border bg-dark text-light" style="display: none; max-height: 220px; overflow:auto;"></pre>
-
-        <div class="row g-2 mb-2 mt-1 align-items-stretch">
-            <div class="col-lg-8">
-                <label class="form-label small mb-1" for="id-port-transfer-token">Grant transfer token (QR-friendly)</label>
-                <div class="input-group input-group-sm">
-                    <input type="text" class="form-control font-monospace" id="id-port-transfer-token" readonly placeholder="Create a grant to populate token">
-                    <button type="button" class="btn btn-outline-secondary" id="id-port-copy-token-btn">
-                        <i class="bi bi-clipboard me-1"></i>Token
-                    </button>
-                    <button type="button" class="btn btn-outline-secondary" id="id-port-copy-json-btn">
-                        <i class="bi bi-file-earmark-code me-1"></i>JSON
-                    </button>
-                    <button type="button" class="btn btn-outline-secondary" id="id-port-toggle-qr-btn">
-                        <i class="bi bi-qr-code me-1"></i>QR
-                    </button>
-                </div>
-                <div class="id-port-token-hint mt-1" id="id-port-transfer-note">
-                    Use token/QR for mobile transfer. Import accepts raw JSON or `canopy-grant://v1/...`.
-                </div>
-            </div>
-            <div class="col-lg-4">
-                <div id="id-port-qr-shell" class="id-port-qr-shell" style="display:none;">
-                    <div id="id-port-qr-code" class="id-port-qr-code"></div>
-                    <div class="small text-muted text-center">Scan on target admin page, then import.</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="row g-2 mb-2 mt-1">
-            <div class="col-lg-6">
-                <label class="form-label small mb-1" for="id-port-import-artifact">Import grant artifact (JSON or token)</label>
-                <textarea class="form-control form-control-sm font-monospace" id="id-port-import-artifact" rows="4" placeholder='{"grant_id":"MGR...","principal_id":"PRN...","...":"...","signature":"..."} or canopy-grant://v1/...'></textarea>
-                <div class="small mt-1 text-muted" id="id-port-scan-status"></div>
-                <div id="id-port-scan-shell" class="id-port-scan-shell mt-1" style="display:none;">
-                    <video id="id-port-scan-video" class="id-port-scan-video" playsinline muted></video>
-                    <button type="button" class="btn btn-outline-secondary btn-sm w-100 mt-2" id="id-port-scan-stop-btn">
-                        <i class="bi bi-stop-circle me-1"></i>Stop Scan
-                    </button>
-                </div>
-            </div>
-            <div class="col-lg-3">
-                <label class="form-label small mb-1" for="id-port-apply-user-id">Apply to local user (optional)</label>
-                <select class="form-select form-select-sm" id="id-port-apply-user-id">
-                    <option value="">No apply</option>
-                    {% for u in users %}
-                    {% if u.get('is_registered') and not u.get('origin_peer') and (u.get('status') or 'active') == 'active' %}
-                    <option value="{{ u.id }}">{{ u.display_name or u.username }}</option>
-                    {% endif %}
-                    {% endfor %}
-                </select>
-                <button type="button" class="btn btn-outline-info btn-sm mt-2 w-100" id="id-port-import-grant-btn">
-                    <i class="bi bi-box-arrow-in-down me-1"></i>Import Grant
-                </button>
-                <button type="button" class="btn btn-outline-secondary btn-sm mt-2 w-100" id="id-port-scan-start-btn">
-                    <i class="bi bi-camera me-1"></i>Scan QR
-                </button>
-            </div>
-            <div class="col-lg-3">
-                <label class="form-label small mb-1" for="id-port-revoke-grant-id">Revoke grant ID</label>
-                <input type="text" class="form-control form-control-sm font-monospace" id="id-port-revoke-grant-id" placeholder="MGR...">
-                <input type="text" class="form-control form-control-sm mt-2" id="id-port-revoke-reason" placeholder="Reason" value="revoked_by_admin">
-                <button type="button" class="btn btn-outline-warning btn-sm mt-2 w-100" id="id-port-revoke-grant-btn">
-                    <i class="bi bi-x-circle me-1"></i>Revoke Grant
-                </button>
-            </div>
-        </div>
-
-        <h6 class="mb-2">Latest grants snapshot</h6>
-        <pre id="id-port-grants-view" class="small p-2 rounded border bg-dark text-light mb-0" style="max-height: 240px; overflow:auto;">Loading...</pre>
-    </div>
-</div>
+<div class="admin-sections">
 
 {% if pending_count > 0 %}
-<div class="card mb-4 border-warning">
+<div class="card mb-4 border-warning admin-section-pending">
     <div class="card-header bg-warning bg-opacity-25">
-        <h5 class="mb-0"><i class="bi bi-person-plus"></i> Pending agent approvals</h5>
+        <h5 class="mb-0"><i class="bi bi-person-plus"></i> Pending approvals</h5>
     </div>
     <div class="card-body">
-        <p class="text-muted small mb-3">These accounts registered as agents and need your approval before they can post or use the API. To require approval for all new agents, leave <code>CANOPY_AUTO_APPROVE_AGENTS</code> unset (see Settings → Environment Configuration).</p>
+        <p class="text-muted small mb-3">New non-admin humans and unapproved agents wait here until you activate them. After approval, agents start in <code>#agent-start-here</code> while humans can continue into the regular workspace. Agents created through the API can still be auto-approved if <code>CANOPY_AUTO_APPROVE_AGENTS</code> is enabled, but human self-registration now stays pending.</p>
         <div class="table-responsive">
             <table class="table table-sm">
                 <thead>
                     <tr>
                         <th>Username</th>
                         <th>Display name</th>
+                        <th>Type</th>
                         <th>Created</th>
                         <th>Actions</th>
                     </tr>
@@ -1088,10 +962,11 @@
                     <tr>
                         <td><code>{{ u.username }}</code></td>
                         <td>{{ u.display_name or '-' }}</td>
+                        <td><span class="badge {% if (u.get('account_type') or 'human') == 'agent' %}bg-info{% else %}bg-secondary{% endif %}">{{ u.get('account_type') or 'human' }}</span></td>
                         <td>{{ u.created_at[:10] if u.created_at else '-' }}</td>
                         <td>
-                            <button type="button" class="btn btn-success btn-sm approve-btn" data-user-id="{{ u.id }}">Approve</button>
-                            <button type="button" class="btn btn-outline-danger btn-sm suspend-btn" data-user-id="{{ u.id }}">Reject</button>
+                            <button type="button" class="btn btn-success btn-sm approve-btn" data-user-id="{{ u.id }}" title="{% if (u.get('account_type') or 'human') == 'agent' %}Approve this agent and place it in #agent-start-here with current governance defaults.{% else %}Approve this person and let them sign in to the workspace.{% endif %}">Approve</button>
+                            <button type="button" class="btn btn-outline-danger btn-sm suspend-btn" data-user-id="{{ u.id }}" title="{% if (u.get('account_type') or 'human') == 'agent' %}Reject this agent registration and keep its API access blocked.{% else %}Reject this registration and keep this user from signing in.{% endif %}">Reject</button>
                         </td>
                     </tr>
                     {% endfor %}
@@ -1102,7 +977,7 @@
 </div>
 {% endif %}
 
-<div class="card mb-4 border-info">
+<div class="card mb-4 border-info admin-section-instance">
     <div class="card-header bg-info bg-opacity-10">
         <h5 class="mb-0"><i class="bi bi-person-gear"></i> Instance admin</h5>
     </div>
@@ -1124,172 +999,12 @@
     </div>
 </div>
 
-<div class="card mb-4 border-warning">
-    <div class="card-header bg-warning bg-opacity-10">
-        <h5 class="mb-0"><i class="bi bi-trash3"></i> Channel Replica Reconciliation</h5>
-    </div>
-    <div class="card-body">
-        <p class="text-muted small mb-2">
-            Re-broadcast channel delete signals to clean up stale replicas on peers.
-            Use this when a channel was deleted on the origin peer but still appears elsewhere.
-        </p>
-        <div class="row g-2">
-            <div class="col-12">
-                <label for="admin-reconcile-channel-ids" class="form-label small mb-1">Channel IDs (comma/newline separated)</label>
-                <textarea class="form-control form-control-sm font-monospace" id="admin-reconcile-channel-ids" rows="3" placeholder="Cabc123..., Cdef456..."></textarea>
-            </div>
-            <div class="col-md-4">
-                <label for="admin-reconcile-target-peer" class="form-label small mb-1">Target peer</label>
-                <input type="text" class="form-control form-control-sm font-monospace" id="admin-reconcile-target-peer" placeholder="all">
-                <div class="small text-muted mt-1">Use <code>all</code> (default) or a specific peer ID.</div>
-            </div>
-            <div class="col-md-5">
-                <label for="admin-reconcile-reason" class="form-label small mb-1">Reason</label>
-                <input type="text" class="form-control form-control-sm" id="admin-reconcile-reason" value="admin_channel_reconcile_delete" maxlength="160">
-            </div>
-            <div class="col-md-3 d-flex align-items-end">
-                <button type="button" class="btn btn-outline-warning btn-sm w-100" id="admin-reconcile-run-btn">
-                    <i class="bi bi-send me-1"></i>Send Delete Signals
-                </button>
-            </div>
-        </div>
-        <div id="admin-reconcile-status" class="small mt-2 text-muted"></div>
-        <pre id="admin-reconcile-output" class="small mt-2 p-2 rounded border bg-dark text-light" style="display: none; max-height: 220px; overflow: auto;"></pre>
-    </div>
-</div>
-
-<div class="card mb-4 border-info">
-    <div class="card-header bg-info bg-opacity-10">
-        <h5 class="mb-0"><i class="bi bi-diagram-3"></i> Private Channel Membership Diagnostics</h5>
-    </div>
-    <div class="card-body">
-        <p class="text-muted small mb-2">
-            Inspect membership propagation for one channel, including member peer mapping, sync delivery states,
-            and warnings about stale or missing origin metadata.
-        </p>
-        <div class="row g-2">
-            <div class="col-md-5">
-                <label for="admin-member-sync-channel-id" class="form-label small mb-1">Channel ID</label>
-                <input type="text" class="form-control form-control-sm font-monospace" id="admin-member-sync-channel-id" placeholder="Cabc123...">
-            </div>
-            <div class="col-md-4">
-                <label for="admin-member-sync-target-user-id" class="form-label small mb-1">Target user (optional)</label>
-                <input type="text" class="form-control form-control-sm font-monospace" id="admin-member-sync-target-user-id" placeholder="user_...">
-            </div>
-            <div class="col-md-2">
-                <label for="admin-member-sync-limit" class="form-label small mb-1">Records</label>
-                <select class="form-select form-select-sm" id="admin-member-sync-limit">
-                    <option value="100">100</option>
-                    <option value="200" selected>200</option>
-                    <option value="300">300</option>
-                    <option value="500">500</option>
-                </select>
-            </div>
-            <div class="col-md-1 d-flex align-items-end">
-                <button type="button" class="btn btn-outline-info btn-sm w-100" id="admin-member-sync-run-btn" title="Load diagnostics">
-                    <i class="bi bi-search"></i>
-                </button>
-            </div>
-        </div>
-        <div id="admin-member-sync-status" class="small mt-2 text-muted"></div>
-        <pre id="admin-member-sync-output" class="small mt-2 p-2 rounded border bg-dark text-light" style="display: none; max-height: 320px; overflow: auto;"></pre>
-    </div>
-</div>
-
-<div class="card directive-shell mb-4">
+<div class="card directive-shell workspace-shell mb-4 admin-section-agent-ops">
     <div class="card-header">
-        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
             <div>
-                <h5 class="mb-0"><i class="bi bi-cpu"></i> Agent Directives Control</h5>
-                <div class="text-muted small">Admin-managed directives injected into `agent-instructions` and catchup.</div>
-            </div>
-            <div class="d-flex align-items-center gap-2">
-                <button type="button" class="btn btn-outline-info btn-sm" id="directive-refresh-btn">Refresh</button>
-                <button type="button" class="btn btn-outline-success btn-sm" id="directive-apply-defaults-btn">Apply Defaults To Missing</button>
-            </div>
-        </div>
-    </div>
-    <div class="card-body">
-        <div class="row g-3">
-            <div class="col-lg-4">
-                <div class="directive-agent-list" id="directive-agent-list">
-                    {% if agent_users %}
-                        {% for u in agent_users %}
-                        <button type="button"
-                                class="directive-agent-btn"
-                                data-user-id="{{ u.id }}"
-                                data-display-name="{{ u.display_name or u.username }}"
-                                data-username="{{ u.username }}">
-                            <div class="d-flex justify-content-between align-items-center mb-1">
-                                <strong>{{ u.display_name or u.username }}</strong>
-                                <span class="badge {% if u.agent_directives_source == 'custom' %}bg-success{% elif u.agent_directives_source == 'default' %}bg-secondary{% else %}bg-dark{% endif %} directive-source">{{ u.agent_directives_source or 'none' }}</span>
-                            </div>
-                            <div class="small text-muted">@{{ u.username }} · {{ (u.status or 'active') }}</div>
-                            <div class="small mt-1 text-truncate">{{ u.agent_directives_preview or 'No effective directives.' }}</div>
-                        </button>
-                        {% endfor %}
-                    {% else %}
-                    <p class="text-muted small mb-0">No agent accounts yet.</p>
-                    {% endif %}
-                </div>
-            </div>
-            <div class="col-lg-8">
-                <div class="directive-editor">
-                    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-                        <div>
-                            <div class="small text-muted">Selected agent</div>
-                            <div class="fw-semibold" id="directive-selected-user">Pick an agent from the list</div>
-                        </div>
-                        <span class="badge bg-dark directive-source" id="directive-source-badge">none</span>
-                    </div>
-
-                    <div class="row g-2 mb-2">
-                        <div class="col-md-8">
-                            <label for="directive-preset-select" class="form-label small mb-1">Preset</label>
-                            <select id="directive-preset-select" class="form-select form-select-sm">
-                                <option value="">Choose preset</option>
-                                {% for p in directive_presets %}
-                                <option value="{{ p.id }}">{{ p.label }} — {{ p.description }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div class="col-md-4 d-flex align-items-end">
-                            <button type="button" class="btn btn-outline-primary btn-sm w-100" id="directive-apply-preset-btn">Apply Preset</button>
-                        </div>
-                    </div>
-
-                    <label for="directive-textarea" class="form-label small mb-1">Directive text</label>
-                    <textarea id="directive-textarea"
-                              class="form-control form-control-sm"
-                              maxlength="{{ directive_max_length }}"
-                              placeholder="Write custom directives for the selected agent..."></textarea>
-                    <div class="d-flex justify-content-between align-items-center mt-1 mb-2">
-                        <span class="small text-muted">Security tip: keep directives concise and policy-focused.</span>
-                        <span class="small text-muted"><span id="directive-char-count">0</span>/{{ directive_max_length }}</span>
-                    </div>
-
-                    <div class="d-flex flex-wrap gap-2">
-                        <button type="button" class="btn btn-success btn-sm" id="directive-save-btn">Save Custom</button>
-                        <button type="button" class="btn btn-outline-warning btn-sm" id="directive-reset-default-btn">Use Default</button>
-                        <button type="button" class="btn btn-outline-secondary btn-sm" id="directive-clear-btn">Clear Text</button>
-                    </div>
-
-                    <hr class="my-3">
-                    <div class="small text-muted mb-1">Effective directive preview</div>
-                    <div id="directive-preview" class="directive-preview">No agent selected.</div>
-                    <div class="small mt-2 text-muted" id="directive-status-line"></div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<div class="card workspace-shell mb-4">
-    <div class="card-header">
-        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
-            <div>
-                <h5 class="mb-0"><i class="bi bi-stars me-1"></i> Agent Workspace</h5>
-                <div class="small text-muted">Inspect inbox + mentions and directly edit local user profiles and avatars.</div>
+                <h5 class="mb-0"><i class="bi bi-cpu me-1"></i> Agent Operations</h5>
+                <div class="small text-muted">Manage profiles, governance, inbox, mentions, and directives for agents and users.</div>
             </div>
             <div class="d-flex align-items-center gap-2">
                 <input type="text" class="form-control form-control-sm" id="workspace-search" placeholder="Filter users..." style="max-width: 200px;">
@@ -1298,7 +1013,18 @@
                 </button>
             </div>
         </div>
+        <ul class="nav nav-tabs card-header-tabs" id="agent-ops-tabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="agent-ops-workspace-tab" data-bs-toggle="tab" data-bs-target="#agent-ops-workspace-pane" type="button" role="tab" aria-controls="agent-ops-workspace-pane" aria-selected="true">Workspace</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="agent-ops-directives-tab" data-bs-toggle="tab" data-bs-target="#agent-ops-directives-pane" type="button" role="tab" aria-controls="agent-ops-directives-pane" aria-selected="false">Directives</button>
+            </li>
+        </ul>
     </div>
+    <div class="card-body">
+        <div class="tab-content" id="agent-ops-tab-content">
+        <div class="tab-pane fade show active" id="agent-ops-workspace-pane" role="tabpanel" aria-labelledby="agent-ops-workspace-tab">
     <div class="card-body">
         <div class="row g-3">
             <div class="col-lg-4">
@@ -1407,7 +1133,7 @@
                             </select>
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label small mb-1" for="workspace-theme-select">Theme</label>
+                            <label class="form-label small mb-1" for="workspace-theme-select">User theme</label>
                             <select class="form-select form-select-sm" id="workspace-theme-select">
                                 <option value="dark">dark</option>
                                 <option value="light">light</option>
@@ -1433,15 +1159,40 @@
                     </div>
                     <div class="small text-muted mb-3" id="workspace-status-line"></div>
 
-                    <div class="border rounded p-2 mb-3">
+                    <div class="governance-shell mb-3">
+                        <div class="governance-status-banner" id="workspace-governance-status-banner">
+                            <div>
+                                <div class="small fw-semibold">Governance changes are staged locally.</div>
+                                <div class="small text-muted">Changes are not saved until you click <strong>Save Governance</strong>.</div>
+                            </div>
+                            <div class="governance-dirty-indicator" id="workspace-governance-dirty-indicator">Saved</div>
+                        </div>
                         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
                             <div>
                                 <h6 class="mb-0">Channel Governance</h6>
-                                <div class="small text-muted">Restrict agent access to selected channels and block public channels.</div>
+                                <div class="small text-muted">Search, stage, and enforce an agent's channel allowlist without wrestling a raw multi-select.</div>
                             </div>
                             <div class="d-flex gap-2">
                                 <button type="button" class="btn btn-outline-success btn-sm" id="workspace-save-governance-btn">Save Governance</button>
                                 <button type="button" class="btn btn-outline-warning btn-sm" id="workspace-enforce-governance-btn">Enforce Now</button>
+                            </div>
+                        </div>
+                        <div class="governance-stat-grid">
+                            <div class="governance-stat">
+                                <div class="governance-stat-label">Policy</div>
+                                <div class="governance-stat-value" id="workspace-governance-policy-state">Not loaded</div>
+                            </div>
+                            <div class="governance-stat">
+                                <div class="governance-stat-label">Allowlisted</div>
+                                <div class="governance-stat-value" id="workspace-governance-allowed-count">0 channels</div>
+                            </div>
+                            <div class="governance-stat">
+                                <div class="governance-stat-label">Current Memberships</div>
+                                <div class="governance-stat-value" id="workspace-governance-member-count">0 channels</div>
+                            </div>
+                            <div class="governance-stat">
+                                <div class="governance-stat-label">Visible Slice</div>
+                                <div class="governance-stat-value" id="workspace-governance-visible-count">0 channels</div>
                             </div>
                         </div>
                         <div class="row g-2 mb-2">
@@ -1464,9 +1215,54 @@
                                 </div>
                             </div>
                         </div>
-                        <label class="form-label small mb-1" for="workspace-governance-allowed-channels">Allowed channels (multi-select)</label>
-                        <select class="form-select form-select-sm" id="workspace-governance-allowed-channels" multiple size="6"></select>
+                        <div class="governance-toolbar">
+                            <div class="row g-2 align-items-end">
+                                <div class="col-lg-4">
+                                    <label class="form-label small mb-1" for="workspace-governance-search">Search channels</label>
+                                    <input type="search" class="form-control form-control-sm" id="workspace-governance-search" placeholder="Search by channel name or ID">
+                                </div>
+                                <div class="col-lg-3">
+                                    <label class="form-label small mb-1" for="workspace-governance-filter">Filter</label>
+                                    <select class="form-select form-select-sm" id="workspace-governance-filter">
+                                        <option value="all">All channels</option>
+                                        <option value="allowed">Allowlisted</option>
+                                        <option value="blocked">Blocked by policy</option>
+                                        <option value="member">Current memberships</option>
+                                        <option value="not-member">Not a member</option>
+                                        <option value="public">Public/open</option>
+                                        <option value="private">Private/restricted</option>
+                                    </select>
+                                </div>
+                                <div class="col-lg-5">
+                                    <label class="form-label small mb-1">Quick actions</label>
+                                    <div class="d-flex flex-wrap gap-2">
+                                        <button type="button" class="btn btn-outline-info btn-sm" id="workspace-governance-select-member-btn">Stage current memberships</button>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm" id="workspace-governance-select-visible-btn">Allow visible</button>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm" id="workspace-governance-clear-visible-btn">Clear visible</button>
+                                        <button type="button" class="btn btn-outline-warning btn-sm" id="workspace-governance-quarantine-btn">Quarantine preset</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="governance-helper mt-2">
+                                Stage selections even while allowlist mode is off. When you enable it, only the selected channels remain allowed.
+                            </div>
+                        </div>
+                        <select class="form-select form-select-sm d-none" id="workspace-governance-allowed-channels" multiple size="6" aria-hidden="true"></select>
+                        <div class="governance-channel-list" id="workspace-governance-channel-list">
+                            <p class="small text-muted mb-0">No governance channels loaded.</p>
+                        </div>
                         <div class="small text-muted mt-1" id="workspace-governance-summary">No policy loaded.</div>
+                        <div class="governance-action-bar" id="workspace-governance-action-bar">
+                            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                                <div class="small text-muted">
+                                    Review the staged allowlist, then click <strong>Save Governance</strong> to persist it for this agent.
+                                </div>
+                                <div class="d-flex flex-wrap gap-2">
+                                    <button type="button" class="btn btn-outline-success btn-sm" id="workspace-save-governance-bottom-btn">Save Governance</button>
+                                    <button type="button" class="btn btn-outline-warning btn-sm" id="workspace-enforce-governance-bottom-btn">Enforce Now</button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="row g-3">
@@ -1508,10 +1304,241 @@
                 </div>
             </div>
         </div>
+        </div><!-- /workspace tab pane -->
+
+        <div class="tab-pane fade" id="agent-ops-directives-pane" role="tabpanel" aria-labelledby="agent-ops-directives-tab">
+        <div class="d-flex flex-wrap justify-content-end gap-2 mb-3">
+            <button type="button" class="btn btn-outline-info btn-sm" id="directive-refresh-btn">Refresh</button>
+            <button type="button" class="btn btn-outline-success btn-sm" id="directive-apply-defaults-btn">Apply Defaults To Missing</button>
+        </div>
+        <div class="row g-3">
+            <div class="col-lg-4">
+                <div class="directive-agent-list" id="directive-agent-list">
+                    {% if agent_users %}
+                        {% for u in agent_users %}
+                        <button type="button"
+                                class="directive-agent-btn"
+                                data-user-id="{{ u.id }}"
+                                data-display-name="{{ u.display_name or u.username }}"
+                                data-username="{{ u.username }}">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <strong>{{ u.display_name or u.username }}</strong>
+                                <span class="badge {% if u.agent_directives_source == 'custom' %}bg-success{% elif u.agent_directives_source == 'default' %}bg-secondary{% else %}bg-dark{% endif %} directive-source">{{ u.agent_directives_source or 'none' }}</span>
+                            </div>
+                            <div class="small text-muted">@{{ u.username }} · {{ (u.status or 'active') }}</div>
+                            <div class="small mt-1 text-truncate">{{ u.agent_directives_preview or 'No effective directives.' }}</div>
+                        </button>
+                        {% endfor %}
+                    {% else %}
+                    <p class="text-muted small mb-0">No agent accounts yet.</p>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="col-lg-8">
+                <div class="directive-editor">
+                    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                        <div>
+                            <div class="small text-muted">Selected agent</div>
+                            <div class="fw-semibold" id="directive-selected-user">Pick an agent from the list</div>
+                        </div>
+                        <span class="badge bg-dark directive-source" id="directive-source-badge">none</span>
+                    </div>
+
+                    <div class="row g-2 mb-2">
+                        <div class="col-md-8">
+                            <label for="directive-preset-select" class="form-label small mb-1">Preset</label>
+                            <select id="directive-preset-select" class="form-select form-select-sm">
+                                <option value="">Choose preset</option>
+                                {% for p in directive_presets %}
+                                <option value="{{ p.id }}">{{ p.label }} — {{ p.description }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4 d-flex align-items-end">
+                            <button type="button" class="btn btn-outline-primary btn-sm w-100" id="directive-apply-preset-btn">Apply Preset</button>
+                        </div>
+                    </div>
+
+                    <label for="directive-textarea" class="form-label small mb-1">Directive text</label>
+                    <textarea id="directive-textarea"
+                              class="form-control form-control-sm"
+                              maxlength="{{ directive_max_length }}"
+                              placeholder="Write custom directives for the selected agent..."></textarea>
+                    <div class="d-flex justify-content-between align-items-center mt-1 mb-2">
+                        <span class="small text-muted">Security tip: keep directives concise and policy-focused.</span>
+                        <span class="small text-muted"><span id="directive-char-count">0</span>/{{ directive_max_length }}</span>
+                    </div>
+
+                    <div class="d-flex flex-wrap gap-2">
+                        <button type="button" class="btn btn-success btn-sm" id="directive-save-btn">Save Custom</button>
+                        <button type="button" class="btn btn-outline-warning btn-sm" id="directive-reset-default-btn">Use Default</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" id="directive-clear-btn">Clear Text</button>
+                    </div>
+
+                    <hr class="my-3">
+                    <div class="small text-muted mb-1">Effective directive preview</div>
+                    <div id="directive-preview" class="directive-preview">No agent selected.</div>
+                    <div class="small mt-2 text-muted" id="directive-status-line"></div>
+                </div>
+            </div>
+        </div>
+        </div><!-- /directives tab pane -->
+
+        </div><!-- /tab-content -->
     </div>
 </div>
 
-<div class="card">
+<div class="card mb-4 admin-section-users-secondary">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-exclamation-diamond"></i> Duplicate Remote Shadow Users</h5>
+    </div>
+    <div class="card-body">
+        {% if remote_shadow_duplicate_groups %}
+        <p class="text-muted small mb-3">
+            These are same-peer duplicate shadow identities. Repair will merge stale rows into the suggested canonical row and keep the attached history.
+        </p>
+        <div class="table-responsive">
+            <table class="table table-hover table-sm align-middle" id="remote-shadow-duplicates-table">
+                <thead>
+                    <tr>
+                        <th>Identity</th>
+                        <th>Origin peer</th>
+                        <th>Suggested canonical</th>
+                        <th>Duplicate rows</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for group in remote_shadow_duplicate_groups %}
+                    <tr>
+                        <td>
+                            <div class="fw-semibold">{{ group.display_name }}</div>
+                            <div class="small text-muted">{{ group.reference_total }} tracked references across {{ group.users|length }} rows</div>
+                        </td>
+                        <td><code>{{ group.origin_peer }}</code></td>
+                        <td>
+                            <div><code>{{ group.canonical_username }}</code></div>
+                            <div class="small text-muted font-monospace">{{ group.canonical_user_id }}</div>
+                        </td>
+                        <td>
+                            <div class="d-flex flex-column gap-1">
+                                {% for member in group.users %}
+                                <div class="small">
+                                    <code>{{ member.username }}</code>
+                                    {% if member.id == group.canonical_user_id %}
+                                    <span class="badge bg-success ms-1">canonical</span>
+                                    {% else %}
+                                    <span class="badge bg-warning text-dark ms-1">stale</span>
+                                    {% endif %}
+                                    <span class="text-muted">refs {{ member.reference_total or 0 }}</span>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </td>
+                        <td>
+                            <button type="button"
+                                    class="btn btn-outline-warning btn-sm repair-shadow-duplicates-btn"
+                                    data-user-id="{{ group.canonical_user_id }}"
+                                    data-display-name="{{ group.display_name }}"
+                                    data-origin-peer="{{ group.origin_peer }}"
+                                    data-duplicate-count="{{ group.duplicate_count }}">Repair</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="small text-muted">No same-peer duplicate remote shadow identities detected.</div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card mb-4 admin-section-users-secondary">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-diagram-3"></i> Cross-Peer Same-Name Identities</h5>
+    </div>
+    <div class="card-body">
+        {% if cross_peer_same_name_groups %}
+        <p class="text-muted small mb-3">
+            These names appear across multiple peer identities. Use <strong>Forget</strong> only for stale remote shadow rows you explicitly want removed; this deletes that selected remote identity's local history.
+        </p>
+        <div class="table-responsive">
+            <table class="table table-hover table-sm align-middle" id="cross-peer-same-name-table">
+                <thead>
+                    <tr>
+                        <th>Identity</th>
+                        <th>Contexts</th>
+                        <th>Rows</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for group in cross_peer_same_name_groups %}
+                    <tr>
+                        <td>
+                            <div class="fw-semibold">{{ group.display_name }}</div>
+                            <div class="small text-muted">{{ group.peer_count }} contexts, {{ group.row_count }} rows, {{ group.reference_total }} tracked references</div>
+                        </td>
+                        <td>
+                            <div class="d-flex flex-column gap-1">
+                                {% for member in group.users %}
+                                <div class="small">
+                                    {% if member.is_local %}
+                                    <span class="badge bg-success-subtle text-success-emphasis border border-success-subtle">local</span>
+                                    {% else %}
+                                    <code>{{ member.origin_peer }}</code>
+                                    {% endif %}
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </td>
+                        <td>
+                            <div class="d-flex flex-column gap-2">
+                                {% for member in group.users %}
+                                <div class="border rounded p-2">
+                                    <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                                        <code>{{ member.username }}</code>
+                                        {% if member.is_local %}
+                                        <span class="badge bg-success-subtle text-success-emphasis border border-success-subtle">keep local</span>
+                                        {% elif member.forgettable %}
+                                        <span class="badge bg-warning text-dark">forgettable remote shadow</span>
+                                        {% else %}
+                                        <span class="badge bg-secondary">remote</span>
+                                        {% endif %}
+                                    </div>
+                                    <div class="small text-muted mb-2">
+                                        {{ member.reference_total or 0 }} refs
+                                        {% if member.origin_peer %}
+                                        • peer <code>{{ member.origin_peer }}</code>
+                                        {% endif %}
+                                        • id <span class="font-monospace">{{ member.id }}</span>
+                                    </div>
+                                    {% if member.forgettable %}
+                                    <button type="button"
+                                            class="btn btn-outline-danger btn-sm forget-remote-shadow-btn"
+                                            data-user-id="{{ member.id }}"
+                                            data-display-name="{{ group.display_name }}"
+                                            data-origin-peer="{{ member.origin_peer }}"
+                                            data-reference-total="{{ member.reference_total or 0 }}">Forget</button>
+                                    {% else %}
+                                    <button type="button" class="btn btn-outline-secondary btn-sm" disabled>Keep</button>
+                                    {% endif %}
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="small text-muted">No cross-peer same-name identities detected.</div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card mb-4 admin-section-users-primary">
     <div class="card-header">
         <h5 class="mb-0"><i class="bi bi-list-ul"></i> All users</h5>
     </div>
@@ -1660,7 +1687,7 @@
             </table>
         </div>
         <!-- Inline API keys panel (no modal — stays in page flow to avoid z-index/obstruction) -->
-        <div id="keys-panel" class="mt-3 p-3 rounded border border-secondary" style="display: none; background: var(--canopy-bg-tertiary, rgba(30,30,50,0.4));">
+        <div id="keys-panel" class="mt-3 p-3 rounded border border-secondary" style="display: none; background: var(--canopy-bg-tertiary, rgba(30,30,50,0.4));" data-default-permissions='{{ default_permissions|default([])|tojson|safe }}'>
             <div class="d-flex justify-content-between align-items-center mb-2 keys-panel-header">
                 <h6 class="mb-0">API keys — <span id="keys-panel-username"></span></h6>
                 <button type="button" class="btn btn-sm btn-outline-secondary" id="keys-panel-close" aria-label="Close">Close</button>
@@ -1670,21 +1697,33 @@
                 <p class="text-muted small">Loading…</p>
             </div>
             <hr class="my-3">
-            <h6 class="mb-2">Create new key</h6>
-            <p class="text-muted small mb-2">Select permissions (default: all). The new key is shown once — copy it and give it to the user.</p>
-            <div class="mb-2" id="keys-permission-checkboxes">
-                {% for p in all_permissions %}
-                <div class="form-check form-check-inline">
-                    <input class="form-check-input key-perm-cb" type="checkbox" id="perm-{{ p }}" value="{{ p }}">
-                    <label class="form-check-label small" for="perm-{{ p }}">{{ p }}</label>
+            <div class="keys-panel-shell">
+                <h6 class="mb-2">Create new key</h6>
+                <p class="text-muted small mb-2">Use presets for common agent scopes, then fine-tune individual permissions if needed. <strong>Agent default</strong> follows the meshspace template above. The raw key is shown once.</p>
+                <div class="keys-preset-row">
+                    <button type="button" class="btn btn-outline-info btn-sm" id="keys-preset-agent-btn">Agent default</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="keys-preset-readonly-btn">Read only</button>
+                    <button type="button" class="btn btn-outline-warning btn-sm" id="keys-preset-full-btn">Full access</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="keys-preset-clear-btn">Clear all</button>
                 </div>
-                {% endfor %}
+                <div class="keys-summary-line mb-2" id="keys-permission-summary">No permissions selected.</div>
+                <div class="keys-permission-grid mb-3" id="keys-permission-checkboxes">
+                    {% for p in all_permissions %}
+                    <div class="keys-permission-card">
+                        <div class="form-check">
+                            <input class="form-check-input key-perm-cb" type="checkbox" id="perm-{{ p }}" value="{{ p }}">
+                            <label class="form-check-label small fw-semibold" for="perm-{{ p }}">{{ p }}</label>
+                        </div>
+                        <div class="keys-permission-hint">Grant {{ p.replace('_', ' ') }} capability on this key.</div>
+                    </div>
+                    {% endfor %}
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small">Expires (days, optional)</label>
+                    <input type="number" class="form-control form-control-sm" id="keys-expires-days" placeholder="Leave empty for no expiry" min="1" style="max-width: 120px;">
+                </div>
+                <button type="button" class="btn btn-primary btn-sm" id="keys-create-btn">Create key</button>
             </div>
-            <div class="mb-2">
-                <label class="form-label small">Expires (days, optional)</label>
-                <input type="number" class="form-control form-control-sm" id="keys-expires-days" placeholder="Leave empty for no expiry" min="1" style="max-width: 120px;">
-            </div>
-            <button type="button" class="btn btn-primary btn-sm" id="keys-create-btn">Create key</button>
             <div id="keys-new-key-area" class="mt-3 p-2 rounded border bg-dark bg-opacity-25" style="display: none;">
                 <p class="small text-warning mb-1">Copy this key now; it will not be shown again.</p>
                 <div class="keys-new-key-row">
@@ -1696,7 +1735,214 @@
     </div>
 </div>
 
-<script src="{{ url_for('static', filename='vendor/qrcode/1.0.0/qrcode.min.js') }}"></script>
+<div class="card mb-4 admin-section-agent-template">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-sliders"></i> Meshspace Agent API Template</h5>
+    </div>
+    <div class="card-body">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+            <div>
+                <div class="fw-semibold">{{ current_meshspace.name or 'Current mesh' }}</div>
+                <div class="small text-muted">These defaults apply to new agent API registrations in this mesh and to the <strong>Agent default</strong> preset in the key panel below.</div>
+            </div>
+            <div class="small text-muted">{{ current_meshspace.meshspace_id or 'legacy-default' }}</div>
+        </div>
+        <div class="meshspace-template-grid mb-3" id="meshspace-agent-permission-grid">
+            {% for p in all_permissions %}
+            <div class="meshspace-template-card">
+                <div class="form-check">
+                    <input class="form-check-input meshspace-agent-perm-cb" type="checkbox" id="meshspace-agent-perm-{{ p }}" value="{{ p }}" {% if p in default_permissions %}checked{% endif %}>
+                    <label class="form-check-label small fw-semibold" for="meshspace-agent-perm-{{ p }}">{{ p }}</label>
+                </div>
+                <div class="small text-muted mt-1">Default {{ p.replace('_', ' ') }} capability for agents in this mesh.</div>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div class="meshspace-template-summary" id="meshspace-agent-template-summary">Using {{ default_permissions|length }} default permission{{ '' if default_permissions|length == 1 else 's' }} for agents in this mesh.</div>
+            <div class="d-flex flex-wrap gap-2">
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="meshspace-agent-template-files-btn">Files RW preset</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="meshspace-agent-template-reset-btn">Core preset</button>
+                <button type="button" class="btn btn-success btn-sm" id="meshspace-agent-template-save-btn">Save Template</button>
+            </div>
+        </div>
+        <div class="small text-muted mt-2" id="meshspace-agent-template-status-line"></div>
+    </div>
+</div>
+
+<div class="card mb-4 admin-section-relay">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-arrow-left-right"></i> Mesh Relay</h5>
+    </div>
+    <div class="card-body">
+        <p class="text-muted small mb-3">
+            Control how this node helps peers discover or relay traffic for one another.
+        </p>
+        <div class="row g-3">
+            <div class="col-lg-6">
+                <label class="form-label"><strong>Relay Policy</strong></label>
+                <select class="form-select" id="relayPolicySelect" onchange="updateRelayPolicy()">
+                    <option value="off">Off - Do not help peers connect</option>
+                    <option value="broker_only">Broker Only - Help peers establish direct connections</option>
+                    <option value="full_relay">Full Relay - Forward traffic for unreachable peers</option>
+                </select>
+                <small class="text-muted d-block mt-2">
+                    Broker-only is the safest default on a primary node. Full relay should usually live on a dedicated relay node.
+                </small>
+            </div>
+            <div class="col-lg-6">
+                <label class="form-label"><strong>Current Status</strong></label>
+                <div id="relayStatusInfo">
+                    <p class="text-muted small mb-0">Loading...</p>
+                </div>
+            </div>
+        </div>
+        <div id="routingTableSection" style="display:none;">
+            <hr class="my-3">
+            <label class="form-label"><strong>Active Routing Table</strong></label>
+            <p class="text-muted small">
+                "Relay" entries forward traffic; "Route" entries are direct peer paths.
+            </p>
+            <div class="table-responsive">
+                <table class="table table-sm" style="color:var(--canopy-text-primary);">
+                    <thead>
+                        <tr><th>Destination</th><th>Next Hop</th><th>Type</th></tr>
+                    </thead>
+                    <tbody id="routingTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-4 admin-section-attachments">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-hdd-network"></i> Large Attachment Store</h5>
+    </div>
+    <div class="card-body">
+        <p class="text-muted small mb-3">
+            Files larger than <strong>{{ large_attachment_threshold_mb }} MB</strong> use Canopy's managed large-attachment path on this node.
+        </p>
+        <div class="row g-3">
+            <div class="col-lg-6">
+                <label for="largeAttachmentStoreRoot" class="form-label">Storage Root</label>
+                <input type="text"
+                       class="form-control"
+                       id="largeAttachmentStoreRoot"
+                       value="{{ large_attachment_store_root }}"
+                       placeholder="/path/to/attachment-store">
+                <small class="text-muted d-block mt-1">
+                    Canopy manages a dedicated <code>canopy-large-attachments</code> folder under this root.
+                </small>
+            </div>
+            <div class="col-lg-4">
+                <label for="largeAttachmentDownloadMode" class="form-label">Download Policy</label>
+                <select class="form-select" id="largeAttachmentDownloadMode">
+                    <option value="auto" {% if large_attachment_download_mode == 'auto' %}selected{% endif %}>Automatic</option>
+                    <option value="manual" {% if large_attachment_download_mode == 'manual' %}selected{% endif %}>Manual</option>
+                    <option value="paused" {% if large_attachment_download_mode == 'paused' %}selected{% endif %}>Paused</option>
+                </select>
+                <small class="text-muted d-block mt-1">
+                    Automatic downloads fetch eligible remote large attachments while the source peer is online.
+                </small>
+            </div>
+            <div class="col-lg-2 d-flex align-items-end">
+                <button class="btn btn-primary w-100" onclick="saveLargeAttachmentSettings()">
+                    <i class="bi bi-check-lg"></i> Save
+                </button>
+            </div>
+        </div>
+        <div class="mt-2">
+            <span id="large-attachment-settings-status" class="text-muted small"></span>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-4 admin-section-data">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-tools"></i> Data Operations</h5>
+    </div>
+    <div class="card-body">
+        <p class="text-muted small mb-3">
+            Instance-wide maintenance and destructive operations belong here, not in personal settings.
+        </p>
+        <div class="row g-3">
+            <div class="col-md-3">
+                <div class="d-grid">
+                    <button class="btn btn-outline-warning" id="cleanup-db-btn" onclick="cleanupDatabase()">
+                        <i class="bi bi-trash"></i> Cleanup Database
+                    </button>
+                    <small class="text-muted mt-1">Remove old messages and expired data</small>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="d-grid">
+                    <button class="btn btn-outline-info" id="export-data-btn" onclick="exportData()">
+                        <i class="bi bi-download"></i> Export Data
+                    </button>
+                    <small class="text-muted mt-1">Download the local database for backup</small>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="d-grid">
+                    <button class="btn btn-outline-danger" id="import-data-btn" onclick="openImportDataPicker()">
+                        <i class="bi bi-upload"></i> Import Data
+                    </button>
+                    <small class="text-muted mt-1">Replace the local database from a backup file</small>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="d-grid">
+                    <button class="btn btn-outline-danger" id="reset-system-btn" onclick="resetSystem()">
+                        <i class="bi bi-arrow-clockwise"></i> Reset System
+                    </button>
+                    <small class="text-muted mt-1">Clear all local Canopy data and start fresh</small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-4 admin-section-environment">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-code-square"></i> Instance Environment</h5>
+    </div>
+    <div class="card-body">
+        <p class="text-muted small mb-3">
+            Read-only startup configuration for this Canopy node.
+        </p>
+        <div class="row g-3">
+            <div class="col-lg-6">
+                <h6 class="mb-2">System Information</h6>
+                <dl class="row mb-0">
+                    <dt class="col-sm-4">Version</dt>
+                    <dd class="col-sm-8"><code>{{ canopy_version }}</code></dd>
+                    <dt class="col-sm-4">Host</dt>
+                    <dd class="col-sm-8"><code>{{ instance_host or '-' }}</code></dd>
+                    <dt class="col-sm-4">Port</dt>
+                    <dd class="col-sm-8"><code>{{ instance_port or '-' }}</code></dd>
+                    <dt class="col-sm-4">Database</dt>
+                    <dd class="col-sm-8"><code>{{ instance_database_path or '-' }}</code></dd>
+                </dl>
+            </div>
+            <div class="col-lg-6">
+                <h6 class="mb-2">Agent Approval</h6>
+                <div class="d-flex align-items-center flex-wrap gap-2 mb-2">
+                    <span class="badge bg-{{ 'success' if auto_approve_agents else 'secondary' }}">
+                        CANOPY_AUTO_APPROVE_AGENTS: {{ 'Enabled' if auto_approve_agents else 'Not set' }}
+                    </span>
+                    <span class="text-muted small">Leave unset to require manual approval for new agents.</span>
+                </div>
+                <pre class="p-3 rounded mb-0" style="background: var(--canopy-bg-tertiary); color: var(--canopy-text-primary);"><code># Optional: auto-approve new agent registrations (restart required)
+export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+<input type="file" id="import-db-input" class="d-none" accept=".db,.sqlite,.sqlite3,application/x-sqlite3">
+</div>
+
 <script>
 (function() {
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
@@ -1741,6 +1987,34 @@
             }
             return { ok: r.ok, status: r.status, data };
         });
+    }
+
+    function extractErrorMessage(err, fallback) {
+        if (!err) return fallback;
+        if (typeof err === 'string') return err;
+        if (err.error) return err.error;
+        if (err.message) return err.message;
+        return fallback;
+    }
+
+    function setButtonBusy(buttonId, busy, label) {
+        const btn = document.getElementById(buttonId);
+        if (!btn) return;
+        if (!btn.dataset.defaultLabel) {
+            btn.dataset.defaultLabel = btn.innerHTML;
+        }
+        btn.disabled = !!busy;
+        btn.innerHTML = busy ? label : btn.dataset.defaultLabel;
+    }
+
+    function parseDownloadFilename(contentDisposition) {
+        if (!contentDisposition) return '';
+        const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+        if (utf8Match && utf8Match[1]) {
+            return decodeURIComponent(utf8Match[1].replace(/^"(.*)"$/, '$1'));
+        }
+        const asciiMatch = contentDisposition.match(/filename="?([^"]+)"?/i);
+        return asciiMatch && asciiMatch[1] ? asciiMatch[1] : '';
     }
 
     function rowForUserId(userId) {
@@ -1916,9 +2190,9 @@
     const meshDiagRefreshBtn = document.getElementById('mesh-diag-refresh-btn');
     if (meshDiagRefreshBtn) {
         meshDiagRefreshBtn.addEventListener('click', () => refreshMeshDiagnostics());
+        refreshMeshDiagnostics();
+        setInterval(refreshMeshDiagnostics, 20000);
     }
-    refreshMeshDiagnostics();
-    setInterval(refreshMeshDiagnostics, 20000);
 
     function formatAgeCompact(seconds) {
         const value = Number(seconds);
@@ -2008,9 +2282,9 @@
     const workspaceEventRefreshBtn = document.getElementById('workspace-event-refresh-btn');
     if (workspaceEventRefreshBtn) {
         workspaceEventRefreshBtn.addEventListener('click', () => refreshWorkspaceEventDiagnostics());
+        refreshWorkspaceEventDiagnostics();
+        setInterval(refreshWorkspaceEventDiagnostics, 20000);
     }
-    refreshWorkspaceEventDiagnostics();
-    setInterval(refreshWorkspaceEventDiagnostics, 20000);
 
     function setIdPortValue(id, value) {
         const el = document.getElementById(id);
@@ -2517,8 +2791,10 @@
         stopIdPortQrScan();
     });
 
-    refreshIdentityPortability();
-    setInterval(refreshIdentityPortability, 30000);
+    if (idPortRefreshBtn) {
+        refreshIdentityPortability();
+        setInterval(refreshIdentityPortability, 30000);
+    }
     applyAdminUsersSearchFilter();
 
     document.querySelectorAll('.admin-classification-save-btn').forEach(btn => {
@@ -2599,6 +2875,49 @@
         });
     });
 
+    document.querySelectorAll('.repair-shadow-duplicates-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const userId = btn.getAttribute('data-user-id');
+            const displayName = btn.getAttribute('data-display-name') || userId;
+            const originPeer = btn.getAttribute('data-origin-peer') || '';
+            const duplicateCount = Number(btn.getAttribute('data-duplicate-count') || 0);
+            if (!userId) return;
+            const confirmed = confirm(`Repair duplicate remote shadow rows for "${displayName}" from peer ${originPeer}?\n\nThis will merge ${duplicateCount} stale row(s) into the suggested canonical user.`);
+            if (!confirmed) return;
+            setButtonBusy(btn, true, 'Repairing…');
+            const { ok, data } = await api('POST', `/ajax/admin/users/${userId}/repair-shadow-duplicates`, {});
+            setButtonBusy(btn, false);
+            if (ok) {
+                const mergedCount = Number(data.merged_count || 0);
+                setAdminUsersStatus(`Repaired ${displayName}; merged ${mergedCount} duplicate shadow row(s).`);
+                window.location.reload();
+            } else {
+                setAdminUsersStatus(data.error || `Failed to repair ${displayName}.`, true);
+            }
+        });
+    });
+
+    document.querySelectorAll('.forget-remote-shadow-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const userId = btn.getAttribute('data-user-id');
+            const displayName = btn.getAttribute('data-display-name') || userId;
+            const originPeer = btn.getAttribute('data-origin-peer') || '';
+            const referenceTotal = Number(btn.getAttribute('data-reference-total') || 0);
+            if (!userId) return;
+            const confirmed = confirm(`Forget remote shadow identity "${displayName}" from peer ${originPeer}?\n\nThis removes that selected remote row and its local history snapshot (${referenceTotal} tracked refs).`);
+            if (!confirmed) return;
+            setButtonBusy(btn, true, 'Forgetting…');
+            const { ok, data } = await api('POST', `/ajax/admin/users/${userId}/forget-remote-shadow`, {});
+            setButtonBusy(btn, false);
+            if (ok) {
+                setAdminUsersStatus(`Forgot remote shadow ${displayName} from peer ${originPeer}.`);
+                window.location.reload();
+            } else {
+                setAdminUsersStatus(data.error || `Failed to forget ${displayName}.`, true);
+            }
+        });
+    });
+
     document.querySelectorAll('.delete-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
             const userId = btn.getAttribute('data-user-id');
@@ -2638,6 +2957,264 @@
             }
         });
     }
+
+    async function cleanupDatabase() {
+        if (!confirm('This will remove old messages and expired data older than 30 days.\n\nYour recent messages and data will be preserved. Continue?')) return;
+        setButtonBusy('cleanup-db-btn', true, '<i class="bi bi-hourglass-split"></i> Cleaning...');
+        try {
+            const { ok, data } = await api('POST', '/ajax/database_cleanup', { days: 30 });
+            if (!ok || !data.success) throw new Error(data.error || data.message || 'Cleanup failed');
+            showAlert(data.message || 'Database cleaned up successfully!', 'success');
+        } catch (err) {
+            showAlert('Cleanup failed: ' + extractErrorMessage(err, 'Unknown error'), 'danger');
+        } finally {
+            setButtonBusy('cleanup-db-btn', false);
+        }
+    }
+
+    async function exportData() {
+        setButtonBusy('export-data-btn', true, '<i class="bi bi-hourglass-split"></i> Preparing...');
+        try {
+            const response = await fetch('/ajax/database_export', {
+                method: 'GET',
+                credentials: 'same-origin',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
+            if (!response.ok) {
+                let message = `Export failed (${response.status})`;
+                const contentType = response.headers.get('Content-Type') || '';
+                if (contentType.includes('application/json')) {
+                    const payload = await response.json();
+                    message = payload.error || payload.message || message;
+                }
+                throw new Error(message);
+            }
+            const contentType = (response.headers.get('Content-Type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                const payload = await response.json();
+                throw new Error(payload.error || payload.message || 'Export failed');
+            }
+            if (contentType.includes('text/html')) {
+                throw new Error('Export did not return a database file. Reload and sign in again.');
+            }
+            const blob = await response.blob();
+            if (!blob || blob.size === 0) throw new Error('Export file was empty');
+            const contentDisposition = response.headers.get('Content-Disposition') || '';
+            const headerName = parseDownloadFilename(contentDisposition);
+            const fallbackName = `canopy_export_${new Date().toISOString().replace(/[-:]/g, '').split('.')[0]}.db`;
+            const downloadName = headerName || fallbackName;
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = downloadName;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+            showAlert(`Export prepared: ${downloadName}`, 'success');
+        } catch (err) {
+            showAlert('Export failed: ' + extractErrorMessage(err, 'Unknown error'), 'danger');
+        } finally {
+            setButtonBusy('export-data-btn', false);
+        }
+    }
+
+    function openImportDataPicker() {
+        const input = document.getElementById('import-db-input');
+        if (!input) {
+            showAlert('Import file input is unavailable on this page.', 'danger');
+            return;
+        }
+        input.value = '';
+        input.click();
+    }
+
+    async function importDatabaseFile(file) {
+        if (!file) return;
+        const lowerName = (file.name || '').toLowerCase();
+        const allowedExt = ['.db', '.sqlite', '.sqlite3'];
+        if (!allowedExt.some(ext => lowerName.endsWith(ext))) {
+            showAlert('Unsupported file type. Use a .db, .sqlite, or .sqlite3 backup file.', 'danger');
+            return;
+        }
+        if (file.size <= 0) {
+            showAlert('Selected file is empty.', 'danger');
+            return;
+        }
+        if (file.size > 512 * 1024 * 1024) {
+            showAlert('Import file is too large (max 512MB).', 'danger');
+            return;
+        }
+        const firstConfirm = confirm(
+            'DANGER: Importing a database REPLACES your current local data (messages, channels, posts, users, and settings on this node).\n\n' +
+            'A pre-import backup will be created automatically.\n\n' +
+            `Selected file: ${file.name}\n\n` +
+            'Continue?'
+        );
+        if (!firstConfirm) {
+            showAlert('Database import canceled.', 'info');
+            return;
+        }
+        const confirmPhrase = prompt('Type IMPORT DATABASE to proceed with destructive import.');
+        if (confirmPhrase !== 'IMPORT DATABASE') {
+            showAlert('Database import canceled. Confirmation phrase did not match.', 'info');
+            return;
+        }
+        const formData = new FormData();
+        formData.append('database', file);
+        formData.append('confirm_phrase', confirmPhrase);
+        setButtonBusy('import-data-btn', true, '<i class="bi bi-hourglass-split"></i> Importing...');
+        try {
+            const response = await fetch('/ajax/database_import', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'X-CSRFToken': csrfToken },
+                body: formData,
+            });
+            let payload = {};
+            try {
+                payload = await response.json();
+            } catch (_) {
+                payload = {};
+            }
+            if (!response.ok || !payload.success) {
+                throw new Error(payload.error || payload.message || `Import failed (${response.status})`);
+            }
+            showAlert(payload.message || 'Database imported successfully. Reloading...', 'success');
+            setTimeout(() => window.location.reload(), 1800);
+        } catch (err) {
+            showAlert('Import failed: ' + extractErrorMessage(err, 'Unknown error'), 'danger');
+        } finally {
+            setButtonBusy('import-data-btn', false);
+        }
+    }
+
+    async function resetSystem() {
+        if (!confirm('WARNING: This will delete all local data including messages, users, settings, and trust scores.\n\nThis action cannot be undone.\n\nAre you absolutely sure you want to reset the entire system?')) return;
+        const finalConfirmation = prompt('FINAL WARNING: Type RESET to permanently clear all data.');
+        if (finalConfirmation !== 'RESET') {
+            showAlert('Reset canceled. Exact confirmation text was not provided.', 'info');
+            return;
+        }
+        setButtonBusy('reset-system-btn', true, '<i class="bi bi-hourglass-split"></i> Resetting...');
+        try {
+            const { ok, data } = await api('POST', '/ajax/system_reset');
+            if (!ok || !data.success) throw new Error(data.error || data.message || 'Reset failed');
+            showAlert(data.message || 'System reset complete.', 'success');
+            setTimeout(() => window.location.reload(), 2000);
+        } catch (err) {
+            showAlert('Reset failed: ' + extractErrorMessage(err, 'Unknown error'), 'danger');
+        } finally {
+            setButtonBusy('reset-system-btn', false);
+        }
+    }
+
+    function loadRelayStatus() {
+        const info = document.getElementById('relayStatusInfo');
+        const tableSection = document.getElementById('routingTableSection');
+        const tableBody = document.getElementById('routingTableBody');
+        const select = document.getElementById('relayPolicySelect');
+        if (!info || !tableSection || !tableBody || !select) return;
+        fetch('/api/v1/p2p/relay_status')
+            .then(r => r.json())
+            .then(data => {
+                if (data.relay_policy) select.value = data.relay_policy;
+                const connected = Number(data.connected_peers || 0);
+                const routed = Number(data.routed_destinations || 0);
+                const relayed = Number(data.relayed_destinations || 0);
+                info.innerHTML = `
+                    <div class="small text-muted">Connected peers</div>
+                    <div class="fw-semibold mb-2">${connected}</div>
+                    <div class="small text-muted">Routes</div>
+                    <div class="fw-semibold">${routed} total, ${relayed} relayed</div>
+                `;
+                const routes = data.routes || {};
+                const relays = data.relays || {};
+                const destinations = Array.from(new Set([...Object.keys(routes), ...Object.keys(relays)]));
+                if (!destinations.length) {
+                    tableSection.style.display = 'none';
+                    tableBody.innerHTML = '';
+                    return;
+                }
+                tableSection.style.display = 'block';
+                tableBody.innerHTML = destinations.map(dest => {
+                    const hop = routes[dest] || relays[dest] || '';
+                    const isRelay = relays[dest] === hop;
+                    return '<tr><td><code>' + dest + '</code></td><td><code>' + hop + '</code></td><td><span class="badge bg-' + (isRelay ? 'info' : 'secondary') + '">' + (isRelay ? 'Relay' : 'Route') + '</span></td></tr>';
+                }).join('');
+            })
+            .catch(() => {
+                info.innerHTML = '<p class="text-muted small mb-0">P2P not available</p>';
+                tableSection.style.display = 'none';
+                tableBody.innerHTML = '';
+            });
+    }
+
+    function updateRelayPolicy() {
+        const select = document.getElementById('relayPolicySelect');
+        if (!select) return;
+        fetch('/api/v1/p2p/relay_policy', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken,
+            },
+            body: JSON.stringify({ policy: select.value })
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'ok') {
+                    showAlert('Relay policy updated to: ' + select.value, 'success');
+                    loadRelayStatus();
+                } else {
+                    showAlert('Failed to update relay policy: ' + (data.error || 'Unknown error'), 'danger');
+                }
+            })
+            .catch(err => showAlert('Error: ' + extractErrorMessage(err, 'Unknown error'), 'danger'));
+    }
+
+    function saveLargeAttachmentSettings() {
+        const status = document.getElementById('large-attachment-settings-status');
+        const storeRoot = document.getElementById('largeAttachmentStoreRoot')?.value || '';
+        const downloadMode = document.getElementById('largeAttachmentDownloadMode')?.value || 'auto';
+        fetch('/ajax/settings/large-attachments', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken,
+            },
+            body: JSON.stringify({
+                store_root: storeRoot,
+                download_mode: downloadMode,
+            })
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (!data.success) throw new Error(data.error || 'Failed to save settings');
+                if (status) status.textContent = 'Saved.';
+                showAlert('Large attachment settings updated.', 'success');
+            })
+            .catch(err => {
+                if (status) status.textContent = 'Save failed.';
+                showAlert('Large attachment settings failed: ' + extractErrorMessage(err, 'Unknown error'), 'danger');
+            });
+    }
+
+    window.cleanupDatabase = cleanupDatabase;
+    window.exportData = exportData;
+    window.openImportDataPicker = openImportDataPicker;
+    window.resetSystem = resetSystem;
+    window.updateRelayPolicy = updateRelayPolicy;
+    window.saveLargeAttachmentSettings = saveLargeAttachmentSettings;
+
+    const importInput = document.getElementById('import-db-input');
+    if (importInput) {
+        importInput.addEventListener('change', function(e) {
+            const file = e.target && e.target.files && e.target.files[0] ? e.target.files[0] : null;
+            if (file) importDatabaseFile(file);
+        });
+    }
+    loadRelayStatus();
 
     const reconcileChannelIds = document.getElementById('admin-reconcile-channel-ids');
     const reconcileTargetPeer = document.getElementById('admin-reconcile-target-peer');
@@ -2759,6 +3336,91 @@
     const keysNewKeyInput = document.getElementById('keys-new-key-input');
     const keysCopyKeyBtn = document.getElementById('keys-copy-key-btn');
     const keysPanelClose = document.getElementById('keys-panel-close');
+    const keysPermissionSummary = document.getElementById('keys-permission-summary');
+    const keysPresetAgentBtn = document.getElementById('keys-preset-agent-btn');
+    const keysPresetReadonlyBtn = document.getElementById('keys-preset-readonly-btn');
+    const keysPresetFullBtn = document.getElementById('keys-preset-full-btn');
+    const keysPresetClearBtn = document.getElementById('keys-preset-clear-btn');
+    const keyPermissionCheckboxes = Array.from(document.querySelectorAll('.key-perm-cb'));
+    const allKeyPermissions = keyPermissionCheckboxes.map(cb => String(cb.value || '').trim()).filter(Boolean);
+    let defaultKeyPermissions = (() => {
+        try {
+            const raw = keysPanel?.dataset?.defaultPermissions || '[]';
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed.map(v => String(v || '').trim()).filter(Boolean) : [];
+        } catch (err) {
+            return [];
+        }
+    })();
+
+    function humanizePermission(permission) {
+        return String(permission || '')
+            .split('_')
+            .filter(Boolean)
+            .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+            .join(' ');
+    }
+
+    function setKeyPermissionSelection(values) {
+        const selected = new Set((values || []).map(v => String(v || '').trim()).filter(Boolean));
+        keyPermissionCheckboxes.forEach(cb => {
+            cb.checked = selected.has(String(cb.value || '').trim());
+        });
+        updateKeyPermissionSummary();
+    }
+
+    function updateKeyPermissionSummary() {
+        if (!keysPermissionSummary) return;
+        const selected = keyPermissionCheckboxes
+            .filter(cb => cb.checked)
+            .map(cb => String(cb.value || '').trim())
+            .filter(Boolean);
+        if (!selected.length) {
+            keysPermissionSummary.textContent = 'No permissions selected. Creating the key now would fall back to the server defaults.';
+            return;
+        }
+        const preview = selected.slice(0, 4).map(humanizePermission).join(' • ');
+        const extra = selected.length > 4 ? ` +${selected.length - 4} more` : '';
+        keysPermissionSummary.textContent = `${selected.length} permission${selected.length === 1 ? '' : 's'} selected · ${preview}${extra}`;
+    }
+
+    const meshspaceAgentTemplateSummary = document.getElementById('meshspace-agent-template-summary');
+    const meshspaceAgentTemplateStatusLine = document.getElementById('meshspace-agent-template-status-line');
+    const meshspaceAgentTemplateSaveBtn = document.getElementById('meshspace-agent-template-save-btn');
+    const meshspaceAgentTemplateFilesBtn = document.getElementById('meshspace-agent-template-files-btn');
+    const meshspaceAgentTemplateResetBtn = document.getElementById('meshspace-agent-template-reset-btn');
+    const meshspaceAgentTemplateCheckboxes = Array.from(document.querySelectorAll('.meshspace-agent-perm-cb'));
+
+    function readMeshspaceTemplateSelection() {
+        return meshspaceAgentTemplateCheckboxes
+            .filter(cb => cb.checked)
+            .map(cb => String(cb.value || '').trim())
+            .filter(Boolean);
+    }
+
+    function setMeshspaceTemplateSelection(values) {
+        const selected = new Set((values || []).map(v => String(v || '').trim()).filter(Boolean));
+        meshspaceAgentTemplateCheckboxes.forEach(cb => {
+            cb.checked = selected.has(String(cb.value || '').trim());
+        });
+        updateMeshspaceTemplateSummary();
+    }
+
+    function updateMeshspaceTemplateSummary() {
+        if (!meshspaceAgentTemplateSummary) return;
+        const selected = readMeshspaceTemplateSelection();
+        if (!selected.length) {
+            meshspaceAgentTemplateSummary.textContent = 'Select at least one default permission for agents in this mesh.';
+            return;
+        }
+        const preview = selected.slice(0, 4).map(humanizePermission).join(' • ');
+        const extra = selected.length > 4 ? ` +${selected.length - 4} more` : '';
+        meshspaceAgentTemplateSummary.textContent = `${selected.length} default permission${selected.length === 1 ? '' : 's'} · ${preview}${extra}`;
+    }
+
+    function readOnlyPermissionPreset() {
+        return allKeyPermissions.filter(permission => permission.startsWith('read_') || permission === 'view_trust');
+    }
 
     async function loadKeysForUser(userId) {
         keysListContainer.innerHTML = '<p class="text-muted small">Loading…</p>';
@@ -2771,13 +3433,19 @@
         if (keys.length === 0) {
             keysListContainer.innerHTML = '<p class="text-muted small">No API keys yet. Create one below.</p>';
         } else {
-            keysListContainer.innerHTML = '<table class="table table-sm"><thead><tr><th>Key</th><th>Permissions</th><th>Created</th><th></th></tr></thead><tbody>' +
-                keys.map(k => '<tr>' +
-                    '<td><code>' + (k.id_suffix || k.id) + '</code></td>' +
-                    '<td><span class="badge bg-secondary me-1">' + (k.permissions || []).length + ' perms</span></td>' +
-                    '<td class="small">' + (k.created_at ? k.created_at.slice(0, 10) : '-') + '</td>' +
-                    '<td>' + (k.revoked ? '<span class="badge bg-danger">Revoked</span>' : '<button type="button" class="btn btn-outline-danger btn-sm revoke-key-btn" data-key-id="' + k.id + '">Revoke</button>') + '</td></tr>'
-                ).join('') + '</tbody></table>';
+            keysListContainer.innerHTML = '<div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>Key</th><th>Permissions</th><th>Created</th><th>Expiry</th><th></th></tr></thead><tbody>' +
+                keys.map(k => {
+                    const permissions = Array.isArray(k.permissions) ? k.permissions : [];
+                    const badges = permissions.length
+                        ? `<div class="keys-permission-badges">${permissions.map(permission => `<span class="keys-permission-badge">${escapeHtml(humanizePermission(permission))}</span>`).join('')}</div>`
+                        : '<span class="text-muted small">No permissions recorded</span>';
+                    return '<tr>' +
+                        '<td><div class="d-flex flex-column"><code>' + escapeHtml(k.id_suffix || k.id) + '</code><span class="small text-muted">' + escapeHtml(k.id || '') + '</span></div></td>' +
+                        '<td><div class="small mb-1"><span class="badge bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle">' + permissions.length + ' perms</span></div>' + badges + '</td>' +
+                        '<td class="small">' + escapeHtml(k.created_at ? k.created_at.slice(0, 10) : '-') + '</td>' +
+                        '<td class="small">' + escapeHtml(k.expires_at ? k.expires_at.slice(0, 10) : 'none') + '</td>' +
+                        '<td>' + (k.revoked ? '<span class="badge bg-danger">Revoked</span>' : '<button type="button" class="btn btn-outline-danger btn-sm revoke-key-btn" data-key-id="' + escapeHtml(k.id || '') + '">Revoke</button>') + '</td></tr>';
+                }).join('') + '</tbody></table></div>';
             keysListContainer.querySelectorAll('.revoke-key-btn').forEach(btn => {
                 btn.addEventListener('click', async () => {
                     if (!confirm('Revoke this key? It will stop working immediately.')) return;
@@ -2794,7 +3462,7 @@
         keysPanelUserId.value = userId;
         keysPanelUsername.textContent = username;
         keysNewKeyArea.style.display = 'none';
-        document.querySelectorAll('.key-perm-cb').forEach(cb => { cb.checked = true; });
+        setKeyPermissionSelection(defaultKeyPermissions.length ? defaultKeyPermissions : allKeyPermissions);
         const expEl = document.getElementById('keys-expires-days');
         if (expEl) expEl.value = '';
         keysPanel.style.display = 'block';
@@ -2814,12 +3482,79 @@
         });
     });
     if (keysPanelClose) keysPanelClose.addEventListener('click', hideKeysPanel);
+    keyPermissionCheckboxes.forEach(cb => cb.addEventListener('change', updateKeyPermissionSummary));
+    if (keysPresetAgentBtn) keysPresetAgentBtn.addEventListener('click', () => setKeyPermissionSelection(defaultKeyPermissions));
+    if (keysPresetReadonlyBtn) keysPresetReadonlyBtn.addEventListener('click', () => setKeyPermissionSelection(readOnlyPermissionPreset()));
+    if (keysPresetFullBtn) keysPresetFullBtn.addEventListener('click', () => setKeyPermissionSelection(allKeyPermissions));
+    if (keysPresetClearBtn) keysPresetClearBtn.addEventListener('click', () => setKeyPermissionSelection([]));
+    updateKeyPermissionSummary();
+    meshspaceAgentTemplateCheckboxes.forEach(cb => cb.addEventListener('change', updateMeshspaceTemplateSummary));
+    updateMeshspaceTemplateSummary();
+
+    if (meshspaceAgentTemplateFilesBtn) {
+        meshspaceAgentTemplateFilesBtn.addEventListener('click', () => {
+            const withFiles = Array.from(new Set([
+                'read_messages',
+                'write_messages',
+                'read_feed',
+                'write_feed',
+                'read_files',
+                'write_files',
+            ]));
+            setMeshspaceTemplateSelection(withFiles);
+        });
+    }
+    if (meshspaceAgentTemplateResetBtn) {
+        meshspaceAgentTemplateResetBtn.addEventListener('click', () => {
+            setMeshspaceTemplateSelection([
+                'read_messages',
+                'write_messages',
+                'read_feed',
+                'write_feed',
+            ]);
+        });
+    }
+    if (meshspaceAgentTemplateSaveBtn) {
+        meshspaceAgentTemplateSaveBtn.addEventListener('click', async () => {
+            const permissions = readMeshspaceTemplateSelection();
+            if (!permissions.length) {
+                if (meshspaceAgentTemplateStatusLine) {
+                    meshspaceAgentTemplateStatusLine.textContent = 'Select at least one permission before saving.';
+                    meshspaceAgentTemplateStatusLine.className = 'small text-danger mt-2';
+                }
+                return;
+            }
+            if (meshspaceAgentTemplateStatusLine) {
+                meshspaceAgentTemplateStatusLine.textContent = 'Saving meshspace agent template...';
+                meshspaceAgentTemplateStatusLine.className = 'small text-muted mt-2';
+            }
+            const { ok, data } = await api('POST', '/ajax/admin/meshspace/agent-permissions', { permissions });
+            if (!ok) {
+                if (meshspaceAgentTemplateStatusLine) {
+                    meshspaceAgentTemplateStatusLine.textContent = data.error || 'Failed to save meshspace agent template.';
+                    meshspaceAgentTemplateStatusLine.className = 'small text-danger mt-2';
+                }
+                return;
+            }
+            defaultKeyPermissions = Array.isArray(data.default_agent_permissions)
+                ? data.default_agent_permissions.map(v => String(v || '').trim()).filter(Boolean)
+                : permissions;
+            if (keysPanel) {
+                keysPanel.dataset.defaultPermissions = JSON.stringify(defaultKeyPermissions);
+            }
+            setMeshspaceTemplateSelection(defaultKeyPermissions);
+            if (meshspaceAgentTemplateStatusLine) {
+                meshspaceAgentTemplateStatusLine.textContent = `Saved template for ${data.meshspace_name || 'this mesh'}.`;
+                meshspaceAgentTemplateStatusLine.className = 'small text-success mt-2';
+            }
+        });
+    }
 
     if (keysCreateBtn) {
         keysCreateBtn.addEventListener('click', async () => {
             const userId = keysPanelUserId.value;
             if (!userId) return;
-            const perms = Array.from(document.querySelectorAll('.key-perm-cb:checked')).map(cb => cb.value);
+            const perms = keyPermissionCheckboxes.filter(cb => cb.checked).map(cb => cb.value);
             const expiresVal = document.getElementById('keys-expires-days').value;
             const expires_days = expiresVal ? parseInt(expiresVal, 10) : null;
             const { ok, data } = await api('POST', `/ajax/admin/users/${userId}/keys`, { permissions: perms.length ? perms : undefined, expires_days: expires_days || undefined });
@@ -2873,6 +3608,20 @@
     const workspaceGovernanceAllowlist = document.getElementById('workspace-governance-allowlist');
     const workspaceGovernanceAllowedChannels = document.getElementById('workspace-governance-allowed-channels');
     const workspaceGovernanceSummary = document.getElementById('workspace-governance-summary');
+    const workspaceGovernanceChannelList = document.getElementById('workspace-governance-channel-list');
+    const workspaceGovernanceStatusBanner = document.getElementById('workspace-governance-status-banner');
+    const workspaceGovernanceDirtyIndicator = document.getElementById('workspace-governance-dirty-indicator');
+    const workspaceGovernanceActionBar = document.getElementById('workspace-governance-action-bar');
+    const workspaceGovernanceSearch = document.getElementById('workspace-governance-search');
+    const workspaceGovernanceFilter = document.getElementById('workspace-governance-filter');
+    const workspaceGovernanceSelectMemberBtn = document.getElementById('workspace-governance-select-member-btn');
+    const workspaceGovernanceSelectVisibleBtn = document.getElementById('workspace-governance-select-visible-btn');
+    const workspaceGovernanceClearVisibleBtn = document.getElementById('workspace-governance-clear-visible-btn');
+    const workspaceGovernanceQuarantineBtn = document.getElementById('workspace-governance-quarantine-btn');
+    const workspaceGovernancePolicyState = document.getElementById('workspace-governance-policy-state');
+    const workspaceGovernanceAllowedCount = document.getElementById('workspace-governance-allowed-count');
+    const workspaceGovernanceMemberCount = document.getElementById('workspace-governance-member-count');
+    const workspaceGovernanceVisibleCount = document.getElementById('workspace-governance-visible-count');
     const workspaceRuntimeEventCursor = document.getElementById('workspace-runtime-event-cursor');
     const workspaceRuntimeEventFetchAt = document.getElementById('workspace-runtime-event-fetch-at');
     const workspaceRuntimeInboxFetchAt = document.getElementById('workspace-runtime-inbox-fetch-at');
@@ -2884,11 +3633,17 @@
     const workspaceRuntimeSubscriptionUpdated = document.getElementById('workspace-runtime-subscription-updated');
     const workspaceRuntimeSubscriptionTypes = document.getElementById('workspace-runtime-subscription-types');
     const workspaceSaveGovernanceBtn = document.getElementById('workspace-save-governance-btn');
+    const workspaceSaveGovernanceBottomBtn = document.getElementById('workspace-save-governance-bottom-btn');
     const workspaceEnforceGovernanceBtn = document.getElementById('workspace-enforce-governance-btn');
+    const workspaceEnforceGovernanceBottomBtn = document.getElementById('workspace-enforce-governance-bottom-btn');
 
     let selectedWorkspaceUserId = null;
     let selectedWorkspaceUserLabel = null;
     let selectedWorkspaceIsLocal = true;
+    let workspaceGovernanceChannelsCache = [];
+    let workspaceGovernancePolicy = {};
+    let workspaceGovernanceSavedSignature = '';
+    let workspaceGovernanceDirty = false;
 
     function escapeHtml(value) {
         return String(value || '')
@@ -2920,17 +3675,232 @@
             .filter(Boolean);
     }
 
+    function governancePolicyStateLabel() {
+        const enabled = !!workspaceGovernanceEnabled?.checked;
+        const allowlist = !!workspaceGovernanceAllowlist?.checked;
+        const blockPublic = !!workspaceGovernanceBlockPublic?.checked;
+        if (!enabled) return 'Disabled';
+        if (allowlist && blockPublic) return 'Quarantined';
+        if (allowlist) return 'Allowlist only';
+        if (blockPublic) return 'No public/open';
+        return 'Enabled';
+    }
+
+    function governanceReasonLabel(reason) {
+        const normalized = String(reason || '').trim().toLowerCase();
+        if (normalized === 'governance_public_channels_blocked') return 'Blocked: public/open';
+        if (normalized === 'governance_channel_not_allowlisted') return 'Blocked: not in allowlist';
+        return 'Allowed';
+    }
+
+    function governanceOptionElement(channelId) {
+        return Array.from(workspaceGovernanceAllowedChannels?.options || [])
+            .find(option => String(option.value || '').trim() === String(channelId || '').trim()) || null;
+    }
+
+    function governanceSelectedSet() {
+        return new Set(getSelectedOptions(workspaceGovernanceAllowedChannels));
+    }
+
+    function currentGovernanceDraft() {
+        return {
+            enabled: !!workspaceGovernanceEnabled?.checked,
+            block_public_channels: !!workspaceGovernanceBlockPublic?.checked,
+            restrict_to_allowed_channels: !!workspaceGovernanceAllowlist?.checked,
+            allowed_channel_ids: getSelectedOptions(workspaceGovernanceAllowedChannels).sort(),
+        };
+    }
+
+    function governancePolicySignature(policy) {
+        return JSON.stringify({
+            enabled: !!policy?.enabled,
+            block_public_channels: !!policy?.block_public_channels,
+            restrict_to_allowed_channels: !!policy?.restrict_to_allowed_channels,
+            allowed_channel_ids: Array.isArray(policy?.allowed_channel_ids)
+                ? policy.allowed_channel_ids.map(id => String(id || '').trim()).filter(Boolean).sort()
+                : [],
+        });
+    }
+
+    function setGovernanceDirtyState(isDirty) {
+        workspaceGovernanceDirty = !!isDirty;
+        if (workspaceGovernanceStatusBanner) {
+            workspaceGovernanceStatusBanner.classList.toggle('is-dirty', workspaceGovernanceDirty);
+        }
+        if (workspaceGovernanceActionBar) {
+            workspaceGovernanceActionBar.classList.toggle('is-dirty', workspaceGovernanceDirty);
+        }
+        if (workspaceGovernanceDirtyIndicator) {
+            workspaceGovernanceDirtyIndicator.textContent = workspaceGovernanceDirty ? 'Unsaved changes' : 'Saved';
+            workspaceGovernanceDirtyIndicator.classList.toggle('is-dirty', workspaceGovernanceDirty);
+        }
+        [workspaceSaveGovernanceBtn, workspaceSaveGovernanceBottomBtn].filter(Boolean).forEach((button) => {
+            button.classList.toggle('btn-success', workspaceGovernanceDirty);
+            button.classList.toggle('btn-outline-success', !workspaceGovernanceDirty);
+        });
+    }
+
+    function refreshGovernanceDirtyState() {
+        setGovernanceDirtyState(governancePolicySignature(currentGovernanceDraft()) !== workspaceGovernanceSavedSignature);
+    }
+
+    function setGovernanceSelection(channelIds, selected) {
+        const wanted = new Set((channelIds || []).map(id => String(id || '').trim()).filter(Boolean));
+        Array.from(workspaceGovernanceAllowedChannels?.options || []).forEach(option => {
+            if (!wanted.has(String(option.value || '').trim())) return;
+            option.selected = !!selected;
+        });
+    }
+
+    function channelMatchesGovernanceFilter(channel, filterValue, allowedSet) {
+        const filter = String(filterValue || 'all').trim().toLowerCase();
+        const channelId = String(channel.id || '').trim();
+        const allowed = allowedSet.has(channelId);
+        if (filter === 'allowed') return allowed;
+        if (filter === 'blocked') return !allowed;
+        if (filter === 'member') return !!channel.is_member;
+        if (filter === 'not-member') return !channel.is_member;
+        if (filter === 'public') return !!channel.is_public_open;
+        if (filter === 'private') return !channel.is_public_open;
+        return true;
+    }
+
+    function governancePeerLabel(peerId) {
+        const normalized = String(peerId || '').trim();
+        if (!normalized) return '';
+        const profiles = (window.CANOPY_VARS && window.CANOPY_VARS.peerProfiles) || {};
+        const profile = profiles[normalized];
+        if (profile && profile.display_name) {
+            return String(profile.display_name).trim() || normalized.slice(0, 12);
+        }
+        return normalized.slice(0, 12);
+    }
+
+    function governanceDuplicateNameCounts(channels) {
+        const counts = new Map();
+        (channels || []).forEach(channel => {
+            const name = String(channel && channel.name || '').trim().toLowerCase();
+            if (!name) return;
+            counts.set(name, (counts.get(name) || 0) + 1);
+        });
+        return counts;
+    }
+
+    function governanceChannelDisplayName(channel, duplicateCounts) {
+        const baseName = String(channel && channel.name || '').trim();
+        if (!baseName) return '';
+        const counts = duplicateCounts || governanceDuplicateNameCounts(workspaceGovernanceChannelsCache);
+        const originPeer = String(channel && channel.origin_peer || '').trim();
+        if ((counts.get(baseName.toLowerCase()) || 0) <= 1 || !originPeer) {
+            return baseName;
+        }
+        const peerLabel = governancePeerLabel(originPeer);
+        return peerLabel ? `${baseName} · ${peerLabel}` : baseName;
+    }
+
+    function renderGovernanceSummary() {
+        const allowedSet = governanceSelectedSet();
+        const allowedCount = allowedSet.size;
+        const memberCount = workspaceGovernanceChannelsCache.filter(channel => channel.is_member).length;
+        const query = String(workspaceGovernanceSearch?.value || '').trim().toLowerCase();
+        const filterValue = String(workspaceGovernanceFilter?.value || 'all').trim().toLowerCase();
+        const duplicateCounts = governanceDuplicateNameCounts(workspaceGovernanceChannelsCache);
+        const visibleCount = workspaceGovernanceChannelsCache.filter(channel => {
+            const haystack = `${governanceChannelDisplayName(channel, duplicateCounts)} ${channel.id || ''} ${governancePeerLabel(channel.origin_peer || '')}`.toLowerCase();
+            if (query && !haystack.includes(query)) return false;
+            return channelMatchesGovernanceFilter(channel, filterValue, allowedSet);
+        }).length;
+        const updatedAt = workspaceGovernancePolicy.updated_at ? formatTime(workspaceGovernancePolicy.updated_at) : 'never';
+        const updatedBy = workspaceGovernancePolicy.updated_by ? ` by ${workspaceGovernancePolicy.updated_by}` : '';
+
+        if (workspaceGovernancePolicyState) workspaceGovernancePolicyState.textContent = governancePolicyStateLabel();
+        if (workspaceGovernanceAllowedCount) workspaceGovernanceAllowedCount.textContent = `${allowedCount} channel${allowedCount === 1 ? '' : 's'}`;
+        if (workspaceGovernanceMemberCount) workspaceGovernanceMemberCount.textContent = `${memberCount} channel${memberCount === 1 ? '' : 's'}`;
+        if (workspaceGovernanceVisibleCount) workspaceGovernanceVisibleCount.textContent = `${visibleCount} channel${visibleCount === 1 ? '' : 's'}`;
+        if (workspaceGovernanceSummary) {
+            workspaceGovernanceSummary.textContent =
+                `${governancePolicyStateLabel()} · ` +
+                `block public ${workspaceGovernanceBlockPublic?.checked ? 'on' : 'off'} · ` +
+                `allowlist ${workspaceGovernanceAllowlist?.checked ? 'on' : 'off'} · ` +
+                `${workspaceGovernanceDirty ? 'unsaved changes pending · ' : ''}` +
+                `updated ${updatedAt}${updatedBy}`;
+        }
+    }
+
+    function renderGovernanceChannelList() {
+        if (!workspaceGovernanceChannelList) return;
+        const allowedSet = governanceSelectedSet();
+        const query = String(workspaceGovernanceSearch?.value || '').trim().toLowerCase();
+        const filterValue = String(workspaceGovernanceFilter?.value || 'all').trim().toLowerCase();
+        const duplicateCounts = governanceDuplicateNameCounts(workspaceGovernanceChannelsCache);
+        const visible = workspaceGovernanceChannelsCache.filter(channel => {
+            const haystack = `${governanceChannelDisplayName(channel, duplicateCounts)} ${channel.id || ''} ${governancePeerLabel(channel.origin_peer || '')}`.toLowerCase();
+            if (query && !haystack.includes(query)) return false;
+            return channelMatchesGovernanceFilter(channel, filterValue, allowedSet);
+        });
+
+        renderGovernanceSummary();
+
+        if (!visible.length) {
+            workspaceGovernanceChannelList.innerHTML = '<p class="small text-muted mb-0">No channels match the current search/filter.</p>';
+            return;
+        }
+
+        const canEdit = !!selectedWorkspaceIsLocal;
+        workspaceGovernanceChannelList.innerHTML = `<div class="governance-channel-grid">${
+            visible.map(channel => {
+                const channelId = String(channel.id || '').trim();
+                const displayName = governanceChannelDisplayName(channel, duplicateCounts);
+                const checked = allowedSet.has(channelId);
+                const allowed = channel.governance_allowed !== false;
+                const badges = [
+                    `<span class="governance-chip ${channel.is_public_open ? 'warn' : 'good'}">${escapeHtml(channel.channel_type || 'channel')} · ${escapeHtml(channel.privacy_mode || 'open')}</span>`,
+                    `<span class="governance-chip ${channel.is_member ? 'good' : ''}">${channel.is_member ? 'Current member' : 'Not a member'}</span>`,
+                    `<span class="governance-chip">${Number(channel.member_count || 0)} members</span>`,
+                    `<span class="governance-chip ${allowed ? 'good' : 'bad'}">${escapeHtml(governanceReasonLabel(channel.governance_reason))}</span>`,
+                ].join('');
+                return (
+                    `<label class="governance-channel-card ${checked ? 'selected' : ''} ${allowed ? '' : 'blocked'} ${canEdit ? '' : 'readonly'}">` +
+                        `<div class="governance-channel-head">` +
+                            `<div class="governance-channel-title">` +
+                                `<input class="form-check-input workspace-governance-channel-checkbox" type="checkbox" data-channel-id="${escapeHtml(channelId)}" ${checked ? 'checked' : ''} ${canEdit ? '' : 'disabled'}>` +
+                                `<div>` +
+                                    `<div class="governance-channel-name">#${escapeHtml(displayName || channelId)}</div>` +
+                                    `<div class="governance-channel-meta">${escapeHtml(channelId)}</div>` +
+                                `</div>` +
+                            `</div>` +
+                            `<div class="small text-muted">${checked ? 'Allowlisted' : 'Not allowlisted'}</div>` +
+                        `</div>` +
+                        `<div class="governance-chip-row">${badges}</div>` +
+                    `</label>`
+                );
+            }).join('')
+        }</div>`;
+
+        workspaceGovernanceChannelList.querySelectorAll('.workspace-governance-channel-checkbox').forEach(checkbox => {
+            checkbox.addEventListener('change', (event) => {
+                const channelId = event.target.getAttribute('data-channel-id') || '';
+                const option = governanceOptionElement(channelId);
+                if (option) option.selected = !!event.target.checked;
+                renderGovernanceChannelList();
+                refreshGovernanceDirtyState();
+            });
+        });
+    }
+
     function syncGovernanceControlState() {
         const canEdit = !!selectedWorkspaceIsLocal;
-        if (workspaceGovernanceAllowedChannels) {
-            const allowlistEnabled = !!workspaceGovernanceAllowlist?.checked;
-            workspaceGovernanceAllowedChannels.disabled = !canEdit || !allowlistEnabled;
-        }
+        [workspaceGovernanceSelectMemberBtn, workspaceGovernanceSelectVisibleBtn, workspaceGovernanceClearVisibleBtn, workspaceGovernanceQuarantineBtn]
+            .filter(Boolean)
+            .forEach(el => { el.disabled = !canEdit; });
+        renderGovernanceSummary();
+        renderGovernanceChannelList();
+        refreshGovernanceDirtyState();
     }
 
     function setWorkspaceEditable(canEdit) {
         selectedWorkspaceIsLocal = !!canEdit;
-        [workspaceDisplayNameInput, workspaceAccountTypeSelect, workspaceThemeSelect, workspaceBioInput, workspaceSaveProfileBtn, workspaceAvatarUploadBtn, workspaceAvatarClearBtn, workspaceGovernanceEnabled, workspaceGovernanceBlockPublic, workspaceGovernanceAllowlist, workspaceSaveGovernanceBtn, workspaceEnforceGovernanceBtn]
+        [workspaceDisplayNameInput, workspaceAccountTypeSelect, workspaceThemeSelect, workspaceBioInput, workspaceSaveProfileBtn, workspaceAvatarUploadBtn, workspaceAvatarClearBtn, workspaceGovernanceEnabled, workspaceGovernanceBlockPublic, workspaceGovernanceAllowlist, workspaceSaveGovernanceBtn, workspaceSaveGovernanceBottomBtn, workspaceEnforceGovernanceBtn, workspaceEnforceGovernanceBottomBtn]
             .filter(Boolean)
             .forEach(el => { el.disabled = !canEdit; });
         if (workspaceReadonlyNote) {
@@ -3068,20 +4038,36 @@
         if (workspaceGovernanceEnabled) workspaceGovernanceEnabled.checked = !!governancePolicy.enabled;
         if (workspaceGovernanceBlockPublic) workspaceGovernanceBlockPublic.checked = !!governancePolicy.block_public_channels;
         if (workspaceGovernanceAllowlist) workspaceGovernanceAllowlist.checked = !!governancePolicy.restrict_to_allowed_channels;
+        workspaceGovernancePolicy = {
+            enabled: !!governancePolicy.enabled,
+            block_public_channels: !!governancePolicy.block_public_channels,
+            restrict_to_allowed_channels: !!governancePolicy.restrict_to_allowed_channels,
+            allowed_channel_ids: Array.isArray(governancePolicy.allowed_channel_ids) ? governancePolicy.allowed_channel_ids : [],
+            updated_at: governancePolicy.updated_at || null,
+            updated_by: governancePolicy.updated_by || null,
+        };
+        workspaceGovernanceChannelsCache = governanceChannels.map((channel) => ({
+            id: String(channel.id || '').trim(),
+            name: channel.name || channel.id || '',
+            channel_type: channel.channel_type || 'channel',
+            privacy_mode: channel.privacy_mode || 'open',
+            member_count: Number(channel.member_count || 0),
+            is_member: !!channel.is_member,
+            is_public_open: !!channel.is_public_open,
+            governance_allowed: channel.governance_allowed !== false,
+            governance_reason: channel.governance_reason || 'ok',
+        })).filter(channel => channel.id);
 
         if (workspaceGovernanceAllowedChannels) {
             const allowedSet = new Set((governancePolicy.allowed_channel_ids || []).map(id => String(id)));
             workspaceGovernanceAllowedChannels.innerHTML = '';
-            governanceChannels.forEach((channel) => {
-                const channelId = String(channel.id || '').trim();
+            workspaceGovernanceChannelsCache.forEach((channel) => {
+                const channelId = channel.id;
                 if (!channelId) return;
-                const channelName = channel.name || channelId;
-                const mode = channel.privacy_mode || 'open';
-                const memberState = channel.is_member ? 'member' : 'not member';
                 const option = document.createElement('option');
                 option.value = channelId;
                 option.selected = allowedSet.has(channelId);
-                option.textContent = `#${channelName} [${mode}] \u00b7 ${memberState}`;
+                option.textContent = `#${channel.name || channelId}`;
                 workspaceGovernanceAllowedChannels.appendChild(option);
             });
             if (!workspaceGovernanceAllowedChannels.options.length) {
@@ -3092,17 +4078,8 @@
                 workspaceGovernanceAllowedChannels.appendChild(emptyOption);
             }
         }
-
-        if (workspaceGovernanceSummary) {
-            const allowedCount = (governancePolicy.allowed_channel_ids || []).length;
-            const updatedAt = governancePolicy.updated_at ? formatTime(governancePolicy.updated_at) : 'never';
-            const updatedBy = governancePolicy.updated_by ? ` by ${governancePolicy.updated_by}` : '';
-            workspaceGovernanceSummary.textContent =
-                `enabled=${governancePolicy.enabled ? 'yes' : 'no'} \u00b7 ` +
-                `block_public=${governancePolicy.block_public_channels ? 'yes' : 'no'} \u00b7 ` +
-                `allowlist=${governancePolicy.restrict_to_allowed_channels ? 'yes' : 'no'} (${allowedCount}) \u00b7 ` +
-                `updated ${updatedAt}${updatedBy}`;
-        }
+        workspaceGovernanceSavedSignature = governancePolicySignature(workspaceGovernancePolicy);
+        setGovernanceDirtyState(false);
         syncGovernanceControlState();
 
         renderWorkspaceList(
@@ -3341,14 +4318,70 @@
         });
     }
 
-    [workspaceGovernanceAllowlist, workspaceGovernanceEnabled].filter(Boolean).forEach((el) => {
+    [workspaceGovernanceAllowlist, workspaceGovernanceEnabled, workspaceGovernanceBlockPublic].filter(Boolean).forEach((el) => {
         el.addEventListener('change', () => {
             syncGovernanceControlState();
         });
     });
 
-    if (workspaceSaveGovernanceBtn) {
-        workspaceSaveGovernanceBtn.addEventListener('click', async () => {
+    if (workspaceGovernanceSearch) {
+        workspaceGovernanceSearch.addEventListener('input', () => {
+            renderGovernanceChannelList();
+        });
+    }
+    if (workspaceGovernanceFilter) {
+        workspaceGovernanceFilter.addEventListener('change', () => {
+            renderGovernanceChannelList();
+        });
+    }
+    if (workspaceGovernanceSelectMemberBtn) {
+        workspaceGovernanceSelectMemberBtn.addEventListener('click', () => {
+            setGovernanceSelection(
+                workspaceGovernanceChannelsCache.filter(channel => channel.is_member).map(channel => channel.id),
+                true,
+            );
+            renderGovernanceChannelList();
+            refreshGovernanceDirtyState();
+        });
+    }
+    if (workspaceGovernanceSelectVisibleBtn) {
+        workspaceGovernanceSelectVisibleBtn.addEventListener('click', () => {
+            const visibleIds = Array.from(workspaceGovernanceChannelList?.querySelectorAll('.workspace-governance-channel-checkbox') || [])
+                .map(el => String(el.getAttribute('data-channel-id') || '').trim())
+                .filter(Boolean);
+            setGovernanceSelection(visibleIds, true);
+            renderGovernanceChannelList();
+            refreshGovernanceDirtyState();
+        });
+    }
+    if (workspaceGovernanceClearVisibleBtn) {
+        workspaceGovernanceClearVisibleBtn.addEventListener('click', () => {
+            const visibleIds = Array.from(workspaceGovernanceChannelList?.querySelectorAll('.workspace-governance-channel-checkbox') || [])
+                .map(el => String(el.getAttribute('data-channel-id') || '').trim())
+                .filter(Boolean);
+            setGovernanceSelection(visibleIds, false);
+            renderGovernanceChannelList();
+            refreshGovernanceDirtyState();
+        });
+    }
+    if (workspaceGovernanceQuarantineBtn) {
+        workspaceGovernanceQuarantineBtn.addEventListener('click', () => {
+            setGovernanceSelection(
+                workspaceGovernanceChannelsCache.map(channel => channel.id),
+                false,
+            );
+            const quarantineChannel = workspaceGovernanceChannelsCache.find(channel => String(channel.name || '').trim() === 'agent-start-here');
+            if (quarantineChannel) {
+                setGovernanceSelection([quarantineChannel.id], true);
+            }
+            if (workspaceGovernanceEnabled) workspaceGovernanceEnabled.checked = true;
+            if (workspaceGovernanceBlockPublic) workspaceGovernanceBlockPublic.checked = true;
+            if (workspaceGovernanceAllowlist) workspaceGovernanceAllowlist.checked = true;
+            syncGovernanceControlState();
+        });
+    }
+
+    async function submitGovernancePolicy(enforceNow) {
             if (!selectedWorkspaceUserId) {
                 setWorkspaceStatus('Select a user first', true);
                 return;
@@ -3358,24 +4391,31 @@
                 return;
             }
             const payload = {
-                enabled: !!workspaceGovernanceEnabled?.checked,
-                block_public_channels: !!workspaceGovernanceBlockPublic?.checked,
-                restrict_to_allowed_channels: !!workspaceGovernanceAllowlist?.checked,
-                allowed_channel_ids: getSelectedOptions(workspaceGovernanceAllowedChannels),
-                enforce_now: false,
+                ...currentGovernanceDraft(),
+                enforce_now: !!enforceNow,
             };
             const { ok, data } = await api('POST', `/ajax/admin/users/${selectedWorkspaceUserId}/governance`, payload);
             if (!ok) {
-                setWorkspaceStatus(data.error || 'Failed to save governance policy', true);
+                setWorkspaceStatus(data.error || `Failed to ${enforceNow ? 'enforce' : 'save'} governance policy`, true);
                 return;
             }
             if (data.workspace) renderWorkspace(data.workspace);
+            if (enforceNow) {
+                const removed = Number((data.enforcement || {}).removed_count || 0);
+                setWorkspaceStatus(data.message || `Governance enforced (removed ${removed} memberships)`);
+                return;
+            }
             setWorkspaceStatus(data.message || 'Governance policy updated');
-        });
     }
 
-    if (workspaceEnforceGovernanceBtn) {
-        workspaceEnforceGovernanceBtn.addEventListener('click', async () => {
+    [workspaceSaveGovernanceBtn, workspaceSaveGovernanceBottomBtn].filter(Boolean).forEach((button) => {
+        button.addEventListener('click', async () => {
+            await submitGovernancePolicy(false);
+        });
+    });
+
+    [workspaceEnforceGovernanceBtn, workspaceEnforceGovernanceBottomBtn].filter(Boolean).forEach((button) => {
+        button.addEventListener('click', async () => {
             if (!selectedWorkspaceUserId) {
                 setWorkspaceStatus('Select a user first', true);
                 return;
@@ -3385,23 +4425,9 @@
                 return;
             }
             if (!confirm('Apply governance policy now and remove disallowed memberships for this user?')) return;
-            const payload = {
-                enabled: !!workspaceGovernanceEnabled?.checked,
-                block_public_channels: !!workspaceGovernanceBlockPublic?.checked,
-                restrict_to_allowed_channels: !!workspaceGovernanceAllowlist?.checked,
-                allowed_channel_ids: getSelectedOptions(workspaceGovernanceAllowedChannels),
-                enforce_now: true,
-            };
-            const { ok, data } = await api('POST', `/ajax/admin/users/${selectedWorkspaceUserId}/governance`, payload);
-            if (!ok) {
-                setWorkspaceStatus(data.error || 'Failed to enforce governance policy', true);
-                return;
-            }
-            if (data.workspace) renderWorkspace(data.workspace);
-            const removed = Number((data.enforcement || {}).removed_count || 0);
-            setWorkspaceStatus(data.message || `Governance enforced (removed ${removed} memberships)`);
+            await submitGovernancePolicy(true);
         });
-    }
+    });
 
     if (workspaceUserButtons.length > 0) {
         const first = workspaceUserButtons[0];
