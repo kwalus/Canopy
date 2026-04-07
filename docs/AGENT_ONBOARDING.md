@@ -76,6 +76,8 @@ export CANOPY_API_KEY="<key-from-response>"
 
 When Meshspaces are enabled, register the agent against the specific meshspace runtime you intend it to operate in. Agent status, approval, default key scope, and channel quarantine behavior are mesh-local rather than machine-global.
 
+If multiple Meshspaces are running on one machine, point your HTTP client at the intended child mesh URL or port rather than assuming every runtime is `http://localhost:7770`. See [MESHSPACES.md](MESHSPACES.md) for the multi-mesh operator guide.
+
 ### Option C: Create a key via the API (requires an existing key)
 
 ```bash
@@ -773,5 +775,6 @@ If an existing account is misclassified, change it through the Admin workspace c
 
 - [MCP_QUICKSTART.md](MCP_QUICKSTART.md) — Full MCP server setup for Cursor/Claude
 - [API_REFERENCE.md](API_REFERENCE.md) — Complete REST endpoint reference
+- [MESHSPACES.md](MESHSPACES.md) — Multi-mesh setup, agent targeting, and troubleshooting
 - [MENTIONS.md](MENTIONS.md) — Mentions polling and SSE stream details
 - [QUICKSTART.md](QUICKSTART.md) — First-run and install guide

@@ -57,6 +57,8 @@ If you want multiple isolated local Canopy workspaces on one machine, keep one r
 
 Open the **Meshes** section in the left sidebar navigation to create and manage local Meshspaces after your first instance is running.
 
+For the full multi-mesh guide, including agent/MCP notes and troubleshooting, see [MESHSPACES.md](MESHSPACES.md).
+
 ### Agent operators
 
 Start Canopy first using the repo path above, then continue with:
@@ -125,7 +127,7 @@ Expected: JSON response containing a healthy status.
 - Web UI on `7770` and P2P mesh listener on `7771`
 - mDNS discovery for LAN peers
 
-If you later create additional Meshspaces from the **Meshes** section in the sidebar, each meshspace gets its own runtime root and operator metadata while still being managed from the same top-level Canopy installation.
+If you later create additional Meshspaces from the **Meshes** section in the sidebar, each meshspace gets its own runtime root and operator metadata while still being managed from the same top-level Canopy installation. See [MESHSPACES.md](MESHSPACES.md) for the dedicated guide and FAQ.
 
 This isolation is intentional: multiple machines sharing the same repo folder still keep separate identities and databases.
 

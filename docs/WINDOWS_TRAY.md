@@ -2,6 +2,8 @@
 
 `canopy_tray` is the packaged Windows path for users who do not want to manage Python directly. This is the recommended Canopy install path for nontechnical Windows users when a published packaged build is available.
 
+This guide focuses on the single-runtime tray path. If you intentionally want multiple isolated local meshes on one machine, start with [MESHSPACES.md](MESHSPACES.md) for the dedicated multi-mesh guide.
+
 ## What this path is for
 
 Choose the Windows tray path when you want:
