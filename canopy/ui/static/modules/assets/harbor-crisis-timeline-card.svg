@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="860" viewBox="0 0 1400 860" role="img" aria-labelledby="title desc">
+  <title id="title">Harbor crisis timeline card</title>
+  <desc id="desc">Compact incident timeline card for the harbor crisis world.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#09111b"/><stop offset="100%" stop-color="#0c1522"/></linearGradient>
+  </defs>
+  <rect width="1400" height="860" rx="40" fill="url(#bg)"/>
+  <text x="76" y="110" fill="#f8fafc" font-size="58" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="900">Situation Timeline</text>
+  <g transform="translate(84 206)">
+    <line x1="68" y1="28" x2="68" y2="548" stroke="#23384d" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="68" cy="72" r="18" fill="#22d3ee"/><text x="120" y="80" fill="#f8fafc" font-size="28" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">T-18h · weather desk raises corridor watch</text>
+    <circle cx="68" cy="202" r="18" fill="#818cf8"/><text x="120" y="210" fill="#f8fafc" font-size="28" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">T-12h · port ops starts metering arrivals</text>
+    <circle cx="68" cy="332" r="18" fill="#34d399"/><text x="120" y="340" fill="#f8fafc" font-size="28" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">T-06h · logistics agents flag backlog pulse</text>
+    <circle cx="68" cy="462" r="18" fill="#fbbf24"/><text x="120" y="470" fill="#f8fafc" font-size="28" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Now · editorial and ops brief from one world</text>
+  </g>
+</svg>

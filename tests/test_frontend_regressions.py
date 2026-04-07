@@ -32,10 +32,23 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertNotIn('admin-section-workspace', admin_template)
         self.assertNotIn('admin-section-directives', admin_template)
 
-    def test_admin_instance_environment_is_first_section(self) -> None:
+    def test_admin_users_section_is_prioritized_near_top(self) -> None:
         admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')
-        self.assertIn('.admin-section-environment { order: 1; }', admin_template)
-        self.assertIn('.admin-section-users { order: 2; }', admin_template)
+        self.assertIn('.admin-section-pending { order: 1; }', admin_template)
+        self.assertIn('.admin-section-users-primary { order: 2; }', admin_template)
+        self.assertIn('.admin-section-agent-template { order: 3; }', admin_template)
+
+    def test_admin_pending_panel_covers_all_pending_accounts(self) -> None:
+        admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')
+        self.assertIn('Pending approvals', admin_template)
+        self.assertIn('New non-admin humans and unapproved agents wait here', admin_template)
+
+    def test_admin_exposes_meshspace_agent_permission_template(self) -> None:
+        admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')
+        self.assertIn('Meshspace Agent API Template', admin_template)
+        self.assertIn('meshspace-agent-template-save-btn', admin_template)
+        self.assertIn('/ajax/admin/meshspace/agent-permissions', admin_template)
+        self.assertIn('Files RW preset', admin_template)
 
     def test_admin_exposes_remote_shadow_duplicate_repair_controls(self) -> None:
         admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')
@@ -131,6 +144,49 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('external_endpoint=', connect_template)
         self.assertIn('Regenerated with external endpoint!', connect_template)
 
+    def test_feed_video_surfaces_preserve_actual_video_mime_type(self) -> None:
+        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        self.assertIn("metadata.video_type = firstType || 'video/mp4';", feed_template)
+        self.assertIn("type=\"{{ post.metadata.video_type or 'video/mp4' }}\"", feed_template)
+        self.assertIn("type=\"{{ em.get('video_type') or 'video/mp4' }}\"", feed_template)
+
+    def test_attention_bell_defaults_new_users_to_inbox_only(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        self.assertIn('function defaultCanopyAttentionFilters()', main_js)
+        self.assertIn('inbox: true', main_js)
+        self.assertIn('mention: false', main_js)
+        self.assertIn('dm: false', main_js)
+        self.assertIn('channel: false', main_js)
+        self.assertIn('feed: false', main_js)
+
+    def test_new_user_attention_defaults_and_persistence_copy_are_exposed(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+        self.assertIn('function isDefaultCanopyAttentionFilters(filters)', main_js)
+        self.assertIn('canopy.attention.filters.', main_js)
+        self.assertIn('canopy.attention.dismissedThrough.', main_js)
+        self.assertIn('canopy.attention.seenThrough.', main_js)
+        self.assertIn('Reset to inbox-only default', main_js)
+        self.assertIn('New accounts show inbox items only. Click a filter chip to customise.', main_js)
+        self.assertIn('id="notificationFilterReset">Reset</button>', base_template)
+        self.assertIn('New accounts start with inbox items only in the bell until you customize the filters.', base_template)
+
+    def test_api_keys_template_surfaces_mesh_template_copy_for_agents(self) -> None:
+        template = (ROOT / 'canopy' / 'ui' / 'templates' / 'api_keys.html').read_text(encoding='utf-8')
+        self.assertIn('Mesh template:', template)
+        self.assertIn("active mesh's default agent API template", template)
+        self.assertIn('adjust the template from the Admin workspace', template)
+
+    def test_pending_approval_templates_expose_guidance_copy(self) -> None:
+        login_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'login.html').read_text(encoding='utf-8')
+        admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')
+        self.assertIn('.alert-pending {', login_template)
+        self.assertIn('Account awaiting approval', login_template)
+        self.assertIn('No action is required from you right now.', login_template)
+        self.assertIn('agents start in <code>#agent-start-here</code>', admin_template)
+        self.assertIn('Approve this agent and place it in #agent-start-here', admin_template)
+        self.assertIn('Approve this person and let them sign in to the workspace.', admin_template)
+
     def test_settings_device_profile_precedes_system_information(self) -> None:
         settings_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'settings.html').read_text(encoding='utf-8')
         device_pos = settings_template.find('Device Profile')
@@ -151,6 +207,14 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("function setReplyFromButton(button)", channels_template)
         self.assertIn("onclick=\"setReplyFromButton(this)\"", channels_template)
         self.assertNotIn("onclick=\"setReplyTo('${message.id}'", channels_template)
+
+    def test_channel_thread_rendering_keeps_parent_context_and_depth(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        self.assertIn("function buildChannelThreadLayout(messages)", channels_template)
+        self.assertIn('class="thread-reply-context"', channels_template)
+        self.assertIn('data-thread-root-id="${threadRootId}"', channels_template)
+        self.assertIn('data-thread-depth="${threadDepth}"', channels_template)
+        self.assertIn("Replying to ${parentAuthor}", channels_template)
 
     def test_create_channel_defaults_to_private_and_resets_to_private(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
@@ -271,7 +335,10 @@ class TestFrontendRegressions(unittest.TestCase):
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         self.assertIn("if (currentChannelId && channelId === currentChannelId) {", channels_template)
         self.assertIn("requestChannelThreadRefresh();", channels_template)
-        self.assertIn("if (data && data.marked_read && typeof window.requestCanopySidebarAttentionRefresh === 'function') {", channels_template)
+        self.assertIn(
+            "if (data && (data.marked_read || Number(data.acknowledged_mentions || 0) > 0) && typeof window.requestCanopySidebarAttentionRefresh === 'function') {",
+            channels_template,
+        )
         self.assertIn("window.requestCanopySidebarAttentionRefresh({ force: true }).catch(() => {});", channels_template)
 
     def test_notification_bell_uses_attention_snapshot_and_peer_polling_stays_separate(self) -> None:
@@ -656,6 +723,14 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("return postOrMessage || el.closest('.card');", main_js)
         self.assertNotIn("return el.closest('.post-card[data-post-id], .message-item[data-message-id], .card');", main_js)
 
+    def test_youtube_title_lookup_is_deferred_for_queue_items_and_backed_off_after_failures(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        self.assertIn("if (cached && cached.retryAt && cached.retryAt > now) return;", main_js)
+        self.assertIn("retryAt: Date.now() + (5 * 60 * 1000),", main_js)
+        self.assertIn("preferredMediaTitle(item.el, item.type, item.title, { allowLookup: false });", main_js)
+        self.assertIn("preferredMediaTitle(selectedItem.el, type, selectedItem.title, { allowLookup: true })", main_js)
+        self.assertNotIn("requestYouTubeReadableTitle(el);\n                    return 'YouTube video';", main_js)
+
     def test_media_deck_optimizes_refresh_and_queue_rerenders(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
         self.assertIn("deckQueueSignature: ''", main_js)
@@ -925,6 +1000,63 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn(".sidebar-media-deck-action-label {", base_html)
         self.assertIn("display: none;", base_html)
 
+    def test_meshspace_header_uses_presence_rail_and_quick_switch_orbs(self) -> None:
+        base_html = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        self.assertIn("meshspace-rail", base_html)
+        self.assertIn("meshspace-current-btn", base_html)
+        self.assertIn("meshspace-rail-orb", base_html)
+        self.assertIn("meshspace-attention-badge", base_html)
+        self.assertIn("meshspace-switcher-item-badges", base_html)
+        self.assertIn("Quick switch active meshspaces", base_html)
+        self.assertIn("data-meshspace-header-rail", base_html)
+        self.assertIn("data-meshspace-switcher-items", base_html)
+        self.assertIn("data-meshspace-quick-links", base_html)
+        self.assertIn("requestCanopyMeshspaceSnapshotRefresh", base_html)
+        self.assertIn("meshspacesSnapshot", base_html)
+        self.assertIn("window.addEventListener('canopy:attention-updated'", base_html)
+        self.assertIn("window.dispatchEvent(new CustomEvent('canopy:attention-updated'", main_js)
+
+    def test_meshspace_shell_uses_session_user_before_local_user_fallback(self) -> None:
+        base_html = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+        self.assertIn("session.get('display_name') or session.get('username') or session.get('user_id') or user_id or 'User'", base_html)
+        self.assertIn("userId: {{ (session.get('user_id') or user_id or 'local_user')|tojson }}", base_html)
+
+    def test_meshes_page_stays_dense_and_avoids_scaffolding_copy(self) -> None:
+        meshes_html = (ROOT / 'canopy' / 'ui' / 'templates' / 'meshes.html').read_text(encoding='utf-8')
+        self.assertIn('Switch isolated Canopy worlds, inspect live status, and launch additional local meshes.', meshes_html)
+        self.assertNotIn('This first implementation formalizes meshspace roots and runtime identity.', meshes_html)
+        self.assertNotIn('shell-safe: it summarizes runtime state without turning the machine into one blended social surface', meshes_html)
+        self.assertIn('Local meshes', meshes_html)
+        self.assertIn('New mesh', meshes_html)
+        self.assertIn('/ajax/meshspaces_snapshot', meshes_html)
+        self.assertIn("data-meshspace-card", meshes_html)
+        self.assertIn("data-meshes-kpi", meshes_html)
+        self.assertIn("data-meshspace-actions", meshes_html)
+        self.assertIn("data-meshspace-control-note", meshes_html)
+        self.assertIn("data-meshspace-overlap-banner", meshes_html)
+        self.assertIn("data-meshspace-overlap-note", meshes_html)
+        self.assertIn("Refresh state", meshes_html)
+        self.assertIn("setInterval(pollMeshesSnapshot, 5000)", meshes_html)
+
+    def test_meshspace_create_and_detail_avoid_dev_console_copy(self) -> None:
+        create_html = (ROOT / 'canopy' / 'ui' / 'templates' / 'meshspace_create.html').read_text(encoding='utf-8')
+        detail_html = (ROOT / 'canopy' / 'ui' / 'templates' / 'meshspace_detail.html').read_text(encoding='utf-8')
+        unavailable_html = (ROOT / 'canopy' / 'ui' / 'templates' / 'meshspace_open_unavailable.html').read_text(encoding='utf-8')
+        self.assertIn('Create another isolated Canopy world on this machine.', create_html)
+        self.assertNotIn('The result is a new Canopy world on this machine, not a filter inside the current one.', create_html)
+        self.assertNotIn('deterministic triple', create_html)
+        self.assertIn('Use this only if you want to run the mesh manually from a terminal.', detail_html)
+        self.assertNotIn('This meshspace is running. The command below is what was used to start it.', detail_html)
+        self.assertIn('Live probe override', detail_html)
+        self.assertIn('data-meshspace-overlap-callout', detail_html)
+        self.assertIn('Control source', detail_html)
+        self.assertIn('Detected PID', detail_html)
+        self.assertIn('is not running', unavailable_html)
+        self.assertIn('The registry showed this mesh as active', unavailable_html)
+        self.assertIn('Start mesh', unavailable_html)
+        self.assertIn('Refresh state', unavailable_html)
+
     def test_dm_search_uses_explicit_search_state_to_suspend_live_refresh(self) -> None:
         messages_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
         self.assertIn("const DM_SEARCH_QUERY = ", messages_template)
@@ -998,3 +1130,55 @@ class TestFrontendRegressions(unittest.TestCase):
         # Must guard against missing .flash-messages before injecting new API key alert
         self.assertIn("if (flashContainer) flashContainer.innerHTML += keyAlert;", dashboard_template)
         self.assertNotIn("document.querySelector('.flash-messages').innerHTML += keyAlert;", dashboard_template)
+
+    def test_meshspaces_templates_include_browser_compatibility_guards(self) -> None:
+        meshes_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'meshes.html').read_text(encoding='utf-8')
+        detail_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'meshspace_detail.html').read_text(encoding='utf-8')
+        restarting_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'meshspace_restarting.html').read_text(encoding='utf-8')
+
+        self.assertIn("CSS.escape = function", meshes_template)
+        self.assertIn('aria-label="${activePeers} active peer', meshes_template)
+        self.assertIn("meshDetailCopyLaunchCmd", detail_template)
+        self.assertIn("document.execCommand('copy')", detail_template)
+        self.assertIn("if (document.hidden) return;", restarting_template)
+        self.assertIn("document.addEventListener('visibilitychange'", restarting_template)
+
+    def test_meshspaces_templates_surface_operator_guidance(self) -> None:
+        meshes_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'meshes.html').read_text(encoding='utf-8')
+        detail_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'meshspace_detail.html').read_text(encoding='utf-8')
+        open_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'meshspace_open_unavailable.html').read_text(encoding='utf-8')
+        base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+
+        self.assertIn("mesh.open_blocked_reason", meshes_template)
+        self.assertIn("Assign a different port", meshes_template)
+        self.assertIn("meshspace.open_blocked_reason", detail_template)
+        self.assertIn('data-mesh-open-reason="crashed"', open_template)
+        self.assertIn('data-mesh-open-reason="restarting"', open_template)
+        self.assertIn('data-mesh-open-reason="wrong-mesh"', open_template)
+        self.assertIn('Try direct open anyway', open_template)
+        self.assertIn('Open was blocked because no live runtime was detected', open_template)
+        self.assertIn("State mismatch", base_template)
+        self.assertIn("Port conflict", base_template)
+        self.assertIn("inset: 1px 1px auto auto;", base_template)
+        self.assertIn(".meshspace-orb-glyph.attention", base_template)
+        self.assertIn(".meshspace-orb-glyph.live", base_template)
+        self.assertIn("elif mesh.mention_count", base_template)
+        self.assertIn("elif mesh.unread_count", base_template)
+        self.assertIn("elif mesh.active_peer_count", base_template)
+
+    def test_attention_clear_uses_server_backed_sidebar_clear_route(self) -> None:
+        base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        self.assertIn('sidebarAttentionClear', base_template)
+        self.assertIn("const endpoint = routes.sidebarAttentionClear || '/ajax/sidebar_attention_clear';", main_js)
+        self.assertIn("method: 'POST'", main_js)
+        self.assertIn("'X-CSRFToken': csrfToken", main_js)
+        self.assertIn("requestCanopySidebarAttentionRefresh({ force: true }).catch(() => {});", main_js)
+        self.assertIn("window.requestCanopyMeshspaceSnapshotRefresh({ force: true });", main_js)
+
+    def test_channel_view_refreshes_attention_when_mentions_are_acknowledged(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        self.assertIn(
+            "if (data && (data.marked_read || Number(data.acknowledged_mentions || 0) > 0) && typeof window.requestCanopySidebarAttentionRefresh === 'function') {",
+            channels_template,
+        )

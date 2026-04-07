@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" role="img" aria-labelledby="title desc">
+  <title id="title">IFR Arrival Trainer brief card</title>
+  <desc id="desc">A kneeboard-style quick brief card for a generic ILS approach.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#07121f"/>
+      <stop offset="100%" stop-color="#0c1f34"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#60a5fa"/>
+      <stop offset="100%" stop-color="#34d399"/>
+    </linearGradient>
+    <style>
+      .h1 { font: 700 56px 'Avenir Next', 'Segoe UI', sans-serif; fill: #edf6ff; }
+      .h2 { font: 700 22px 'Avenir Next', 'Segoe UI', sans-serif; letter-spacing: 1.6px; text-transform: uppercase; fill: #9fb7cf; }
+      .body { font: 500 26px 'Avenir Next', 'Segoe UI', sans-serif; fill: #edf6ff; }
+      .muted { font: 500 22px 'Avenir Next', 'Segoe UI', sans-serif; fill: #8ea4ba; }
+      .pill { font: 700 20px 'Avenir Next', 'Segoe UI', sans-serif; fill: #022515; }
+    </style>
+  </defs>
+  <rect width="1200" height="720" rx="40" fill="url(#bg)"/>
+  <rect x="42" y="42" width="1116" height="636" rx="34" fill="none" stroke="#21435f" stroke-width="2"/>
+  <rect x="64" y="64" width="260" height="44" rx="22" fill="#102233" stroke="#1f4d64"/>
+  <text x="94" y="94" class="h2" fill="#6ee7b7">Canopy Flight School</text>
+  <text x="64" y="162" class="h1">ILS Arrival Brief</text>
+  <text x="64" y="208" class="muted">Generic training setup for one disciplined, stable approach.</text>
+
+  <rect x="64" y="252" width="328" height="360" rx="24" fill="#0b1826" stroke="#1e4158"/>
+  <text x="96" y="298" class="h2">Scenario</text>
+  <text x="96" y="344" class="body">Vectors to intercept</text>
+  <text x="96" y="382" class="body">7 NM outside the FAF</text>
+  <text x="96" y="420" class="body">90 KIAS target</text>
+  <text x="96" y="458" class="body">3.0 degree glideslope</text>
+  <text x="96" y="496" class="body">IMC to published minimums</text>
+  <text x="96" y="550" class="muted">Mindset</text>
+  <text x="96" y="584" class="body">Brief early. Configure early.</text>
+
+  <rect x="430" y="252" width="328" height="360" rx="24" fill="#0b1826" stroke="#1e4158"/>
+  <text x="462" y="298" class="h2">Stable gate</text>
+  <text x="462" y="344" class="body">Localizer within 1 dot</text>
+  <text x="462" y="382" class="body">Glideslope within 1 dot</text>
+  <text x="462" y="420" class="body">Speed within +/-10 KT</text>
+  <text x="462" y="458" class="body">Sink under 1000 FPM</text>
+  <text x="462" y="496" class="body">Brief and callouts complete</text>
+  <rect x="462" y="536" width="202" height="50" rx="25" fill="url(#accent)"/>
+  <text x="498" y="569" class="pill">Continue or go missed</text>
+
+  <rect x="796" y="252" width="328" height="360" rx="24" fill="#0b1826" stroke="#1e4158"/>
+  <text x="828" y="298" class="h2">Brief flow</text>
+  <text x="828" y="344" class="body">1. Tune and identify</text>
+  <text x="828" y="382" class="body">2. Set inbound course</text>
+  <text x="828" y="420" class="body">3. Brief the missed</text>
+  <text x="828" y="458" class="body">4. Set minimums</text>
+  <text x="828" y="496" class="body">5. Configure before minimums</text>
+  <text x="828" y="550" class="muted">Rule</text>
+  <text x="828" y="584" class="body">No negotiation with unstable.</text>
+</svg>

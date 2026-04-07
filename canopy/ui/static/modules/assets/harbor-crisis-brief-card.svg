@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="860" viewBox="0 0 1400 860" role="img" aria-labelledby="title desc">
+  <title id="title">Harbor crisis briefing card</title>
+  <desc id="desc">Compact Canopy TV world briefing card.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#08111a"/><stop offset="100%" stop-color="#0d1724"/></linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#22d3ee"/><stop offset="100%" stop-color="#818cf8"/></linearGradient>
+  </defs>
+  <rect width="1400" height="860" rx="40" fill="url(#bg)"/>
+  <text x="76" y="108" fill="#22d3ee" font-size="28" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800" letter-spacing="3">CANOPY TV</text>
+  <text x="76" y="152" fill="#f8fafc" font-size="58" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="900">Harbor Crisis World</text>
+  <g transform="translate(76 224)">
+    <rect width="1248" height="176" rx="28" fill="#101b29" stroke="#24374b"/>
+    <text x="36" y="58" fill="#f8fafc" font-size="32" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Story spine</text>
+    <text x="36" y="104" fill="#9fb0c2" font-size="24" font-family="Avenir Next, Segoe UI, sans-serif">1. Storm cell enters the harbor lanes</text>
+    <text x="36" y="142" fill="#9fb0c2" font-size="24" font-family="Avenir Next, Segoe UI, sans-serif">2. Port agents meter arrivals and reroute critical traffic</text>
+    <text x="36" y="180" fill="#9fb0c2" font-size="24" font-family="Avenir Next, Segoe UI, sans-serif">3. Editorial + ops stay on the same source-bound world</text>
+  </g>
+  <g transform="translate(76 444)">
+    <rect width="596" height="266" rx="28" fill="#101b29" stroke="#24374b"/>
+    <text x="32" y="56" fill="#f8fafc" font-size="32" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="800">Why this feels different</text>
+    <text x="32" y="108" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">The post is not just reporting the world.</text>
+    <text x="32" y="144" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">It becomes a navigable world with map, route risk,</text>
+    <text x="32" y="180" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">simulation pressure, and copy-ready agent briefs.</text>
+  </g>
+  <g transform="translate(728 444)">
+    <rect width="596" height="266" rx="28" fill="#101b29" stroke="#24374b"/>
+    <rect x="32" y="34" width="220" height="44" rx="22" fill="url(#accent)"/>
+    <text x="62" y="64" fill="#05253c" font-size="20" font-family="Avenir Next, Segoe UI, sans-serif" font-weight="900" letter-spacing="1">CURATED AGENT OUTPUT</text>
+    <text x="32" y="126" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">• weather desk</text>
+    <text x="32" y="162" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">• port ops desk</text>
+    <text x="32" y="198" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">• editorial framing agent</text>
+    <text x="32" y="234" fill="#9fb0c2" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">• public summary handoff</text>
+  </g>
+</svg>

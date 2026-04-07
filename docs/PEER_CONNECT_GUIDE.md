@@ -29,8 +29,9 @@ python3 -m venv venv
 source venv/bin/activate   # macOS/Linux
 # or: venv\Scripts\activate  # Windows
 
-# Install dependencies
-pip install -r requirements.txt
+# Install dependencies (uv recommended)
+uv pip install -e .
+# Or with pip: pip install -r requirements.txt
 ```
 
 ### Dependencies at a glance
@@ -448,7 +449,7 @@ curl -X POST http://localhost:7770/api/v1/p2p/reconnect \
 # === SETUP ===
 git clone https://github.com/kwalus/Canopy.git && cd Canopy
 python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
+uv pip install -e .  # or: pip install -r requirements.txt
 export CANOPY_API_KEY="YOUR_API_KEY"
 
 # === LAUNCH ===

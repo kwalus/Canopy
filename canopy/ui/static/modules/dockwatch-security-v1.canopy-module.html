@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dockwatch Security Desk</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --panel: rgba(8, 16, 27, 0.96);
+      --panel-2: rgba(10, 23, 38, 0.96);
+      --panel-3: rgba(7, 13, 23, 0.96);
+      --edge: rgba(52, 211, 153, 0.16);
+      --text: #f4f8ff;
+      --muted: #9db1c6;
+      --green: #34d399;
+      --amber: #fbbf24;
+      --red: #fb7185;
+      --blue: #60a5fa;
+      --shadow: 0 24px 60px rgba(0,0,0,.34);
+    }
+    *{box-sizing:border-box} html,body{margin:0;min-height:100%;background:radial-gradient(circle at top right,rgba(52,211,153,.14),transparent 28%),radial-gradient(circle at bottom left,rgba(96,165,250,.12),transparent 26%),linear-gradient(180deg,#03070d,#081019 50%,#0a1420);color:var(--text);font-family:"Avenir Next","Segoe UI",sans-serif} body{padding:16px}
+    .shell{min-height:calc(100vh - 32px);display:grid;gap:14px;align-content:start}
+    .hero,.card,.desk,.toolbar{border:1px solid var(--edge);border-radius:22px;background:var(--panel);box-shadow:var(--shadow)}
+    .hero{padding:16px;background:radial-gradient(circle at top right,rgba(52,211,153,.16),transparent 26%),radial-gradient(circle at bottom left,rgba(251,191,36,.12),transparent 24%),linear-gradient(180deg,rgba(8,16,27,.98),rgba(9,18,31,.98))}
+    .eyebrow{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:rgba(15,23,42,.52);border:1px solid rgba(52,211,153,.18);color:var(--green);font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+    h1,h2,h3,p{margin:0} h1{font-size:clamp(1.72rem,3vw,2.3rem);line-height:1.02;letter-spacing:-.04em;margin-bottom:8px}.copy,.subtle{color:var(--muted);line-height:1.5}
+    .hero-grid{margin-top:12px;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(300px,.9fr);gap:14px}
+    .metric-row,.chip-row,.capability-row,.toolbar-group,.status-row{display:flex;flex-wrap:wrap;gap:8px}
+    .metric,.chip,.flag,.pill{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;border:1px solid rgba(148,163,184,.16);background:rgba(15,23,42,.56);font-size:12px;font-weight:800}
+    .metric.highlight,.chip.highlight{color:#06261b;background:linear-gradient(135deg,#6ee7b7,#34d399);border-color:transparent}
+    .metric-row{margin-top:14px}.metric strong{font-size:1rem;letter-spacing:-.03em}
+    .grid{display:grid;grid-template-columns:minmax(320px,.84fr) minmax(0,1.16fr);gap:14px}
+    .card,.desk{padding:14px;display:grid;gap:12px;background:var(--panel-2)}
+    .card-title{font-size:.74rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:800}
+    .control{border-radius:16px;border:1px solid rgba(148,163,184,.14);background:rgba(8,15,27,.92);padding:12px;display:grid;gap:8px}
+    .control-head{display:flex;justify-content:space-between;gap:10px;align-items:center}.control-label{font-size:.86rem;font-weight:800}.control-value{color:var(--green);font-weight:800;font-variant-numeric:tabular-nums}
+    input[type="range"]{width:100%;appearance:none;height:6px;border-radius:999px;background:linear-gradient(90deg,rgba(52,211,153,.8),rgba(96,165,250,.9));outline:none}
+    input[type="range"]::-webkit-slider-thumb{appearance:none;width:16px;height:16px;border-radius:50%;background:#f8fafc;border:2px solid rgba(52,211,153,.8);cursor:pointer}
+    .camera-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+    .camera{border-radius:18px;border:1px solid rgba(148,163,184,.14);background:linear-gradient(180deg,rgba(12,21,34,.98),rgba(7,13,23,.94));padding:10px;display:grid;gap:8px}
+    .camera-view{height:128px;border-radius:14px;background:radial-gradient(circle at top left,rgba(52,211,153,.12),transparent 34%),linear-gradient(180deg,#0f1b2a,#08111b);border:1px solid rgba(148,163,184,.12);position:relative;overflow:hidden}
+    .camera-view::after{content:"";position:absolute;inset:0;background:linear-gradient(transparent,rgba(0,0,0,.16) 68%,rgba(0,0,0,.32));}
+    .sweep{position:absolute;border-radius:999px;background:rgba(52,211,153,.2);filter:blur(1px)}
+    .camera-head{display:flex;justify-content:space-between;gap:8px;align-items:center}.camera-name{font-size:.84rem;font-weight:800}.camera-tag{font-size:.72rem;color:var(--muted)}
+    .queue-list{display:grid;gap:10px}
+    .queue-item{border-radius:16px;border:1px solid rgba(148,163,184,.14);background:rgba(8,15,27,.92);padding:12px;display:grid;gap:6px}.queue-top{display:flex;justify-content:space-between;gap:10px;align-items:center}.queue-time{font-size:.8rem;color:var(--green);font-weight:800;font-variant-numeric:tabular-nums}.queue-item h3{font-size:.92rem}.queue-item p{color:var(--muted);font-size:.8rem;line-height:1.45}
+    .zone-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.zone{border-radius:16px;border:1px solid rgba(148,163,184,.14);background:rgba(8,15,27,.92);padding:12px;display:grid;gap:6px}.zone strong{font-size:.92rem}.zone span{color:var(--muted);font-size:.8rem}
+    .toolbar{padding:12px 14px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;background:rgba(8,15,27,.96)}
+    .btn{appearance:none;border:1px solid rgba(148,163,184,.18);background:rgba(15,23,42,.62);color:var(--text);border-radius:14px;padding:10px 14px;font-weight:800;cursor:pointer;transition:transform 120ms ease,border-color 120ms ease,background 120ms ease}.btn:hover,.btn:focus-visible{transform:translateY(-1px);border-color:rgba(52,211,153,.38);outline:none}.btn.primary{background:linear-gradient(135deg,rgba(52,211,153,.24),rgba(96,165,250,.22));border-color:rgba(52,211,153,.3)}.status-text{min-height:20px;color:var(--muted);font-size:.8rem}
+    @media (max-width:980px){.hero-grid,.grid,.camera-grid,.zone-grid{grid-template-columns:1fr}}
+    @media (max-width:700px){body{padding:12px}.shell{min-height:calc(100vh - 24px)}.hero,.card,.desk,.toolbar{border-radius:18px}.btn{width:100%;justify-content:center}.toolbar-group{width:100%}}
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <div class="eyebrow">Canopy Security</div>
+      <div class="hero-grid">
+        <div>
+          <h1>Dockwatch Security Desk</h1>
+          <p class="copy">One incident post becomes a live security station: camera triage, zone posture, motion threshold, shift-ready incident queue, and bounded human-facing output.</p>
+          <div class="metric-row">
+            <div class="metric highlight"><strong id="metric-threat">48</strong> threat</div>
+            <div class="metric"><strong id="metric-open">3</strong> open incidents</div>
+            <div class="metric"><strong id="metric-zones">2</strong> hardened zones</div>
+          </div>
+          <div class="chip-row" style="margin-top:14px;">
+            <span class="chip highlight">Security station</span>
+            <span class="chip">Human-in-the-loop</span>
+            <span class="chip">Curated agent triage</span>
+          </div>
+        </div>
+        <div class="card" style="gap:10px;">
+          <div class="card-title">Capabilities</div>
+          <div class="capability-row" id="capability-row"></div>
+          <div class="card-title" style="margin-top:4px;">Operator promise</div>
+          <p class="subtle">No gimmick controls. This surface is about sensing, prioritization, and clean handoff. The module should reduce noise, not create it.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <section class="card">
+        <div class="card-title">Desk controls</div>
+        <div class="control"><div class="control-head"><span class="control-label">Motion threshold</span><span class="control-value" id="threshold-label">68 / 100</span></div><input id="threshold-range" type="range" min="20" max="95" step="1" value="68"></div>
+        <div class="control"><div class="control-head"><span class="control-label">Focus camera</span><span class="control-value" id="camera-label">Gate 2</span></div><input id="camera-range" type="range" min="0" max="3" step="1" value="1"></div>
+        <div class="control"><div class="control-head"><span class="control-label">Patrol density</span><span class="control-value" id="patrol-label">standard</span></div><input id="patrol-range" type="range" min="0" max="2" step="1" value="1"></div>
+        <div class="zone-grid" id="zone-grid"></div>
+      </section>
+      <section class="desk">
+        <div class="card-title">Camera wall</div>
+        <div class="camera-grid" id="camera-grid"></div>
+        <div class="card-title">Incident queue</div>
+        <div class="queue-list" id="queue-list"></div>
+      </section>
+    </section>
+
+    <section class="toolbar">
+      <div class="toolbar-group">
+        <button class="btn primary" id="copy-brief" type="button">Copy incident brief</button>
+        <button class="btn" id="copy-handoff" type="button">Copy shift handoff</button>
+      </div>
+      <div class="toolbar-group">
+        <button class="btn" id="return-btn" type="button">Return to source</button>
+      </div>
+      <div class="status-text" id="status-text">Desk synchronized.</div>
+    </section>
+  </div>
+  <script>
+    const cameras=['Gate 1','Gate 2','Loading Bay','Perimeter'];
+    const patrolModes=['light','standard','tight'];
+    const baseIncidents=[
+      {time:'08:14', title:'Unknown vehicle pauses at Gate 2', body:'Behavioral model tags a non-delivery dwell pattern just outside the lane.', risk:42},
+      {time:'08:17', title:'Loading bay door held open', body:'Door timer exceeded normal dwell while no badge check was recorded.', risk:58},
+      {time:'08:21', title:'Perimeter motion pair', body:'Two signatures moving together along the low-fence segment.', risk:66},
+    ];
+    const els={thresholdRange:document.getElementById('threshold-range'),cameraRange:document.getElementById('camera-range'),patrolRange:document.getElementById('patrol-range'),thresholdLabel:document.getElementById('threshold-label'),cameraLabel:document.getElementById('camera-label'),patrolLabel:document.getElementById('patrol-label'),metricThreat:document.getElementById('metric-threat'),metricOpen:document.getElementById('metric-open'),metricZones:document.getElementById('metric-zones'),cameraGrid:document.getElementById('camera-grid'),queueList:document.getElementById('queue-list'),zoneGrid:document.getElementById('zone-grid'),capabilityRow:document.getElementById('capability-row'),statusText:document.getElementById('status-text'),copyBrief:document.getElementById('copy-brief'),copyHandoff:document.getElementById('copy-handoff'),returnBtn:document.getElementById('return-btn')};
+    const state={threshold:68,focusCamera:1,patrol:1};
+    function hasCapability(name){return !!(window.CanopyModule&&Array.isArray(window.CanopyModule.capabilities)&&window.CanopyModule.capabilities.includes(name));}
+    function renderCapabilities(){const caps=(window.CanopyModule&&Array.isArray(window.CanopyModule.capabilities))?window.CanopyModule.capabilities:[];els.capabilityRow.innerHTML='';if(!caps.length){const s=document.createElement('span');s.className='flag';s.textContent='Local demo mode';els.capabilityRow.appendChild(s);return;}caps.forEach((cap)=>{const s=document.createElement('span');s.className='flag'+(cap==='deck.return'?' highlight':'');s.textContent=cap;els.capabilityRow.appendChild(s);});}
+    function compute(){const threat=Math.round((state.threshold*0.45)+(state.focusCamera*8)+(state.patrol===2?-4:state.patrol===0?7:0));const hardened=state.patrol===2?3:state.patrol===1?2:1;const incidents=baseIncidents.map((item,idx)=>({...item,risk:Math.max(18,Math.min(92,item.risk + (state.threshold-60)*0.32 + (idx===state.focusCamera?12:0) - (state.patrol*5)))})).sort((a,b)=>b.risk-a.risk);return {threat,hardened,incidents};}
+    function renderZones(result){els.zoneGrid.innerHTML='';['Gate apron','Loading bay','Perimeter fence','Badge lobby'].forEach((name,idx)=>{const danger=result.hardened > (idx%3)?'hardened':'watch';const el=document.createElement('div');el.className='zone';el.innerHTML=`<strong>${name}</strong><span>${danger} posture · ${idx===state.focusCamera?'camera focus nearby':'passive watch'}</span>`;els.zoneGrid.appendChild(el);});}
+    function renderCameras(result){els.cameraGrid.innerHTML='';cameras.forEach((name,idx)=>{const risk=result.incidents.find((item)=>item.title.toLowerCase().includes(name.toLowerCase().split(' ')[0]))?.risk || (30 + idx*8);const card=document.createElement('div');card.className='camera';card.innerHTML=`<div class="camera-head"><span class="camera-name">${name}</span><span class="camera-tag">${idx===state.focusCamera?'focused':'live'}</span></div>`;const view=document.createElement('div');view.className='camera-view';view.innerHTML=`<div class="sweep" style="left:${18+idx*18}%;top:${20+idx*10}%;width:${90 + (risk*0.6)}px;height:${42 + (risk*0.28)}px"></div>`;card.appendChild(view);const meta=document.createElement('div');meta.className='status-row';meta.innerHTML=`<span class="pill ${risk>70?'highlight':''}">risk ${Math.round(risk)}</span><span class="pill">${risk>65?'review now':risk>45?'watch':'clear'}</span>`;card.appendChild(meta);els.cameraGrid.appendChild(card);});}
+    function renderQueue(result){els.queueList.innerHTML='';result.incidents.forEach((item,idx)=>{const row=document.createElement('div');row.className='queue-item';row.innerHTML=`<div class="queue-top"><span class="queue-time">${item.time}</span><span class="pill ${idx===0?'highlight':''}">score ${Math.round(item.risk)}</span></div><h3>${item.title}</h3><p>${item.body}</p>`;els.queueList.appendChild(row);});}
+    function sync(){const result=compute();els.thresholdLabel.textContent=`${state.threshold} / 100`;els.cameraLabel.textContent=cameras[state.focusCamera];els.patrolLabel.textContent=patrolModes[state.patrol];els.metricThreat.textContent=String(result.threat);els.metricOpen.textContent=String(result.incidents.length);els.metricZones.textContent=String(result.hardened);renderZones(result);renderCameras(result);renderQueue(result);}
+    async function persist(k,v){if(!(window.CanopyModule&&Array.isArray(window.CanopyModule.capabilities)&&window.CanopyModule.capabilities.includes('module.storage.local')))return;try{await window.CanopyModule.perform('module.storage.set',{key:k,value:v});}catch(_){}}
+    async function restore(k){if(!(window.CanopyModule&&Array.isArray(window.CanopyModule.capabilities)&&window.CanopyModule.capabilities.includes('module.storage.local')))return null;try{const r=await window.CanopyModule.perform('module.storage.get',{key:k});return r&&Object.prototype.hasOwnProperty.call(r,'value')?r.value:null;}catch(_){return null;}}
+    async function writeClipboard(text,msg){try{if(hasCapability('clipboard.write'))await window.CanopyModule.perform('clipboard.write',{text});else if(navigator.clipboard&&navigator.clipboard.writeText)await navigator.clipboard.writeText(text);else throw new Error('clipboard');els.statusText.textContent=msg;}catch(_){els.statusText.textContent='Clipboard write unavailable.';}}
+    async function returnToSource(){if(!hasCapability('deck.return'))return;try{await window.CanopyModule.perform('deck.return',{});}catch(_){}}
+    function bindRange(el,key,cast){el.addEventListener('input',async()=>{state[key]=cast(el.value);sync();await persist('dock-'+key,String(state[key]));});}
+    bindRange(els.thresholdRange,'threshold',Number);bindRange(els.cameraRange,'focusCamera',Number);bindRange(els.patrolRange,'patrol',Number);
+    els.copyBrief.addEventListener('click',()=>{const r=compute();const lead=r.incidents[0];writeClipboard(['Dockwatch incident brief','Threat score: '+r.threat,'Focus camera: '+cameras[state.focusCamera],'Lead incident: '+lead.title,'Recommended posture: '+(r.threat>65?'human review now':'monitor and log')].join('\n'),'Incident brief copied.');});
+    els.copyHandoff.addEventListener('click',()=>{const r=compute();writeClipboard(['Shift handoff','Threshold: '+state.threshold+'/100','Patrol mode: '+patrolModes[state.patrol],'Open incidents: '+r.incidents.length,'Top risk: '+Math.round(r.incidents[0].risk)].join('\n'),'Shift handoff copied.');});
+    els.returnBtn.addEventListener('click',returnToSource);
+    async function hydrate(){renderCapabilities();const t=await restore('dock-threshold');const c=await restore('dock-focusCamera');const p=await restore('dock-patrol');if(t)state.threshold=Number(t)||state.threshold;if(c)state.focusCamera=Number(c)||state.focusCamera;if(p)state.patrol=Number(p)||state.patrol;els.thresholdRange.value=String(state.threshold);els.cameraRange.value=String(state.focusCamera);els.patrolRange.value=String(state.patrol);sync();}
+    hydrate();
+  </script>
+</body>
+</html>

@@ -1,12 +1,12 @@
 # Canopy Security Hardening - Implementation Summary
 
-**Date:** 2026-02-13  
-**Status:** ✅ COMPLETE - Ready for viral scale  
+**Date:** 2026-04-07  
+**Status:** Core hardening complete for the current public release line; further operational work remains  
 **Risk Level:** MEDIUM (was HIGH)
 
 ## Overview
 
-This document summarizes the security hardening work performed on Canopy in preparation for potential viral growth. The assessment identified 6 critical/high-severity vulnerabilities that would cause immediate network failure and trust loss at scale. All have been addressed.
+This document summarizes the main security hardening work already completed on Canopy. The reviewed critical and high-severity issues identified during the hardening pass were addressed, while several operational recommendations remain open for maintainers and deployers.
 
 A subsequent phase added **end-to-end encrypted private channels** (channel key distribution, request/ack lifecycle, and member-only access enforcement over the P2P mesh) and **routing-level targeted relay fallback** with relay transit privacy guarantees. See section 7 below for details.
 
@@ -177,7 +177,7 @@ Before going to production:
 - [x] Rate limiting configured
 - [x] Path traversal protection verified
 - [x] Peer validation system ready
-- [ ] **Install dependencies:** `pip install -r requirements.txt`
+- [ ] **Install dependencies:** `uv pip install -e .` (or `pip install -r requirements.txt`)
 - [ ] **Configure HTTPS** with valid certificate
 - [ ] **Set up monitoring** for metrics above
 - [ ] **Configure backups** (database, files)
@@ -242,7 +242,7 @@ These are **optional enhancements** that can be added iteratively:
 - Path traversal: Sanitization and verification
 - Code quality: 0 CodeQL security alerts
 
-✅ **System is ready for viral scale**
+✅ **Core hardening is in place for the current release line**
 - Minimal code changes (10 files)
 - Backward compatible (legacy password migration)
 - Well-documented (SECURITY_ASSESSMENT.md)
@@ -269,7 +269,7 @@ These are **optional enhancements** that can be added iteratively:
 
 ---
 
-**Next Review:** After 1000 active users or 3 months, whichever comes first
+**Next Review:** Revisit for the next significant public release or within 3 months, whichever comes first
 
-**Maintained by:** Canopy Security Team  
-**Last Updated:** 2026-03-03
+**Maintained by:** Canopy maintainers  
+**Last Updated:** 2026-04-07

@@ -1,0 +1,755 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Titration Lab</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #071018;
+      --panel: rgba(9, 18, 31, 0.96);
+      --panel-2: rgba(12, 26, 44, 0.96);
+      --panel-3: rgba(8, 15, 27, 0.96);
+      --edge: rgba(96, 165, 250, 0.16);
+      --edge-strong: rgba(34, 211, 238, 0.22);
+      --text: #f4f8ff;
+      --muted: #9eb2c8;
+      --cyan: #22d3ee;
+      --blue: #60a5fa;
+      --violet: #818cf8;
+      --good: #34d399;
+      --warn: #fbbf24;
+      --danger: #fb7185;
+      --shadow: 0 24px 60px rgba(0, 0, 0, 0.34);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background:
+        radial-gradient(circle at top right, rgba(34, 211, 238, 0.16), transparent 30%),
+        radial-gradient(circle at bottom left, rgba(129, 140, 248, 0.14), transparent 28%),
+        linear-gradient(180deg, #03070d, #08111a 50%, #091421);
+      color: var(--text);
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+    }
+    body { padding: 16px; }
+    .shell {
+      min-height: calc(100vh - 32px);
+      display: grid;
+      gap: 14px;
+      align-content: start;
+    }
+    .hero,
+    .grid-card,
+    .curve-card,
+    .cue-card,
+    .toolbar-card {
+      border: 1px solid var(--edge);
+      border-radius: 22px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+    .hero {
+      padding: 16px;
+      background:
+        radial-gradient(circle at top right, rgba(96, 165, 250, 0.18), transparent 26%),
+        radial-gradient(circle at bottom left, rgba(34, 211, 238, 0.14), transparent 22%),
+        linear-gradient(180deg, rgba(8, 17, 29, 0.98), rgba(9, 18, 31, 0.98));
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(34, 211, 238, 0.18);
+      background: rgba(15, 23, 42, 0.52);
+      color: var(--cyan);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .hero-grid {
+      margin-top: 12px;
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(260px, 0.88fr);
+      gap: 14px;
+      align-items: start;
+    }
+    h1, h2, h3, p { margin: 0; }
+    h1 {
+      font-size: clamp(1.75rem, 3vw, 2.3rem);
+      line-height: 1.02;
+      letter-spacing: -0.04em;
+      margin-bottom: 8px;
+    }
+    .copy, .subtle { color: var(--muted); line-height: 1.5; }
+    .chip-row, .metric-row, .capability-row, .status-row { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip, .metric, .flag, .phase-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      background: rgba(15, 23, 42, 0.56);
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .chip.highlight, .metric.highlight {
+      color: #042230;
+      background: linear-gradient(135deg, #67e8f9, #60a5fa);
+      border-color: transparent;
+    }
+    .metric-row { margin-top: 14px; }
+    .metric { min-width: 110px; justify-content: center; background: rgba(7, 15, 27, 0.92); }
+    .metric strong { font-size: 1rem; letter-spacing: -0.03em; }
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(320px, 0.9fr) minmax(0, 1.12fr);
+      gap: 14px;
+    }
+    .grid-card { padding: 14px; display: grid; gap: 12px; background: var(--panel-2); }
+    .card-title { font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 800; }
+    .control-grid { display: grid; gap: 10px; }
+    .control {
+      border-radius: 16px;
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      background: rgba(7, 15, 27, 0.92);
+      padding: 12px;
+      display: grid;
+      gap: 8px;
+    }
+    .control-head { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+    .control-label { font-size: 0.86rem; font-weight: 800; }
+    .control-value { color: var(--cyan); font-weight: 800; font-variant-numeric: tabular-nums; }
+    .control input[type="range"] {
+      width: 100%;
+      appearance: none;
+      height: 6px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(34, 211, 238, 0.8), rgba(129, 140, 248, 0.9));
+      outline: none;
+    }
+    .control input[type="range"]::-webkit-slider-thumb {
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #f8fafc;
+      border: 2px solid rgba(34, 211, 238, 0.8);
+      cursor: pointer;
+    }
+    .formula-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .formula-box {
+      border-radius: 16px;
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      background: rgba(7, 15, 27, 0.92);
+      padding: 12px;
+      display: grid;
+      gap: 6px;
+    }
+    .formula-label { font-size: 0.66rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 800; }
+    .formula-value { font-size: 1rem; font-weight: 800; letter-spacing: -0.02em; }
+    .formula-copy { font-size: 0.8rem; line-height: 1.45; color: var(--muted); }
+    .curve-card {
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+      background:
+        radial-gradient(circle at top left, rgba(34, 211, 238, 0.12), transparent 28%),
+        linear-gradient(180deg, rgba(8, 17, 29, 0.98), rgba(9, 18, 31, 0.96));
+    }
+    .curve-wrap {
+      border-radius: 18px;
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      background: rgba(7, 15, 27, 0.92);
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+    }
+    .curve-stage {
+      width: 100%;
+      height: 268px;
+      border-radius: 16px;
+      background: linear-gradient(180deg, rgba(15, 23, 42, 0.82), rgba(8, 15, 27, 0.96));
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      overflow: hidden;
+    }
+    .curve-legend { display: flex; flex-wrap: wrap; gap: 8px; }
+    .legend-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.52);
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      color: var(--muted);
+      font-size: 0.76rem;
+      font-weight: 800;
+    }
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .cue-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .cue-card {
+      padding: 12px;
+      background: var(--panel-3);
+      display: grid;
+      gap: 8px;
+    }
+    .cue-card h3 { font-size: 0.9rem; }
+    .cue-card p { color: var(--muted); font-size: 0.8rem; line-height: 1.45; }
+    .toolbar-card {
+      padding: 12px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      background: rgba(8, 15, 27, 0.96);
+    }
+    .toolbar-group { display: flex; flex-wrap: wrap; gap: 8px; }
+    .btn {
+      appearance: none;
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      background: rgba(15, 23, 42, 0.62);
+      color: var(--text);
+      border-radius: 14px;
+      padding: 10px 14px;
+      font-weight: 800;
+      cursor: pointer;
+      transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+    }
+    .btn:hover, .btn:focus-visible {
+      transform: translateY(-1px);
+      border-color: rgba(34, 211, 238, 0.38);
+      outline: none;
+    }
+    .btn.primary {
+      background: linear-gradient(135deg, rgba(34, 211, 238, 0.24), rgba(96, 165, 250, 0.22));
+      border-color: rgba(34, 211, 238, 0.3);
+    }
+    .status-text { min-height: 20px; color: var(--muted); font-size: 0.8rem; }
+    @media (max-width: 980px) {
+      .hero-grid, .grid, .cue-grid, .formula-grid { grid-template-columns: 1fr; }
+      .curve-stage { height: 240px; }
+    }
+    @media (max-width: 700px) {
+      body { padding: 12px; }
+      .shell { min-height: calc(100vh - 24px); }
+      .hero, .grid-card, .curve-card, .cue-card, .toolbar-card { border-radius: 18px; }
+      .btn { width: 100%; justify-content: center; }
+      .toolbar-group { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <div class="eyebrow">Canopy Chem Station</div>
+      <div class="hero-grid">
+        <div>
+          <h1>Titration Lab</h1>
+          <p class="copy">Compact acid-base lesson surface for concentration, equivalence, excess reagent, and endpoint judgment. One screen, no dead space, no fake lab chrome.</p>
+          <div class="metric-row">
+            <div class="metric highlight"><strong id="metric-ph">1.30</strong> pH</div>
+            <div class="metric"><strong id="metric-ve">25.00</strong> mL Ve</div>
+            <div class="metric"><strong id="metric-state">before eq</strong></div>
+          </div>
+          <div class="chip-row" style="margin-top:14px;">
+            <span class="chip highlight">Strong acid / strong base</span>
+            <span class="chip">Dense lab module</span>
+            <span class="chip">Source-bound</span>
+          </div>
+        </div>
+        <div class="grid-card" style="gap:10px;">
+          <div class="card-title">Lab intent</div>
+          <p class="subtle">Move the burette, watch the curve, and read the chemistry. The calculations, regime, and observation cues should stay legible without scrolling.</p>
+          <div class="card-title" style="margin-top:6px;">Capabilities</div>
+          <div class="capability-row" id="capability-row"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <section class="grid-card">
+        <div class="card-title">Bench controls</div>
+        <div class="control-grid">
+          <div class="control">
+            <div class="control-head"><span class="control-label">Analyte HCl</span><span class="control-value" id="acid-molarity-label">0.100 M</span></div>
+            <input id="acid-molarity" type="range" min="5" max="30" step="1" value="10">
+          </div>
+          <div class="control">
+            <div class="control-head"><span class="control-label">Analyte volume</span><span class="control-value" id="acid-volume-label">25.0 mL</span></div>
+            <input id="acid-volume" type="range" min="10" max="50" step="1" value="25">
+          </div>
+          <div class="control">
+            <div class="control-head"><span class="control-label">Titrant NaOH</span><span class="control-value" id="base-molarity-label">0.100 M</span></div>
+            <input id="base-molarity" type="range" min="5" max="30" step="1" value="10">
+          </div>
+          <div class="control">
+            <div class="control-head"><span class="control-label">Delivered titrant</span><span class="control-value" id="base-volume-label">5.0 mL</span></div>
+            <input id="base-volume" type="range" min="0" max="60" step="1" value="5">
+          </div>
+        </div>
+        <div class="formula-grid">
+          <div class="formula-box">
+            <div class="formula-label">Acid moles</div>
+            <div class="formula-value" id="acid-moles">0.00250 mol</div>
+            <div class="formula-copy">Initial moles in the flask.</div>
+          </div>
+          <div class="formula-box">
+            <div class="formula-label">Base moles</div>
+            <div class="formula-value" id="base-moles">0.00050 mol</div>
+            <div class="formula-copy">Delivered from the burette.</div>
+          </div>
+          <div class="formula-box">
+            <div class="formula-label">Excess species</div>
+            <div class="formula-value" id="excess-species">H⁺ remains</div>
+            <div class="formula-copy" id="excess-copy">Acid still dominates before equivalence.</div>
+          </div>
+          <div class="formula-box">
+            <div class="formula-label">Indicator cue</div>
+            <div class="formula-value" id="indicator-cue">Colorless</div>
+            <div class="formula-copy" id="indicator-copy">Phenolphthalein stays clear well before the endpoint.</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="curve-card">
+        <div class="card-title">Titration curve</div>
+        <div class="curve-wrap">
+          <svg id="curve-stage" class="curve-stage" viewBox="0 0 640 320" preserveAspectRatio="none" aria-label="Titration curve">
+            <rect width="640" height="320" fill="#0a1422"></rect>
+            <g id="curve-grid"></g>
+            <path id="curve-line" d="" fill="none" stroke="#60a5fa" stroke-width="4" stroke-linecap="round"></path>
+            <line id="curve-ve-line" x1="0" x2="0" y1="24" y2="278" stroke="#fbbf24" stroke-width="2" stroke-dasharray="6 6"></line>
+            <circle id="curve-point" cx="0" cy="0" r="8" fill="#22d3ee" stroke="#f8fafc" stroke-width="2"></circle>
+            <text id="curve-caption" x="28" y="30" fill="#dbeafe" font-size="18" font-weight="800">Current point</text>
+          </svg>
+          <div class="curve-legend">
+            <span class="legend-chip"><span class="dot" style="background:#60a5fa"></span>pH curve</span>
+            <span class="legend-chip"><span class="dot" style="background:#fbbf24"></span>equivalence</span>
+            <span class="legend-chip"><span class="dot" style="background:#22d3ee"></span>current delivery</span>
+          </div>
+          <div class="status-row">
+            <span class="phase-pill" id="phase-pill">Before equivalence</span>
+            <span class="phase-pill" id="summary-pill">Strong acid excess</span>
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <section class="cue-grid">
+      <section class="cue-card">
+        <div class="card-title">Observation</div>
+        <h3 id="obs-title">Acidic region</h3>
+        <p id="obs-copy">Large pH changes require substantial titrant before the jump. The flask remains strongly acidic.</p>
+      </section>
+      <section class="cue-card">
+        <div class="card-title">Technique</div>
+        <h3 id="tech-title">Approach the endpoint slowly</h3>
+        <p id="tech-copy">Once you are within about 1 mL of equivalence, switch to dropwise additions and swirl continuously.</p>
+      </section>
+      <section class="cue-card">
+        <div class="card-title">Reasoning</div>
+        <h3 id="why-title">Stoichiometry first</h3>
+        <p id="why-copy">Before equivalence, pH comes from excess H⁺. After equivalence, pH comes from excess OH⁻.</p>
+      </section>
+    </section>
+
+    <section class="toolbar-card">
+      <div class="toolbar-group">
+        <button class="btn primary" id="copy-brief" type="button">Copy lab brief</button>
+        <button class="btn" id="copy-data" type="button">Copy current run</button>
+      </div>
+      <div class="toolbar-group">
+        <button class="btn" id="return-btn" type="button">Return to source</button>
+      </div>
+      <div class="status-text" id="status-text">Ready to titrate.</div>
+    </section>
+  </div>
+
+  <script>
+    const els = {
+      acidMolarity: document.getElementById('acid-molarity'),
+      acidVolume: document.getElementById('acid-volume'),
+      baseMolarity: document.getElementById('base-molarity'),
+      baseVolume: document.getElementById('base-volume'),
+      acidMolarityLabel: document.getElementById('acid-molarity-label'),
+      acidVolumeLabel: document.getElementById('acid-volume-label'),
+      baseMolarityLabel: document.getElementById('base-molarity-label'),
+      baseVolumeLabel: document.getElementById('base-volume-label'),
+      metricPh: document.getElementById('metric-ph'),
+      metricVe: document.getElementById('metric-ve'),
+      metricState: document.getElementById('metric-state'),
+      acidMoles: document.getElementById('acid-moles'),
+      baseMoles: document.getElementById('base-moles'),
+      excessSpecies: document.getElementById('excess-species'),
+      excessCopy: document.getElementById('excess-copy'),
+      indicatorCue: document.getElementById('indicator-cue'),
+      indicatorCopy: document.getElementById('indicator-copy'),
+      curveGrid: document.getElementById('curve-grid'),
+      curveLine: document.getElementById('curve-line'),
+      curveVeLine: document.getElementById('curve-ve-line'),
+      curvePoint: document.getElementById('curve-point'),
+      curveCaption: document.getElementById('curve-caption'),
+      phasePill: document.getElementById('phase-pill'),
+      summaryPill: document.getElementById('summary-pill'),
+      obsTitle: document.getElementById('obs-title'),
+      obsCopy: document.getElementById('obs-copy'),
+      techTitle: document.getElementById('tech-title'),
+      techCopy: document.getElementById('tech-copy'),
+      whyTitle: document.getElementById('why-title'),
+      whyCopy: document.getElementById('why-copy'),
+      copyBrief: document.getElementById('copy-brief'),
+      copyData: document.getElementById('copy-data'),
+      returnBtn: document.getElementById('return-btn'),
+      capabilityRow: document.getElementById('capability-row'),
+      statusText: document.getElementById('status-text'),
+    };
+
+    const state = {
+      acidMolarity: 0.10,
+      acidVolumeMl: 25.0,
+      baseMolarity: 0.10,
+      baseVolumeMl: 5.0,
+    };
+
+    function hasCapability(name) {
+      return !!(window.CanopyModule && Array.isArray(window.CanopyModule.capabilities) && window.CanopyModule.capabilities.includes(name));
+    }
+
+    function renderCapabilities() {
+      const caps = (window.CanopyModule && Array.isArray(window.CanopyModule.capabilities)) ? window.CanopyModule.capabilities : [];
+      els.capabilityRow.innerHTML = '';
+      if (!caps.length) {
+        const span = document.createElement('span');
+        span.className = 'flag';
+        span.textContent = 'Local demo mode';
+        els.capabilityRow.appendChild(span);
+        return;
+      }
+      caps.forEach((cap) => {
+        const span = document.createElement('span');
+        span.className = 'flag' + (cap === 'deck.return' ? ' highlight' : '');
+        span.textContent = cap;
+        els.capabilityRow.appendChild(span);
+      });
+    }
+
+    function formatMolarity(value) {
+      return `${value.toFixed(3)} M`;
+    }
+
+    function formatMl(value) {
+      return `${value.toFixed(1)} mL`;
+    }
+
+    function formatMol(value) {
+      return `${value.toFixed(5)} mol`;
+    }
+
+    function clamp(value, min, max) {
+      return Math.min(max, Math.max(min, value));
+    }
+
+    function compute() {
+      const acidMoles = state.acidMolarity * (state.acidVolumeMl / 1000);
+      const baseMoles = state.baseMolarity * (state.baseVolumeMl / 1000);
+      const totalVolumeL = (state.acidVolumeMl + state.baseVolumeMl) / 1000;
+      const veMl = (acidMoles / state.baseMolarity) * 1000;
+
+      let pH = 7;
+      let regime = 'equivalence';
+      let excessSpecies = 'None';
+      let excessCopy = 'Stoichiometric neutralization.';
+      let indicatorCue = 'Faint pink flash';
+      let indicatorCopy = 'At equivalence, one extra drop usually pushes phenolphthalein into its endpoint range.';
+      let obsTitle = 'Near equivalence';
+      let obsCopy = 'The pH rises sharply here. Small additions matter.';
+      let techTitle = 'Dropwise additions';
+      let techCopy = 'Rinse the flask walls and swirl continuously. Overshooting is easy in this region.';
+      let whyTitle = 'Moles matched';
+      let whyCopy = 'Strong acid and strong base neutralize completely at a 1:1 mole ratio.';
+      let phaseText = 'At equivalence';
+      let summaryText = 'Neutralized';
+
+      if (baseMoles < acidMoles) {
+        const excessH = (acidMoles - baseMoles) / totalVolumeL;
+        pH = -Math.log10(excessH);
+        regime = 'before eq';
+        excessSpecies = 'H⁺ remains';
+        excessCopy = 'Acid is still in excess, so pH comes from leftover hydronium.';
+        indicatorCue = 'Colorless';
+        indicatorCopy = 'Phenolphthalein stays colorless until the acid is nearly consumed.';
+        obsTitle = 'Acidic region';
+        obsCopy = 'The flask remains acidic and the pH changes modestly until you approach the jump.';
+        techTitle = 'Approach steadily';
+        techCopy = 'Large pours are fine early, but slow down as delivered volume nears equivalence.';
+        whyTitle = 'Excess hydronium';
+        whyCopy = 'Before equivalence, calculate pH from the remaining moles of strong acid divided by total volume.';
+        phaseText = 'Before equivalence';
+        summaryText = 'Strong acid excess';
+      } else if (baseMoles > acidMoles) {
+        const excessOH = (baseMoles - acidMoles) / totalVolumeL;
+        const pOH = -Math.log10(excessOH);
+        pH = 14 - pOH;
+        regime = 'after eq';
+        excessSpecies = 'OH⁻ remains';
+        excessCopy = 'Base is now in excess, so pH comes from leftover hydroxide.';
+        indicatorCue = 'Persistent pale pink';
+        indicatorCopy = 'A stable faint pink indicates the endpoint has been reached or slightly passed.';
+        obsTitle = 'Basic region';
+        obsCopy = 'The curve has cleared the jump and the flask is now basic from excess titrant.';
+        techTitle = 'Stop early if needed';
+        techCopy = 'Once the pink persists for 30 seconds, record the burette and stop. Do not chase a darker endpoint.';
+        whyTitle = 'Excess hydroxide';
+        whyCopy = 'After equivalence, calculate pOH from leftover strong base, then convert to pH.';
+        phaseText = 'After equivalence';
+        summaryText = 'Strong base excess';
+      }
+
+      return {
+        acidMoles,
+        baseMoles,
+        totalVolumeL,
+        veMl,
+        pH,
+        regime,
+        excessSpecies,
+        excessCopy,
+        indicatorCue,
+        indicatorCopy,
+        obsTitle,
+        obsCopy,
+        techTitle,
+        techCopy,
+        whyTitle,
+        whyCopy,
+        phaseText,
+        summaryText,
+      };
+    }
+
+    function mapPoint(xValue, yValue, maxX) {
+      const x = 52 + ((xValue / maxX) * 548);
+      const y = 278 - ((clamp(yValue, 0, 14) / 14) * 230);
+      return { x, y };
+    }
+
+    function phAtVolume(volumeMl, acidMoles, veMl) {
+      const baseMoles = state.baseMolarity * (volumeMl / 1000);
+      const totalVolumeL = (state.acidVolumeMl + volumeMl) / 1000;
+      if (Math.abs(volumeMl - veMl) < 0.0001) return 7;
+      if (baseMoles < acidMoles) {
+        const excessH = (acidMoles - baseMoles) / totalVolumeL;
+        return clamp(-Math.log10(excessH), 0, 14);
+      }
+      const excessOH = (baseMoles - acidMoles) / totalVolumeL;
+      return clamp(14 - (-Math.log10(excessOH)), 0, 14);
+    }
+
+    function renderCurve(result) {
+      const maxX = Math.max(60, result.veMl * 1.7);
+      const acidMoles = result.acidMoles;
+      const path = [];
+      const grid = [];
+
+      for (let i = 0; i <= 7; i += 1) {
+        const y = 278 - (i / 7) * 230;
+        const phLabel = 14 - (i * 2);
+        grid.push(`<line x1="52" y1="${y}" x2="600" y2="${y}" stroke="rgba(148,163,184,0.14)" stroke-width="1"></line>`);
+        grid.push(`<text x="18" y="${y + 5}" fill="#8fa4bb" font-size="14">${phLabel}</text>`);
+      }
+      for (let i = 0; i <= 6; i += 1) {
+        const x = 52 + (i / 6) * 548;
+        const vol = (i / 6) * maxX;
+        grid.push(`<line x1="${x}" y1="48" x2="${x}" y2="278" stroke="rgba(148,163,184,0.1)" stroke-width="1"></line>`);
+        grid.push(`<text x="${x - 16}" y="302" fill="#8fa4bb" font-size="14">${vol.toFixed(0)}</text>`);
+      }
+      els.curveGrid.innerHTML = grid.join('');
+
+      for (let step = 0; step <= 120; step += 1) {
+        const volume = (step / 120) * maxX;
+        const pH = phAtVolume(volume, acidMoles, result.veMl);
+        const pt = mapPoint(volume, pH, maxX);
+        path.push(`${step === 0 ? 'M' : 'L'}${pt.x.toFixed(2)} ${pt.y.toFixed(2)}`);
+      }
+      els.curveLine.setAttribute('d', path.join(' '));
+      const eqPt = mapPoint(result.veMl, 7, maxX);
+      els.curveVeLine.setAttribute('x1', String(eqPt.x));
+      els.curveVeLine.setAttribute('x2', String(eqPt.x));
+      const currentPt = mapPoint(state.baseVolumeMl, result.pH, maxX);
+      els.curvePoint.setAttribute('cx', String(currentPt.x));
+      els.curvePoint.setAttribute('cy', String(currentPt.y));
+      els.curveCaption.textContent = `Current point · pH ${result.pH.toFixed(2)} at ${state.baseVolumeMl.toFixed(1)} mL NaOH`;
+    }
+
+    function render() {
+      els.acidMolarityLabel.textContent = formatMolarity(state.acidMolarity);
+      els.acidVolumeLabel.textContent = formatMl(state.acidVolumeMl);
+      els.baseMolarityLabel.textContent = formatMolarity(state.baseMolarity);
+      els.baseVolumeLabel.textContent = formatMl(state.baseVolumeMl);
+
+      const result = compute();
+      els.metricPh.textContent = result.pH.toFixed(2);
+      els.metricVe.textContent = result.veMl.toFixed(2);
+      els.metricState.textContent = result.regime;
+      els.acidMoles.textContent = formatMol(result.acidMoles);
+      els.baseMoles.textContent = formatMol(result.baseMoles);
+      els.excessSpecies.textContent = result.excessSpecies;
+      els.excessCopy.textContent = result.excessCopy;
+      els.indicatorCue.textContent = result.indicatorCue;
+      els.indicatorCopy.textContent = result.indicatorCopy;
+      els.phasePill.textContent = result.phaseText;
+      els.summaryPill.textContent = result.summaryText;
+      els.obsTitle.textContent = result.obsTitle;
+      els.obsCopy.textContent = result.obsCopy;
+      els.techTitle.textContent = result.techTitle;
+      els.techCopy.textContent = result.techCopy;
+      els.whyTitle.textContent = result.whyTitle;
+      els.whyCopy.textContent = result.whyCopy;
+      renderCurve(result);
+    }
+
+    async function persist(key, value) {
+      if (!(window.CanopyModule && Array.isArray(window.CanopyModule.capabilities) && window.CanopyModule.capabilities.includes('module.storage.local'))) return;
+      try {
+        await window.CanopyModule.perform('module.storage.set', { key, value });
+      } catch (_) {}
+    }
+
+    async function restore(key) {
+      if (!(window.CanopyModule && Array.isArray(window.CanopyModule.capabilities) && window.CanopyModule.capabilities.includes('module.storage.local'))) return null;
+      try {
+        const result = await window.CanopyModule.perform('module.storage.get', { key });
+        return result && Object.prototype.hasOwnProperty.call(result, 'value') ? result.value : null;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    async function writeClipboard(text, okText) {
+      try {
+        if (hasCapability('clipboard.write')) {
+          await window.CanopyModule.perform('clipboard.write', { text });
+        } else if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          throw new Error('Clipboard unavailable');
+        }
+        els.statusText.textContent = okText;
+      } catch (_) {
+        els.statusText.textContent = 'Clipboard write unavailable in this environment.';
+      }
+    }
+
+    async function returnToSource() {
+      if (!hasCapability('deck.return')) return;
+      try {
+        await window.CanopyModule.perform('deck.return', {});
+      } catch (_) {}
+    }
+
+    function bindSlider(el, key, transform) {
+      el.addEventListener('input', async () => {
+        state[key] = transform(el.value);
+        render();
+        await persist(`chem-${key}`, String(state[key]));
+      });
+    }
+
+    function renderCapabilities() {
+      const caps = (window.CanopyModule && Array.isArray(window.CanopyModule.capabilities)) ? window.CanopyModule.capabilities : [];
+      els.capabilityRow.innerHTML = '';
+      if (!caps.length) {
+        const span = document.createElement('span');
+        span.className = 'flag';
+        span.textContent = 'Local demo mode';
+        els.capabilityRow.appendChild(span);
+        return;
+      }
+      caps.forEach((cap) => {
+        const span = document.createElement('span');
+        span.className = 'flag' + (cap === 'deck.return' ? ' highlight' : '');
+        span.textContent = cap;
+        els.capabilityRow.appendChild(span);
+      });
+    }
+
+    async function hydrate() {
+      renderCapabilities();
+      const savedAcidM = await restore('chem-acidMolarity');
+      const savedAcidV = await restore('chem-acidVolumeMl');
+      const savedBaseM = await restore('chem-baseMolarity');
+      const savedBaseV = await restore('chem-baseVolumeMl');
+      if (savedAcidM) state.acidMolarity = Number(savedAcidM) || state.acidMolarity;
+      if (savedAcidV) state.acidVolumeMl = Number(savedAcidV) || state.acidVolumeMl;
+      if (savedBaseM) state.baseMolarity = Number(savedBaseM) || state.baseMolarity;
+      if (savedBaseV) state.baseVolumeMl = Number(savedBaseV) || state.baseVolumeMl;
+      els.acidMolarity.value = String(Math.round(state.acidMolarity * 100));
+      els.acidVolume.value = String(Math.round(state.acidVolumeMl));
+      els.baseMolarity.value = String(Math.round(state.baseMolarity * 100));
+      els.baseVolume.value = String(Math.round(state.baseVolumeMl));
+      render();
+    }
+
+    bindSlider(els.acidMolarity, 'acidMolarity', (value) => Number(value) / 100);
+    bindSlider(els.acidVolume, 'acidVolumeMl', (value) => Number(value));
+    bindSlider(els.baseMolarity, 'baseMolarity', (value) => Number(value) / 100);
+    bindSlider(els.baseVolume, 'baseVolumeMl', (value) => Number(value));
+
+    els.copyBrief.addEventListener('click', () => {
+      const text = [
+        'Titration Lab Brief',
+        `Analyte: ${formatMolarity(state.acidMolarity)} HCl, ${formatMl(state.acidVolumeMl)}`,
+        `Titrant: ${formatMolarity(state.baseMolarity)} NaOH`,
+        `Delivered: ${formatMl(state.baseVolumeMl)}`,
+        'Goal: identify equivalence and explain the pH regime before and after it.'
+      ].join('\n');
+      writeClipboard(text, 'Lab brief copied.');
+    });
+
+    els.copyData.addEventListener('click', () => {
+      const result = compute();
+      const text = [
+        'Titration Run',
+        `Acid: ${formatMolarity(state.acidMolarity)} HCl in ${formatMl(state.acidVolumeMl)}`,
+        `Base: ${formatMolarity(state.baseMolarity)} NaOH, delivered ${formatMl(state.baseVolumeMl)}`,
+        `Equivalence volume: ${result.veMl.toFixed(2)} mL`,
+        `Current pH: ${result.pH.toFixed(2)}`,
+        `Regime: ${result.phaseText}`,
+        `Excess species: ${result.excessSpecies}`,
+      ].join('\n');
+      writeClipboard(text, 'Current run copied.');
+    });
+
+    els.returnBtn.addEventListener('click', returnToSource);
+
+    if (window.CanopyModule) {
+      window.CanopyModule.onContext(() => {});
+      window.CanopyModule.getContext().catch(() => {});
+    }
+
+    hydrate();
+  </script>
+</body>
+</html>

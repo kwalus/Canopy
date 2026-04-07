@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Humanoid Mission Control</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --panel: rgba(9, 16, 28, 0.96);
+      --panel-2: rgba(12, 24, 41, 0.96);
+      --panel-3: rgba(8, 14, 24, 0.96);
+      --edge: rgba(96, 165, 250, 0.16);
+      --text: #f5f7fb;
+      --muted: #a5b4c6;
+      --blue: #60a5fa;
+      --cyan: #22d3ee;
+      --violet: #a855f7;
+      --green: #34d399;
+      --amber: #fbbf24;
+      --red: #fb7185;
+      --shadow: 0 24px 60px rgba(0,0,0,.34);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background:
+        radial-gradient(circle at top right, rgba(96,165,250,.18), transparent 28%),
+        radial-gradient(circle at bottom left, rgba(34,211,238,.14), transparent 26%),
+        linear-gradient(180deg, #03070d, #08111b 52%, #0a1420);
+      color: var(--text);
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+    }
+    body { padding: 16px; }
+    .shell { min-height: calc(100vh - 32px); display: grid; gap: 14px; align-content: start; }
+    .hero, .card, .view-card, .queue-card, .toolbar {
+      border: 1px solid var(--edge);
+      border-radius: 22px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+    .hero {
+      padding: 16px;
+      background:
+        radial-gradient(circle at top right, rgba(96,165,250,.18), transparent 26%),
+        radial-gradient(circle at bottom left, rgba(168,85,247,.12), transparent 22%),
+        linear-gradient(180deg, rgba(8,16,28,.98), rgba(9,18,31,.98));
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: rgba(15,23,42,.52);
+      border: 1px solid rgba(96,165,250,.18);
+      color: var(--cyan);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    h1, h2, h3, p { margin: 0; }
+    h1 { font-size: clamp(1.8rem, 3vw, 2.45rem); line-height: 1.02; letter-spacing: -.04em; margin-bottom: 8px; }
+    .copy, .subtle { color: var(--muted); line-height: 1.5; }
+    .hero-grid { margin-top: 12px; display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(310px, .9fr); gap: 14px; }
+    .metric-row, .chip-row, .capability-row, .toolbar-group, .mode-row { display: flex; flex-wrap: wrap; gap: 8px; }
+    .metric, .chip, .flag, .pill, .mode-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(148,163,184,.16);
+      background: rgba(15,23,42,.56);
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .metric.highlight, .chip.highlight { color: #06263d; background: linear-gradient(135deg, #67e8f9, #60a5fa); border-color: transparent; }
+    .metric-row { margin-top: 14px; }
+    .metric strong { font-size: 1rem; letter-spacing: -.03em; }
+    .grid { display: grid; grid-template-columns: minmax(320px, .84fr) minmax(0, 1.16fr); gap: 14px; }
+    .card, .view-card, .queue-card { padding: 14px; display: grid; gap: 12px; background: var(--panel-2); }
+    .card-title { font-size: .74rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 800; }
+    .control { border-radius: 16px; border: 1px solid rgba(148,163,184,.14); background: rgba(8,15,27,.92); padding: 12px; display: grid; gap: 8px; }
+    .control-head { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+    .control-label { font-size: .86rem; font-weight: 800; }
+    .control-value { color: var(--cyan); font-weight: 800; font-variant-numeric: tabular-nums; }
+    input[type="range"] { width: 100%; appearance: none; height: 6px; border-radius: 999px; background: linear-gradient(90deg, rgba(96,165,250,.85), rgba(168,85,247,.9)); outline: none; }
+    input[type="range"]::-webkit-slider-thumb { appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #f8fafc; border: 2px solid rgba(96,165,250,.8); cursor: pointer; }
+    .button-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .seg-btn, .action-btn, .btn {
+      appearance: none;
+      border: 1px solid rgba(148,163,184,.18);
+      background: rgba(15,23,42,.62);
+      color: var(--text);
+      border-radius: 14px;
+      padding: 10px 12px;
+      font-weight: 800;
+      cursor: pointer;
+      transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+    }
+    .seg-btn:hover, .seg-btn:focus-visible, .action-btn:hover, .action-btn:focus-visible, .btn:hover, .btn:focus-visible { transform: translateY(-1px); border-color: rgba(96,165,250,.38); outline: none; }
+    .seg-btn.is-active, .action-btn.is-active { color: #09253d; background: linear-gradient(135deg, #67e8f9, #60a5fa); border-color: transparent; }
+    .view-card {
+      background:
+        radial-gradient(circle at top left, rgba(34,211,238,.12), transparent 28%),
+        linear-gradient(180deg, rgba(8,16,28,.98), rgba(9,18,31,.96));
+    }
+    .view-grid { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(220px, .92fr); gap: 12px; }
+    .viewport, .coordination, .queue-list { border-radius: 18px; border: 1px solid rgba(148,163,184,.14); background: rgba(8,15,27,.92); }
+    .viewport { padding: 12px; display: grid; gap: 10px; }
+    .viewport-stage { width: 100%; height: 280px; border-radius: 16px; background: linear-gradient(180deg, rgba(11,19,33,.98), rgba(8,14,24,.96)); border: 1px solid rgba(148,163,184,.12); overflow: hidden; }
+    .coordination { padding: 12px; display: grid; gap: 10px; }
+    .mini-grid { display: grid; gap: 8px; }
+    .mini-box { border-radius: 14px; border: 1px solid rgba(148,163,184,.12); background: rgba(15,23,42,.55); padding: 10px; display: grid; gap: 4px; }
+    .mini-label { font-size: .66rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 800; }
+    .mini-value { font-size: .96rem; font-weight: 800; }
+    .queue-card { background: var(--panel-3); }
+    .queue-list { padding: 12px; display: grid; gap: 10px; }
+    .queue-item { border-radius: 16px; border: 1px solid rgba(148,163,184,.14); background: rgba(15,23,42,.48); padding: 12px; display: grid; gap: 6px; }
+    .queue-top { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+    .queue-kicker { font-size: .8rem; color: var(--cyan); font-weight: 800; }
+    .queue-item h3 { font-size: .92rem; }
+    .queue-item p { color: var(--muted); font-size: .8rem; line-height: 1.45; }
+    .toolbar { padding: 12px 14px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; background: rgba(8,15,27,.96); }
+    .btn.primary { background: linear-gradient(135deg, rgba(96,165,250,.24), rgba(34,211,238,.22)); border-color: rgba(96,165,250,.3); }
+    .status-text { min-height: 20px; color: var(--muted); font-size: .8rem; }
+    @media (max-width: 980px) {
+      .hero-grid, .grid, .view-grid { grid-template-columns: 1fr; }
+      .viewport-stage { height: 240px; }
+    }
+    @media (max-width: 700px) {
+      body { padding: 12px; }
+      .shell { min-height: calc(100vh - 24px); }
+      .hero, .card, .view-card, .queue-card, .toolbar { border-radius: 18px; }
+      .button-row { grid-template-columns: 1fr; }
+      .btn { width: 100%; justify-content: center; }
+      .toolbar-group { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <div class="eyebrow">Canopy Robotics</div>
+      <div class="hero-grid">
+        <div>
+          <h1>Humanoid Mission Control</h1>
+          <p class="copy">This is how Canopy reaches the physical layer: one source becomes a coordination world where a human can see through a humanoid, supervise the task stack, and intervene at the right altitude.</p>
+          <div class="metric-row">
+            <div class="metric highlight"><strong id="metric-mode">copilot</strong></div>
+            <div class="metric"><strong id="metric-battery">82%</strong> battery</div>
+            <div class="metric"><strong id="metric-latency">74ms</strong> uplink</div>
+          </div>
+          <div class="chip-row" style="margin-top:14px;">
+            <span class="chip highlight">Embodied + supervisory</span>
+            <span class="chip">Humanoid station</span>
+            <span class="chip">Bounded autonomy</span>
+          </div>
+        </div>
+        <div class="card" style="gap:10px;">
+          <div class="card-title">Capabilities</div>
+          <div class="capability-row" id="capability-row"></div>
+          <div class="card-title" style="margin-top:4px;">Platform point</div>
+          <p class="subtle">A humanoid on Canopy would have its own identity and channel context. The deck is where a human steps from narrative into coordinated physical action.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <section class="card">
+        <div class="card-title">Mission envelope</div>
+        <div class="control">
+          <div class="control-head"><span class="control-label">Mission phase</span><span class="control-value" id="phase-label">approach pallet</span></div>
+          <input id="phase-range" type="range" min="0" max="3" step="1" value="0">
+        </div>
+        <div class="control">
+          <div class="control-head"><span class="control-label">Autonomy level</span><span class="control-value" id="autonomy-label">copilot</span></div>
+          <input id="autonomy-range" type="range" min="0" max="2" step="1" value="1">
+        </div>
+        <div class="control">
+          <div class="control-head"><span class="control-label">View source</span><span class="control-value" id="view-label">eyes</span></div>
+          <div class="button-row" id="view-buttons"></div>
+        </div>
+        <div class="control">
+          <div class="control-head"><span class="control-label">Payload confidence</span><span class="control-value" id="payload-label">0.88</span></div>
+          <input id="payload-range" type="range" min="45" max="98" step="1" value="88">
+        </div>
+      </section>
+
+      <section class="view-card">
+        <div class="card-title">Robot world</div>
+        <div class="view-grid">
+          <div class="viewport">
+            <svg id="viewport-stage" class="viewport-stage" viewBox="0 0 640 320" preserveAspectRatio="none" aria-label="Humanoid viewport">
+              <defs>
+                <linearGradient id="viewportBg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#111b2a"/><stop offset="100%" stop-color="#09111c"/></linearGradient>
+              </defs>
+              <rect width="640" height="320" fill="url(#viewportBg)"></rect>
+              <rect x="52" y="54" width="536" height="210" rx="22" fill="#132437" stroke="#21384c"></rect>
+              <rect id="target-object" x="364" y="126" width="98" height="74" rx="10" fill="#22d3ee" opacity="0.78"></rect>
+              <rect id="target-object-2" x="474" y="112" width="82" height="88" rx="10" fill="#a855f7" opacity="0.42"></rect>
+              <path id="left-arm" d="M178 318 C192 226, 214 176, 252 144" fill="none" stroke="#f8fafc" stroke-width="18" stroke-linecap="round"></path>
+              <path id="right-arm" d="M462 318 C448 226, 426 176, 388 144" fill="none" stroke="#f8fafc" stroke-width="18" stroke-linecap="round"></path>
+              <circle cx="320" cy="94" r="16" fill="#67e8f9"></circle>
+              <text id="viewport-title" x="74" y="86" fill="#dbeafe" font-size="18" font-weight="800">Ego view</text>
+              <text id="viewport-copy" x="74" y="112" fill="#9fb0c2" font-size="16">Task object lock and arm corridor</text>
+              <rect x="82" y="146" width="186" height="40" rx="20" fill="rgba(8,15,27,.74)" stroke="#263c4f"></rect>
+              <text id="viewport-chip" x="106" y="172" fill="#67e8f9" font-size="15" font-weight="800">operator assist</text>
+            </svg>
+            <div class="mode-row" id="mode-row"></div>
+          </div>
+          <div class="coordination">
+            <div class="card-title">Coordination stack</div>
+            <div class="mini-grid">
+              <div class="mini-box"><div class="mini-label">Primary task</div><div class="mini-value" id="task-value">approach pallet A</div></div>
+              <div class="mini-box"><div class="mini-label">Safety gate</div><div class="mini-value" id="safety-value">human confirm on handoff</div></div>
+              <div class="mini-box"><div class="mini-label">Operator altitude</div><div class="mini-value" id="altitude-value">supervisory</div></div>
+              <div class="mini-box"><div class="mini-label">Last intervention</div><div class="mini-value" id="intervention-value">camera recenter</div></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <section class="queue-card">
+      <div class="card-title">Task + intervention queue</div>
+      <div class="queue-list" id="queue-list"></div>
+    </section>
+
+    <section class="toolbar">
+      <div class="toolbar-group">
+        <button class="btn primary" id="copy-brief" type="button">Copy mission brief</button>
+        <button class="btn" id="copy-handoff" type="button">Copy human handoff</button>
+      </div>
+      <div class="toolbar-group">
+        <button class="btn" id="return-btn" type="button">Return to source</button>
+      </div>
+      <div class="status-text" id="status-text">Mission station ready.</div>
+    </section>
+  </div>
+  <script>
+    const phases = [
+      { id: 'approach', label: 'approach pallet', task: 'approach pallet A', intervention: 'camera recenter', gate: 'low-speed corridor', chip: 'operator assist' },
+      { id: 'align', label: 'align grip', task: 'align end effector', intervention: 'gripper bias', gate: 'collision envelope live', chip: 'fine align' },
+      { id: 'lift', label: 'lift and verify', task: 'lift payload and verify balance', intervention: 'load check', gate: 'payload confidence > 0.80', chip: 'bounded execute' },
+      { id: 'handoff', label: 'handoff to station', task: 'handoff to dock station B', intervention: 'human confirm', gate: 'human confirm on handoff', chip: 'confirm handoff' },
+    ];
+    const autonomyModes = [
+      { id: 'supervised', label: 'supervised', altitude: 'hands-on', batteryBias: -2, latencyBias: 8 },
+      { id: 'copilot', label: 'copilot', altitude: 'supervisory', batteryBias: 0, latencyBias: 0 },
+      { id: 'bounded', label: 'bounded execute', altitude: 'mission-level', batteryBias: 2, latencyBias: -8 },
+    ];
+    const views = [
+      { id: 'eyes', label: 'eyes', title: 'Ego view', copy: 'Target object lock and arm corridor', armSpread: 0, targetX: 364, targetY: 126 },
+      { id: 'hands', label: 'hands', title: 'Hand view', copy: 'Manipulation detail and contact geometry', armSpread: 18, targetX: 316, targetY: 142 },
+      { id: 'overwatch', label: 'overwatch', title: 'Supervisory view', copy: 'Robot position within station geometry', armSpread: -12, targetX: 414, targetY: 104 },
+    ];
+    const els = {
+      phaseRange: document.getElementById('phase-range'),
+      autonomyRange: document.getElementById('autonomy-range'),
+      payloadRange: document.getElementById('payload-range'),
+      phaseLabel: document.getElementById('phase-label'),
+      autonomyLabel: document.getElementById('autonomy-label'),
+      viewLabel: document.getElementById('view-label'),
+      payloadLabel: document.getElementById('payload-label'),
+      metricMode: document.getElementById('metric-mode'),
+      metricBattery: document.getElementById('metric-battery'),
+      metricLatency: document.getElementById('metric-latency'),
+      viewButtons: document.getElementById('view-buttons'),
+      modeRow: document.getElementById('mode-row'),
+      viewportTitle: document.getElementById('viewport-title'),
+      viewportCopy: document.getElementById('viewport-copy'),
+      viewportChip: document.getElementById('viewport-chip'),
+      targetObject: document.getElementById('target-object'),
+      targetObject2: document.getElementById('target-object-2'),
+      leftArm: document.getElementById('left-arm'),
+      rightArm: document.getElementById('right-arm'),
+      taskValue: document.getElementById('task-value'),
+      safetyValue: document.getElementById('safety-value'),
+      altitudeValue: document.getElementById('altitude-value'),
+      interventionValue: document.getElementById('intervention-value'),
+      queueList: document.getElementById('queue-list'),
+      capabilityRow: document.getElementById('capability-row'),
+      statusText: document.getElementById('status-text'),
+      copyBrief: document.getElementById('copy-brief'),
+      copyHandoff: document.getElementById('copy-handoff'),
+      returnBtn: document.getElementById('return-btn'),
+    };
+    const state = { phase: 0, autonomy: 1, payload: 88, view: 'eyes' };
+    function hasCapability(name){return !!(window.CanopyModule && Array.isArray(window.CanopyModule.capabilities) && window.CanopyModule.capabilities.includes(name));}
+    function renderCapabilities(){const caps=(window.CanopyModule&&Array.isArray(window.CanopyModule.capabilities))?window.CanopyModule.capabilities:[];els.capabilityRow.innerHTML='';if(!caps.length){const s=document.createElement('span');s.className='flag';s.textContent='Local demo mode';els.capabilityRow.appendChild(s);return;}caps.forEach((cap)=>{const s=document.createElement('span');s.className='flag'+(cap==='deck.return'?' highlight':'');s.textContent=cap;els.capabilityRow.appendChild(s);});}
+    function currentPhase(){return phases[state.phase] || phases[0];}
+    function currentAutonomy(){return autonomyModes[state.autonomy] || autonomyModes[1];}
+    function currentView(){return views.find((entry)=>entry.id===state.view) || views[0];}
+    function renderViewButtons(){els.viewButtons.innerHTML='';views.forEach((entry)=>{const btn=document.createElement('button');btn.type='button';btn.className='seg-btn'+(state.view===entry.id?' is-active':'');btn.textContent=entry.label;btn.addEventListener('click',async()=>{state.view=entry.id;render();await persist('humanoid-view',entry.id);});els.viewButtons.appendChild(btn);});}
+    function compute(){const phase=currentPhase();const autonomy=currentAutonomy();const battery=Math.max(42,92 - state.phase*6 + autonomy.batteryBias - Math.round((100-state.payload)*0.08));const latency=Math.max(32,74 + autonomy.latencyBias + state.phase*6 - Math.round((state.payload-80)*0.5));const interventionCount=state.phase===3?2:1;return { phase, autonomy, battery, latency, interventionCount };}
+    function renderQueue(result){const rows=[
+      { kicker:'next', title:result.phase.task, body:'Mission planner keeps the current task narrow enough that a human can understand and override it.' },
+      { kicker:'safety', title:result.phase.gate, body:'Safety conditions stay visible instead of disappearing into hidden policy.' },
+      { kicker:'human', title:'Last intervention · '+result.phase.intervention, body:'Human input is presented as a normal part of the workflow, not a failure case.' },
+    ];
+      els.queueList.innerHTML='';
+      rows.forEach((row, idx)=>{const item=document.createElement('div');item.className='queue-item';item.innerHTML=`<div class="queue-top"><span class="queue-kicker">${row.kicker}</span><span class="pill ${idx===0?'highlight':''}">${idx===0?'active':'queued'}</span></div><h3>${row.title}</h3><p>${row.body}</p>`;els.queueList.appendChild(item);});
+    }
+    function renderViewport(result){const view=currentView();els.viewportTitle.textContent=view.title;els.viewportCopy.textContent=view.copy;els.viewportChip.textContent=result.phase.chip;els.targetObject.setAttribute('x',String(view.targetX));els.targetObject.setAttribute('y',String(view.targetY));els.targetObject.setAttribute('opacity',String(Math.max(0.42, state.payload / 100)));els.targetObject2.setAttribute('opacity',String(view.id==='overwatch' ? 0.72 : 0.42));els.leftArm.setAttribute('d',`M178 318 C${192-view.armSpread} 226, ${214-view.armSpread} 176, ${252-view.armSpread} 144`);els.rightArm.setAttribute('d',`M462 318 C${448+view.armSpread} 226, ${426+view.armSpread} 176, ${388+view.armSpread} 144`);els.modeRow.innerHTML='';['ego feed','mission stack','human gate'].forEach((label, idx)=>{const span=document.createElement('span');span.className='mode-chip'+(idx===state.autonomy?' is-active':'');span.textContent=idx===0?view.label:idx===1?result.autonomy.label:result.phase.gate;els.modeRow.appendChild(span);});}
+    function render(){const result=compute();els.phaseLabel.textContent=result.phase.label;els.autonomyLabel.textContent=result.autonomy.label;els.viewLabel.textContent=currentView().label;els.payloadLabel.textContent=(state.payload/100).toFixed(2);els.metricMode.textContent=result.autonomy.label;els.metricBattery.textContent=`${result.battery}%`;els.metricLatency.textContent=`${result.latency}ms`;els.taskValue.textContent=result.phase.task;els.safetyValue.textContent=result.phase.gate;els.altitudeValue.textContent=result.autonomy.altitude;els.interventionValue.textContent=result.phase.intervention;renderViewport(result);renderQueue(result);}
+    async function persist(key, value){if(!(window.CanopyModule&&Array.isArray(window.CanopyModule.capabilities)&&window.CanopyModule.capabilities.includes('module.storage.local')))return;try{await window.CanopyModule.perform('module.storage.set',{key,value});}catch(_){}}
+    async function restore(key){if(!(window.CanopyModule&&Array.isArray(window.CanopyModule.capabilities)&&window.CanopyModule.capabilities.includes('module.storage.local')))return null;try{const r=await window.CanopyModule.perform('module.storage.get',{key});return r&&Object.prototype.hasOwnProperty.call(r,'value')?r.value:null;}catch(_){return null;}}
+    async function writeClipboard(text,msg){try{if(hasCapability('clipboard.write'))await window.CanopyModule.perform('clipboard.write',{text});else if(navigator.clipboard&&navigator.clipboard.writeText)await navigator.clipboard.writeText(text);else throw new Error('clipboard');els.statusText.textContent=msg;}catch(_){els.statusText.textContent='Clipboard write unavailable.';}}
+    async function returnToSource(){if(!hasCapability('deck.return'))return;try{await window.CanopyModule.perform('deck.return',{});}catch(_){}}
+    function bindRange(el,key,cast){el.addEventListener('input',async()=>{state[key]=cast(el.value);render();await persist('humanoid-'+key,String(state[key]));});}
+    bindRange(els.phaseRange,'phase',Number);bindRange(els.autonomyRange,'autonomy',Number);bindRange(els.payloadRange,'payload',Number);
+    els.copyBrief.addEventListener('click',()=>{const r=compute();writeClipboard(['Humanoid Mission Control',`Phase: ${r.phase.label}`,`Autonomy: ${r.autonomy.label}`,`View: ${currentView().label}`,`Payload confidence: ${(state.payload/100).toFixed(2)}`,`Safety gate: ${r.phase.gate}`].join('\n'),'Mission brief copied.');});
+    els.copyHandoff.addEventListener('click',()=>{const r=compute();writeClipboard(['Human handoff',`Primary task: ${r.phase.task}`,`Operator altitude: ${r.autonomy.altitude}`,`Last intervention: ${r.phase.intervention}`,`Battery: ${r.battery}%`,`Latency: ${r.latency}ms`].join('\n'),'Human handoff copied.');});
+    els.returnBtn.addEventListener('click',returnToSource);
+    async function hydrate(){renderCapabilities();const p=await restore('humanoid-phase');const a=await restore('humanoid-autonomy');const v=await restore('humanoid-view');const c=await restore('humanoid-payload');if(p!==null)state.phase=Number(p)||state.phase;if(a!==null)state.autonomy=Number(a)||state.autonomy;if(v)state.view=v;if(c!==null)state.payload=Number(c)||state.payload;els.phaseRange.value=String(state.phase);els.autonomyRange.value=String(state.autonomy);els.payloadRange.value=String(state.payload);renderViewButtons();render();}
+    hydrate();
+  </script>
+</body>
+</html>

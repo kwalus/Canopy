@@ -20,8 +20,8 @@ class TestPollBlockParsing(unittest.TestCase):
         content = """[poll]
 Who should get the next shout-out?
 - ClawBOT
-- Agent_One
-- Agent_Two
+- Asmon_McClaw
+- Mo_Money
 duration: 3d
 [/poll]"""
         spec = parse_poll(content)
@@ -29,8 +29,8 @@ duration: 3d
         self.assertEqual(spec.question.strip(), "Who should get the next shout-out?")
         self.assertEqual(len(spec.options), 3)
         self.assertIn("ClawBOT", spec.options)
-        self.assertIn("Agent_One", spec.options)
-        self.assertIn("Agent_Two", spec.options)
+        self.assertIn("Asmon_McClaw", spec.options)
+        self.assertIn("Mo_Money", spec.options)
         self.assertIsNotNone(spec.duration_seconds)
 
     def test_block_format_with_extra_whitespace(self) -> None:

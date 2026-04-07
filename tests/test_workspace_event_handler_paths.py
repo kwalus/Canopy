@@ -4,6 +4,7 @@ import os
 import sqlite3
 import sys
 import tempfile
+import time
 import types
 import unittest
 from types import SimpleNamespace
@@ -184,7 +185,16 @@ class TestWorkspaceEventHandlerPaths(unittest.TestCase):
                 )
                 conn.commit()
 
+    def _mark_peer_untrusted(self, peer_id: str) -> None:
+        trust_manager = self.app.config['TRUST_MANAGER']
+        trust_manager.set_trust_score(peer_id, 0, reason='test-untrusted')
+
+    def _mark_peer_trusted(self, peer_id: str, score: int = 80) -> None:
+        trust_manager = self.app.config['TRUST_MANAGER']
+        trust_manager.set_trust_score(peer_id, score, reason='test-trusted')
+
     def test_real_inbound_dm_create_emits_one_created_event_with_canonical_id(self) -> None:
+        self._mark_peer_trusted('peer-remote')
         with self.app.app_context():
             self.p2p_manager.on_direct_message(
                 sender_id='remote-user',
@@ -214,6 +224,7 @@ class TestWorkspaceEventHandlerPaths(unittest.TestCase):
             self.assertEqual(event_rows[0]['message_id'], 'DM-handler-1')
 
     def test_real_inbound_dm_delete_emits_one_deleted_event_and_cleans_inbox(self) -> None:
+        self._mark_peer_trusted('peer-remote')
         with self.app.app_context():
             self.p2p_manager.on_direct_message(
                 sender_id='remote-user',
@@ -298,6 +309,7 @@ class TestWorkspaceEventHandlerPaths(unittest.TestCase):
 
     def test_real_inbound_dm_repairs_remote_origin_from_sender_peer(self) -> None:
         self._seed_remote_shadow('remote-user', 'peer-stale')
+        self._mark_peer_trusted('peer-windy')
 
         with self.app.app_context():
             self.p2p_manager.on_direct_message(
@@ -325,6 +337,7 @@ class TestWorkspaceEventHandlerPaths(unittest.TestCase):
         local_peer = self.p2p_manager.get_peer_id()
         assert local_peer
         self._seed_remote_shadow('remote-user', local_peer)
+        self._mark_peer_trusted('peer-windy')
 
         with self.app.app_context():
             self.p2p_manager.on_direct_message(
@@ -350,6 +363,7 @@ class TestWorkspaceEventHandlerPaths(unittest.TestCase):
 
     def test_catchup_uses_message_origin_peer_not_relay_peer_for_shadow_updates(self) -> None:
         self._seed_remote_shadow('remote-user', 'peer-stale')
+        self._mark_peer_trusted('peer-relay')
 
         with self.app.app_context():
             self.p2p_manager.on_catchup_response(
@@ -379,6 +393,103 @@ class TestWorkspaceEventHandlerPaths(unittest.TestCase):
 
         self.assertIsNotNone(row)
         self.assertEqual(row['origin_peer'], 'peer-windy')
+
+    def test_peer_connect_retry_marks_requested_large_attachment_error_when_capability_missing(self) -> None:
+        file_manager = self.app.config['FILE_MANAGER']
+        self.assertTrue(
+            file_manager.upsert_remote_attachment_transfer(
+                origin_peer_id='peer-remote',
+                origin_file_id='F-large-missing-cap',
+                file_name='video.mp4',
+                content_type='video/mp4',
+                size=123,
+                status='requested',
+                error=None,
+            )
+        )
+
+        self.p2p_manager.on_peer_connected('peer-remote')
+
+        deadline = time.time() + 2.0
+        row = None
+        while time.time() < deadline:
+            with self.db_manager.get_connection() as conn:
+                row = conn.execute(
+                    """
+                    SELECT status, error
+                    FROM remote_attachment_transfers
+                    WHERE origin_peer_id = ? AND origin_file_id = ?
+                    """,
+                    ('peer-remote', 'F-large-missing-cap'),
+                ).fetchone()
+            if row and row['status'] == 'error':
+                break
+            time.sleep(0.05)
+
+        self.assertIsNotNone(row)
+        self.assertEqual(row['status'], 'error')
+        self.assertEqual(row['error'], 'source_peer_missing_large_attachment_capability')
+
+    def test_untrusted_channel_message_is_ignored(self) -> None:
+        self._mark_peer_untrusted('peer-untrusted')
+
+        with self.app.app_context():
+            self.p2p_manager.on_channel_message(
+                channel_id='general',
+                user_id='remote-user',
+                content='should not land',
+                message_id='MSG-untrusted-1',
+                timestamp='2026-03-29T10:00:00+00:00',
+                from_peer='peer-untrusted',
+                attachments=[],
+                security=None,
+                source_layout=None,
+                source_reference=None,
+                repost_policy=None,
+                message_type='text',
+                display_name='Remote User',
+                expires_at=None,
+                ttl_seconds=None,
+                ttl_mode=None,
+                update_only=False,
+                origin_peer='peer-untrusted',
+                parent_message_id=None,
+                post_policy=None,
+                allow_member_replies=None,
+                allowed_poster_user_ids=None,
+                edited_at=None,
+                encrypted_content=None,
+                crypto_state=None,
+                key_id=None,
+                nonce=None,
+            )
+            with self.db_manager.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT id FROM channel_messages WHERE id = ?",
+                    ('MSG-untrusted-1',),
+                ).fetchone()
+
+        self.assertIsNone(row)
+
+    def test_untrusted_membership_query_returns_no_response(self) -> None:
+        self._mark_peer_untrusted('peer-untrusted')
+        responses = []
+
+        def _record_response(**payload):
+            responses.append(payload)
+            return True
+
+        self.p2p_manager.send_channel_membership_response = _record_response
+
+        with self.app.app_context():
+            self.p2p_manager.on_channel_membership_query(
+                query_id='Q-untrusted',
+                local_user_ids=['agent-local'],
+                limit=10,
+                from_peer='peer-untrusted',
+            )
+
+        self.assertEqual(responses, [])
 
 
 if __name__ == '__main__':

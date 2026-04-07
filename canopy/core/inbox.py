@@ -187,6 +187,7 @@ class InboxManager:
     # never changes during a session, so caching for 60 s is safe and avoids a
     # round-trip per rate-limit / cooldown check.
     _ACCOUNT_TYPE_CACHE_TTL = 60  # seconds
+    _EXPIRE_THROTTLE_TTL = 30  # seconds
 
     def __init__(self, db_manager: DatabaseManager, trust_manager: Optional[TrustManager] = None):
         self.db = db_manager
@@ -194,6 +195,7 @@ class InboxManager:
         self.workspace_events: Any = None
         # (account_type_str, fetched_at_monotonic)
         self._account_type_cache: Dict[str, Tuple[str, float]] = {}
+        self._expire_throttle: Dict[str, float] = {}
         self._ensure_tables()
 
     def _ensure_tables(self) -> None:
@@ -697,6 +699,11 @@ class InboxManager:
 
     def _expire_items(self, agent_user_id: Optional[str] = None) -> int:
         """Mark expired items as expired."""
+        if agent_user_id:
+            now_mono = time.monotonic()
+            if now_mono - self._expire_throttle.get(agent_user_id, 0.0) < self._EXPIRE_THROTTLE_TTL:
+                return 0
+            self._expire_throttle[agent_user_id] = now_mono
         try:
             with self.db.get_connection() as conn:
                 if agent_user_id:

@@ -1,6 +1,10 @@
 # Canopy MCP Server Dependencies
 # Requires Python >= 3.10
 #
+# COMPATIBILITY SHIM — prefer:  uv pip install -e ".[mcp]"
+# This file is kept temporarily for pip-only environments.
+# It will be removed once all consumers have migrated.
+#
 # The MCP server imports the full Canopy package, so all core deps are needed.
 -r requirements.txt
 

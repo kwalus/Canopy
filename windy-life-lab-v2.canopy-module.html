@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Life Lab</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, sans-serif;
+      background: linear-gradient(165deg, #0a0e18 0%, #12182c 50%, #0d1222 100%);
+      color: #dbe7ff;
+      min-height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      padding: 10px 12px 6px;
+      text-align: center;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.05rem;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      background: linear-gradient(92deg, #5ee7df, #a78bfa);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    header p {
+      margin: 4px 0 0;
+      font-size: 0.72rem;
+      opacity: 0.75;
+      line-height: 1.35;
+    }
+    #controls {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: center;
+      gap: 6px 8px;
+      padding: 8px 10px;
+      background: rgba(0, 0, 0, 0.35);
+      border-bottom: 1px solid rgba(100, 180, 255, 0.12);
+    }
+    button.ctl {
+      padding: 6px 11px;
+      border: 1px solid rgba(100, 200, 255, 0.25);
+      border-radius: 8px;
+      background: linear-gradient(180deg, #2a3a62, #1a2544);
+      color: #b8e8ff;
+      cursor: pointer;
+      font-size: 0.72rem;
+      font-weight: 700;
+    }
+    button.ctl:hover { border-color: #5ee7df; color: #fff; }
+    button.ctl.on { border-color: #a78bfa; color: #e8deff; }
+    .stat {
+      font-size: 0.68rem;
+      font-variant-numeric: tabular-nums;
+      color: #8ab4ff;
+      min-width: 5.5rem;
+      text-align: center;
+    }
+    .row2 {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 6px;
+      padding: 6px 10px 10px;
+      background: rgba(0, 0, 0, 0.2);
+    }
+    .row2 span { font-size: 0.65rem; color: #7a8fb8; margin-right: 4px; }
+    label.lbl { font-size: 0.68rem; color: #8ab4ff; display: flex; align-items: center; gap: 6px; }
+    input[type="range"] { width: 100px; }
+    #canvasContainer {
+      flex: 1;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 8px;
+    }
+    canvas {
+      background: #060a14;
+      box-shadow: 0 0 24px rgba(30, 120, 200, 0.12), inset 0 0 0 1px rgba(100, 180, 255, 0.15);
+      border-radius: 4px;
+      width: min(88vmin, 520px);
+      height: min(88vmin, 520px);
+      touch-action: none;
+    }
+    footer {
+      text-align: center;
+      font-size: 0.62rem;
+      color: #5a6a88;
+      padding: 6px 8px 10px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Life Lab</h1>
+    <p>Conway’s rules · toroidal world · drag to paint · presets &amp; stats</p>
+  </header>
+  <div id="controls">
+    <button type="button" class="ctl" id="startStop">Start</button>
+    <button type="button" class="ctl" id="step">Step</button>
+    <button type="button" class="ctl" id="randomize">Randomize</button>
+    <button type="button" class="ctl" id="clear">Clear</button>
+    <label class="lbl">Speed <input id="speed" type="range" min="1" max="60" value="12"></label>
+    <label class="lbl"><input type="checkbox" id="wrapOn" checked> Wrap edges</label>
+    <div class="stat" id="statGen">Gen 0</div>
+    <div class="stat" id="statPop">Cells 0</div>
+  </div>
+  <div class="row2">
+    <span>Presets</span>
+    <button type="button" class="ctl" id="preG">Glider</button>
+    <button type="button" class="ctl" id="preB">Blinker</button>
+    <button type="button" class="ctl" id="preR">R-pentomino</button>
+    <button type="button" class="ctl" id="preP">Pulsar</button>
+    <button type="button" class="ctl" id="preD">Density</button>
+  </div>
+  <div id="canvasContainer">
+    <canvas id="lifeCanvas" width="600" height="600" aria-label="Life grid"></canvas>
+  </div>
+  <footer>Windy · Life Lab v2</footer>
+  <script>
+(function () {
+  var canvas = document.getElementById('lifeCanvas');
+  var ctx = canvas.getContext('2d');
+  var size = 48;
+  var cellSize;
+  var grid;
+  var running = false;
+  var animationId = null;
+  var generation = 0;
+  var painting = false;
+  var paintVal = 1;
+  var wrapOn = document.getElementById('wrapOn');
+
+  function initGrid() {
+    var y, x;
+    grid = [];
+    for (y = 0; y < size; y++) {
+      grid[y] = [];
+      for (x = 0; x < size; x++) grid[y][x] = 0;
+    }
+  }
+
+  function idx(v, max) {
+    if (wrapOn.checked) return (v + max) % max;
+    if (v < 0 || v >= max) return -1;
+    return v;
+  }
+
+  function countPop() {
+    var y, x, n = 0;
+    for (y = 0; y < size; y++) for (x = 0; x < size; x++) n += grid[y][x];
+    return n;
+  }
+
+  function updateStats() {
+    document.getElementById('statGen').textContent = 'Gen ' + generation;
+    document.getElementById('statPop').textContent = 'Cells ' + countPop();
+  }
+
+  function resize() {
+    cellSize = canvas.width / size;
+    draw();
+  }
+
+  function draw() {
+    var y, x, pos;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    var g = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+    g.addColorStop(0, '#0a1628');
+    g.addColorStop(1, '#0d1a32');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = 'rgba(80, 140, 220, 0.12)';
+    ctx.lineWidth = 0.5;
+    for (pos = 0; pos <= size; pos++) {
+      var p = pos * cellSize;
+      ctx.beginPath();
+      ctx.moveTo(p, 0);
+      ctx.lineTo(p, canvas.height);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, p);
+      ctx.lineTo(canvas.width, p);
+      ctx.stroke();
+    }
+    for (y = 0; y < size; y++) {
+      for (x = 0; x < size; x++) {
+        if (grid[y][x]) {
+          var cx = x * cellSize + cellSize * 0.5;
+          var cy = y * cellSize + cellSize * 0.5;
+          var rg = ctx.createRadialGradient(cx - 1, cy - 1, 0, cx, cy, cellSize * 0.65);
+          rg.addColorStop(0, '#9ffceb');
+          rg.addColorStop(0.5, '#4fd4e8');
+          rg.addColorStop(1, '#2a8ab0');
+          ctx.fillStyle = rg;
+          ctx.fillRect(x * cellSize + 0.5, y * cellSize + 0.5, cellSize - 1, cellSize - 1);
+        }
+      }
+    }
+  }
+
+  function nextGeneration() {
+    var y, x, dy, dx, neighbours, ny, nx, newGrid = [];
+    for (y = 0; y < size; y++) {
+      newGrid[y] = [];
+      for (x = 0; x < size; x++) {
+        neighbours = 0;
+        for (dy = -1; dy <= 1; dy++) {
+          for (dx = -1; dx <= 1; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            ny = idx(y + dy, size);
+            nx = idx(x + dx, size);
+            if (ny >= 0 && nx >= 0) neighbours += grid[ny][nx];
+          }
+        }
+        if (grid[y][x]) {
+          newGrid[y][x] = (neighbours === 2 || neighbours === 3) ? 1 : 0;
+        } else {
+          newGrid[y][x] = (neighbours === 3) ? 1 : 0;
+        }
+      }
+    }
+    grid = newGrid;
+    generation += 1;
+  }
+
+  function animate() {
+    nextGeneration();
+    draw();
+    updateStats();
+    var fps = parseInt(document.getElementById('speed').value, 10) || 10;
+    var interval = Math.max(16, 1000 / fps);
+    animationId = setTimeout(function () {
+      if (running) requestAnimationFrame(animate);
+    }, interval);
+  }
+
+  function cellFromEvent(ev) {
+    var rect = canvas.getBoundingClientRect();
+    var x = Math.floor((ev.clientX - rect.left) / (rect.width / size));
+    var y = Math.floor((ev.clientY - rect.top) / (rect.height / size));
+    if (x < 0 || x >= size || y < 0 || y >= size) return null;
+    return { x: x, y: y };
+  }
+
+  function paintAt(ev) {
+    var p = cellFromEvent(ev);
+    if (!p) return;
+    grid[p.y][p.x] = paintVal;
+    draw();
+    updateStats();
+  }
+
+  canvas.addEventListener('pointerdown', function (e) {
+    e.preventDefault();
+    var p = cellFromEvent(e);
+    if (!p) return;
+    painting = true;
+    paintVal = grid[p.y][p.x] ? 0 : 1;
+    canvas.setPointerCapture(e.pointerId);
+    paintAt(e);
+  });
+  canvas.addEventListener('pointermove', function (e) {
+    if (!painting) return;
+    paintAt(e);
+  });
+  canvas.addEventListener('pointerup', function (e) {
+    painting = false;
+    try { canvas.releasePointerCapture(e.pointerId); } catch (err) {}
+  });
+  canvas.addEventListener('pointercancel', function () { painting = false; });
+
+  document.getElementById('startStop').addEventListener('click', function () {
+    running = !running;
+    document.getElementById('startStop').textContent = running ? 'Pause' : 'Start';
+    document.getElementById('startStop').classList.toggle('on', running);
+    if (running) animate();
+    else if (animationId) clearTimeout(animationId);
+  });
+
+  document.getElementById('step').addEventListener('click', function () {
+    if (!running) {
+      nextGeneration();
+      draw();
+      updateStats();
+    }
+  });
+
+  document.getElementById('randomize').addEventListener('click', function () {
+    var y, x;
+    for (y = 0; y < size; y++) for (x = 0; x < size; x++) grid[y][x] = Math.random() < 0.28 ? 1 : 0;
+    generation = 0;
+    draw();
+    updateStats();
+  });
+
+  document.getElementById('clear').addEventListener('click', function () {
+    var y;
+    for (y = 0; y < size; y++) {
+      var x;
+      for (x = 0; x < size; x++) grid[y][x] = 0;
+    }
+    generation = 0;
+    draw();
+    updateStats();
+  });
+
+  document.getElementById('speed').addEventListener('input', function () {
+    if (running && animationId) clearTimeout(animationId);
+    if (running) animate();
+  });
+
+  wrapOn.addEventListener('change', function () { draw(); });
+
+  function wipe() {
+    var y, x;
+    for (y = 0; y < size; y++) for (x = 0; x < size; x++) grid[y][x] = 0;
+    generation = 0;
+  }
+
+  function stamp(cells) {
+    var i, cx = Math.floor(size / 2) - 3, cy = Math.floor(size / 2) - 3;
+    for (i = 0; i < cells.length; i++) {
+      var px = cx + cells[i][0];
+      var py = cy + cells[i][1];
+      if (px >= 0 && px < size && py >= 0 && py < size) grid[py][px] = 1;
+    }
+  }
+
+  document.getElementById('preG').addEventListener('click', function () {
+    wipe();
+    stamp([[0, 1], [1, 2], [2, 0], [2, 1], [2, 2]]);
+    draw();
+    updateStats();
+  });
+  document.getElementById('preB').addEventListener('click', function () {
+    wipe();
+    stamp([[0, 0], [1, 0], [2, 0]]);
+    draw();
+    updateStats();
+  });
+  document.getElementById('preR').addEventListener('click', function () {
+    wipe();
+    stamp([[1, 0], [2, 0], [0, 1], [1, 1], [1, 2]]);
+    draw();
+    updateStats();
+  });
+  document.getElementById('preP').addEventListener('click', function () {
+    wipe();
+    var o = [
+      [2, 0], [3, 0], [4, 0], [8, 0], [9, 0], [10, 0],
+      [0, 2], [5, 2], [7, 2], [12, 2],
+      [0, 3], [5, 3], [7, 3], [12, 3],
+      [0, 4], [5, 4], [7, 4], [12, 4],
+      [2, 5], [3, 5], [4, 5], [8, 5], [9, 5], [10, 5],
+      [2, 7], [3, 7], [4, 7], [8, 7], [9, 7], [10, 7],
+      [0, 8], [5, 8], [7, 8], [12, 8],
+      [0, 9], [5, 9], [7, 9], [12, 9],
+      [0, 10], [5, 10], [7, 10], [12, 10],
+      [2, 12], [3, 12], [4, 12], [8, 12], [9, 12], [10, 12]
+    ];
+    var cx = Math.floor(size / 2) - 6;
+    var cy = Math.floor(size / 2) - 6;
+    var i, px, py;
+    for (i = 0; i < o.length; i++) {
+      px = cx + o[i][0];
+      py = cy + o[i][1];
+      if (px >= 0 && px < size && py >= 0 && py < size) grid[py][px] = 1;
+    }
+    draw();
+    updateStats();
+  });
+  document.getElementById('preD').addEventListener('click', function () {
+    wipe();
+    var y, x, d = 0.38;
+    for (y = 10; y < 38; y++) for (x = 10; x < 38; x++) grid[y][x] = Math.random() < d ? 1 : 0;
+    draw();
+    updateStats();
+  });
+
+  window.addEventListener('resize', resize);
+  initGrid();
+  resize();
+  updateStats();
+})();
+  </script>
+</body>
+</html>

@@ -43,6 +43,14 @@
                     Choose what this API key will be allowed to do. You can select multiple permissions.
                     <a href="#permissions-reference" class="text-decoration-none">See descriptions below.</a>
                 </p>
+                {% if is_agent_account %}
+                <div class="alert alert-secondary py-2 px-3 mb-2 small">
+                    <i class="bi bi-diagram-3"></i>
+                    <strong>Mesh template:</strong>
+                    Pre-selected permissions follow the active mesh's default agent API template{% if current_meshspace and current_meshspace.get('name') %} for <strong>{{ current_meshspace.get('name') }}</strong>{% endif %}.
+                    You can customize them here, or adjust the template from the Admin workspace.
+                </div>
+                {% endif %}
                 <div class="row">
                     {% for permission in all_permissions %}
                         <div class="col-md-6 col-lg-4 mb-2">
@@ -118,49 +126,6 @@
         <button type="button" class="btn btn-primary" onclick="dismissKeyResult()">
             <i class="bi bi-check-lg"></i> I've Saved the Key
         </button>
-    </div>
-</div>
-
-<!-- Statistics Cards -->
-<div class="row mb-4">
-    <div class="col-md-3 col-sm-6 mb-3">
-        <div class="card stats-card">
-            <div class="card-body">
-                <i class="bi bi-key fs-1 text-primary mb-2"></i>
-                <div class="stats-number">{{ key_stats.total_keys }}</div>
-                <div class="text-muted">Total Keys</div>
-            </div>
-        </div>
-    </div>
-    
-    <div class="col-md-3 col-sm-6 mb-3">
-        <div class="card stats-card">
-            <div class="card-body">
-                <i class="bi bi-check-circle fs-1 text-success mb-2"></i>
-                <div class="stats-number">{{ key_stats.active_keys }}</div>
-                <div class="text-muted">Active Keys</div>
-            </div>
-        </div>
-    </div>
-    
-    <div class="col-md-3 col-sm-6 mb-3">
-        <div class="card stats-card">
-            <div class="card-body">
-                <i class="bi bi-x-circle fs-1 text-danger mb-2"></i>
-                <div class="stats-number">{{ key_stats.revoked_keys }}</div>
-                <div class="text-muted">Revoked Keys</div>
-            </div>
-        </div>
-    </div>
-    
-    <div class="col-md-3 col-sm-6 mb-3">
-        <div class="card stats-card">
-            <div class="card-body">
-                <i class="bi bi-infinity fs-1 text-info mb-2"></i>
-                <div class="stats-number">{{ key_stats.permanent_keys }}</div>
-                <div class="text-muted">Permanent Keys</div>
-            </div>
-        </div>
     </div>
 </div>
 

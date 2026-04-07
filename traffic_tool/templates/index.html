@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Canopy Traffic Tool</title>
+  <style>
+    :root {
+      --bg: #081126;
+      --panel: #121f3f;
+      --panel-soft: #0f1a34;
+      --text: #e6eefb;
+      --muted: #9fb0d6;
+      --accent: #23c4ff;
+      --good: #24d47e;
+      --warn: #f6c45f;
+      --bad: #ff6b6b;
+      --border: #29406f;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at 0% 0%, #102753 0, var(--bg) 60%);
+      color: var(--text);
+      font-family: "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+    }
+    .page {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 18px;
+    }
+    .top {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 1.45rem;
+      letter-spacing: 0.2px;
+    }
+    .subtitle {
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+    .panel {
+      background: linear-gradient(180deg, var(--panel) 0%, var(--panel-soft) 100%);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+      margin-bottom: 14px;
+      box-shadow: 0 12px 24px rgba(0, 0, 0, 0.28);
+    }
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px;
+      align-items: end;
+    }
+    label { display: block; font-size: 0.78rem; color: var(--muted); margin-bottom: 4px; }
+    select, input {
+      width: 100%;
+      background: #0a1430;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 0.92rem;
+    }
+    button {
+      background: linear-gradient(135deg, #0fb4f0, #2be2b0);
+      color: #042126;
+      border: 0;
+      border-radius: 8px;
+      padding: 9px 10px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button.secondary {
+      background: #16294f;
+      color: #cfe5ff;
+      border: 1px solid var(--border);
+    }
+    .kpis {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .kpi {
+      background: rgba(7, 16, 36, 0.75);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+    }
+    .kpi .label { color: var(--muted); font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.03em; }
+    .kpi .value { font-size: 1.25rem; font-weight: 800; margin-top: 3px; }
+    .good { color: var(--good); }
+    .warn { color: var(--warn); }
+    .bad { color: var(--bad); }
+    .graph-wrap {
+      background: rgba(9, 17, 35, 0.7);
+      border-radius: 10px;
+      padding: 8px;
+      border: 1px solid var(--border);
+    }
+    canvas { width: 100%; height: 260px; display: block; }
+    .legend { display: flex; gap: 14px; margin-top: 8px; color: var(--muted); font-size: 0.82rem; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+    .dot.primary { background: #23c4ff; }
+    .dot.secondary { background: #24d47e; }
+    .dot.alert { background: #ff6b6b; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+    th, td {
+      text-align: left;
+      border-bottom: 1px solid #1f3560;
+      padding: 8px 6px;
+      vertical-align: top;
+    }
+    th { color: var(--muted); font-size: 0.77rem; text-transform: uppercase; }
+    .muted { color: var(--muted); }
+    .status {
+      display: inline-block;
+      font-size: 0.75rem;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+    }
+    .status.ok { color: var(--good); border-color: #2b7d57; }
+    .status.err { color: var(--bad); border-color: #7a2f41; }
+    @media (max-width: 720px) {
+      canvas { height: 210px; }
+      .page { padding: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="top">
+      <div>
+        <h1>Canopy Traffic Tool</h1>
+        <div class="subtitle">Standalone telemetry view for <code id="targetLabel">{{ monitor_config.target }}</code></div>
+      </div>
+      <div class="subtitle" id="updatedLabel">Waiting for first sample...</div>
+    </div>
+
+    <div class="panel">
+      <div class="controls">
+        <div>
+          <label for="metric">Metric</label>
+          <select id="metric">
+            <option value="traffic_score">Traffic score</option>
+            <option value="message_delta">Message delta</option>
+            <option value="feed_delta">Feed post delta</option>
+            <option value="peer_delta">Connected peer delta</option>
+            <option value="connected_peers">Connected peers</option>
+            <option value="discovered_peers">Discovered peers</option>
+            <option value="relay_routes">Relay routes</option>
+            <option value="probe_errors">Probe errors</option>
+            <option value="system_info_latency_ms">system_info latency (ms)</option>
+            <option value="p2p_status_latency_ms">p2p_status latency (ms)</option>
+          </select>
+        </div>
+        <div>
+          <label for="windowMinutes">Window</label>
+          <select id="windowMinutes">
+            <option value="5">Last 5 min</option>
+            <option value="15">Last 15 min</option>
+            <option value="60" selected>Last 1 hour</option>
+            <option value="360">Last 6 hours</option>
+            <option value="1440">Last 24 hours</option>
+          </select>
+        </div>
+        <div>
+          <label for="bucketSeconds">Bucket</label>
+          <select id="bucketSeconds">
+            <option value="5">5s</option>
+            <option value="15">15s</option>
+            <option value="30">30s</option>
+            <option value="60" selected>60s</option>
+            <option value="300">5m</option>
+          </select>
+        </div>
+        <div>
+          <label for="autoRefreshSeconds">Auto-refresh</label>
+          <select id="autoRefreshSeconds">
+            <option value="0">Off</option>
+            <option value="2">2s</option>
+            <option value="5" selected>5s</option>
+            <option value="10">10s</option>
+            <option value="30">30s</option>
+          </select>
+        </div>
+        <div>
+          <button id="applyBtn">Apply</button>
+        </div>
+        <div>
+          <button class="secondary" id="refreshNowBtn">Refresh now</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="kpis" id="kpiGrid"></div>
+
+    <div class="panel">
+      <div class="graph-wrap">
+        <canvas id="seriesCanvas" width="1100" height="260"></canvas>
+      </div>
+      <div class="legend">
+        <span><span class="dot primary"></span>Selected metric</span>
+        <span><span class="dot secondary"></span>Sample density</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3 style="margin:0 0 8px 0; font-size:1rem;">Endpoint Breakdown</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Endpoint</th>
+            <th>Samples</th>
+            <th>Skipped</th>
+            <th>Error rate</th>
+            <th>Avg latency</th>
+            <th>Max latency</th>
+            <th>Avg bytes</th>
+          </tr>
+        </thead>
+        <tbody id="breakdownBody">
+          <tr><td colspan="7" class="muted">Waiting for data...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const targetLabel = document.getElementById('targetLabel');
+    const updatedLabel = document.getElementById('updatedLabel');
+    const kpiGrid = document.getElementById('kpiGrid');
+    const breakdownBody = document.getElementById('breakdownBody');
+    const metricSel = document.getElementById('metric');
+    const windowSel = document.getElementById('windowMinutes');
+    const bucketSel = document.getElementById('bucketSeconds');
+    const autoSel = document.getElementById('autoRefreshSeconds');
+    const applyBtn = document.getElementById('applyBtn');
+    const refreshNowBtn = document.getElementById('refreshNowBtn');
+    const canvas = document.getElementById('seriesCanvas');
+
+    let autoTimer = null;
+
+    function fmt(value, digits = 2) {
+      const num = Number(value || 0);
+      if (!Number.isFinite(num)) return '0';
+      return num.toLocaleString(undefined, {maximumFractionDigits: digits});
+    }
+
+    function query() {
+      const params = new URLSearchParams();
+      params.set('metric', metricSel.value);
+      params.set('window_minutes', windowSel.value);
+      params.set('bucket_seconds', bucketSel.value);
+      return params.toString();
+    }
+
+    function setAutoRefresh() {
+      if (autoTimer) {
+        clearInterval(autoTimer);
+        autoTimer = null;
+      }
+      const seconds = Number(autoSel.value || 0);
+      if (seconds > 0) {
+        autoTimer = setInterval(refreshDashboard, seconds * 1000);
+      }
+    }
+
+    function renderKpis(latest) {
+      if (!latest || !latest.ok) {
+        kpiGrid.innerHTML = '<div class="kpi"><div class="label">Status</div><div class="value bad">No data yet</div></div>';
+        return;
+      }
+
+      const sample = latest.sample || {};
+      const derived = sample.derived || {};
+      const p2p = sample.p2p || {};
+      const db = sample.database_stats || {};
+
+      const cards = [
+        {label: 'Traffic score', value: fmt(derived.traffic_score, 3), cls: derived.traffic_score > 6 ? 'warn' : 'good'},
+        {label: 'Message delta', value: fmt(derived.messages_delta, 0), cls: 'good'},
+        {label: 'Feed delta', value: fmt(derived.feed_posts_delta, 0), cls: 'good'},
+        {label: 'Connected peers', value: fmt(p2p.connected_peers, 0), cls: 'good'},
+        {label: 'Discovered peers', value: fmt(p2p.discovered_peers, 0), cls: 'muted'},
+        {label: 'Probe errors', value: fmt(derived.probe_error_count, 0), cls: derived.probe_error_count > 0 ? 'bad' : 'good'},
+        {label: 'Messages (total)', value: fmt(db.messages, 0), cls: 'muted'},
+        {label: 'Feed posts (total)', value: fmt(db.feed_posts, 0), cls: 'muted'}
+      ];
+
+      kpiGrid.innerHTML = cards.map(card => `
+        <div class="kpi">
+          <div class="label">${card.label}</div>
+          <div class="value ${card.cls}">${card.value}</div>
+        </div>
+      `).join('');
+    }
+
+    function renderBreakdown(rows) {
+      if (!rows || !rows.length) {
+        breakdownBody.innerHTML = '<tr><td colspan="7" class="muted">No probe rows yet</td></tr>';
+        return;
+      }
+      breakdownBody.innerHTML = rows.map(row => {
+        const errRate = (Number(row.error_rate || 0) * 100).toFixed(2) + '%';
+        return `
+          <tr>
+            <td>${row.endpoint}</td>
+            <td>${fmt(row.samples, 0)}</td>
+            <td>${fmt(row.skipped_count, 0)}</td>
+            <td class="${row.error_count > 0 ? 'bad' : 'good'}">${errRate}</td>
+            <td>${fmt(row.avg_latency_ms, 2)} ms</td>
+            <td>${fmt(row.max_latency_ms, 2)} ms</td>
+            <td>${fmt(row.avg_response_bytes, 0)}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function drawSeries(series) {
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+
+      ctx.fillStyle = '#081126';
+      ctx.fillRect(0, 0, w, h);
+
+      const pad = {l: 52, r: 18, t: 18, b: 32};
+      const innerW = w - pad.l - pad.r;
+      const innerH = h - pad.t - pad.b;
+
+      ctx.strokeStyle = '#29406f';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= 5; i++) {
+        const y = pad.t + (innerH / 5) * i;
+        ctx.beginPath();
+        ctx.moveTo(pad.l, y);
+        ctx.lineTo(w - pad.r, y);
+        ctx.stroke();
+      }
+
+      if (!series || !series.length) {
+        ctx.fillStyle = '#9fb0d6';
+        ctx.fillText('No data in selected window yet.', pad.l, pad.t + 20);
+        return;
+      }
+
+      const values = series.map(p => Number(p.value || 0));
+      const counts = series.map(p => Number(p.count || 0));
+      let minV = Math.min(...values);
+      let maxV = Math.max(...values);
+      if (minV === maxV) {
+        maxV += 1;
+        minV -= 1;
+      }
+
+      const maxCount = Math.max(1, ...counts);
+
+      function xAt(i) {
+        if (series.length <= 1) return pad.l;
+        return pad.l + (innerW * i) / (series.length - 1);
+      }
+
+      function yAt(v) {
+        const ratio = (v - minV) / (maxV - minV);
+        return pad.t + innerH - (ratio * innerH);
+      }
+
+      ctx.strokeStyle = '#23c4ff';
+      ctx.lineWidth = 2.1;
+      ctx.beginPath();
+      values.forEach((v, i) => {
+        const x = xAt(i);
+        const y = yAt(v);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      ctx.strokeStyle = '#24d47e';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      counts.forEach((v, i) => {
+        const x = xAt(i);
+        const y = pad.t + innerH - (v / maxCount) * innerH;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      ctx.fillStyle = '#9fb0d6';
+      ctx.font = '12px sans-serif';
+      ctx.fillText(minV.toFixed(2), 8, pad.t + innerH);
+      ctx.fillText(maxV.toFixed(2), 8, pad.t + 10);
+    }
+
+    async function refreshDashboard() {
+      const resp = await fetch('/api/metrics/dashboard?' + query());
+      const data = await resp.json();
+
+      const latest = data.latest || {ok:false};
+      renderKpis(latest);
+      renderBreakdown(data.breakdown || []);
+      drawSeries(data.timeseries || []);
+
+      if (latest.ok && latest.sample) {
+        const ts = latest.sample.timestamp_iso || '';
+        updatedLabel.textContent = `Updated: ${ts}`;
+        targetLabel.textContent = latest.sample.target_base_url || targetLabel.textContent;
+      } else {
+        updatedLabel.textContent = 'Waiting for first sample...';
+      }
+    }
+
+    applyBtn.addEventListener('click', refreshDashboard);
+    refreshNowBtn.addEventListener('click', async () => {
+      await fetch('/api/metrics/refresh', {method: 'POST'});
+      await refreshDashboard();
+    });
+    autoSel.addEventListener('change', setAutoRefresh);
+
+    setAutoRefresh();
+    refreshDashboard();
+  </script>
+</body>
+</html>

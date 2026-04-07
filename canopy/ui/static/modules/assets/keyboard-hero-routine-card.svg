@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" fill="none">
+  <defs>
+    <linearGradient id="bg2" x1="80" y1="60" x2="1100" y2="660" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#07111D"/>
+      <stop offset="1" stop-color="#101B35"/>
+    </linearGradient>
+    <linearGradient id="prelude" x1="90" y1="280" x2="1110" y2="280" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FACC15"/>
+      <stop offset="1" stop-color="#67E8F9"/>
+    </linearGradient>
+    <linearGradient id="neon" x1="90" y1="430" x2="1110" y2="430" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A78BFA"/>
+      <stop offset="1" stop-color="#60A5FA"/>
+    </linearGradient>
+    <linearGradient id="ladder" x1="90" y1="580" x2="1110" y2="580" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#86EFAC"/>
+      <stop offset="1" stop-color="#67E8F9"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="720" rx="36" fill="url(#bg2)"/>
+  <rect x="34" y="34" width="1132" height="652" rx="28" stroke="#FACC15" stroke-opacity="0.18" stroke-width="2"/>
+  <text x="74" y="108" fill="#FACC15" font-family="Avenir Next, Segoe UI, sans-serif" font-size="26" font-weight="800" letter-spacing="4">ROUTINE LADDER</text>
+  <text x="74" y="156" fill="#F7FBFF" font-family="Avenir Next, Segoe UI, sans-serif" font-size="54" font-weight="800">Three distinct practice worlds on one module runtime</text>
+  <text x="74" y="206" fill="#9CB2CA" font-family="Avenir Next, Segoe UI, sans-serif" font-size="28">Same source. Same deck. Different rhythm logic. The module stays coherent while the learner changes the challenge profile.</text>
+
+  <rect x="74" y="246" width="1052" height="106" rx="22" fill="#0D1B31" stroke="#FACC15" stroke-opacity="0.18"/>
+  <rect x="90" y="262" width="170" height="74" rx="18" fill="url(#prelude)"/>
+  <text x="175" y="307" text-anchor="middle" fill="#07111D" font-family="Avenir Next, Segoe UI, sans-serif" font-size="28" font-weight="900">92 BPM</text>
+  <text x="292" y="287" fill="#F7FBFF" font-family="Avenir Next, Segoe UI, sans-serif" font-size="32" font-weight="800">Prelude Grid</text>
+  <text x="292" y="322" fill="#9CB2CA" font-family="Avenir Next, Segoe UI, sans-serif" font-size="24">Rolling arpeggios. Best for finger independence and a clean hit line.</text>
+  <text x="922" y="307" fill="#F7FBFF" font-family="Avenir Next, Segoe UI, sans-serif" font-size="24" font-weight="700">Goal: 24-note streak</text>
+
+  <rect x="74" y="396" width="1052" height="106" rx="22" fill="#0D1B31" stroke="#A78BFA" stroke-opacity="0.18"/>
+  <rect x="90" y="412" width="170" height="74" rx="18" fill="url(#neon)"/>
+  <text x="175" y="457" text-anchor="middle" fill="#07111D" font-family="Avenir Next, Segoe UI, sans-serif" font-size="28" font-weight="900">110 BPM</text>
+  <text x="292" y="437" fill="#F7FBFF" font-family="Avenir Next, Segoe UI, sans-serif" font-size="32" font-weight="800">Neon Pulse</text>
+  <text x="292" y="472" fill="#9CB2CA" font-family="Avenir Next, Segoe UI, sans-serif" font-size="24">Syncopated repeats. Good for showing the module as a game surface, not a static card.</text>
+  <text x="912" y="457" fill="#F7FBFF" font-family="Avenir Next, Segoe UI, sans-serif" font-size="24" font-weight="700">Goal: 16 clean hits</text>
+
+  <rect x="74" y="546" width="1052" height="106" rx="22" fill="#0D1B31" stroke="#86EFAC" stroke-opacity="0.18"/>
+  <rect x="90" y="562" width="170" height="74" rx="18" fill="url(#ladder)"/>
+  <text x="175" y="607" text-anchor="middle" fill="#07111D" font-family="Avenir Next, Segoe UI, sans-serif" font-size="28" font-weight="900">126 BPM</text>
+  <text x="292" y="587" fill="#F7FBFF" font-family="Avenir Next, Segoe UI, sans-serif" font-size="32" font-weight="800">Octave Ladder</text>
+  <text x="292" y="622" fill="#9CB2CA" font-family="Avenir Next, Segoe UI, sans-serif" font-size="24">Outer-lane transfers. Proves the runtime can shift to a harder coordination task without leaving the post.</text>
+  <text x="886" y="607" fill="#F7FBFF" font-family="Avenir Next, Segoe UI, sans-serif" font-size="24" font-weight="700">Goal: fewer than 4 misses</text>
+</svg>

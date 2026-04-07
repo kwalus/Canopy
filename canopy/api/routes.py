@@ -18,6 +18,7 @@ import time
 import secrets
 import ipaddress
 import socket
+import threading
 import html as html_lib
 from urllib.parse import urlparse, parse_qs, urlencode, quote_plus
 from urllib.request import Request, urlopen
@@ -67,6 +68,7 @@ from ..core.agent_presence import (
     build_agent_presence_payload,
 )
 from ..core.agent_runtime import record_agent_runtime_state
+from ..core.meshspaces import build_meshspace_notification_summary
 from ..core.agent_event_subscriptions import (
     AGENT_DEFAULT_EVENT_TYPES,
     AGENT_MESSAGE_EVENT_TYPES,
@@ -104,10 +106,84 @@ from .agent_instructions_data import build_agent_instructions_payload
 
 logger = logging.getLogger(__name__)
 API_BOOT_TIME = datetime.now(timezone.utc)
+_YOUTUBE_OEMBED_CACHE_TTL_SECONDS = 6 * 60 * 60
+_YOUTUBE_OEMBED_NEGATIVE_TTL_SECONDS = 15 * 60
+_YOUTUBE_OEMBED_TRANSIENT_TTL_SECONDS = 2 * 60
+_YOUTUBE_OEMBED_CACHE_MAX_ENTRIES = 512
+_youtube_oembed_cache: dict[str, dict[str, Any]] = {}
+_youtube_oembed_cache_lock = threading.Lock()
 
 
 def _get_app_components_any(app: Any) -> tuple[Any, ...]:
     return cast(tuple[Any, ...], get_app_components(app))
+
+
+def _build_meshspace_runtime_payload() -> dict[str, Any]:
+    """Return shell-safe identity and health metadata for the current runtime."""
+    from canopy import __version__ as _ver
+
+    config = current_app.config.get('CANOPY_CONFIG')
+    db_manager = current_app.config.get('DB_MANAGER')
+    workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
+    p2p_manager = current_app.config.get('P2P_MANAGER')
+    mesh_cfg = getattr(config, 'meshspace', None)
+
+    started_at = float(current_app.config.get('CANOPY_STARTED_AT') or time.time())
+    uptime_seconds = max(0.0, time.time() - started_at)
+
+    database_state = 'ready'
+    setup_required = False
+    try:
+        if db_manager:
+            with db_manager.get_connection() as conn:
+                conn.execute('SELECT 1').fetchone()
+            setup_required = not bool(db_manager.has_any_registered_users())
+        else:
+            database_state = 'missing'
+    except Exception:
+        database_state = 'degraded'
+
+    p2p_state = 'disabled'
+    connected_peers = 0
+    local_peer_id = None
+    try:
+        if p2p_manager:
+            is_running = bool(getattr(p2p_manager, 'is_running', lambda: False)())
+            connected = getattr(p2p_manager, 'get_connected_peers', lambda: [])() or []
+            connected_peers = len(list(connected))
+            local_peer_id = getattr(p2p_manager, 'get_peer_id', lambda: None)()
+            p2p_state = 'ready' if is_running else 'starting'
+    except Exception:
+        p2p_state = 'degraded'
+
+    workspace_state = 'ready' if workspace_event_manager else 'disabled'
+    ready = database_state == 'ready' and not setup_required
+    status = 'healthy' if (database_state == 'ready' and p2p_state != 'degraded') else 'degraded'
+
+    return {
+        'status': status,
+        'ready': ready,
+        'timestamp': datetime.now(timezone.utc).isoformat(),
+        'version': _ver,
+        'uptime_seconds': round(uptime_seconds, 3),
+        'meshspace': {
+            'meshspace_id': str(getattr(mesh_cfg, 'meshspace_id', '') or ''),
+            'name': str(getattr(mesh_cfg, 'name', '') or ''),
+            'runtime_mode': str(getattr(mesh_cfg, 'runtime_mode', '') or ''),
+            'is_default': bool(getattr(mesh_cfg, 'is_default', False)),
+            'supervised': bool(getattr(mesh_cfg, 'supervised', False)),
+        },
+        'peer': {
+            'peer_id': local_peer_id,
+            'connected_peers': connected_peers,
+        },
+        'setup_required': bool(setup_required),
+        'subsystems': {
+            'database': database_state,
+            'p2p': p2p_state,
+            'workspace_events': workspace_state,
+        },
+    }
 
 
 def _record_connection_event(p2p_manager: Any, peer_id: str, status: str,
@@ -150,7 +226,36 @@ def _extract_api_key_from_headers(req: Any) -> str:
 
 def _default_agent_api_permissions() -> list[Permission]:
     """Default key scope for agent usage."""
-    return [
+    default_values = [
+        Permission.READ_MESSAGES.value,
+        Permission.WRITE_MESSAGES.value,
+        Permission.READ_FEED.value,
+        Permission.WRITE_FEED.value,
+    ]
+    try:
+        record = current_app.config.get('MESHSPACE_RECORD')
+        config = current_app.config.get('CANOPY_CONFIG')
+        manager = current_app.config.get('MESHSPACE_REGISTRY_MANAGER')
+        meshspace_id = str(getattr(getattr(config, 'meshspace', None), 'meshspace_id', '') or '').strip()
+        if manager and meshspace_id:
+            fresh = manager.get_meshspace(meshspace_id)
+            if isinstance(fresh, dict) and fresh:
+                record = fresh
+        raw_values = record.get('default_agent_permissions') if isinstance(record, dict) else None
+        if isinstance(raw_values, list) and raw_values:
+            default_values = [str(value or '').strip() for value in raw_values if str(value or '').strip()]
+    except Exception:
+        pass
+
+    permissions: list[Permission] = []
+    for value in default_values:
+        try:
+            perm = Permission(value)
+        except ValueError:
+            continue
+        if perm not in permissions:
+            permissions.append(perm)
+    return permissions or [
         Permission.READ_MESSAGES,
         Permission.WRITE_MESSAGES,
         Permission.READ_FEED,
@@ -1275,6 +1380,15 @@ def create_api_blueprint() -> Blueprint:
             ip_obj.is_unspecified
         )
 
+    def _request_is_loopback() -> bool:
+        remote_addr = str(request.remote_addr or "").strip()
+        if not remote_addr:
+            return False
+        try:
+            return bool(ipaddress.ip_address(remote_addr.split("%")[0]).is_loopback)
+        except ValueError:
+            return remote_addr in {"localhost"}
+
     def _is_safe_external_url(url: str) -> tuple:
         """
         Prevent SSRF to localhost/private ranges by default.
@@ -1466,14 +1580,12 @@ def create_api_blueprint() -> Blueprint:
 
         # OEmbed for title/author
         try:
-            oembed_url = f"https://www.youtube.com/oembed?url={quote_plus(canonical_url)}&format=json"
-            raw = _http_get_text(oembed_url, timeout=6, max_bytes=128_000)
-            obj = json.loads(raw)
-            context['title'] = (obj.get('title') or '').strip()
-            context['author'] = (obj.get('author_name') or '').strip()
+            metadata = _fetch_youtube_oembed_metadata(video_id)
+            context['title'] = (metadata.get('title') or '').strip()
+            context['author'] = (metadata.get('author') or '').strip()
             context['metadata']['oembed'] = {
-                'provider_name': obj.get('provider_name'),
-                'thumbnail_url': obj.get('thumbnail_url'),
+                'provider_name': metadata.get('provider_name'),
+                'thumbnail_url': metadata.get('thumbnail_url'),
             }
         except Exception as e:
             context['metadata']['oembed_error'] = str(e)
@@ -1548,22 +1660,107 @@ def create_api_blueprint() -> Blueprint:
         context['summary_text'] = '\n\n'.join(summary_parts).strip()
         return context
 
+    def _prune_youtube_oembed_cache(now: float) -> None:
+        expired = [
+            key for key, value in _youtube_oembed_cache.items()
+            if float(value.get('expires_at') or 0.0) <= now
+        ]
+        for key in expired:
+            _youtube_oembed_cache.pop(key, None)
+        if len(_youtube_oembed_cache) <= _YOUTUBE_OEMBED_CACHE_MAX_ENTRIES:
+            return
+        for key, _ in sorted(
+            _youtube_oembed_cache.items(),
+            key=lambda item: float(item[1].get('expires_at') or 0.0),
+        )[: max(0, len(_youtube_oembed_cache) - _YOUTUBE_OEMBED_CACHE_MAX_ENTRIES)]:
+            _youtube_oembed_cache.pop(key, None)
+
+    def _get_cached_youtube_oembed_metadata(video_id: str) -> Optional[dict[str, Any]]:
+        now = time.time()
+        with _youtube_oembed_cache_lock:
+            cached = _youtube_oembed_cache.get(video_id)
+            if not cached:
+                return None
+            if float(cached.get('expires_at') or 0.0) <= now:
+                _youtube_oembed_cache.pop(video_id, None)
+                return None
+            return dict(cached)
+
+    def _store_youtube_oembed_cache_entry(
+        video_id: str,
+        *,
+        metadata: Optional[dict[str, str]] = None,
+        status_code: int = 200,
+        error: str = '',
+        ttl_seconds: int,
+        url: str,
+    ) -> None:
+        now = time.time()
+        entry: dict[str, Any] = {
+            'expires_at': now + max(1, int(ttl_seconds)),
+            'status_code': status_code,
+            'url': url,
+            'error': error,
+        }
+        if metadata is not None:
+            entry['metadata'] = dict(metadata)
+        with _youtube_oembed_cache_lock:
+            _youtube_oembed_cache[video_id] = entry
+            _prune_youtube_oembed_cache(now)
+
     def _fetch_youtube_oembed_metadata(video_id: str) -> dict[str, str]:
         vid = (video_id or '').strip()
         if not _YT_ID_PATTERN.match(vid):
             raise ValueError('Invalid YouTube video id')
         canonical_url = f"https://www.youtube.com/watch?v={vid}"
         oembed_url = f"https://www.youtube.com/oembed?url={quote_plus(canonical_url)}&format=json"
-        raw = _http_get_text(oembed_url, timeout=6, max_bytes=128_000)
-        obj = json.loads(raw)
-        return {
-            'video_id': vid,
-            'title': str(obj.get('title') or '').strip(),
-            'author': str(obj.get('author_name') or '').strip(),
-            'provider_name': str(obj.get('provider_name') or '').strip(),
-            'thumbnail_url': str(obj.get('thumbnail_url') or '').strip(),
-            'canonical_url': canonical_url,
-        }
+        cached = _get_cached_youtube_oembed_metadata(vid)
+        if cached:
+            metadata = cached.get('metadata')
+            if isinstance(metadata, dict):
+                return cast(dict[str, str], dict(metadata))
+            status_code = int(cached.get('status_code') or 0)
+            error = str(cached.get('error') or 'YouTube oEmbed lookup temporarily unavailable')
+            if status_code == 404:
+                raise HTTPError(cached.get('url') or oembed_url, 404, error, hdrs=None, fp=None)
+            raise RuntimeError(error)
+        try:
+            raw = _http_get_text(oembed_url, timeout=6, max_bytes=128_000)
+            obj = json.loads(raw)
+            metadata = {
+                'video_id': vid,
+                'title': str(obj.get('title') or '').strip(),
+                'author': str(obj.get('author_name') or '').strip(),
+                'provider_name': str(obj.get('provider_name') or '').strip(),
+                'thumbnail_url': str(obj.get('thumbnail_url') or '').strip(),
+                'canonical_url': canonical_url,
+            }
+            _store_youtube_oembed_cache_entry(
+                vid,
+                metadata=metadata,
+                ttl_seconds=_YOUTUBE_OEMBED_CACHE_TTL_SECONDS,
+                url=oembed_url,
+            )
+            return metadata
+        except HTTPError as e:
+            ttl = _YOUTUBE_OEMBED_NEGATIVE_TTL_SECONDS if getattr(e, 'code', None) == 404 else _YOUTUBE_OEMBED_TRANSIENT_TTL_SECONDS
+            _store_youtube_oembed_cache_entry(
+                vid,
+                status_code=int(getattr(e, 'code', 0) or 0),
+                error=str(e),
+                ttl_seconds=ttl,
+                url=oembed_url,
+            )
+            raise
+        except Exception as e:
+            _store_youtube_oembed_cache_entry(
+                vid,
+                status_code=0,
+                error=str(e),
+                ttl_seconds=_YOUTUBE_OEMBED_TRANSIENT_TTL_SECONDS,
+                url=oembed_url,
+            )
+            raise
 
     def _extract_external_context(url: str) -> dict:
         """Best-effort extraction of text context for agents/humans."""
@@ -2300,12 +2497,87 @@ def create_api_blueprint() -> Blueprint:
     # Health check endpoint
     @api.route('/health', methods=['GET'])
     def health_check():
-        """Health check endpoint."""
-        from canopy import __version__ as _ver
+        """Public liveness/health summary for the current runtime."""
+        return jsonify(_build_meshspace_runtime_payload())
+
+    @api.route('/ready', methods=['GET'])
+    def readiness_check():
+        """Readiness probe for shells and process supervisors."""
+        payload = _build_meshspace_runtime_payload()
+        status_code = 200 if payload.get('ready') else 503
+        return jsonify(payload), status_code
+
+    @api.route('/mesh/identity', methods=['GET'])
+    def mesh_identity():
+        """Return shell-safe identity metadata for the current mesh runtime."""
+        payload = _build_meshspace_runtime_payload()
         return jsonify({
-            'status': 'healthy',
-            'timestamp': datetime.utcnow().isoformat(),
-            'version': _ver
+            'meshspace': payload.get('meshspace'),
+            'peer': payload.get('peer'),
+            'version': payload.get('version'),
+            'setup_required': payload.get('setup_required'),
+            'ready': payload.get('ready'),
+        })
+
+    @api.route('/meshspace/shell_summary', methods=['GET'])
+    def meshspace_shell_summary():
+        """Return owner aggregate shell summary for same-machine mesh probes only."""
+        if not _request_is_loopback():
+            return jsonify({'error': 'loopback access required'}), 403
+        config = current_app.config.get('CANOPY_CONFIG')
+        mesh_cfg = getattr(config, 'meshspace', None)
+        meshspace_id = str(getattr(mesh_cfg, 'meshspace_id', '') or '').strip()
+        manager = current_app.config.get('MESHSPACE_REGISTRY_MANAGER')
+        if manager and meshspace_id:
+            record = manager.get_meshspace(meshspace_id) or {}
+        else:
+            record = current_app.config.get('MESHSPACE_RECORD') or {}
+            meshspace_id = meshspace_id or str(record.get('meshspace_id') or '').strip()
+        summary = record.get('summary') if isinstance(record.get('summary'), dict) else {}
+        return jsonify({
+            'shell_safe': True,
+            'meshspace_id': meshspace_id,
+            'unread_count': max(0, int(summary.get('unread_count') or 0)),
+            'mention_count': max(0, int(summary.get('mention_count') or 0)),
+            'pending_review_count': max(0, int(summary.get('pending_review_count') or 0)),
+            'attention_count': max(0, int(summary.get('attention_count') or 0)),
+            'active_peer_count': max(0, int(summary.get('active_peer_count') or 0)),
+            'has_recent_activity': bool(summary.get('has_recent_activity')),
+            'attention_level': str(summary.get('attention_level') or 'quiet'),
+            'last_activity_at': str(summary.get('last_activity_at') or ''),
+            'last_summary_at': str(summary.get('last_summary_at') or ''),
+        })
+
+    @api.route('/meshspace/viewer_attention', methods=['GET'])
+    @require_auth(allow_session=True)
+    def meshspace_viewer_attention():
+        """Return current viewer counts for this mesh via same-machine session forwarding."""
+        if not _request_is_loopback():
+            return jsonify({'error': 'loopback access required'}), 403
+        if not (session.get('authenticated', False) and session.get('user_id')):
+            return jsonify({
+                'error': 'Authentication required',
+                'message': 'Sign in to this mesh in the web UI first',
+            }), 401
+
+        config = current_app.config.get('CANOPY_CONFIG')
+        mesh_cfg = getattr(config, 'meshspace', None)
+        meshspace_id = str(getattr(mesh_cfg, 'meshspace_id', '') or '').strip()
+        db_manager, _, _, _, channel_manager, _, feed_manager, _, _, _, p2p_manager = _get_app_components_any(current_app)
+        summary = build_meshspace_notification_summary(
+            db_manager,
+            channel_manager,
+            feed_manager,
+            p2p_manager,
+            str(session.get('user_id') or '').strip(),
+        )
+        return jsonify({
+            'viewer_specific': True,
+            'meshspace_id': meshspace_id,
+            'unread_count': max(0, int(summary.get('unread_count') or 0)),
+            'mention_count': max(0, int(summary.get('mention_count') or 0)),
+            'pending_review_count': max(0, int(summary.get('pending_review_count') or 0)),
+            'attention_count': max(0, int(summary.get('attention_count') or 0)),
         })
 
     # ------------------------------------------------------------------ #
@@ -2372,14 +2644,30 @@ def create_api_blueprint() -> Blueprint:
         if not user:
             return jsonify({'error': 'User not found'}), 404
         key_permissions = [p.value for p in g.api_key_info.permissions] if getattr(g, 'api_key_info', None) else []
-        return jsonify({
+        status = str(user.get('status') or 'active')
+        account_type = str(user.get('account_type') or 'human')
+        payload = {
             'user_id': user['id'],
             'username': user['username'],
             'display_name': user.get('display_name') or user['username'],
-            'account_type': (user.get('account_type') or 'human'),
-            'status': (user.get('status') or 'active'),
+            'account_type': account_type,
+            'status': status,
             'permissions': key_permissions,
-        })
+        }
+        if status == 'pending_approval':
+            payload['next_step'] = (
+                'Poll GET /api/v1/auth/status until status is "active". '
+                'No other API calls are permitted until then.'
+            )
+        elif status == 'active':
+            if account_type == 'agent':
+                payload['approved_hint'] = (
+                    'Your account is active. You start in the #agent-start-here channel; '
+                    'an admin can expand your channel access from the admin panel.'
+                )
+            else:
+                payload['approved_hint'] = 'Your account is active. You can now access the full API.'
+        return jsonify(payload)
 
     # User profile (API key auth)
     @api.route('/profile', methods=['GET'])
@@ -2580,6 +2868,12 @@ def create_api_blueprint() -> Blueprint:
             
             # New registrations start with the conservative default agent scope.
             api_key = api_key_manager.generate_key(user_id, _default_agent_api_permissions())
+            registration_hint = None
+            if account_type == 'human':
+                registration_hint = (
+                    'If this account is for an automation or MCP/CLI agent, register again with '
+                    'account_type="agent" so Canopy can apply quarantine and the meshspace agent key template.'
+                )
             
             logger.info(f"Registered new agent/user: '{username}' ({user_id})")
             
@@ -2592,6 +2886,7 @@ def create_api_blueprint() -> Blueprint:
                 'api_key': api_key,
                 'public_key': ed25519_pub_b58,
                 'quarantine_channel_id': quarantine_channel_id if (account_type == 'agent' and quarantine_ready) else None,
+                'registration_hint': registration_hint,
                 'message': f'Account created. Use the api_key for MCP/API authentication.'
                     + (
                         ' Poll GET /api/auth/status until status is "active". '
@@ -2603,6 +2898,7 @@ def create_api_blueprint() -> Blueprint:
                             else ''
                         )
                     )
+                    + (f' {registration_hint}' if registration_hint else '')
             }), 201
             
         except Exception as e:
@@ -3586,7 +3882,8 @@ def create_api_blueprint() -> Blueprint:
             if not isinstance(permissions_raw, list):
                 return jsonify({'error': 'permissions must be a list'}), 400
 
-            # Omitted/empty permissions default to the common agent scope.
+            # Omitted/empty permissions default to the active meshspace's
+            # agent template, falling back to the conservative baseline.
             if not permissions_raw:
                 permissions = _default_agent_api_permissions()
                 permissions_list = [p.value for p in permissions]

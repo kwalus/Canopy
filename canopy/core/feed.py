@@ -233,6 +233,7 @@ def _repost_embed_from_original(original: Post) -> Dict[str, Any]:
         video_url = str(meta.get('video_url') or '').strip()
         if video_url:
             embed['video_url'] = video_url
+            embed['video_type'] = str(meta.get('video_type') or 'video/mp4').strip() or 'video/mp4'
     elif pt == PostType.AUDIO:
         audio_url = str(meta.get('audio_url') or '').strip()
         if audio_url:
