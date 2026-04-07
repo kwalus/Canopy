@@ -3194,9 +3194,31 @@ def create_api_blueprint() -> Blueprint:
             return jsonify({'error': 'P2P event loop unavailable'}), 500
 
         from ..network.invite import canonicalize_invite_endpoint, parse_invite_endpoint
+        import ipaddress
+
+        def _endpoint_priority(endpoint: str) -> tuple[int, str]:
+            parsed = parse_invite_endpoint(endpoint)
+            if not parsed:
+                return (99, endpoint)
+            host, _, scheme = parsed
+            text = str(host or '').strip().lower()
+            if not text:
+                return (99, endpoint)
+            if text == 'localhost' or text.startswith('127.'):
+                return (3, endpoint)
+            try:
+                ip = ipaddress.ip_address(text)
+            except ValueError:
+                return (0 if scheme == 'wss' else 1, endpoint)
+            if ip.is_loopback or ip.is_unspecified:
+                return (3, endpoint)
+            if ip.is_private or ip.is_link_local:
+                return (2, endpoint)
+            return (0 if scheme == 'wss' else 1, endpoint)
 
         direct_attempt_count = 0
-        endpoints: list[str] = []
+        discovered_endpoints: list[str] = []
+        non_discovered_endpoints: list[str] = []
         seen_endpoints: set[str] = set()
         for group in (
             intro.get('endpoints', []),
@@ -3209,7 +3231,7 @@ def create_api_blueprint() -> Blueprint:
                 if not canon or canon in seen_endpoints:
                     continue
                 seen_endpoints.add(canon)
-                endpoints.append(canon)
+                non_discovered_endpoints.append(canon)
         get_discovered = getattr(p2p_manager, '_get_discovered_peer_endpoints', None)
         if callable(get_discovered):
             try:
@@ -3218,9 +3240,10 @@ def create_api_blueprint() -> Blueprint:
                     if not canon or canon in seen_endpoints:
                         continue
                     seen_endpoints.add(canon)
-                    endpoints.insert(0, canon)
+                    discovered_endpoints.append(canon)
             except Exception:
                 pass
+        endpoints = discovered_endpoints + sorted(non_discovered_endpoints, key=_endpoint_priority)
 
         broker_candidates = []
         get_broker_candidates = getattr(p2p_manager, 'get_introduced_peer_broker_candidates', None)
@@ -3451,7 +3474,57 @@ def create_api_blueprint() -> Blueprint:
             })
 
         im = p2p_manager.identity_manager
-        endpoints = im.peer_endpoints.get(peer_id, [])
+        endpoints: list[str] = []
+        seen_endpoints: set[str] = set()
+        if not endpoints:
+            stored_endpoints = list(im.peer_endpoints.get(peer_id, []) or [])
+            discovered_endpoints: list[str] = []
+            get_discovered = getattr(p2p_manager, '_get_discovered_peer_endpoints', None)
+            if callable(get_discovered):
+                try:
+                    discovered_endpoints = list(get_discovered(peer_id) or [])
+                except Exception:
+                    discovered_endpoints = []
+
+            from ..network.invite import canonicalize_invite_endpoint, parse_invite_endpoint
+            import ipaddress
+
+            def _endpoint_priority(endpoint: str) -> tuple[int, str]:
+                parsed = parse_invite_endpoint(endpoint)
+                if not parsed:
+                    return (99, endpoint)
+                host, _, scheme = parsed
+                text = str(host or '').strip().lower()
+                if not text:
+                    return (99, endpoint)
+                if text == 'localhost' or text.startswith('127.'):
+                    return (3, endpoint)
+                try:
+                    ip = ipaddress.ip_address(text)
+                except ValueError:
+                    return (0 if scheme == 'wss' else 1, endpoint)
+                if ip.is_loopback or ip.is_unspecified:
+                    return (3, endpoint)
+                if ip.is_private or ip.is_link_local:
+                    return (2, endpoint)
+                return (0 if scheme == 'wss' else 1, endpoint)
+
+            for endpoint in discovered_endpoints:
+                canon = canonicalize_invite_endpoint(endpoint)
+                if not canon or canon in seen_endpoints:
+                    continue
+                seen_endpoints.add(canon)
+                endpoints.append(canon)
+
+            stored_canonical = []
+            for endpoint in stored_endpoints:
+                canon = canonicalize_invite_endpoint(endpoint)
+                if not canon or canon in seen_endpoints:
+                    continue
+                seen_endpoints.add(canon)
+                stored_canonical.append(canon)
+            endpoints.extend(sorted(stored_canonical, key=_endpoint_priority))
+
         if not endpoints:
             return jsonify({'error': 'No known endpoints for this peer'}), 400
 

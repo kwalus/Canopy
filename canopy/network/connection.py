@@ -619,7 +619,7 @@ class ConnectionManager:
         if normalized_scheme not in ('ws', 'wss'):
             normalized_scheme = ''
 
-        logger.info(f"Connecting to peer {peer_id} at {address}:{port}...")
+        logger.debug(f"Connecting to peer {peer_id} at {address}:{port}...")
         
         # Create connection object
         connection = PeerConnection(
@@ -698,7 +698,7 @@ class ConnectionManager:
 
         except (TimeoutError, asyncio.TimeoutError):
             # Expected when trying stale/unreachable addresses; we try other addresses or retry
-            logger.info(
+            logger.debug(
                 f"Connection to {peer_id} at {address}:{port} timed out "
                 "(will try other addresses or retry)"
             )
@@ -734,7 +734,8 @@ class ConnectionManager:
             websocket: WebSocket connection
             path: Request path (provided by some websockets versions)
         """
-        logger.info(f"Incoming connection from {websocket.remote_address}")
+        remote_address = getattr(websocket, 'remote_address', None)
+        logger.debug(f"Incoming connection from {remote_address}")
         
         try:
             # First message should be handshake with peer ID and signature
@@ -743,7 +744,7 @@ class ConnectionManager:
             
             peer_id = handshake_data.get('peer_id')
             if not peer_id:
-                logger.warning("Handshake missing peer_id")
+                logger.debug("Handshake missing peer_id from %s", remote_address)
                 await websocket.close()
                 return
 
@@ -893,7 +894,7 @@ class ConnectionManager:
                 await websocket.close()
                 
         except asyncio.TimeoutError:
-            logger.warning("Handshake timeout")
+            logger.debug("Handshake timeout from %s", remote_address)
             try:
                 await websocket.close()
             except Exception:
@@ -1104,8 +1105,8 @@ class ConnectionManager:
             return True
             
         except Exception as e:
-            if isinstance(e, websockets.exceptions.ConnectionClosedOK):
-                logger.info(f"Handshake closed cleanly with {connection.peer_id}: {e}")
+            if isinstance(e, websockets.exceptions.ConnectionClosed):
+                logger.debug(f"Handshake with {connection.peer_id} closed by remote: {e}")
             else:
                 logger.error(f"Handshake failed: {e}", exc_info=True)
             connection.failure_reason = type(e).__name__

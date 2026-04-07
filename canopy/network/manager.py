@@ -2939,7 +2939,7 @@ class P2PNetworkManager:
                     via_peer=via_peer_id,
                 )
             else:
-                logger.warning(
+                logger.info(
                     f"Broker request via {via_peer_id} for {target_peer_id} "
                     f"was not routed immediately"
                 )

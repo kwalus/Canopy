@@ -254,6 +254,39 @@ class TestApiSessionFallback(unittest.TestCase):
         self.assertEqual(payload.get('relay_via'), 'relay-1')
         self.assertEqual(payload.get('relay_via_name'), 'Relay Node')
 
+    def test_reconnect_prefers_public_endpoint_over_stale_lan_history(self) -> None:
+        csrf_token = 'csrf-reconnect-order'
+        self._set_authenticated_session(csrf_token=csrf_token)
+        self.p2p_manager._event_loop = MagicMock()
+        self.p2p_manager._event_loop.is_closed.return_value = False
+        self.p2p_manager.identity_manager.peer_endpoints = {
+            'peer-beta': ['ws://192.168.1.159:7771', 'wss://vps.example.com:443']
+        }
+
+        class _ImmediateFuture:
+            def __init__(self, result):
+                self._result = result
+
+            def result(self, timeout=None):
+                return self._result
+
+        with patch(
+            'asyncio.run_coroutine_threadsafe',
+            side_effect=[_ImmediateFuture(False), _ImmediateFuture(True)],
+        ):
+            response = self.client.post(
+                '/api/v1/p2p/reconnect',
+                json={'peer_id': 'peer-beta'},
+                headers={'X-CSRFToken': csrf_token},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        call_args = self.p2p_manager.connection_manager.connect_to_peer.call_args_list
+        self.assertEqual(call_args[0].args[1:], ('vps.example.com', 443))
+        self.assertEqual(call_args[0].kwargs.get('scheme'), 'wss')
+        self.assertEqual(call_args[1].args[1:], ('192.168.1.159', 7771))
+        self.assertEqual(call_args[1].kwargs.get('scheme'), 'ws')
+
     def test_authorization_header_parses_lowercase_bearer_scheme(self) -> None:
         key_info = ApiKeyInfo(
             id='key-test',

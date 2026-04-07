@@ -218,6 +218,26 @@ class TestConnectIntroducedBrokerFallback(unittest.TestCase):
         self.assertEqual(payload.get('attempted_brokers'), ['broker-a'])
         run_coro.assert_not_called()
 
+    def test_connect_introduced_prefers_public_endpoint_over_stale_lan_history(self) -> None:
+        peer_id = 'peer-target'
+        self.p2p_manager._introduced_peers[peer_id] = {
+            'peer_id': peer_id,
+            'endpoints': ['ws://192.168.1.159:7771', 'wss://vps.example.com:443'],
+        }
+
+        with patch(
+            'asyncio.run_coroutine_threadsafe',
+            side_effect=[_ImmediateFuture(False), _ImmediateFuture(True)],
+        ):
+            response = self._post_connect_introduced(peer_id)
+
+        self.assertEqual(response.status_code, 200)
+        call_args = self.p2p_manager.connection_manager.connect_to_peer.call_args_list
+        self.assertEqual(call_args[0].args[1:], ('vps.example.com', 443))
+        self.assertEqual(call_args[0].kwargs.get('scheme'), 'wss')
+        self.assertEqual(call_args[1].args[1:], ('192.168.1.159', 7771))
+        self.assertEqual(call_args[1].kwargs.get('scheme'), 'ws')
+
 
 if __name__ == '__main__':
     unittest.main()
