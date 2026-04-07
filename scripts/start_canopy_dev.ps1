@@ -1,10 +1,11 @@
-# Start Canopy-Dev with local data dir. Default mode is silent/detached.
+# Start Canopy with local data dir. Default mode is silent/detached.
 param(
-    [string]$RepoPath = "d:\Dropbox\Python Toolbox\Canopy",
+    [string]$RepoPath = (Split-Path $PSScriptRoot -Parent),
     [switch]$Console
 )
 
-$env:CANOPY_DATA_DIR = "C:\Users\konra\canopy_data"
+$dataDir = if ($env:CANOPY_DATA_DIR) { $env:CANOPY_DATA_DIR } else { Join-Path $env:LOCALAPPDATA "Canopy" }
+$env:CANOPY_DATA_DIR = $dataDir
 Set-Location $RepoPath
 $logPath = Join-Path $RepoPath "canopy_console.log"
 
@@ -30,7 +31,7 @@ for key in (
     "CANOPY_DISCOVERY_PORT",
 ):
     env.pop(key, None)
-env["CANOPY_DATA_DIR"] = r"C:\Users\konra\canopy_data"
+env["CANOPY_DATA_DIR"] = r"$dataDir"
 python_exe = sys.executable
 candidate = pathlib.Path(python_exe)
 if candidate.name.lower() == "python.exe":
