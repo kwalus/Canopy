@@ -257,20 +257,20 @@ class TestConnectionDiagnosticsEndpoint(unittest.TestCase):
         """Known but disconnected peers should still appear with endpoint diagnostics."""
         self.p2p_manager.identity_manager.known_peers = {'peer-abc': object()}
         self.p2p_manager.identity_manager.peer_endpoints = {
-            'peer-abc': ['ws://192.168.1.50:7771']
+            'peer-abc': ['ws://198.51.100.50:7771']
         }
         self.p2p_manager.get_discovered_peers.return_value = [
             {
                 'peer_id': 'peer-abc',
-                'address': '192.168.1.50',
-                'addresses': ['192.168.1.50'],
+                'address': '198.51.100.50',
+                'addresses': ['198.51.100.50'],
                 'port': 7771,
                 'connected': False,
             }
         ]
         self.p2p_manager.get_peer_endpoint_diagnostics.side_effect = lambda peer_id: (
             [{
-                'endpoint': 'ws://192.168.1.50:7771',
+                'endpoint': 'ws://198.51.100.50:7771',
                 'sources': ['stored', 'discovered'],
                 'currently_connected': False,
                 'attempt_count': 2,

@@ -8,6 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-04-07
+
+### Fixed
+- **Manual reconnect and introduced-peer connect now prefer better public paths more consistently** — the user-triggered reconnect and introduced-peer dial routes now try discovered and public or tunnel endpoints before stale remembered LAN addresses, which makes operator-initiated recovery behave more like the improved background reconnect path.
+- **Expected reconnect and probe churn is less noisy in routine logs** — per-attempt outbound connect lines, connect timeouts, missing peer IDs from pre-handshake probes, and broker requests that simply were not routed immediately are now logged more quietly so real connection failures stand out better during catchup and internet-peer debugging.
+
+## [0.6.1] - 2026-04-07
+
+### Fixed
+- **Expected websocket handshake churn is quieter in logs** — early disconnects that happen before a peer finishes the websocket opening handshake no longer spray a scary library-level stack trace into server logs when the underlying condition is just a dropped or non-Canopy client connection.
+- **Reconnect now prefers learned public or tunnel endpoints over stale private addresses** — once Canopy has a reusable public callback path for a peer, stored reconnect attempts stop burning retries on older `192.168.*` endpoints before trying the internet-reachable address.
+- **Introduced-peer brokering is more truthful and useful for internet peers** — broker-only connect flows now require an actually connected broker candidate instead of treating historical introducers as live paths, and broker requests reuse the same advertised public or tunnel endpoints learned by the handshake path.
+
 ## [0.6.0] - 2026-04-06
 
 ### Changed

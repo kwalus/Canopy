@@ -420,14 +420,14 @@ class TestApiStreamEndpoints(unittest.TestCase):
                 'peer-remote',
                 json.dumps([{
                     'stream_id': 'remote-stream-ok',
-                    'host_addrs': ['http://10.0.0.5:7770'],
+                    'host_addrs': ['http://198.51.100.5:7770'],
                 }]),
                 datetime.now(timezone.utc).isoformat(),
             ),
         )
         self.conn.commit()
         self.p2p_manager.identity_manager.peer_endpoints = {
-            'peer-remote': ['10.0.0.5:7771'],
+            'peer-remote': ['198.51.100.5:7771'],
         }
         self._set_authenticated_session()
 
@@ -463,8 +463,8 @@ class TestApiStreamEndpoints(unittest.TestCase):
         self.assertEqual(
             called_urls,
             [
-                'http://10.0.0.5:7770/api/v1/streams/remote-stream-ok/manifest.m3u8',
-                'http://10.0.0.5:7770/api/v1/streams/remote-stream-ok/manifest.m3u8',
+                'http://198.51.100.5:7770/api/v1/streams/remote-stream-ok/manifest.m3u8',
+                'http://198.51.100.5:7770/api/v1/streams/remote-stream-ok/manifest.m3u8',
             ],
         )
 
@@ -484,7 +484,7 @@ class TestApiStreamEndpoints(unittest.TestCase):
         )
         self.conn.commit()
         self.p2p_manager.identity_manager.peer_endpoints = {
-            'peer-remote': ['10.0.0.5:7771'],
+            'peer-remote': ['198.51.100.5:7771'],
         }
         self._set_authenticated_session()
 
@@ -516,7 +516,7 @@ class TestApiStreamEndpoints(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         called_urls = [call.args[0] for call in mocked_urlopen.call_args_list]
         self.assertTrue(all('127.0.0.1' not in url for url in called_urls))
-        self.assertTrue(all('10.0.0.5' in url for url in called_urls))
+        self.assertTrue(all('198.51.100.5' in url for url in called_urls))
 
     def test_stream_proxy_segment_rejects_invalid_segment_name(self) -> None:
         self._set_authenticated_session()
@@ -534,14 +534,14 @@ class TestApiStreamEndpoints(unittest.TestCase):
                 'peer-remote',
                 json.dumps([{
                     'stream_id': 'remote-stream-segment',
-                    'host_addrs': ['http://10.0.0.5:7770'],
+                    'host_addrs': ['http://198.51.100.5:7770'],
                 }]),
                 datetime.now(timezone.utc).isoformat(),
             ),
         )
         self.conn.commit()
         self.p2p_manager.identity_manager.peer_endpoints = {
-            'peer-remote': ['10.0.0.5:7771'],
+            'peer-remote': ['198.51.100.5:7771'],
         }
         self._set_authenticated_session()
 

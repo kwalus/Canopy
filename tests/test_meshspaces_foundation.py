@@ -380,7 +380,7 @@ class MeshspaceFoundationTest(unittest.TestCase):
 
         blocked = self.client.get(
             '/api/v1/meshspace/shell_summary',
-            environ_overrides={'REMOTE_ADDR': '10.0.0.8'},
+            environ_overrides={'REMOTE_ADDR': '203.0.113.8'},
         )
         self.assertEqual(blocked.status_code, 403)
 
@@ -1046,9 +1046,9 @@ class MeshspaceFoundationTest(unittest.TestCase):
                 'launch_url': 'http://127.0.0.1:7800',
             },
             current_meshspace_id='family-lab',
-            request_host='192.168.1.77',
+            request_host='198.51.100.77',
         )
-        self.assertEqual(target, 'http://192.168.1.77:7800/login')
+        self.assertEqual(target, 'http://198.51.100.77:7800/login')
 
     def test_meshspace_open_shows_stale_runtime_copy_when_registry_is_stale(self) -> None:
         self._authenticate()
