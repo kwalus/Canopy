@@ -114,16 +114,16 @@ class TestConnectionLogNoiseRegressions(unittest.IsolatedAsyncioTestCase):
         manager._record_handshake_peerid_mismatch(
             expected_peer_id='peer-expected',
             actual_peer_id='peer-actual',
-            endpoint_uri='ws://192.168.1.50:7771/p2p',
+            endpoint_uri='ws://198.51.100.50:7771/p2p',
         )
 
         self.assertEqual(
             identity_manager.removed,
-            [('peer-expected', 'ws://192.168.1.50:7771')],
+            [('peer-expected', 'ws://198.51.100.50:7771')],
         )
         self.assertEqual(
             identity_manager.recorded,
-            [('peer-actual', 'ws://192.168.1.50:7771', True)],
+            [('peer-actual', 'ws://198.51.100.50:7771', True)],
         )
 
 

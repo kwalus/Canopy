@@ -93,7 +93,7 @@ class _FakeP2PManager:
         return [
             {
                 'peer_id': 'peer-alpha',
-                'address': '192.168.1.11',
+                'address': '198.51.100.11',
                 'port': 7771,
                 'connected': True,
             }
