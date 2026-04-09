@@ -96,9 +96,9 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
             ed25519_public_key_b58='11111111111111111111111111111111',
             x25519_public_key_b58='11111111111111111111111111111111',
             endpoints=[
-                ' ws://192.168.1.50:7771 ',
+                ' ws://198.51.100.50:7771 ',
                 'ws://[2001:db8::10]:7771',
-                'ws://192.168.1.50:7771',
+                'ws://198.51.100.50:7771',
                 'localhost:7771',
                 'ws://0.0.0.0:7771',
                 'not-an-endpoint',
@@ -109,11 +109,11 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             identity_manager.peer_endpoints.get('peer-remote'),
-            ['ws://192.168.1.50:7771', 'ws://[2001:db8::10]:7771'],
+            ['ws://198.51.100.50:7771', 'ws://[2001:db8::10]:7771'],
         )
         self.assertEqual(
             imported['endpoints'],
-            ['ws://192.168.1.50:7771', 'ws://[2001:db8::10]:7771'],
+            ['ws://198.51.100.50:7771', 'ws://[2001:db8::10]:7771'],
         )
 
     def test_generate_invite_accepts_explicit_external_mesh_endpoint(self) -> None:
@@ -162,15 +162,15 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
         zeroconf = _FakeZeroconf(
             _FakeServiceInfo(
                 peer_id='peer-remote',
-                addresses=[b'\x0a\x00\x00\x02', b'\xc0\xa8\x01\x64'],
+                addresses=[b'\xc0\x00\x02\x02', b'\xc6\x33\x64\x64'],
             )
         )
 
         discovery._on_service_added(zeroconf, discovery.service_type, 'peer-remote._canopy._tcp.local.')
 
         self.assertEqual(len(captured), 1)
-        self.assertEqual(captured[0].address, '10.0.0.2')
-        self.assertEqual(captured[0].addresses, ['10.0.0.2', '192.168.1.100'])
+        self.assertEqual(captured[0].address, '192.0.2.2')
+        self.assertEqual(captured[0].addresses, ['192.0.2.2', '198.51.100.100'])
 
     async def test_connect_to_discovered_peer_tries_all_advertised_addresses(self) -> None:
         manager = self._build_manager()
@@ -179,7 +179,7 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
 
         async def _connect(peer_id: str, endpoint: str) -> bool:
             attempts.append(endpoint)
-            return endpoint.endswith('192.168.1.100:7771')
+            return endpoint.endswith('198.51.100.100:7771')
 
         async def _sync(peer_id: str) -> None:
             sync_calls.append(peer_id)
@@ -190,8 +190,8 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
 
         peer = DiscoveredPeer(
             peer_id='peer-remote',
-            address='10.0.0.2',
-            addresses=['10.0.0.2', '192.168.1.100'],
+            address='192.0.2.2',
+            addresses=['192.0.2.2', '198.51.100.100'],
             port=7771,
             discovered_at=0.0,
         )
@@ -200,7 +200,7 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             attempts,
-            ['ws://10.0.0.2:7771', 'ws://192.168.1.100:7771'],
+            ['ws://192.0.2.2:7771', 'ws://198.51.100.100:7771'],
         )
         self.assertEqual(sync_calls, ['peer-remote'])
 
@@ -272,7 +272,7 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
     async def test_peer_announcement_uses_stored_endpoints_not_socket_origin(self) -> None:
         manager = self._build_manager()
         manager.identity_manager.peer_display_names['peer-remote'] = 'Remote Node'
-        manager.identity_manager.peer_endpoints['peer-remote'] = ['ws://192.168.1.55:7771']
+        manager.identity_manager.peer_endpoints['peer-remote'] = ['ws://198.51.100.55:7771']
         manager.identity_manager.known_peers['peer-remote'] = types.SimpleNamespace(
             ed25519_public_key=b'1' * 32,
             x25519_public_key=b'2' * 32,
@@ -298,7 +298,7 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(captured), 1)
         self.assertEqual(
             captured[0][0]['endpoints'],
-            ['ws://192.168.1.55:7771'],
+            ['ws://198.51.100.55:7771'],
         )
 
     def test_current_connection_endpoint_preserves_wss_scheme_from_endpoint_uri(self) -> None:
@@ -414,7 +414,7 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
     def test_connectable_endpoints_prefer_public_over_stale_private_storage(self) -> None:
         manager = self._build_manager()
         manager.identity_manager.peer_endpoints['peer-remote'] = [
-            'ws://192.168.1.159:7771',
+            'ws://198.51.100.159:7771',
             'wss://vps.example.com:443',
         ]
 
@@ -422,7 +422,7 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             endpoints,
-            ['wss://vps.example.com:443', 'ws://192.168.1.159:7771'],
+            ['wss://vps.example.com:443', 'ws://198.51.100.159:7771'],
         )
 
     async def test_reconnect_keeps_retrying_after_backoff_cap(self) -> None:
@@ -432,7 +432,7 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
         manager.connection_manager = types.SimpleNamespace(
             is_connected=lambda _peer_id: False
         )
-        manager.identity_manager.peer_endpoints['peer-remote'] = ['ws://192.168.1.50:7771']
+        manager.identity_manager.peer_endpoints['peer-remote'] = ['ws://198.51.100.50:7771']
         manager._record_connection_event = lambda *args, **kwargs: None  # type: ignore[assignment]
 
         async def _connect_to_endpoint(peer_id: str, endpoint: str) -> bool:
@@ -470,12 +470,12 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
     async def test_startup_reconnect_prefers_discovered_endpoints_over_stale_persisted(self) -> None:
         manager = self._build_manager()
         manager.identity_manager.known_peers['peer-remote'] = types.SimpleNamespace()
-        manager.identity_manager.peer_endpoints['peer-remote'] = ['ws://10.0.0.2:7771']
+        manager.identity_manager.peer_endpoints['peer-remote'] = ['ws://192.0.2.2:7771']
         manager.discovery = types.SimpleNamespace(
             get_peer=lambda peer_id: DiscoveredPeer(
                 peer_id=peer_id,
-                address='192.168.1.100',
-                addresses=['192.168.1.100'],
+                address='198.51.100.100',
+                addresses=['198.51.100.100'],
                 port=7771,
                 discovered_at=0.0,
             )
@@ -486,7 +486,7 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
 
         async def _connect(peer_id: str, endpoint: str) -> bool:
             attempts.append(endpoint)
-            if endpoint == 'ws://192.168.1.100:7771':
+            if endpoint == 'ws://198.51.100.100:7771':
                 connected_peers.add(peer_id)
                 return True
             return False
@@ -509,10 +509,10 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
             await manager._reconnect_known_peers()
         await original_sleep(0)
 
-        self.assertEqual(attempts, ['ws://192.168.1.100:7771'])
+        self.assertEqual(attempts, ['ws://198.51.100.100:7771'])
         self.assertEqual(sync_calls, ['peer-remote'])
         self.assertIn(
-            'ws://192.168.1.100:7771',
+            'ws://198.51.100.100:7771',
             manager.identity_manager.peer_endpoints.get('peer-remote', []),
         )
 

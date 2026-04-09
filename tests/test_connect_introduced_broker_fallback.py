@@ -106,7 +106,7 @@ class TestConnectIntroducedBrokerFallback(unittest.TestCase):
         peer_id = 'peer-target'
         self.p2p_manager._introduced_peers[peer_id] = {
             'peer_id': peer_id,
-            'endpoints': ['ws://10.10.10.10:7771'],
+            'endpoints': ['ws://203.0.113.10:7771'],
             'introduced_by': 'broker-a',
             'introduced_via': ['broker-a', 'broker-b'],
         }
@@ -131,7 +131,7 @@ class TestConnectIntroducedBrokerFallback(unittest.TestCase):
         peer_id = 'peer-target'
         self.p2p_manager._introduced_peers[peer_id] = {
             'peer_id': peer_id,
-            'endpoints': ['ws://10.10.10.10:7771'],
+            'endpoints': ['ws://203.0.113.10:7771'],
             'introduced_by': 'offline-broker',
         }
         self.p2p_manager.get_connected_peers.return_value = ['online-broker']
@@ -154,7 +154,7 @@ class TestConnectIntroducedBrokerFallback(unittest.TestCase):
         peer_id = 'peer-target'
         self.p2p_manager._introduced_peers[peer_id] = {
             'peer_id': peer_id,
-            'endpoints': ['ws://10.10.10.10:7771'],
+            'endpoints': ['ws://203.0.113.10:7771'],
             'introduced_by': 'offline-broker',
             'introduced_via': ['offline-broker', 'offline-broker-2'],
         }
@@ -197,7 +197,7 @@ class TestConnectIntroducedBrokerFallback(unittest.TestCase):
         peer_id = 'peer-target'
         self.p2p_manager._introduced_peers[peer_id] = {
             'peer_id': peer_id,
-            'endpoints': ['ws://10.10.10.10:7771'],
+            'endpoints': ['ws://203.0.113.10:7771'],
             'introduced_via': ['broker-a'],
         }
         self.p2p_manager.get_connected_peers.return_value = ['broker-a']
@@ -222,7 +222,7 @@ class TestConnectIntroducedBrokerFallback(unittest.TestCase):
         peer_id = 'peer-target'
         self.p2p_manager._introduced_peers[peer_id] = {
             'peer_id': peer_id,
-            'endpoints': ['ws://192.168.1.159:7771', 'wss://vps.example.com:443'],
+            'endpoints': ['ws://198.51.100.159:7771', 'wss://vps.example.com:443'],
         }
 
         with patch(
@@ -235,7 +235,7 @@ class TestConnectIntroducedBrokerFallback(unittest.TestCase):
         call_args = self.p2p_manager.connection_manager.connect_to_peer.call_args_list
         self.assertEqual(call_args[0].args[1:], ('vps.example.com', 443))
         self.assertEqual(call_args[0].kwargs.get('scheme'), 'wss')
-        self.assertEqual(call_args[1].args[1:], ('192.168.1.159', 7771))
+        self.assertEqual(call_args[1].args[1:], ('198.51.100.159', 7771))
         self.assertEqual(call_args[1].kwargs.get('scheme'), 'ws')
 
 

@@ -260,7 +260,7 @@ class TestApiSessionFallback(unittest.TestCase):
         self.p2p_manager._event_loop = MagicMock()
         self.p2p_manager._event_loop.is_closed.return_value = False
         self.p2p_manager.identity_manager.peer_endpoints = {
-            'peer-beta': ['ws://192.168.1.159:7771', 'wss://vps.example.com:443']
+            'peer-beta': ['ws://198.51.100.159:7771', 'wss://vps.example.com:443']
         }
 
         class _ImmediateFuture:
@@ -284,7 +284,7 @@ class TestApiSessionFallback(unittest.TestCase):
         call_args = self.p2p_manager.connection_manager.connect_to_peer.call_args_list
         self.assertEqual(call_args[0].args[1:], ('vps.example.com', 443))
         self.assertEqual(call_args[0].kwargs.get('scheme'), 'wss')
-        self.assertEqual(call_args[1].args[1:], ('192.168.1.159', 7771))
+        self.assertEqual(call_args[1].args[1:], ('198.51.100.159', 7771))
         self.assertEqual(call_args[1].kwargs.get('scheme'), 'ws')
 
     def test_authorization_header_parses_lowercase_bearer_scheme(self) -> None:
