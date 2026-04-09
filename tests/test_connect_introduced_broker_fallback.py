@@ -49,6 +49,8 @@ class TestConnectIntroducedBrokerFallback(unittest.TestCase):
         self.p2p_manager.get_peer_id.return_value = 'local-peer'
         self.p2p_manager.get_connected_peers.return_value = []
         self.p2p_manager.send_broker_request.return_value = False
+        self.p2p_manager.get_introduced_peer_broker_candidates = MagicMock(return_value=[])
+        self.p2p_manager.identity_manager = types.SimpleNamespace(peer_endpoints={})
 
         self.p2p_manager.connection_manager = MagicMock()
         self.p2p_manager.connection_manager.connect_to_peer = MagicMock()
@@ -167,10 +169,29 @@ class TestConnectIntroducedBrokerFallback(unittest.TestCase):
         self.assertEqual(payload.get('status'), 'failed')
         self.assertEqual(payload.get('relay_policy'), 'broker_only')
         self.assertIn('Relay policy is broker_only', payload.get('message', ''))
-        self.assertEqual(
-            payload.get('attempted_brokers'),
-            ['offline-broker', 'offline-broker-2'],
-        )
+        self.assertEqual(payload.get('attempted_brokers'), [])
+
+    def test_connect_introduced_without_direct_endpoints_uses_broker(self) -> None:
+        peer_id = 'peer-target'
+        self.p2p_manager._introduced_peers[peer_id] = {
+            'peer_id': peer_id,
+            'endpoints': [],
+            'introduced_by': 'broker-a',
+            'introduced_via': ['broker-a'],
+        }
+        self.p2p_manager.get_introduced_peer_broker_candidates.return_value = ['broker-a']
+        self.p2p_manager.send_broker_request.return_value = True
+
+        response = self._post_connect_introduced(peer_id)
+
+        self.assertEqual(response.status_code, 202)
+        payload = response.get_json() or {}
+        self.assertEqual(payload.get('status'), 'brokering')
+        self.assertEqual(payload.get('via_peer'), 'broker-a')
+        self.assertEqual(payload.get('diagnostic_code'), 'introduced_peer_broker_connect')
+        self.assertFalse(payload.get('direct_attempted'))
+        self.assertEqual(payload.get('direct_attempt_count'), 0)
+        self.assertIn('No direct endpoints were announced', payload.get('message', ''))
 
     def test_connect_introduced_force_broker_skips_direct_attempts(self) -> None:
         peer_id = 'peer-target'
@@ -196,6 +217,26 @@ class TestConnectIntroducedBrokerFallback(unittest.TestCase):
         self.assertEqual(payload.get('direct_attempt_count'), 0)
         self.assertEqual(payload.get('attempted_brokers'), ['broker-a'])
         run_coro.assert_not_called()
+
+    def test_connect_introduced_prefers_public_endpoint_over_stale_lan_history(self) -> None:
+        peer_id = 'peer-target'
+        self.p2p_manager._introduced_peers[peer_id] = {
+            'peer_id': peer_id,
+            'endpoints': ['ws://192.168.1.159:7771', 'wss://vps.example.com:443'],
+        }
+
+        with patch(
+            'asyncio.run_coroutine_threadsafe',
+            side_effect=[_ImmediateFuture(False), _ImmediateFuture(True)],
+        ):
+            response = self._post_connect_introduced(peer_id)
+
+        self.assertEqual(response.status_code, 200)
+        call_args = self.p2p_manager.connection_manager.connect_to_peer.call_args_list
+        self.assertEqual(call_args[0].args[1:], ('vps.example.com', 443))
+        self.assertEqual(call_args[0].kwargs.get('scheme'), 'wss')
+        self.assertEqual(call_args[1].args[1:], ('192.168.1.159', 7771))
+        self.assertEqual(call_args[1].kwargs.get('scheme'), 'ws')
 
 
 if __name__ == '__main__':

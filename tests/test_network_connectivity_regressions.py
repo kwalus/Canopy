@@ -316,6 +316,115 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
             'wss://demo.ngrok-free.app:443',
         )
 
+    def test_incoming_authenticated_persists_peer_advertised_endpoints(self) -> None:
+        manager = self._build_manager()
+        manager._event_loop = None
+        manager._introduced_peers = {
+            'peer-remote': {
+                'peer_id': 'peer-remote',
+                'introduced_by': 'broker-a',
+                'endpoints': [],
+            }
+        }
+
+        manager._on_incoming_peer_authenticated(
+            'peer-remote',
+            {
+                'advertised_endpoints': ['wss://demo.example.com:443'],
+                'capabilities': [],
+            },
+        )
+
+        self.assertEqual(
+            manager.identity_manager.peer_endpoints.get('peer-remote'),
+            ['wss://demo.example.com:443'],
+        )
+        self.assertEqual(
+            manager._introduced_peers['peer-remote']['endpoints'],
+            ['wss://demo.example.com:443'],
+        )
+        self.assertIn(
+            'peer_advertised',
+            manager._introduced_peers['peer-remote'].get('endpoint_sources', []),
+        )
+
+    def test_get_introduced_peers_marks_broker_only_when_no_direct_endpoints(self) -> None:
+        manager = self._build_manager()
+        manager._introduced_peers = {
+            'peer-remote': {
+                'peer_id': 'peer-remote',
+                'introduced_by': 'broker-a',
+                'endpoints': [],
+            }
+        }
+        manager.get_connected_peers = lambda: ['broker-a']
+        manager.get_peer_id = lambda: 'local-peer'
+
+        introduced = manager.get_introduced_peers()
+
+        self.assertEqual(len(introduced), 1)
+        self.assertEqual(introduced[0]['connect_strategy'], 'broker_only')
+        self.assertEqual(introduced[0]['endpoint_sources'], ['none'])
+        self.assertEqual(introduced[0]['broker_candidates'], ['broker-a'])
+
+    def test_get_introduced_peers_marks_unreachable_without_connected_broker(self) -> None:
+        manager = self._build_manager()
+        manager._introduced_peers = {
+            'peer-remote': {
+                'peer_id': 'peer-remote',
+                'introduced_by': 'offline-broker',
+                'introduced_via': ['offline-broker'],
+                'endpoints': [],
+            }
+        }
+        manager.get_connected_peers = lambda: []
+        manager.get_peer_id = lambda: 'local-peer'
+
+        introduced = manager.get_introduced_peers()
+
+        self.assertEqual(len(introduced), 1)
+        self.assertEqual(introduced[0]['connect_strategy'], 'unreachable')
+        self.assertEqual(introduced[0]['broker_candidates'], [])
+
+    def test_send_broker_request_prefers_advertised_endpoints(self) -> None:
+        manager = self._build_manager()
+        manager._running = True
+        manager._event_loop = MagicMock()
+        manager.message_router = types.SimpleNamespace(send_broker_request=MagicMock())
+        manager.local_identity = types.SimpleNamespace(
+            peer_id='local-peer',
+            ed25519_public_key=b'\x01' * 32,
+            x25519_public_key=b'\x02' * 32,
+        )
+        manager._record_connection_event = lambda *args, **kwargs: None  # type: ignore[assignment]
+        manager._get_local_advertised_endpoints = lambda: ['wss://demo.example.com:443']  # type: ignore[assignment]
+
+        future = MagicMock()
+        future.result.return_value = True
+
+        with patch('asyncio.run_coroutine_threadsafe', return_value=future):
+            sent = manager.send_broker_request('peer-target', 'broker-a')
+
+        self.assertTrue(sent)
+        self.assertEqual(
+            manager.message_router.send_broker_request.call_args.kwargs['requester_endpoints'],
+            ['wss://demo.example.com:443'],
+        )
+
+    def test_connectable_endpoints_prefer_public_over_stale_private_storage(self) -> None:
+        manager = self._build_manager()
+        manager.identity_manager.peer_endpoints['peer-remote'] = [
+            'ws://192.168.1.159:7771',
+            'wss://vps.example.com:443',
+        ]
+
+        endpoints = manager._get_connectable_peer_endpoints('peer-remote', prefer_discovered=True)
+
+        self.assertEqual(
+            endpoints,
+            ['wss://vps.example.com:443', 'ws://192.168.1.159:7771'],
+        )
+
     async def test_reconnect_keeps_retrying_after_backoff_cap(self) -> None:
         manager = self._build_manager()
         manager._running = True

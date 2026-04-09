@@ -1033,6 +1033,7 @@ class P2PNetworkManager:
                 tls_cert_path=getattr(network_config, 'tls_cert_path', None),
                 tls_key_path=getattr(network_config, 'tls_key_path', None),
                 handshake_capabilities=self._local_capabilities,
+                advertised_endpoints_provider=self._get_local_advertised_endpoints,
                 canopy_version=self.local_canopy_version,
                 protocol_version=self.local_protocol_version,
                 reject_protocol_mismatch=bool(
@@ -1345,6 +1346,23 @@ class P2PNetworkManager:
             return stored
         return self._get_discovered_peer_endpoints(peer_id)
 
+    def _get_local_advertised_endpoints(self) -> list[str]:
+        """Return local endpoints safe to advertise during handshake."""
+        if not self.identity_manager or not self.identity_manager.local_identity:
+            return []
+        try:
+            from .invite import generate_invite
+
+            mesh_port = int(getattr(self.config.network, 'mesh_port', 0) or 0)
+            if mesh_port <= 0:
+                return []
+            invite = generate_invite(self.identity_manager, mesh_port)
+            local_peer_id = self.local_identity.peer_id if self.local_identity else ''
+            return self._sanitize_endpoints(local_peer_id, list(invite.endpoints or []))
+        except Exception as exc:
+            logger.debug("Could not compute local advertised endpoints: %s", exc)
+            return []
+
     @staticmethod
     def _merge_endpoint_lists(*endpoint_groups: list[str]) -> list[str]:
         """Merge endpoint lists while preserving order and removing duplicates."""
@@ -1357,6 +1375,33 @@ class P2PNetworkManager:
                 seen.add(endpoint)
                 merged.append(endpoint)
         return merged
+
+    @staticmethod
+    def _endpoint_reconnect_priority(endpoint: str) -> tuple[int, str]:
+        """Prefer public/tunnel endpoints over stale private remembered ones."""
+        parsed = P2PNetworkManager._parse_endpoint(endpoint)
+        if not parsed:
+            return (99, endpoint)
+        host, _, scheme = parsed
+        text = str(host or '').strip().lower()
+        if not text:
+            return (99, endpoint)
+        if text == 'localhost' or text.startswith('127.'):
+            return (3, endpoint)
+
+        try:
+            import ipaddress
+
+            ip = ipaddress.ip_address(text)
+            if ip.is_loopback or ip.is_unspecified:
+                return (3, endpoint)
+            if ip.is_private or ip.is_link_local:
+                return (2, endpoint)
+            return (0 if scheme == 'wss' else 1, endpoint)
+        except ValueError:
+            # Hostnames and tunnel domains are typically the best reconnect path
+            # once discovery is no longer giving us a live LAN address.
+            return (0 if scheme == 'wss' else 1, endpoint)
 
     def _get_connectable_peer_endpoints(self, peer_id: str, prefer_discovered: bool = True) -> list[str]:
         """Return the best available endpoints for dialing a peer.
@@ -1371,6 +1416,7 @@ class P2PNetworkManager:
         if stored != self.identity_manager.peer_endpoints.get(peer_id, []):
             self.identity_manager.peer_endpoints[peer_id] = stored
             self.identity_manager._save_known_peers()
+        stored = sorted(stored, key=self._endpoint_reconnect_priority)
         discovered = self._get_discovered_peer_endpoints(peer_id)
         if discovered:
             self._remember_discovered_peer_endpoints(peer_id)
@@ -1401,6 +1447,67 @@ class P2PNetworkManager:
                 peer_id,
             )
         return endpoints
+
+    def _remember_peer_advertised_endpoints(
+        self,
+        peer_id: str,
+        endpoints: list[str],
+        *,
+        source: str = 'peer_advertised',
+    ) -> list[str]:
+        """Persist explicit dial-back endpoints announced by an authenticated peer."""
+        clean_peer_id = str(peer_id or '').strip()
+        if not clean_peer_id:
+            return []
+        sanitized = self._sanitize_endpoints(clean_peer_id, endpoints or [])
+        if not sanitized:
+            return []
+
+        existing = list(self.identity_manager.peer_endpoints.get(clean_peer_id, []) or [])
+        merged = self._merge_endpoint_lists(existing, sanitized)
+        if merged != existing:
+            self.identity_manager.peer_endpoints[clean_peer_id] = merged
+            self.identity_manager._save_known_peers()
+            logger.info(
+                "Recorded %d advertised endpoint(s) for %s via %s",
+                len(sanitized),
+                clean_peer_id,
+                source,
+            )
+
+        introduced = self._introduced_peers.get(clean_peer_id)
+        if isinstance(introduced, dict):
+            prior_sources = list(introduced.get('endpoint_sources') or [])
+            if source and source not in prior_sources:
+                prior_sources.append(source)
+            introduced['endpoint_sources'] = prior_sources
+            introduced['endpoint_provenance'] = source
+            introduced['endpoints'] = self._merge_endpoint_lists(
+                list(introduced.get('endpoints') or []),
+                sanitized,
+            )
+        return sanitized
+
+    def _remember_live_peer_endpoints(self, peer_id: str) -> list[str]:
+        """Persist reusable endpoints learned from the authenticated live connection."""
+        if not self.connection_manager or not peer_id:
+            return []
+        conn = self.connection_manager.get_connection(peer_id)
+        if not conn:
+            return []
+
+        advertised = list(getattr(conn, 'advertised_endpoints', []) or [])
+        remembered = self._remember_peer_advertised_endpoints(peer_id, advertised)
+        if remembered:
+            return remembered
+
+        introduced = self._introduced_peers.get(peer_id) if hasattr(self, '_introduced_peers') else None
+        if isinstance(introduced, dict) and not introduced.get('endpoints'):
+            logger.info(
+                "Peer %s is connected but has no reusable advertised endpoints; introductions may require broker fallback",
+                peer_id,
+            )
+        return []
 
     def _record_endpoint_result(
         self,
@@ -1872,6 +1979,14 @@ class P2PNetworkManager:
             status='connected',
             detail='Incoming connection authenticated',
         )
+        if isinstance(peer_meta, dict):
+            try:
+                self._remember_peer_advertised_endpoints(
+                    peer_id,
+                    list(peer_meta.get('advertised_endpoints') or []),
+                )
+            except Exception:
+                pass
         # Do not invent reconnect endpoints from socket origin addresses. Only
         # persist discovery-derived endpoints, which are authoritative enough
         # to survive reconnects and peer announcements.
@@ -2029,6 +2144,7 @@ class P2PNetworkManager:
             # Only cancel reconnect once the current connection has survived the
             # settle window; otherwise a brief flap can strand the peer.
             self._cancel_reconnect(peer_id)
+            self._remember_live_peer_endpoints(peer_id)
 
             # Notify application layer
             if self.on_peer_connected:
@@ -2214,6 +2330,12 @@ class P2PNetworkManager:
                 if not identity:
                     continue
                 endpoints = self._get_advertisable_peer_endpoints(pid)
+                if not endpoints:
+                    logger.info(
+                        "Peer %s is connected but has no re-advertisable endpoints while announcing to %s; broker fallback may be required",
+                        pid,
+                        peer_id,
+                    )
                 device_profile = None
                 if self.get_peer_device_profile:
                     try:
@@ -2256,6 +2378,11 @@ class P2PNetworkManager:
             if not identity:
                 return
             endpoints = self._get_advertisable_peer_endpoints(new_peer_id)
+            if not endpoints:
+                logger.info(
+                    "New peer %s has no re-advertisable endpoints; downstream peers may need broker fallback",
+                    new_peer_id,
+                )
             device_profile = None
             if self.get_peer_device_profile:
                 try:
@@ -2389,7 +2516,99 @@ class P2PNetworkManager:
         """Return the list of peers introduced by our contacts."""
         if not hasattr(self, '_introduced_peers'):
             self._introduced_peers = {}
-        return list(self._introduced_peers.values())
+        rows: list[dict[str, Any]] = []
+        for peer_id, record in self._introduced_peers.items():
+            if not isinstance(record, dict):
+                continue
+            introduced_endpoints = self._sanitize_endpoints(
+                peer_id,
+                list(record.get('endpoints') or []),
+            )
+            stored_endpoints = self._sanitize_endpoints(
+                peer_id,
+                self.identity_manager.peer_endpoints.get(peer_id, []),
+            )
+            discovered_endpoints = self._get_discovered_peer_endpoints(peer_id)
+            merged_endpoints = self._merge_endpoint_lists(
+                discovered_endpoints,
+                introduced_endpoints,
+                stored_endpoints,
+            )
+            endpoint_sources: list[str] = []
+            if discovered_endpoints:
+                endpoint_sources.append('discovered')
+            if introduced_endpoints:
+                endpoint_sources.append('introduced')
+            if stored_endpoints:
+                endpoint_sources.append('stored')
+            for source in list(record.get('endpoint_sources') or []):
+                text = str(source or '').strip()
+                if text and text not in endpoint_sources:
+                    endpoint_sources.append(text)
+
+            broker_candidates = self.get_introduced_peer_broker_candidates(peer_id)
+            connect_strategy = 'direct_or_broker'
+            if not merged_endpoints:
+                connect_strategy = 'broker_only' if broker_candidates else 'unreachable'
+
+            row = dict(record)
+            row['peer_id'] = peer_id
+            row['endpoints'] = merged_endpoints
+            row['endpoint_count'] = len(merged_endpoints)
+            row['endpoint_sources'] = endpoint_sources or ['none']
+            row['connect_strategy'] = connect_strategy
+            row['broker_candidates'] = broker_candidates
+            rows.append(row)
+        return rows
+
+    def get_introduced_peer_broker_candidates(self, peer_id: str) -> list[str]:
+        """Return currently reachable broker peers for a given introduced peer."""
+        clean_peer_id = str(peer_id or '').strip()
+        if not clean_peer_id or not hasattr(self, '_introduced_peers'):
+            return []
+        intro = self._introduced_peers.get(clean_peer_id)
+        if not isinstance(intro, dict):
+            return []
+
+        connected_peers: list[str] = []
+        try:
+            connected_peers = list(self.get_connected_peers() or [])
+        except Exception:
+            connected_peers = []
+        connected_set = set(connected_peers)
+
+        local_peer_id = ''
+        try:
+            local_peer_id = self.get_peer_id() or ''
+        except Exception:
+            local_peer_id = ''
+
+        introducers: list[str] = []
+        introduced_via = intro.get('introduced_via', [])
+        if isinstance(introduced_via, list):
+            for pid in introduced_via:
+                text = str(pid or '').strip()
+                if text:
+                    introducers.append(text)
+        introduced_by = str(intro.get('introduced_by') or '').strip()
+        if introduced_by:
+            introducers.append(introduced_by)
+
+        broker_candidates: list[str] = []
+        seen_brokers: set[str] = set()
+
+        for pid in introducers:
+            if pid in connected_set and pid not in seen_brokers:
+                seen_brokers.add(pid)
+                broker_candidates.append(pid)
+
+        for pid in connected_peers:
+            if not pid or pid == clean_peer_id or pid == local_peer_id or pid in seen_brokers:
+                continue
+            seen_brokers.add(pid)
+            broker_candidates.append(pid)
+
+        return broker_candidates
 
     def get_peer_public_identity(self, peer_id: str) -> Dict[str, Any]:
         """Return a public-safe identity preview for a peer before trust."""
@@ -2688,15 +2907,17 @@ class P2PNetworkManager:
             'x25519_public_key': base58.b58encode(local_id.x25519_public_key).decode(),
         }
 
-        # Gather our own endpoints
-        mesh_port = self.config.network.mesh_port
-        requester_endpoints = []
-        try:
-            from .invite import get_local_ips
-            for ip in get_local_ips():
-                requester_endpoints.append(f"{self.ws_scheme}://{ip}:{mesh_port}")
-        except Exception:
-            requester_endpoints.append(f"{self.ws_scheme}://0.0.0.0:{mesh_port}")
+        # Prefer the same public/tunnel endpoints we advertise in handshakes so
+        # brokered connect-backs do not regress to LAN-only addresses.
+        requester_endpoints = list(self._get_local_advertised_endpoints() or [])
+        if not requester_endpoints:
+            mesh_port = self.config.network.mesh_port
+            try:
+                from .invite import get_local_ips
+                for ip in get_local_ips():
+                    requester_endpoints.append(f"{self.ws_scheme}://{ip}:{mesh_port}")
+            except Exception:
+                requester_endpoints.append(f"{self.ws_scheme}://0.0.0.0:{mesh_port}")
 
         future = asyncio.run_coroutine_threadsafe(
             self.message_router.send_broker_request(
@@ -2718,7 +2939,7 @@ class P2PNetworkManager:
                     via_peer=via_peer_id,
                 )
             else:
-                logger.warning(
+                logger.info(
                     f"Broker request via {via_peer_id} for {target_peer_id} "
                     f"was not routed immediately"
                 )
