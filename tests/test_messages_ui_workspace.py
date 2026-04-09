@@ -263,7 +263,7 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertIn('dm-mobile-sidebar-backdrop', body)
         self.assertIn('toggleDmMobileSidebar(true)', body)
         self.assertIn('function syncDmMobileLayoutState(options)', body)
-        self.assertIn("window.addEventListener('resize', () => syncDmMobileLayoutState({ keepSidebarOpen: true }));", body)
+        self.assertIn("window.addEventListener('resize', scheduleDmMobileLayoutSync);", body)
 
     def test_messages_page_acknowledges_dm_mentions_for_open_thread(self) -> None:
         self.conn.execute(

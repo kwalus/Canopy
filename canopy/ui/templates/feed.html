@@ -27,7 +27,7 @@
         </div>
         <div class="d-flex align-items-center gap-2">
             <small class="text-muted">P2P</small>
-            <button type="button" class="btn btn-sm btn-outline-secondary feed-mobile-composer-toggle" id="feed-mobile-composer-toggle" onclick="toggleFeedComposer()">
+            <button type="button" class="btn btn-sm btn-outline-secondary feed-mobile-composer-toggle" id="feed-mobile-composer-toggle" onclick="toggleFeedComposer()" aria-expanded="false" aria-controls="post-composer">
                 <i class="bi bi-chevron-down"></i>
                 <span class="visually-hidden">Toggle post composer</span>
             </button>
@@ -4347,6 +4347,19 @@
             return window.matchMedia('(max-width: 768px)').matches;
         }
 
+        // rAF gate: prevents rapid resize events from thrashing the composer
+        // layout on each pixel change during a window resize or soft-keyboard
+        // transition.
+        let _feedComposerSyncQueued = false;
+        function scheduleFeedComposerSync() {
+            if (_feedComposerSyncQueued) return;
+            _feedComposerSyncQueued = true;
+            requestAnimationFrame(() => {
+                _feedComposerSyncQueued = false;
+                syncFeedComposerLayout();
+            });
+        }
+
         function syncFeedComposerLayout(options = {}) {
             const composer = document.getElementById('post-composer');
             const toggle = document.getElementById('feed-mobile-composer-toggle');
@@ -7361,7 +7374,7 @@
 	        updateUserAvatars(); // Load user avatars
 	        loadTagSuggestionsOnce();
             syncFeedComposerLayout();
-            window.addEventListener('resize', () => syncFeedComposerLayout());
+            window.addEventListener('resize', scheduleFeedComposerSync);
 	        focusPostFromQuery();
 	        handleExpiryChange();
 	        updateExpiryBadges();

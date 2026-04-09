@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-04-09
+
+### Fixed
+- **Compact mobile layouts now do less redundant resize work while keeping drawer and composer state more truthful** — the DM, channel, and feed mobile helpers now coalesce repeated resize-driven layout sync into a single animation-frame pass, the DM chats backdrop updates its accessibility state alongside the drawer toggle, and the feed composer toggle now exposes its controlled region from initial render instead of waiting for client-side setup.
+
 ## [0.6.3] - 2026-04-09
 
 ### Changed

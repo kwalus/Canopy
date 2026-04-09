@@ -129,6 +129,26 @@ class TestUiPolishRegressions(unittest.TestCase):
         profile = (ROOT / "canopy" / "ui" / "templates" / "profile.html").read_text(encoding="utf-8")
         self.assertIn("Profile picture of", profile)
 
+    def test_dm_backdrop_has_aria_hidden_initially(self) -> None:
+        messages = (ROOT / "canopy" / "ui" / "templates" / "messages.html").read_text(encoding="utf-8")
+        self.assertIn('class="dm-mobile-sidebar-backdrop"', messages)
+        self.assertIn('aria-hidden="true"', messages)
+
+    def test_dm_mobile_sidebar_updates_backdrop_aria_hidden(self) -> None:
+        messages = (ROOT / "canopy" / "ui" / "templates" / "messages.html").read_text(encoding="utf-8")
+        self.assertIn("backdrop.setAttribute('aria-hidden', isSidebarOpen ? 'false' : 'true');", messages)
+        fn_start = messages.index("function toggleDmMobileSidebar(forceOpen)")
+        fn_end = messages.index("\n    function ", fn_start)
+        fn_body = messages[fn_start:fn_end]
+        self.assertIn("button.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');", fn_body)
+        self.assertIn("backdrop.setAttribute('aria-hidden', shouldOpen ? 'false' : 'true');", fn_body)
+
+    def test_feed_composer_toggle_has_initial_aria_binding(self) -> None:
+        feed = (ROOT / "canopy" / "ui" / "templates" / "feed.html").read_text(encoding="utf-8")
+        self.assertIn('id="feed-mobile-composer-toggle"', feed)
+        self.assertIn('aria-expanded="false"', feed)
+        self.assertIn('aria-controls="post-composer"', feed)
+
 
 if __name__ == "__main__":
     unittest.main()

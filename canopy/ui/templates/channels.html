@@ -5708,6 +5708,21 @@ function scheduleChannelNameOverflowSync() {
     });
 }
 
+// Deduplicate viewport-sync work so that both window.resize and
+// visualViewport.resize (which both fire on mobile soft-keyboard open/close)
+// collapse into a single rAF flush per frame.
+let channelViewportSyncQueued = false;
+function scheduleChannelViewportSync() {
+    if (channelViewportSyncQueued) return;
+    channelViewportSyncQueued = true;
+    requestAnimationFrame(() => {
+        channelViewportSyncQueued = false;
+        syncChannelViewportMetrics();
+        scheduleChannelNameOverflowSync();
+        syncChannelHeaderSearchUI();
+    });
+}
+
 function ensureChannelSortIndex(item) {
     if (!item) return 0;
     const raw = parseInt(item.dataset.sortIndex || '', 10);
@@ -15323,22 +15338,10 @@ document.addEventListener('DOMContentLoaded', function() {
         updateCurrentChannelIdUI(currentChannelId);
         syncChannelViewportMetrics();
         syncChannelHeaderSearchUI(false);
-        window.addEventListener('resize', () => {
-            syncChannelViewportMetrics();
-            scheduleChannelNameOverflowSync();
-            syncChannelHeaderSearchUI();
-        });
-        window.addEventListener('orientationchange', () => setTimeout(() => {
-            syncChannelViewportMetrics();
-            scheduleChannelNameOverflowSync();
-            syncChannelHeaderSearchUI();
-        }, 120));
+        window.addEventListener('resize', scheduleChannelViewportSync);
+        window.addEventListener('orientationchange', () => setTimeout(scheduleChannelViewportSync, 120));
         if (window.visualViewport) {
-            window.visualViewport.addEventListener('resize', () => {
-                syncChannelViewportMetrics();
-                scheduleChannelNameOverflowSync();
-                syncChannelHeaderSearchUI();
-            });
+            window.visualViewport.addEventListener('resize', scheduleChannelViewportSync);
         }
         const navbarCollapse = document.getElementById('navbarNav');
         if (navbarCollapse) {

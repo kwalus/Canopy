@@ -1199,3 +1199,21 @@ class TestFrontendRegressions(unittest.TestCase):
             "if (data && (data.marked_read || Number(data.acknowledged_mentions || 0) > 0) && typeof window.requestCanopySidebarAttentionRefresh === 'function') {",
             channels_template,
         )
+
+    def test_mobile_resize_dedup_gates_collapse_redundant_layout_work(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        messages_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
+        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+
+        self.assertIn('let channelViewportSyncQueued = false;', channels_template)
+        self.assertIn('function scheduleChannelViewportSync()', channels_template)
+        self.assertIn("window.addEventListener('resize', scheduleChannelViewportSync)", channels_template)
+        self.assertIn("window.visualViewport.addEventListener('resize', scheduleChannelViewportSync)", channels_template)
+
+        self.assertIn('let _dmLayoutSyncQueued = false;', messages_template)
+        self.assertIn('function scheduleDmMobileLayoutSync()', messages_template)
+        self.assertIn("window.addEventListener('resize', scheduleDmMobileLayoutSync)", messages_template)
+
+        self.assertIn('let _feedComposerSyncQueued = false;', feed_template)
+        self.assertIn('function scheduleFeedComposerSync()', feed_template)
+        self.assertIn("window.addEventListener('resize', scheduleFeedComposerSync)", feed_template)

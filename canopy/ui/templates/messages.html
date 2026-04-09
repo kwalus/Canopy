@@ -1538,7 +1538,7 @@
                 </div>
             </div>
         </aside>
-        <button type="button" class="dm-mobile-sidebar-backdrop" onclick="toggleDmMobileSidebar(false)" aria-label="Close chats list"></button>
+        <button type="button" class="dm-mobile-sidebar-backdrop" onclick="toggleDmMobileSidebar(false)" aria-label="Close chats list" aria-hidden="true"></button>
 
         <section class="dm-thread-pane">
             <div class="dm-thread-header" id="dm-thread-header">
@@ -2029,6 +2029,18 @@
         return window.matchMedia('(max-width: 767.98px)').matches;
     }
 
+    // rAF gate: collapses rapid resize events (e.g. desktop window drag or
+    // mobile keyboard transition) into a single layout sync per frame.
+    let _dmLayoutSyncQueued = false;
+    function scheduleDmMobileLayoutSync() {
+        if (_dmLayoutSyncQueued) return;
+        _dmLayoutSyncQueued = true;
+        requestAnimationFrame(() => {
+            _dmLayoutSyncQueued = false;
+            syncDmMobileLayoutState({ keepSidebarOpen: true });
+        });
+    }
+
     function syncDmMobileLayoutState(options) {
         const opts = options || {};
         const page = document.querySelector('.messages-page');
@@ -2045,6 +2057,10 @@
         document.querySelectorAll('.dm-mobile-sidebar-toggle').forEach((button) => {
             button.setAttribute('aria-expanded', isSidebarOpen ? 'true' : 'false');
         });
+        const backdrop = document.querySelector('.dm-mobile-sidebar-backdrop');
+        if (backdrop) {
+            backdrop.setAttribute('aria-hidden', isSidebarOpen ? 'false' : 'true');
+        }
         if (!isCompactDmViewport() || !hasActiveThread) {
             return;
         }
@@ -2059,6 +2075,13 @@
             ? forceOpen
             : !page.classList.contains('dm-mobile-sidebar-open');
         page.classList.toggle('dm-mobile-sidebar-open', shouldOpen);
+        document.querySelectorAll('.dm-mobile-sidebar-toggle').forEach((button) => {
+            button.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+        });
+        const backdrop = document.querySelector('.dm-mobile-sidebar-backdrop');
+        if (backdrop) {
+            backdrop.setAttribute('aria-hidden', shouldOpen ? 'false' : 'true');
+        }
     }
 
     function clearComposer() {
@@ -3397,7 +3420,7 @@
             scrollThreadToBottom();
         }
         startDmPolling();
-        window.addEventListener('resize', () => syncDmMobileLayoutState({ keepSidebarOpen: true }));
+        window.addEventListener('resize', scheduleDmMobileLayoutSync);
         window.addEventListener('focus', () => syncDmMobileLayoutState({ keepSidebarOpen: true }));
         document.addEventListener('keydown', (event) => {
             if (event.key === 'Escape') {
