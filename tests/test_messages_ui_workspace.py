@@ -258,6 +258,12 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertNotIn("threadPane.addEventListener('paste'", body)
         self.assertIn('grid-template-rows: auto minmax(0, 1fr);', body)
         self.assertIn('position: sticky;', body)
+        self.assertIn('class="messages-page has-active-thread"', body)
+        self.assertIn('dm-sidebar-mobile-header', body)
+        self.assertIn('dm-mobile-sidebar-backdrop', body)
+        self.assertIn('toggleDmMobileSidebar(true)', body)
+        self.assertIn('function syncDmMobileLayoutState(options)', body)
+        self.assertIn("window.addEventListener('resize', () => syncDmMobileLayoutState({ keepSidebarOpen: true }));", body)
 
     def test_messages_page_acknowledges_dm_mentions_for_open_thread(self) -> None:
         self.conn.execute(

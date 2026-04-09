@@ -260,6 +260,23 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('title="Download from peer"', macros_template)
         self.assertIn('<i class="bi bi-cloud-download"></i> Download', macros_template)
 
+    def test_messages_workspace_uses_mobile_thread_first_layout(self) -> None:
+        template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
+        header = (ROOT / 'canopy' / 'ui' / 'templates' / '_messages_thread_header.html').read_text(encoding='utf-8')
+        self.assertIn('.messages-page.has-active-thread .messages-topbar {', template)
+        self.assertIn('.messages-page.has-active-thread .dm-sidebar {', template)
+        self.assertIn('.messages-page.has-active-thread.dm-mobile-sidebar-open .dm-sidebar {', template)
+        self.assertIn('.dm-sidebar-mobile-header', template)
+        self.assertIn('.dm-mobile-sidebar-backdrop', template)
+        self.assertIn('dm-composer-recipient-mode', template)
+        self.assertIn('function toggleDmMobileSidebar(forceOpen)', template)
+        self.assertIn('function syncDmMobileLayoutState(options)', template)
+        self.assertIn("toggleDmMobileSidebar(false)", template)
+        self.assertIn('id="dm-sidebar"', template)
+        self.assertIn("button.setAttribute('aria-expanded', isSidebarOpen ? 'true' : 'false');", template)
+        self.assertIn('class="btn btn-sm btn-outline-secondary dm-mobile-sidebar-toggle"', header)
+        self.assertIn('aria-controls="dm-sidebar"', header)
+
     def test_miniplayer_no_longer_eagerly_docks_youtube_on_update(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
         self.assertNotIn("if (type === 'youtube' && !isDocked && miniVideoHost) {", main_js)

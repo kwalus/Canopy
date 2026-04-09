@@ -2124,11 +2124,18 @@
             gap: 0.15rem;
             flex: 0 0 auto;
         }
+        .channel-header-search-toggle {
+            display: inline-flex !important;
+        }
         .channel-header-search {
             order: 3;
             flex: 1 1 100%;
             min-width: 0;
             max-width: none;
+            display: none;
+        }
+        .channel-header-search.mobile-open {
+            display: flex;
         }
         #channel-search-bar {
             width: 100% !important;
@@ -15262,7 +15269,7 @@ function rerunActiveChannelSearch(options = {}) {
 }
 
 function isNarrowMobileChannelLayout() {
-    return window.innerWidth <= 575;
+    return window.innerWidth <= 767;
 }
 
 function syncChannelHeaderSearchUI(forceOpen) {

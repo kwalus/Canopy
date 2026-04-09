@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-04-09
+
+### Changed
+- **DMs, channels, and feed now waste less vertical space on phones** — the DM view switches to an active-thread-first mobile layout with a one-tap chats drawer, channel search stays collapsed by default across phone-width layouts until needed, and the feed composer now starts collapsed on compact screens unless there is already draft content or attachments waiting.
+
 ## [0.6.2] - 2026-04-07
 
 ### Fixed

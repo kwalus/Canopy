@@ -41,6 +41,14 @@ class TestUiPolishRegressions(unittest.TestCase):
         self.assertIn("Repost</span>", feed)
         self.assertIn('aria-label="More post actions"', feed)
 
+    def test_feed_mobile_uses_collapsible_composer(self) -> None:
+        feed = (ROOT / "canopy" / "ui" / "templates" / "feed.html").read_text(encoding="utf-8")
+        self.assertIn('id="feed-mobile-composer-toggle"', feed)
+        self.assertIn('#post-composer.mobile-collapsed .card-body', feed)
+        self.assertIn("function syncFeedComposerLayout(options = {})", feed)
+        self.assertIn("function toggleFeedComposer(forceOpen)", feed)
+        self.assertIn("syncFeedComposerLayout({ forceExpand: true });", feed)
+
     def test_dm_sidebar_empty_states_have_icons(self) -> None:
         sidebar = (ROOT / "canopy" / "ui" / "templates" / "_messages_sidebar_sections.html").read_text(encoding="utf-8")
         self.assertIn("bi bi-chat-dots", sidebar)
@@ -81,6 +89,7 @@ class TestUiPolishRegressions(unittest.TestCase):
         self.assertIn('id="channel-header-search-toggle"', channels)
         self.assertIn(".channel-header-search.mobile-open", channels)
         self.assertIn("function toggleChannelHeaderSearch(forceOpen)", channels)
+        self.assertIn("return window.innerWidth <= 767;", channels)
         self.assertIn('id="channel-composer-more-toggle"', channels)
         self.assertIn("More compose tools", channels)
         self.assertIn(".channel-composer-advanced-tool", channels)

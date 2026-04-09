@@ -24,6 +24,9 @@
             </div>
         </div>
         <div class="dm-thread-actions">
+            <button class="btn btn-sm btn-outline-secondary dm-mobile-sidebar-toggle" type="button" onclick="toggleDmMobileSidebar(true)" aria-controls="dm-sidebar" aria-expanded="false">
+                <i class="bi bi-list"></i><span class="dm-btn-label">Chats</span>
+            </button>
             {% if active_thread.security %}
                 {% set thread_sec_mode = active_thread.security.get('mode') %}
                 {% set thread_sec_state = active_thread.security.get('state') %}

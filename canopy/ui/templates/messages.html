@@ -71,6 +71,7 @@
         min-height: 0;
         height: 100%;
         align-items: stretch;
+        position: relative;
     }
 
     .dm-sidebar,
@@ -90,6 +91,30 @@
         gap: 0.7rem;
         overflow: hidden;
         background: linear-gradient(180deg, rgba(14, 24, 39, 0.96), rgba(9, 17, 29, 0.96));
+    }
+
+    .dm-sidebar-mobile-header,
+    .dm-mobile-sidebar-backdrop,
+    .dm-mobile-sidebar-toggle {
+        display: none;
+    }
+
+    .dm-sidebar-mobile-header {
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding-bottom: 0.25rem;
+    }
+
+    .dm-sidebar-mobile-header strong {
+        display: block;
+        font-size: 0.9rem;
+        letter-spacing: -0.01em;
+    }
+
+    .dm-sidebar-mobile-header small {
+        color: var(--canopy-text-secondary);
+        font-size: 0.75rem;
     }
 
     .dm-sidebar-search {
@@ -1140,6 +1165,20 @@
             min-height: 42px;
         }
 
+        .messages-page.has-active-thread {
+            gap: 0;
+        }
+
+        .messages-page.has-active-thread .messages-topbar {
+            display: none;
+        }
+
+        .messages-page.has-active-thread .messages-shell {
+            grid-template-rows: minmax(0, 1fr);
+            gap: 0;
+            overflow: hidden;
+        }
+
         .dm-thread-header,
         .dm-thread-scroll,
         .dm-composer,
@@ -1153,6 +1192,55 @@
             padding-bottom: 0.68rem;
             max-height: 23vh;
             border-radius: 18px;
+        }
+
+        .messages-page.has-active-thread .dm-sidebar {
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: min(88vw, 340px);
+            max-width: calc(100% - 2.5rem);
+            height: 100%;
+            max-height: none;
+            z-index: 30;
+            padding-top: 0.78rem;
+            padding-bottom: 0.78rem;
+            box-shadow: 0 22px 48px rgba(3, 10, 22, 0.36);
+            transform: translateX(calc(-100% - 1rem));
+            opacity: 0;
+            pointer-events: none;
+            transition: transform 0.22s ease, opacity 0.18s ease;
+        }
+
+        .messages-page.has-active-thread.dm-mobile-sidebar-open .dm-sidebar {
+            transform: translateX(0);
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .messages-page.has-active-thread .dm-sidebar-mobile-header {
+            display: flex;
+        }
+
+        .messages-page.has-active-thread .dm-sidebar-search {
+            position: static;
+        }
+
+        .messages-page.has-active-thread .dm-mobile-sidebar-backdrop {
+            display: block;
+            position: absolute;
+            inset: 0;
+            z-index: 20;
+            border: 0;
+            padding: 0;
+            background: rgba(3, 10, 22, 0.52);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.18s ease;
+        }
+
+        .messages-page.has-active-thread.dm-mobile-sidebar-open .dm-mobile-sidebar-backdrop {
+            opacity: 1;
+            pointer-events: auto;
         }
 
         .dm-sidebar-scroll {
@@ -1211,6 +1299,16 @@
             gap: 0.3rem;
             width: 100%;
             justify-content: flex-end;
+        }
+
+        .messages-page.has-active-thread .dm-thread-actions {
+            width: auto;
+            margin-left: auto;
+            flex-wrap: nowrap;
+        }
+
+        .messages-page.has-active-thread .dm-mobile-sidebar-toggle {
+            display: inline-flex;
         }
 
         .dm-thread-actions .btn {
@@ -1278,6 +1376,10 @@
             gap: 0.5rem;
         }
 
+        .messages-page.has-active-thread #dm-composer:not(.dm-composer-recipient-mode) .dm-composer-topline {
+            display: none;
+        }
+
         .dm-composer-topline {
             gap: 0.55rem;
         }
@@ -1330,6 +1432,10 @@
             font-size: 0.72rem;
         }
 
+        .messages-page.has-active-thread #dm-composer:not(.dm-composer-recipient-mode) .dm-composer-actions-left .text-muted {
+            display: none;
+        }
+
         .dm-composer-actions-right {
             justify-content: flex-end;
         }
@@ -1362,6 +1468,11 @@
             display: none;
         }
 
+        .messages-page.has-active-thread .dm-sidebar {
+            width: min(90vw, 320px);
+            max-width: calc(100% - 1.8rem);
+        }
+
         .dm-avatar {
             width: 30px;
             height: 30px;
@@ -1385,7 +1496,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="messages-page">
+<div class="messages-page {% if active_thread and not search_query %}has-active-thread{% else %}no-active-thread{% endif %}">
     <div class="messages-topbar">
         <div class="messages-topbar-copy">
             <h1><i class="bi bi-chat-dots"></i> Direct Messages</h1>
@@ -1402,7 +1513,16 @@
     </div>
 
     <div class="messages-shell">
-        <aside class="dm-sidebar">
+        <aside class="dm-sidebar" id="dm-sidebar">
+            <div class="dm-sidebar-mobile-header">
+                <div>
+                    <strong>Chats</strong>
+                    <small>Direct and group conversations</small>
+                </div>
+                <button class="btn btn-sm btn-outline-secondary" type="button" onclick="toggleDmMobileSidebar(false)" aria-label="Close chats list">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
             <div class="dm-sidebar-search">
                 <form onsubmit="searchMessages(); return false;">
                     <div class="dm-search-input-wrap">
@@ -1418,6 +1538,7 @@
                 </div>
             </div>
         </aside>
+        <button type="button" class="dm-mobile-sidebar-backdrop" onclick="toggleDmMobileSidebar(false)" aria-label="Close chats list"></button>
 
         <section class="dm-thread-pane">
             <div class="dm-thread-header" id="dm-thread-header">
@@ -1660,6 +1781,7 @@
         updateComposerTarget();
         applyDmRichContent();
         restoreThreadScrollState(previousScroll, opts);
+        syncDmMobileLayoutState();
 
         if (opts.pushHistory && typeof opts.targetUrl === 'string' && opts.targetUrl) {
             window.history.replaceState({}, '', opts.targetUrl);
@@ -1878,6 +2000,10 @@
         const title = document.getElementById('composer-target-title');
         const subtitle = document.getElementById('composer-target-subtitle');
         const panel = document.getElementById('composer-recipient-panel');
+        const composer = document.getElementById('dm-composer');
+        if (composer) {
+            composer.classList.toggle('dm-composer-recipient-mode', !composerUsesActiveThread || !ACTIVE_THREAD);
+        }
         if (!title || !subtitle) return;
 
         if (composerUsesActiveThread && ACTIVE_THREAD) {
@@ -1897,6 +2023,42 @@
             title.textContent = 'New conversation';
             subtitle.textContent = 'Select one or more recipients to begin';
         }
+    }
+
+    function isCompactDmViewport() {
+        return window.matchMedia('(max-width: 767.98px)').matches;
+    }
+
+    function syncDmMobileLayoutState(options) {
+        const opts = options || {};
+        const page = document.querySelector('.messages-page');
+        if (!page) return;
+        const hasActiveThread = !!ACTIVE_THREAD && !isDmSearchActive();
+        page.classList.toggle('has-active-thread', hasActiveThread);
+        page.classList.toggle('no-active-thread', !hasActiveThread);
+        if (!isCompactDmViewport() || !hasActiveThread) {
+            page.classList.remove('dm-mobile-sidebar-open');
+        } else if (!opts.keepSidebarOpen) {
+            page.classList.remove('dm-mobile-sidebar-open');
+        }
+        const isSidebarOpen = page.classList.contains('dm-mobile-sidebar-open');
+        document.querySelectorAll('.dm-mobile-sidebar-toggle').forEach((button) => {
+            button.setAttribute('aria-expanded', isSidebarOpen ? 'true' : 'false');
+        });
+        if (!isCompactDmViewport() || !hasActiveThread) {
+            return;
+        }
+    }
+
+    function toggleDmMobileSidebar(forceOpen) {
+        const page = document.querySelector('.messages-page');
+        if (!page || !isCompactDmViewport() || !ACTIVE_THREAD || isDmSearchActive()) {
+            return;
+        }
+        const shouldOpen = typeof forceOpen === 'boolean'
+            ? forceOpen
+            : !page.classList.contains('dm-mobile-sidebar-open');
+        page.classList.toggle('dm-mobile-sidebar-open', shouldOpen);
     }
 
     function clearComposer() {
@@ -3183,6 +3345,7 @@
     document.addEventListener('DOMContentLoaded', function() {
         updateRecipientChips();
         updateComposerTarget();
+        syncDmMobileLayoutState();
         setupMessageFileUpload();
         setupMessagePasteHandler();
         setupMessageDropzone();
@@ -3234,8 +3397,16 @@
             scrollThreadToBottom();
         }
         startDmPolling();
+        window.addEventListener('resize', () => syncDmMobileLayoutState({ keepSidebarOpen: true }));
+        window.addEventListener('focus', () => syncDmMobileLayoutState({ keepSidebarOpen: true }));
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                toggleDmMobileSidebar(false);
+            }
+        });
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden && !isDmSearchActive()) {
+                syncDmMobileLayoutState({ keepSidebarOpen: true });
                 pollDmEvents();
                 loadDmSnapshot({
                     allowDeferred: true,
