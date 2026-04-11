@@ -174,6 +174,73 @@
         word-break: break-word;
     }
 
+    .invite-preview-card {
+        border: 1px solid var(--canopy-border);
+        background:
+            radial-gradient(circle at top left, rgba(34, 197, 94, 0.12), transparent 34%),
+            color-mix(in srgb, var(--canopy-bg-tertiary) 82%, transparent);
+        border-radius: 16px;
+        padding: 0.85rem;
+    }
+    .invite-preview-card.invite-preview-warning {
+        border-color: rgba(245, 158, 11, 0.45);
+        background:
+            radial-gradient(circle at top left, rgba(245, 158, 11, 0.12), transparent 34%),
+            color-mix(in srgb, var(--canopy-bg-tertiary) 82%, transparent);
+    }
+    .invite-preview-card.invite-preview-error {
+        border-color: rgba(239, 68, 68, 0.5);
+        background:
+            radial-gradient(circle at top left, rgba(239, 68, 68, 0.12), transparent 34%),
+            color-mix(in srgb, var(--canopy-bg-tertiary) 82%, transparent);
+    }
+    .invite-preview-title {
+        color: var(--canopy-text-primary);
+        font-weight: 700;
+    }
+    .invite-preview-subtitle {
+        color: var(--canopy-text-secondary);
+        font-size: 0.8rem;
+    }
+    .invite-preview-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 0.55rem;
+        margin-top: 0.75rem;
+    }
+    .invite-preview-fact {
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 75%, transparent);
+        border-radius: 12px;
+        padding: 0.55rem 0.6rem;
+        min-width: 0;
+    }
+    .invite-preview-label {
+        color: var(--canopy-text-secondary);
+        font-size: 0.68rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        margin-bottom: 0.15rem;
+    }
+    .invite-preview-value {
+        color: var(--canopy-text-primary);
+        font-weight: 650;
+        overflow-wrap: anywhere;
+    }
+    .invite-warning-list {
+        margin: 0.65rem 0 0;
+        padding-left: 1rem;
+        color: #b45309;
+        font-size: 0.82rem;
+    }
+    [data-bs-theme="dark"] .invite-warning-list {
+        color: #fbbf24;
+    }
+    .invite-preview-actions {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
     .connect-page .card-header .d-flex {
         min-width: 0;
     }
@@ -327,6 +394,20 @@
                 </div>
 
                 <div class="mb-3">
+                    <label class="form-label small text-muted">Invite identity hints</label>
+                    <div class="d-flex flex-wrap gap-2">
+                        <span class="badge bg-success-subtle text-success-emphasis border">
+                            <i class="bi bi-diagram-3"></i> {{ current_mesh_name or 'Default Mesh' }}
+                        </span>
+                        {% if current_peer_label or current_instance_label %}
+                        <span class="badge bg-info-subtle text-info-emphasis border">
+                            <i class="bi bi-pc-display"></i> {{ current_peer_label or current_instance_label }}
+                        </span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="mb-3">
                     <label class="form-label small text-muted">Reachable at</label>
                     <div>
                         {% for ep in endpoints %}
@@ -388,7 +469,7 @@
                 <h5 class="mb-0"><i class="bi bi-box-arrow-in-down"></i> Import Friend's Invite</h5>
             </div>
             <div class="card-body">
-                <p class="text-muted small">Paste an invite code from another Canopy user to connect.</p>
+                <p class="text-muted small">Paste an invite code, review the peer and mesh hints, then confirm the connection.</p>
 
                 <div class="mb-3">
                     <label class="form-label small text-muted">Invite code</label>
@@ -396,9 +477,16 @@
                               placeholder="canopy:eyJ2Ij..." style="font-size: 0.8rem;"></textarea>
                 </div>
 
-                <button class="btn btn-success w-100" onclick="importInvite()" id="importBtn">
-                    <i class="bi bi-plug"></i> Connect
-                </button>
+                <div class="invite-preview-actions">
+                    <button class="btn btn-outline-primary flex-fill" onclick="previewInvite(true)" id="previewInviteBtn">
+                        <i class="bi bi-card-checklist"></i> Review Invite
+                    </button>
+                    <button class="btn btn-success flex-fill" onclick="connectPreviewedInvite()" id="importBtn" disabled>
+                        <i class="bi bi-plug"></i> Connect to this peer
+                    </button>
+                </div>
+
+                <div id="invitePreview" class="mt-3" style="display:none;" aria-live="polite"></div>
 
                 <div id="importResult" class="mt-3" style="display:none;"></div>
             </div>
@@ -983,9 +1071,13 @@
 
 <script>
 const PEER_LABELS = {{ peer_labels | tojson }};
+const CURRENT_MESH_NAME = {{ (current_mesh_name or 'Default Mesh') | tojson }};
+const CURRENT_PEER_ID = {{ (peer_id or '') | tojson }};
 const USER_IS_ADMIN = {{ 'true' if is_admin else 'false' }};
 const connectionEvents = new Map();
 const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+let currentInvitePreview = null;
+let invitePreviewTimer = null;
 
 function apiJsonFetch(url, options = {}) {
     const method = (options.method || 'GET').toUpperCase();
@@ -1069,11 +1161,210 @@ function regenerateInvite() {
     });
 }
 
-function importInvite() {
+function decodeInvitePreview(code) {
+    let text = String(code || '').trim();
+    if (!text) {
+        throw new Error('Paste an invite code first.');
+    }
+    if (text.toLowerCase().startsWith('canopy:')) {
+        text = text.slice('canopy:'.length);
+    }
+
+    let raw = text;
+    if (!text.trim().startsWith('{')) {
+        try {
+            const padded = text + '='.repeat((4 - (text.length % 4)) % 4);
+            const binary = atob(padded.replace(/-/g, '+').replace(/_/g, '/'));
+            const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+            if (typeof TextDecoder !== 'undefined') {
+                raw = new TextDecoder('utf-8').decode(bytes);
+            } else {
+                raw = binary;
+            }
+        } catch (_) {
+            raw = text;
+        }
+    }
+
+    let data;
+    try {
+        data = JSON.parse(raw);
+    } catch (_) {
+        throw new Error('This does not look like a valid Canopy invite.');
+    }
+    if (!data || !data.pid || !data.epk || !data.xpk) {
+        throw new Error('Invite is missing required peer identity fields.');
+    }
+
+    const endpoints = Array.isArray(data.ep)
+        ? data.ep.map((value) => String(value || '').trim()).filter(Boolean)
+        : [];
+    return {
+        code: String(code || '').trim(),
+        version: data.v || 1,
+        peerId: String(data.pid || ''),
+        meshName: String(data.mn || '').trim(),
+        peerLabel: String(data.pl || '').trim(),
+        instanceLabel: String(data.il || '').trim(),
+        generatedAt: String(data.ts || '').trim(),
+        endpoints,
+    };
+}
+
+function invitePreviewAgeLabel(generatedAt) {
+    if (!generatedAt) return '';
+    const parsed = Date.parse(generatedAt);
+    if (!Number.isFinite(parsed)) return '';
+    const deltaSeconds = Math.max(0, Math.floor((Date.now() - parsed) / 1000));
+    return formatRelativeTime(deltaSeconds);
+}
+
+function invitePreviewWarnings(preview) {
+    const warnings = [];
+    if (CURRENT_PEER_ID && preview.peerId === CURRENT_PEER_ID) {
+        warnings.push('This invite appears to point back to your own local peer.');
+    }
+    if (preview.meshName && CURRENT_MESH_NAME && preview.meshName !== CURRENT_MESH_NAME) {
+        warnings.push(`Mesh hint differs from this workspace (${CURRENT_MESH_NAME}). Confirm you are importing into the intended meshspace.`);
+    }
+    if (!preview.endpoints.length) {
+        warnings.push('No direct endpoints are advertised. Canopy can register the peer, but direct connection may require broker/relay help.');
+    }
+    const knownLabel = PEER_LABELS[preview.peerId] || '';
+    if (knownLabel && preview.peerLabel && knownLabel !== preview.peerLabel) {
+        warnings.push(`This peer is already known locally as "${knownLabel}". The invite label says "${preview.peerLabel}".`);
+    }
+    if (preview.generatedAt) {
+        const parsed = Date.parse(preview.generatedAt);
+        if (Number.isFinite(parsed) && Date.now() - parsed > 1000 * 60 * 60 * 24 * 14) {
+            warnings.push('This invite is more than two weeks old. Ask for a fresh code if endpoints fail.');
+        }
+    }
+    return warnings;
+}
+
+function renderInvitePreview(preview, error) {
+    const container = document.getElementById('invitePreview');
+    const importBtn = document.getElementById('importBtn');
+    if (!container || !importBtn) return;
+
+    if (error) {
+        currentInvitePreview = null;
+        importBtn.disabled = true;
+        importBtn.innerHTML = '<i class="bi bi-plug"></i> Connect to this peer';
+        container.style.display = 'block';
+        container.innerHTML = `
+            <div class="invite-preview-card invite-preview-error">
+                <div class="invite-preview-title"><i class="bi bi-x-circle"></i> Invite could not be previewed</div>
+                <div class="invite-preview-subtitle">${_escapeHtml(error.message || error)}</div>
+            </div>`;
+        return;
+    }
+
+    if (!preview) {
+        currentInvitePreview = null;
+        importBtn.disabled = true;
+        importBtn.innerHTML = '<i class="bi bi-plug"></i> Connect to this peer';
+        container.style.display = 'none';
+        container.innerHTML = '';
+        return;
+    }
+
+    currentInvitePreview = preview;
+    const warnings = invitePreviewWarnings(preview);
+    const knownLabel = PEER_LABELS[preview.peerId] || '';
+    const title = preview.peerLabel || knownLabel || preview.instanceLabel || preview.peerId.slice(0, 12);
+    const meshLabel = preview.meshName || 'Not specified';
+    const endpointLabel = preview.endpoints.length
+        ? `${preview.endpoints.length} direct ${preview.endpoints.length === 1 ? 'endpoint' : 'endpoints'}`
+        : 'No direct endpoints';
+    const endpointPreview = preview.endpoints.slice(0, 3)
+        .map((ep) => `<code>${_escapeHtml(ep)}</code>`)
+        .join('<br>');
+    const ageLabel = invitePreviewAgeLabel(preview.generatedAt);
+    const knownBadge = knownLabel
+        ? '<span class="badge bg-info-subtle text-info-emphasis border">Known peer</span>'
+        : '<span class="badge bg-success-subtle text-success-emphasis border">New peer</span>';
+    const meshBadge = preview.meshName && preview.meshName === CURRENT_MESH_NAME
+        ? '<span class="badge bg-success-subtle text-success-emphasis border">Current mesh hint</span>'
+        : '<span class="badge bg-warning-subtle text-warning-emphasis border">Check mesh hint</span>';
+    const warningHtml = warnings.length
+        ? `<ul class="invite-warning-list">${warnings.map((warning) => `<li>${_escapeHtml(warning)}</li>`).join('')}</ul>`
+        : '';
+
+    container.style.display = 'block';
+    container.innerHTML = `
+        <div class="invite-preview-card ${warnings.length ? 'invite-preview-warning' : ''}">
+            <div class="d-flex align-items-start justify-content-between gap-2 flex-wrap">
+                <div>
+                    <div class="invite-preview-title"><i class="bi bi-person-check"></i> ${_escapeHtml(title)}</div>
+                    <div class="invite-preview-subtitle">Review before connecting. Labels are sender-provided hints; peer keys are verified when imported.</div>
+                </div>
+                <div class="d-flex gap-1 flex-wrap">${knownBadge}${meshBadge}</div>
+            </div>
+            <div class="invite-preview-grid">
+                <div class="invite-preview-fact">
+                    <div class="invite-preview-label">Peer fingerprint</div>
+                    <div class="invite-preview-value"><code>${_escapeHtml(preview.peerId)}</code></div>
+                </div>
+                <div class="invite-preview-fact">
+                    <div class="invite-preview-label">Mesh hint</div>
+                    <div class="invite-preview-value">${_escapeHtml(meshLabel)}</div>
+                </div>
+                <div class="invite-preview-fact">
+                    <div class="invite-preview-label">Node hint</div>
+                    <div class="invite-preview-value">${_escapeHtml(preview.instanceLabel || preview.peerLabel || 'Not specified')}</div>
+                </div>
+                <div class="invite-preview-fact">
+                    <div class="invite-preview-label">Reachability</div>
+                    <div class="invite-preview-value">${_escapeHtml(endpointLabel)}</div>
+                </div>
+                ${ageLabel ? `
+                <div class="invite-preview-fact">
+                    <div class="invite-preview-label">Generated</div>
+                    <div class="invite-preview-value">${_escapeHtml(ageLabel)}</div>
+                </div>` : ''}
+            </div>
+            ${endpointPreview ? `<div class="invite-preview-subtitle mt-2">${endpointPreview}</div>` : ''}
+            ${warningHtml}
+        </div>`;
+    importBtn.disabled = false;
+    importBtn.innerHTML = preview.endpoints.length
+        ? '<i class="bi bi-plug"></i> Connect to this peer'
+        : '<i class="bi bi-box-arrow-in-down"></i> Import peer';
+}
+
+function previewInvite(force) {
+    const code = document.getElementById('importCode').value.trim();
+    if (!code) {
+        renderInvitePreview(null);
+        if (force) alert('Paste an invite code first.');
+        return null;
+    }
+    try {
+        const preview = decodeInvitePreview(code);
+        renderInvitePreview(preview);
+        return preview;
+    } catch (err) {
+        renderInvitePreview(null, err);
+        return null;
+    }
+}
+
+function scheduleInvitePreview() {
+    if (invitePreviewTimer) clearTimeout(invitePreviewTimer);
+    invitePreviewTimer = setTimeout(() => previewInvite(false), 180);
+}
+
+function connectPreviewedInvite() {
     const code = document.getElementById('importCode').value.trim();
     if (!code) {
         alert('Paste an invite code first.');
         return;
+    }
+    if (!currentInvitePreview || currentInvitePreview.code !== code) {
+        const preview = previewInvite(true);
+        if (!preview) return;
     }
     const btn = document.getElementById('importBtn');
     btn.disabled = true;
@@ -1112,8 +1403,14 @@ function importInvite() {
     })
     .finally(() => {
         btn.disabled = false;
-        btn.innerHTML = '<i class="bi bi-plug"></i> Connect';
+        btn.innerHTML = currentInvitePreview && currentInvitePreview.endpoints.length
+            ? '<i class="bi bi-plug"></i> Connect to this peer'
+            : '<i class="bi bi-box-arrow-in-down"></i> Import peer';
     });
+}
+
+function importInvite() {
+    return connectPreviewedInvite();
 }
 
 function connectToIntroduced(peerId, buttonEl) {
@@ -1712,6 +2009,13 @@ document.addEventListener('DOMContentLoaded', function() {
     setInterval(pollMeshDiagnostics, 12000);
     pollConnectionDiagnostics();
     setInterval(pollConnectionDiagnostics, 15000);
+
+    const importCode = document.getElementById('importCode');
+    if (importCode) {
+        importCode.addEventListener('input', scheduleInvitePreview);
+        importCode.addEventListener('paste', () => setTimeout(() => previewInvite(false), 0));
+        if (importCode.value.trim()) previewInvite(false);
+    }
 
     // Animate chevron for troubleshooting panel
     const panel = document.getElementById('troubleshootingPanel');

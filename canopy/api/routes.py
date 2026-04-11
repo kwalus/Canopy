@@ -2999,6 +2999,7 @@ def create_api_blueprint() -> Blueprint:
     def generate_p2p_invite():
         """Generate an invite code for remote peers to connect."""
         from ..network.invite import generate_invite
+        from ..core.device import get_device_label, get_device_profile
         *_, config, p2p_manager = _get_app_components_any(current_app)
 
         if not p2p_manager or not p2p_manager.identity_manager.local_identity:
@@ -3009,6 +3010,16 @@ def create_api_blueprint() -> Blueprint:
             public_port = request.args.get('public_port', type=int)
             external_endpoint = request.args.get('external_endpoint', type=str)
             mesh_port = config.network.mesh_port if config else 7771
+            mesh_name = str(getattr(getattr(config, 'meshspace', None), 'name', '') or '').strip()
+            instance_label = str(getattr(config, 'device_label', '') or '').strip()
+            peer_label = ''
+            try:
+                device_profile = get_device_profile()
+                peer_label = str(device_profile.get('display_name') or '').strip()
+                if not instance_label:
+                    instance_label = str(get_device_label() or '').strip()
+            except Exception:
+                pass
 
             invite = generate_invite(
                 p2p_manager.identity_manager,
@@ -3016,6 +3027,10 @@ def create_api_blueprint() -> Blueprint:
                 public_host=public_host,
                 public_port=public_port,
                 external_endpoint=external_endpoint,
+                mesh_name=mesh_name or None,
+                peer_label=peer_label or None,
+                instance_label=instance_label or None,
+                generated_at=datetime.now(timezone.utc).isoformat(),
             )
             return jsonify({
                 'invite_code': invite.encode(),

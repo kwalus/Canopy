@@ -10,7 +10,11 @@ Invite payload (JSON, then base64url-encoded):
     "pid": "<peer_id>",
     "epk": "<ed25519_public_key base58>",
     "xpk": "<x25519_public_key base58>",
-    "ep": ["ws://<ip>:<port>"]     # list of endpoints to try
+    "ep": ["ws://<ip>:<port>"],    # list of endpoints to try
+    "mn": "<mesh_name>",           # optional mesh hint
+    "pl": "<peer_label>",          # optional node/display hint
+    "il": "<instance_label>",      # optional device/instance hint
+    "ts": "<generated_at>"         # optional ISO timestamp
 }
 
 Project: Canopy - Local Mesh Communication
@@ -91,16 +95,29 @@ class InviteCode:
     ed25519_public_key_b58: str
     x25519_public_key_b58: str
     endpoints: List[str]
+    mesh_name: Optional[str] = None
+    peer_label: Optional[str] = None
+    instance_label: Optional[str] = None
+    generated_at: Optional[str] = None
     version: int = 1
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        payload = {
             'v': self.version,
             'pid': self.peer_id,
             'epk': self.ed25519_public_key_b58,
             'xpk': self.x25519_public_key_b58,
             'ep': self.endpoints,
         }
+        if self.mesh_name:
+            payload['mn'] = self.mesh_name
+        if self.peer_label:
+            payload['pl'] = self.peer_label
+        if self.instance_label:
+            payload['il'] = self.instance_label
+        if self.generated_at:
+            payload['ts'] = self.generated_at
+        return payload
 
     def encode(self) -> str:
         """Encode invite as a compact base64url string prefixed with 'canopy:'."""
@@ -125,14 +142,16 @@ class InviteCode:
             code = code[len('canopy:'):]
 
         # Try base64url decode
+        original_code = code
         try:
             # Restore padding
             padding = 4 - len(code) % 4
+            candidate = code
             if padding != 4:
-                code += '=' * padding
-            raw = base64.urlsafe_b64decode(code).decode('utf-8')
+                candidate += '=' * padding
+            raw = base64.urlsafe_b64decode(candidate).decode('utf-8')
         except Exception:
-            raw = code  # maybe it's raw JSON
+            raw = original_code  # maybe it's raw JSON
 
         data = json.loads(raw)
         return cls(
@@ -141,6 +160,10 @@ class InviteCode:
             ed25519_public_key_b58=data['epk'],
             x25519_public_key_b58=data['xpk'],
             endpoints=data.get('ep', []),
+            mesh_name=data.get('mn') or None,
+            peer_label=data.get('pl') or None,
+            instance_label=data.get('il') or None,
+            generated_at=data.get('ts') or None,
         )
 
 
@@ -175,7 +198,11 @@ def get_local_ips() -> List[str]:
 def generate_invite(identity_manager: Any, mesh_port: int,
                     public_host: Optional[str] = None,
                     public_port: Optional[int] = None,
-                    external_endpoint: Optional[str] = None) -> InviteCode:
+                    external_endpoint: Optional[str] = None,
+                    mesh_name: Optional[str] = None,
+                    peer_label: Optional[str] = None,
+                    instance_label: Optional[str] = None,
+                    generated_at: Optional[str] = None) -> InviteCode:
     """
     Generate an invite code from the local peer identity.
 
@@ -185,6 +212,10 @@ def generate_invite(identity_manager: Any, mesh_port: int,
         public_host: Optional public/external IP or hostname
         public_port: Optional public port (if port-forwarded)
         external_endpoint: Optional full ws:// or wss:// endpoint
+        mesh_name: Optional human-facing mesh label for preview UX
+        peer_label: Optional human-facing peer label for preview UX
+        instance_label: Optional device/instance label for preview UX
+        generated_at: Optional ISO timestamp for invite age hints
 
     Returns:
         InviteCode ready to .encode()
@@ -221,6 +252,10 @@ def generate_invite(identity_manager: Any, mesh_port: int,
         ed25519_public_key_b58=epk,
         x25519_public_key_b58=xpk,
         endpoints=endpoints,
+        mesh_name=str(mesh_name or '').strip() or None,
+        peer_label=str(peer_label or '').strip() or None,
+        instance_label=str(instance_label or '').strip() or None,
+        generated_at=str(generated_at or '').strip() or None,
     )
 
     logger.info(f"Generated invite code for peer {local.peer_id} with {len(endpoints)} endpoint(s)")

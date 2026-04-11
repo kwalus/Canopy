@@ -144,6 +144,18 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('external_endpoint=', connect_template)
         self.assertIn('Regenerated with external endpoint!', connect_template)
 
+    def test_connect_page_previews_invites_before_importing(self) -> None:
+        connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
+        self.assertIn('id="invitePreview"', connect_template)
+        self.assertIn('function decodeInvitePreview(code)', connect_template)
+        self.assertIn("new TextDecoder('utf-8').decode(bytes)", connect_template)
+        self.assertIn('function previewInvite(force)', connect_template)
+        self.assertIn('function connectPreviewedInvite()', connect_template)
+        self.assertIn('Review before connecting', connect_template)
+        self.assertIn('Mesh hint differs from this workspace', connect_template)
+        self.assertIn('Labels are sender-provided hints', connect_template)
+        self.assertIn("btn.disabled = true;", connect_template)
+
     def test_feed_video_surfaces_preserve_actual_video_mime_type(self) -> None:
         feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
         self.assertIn("metadata.video_type = firstType || 'video/mp4';", feed_template)

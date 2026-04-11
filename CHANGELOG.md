@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-04-10
+
+### Changed
+- **Invite import now gives operators a safer preview with mesh-aware hints before connecting** — the Connect page can decode an invite locally, surface sender-provided mesh, node, fingerprint, reachability, and age hints before import, and still falls back to the existing server-side verification path for the actual peer registration and connection attempt.
+
 ## [0.6.4] - 2026-04-09
 
 ### Fixed

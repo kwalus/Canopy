@@ -7747,6 +7747,7 @@ def create_ui_blueprint() -> Blueprint:
     def connect_page():
         """Peer connection and invite code page."""
         from ..network.invite import generate_invite, get_local_ips
+        from ..core.device import get_device_label, get_device_profile
         try:
             _, _, _, _, _, _, _, _, _, config, p2p_manager = _get_app_components_any(current_app)
             user_id = get_current_user()
@@ -7755,10 +7756,27 @@ def create_ui_blueprint() -> Blueprint:
             peer_id = None
             endpoints = []
             local_ips = get_local_ips()
+            current_mesh_name = str(getattr(getattr(config, 'meshspace', None), 'name', '') or '').strip() or 'Default Mesh'
+            current_instance_label = str(getattr(config, 'device_label', '') or '').strip()
+            current_peer_label = ''
+            try:
+                device_profile = get_device_profile()
+                current_peer_label = str(device_profile.get('display_name') or '').strip()
+                if not current_instance_label:
+                    current_instance_label = str(get_device_label() or '').strip()
+            except Exception:
+                pass
 
             if p2p_manager and p2p_manager.identity_manager.local_identity:
                 mesh_port = config.network.mesh_port if config else 7771
-                invite = generate_invite(p2p_manager.identity_manager, mesh_port)
+                invite = generate_invite(
+                    p2p_manager.identity_manager,
+                    mesh_port,
+                    mesh_name=current_mesh_name,
+                    peer_label=current_peer_label or None,
+                    instance_label=current_instance_label or None,
+                    generated_at=datetime.now(timezone.utc).isoformat(),
+                )
                 invite_code = invite.encode()
                 peer_id = invite.peer_id
                 endpoints = invite.endpoints
@@ -7851,6 +7869,9 @@ def create_ui_blueprint() -> Blueprint:
                                  peer_id=peer_id,
                                  endpoints=endpoints,
                                  local_ips=local_ips,
+                                 current_mesh_name=current_mesh_name,
+                                 current_peer_label=current_peer_label,
+                                 current_instance_label=current_instance_label,
                                  mesh_port=config.network.mesh_port if config else 7771,
                                  connected_peers=connected_peers,
                                  discovered_peers=discovered_peers,
