@@ -265,6 +265,13 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertIn('function syncDmMobileLayoutState(options)', body)
         self.assertIn("window.addEventListener('resize', scheduleDmMobileLayoutSync);", body)
 
+    def test_dm_message_text_preserves_multiline_content(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        template = (root / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
+        self.assertIn('.dm-bubble-copy {', template)
+        self.assertIn('white-space: pre-wrap;', template)
+        self.assertIn('line-height: 1.45;', template)
+
     def test_messages_page_acknowledges_dm_mentions_for_open_thread(self) -> None:
         self.conn.execute(
             """

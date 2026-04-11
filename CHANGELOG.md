@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.7] - 2026-04-11
+
+### Fixed
+- **Direct messages now preserve authored line breaks instead of flattening multiline text into one paragraph** - DM bubble text now renders with whitespace preservation so server-rendered messages, optimistic rows, and inline-edited DM copies all keep intentional newlines and blank lines while still wrapping normally inside the bubble.
+
 ## [0.6.6] - 2026-04-11
 
 ### Fixed
