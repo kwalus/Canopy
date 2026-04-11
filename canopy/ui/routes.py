@@ -3146,6 +3146,25 @@ def create_ui_blueprint() -> Blueprint:
                     """,
                     ('general', user_id),
                 )
+                try:
+                    public_channels = conn.execute(
+                        "SELECT id FROM channels "
+                        "WHERE channel_type = 'public' "
+                        "  AND COALESCE(privacy_mode, 'open') = 'open'"
+                    ).fetchall()
+                except Exception:
+                    # Backward compatibility for legacy schemas without privacy_mode.
+                    public_channels = conn.execute(
+                        "SELECT id FROM channels WHERE channel_type = 'public'"
+                    ).fetchall()
+                for (channel_id,) in public_channels:
+                    conn.execute(
+                        """
+                        INSERT OR IGNORE INTO channel_members (channel_id, user_id, role)
+                        VALUES (?, ?, 'member')
+                        """,
+                        (channel_id, user_id),
+                    )
                 if include_quarantine_admin:
                     conn.execute(
                         """
@@ -9315,6 +9334,7 @@ def create_ui_blueprint() -> Blueprint:
                     if not quarantine_ok or not governance_result.get('enabled'):
                         db_manager.set_user_status(user_id, 'pending_approval')
                         return jsonify({'error': 'Failed to apply default agent quarantine'}), 500
+                    _ensure_user_default_channels(db_manager, channel_manager, user_id)
                 return jsonify({'success': True, 'status': 'active'})
             return jsonify({'error': 'User not found or update failed'}), 400
         except Exception as e:
@@ -9398,6 +9418,7 @@ def create_ui_blueprint() -> Blueprint:
                         status=user.get('status'),
                     )
                     return jsonify({'error': 'Failed to apply default agent quarantine'}), 500
+                _ensure_user_default_channels(db_manager, channel_manager, user_id)
                 refreshed = db_manager.get_user(user_id) or refreshed
             payload = {
                 'id': refreshed.get('id'),

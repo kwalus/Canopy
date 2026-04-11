@@ -1,6 +1,7 @@
 """Regression coverage for admin approval applying agent quarantine."""
 
 import os
+import sqlite3
 import sys
 import types
 import unittest
@@ -28,6 +29,39 @@ from canopy.ui.routes import create_ui_blueprint
 
 class _FakeDbManager:
     def __init__(self) -> None:
+        self.conn = sqlite3.connect(':memory:')
+        self.conn.row_factory = sqlite3.Row
+        self.conn.executescript(
+            """
+            CREATE TABLE channels (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                channel_type TEXT NOT NULL,
+                created_by TEXT NOT NULL,
+                description TEXT,
+                privacy_mode TEXT
+            );
+
+            CREATE TABLE channel_members (
+                channel_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                role TEXT DEFAULT 'member',
+                UNIQUE(channel_id, user_id)
+            );
+            """
+        )
+        self.conn.executemany(
+            """
+            INSERT INTO channels (id, name, channel_type, created_by, description, privacy_mode)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            [
+                ('general', 'general', 'public', 'system', 'General', 'open'),
+                ('Cnews', 'canopy-news', 'public', 'owner-user', 'News', 'open'),
+                ('Cprivate', 'staff', 'public', 'owner-user', 'Private', 'private'),
+            ],
+        )
+        self.conn.commit()
         self.users = {
             'owner-user': {
                 'id': 'owner-user',
@@ -46,6 +80,9 @@ class _FakeDbManager:
                 'password_hash': 'hash-agent',
             },
         }
+
+    def get_connection(self):
+        return self.conn
 
     def get_instance_owner_user_id(self):
         return 'owner-user'
@@ -78,6 +115,9 @@ class _FakeChannelManager:
         self.enforcement_calls = []
         self.should_quarantine_succeed = should_quarantine_succeed
         self.governance_enabled = governance_enabled
+
+    def ensure_default_channels_exist(self) -> None:
+        return None
 
     def ensure_agent_quarantine_assignment(self, user_id: str, *, updated_by: str = None, role: str = 'member'):
         self.quarantine_calls.append({
@@ -130,6 +170,16 @@ class TestAgentQuarantineAdminApprove(unittest.TestCase):
             sess['display_name'] = 'Owner'
             sess['_csrf_token'] = 'csrf-approve'
 
+    def tearDown(self) -> None:
+        self.db_manager.conn.close()
+
+    def _membership_ids(self, user_id: str) -> list[str]:
+        rows = self.db_manager.conn.execute(
+            "SELECT channel_id FROM channel_members WHERE user_id = ? ORDER BY channel_id",
+            (user_id,),
+        ).fetchall()
+        return [row['channel_id'] for row in rows]
+
     def test_admin_approve_quarantines_agent(self) -> None:
         response = self.client.post(
             '/ajax/admin/users/agent-user/approve',
@@ -144,6 +194,7 @@ class TestAgentQuarantineAdminApprove(unittest.TestCase):
         self.assertEqual(self.channel_manager.quarantine_calls[0]['user_id'], 'agent-user')
         self.assertEqual(self.channel_manager.quarantine_calls[0]['updated_by'], 'owner-user')
         self.assertEqual(self.channel_manager.enforcement_calls, ['agent-user'])
+        self.assertEqual(self._membership_ids('agent-user'), ['Cnews', 'general'])
 
     def test_admin_approve_reverts_to_pending_if_quarantine_fails(self) -> None:
         failing_channel_manager = _FakeChannelManager(should_quarantine_succeed=False)
@@ -179,6 +230,7 @@ class TestAgentQuarantineAdminApprove(unittest.TestCase):
         self.assertTrue(payload.get('success'))
         self.assertEqual(self.channel_manager.quarantine_calls[-1]['user_id'], 'agent-user')
         self.assertEqual(self.channel_manager.enforcement_calls[-1], 'agent-user')
+        self.assertEqual(self._membership_ids('agent-user'), ['Cnews', 'general'])
 
     def test_admin_classification_reverts_if_quarantine_fails(self) -> None:
         failing_channel_manager = _FakeChannelManager(should_quarantine_succeed=False)

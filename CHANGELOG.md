@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.6] - 2026-04-11
+
+### Fixed
+- **Approved agents now land in open public channels instead of staying stranded in quarantine-only membership** - the shared default-channel repair path now backfills all open public channels, and the admin approval and classification flows reuse that path immediately after agent quarantine succeeds so newly approved agent accounts can post where operators expect without manual database repair.
+
 ## [0.6.5] - 2026-04-10
 
 ### Changed
