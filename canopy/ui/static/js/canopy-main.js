@@ -3138,6 +3138,98 @@
                 return div.innerHTML;
             }
 
+            function hasCanopyMarkdownSyntax(text) {
+                const value = String(text || '');
+                return (
+                    /(^|\n)\s{0,3}#{1,3}\s+\S/.test(value) ||
+                    /(^|\n)\s{0,3}>\s+\S/.test(value) ||
+                    /(^|\n)\s{0,3}(?:[-*+]\s+|\d+\.\s+)\S/.test(value) ||
+                    /(?:\*\*|__)[^\n]+(?:\*\*|__)/.test(value) ||
+                    /(^|[^\*])\*[^\s*][^\n]*[^\s*]\*(?!\*)/.test(value) ||
+                    /~~[^\n]+~~/.test(value) ||
+                    /`[^`\n]+`/.test(value) ||
+                    /\[[^\]\n]+\]\(https?:\/\/[^)\s]+[^\s)]\)/.test(value)
+                );
+            }
+
+            function renderCanopyInlineMarkdown(html) {
+                if (!html) return html;
+                const inlineBlocks = [];
+                const INLINE_PLACEHOLDER = '\x00INLINE_';
+                html = html.replace(/`([^`\n]+)`/g, function(_match, body) {
+                    const idx = inlineBlocks.length;
+                    inlineBlocks.push('<code class="canopy-inline-code no-katex">' + body + '</code>');
+                    return INLINE_PLACEHOLDER + idx + '\x00';
+                });
+                html = html.replace(/(\*\*|__)([^\n]+?)\1/g, '<strong>$2</strong>');
+                html = html.replace(/~~([^\n]+?)~~/g, '<del>$1</del>');
+                html = html.replace(/(^|[^\*])\*([^\s*][^\n]*?[^\s*])\*(?!\*)/g, '$1<em>$2</em>');
+                for (let i = 0; i < inlineBlocks.length; i++) {
+                    html = html.replace(INLINE_PLACEHOLDER + i + '\x00', inlineBlocks[i]);
+                }
+                return html;
+            }
+
+            function renderCanopyBlockMarkdown(html) {
+                if (!html) return html;
+                const lines = String(html).split('\n');
+                const out = [];
+                let listType = null;
+                let listItems = [];
+                let quoteLines = [];
+
+                function flushList() {
+                    if (!listType) return;
+                    out.push('<' + listType + ' class="canopy-md-list">' + listItems.join('') + '</' + listType + '>');
+                    listType = null;
+                    listItems = [];
+                }
+
+                function flushQuote() {
+                    if (!quoteLines.length) return;
+                    out.push('<blockquote class="canopy-md-quote">' + quoteLines.join('<br>') + '</blockquote>');
+                    quoteLines = [];
+                }
+
+                lines.forEach(function(line) {
+                    const heading = line.match(/^\s{0,3}(#{1,3})\s+(.+)$/);
+                    const quote = line.match(/^\s{0,3}>\s?(.*)$/);
+                    const unordered = line.match(/^\s{0,3}[-*+]\s+(.+)$/);
+                    const ordered = line.match(/^\s{0,3}\d+\.\s+(.+)$/);
+
+                    if (heading) {
+                        flushList();
+                        flushQuote();
+                        const levelClass = 'h' + Math.min(3, heading[1].length);
+                        out.push('<div class="canopy-md-heading ' + levelClass + '">' + heading[2] + '</div>');
+                        return;
+                    }
+
+                    if (quote) {
+                        flushList();
+                        quoteLines.push(quote[1] || '&nbsp;');
+                        return;
+                    }
+
+                    if (unordered || ordered) {
+                        flushQuote();
+                        const nextType = unordered ? 'ul' : 'ol';
+                        if (listType && listType !== nextType) flushList();
+                        listType = nextType;
+                        listItems.push('<li>' + (unordered ? unordered[1] : ordered[1]) + '</li>');
+                        return;
+                    }
+
+                    flushList();
+                    flushQuote();
+                    out.push(line);
+                });
+
+                flushList();
+                flushQuote();
+                return out.join('\n');
+            }
+
             const CANOPY_MARKDOWN_PREVIEW_EXTENSIONS = ['.md', '.markdown'];
             const CANOPY_SPREADSHEET_PREVIEW_EXTENSIONS = ['.csv', '.tsv', '.xlsx', '.xlsm'];
             const CANOPY_SPREADSHEET_PREVIEW_MIME_TYPES = new Set([
@@ -4148,6 +4240,8 @@
                 return '<a href="' + safeUrl + '" target="_blank" rel="noopener noreferrer" ' +
                     'style="color:var(--canopy-primary,#22c55e);">' + safeText + '</a>';
             });
+            html = renderCanopyInlineMarkdown(html);
+            html = renderCanopyBlockMarkdown(html);
             html = html.replace(/\n/g, '<br>');
 
             const embedState = collectProviderEmbeds(html);
@@ -4217,7 +4311,7 @@
 
 	            // Wrap in paragraph or div (div if we have block elements like <pre> so markup stays valid)
             if (!html.includes('embed-preview') && !html.includes('embed-grid')) {
-                if (html.includes('<pre') || html.includes('<pre ') || html.includes('<div') || html.includes('<table')) {
+                if (html.includes('<pre') || html.includes('<pre ') || html.includes('<div') || html.includes('<table') || html.includes('<ul') || html.includes('<ol') || html.includes('<blockquote')) {
                     html = '<div class="rich-content">' + html + '</div>';
                 } else {
                     html = '<p class="mb-0">' + html + '</p>';
@@ -4235,7 +4329,7 @@
 		                const rawText = el.textContent.trim();
 		                if (!rawText) return;
 		                // Process if it contains a URL worth embedding, markdown image, or code blocks
-		                var shouldProcess = /https?:\/\//.test(rawText) || /\]\(\/files\//.test(rawText) || /!\[/.test(rawText) || /```/.test(rawText) || containsMathDelimiters(rawText);
+		                var shouldProcess = /https?:\/\//.test(rawText) || /\]\(\/files\//.test(rawText) || /!\[/.test(rawText) || /```/.test(rawText) || hasCanopyMarkdownSyntax(rawText) || containsMathDelimiters(rawText);
 		                if (shouldProcess) {
 		                    const rendered = renderRichContent(rawText);
 		                    if (el.tagName === 'P') {

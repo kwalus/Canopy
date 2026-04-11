@@ -162,6 +162,24 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("type=\"{{ post.metadata.video_type or 'video/mp4' }}\"", feed_template)
         self.assertIn("type=\"{{ em.get('video_type') or 'video/mp4' }}\"", feed_template)
 
+    def test_safe_markdown_renderer_is_bounded_and_shared(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+        self.assertIn('function hasCanopyMarkdownSyntax(text)', main_js)
+        self.assertIn('function renderCanopyInlineMarkdown(html)', main_js)
+        self.assertIn('function renderCanopyBlockMarkdown(html)', main_js)
+        self.assertIn('hasCanopyMarkdownSyntax(rawText)', main_js)
+        self.assertIn('<code class="canopy-inline-code no-katex">', main_js)
+        self.assertIn('class="canopy-md-list"', main_js)
+        self.assertIn('class="canopy-md-quote"', main_js)
+        self.assertIn('class="canopy-md-heading ', main_js)
+        self.assertIn("html.includes('<ul')", main_js)
+        self.assertIn("html.includes('<blockquote')", main_js)
+        self.assertIn('.canopy-inline-code', base_template)
+        self.assertIn('.canopy-md-heading', base_template)
+        self.assertIn('.canopy-md-list', base_template)
+        self.assertIn('.canopy-md-quote', base_template)
+
     def test_attention_bell_defaults_new_users_to_inbox_only(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
         self.assertIn('function defaultCanopyAttentionFilters()', main_js)

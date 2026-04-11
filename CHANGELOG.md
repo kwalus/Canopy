@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.8] - 2026-04-11
+
+### Changed
+- **Messages and posts now support a bounded safe Markdown subset without opening the door to raw HTML rendering** - the shared client-side rich-content pipeline can now render lightweight headings, lists, blockquotes, inline code, bold, italic, and strikethrough across channels, DMs, and feed posts while still escaping user HTML first and preserving the existing safe link, image, fenced-code, embed, and math behavior.
+
 ## [0.6.7] - 2026-04-11
 
 ### Fixed
