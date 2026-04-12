@@ -283,6 +283,29 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         )
         self.assertRegex(template, pattern)
 
+    def test_inline_edit_success_path_avoids_full_thread_snapshot_reload(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        template = (root / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
+        pattern = re.compile(
+            r"showAlert\('Message updated successfully', 'success'\);\s*"
+            r"(?:(?!loadDmSnapshot).)*?\.catch\(err => showAlert\('Failed to update message:",
+            re.S,
+        )
+        self.assertRegex(template, pattern)
+
+    def test_visibility_change_relies_on_event_poll_without_forcing_full_snapshot(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        template = (root / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
+        pattern = re.compile(
+            r"document\.addEventListener\('visibilitychange', \(\) => \{\s*"
+            r"if \(!document\.hidden && !isDmSearchActive\(\)\) \{\s*"
+            r"syncDmMobileLayoutState\(\{ keepSidebarOpen: true \}\);\s*"
+            r"pollDmEvents\(\);\s*"
+            r"\}\s*\}\);",
+            re.S,
+        )
+        self.assertRegex(template, pattern)
+
     def test_messages_page_acknowledges_dm_mentions_for_open_thread(self) -> None:
         self.conn.execute(
             """

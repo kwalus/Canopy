@@ -1100,6 +1100,8 @@
             pollInFlight: false,
             pollHandle: null,
             safetyHandle: null,
+            listenersAttached: false,
+            visibilityFocusDebounceHandle: null,
         };
 
         const canopyAttentionDismissStorageKey = (() => {
@@ -1426,6 +1428,18 @@
                 });
         }
 
+        function _scheduleCanopyVisibilityFocusRefresh() {
+            if (canopySidebarAttentionState.visibilityFocusDebounceHandle) {
+                window.clearTimeout(canopySidebarAttentionState.visibilityFocusDebounceHandle);
+            }
+            canopySidebarAttentionState.visibilityFocusDebounceHandle = window.setTimeout(function() {
+                canopySidebarAttentionState.visibilityFocusDebounceHandle = null;
+                pollCanopyWorkspaceAttentionEvents();
+                requestCanopySidebarAttentionRefresh({ force: false }).catch(() => {});
+                requestCanopySidebarDmRefresh({ force: false }).catch(() => {});
+            }, 150);
+        }
+
         function startCanopyWorkspaceAttentionPolling() {
             renderSidebarAttentionSummary(canopySidebarAttentionState.summary);
             canopyRenderSidebarDmContacts(canopySidebarDmState.contacts);
@@ -1442,18 +1456,17 @@
                 requestCanopySidebarAttentionRefresh({ force: false }).catch(() => {});
                 requestCanopySidebarDmRefresh({ force: false }).catch(() => {});
             }, 30000);
-            document.addEventListener('visibilitychange', function() {
-                if (document.visibilityState === 'visible') {
-                    pollCanopyWorkspaceAttentionEvents();
-                    requestCanopySidebarAttentionRefresh({ force: false }).catch(() => {});
-                    requestCanopySidebarDmRefresh({ force: false }).catch(() => {});
-                }
-            });
-            window.addEventListener('focus', function() {
-                pollCanopyWorkspaceAttentionEvents();
-                requestCanopySidebarAttentionRefresh({ force: false }).catch(() => {});
-                requestCanopySidebarDmRefresh({ force: false }).catch(() => {});
-            });
+            if (!canopySidebarAttentionState.listenersAttached) {
+                canopySidebarAttentionState.listenersAttached = true;
+                document.addEventListener('visibilitychange', function() {
+                    if (document.visibilityState === 'visible') {
+                        _scheduleCanopyVisibilityFocusRefresh();
+                    }
+                });
+                window.addEventListener('focus', function() {
+                    _scheduleCanopyVisibilityFocusRefresh();
+                });
+            }
         }
 
         window.requestCanopySidebarAttentionRefresh = requestCanopySidebarAttentionRefresh;

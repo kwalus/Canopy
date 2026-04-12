@@ -3323,11 +3323,6 @@
             );
             cancelInlineMessageEdit(messageId, true);
             showAlert('Message updated successfully', 'success');
-            loadDmSnapshot({
-                forceBottom: false,
-                allowDeferred: false,
-                hardFallback: false,
-            }).catch(err => showAlert('Failed to refresh message thread: ' + (err.message || err), 'danger'));
         })
         .catch(err => showAlert('Failed to update message: ' + (err.message || err), 'danger'))
         .finally(() => {
@@ -3434,11 +3429,6 @@
             if (!document.hidden && !isDmSearchActive()) {
                 syncDmMobileLayoutState({ keepSidebarOpen: true });
                 pollDmEvents();
-                loadDmSnapshot({
-                    allowDeferred: true,
-                    forceBottom: false,
-                    hardFallback: false,
-                }).catch(() => {});
             }
         });
     });

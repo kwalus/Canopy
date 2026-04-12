@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.12] - 2026-04-12
+
+### Fixed
+- **DM and sidebar switching now avoid several redundant refresh bursts that made the UI feel heavier than necessary** - the DM workspace no longer forces a full thread snapshot after every inline edit or every tab-visibility return, while the global sidebar refresh path now coalesces focus/visibility bursts instead of replaying duplicate attention and DM snapshot requests back-to-back.
+
+### Changed
+- **Current-mesh attention summaries now compute at most once per request instead of repeating the same DB-backed summary work for multiple template consumers on the same page render** - the active mesh attention payload is cached in `flask.g` for the life of the request and returned as copies so callers cannot mutate the shared cached value.
+
 ## [0.6.11] - 2026-04-11
 
 ### Fixed

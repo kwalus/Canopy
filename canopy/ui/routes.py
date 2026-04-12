@@ -513,18 +513,29 @@ def _current_session_meshspace_attention() -> Optional[dict[str, int]]:
     current_user_id = str(session.get('user_id') or '').strip()
     if not current_user_id:
         return None
+    cache = getattr(g, '_current_session_meshspace_attention_cache', None)
+    if isinstance(cache, dict) and current_user_id in cache:
+        cached = cache.get(current_user_id)
+        return dict(cached) if isinstance(cached, dict) else cached
     try:
         db_manager, _, _, _, channel_manager, _, feed_manager, _, _, _, p2p_manager = _get_app_components_any(current_app)
     except Exception:
         return None
 
-    return build_meshspace_notification_summary(
+    attention = build_meshspace_notification_summary(
         db_manager,
         channel_manager,
         feed_manager,
         p2p_manager,
         current_user_id,
     )
+    if isinstance(attention, dict):
+        if not isinstance(cache, dict):
+            cache = {}
+            g._current_session_meshspace_attention_cache = cache
+        cache[current_user_id] = dict(attention)
+        return dict(attention)
+    return attention
 
 
 def _apply_meshspace_attention_overlay(

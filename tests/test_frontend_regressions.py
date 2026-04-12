@@ -538,6 +538,16 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('function pollCanopyWorkspaceAttentionEvents()', main_js)
         self.assertIn("requestCanopySidebarDmRefresh({ force: false }).catch(() => {});", main_js)
 
+    def test_sidebar_refresh_dedup_guard_and_debounce_present(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        self.assertIn('listenersAttached: false,', main_js)
+        self.assertIn('visibilityFocusDebounceHandle: null,', main_js)
+        self.assertIn('function _scheduleCanopyVisibilityFocusRefresh()', main_js)
+        self.assertIn('window.clearTimeout(canopySidebarAttentionState.visibilityFocusDebounceHandle);', main_js)
+        self.assertIn('if (!canopySidebarAttentionState.listenersAttached) {', main_js)
+        self.assertIn("document.addEventListener('visibilitychange', function() {", main_js)
+        self.assertIn('_scheduleCanopyVisibilityFocusRefresh();', main_js)
+
     def test_bookmarks_navigation_and_save_controls_exist(self) -> None:
         base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
         feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
