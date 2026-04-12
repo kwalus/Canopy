@@ -86,6 +86,7 @@ from ..core.messaging import (
     build_dm_security_summary,
     build_dm_preview,
     compute_group_id,
+    compute_group_thread_id,
     filter_local_dm_targets,
 )
 from ..core.inbox import AGENT_SETTABLE_STATUSES, ACTIONABLE_STATUSES
@@ -1021,7 +1022,10 @@ def create_api_blueprint() -> Blueprint:
         if is_group:
             if user_id != sender_id and user_id not in group_members:
                 return None
-            conversation_group = compute_group_id(group_members) if group_members else (raw_group_id or recipient_id)
+            if str(metadata.get('group_thread_id') or '').strip() and raw_group_id:
+                conversation_group = raw_group_id
+            else:
+                conversation_group = compute_group_id(group_members) if group_members else (raw_group_id or recipient_id)
             other_names = [
                 _bookmark_author_label(member_id, db_manager, profile_manager)
                 for member_id in group_members
@@ -4137,6 +4141,11 @@ def create_api_blueprint() -> Blueprint:
             reply_to = str(data.get('reply_to') or '').strip()
             if reply_to:
                 metadata['reply_to'] = reply_to
+            force_new_group = bool(
+                data.get('force_new_group')
+                or data.get('new_group_thread')
+                or data.get('start_new_group_thread')
+            )
             
             # Warn if caller seems to want a channel message
             if data.get('channel_id'):
@@ -4173,12 +4182,24 @@ def create_api_blueprint() -> Blueprint:
             broadcast_targets: list[str] = []
             if len(recipients_unique) > 1:
                 group_members = sorted({g.api_key_info.user_id, *recipients_unique})
-                effective_recipient_id = compute_group_id(group_members)
+                base_group_id = compute_group_id(group_members)
+                group_thread_token = ''
+                if force_new_group:
+                    group_thread_token = (
+                        str(data.get('group_thread_id') or metadata.get('group_thread_id') or '').strip()
+                        or f"gt_{secrets.token_hex(8)}"
+                    )
+                    effective_recipient_id = compute_group_thread_id(group_members, group_thread_token)
+                else:
+                    effective_recipient_id = base_group_id
                 metadata.update({
                     'group_id': effective_recipient_id,
                     'group_members': group_members,
                     'is_group': True,
                 })
+                if group_thread_token:
+                    metadata['group_thread_id'] = group_thread_token
+                    metadata['base_group_id'] = base_group_id
                 broadcast_targets = list(recipients_unique)
             elif recipients_unique:
                 effective_recipient_id = recipients_unique[0]
@@ -4241,6 +4262,10 @@ def create_api_blueprint() -> Blueprint:
                                 payload['group_id'] = metadata.get('group_id')
                             if metadata.get('group_members'):
                                 payload['group_members'] = metadata.get('group_members')
+                            if metadata.get('group_thread_id'):
+                                payload['group_thread_id'] = metadata.get('group_thread_id')
+                            if metadata.get('base_group_id'):
+                                payload['base_group_id'] = metadata.get('base_group_id')
                             inbox_manager.sync_source_triggers(
                                 source_type='dm',
                                 source_id=message.id,
@@ -4261,6 +4286,10 @@ def create_api_blueprint() -> Blueprint:
                 }
                 if metadata.get('group_id'):
                     response_payload['group_id'] = metadata.get('group_id')
+                if metadata.get('group_thread_id'):
+                    response_payload['group_thread_id'] = metadata.get('group_thread_id')
+                if metadata.get('base_group_id'):
+                    response_payload['base_group_id'] = metadata.get('base_group_id')
                 return jsonify(response_payload), 201
             else:
                 return jsonify({'error': 'Failed to send message'}), 500
@@ -4330,14 +4359,19 @@ def create_api_blueprint() -> Blueprint:
 
             if group_members:
                 group_id = str(original_meta.get('group_id') or original.recipient_id or '').strip()
-                try:
-                    group_members = message_manager.resolve_group_members(
-                        g.api_key_info.user_id,
-                        group_id or compute_group_id(sorted(set(group_members))),
-                        group_members,
-                    )
-                except Exception:
+                group_thread_id = str(original_meta.get('group_thread_id') or '').strip()
+                base_group_id = str(original_meta.get('base_group_id') or '').strip()
+                if group_thread_id:
                     group_members = sorted(set(group_members))
+                else:
+                    try:
+                        group_members = message_manager.resolve_group_members(
+                            g.api_key_info.user_id,
+                            group_id or compute_group_id(sorted(set(group_members))),
+                            group_members,
+                        )
+                    except Exception:
+                        group_members = sorted(set(group_members))
                 recipients = [member_id for member_id in group_members if member_id != g.api_key_info.user_id]
                 if not recipients:
                     return jsonify({'error': 'No other group members to reply to'}), 400
@@ -4348,6 +4382,10 @@ def create_api_blueprint() -> Blueprint:
                     'group_members': sorted(set(group_members)),
                     'is_group': True,
                 })
+                if group_thread_id:
+                    reply_meta['group_thread_id'] = group_thread_id
+                if base_group_id:
+                    reply_meta['base_group_id'] = base_group_id
                 reply_meta['security'] = build_dm_security_summary(
                     db_manager,
                     p2p_manager,
@@ -4402,6 +4440,10 @@ def create_api_blueprint() -> Blueprint:
                             inbox_payload['group_members'] = reply_meta.get('group_members')
                         if reply_meta.get('is_group') is not None:
                             inbox_payload['is_group'] = bool(reply_meta.get('is_group'))
+                        if reply_meta.get('group_thread_id'):
+                            inbox_payload['group_thread_id'] = reply_meta.get('group_thread_id')
+                        if reply_meta.get('base_group_id'):
+                            inbox_payload['base_group_id'] = reply_meta.get('base_group_id')
                         inbox_manager.sync_source_triggers(
                             source_type='dm',
                             source_id=message.id,
@@ -4443,6 +4485,10 @@ def create_api_blueprint() -> Blueprint:
             }
             if reply_meta.get('group_id'):
                 response_payload['group_id'] = reply_meta.get('group_id')
+            if reply_meta.get('group_thread_id'):
+                response_payload['group_thread_id'] = reply_meta.get('group_thread_id')
+            if reply_meta.get('base_group_id'):
+                response_payload['base_group_id'] = reply_meta.get('base_group_id')
             return jsonify(response_payload), 201
         except Exception as e:
             logger.error(f"Failed to reply to message: {e}")
@@ -4498,7 +4544,7 @@ def create_api_blueprint() -> Blueprint:
                     for member_id in (final_metadata.get('group_members') or [])
                     if str(member_id).strip() and str(member_id).strip() != g.api_key_info.user_id
                 ]
-                if group_members_for_security:
+                if group_members_for_security and not str(final_metadata.get('group_thread_id') or '').strip():
                     try:
                         resolved_group_members = message_manager.resolve_group_members(
                             g.api_key_info.user_id,
@@ -4596,6 +4642,10 @@ def create_api_blueprint() -> Blueprint:
                             payload['group_id'] = final_metadata.get('group_id')
                         if isinstance(final_metadata, dict) and final_metadata.get('group_members'):
                             payload['group_members'] = final_metadata.get('group_members')
+                        if isinstance(final_metadata, dict) and final_metadata.get('group_thread_id'):
+                            payload['group_thread_id'] = final_metadata.get('group_thread_id')
+                        if isinstance(final_metadata, dict) and final_metadata.get('base_group_id'):
+                            payload['base_group_id'] = final_metadata.get('base_group_id')
                         inbox_manager.sync_source_triggers(
                             source_type='dm',
                             source_id=message_id,

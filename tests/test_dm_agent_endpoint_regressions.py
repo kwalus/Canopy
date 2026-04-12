@@ -31,6 +31,7 @@ if 'zeroconf' not in sys.modules:
 from canopy.api.routes import create_api_blueprint
 from canopy.core.inbox import InboxManager
 from canopy.core.messaging import MessageManager
+from canopy.core.messaging import compute_group_id
 from canopy.security.api_keys import ApiKeyInfo, Permission
 
 
@@ -425,6 +426,60 @@ class TestDmAgentEndpointRegressions(unittest.TestCase):
             ['agent-local', 'author', 'remote-shadow'],
         )
         self.assertIsNotNone(dm_item.get('edited_at'))
+
+    def test_api_group_dm_can_start_fresh_same_member_thread(self) -> None:
+        base_group_id = compute_group_id(['agent-local', 'author', 'remote-shadow'])
+        response = self.client.post(
+            '/api/v1/messages',
+            json={
+                'content': 'Fresh group instance',
+                'recipient_ids': ['agent-local', 'remote-shadow'],
+                'force_new_group': True,
+            },
+            headers=self._headers('key-author'),
+        )
+        self.assertEqual(response.status_code, 201)
+        payload = response.get_json() or {}
+        message = payload.get('message') or {}
+        self.assertTrue(message.get('id'))
+        self.assertTrue(payload.get('group_id'))
+        self.assertTrue(payload.get('group_thread_id'))
+        self.assertEqual(payload.get('base_group_id'), base_group_id)
+        self.assertNotEqual(payload.get('group_id'), base_group_id)
+
+        metadata = message.get('metadata') or {}
+        self.assertEqual(metadata.get('group_id'), payload.get('group_id'))
+        self.assertEqual(metadata.get('base_group_id'), base_group_id)
+        self.assertEqual(metadata.get('group_thread_id'), payload.get('group_thread_id'))
+
+        inbox_row = self.conn.execute(
+            "SELECT payload_json FROM agent_inbox WHERE source_id = ? AND agent_user_id = ?",
+            (message.get('id'), 'agent-local'),
+        ).fetchone()
+        self.assertIsNotNone(inbox_row)
+        inbox_payload = json.loads(inbox_row['payload_json'])
+        self.assertEqual(inbox_payload.get('group_thread_id'), payload.get('group_thread_id'))
+        self.assertEqual(inbox_payload.get('base_group_id'), base_group_id)
+
+        self.p2p_manager.direct_messages.clear()
+        reply_resp = self.client.post(
+            '/api/v1/messages/reply',
+            json={
+                'message_id': message.get('id'),
+                'content': 'Reply inside fresh group instance',
+            },
+            headers=self._headers('key-agent-local'),
+        )
+        self.assertEqual(reply_resp.status_code, 201)
+        reply_payload = reply_resp.get_json() or {}
+        reply_message = reply_payload.get('message') or {}
+        self.assertEqual(reply_payload.get('group_id'), payload.get('group_id'))
+        self.assertEqual(reply_payload.get('group_thread_id'), payload.get('group_thread_id'))
+        self.assertEqual((reply_message.get('metadata') or {}).get('group_thread_id'), payload.get('group_thread_id'))
+        self.assertEqual(
+            sorted(item['recipient_id'] for item in self.p2p_manager.direct_messages),
+            ['author', 'remote-shadow'],
+        )
 
     def test_group_dm_reply_expands_partial_relay_member_sets(self) -> None:
         shared_group_id = 'group:split-relay'

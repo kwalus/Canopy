@@ -25,6 +25,7 @@ if 'zeroconf' not in sys.modules:
 
 from canopy.core.messaging import MessageManager
 from canopy.core.messaging import compute_group_id
+from canopy.core.messaging import compute_group_thread_id
 
 
 class _FakeDbManager:
@@ -208,6 +209,45 @@ class TestDmGroupMessageAccess(unittest.TestCase):
         visible = self.message_manager.get_group_conversation("agent-local", canonical_group_id, limit=20)
 
         self.assertEqual([message.id for message in visible], ["DM-group-visible", "DM-group-relayed"])
+
+    def test_explicit_group_thread_does_not_merge_with_same_member_legacy_group(self) -> None:
+        base_group_id = compute_group_id(["agent-local", "peer-a", "peer-b"])
+        fresh_group_id = compute_group_thread_id(["agent-local", "peer-a", "peer-b"], "fresh-1")
+        self.db.conn.execute(
+            """
+            INSERT INTO messages (
+                id, sender_id, recipient_id, content, message_type, status,
+                created_at, delivered_at, read_at, edited_at, metadata
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "DM-group-fresh",
+                "peer-a",
+                fresh_group_id,
+                "fresh same-member discussion",
+                "text",
+                "delivered",
+                "2026-03-07T10:05:00+00:00",
+                "2026-03-07T10:05:01+00:00",
+                None,
+                None,
+                json.dumps(
+                    {
+                        "group_id": fresh_group_id,
+                        "base_group_id": base_group_id,
+                        "group_thread_id": "fresh-1",
+                        "group_members": ["agent-local", "peer-a", "peer-b"],
+                    }
+                ),
+            ),
+        )
+        self.db.conn.commit()
+
+        legacy = self.message_manager.get_group_conversation("agent-local", base_group_id, limit=20)
+        fresh = self.message_manager.get_group_conversation("agent-local", fresh_group_id, limit=20)
+
+        self.assertEqual([message.id for message in legacy], ["DM-group-visible", "DM-group-relayed"])
+        self.assertEqual([message.id for message in fresh], ["DM-group-fresh"])
 
     # --- Security regression tests ---
 

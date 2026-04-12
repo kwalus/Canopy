@@ -1643,6 +1643,7 @@
     let dmChannelHighlightIndex = 0;
     let activeReplyContext = null;
     let composerUsesActiveThread = !!ACTIVE_THREAD;
+    let composerForceNewGroupThread = false;
     const dmInlineEditStates = {};
     let dmSnapshotSerial = 0;
     let dmEventCursor = {{ workspace_event_cursor|tojson }};
@@ -1968,11 +1969,37 @@
 
     function startNewConversation() {
         composerUsesActiveThread = false;
+        composerForceNewGroupThread = false;
         selectedRecipients = [];
         updateRecipientChips();
         clearRecipientInput();
         toggleRecipientEditor(true);
         clearReplyContext();
+        updateComposerTarget();
+        const textarea = document.getElementById('messageContent');
+        if (textarea) {
+            textarea.focus();
+        }
+    }
+
+    function startFreshGroupDiscussion() {
+        if (!ACTIVE_THREAD || ACTIVE_THREAD.kind !== 'group') {
+            startNewConversation();
+            return;
+        }
+        const recipients = Array.isArray(INITIAL_RECIPIENTS) ? [...INITIAL_RECIPIENTS] : [];
+        if (recipients.length < 2) {
+            showAlert('A fresh thread needs at least two other group participants.', 'warning');
+            return;
+        }
+        composerUsesActiveThread = false;
+        composerForceNewGroupThread = true;
+        selectedRecipients = recipients;
+        updateRecipientChips();
+        clearRecipientInput();
+        clearReplyContext();
+        const panel = document.getElementById('composer-recipient-panel');
+        if (panel) panel.style.display = 'none';
         updateComposerTarget();
         const textarea = document.getElementById('messageContent');
         if (textarea) {
@@ -2005,6 +2032,7 @@
         const composer = document.getElementById('dm-composer');
         if (composer) {
             composer.classList.toggle('dm-composer-recipient-mode', !composerUsesActiveThread || !ACTIVE_THREAD);
+            composer.classList.toggle('dm-composer-fresh-group-thread', !!composerForceNewGroupThread);
         }
         if (!title || !subtitle) return;
 
@@ -2020,7 +2048,11 @@
         if (selectedRecipients.length) {
             const names = selectedRecipients.map(rec => rec.display_name || rec.username || rec.user_id);
             title.textContent = names.join(', ');
-            subtitle.textContent = selectedRecipients.length > 1 ? `New group DM with ${selectedRecipients.length} recipients` : 'New direct message';
+            if (composerForceNewGroupThread && selectedRecipients.length > 1) {
+                subtitle.textContent = `Fresh group thread with ${selectedRecipients.length} recipients`;
+            } else {
+                subtitle.textContent = selectedRecipients.length > 1 ? `New group DM with ${selectedRecipients.length} recipients` : 'New direct message';
+            }
         } else {
             title.textContent = 'New conversation';
             subtitle.textContent = 'Select one or more recipients to begin';
@@ -3015,6 +3047,9 @@
 
         if (recipients.length > 1) payload.recipient_ids = recipients;
         else payload.recipient_id = recipients[0];
+        if (composerForceNewGroupThread && recipients.length > 1) {
+            payload.force_new_group = true;
+        }
 
         if (activeReplyContext && activeReplyContext.messageId) {
             payload.reply_to = activeReplyContext.messageId;
@@ -3042,6 +3077,7 @@
             updateMessageFilePreview();
             clearReplyContext();
             composerUsesActiveThread = true;
+            composerForceNewGroupThread = false;
             const appended = appendOptimisticDmMessage((data && data.message) || null, {
                 targetUrl,
                 replyPreview,

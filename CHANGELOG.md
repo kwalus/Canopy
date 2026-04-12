@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.13] - 2026-04-12
+
+### Fixed
+- **Same-participant group DMs can now deliberately start a fresh thread without collapsing back into the older discussion** - explicit fresh-group instances carry their own thread metadata so replies, edits, bookmarks, and sidebar links stay on the new conversation while legacy split-relay groups still retain the older alias-repair merge behavior.
+- **Portrait photos with EXIF rotation metadata now generate correctly oriented feed thumbnails instead of showing up sideways** - thumbnail generation now transposes images before resizing and lazily regenerates stale rotated thumbs when the original image still exposes a side-rotation EXIF mismatch.
+
 ## [0.6.12] - 2026-04-12
 
 ### Fixed

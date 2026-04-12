@@ -554,6 +554,38 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertEqual(metadata.get('reply_to'), 'DM-root')
         self.assertEqual(self.p2p_manager.direct_messages[-1]['metadata'].get('reply_to'), 'DM-root')
 
+    def test_ajax_send_message_can_start_fresh_same_member_group_thread(self) -> None:
+        base_group_id = compute_group_id(['owner', 'peer-b', 'peer-c'])
+        response = self.client.post(
+            '/ajax/send_message',
+            json={
+                'recipient_ids': ['peer-b', 'peer-c'],
+                'content': 'Fresh same people thread',
+                'force_new_group': True,
+            },
+            headers={'X-CSRFToken': 'csrf-ui-messages'},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertTrue(payload.get('group_thread_id'))
+        self.assertTrue(payload.get('group_id'))
+        self.assertNotEqual(payload.get('group_id'), base_group_id)
+        self.assertEqual(payload.get('base_group_id'), base_group_id)
+
+        row = self.conn.execute(
+            'SELECT recipient_id, metadata FROM messages WHERE id = ?',
+            (payload['message']['id'],),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(row['recipient_id'], payload.get('group_id'))
+        metadata = json.loads(row['metadata']) if row['metadata'] else {}
+        self.assertEqual(metadata.get('group_id'), payload.get('group_id'))
+        self.assertEqual(metadata.get('base_group_id'), base_group_id)
+        self.assertEqual(metadata.get('group_thread_id'), payload.get('group_thread_id'))
+        self.assertEqual(metadata.get('group_members'), ['owner', 'peer-b', 'peer-c'])
+        self.assertEqual(self.p2p_manager.direct_messages[-1]['metadata'].get('group_thread_id'), payload.get('group_thread_id'))
+
     def test_group_thread_view_uses_canonical_identity_for_relayed_group_messages(self) -> None:
         canonical_group_id = compute_group_id(['owner', 'peer-b', 'peer-c'])
 

@@ -256,6 +256,18 @@ def compute_group_id(member_ids: Sequence[str]) -> str:
     return f"group:{digest}"
 
 
+def compute_group_thread_id(member_ids: Sequence[str], thread_token: str) -> str:
+    """Create a stable group DM identifier for one explicit same-member thread."""
+    clean_thread_token = str(thread_token or "").strip()
+    if not clean_thread_token:
+        return compute_group_id(member_ids)
+    cleaned = sorted({str(member_id).strip() for member_id in (member_ids or []) if str(member_id).strip()})
+    digest = hashlib.sha256(
+        ("|".join(cleaned) + f"|thread:{clean_thread_token}").encode("utf-8")
+    ).hexdigest()[:12]
+    return f"group:{digest}"
+
+
 def _normalize_group_member_ids(raw_members: Any) -> List[str]:
     members: List[str] = []
     if isinstance(raw_members, (list, tuple, set)):
@@ -279,9 +291,28 @@ def _group_message_aliases(
     clean_recipient = str(recipient_id or "").strip()
     if clean_recipient.startswith("group:"):
         aliases.add(clean_recipient)
-    if group_members:
+    # Explicit same-member group threads must not collapse back into the
+    # member-set canonical alias; legacy/partial relay rows still use it so
+    # split deliveries with the same group_id continue to merge.
+    has_explicit_thread = bool(str(meta.get("group_thread_id") or "").strip())
+    if group_members and not has_explicit_thread:
         aliases.add(compute_group_id(group_members))
     return aliases
+
+
+def _canonical_group_key(
+    metadata: Optional[Dict[str, Any]],
+    recipient_id: Optional[str],
+    group_members: Sequence[str],
+) -> Optional[str]:
+    meta = metadata if isinstance(metadata, dict) else {}
+    group_id = str(meta.get("group_id") or "").strip()
+    if str(meta.get("group_thread_id") or "").strip() and group_id:
+        return group_id
+    if group_members:
+        return compute_group_id(group_members)
+    clean_recipient = str(recipient_id or "").strip()
+    return group_id or (clean_recipient if clean_recipient.startswith("group:") else None)
 
 
 def build_dm_preview(content: str, attachments: Optional[Sequence[Dict[str, Any]]] = None) -> Optional[str]:
@@ -1206,7 +1237,7 @@ class MessageManager:
 
                     row_recipient_id = str(row['recipient_id'] or '').strip()
                     row_aliases = _group_message_aliases(metadata, row_recipient_id, row_group_members)
-                    row_canonical_key = compute_group_id(row_group_members) if row_group_members else None
+                    row_canonical_key = _canonical_group_key(metadata, row_recipient_id, row_group_members)
 
                     decoded_rows.append((row, content, metadata or None, row_group_members, row_aliases, row_canonical_key))
 

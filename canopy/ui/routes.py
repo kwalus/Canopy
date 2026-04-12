@@ -83,6 +83,7 @@ from ..core.messaging import (
     build_dm_security_summary,
     build_dm_preview,
     compute_group_id,
+    compute_group_thread_id,
     filter_local_dm_targets,
 )
 from ..core.large_attachments import (
@@ -1337,6 +1338,10 @@ def create_ui_blueprint() -> Blueprint:
         """Create a stable group ID from a set of member IDs."""
         return compute_group_id(member_ids)
 
+    def _compute_group_thread_id(member_ids: list, thread_token: str) -> str:
+        """Create a stable group ID for one explicit same-member thread."""
+        return compute_group_thread_id(member_ids, thread_token)
+
     @ui.app_context_processor
     def inject_canopy_version():
         """Inject app version for sidebar and anywhere else. Single source: canopy.__version__."""
@@ -2193,7 +2198,10 @@ def create_ui_blueprint() -> Blueprint:
         if is_group:
             if user_id != sender_id and user_id not in group_members:
                 return None
-            conversation_group = compute_group_id(group_members) if group_members else (raw_group_id or recipient_id)
+            if str(metadata.get('group_thread_id') or '').strip() and raw_group_id:
+                conversation_group = raw_group_id
+            else:
+                conversation_group = compute_group_id(group_members) if group_members else (raw_group_id or recipient_id)
             other_names = [
                 _bookmark_author_label(member_id, db_manager, profile_manager)
                 for member_id in group_members
@@ -4669,15 +4677,22 @@ def create_ui_blueprint() -> Blueprint:
 
         def _group_thread_identity(meta: dict[str, Any], recipient_id: str) -> tuple[Optional[str], Optional[str], list[str], list[str]]:
             raw_group_id = str(meta.get('group_id') or '').strip()
+            group_thread_id = str(meta.get('group_thread_id') or '').strip()
             group_members = _normalize_members(meta.get('group_members'))
             alias_group_ids: list[str] = []
             if raw_group_id:
                 alias_group_ids.append(raw_group_id)
             if recipient_id.startswith('group:') and recipient_id not in alias_group_ids:
                 alias_group_ids.append(recipient_id)
+            if group_thread_id:
+                thread_alias = f"group-thread:{group_thread_id}"
+                if thread_alias not in alias_group_ids:
+                    alias_group_ids.append(thread_alias)
 
             canonical_group_key: Optional[str] = None
-            if group_members:
+            if group_thread_id and raw_group_id:
+                canonical_group_key = raw_group_id
+            elif group_members:
                 canonical_group_key = compute_group_id(group_members)
                 if canonical_group_key not in alias_group_ids:
                     alias_group_ids.append(canonical_group_key)
@@ -8571,6 +8586,11 @@ def create_ui_blueprint() -> Blueprint:
                 metadata['source_layout'] = normalized_source_layout
             if reply_to:
                 metadata['reply_to'] = reply_to
+            force_new_group = bool(
+                data.get('force_new_group')
+                or data.get('new_group_thread')
+                or data.get('start_new_group_thread')
+            )
 
             # Normalize recipients
             recipients_unique = []
@@ -8588,12 +8608,24 @@ def create_ui_blueprint() -> Blueprint:
             # Group DM handling
             if len(recipients_unique) > 1:
                 group_members = sorted({user_id, *recipients_unique})
-                group_id = _compute_group_id(group_members)
+                base_group_id = _compute_group_id(group_members)
+                group_thread_token = ''
+                if force_new_group:
+                    group_thread_token = (
+                        str(data.get('group_thread_id') or '').strip()
+                        or f"gt_{secrets.token_hex(8)}"
+                    )
+                    group_id = _compute_group_thread_id(group_members, group_thread_token)
+                else:
+                    group_id = base_group_id
                 metadata.update({
                     'group_id': group_id,
                     'group_members': group_members,
                     'is_group': True,
                 })
+                if group_thread_token:
+                    metadata['group_thread_id'] = group_thread_token
+                    metadata['base_group_id'] = base_group_id
                 metadata['security'] = build_dm_security_summary(
                     db_manager,
                     p2p_manager,
@@ -8625,6 +8657,8 @@ def create_ui_blueprint() -> Blueprint:
                                         'group_id': group_id,
                                         'group_members': group_members,
                                         'is_group': True,
+                                        'group_thread_id': group_thread_token or None,
+                                        'base_group_id': base_group_id if group_thread_token else None,
                                         'security': metadata.get('security'),
                                     },
                                     message_id=message.id,
@@ -8657,7 +8691,11 @@ def create_ui_blueprint() -> Blueprint:
                         except Exception as bcast_err:
                             logger.warning(f"Failed to broadcast group DM over P2P: {bcast_err}")
 
-                    return jsonify({'success': True, 'message': message.to_dict(), 'group_id': group_id})
+                    response_payload = {'success': True, 'message': message.to_dict(), 'group_id': group_id}
+                    if group_thread_token:
+                        response_payload['group_thread_id'] = group_thread_token
+                        response_payload['base_group_id'] = base_group_id
+                    return jsonify(response_payload)
                 return jsonify({'error': 'Failed to send group message'}), 500
 
             # Single recipient or broadcast
@@ -13574,7 +13612,7 @@ def create_ui_blueprint() -> Blueprint:
                     for member_id in (final_metadata.get('group_members') or [])
                     if str(member_id).strip() and str(member_id).strip() != user_id
                 ]
-                if group_members_for_security:
+                if group_members_for_security and not str(final_metadata.get('group_thread_id') or '').strip():
                     try:
                         resolved_group_members = message_manager.resolve_group_members(
                             user_id,
@@ -13685,6 +13723,10 @@ def create_ui_blueprint() -> Blueprint:
                             payload['group_id'] = final_metadata.get('group_id')
                         if isinstance(final_metadata, dict) and final_metadata.get('group_members'):
                             payload['group_members'] = final_metadata.get('group_members')
+                        if isinstance(final_metadata, dict) and final_metadata.get('group_thread_id'):
+                            payload['group_thread_id'] = final_metadata.get('group_thread_id')
+                        if isinstance(final_metadata, dict) and final_metadata.get('base_group_id'):
+                            payload['base_group_id'] = final_metadata.get('base_group_id')
                         inbox_manager.sync_source_triggers(
                             source_type='dm',
                             source_id=message_id,
@@ -13736,18 +13778,23 @@ def create_ui_blueprint() -> Blueprint:
             meta = original.metadata or {}
             group_members = meta.get('group_members') if isinstance(meta, dict) else None
             group_id = meta.get('group_id') if isinstance(meta, dict) else None
+            group_thread_id = str(meta.get('group_thread_id') or '').strip() if isinstance(meta, dict) else ''
+            base_group_id = str(meta.get('base_group_id') or '').strip() if isinstance(meta, dict) else ''
 
             if group_members:
                 if not group_id:
                     group_id = _compute_group_id(group_members)
-                try:
-                    group_members = message_manager.resolve_group_members(
-                        user_id,
-                        group_id,
-                        group_members,
-                    )
-                except Exception:
+                if group_thread_id:
                     group_members = sorted({str(member_id).strip() for member_id in group_members if str(member_id).strip()})
+                else:
+                    try:
+                        group_members = message_manager.resolve_group_members(
+                            user_id,
+                            group_id,
+                            group_members,
+                        )
+                    except Exception:
+                        group_members = sorted({str(member_id).strip() for member_id in group_members if str(member_id).strip()})
                 recipients = [member_id for member_id in group_members if member_id and member_id != user_id]
                 if not recipients:
                     return jsonify({'error': 'No other group members to reply to'}), 400
@@ -13758,6 +13805,10 @@ def create_ui_blueprint() -> Blueprint:
                     'group_members': group_members,
                     'is_group': True,
                 }
+                if group_thread_id:
+                    reply_meta['group_thread_id'] = group_thread_id
+                if base_group_id:
+                    reply_meta['base_group_id'] = base_group_id
                 reply_meta['security'] = build_dm_security_summary(
                     db_manager,
                     p2p_manager,
@@ -13791,6 +13842,8 @@ def create_ui_blueprint() -> Blueprint:
                                         'group_id': group_id,
                                         'group_members': group_members,
                                         'is_group': True,
+                                        'group_thread_id': group_thread_id or None,
+                                        'base_group_id': base_group_id or None,
                                         'security': reply_meta.get('security'),
                                     },
                                     message_id=message.id,

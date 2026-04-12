@@ -40,6 +40,11 @@
                     <span class="visually-hidden security-text">{{ active_thread.security.get('label') }}</span>
                 </span>
             {% endif %}
+            {% if active_thread.kind == 'group' %}
+            <button class="btn btn-sm btn-outline-secondary" type="button" onclick="startFreshGroupDiscussion()" title="Start a separate group DM with these same participants">
+                <i class="bi bi-chat-square-plus"></i><span class="dm-btn-label">Fresh thread</span>
+            </button>
+            {% endif %}
             <button class="btn btn-sm btn-outline-secondary" type="button" onclick="startNewConversation()">
                 <i class="bi bi-pencil-square"></i><span class="dm-btn-label">New</span>
             </button>
