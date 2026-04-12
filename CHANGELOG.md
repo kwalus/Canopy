@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.11] - 2026-04-11
+
+### Fixed
+- **DM timestamps now localize immediately instead of briefly showing raw UTC strings on first paint or fast refresh paths** - the shared frontend timestamp formatter is now exposed as a reusable global, runs immediately on load, and is reused by DM workspace refreshes and optimistic rows so direct-message timestamps render in the viewer's local time without waiting for the 30-second refresh loop.
+
 ## [0.6.10] - 2026-04-11
 
 ### Fixed

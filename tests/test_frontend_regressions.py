@@ -180,6 +180,16 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('.canopy-md-list', base_template)
         self.assertIn('.canopy-md-quote', base_template)
 
+    def test_timestamp_formatter_is_immediate_shared_and_utc_safe(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        self.assertIn("normalized = raw.replace(' ', 'T') + 'Z';", main_js)
+        self.assertIn("normalized = raw + 'Z';", main_js)
+        self.assertIn('function formatTimestamps(scope)', main_js)
+        self.assertIn("root.querySelectorAll('[data-timestamp]').forEach", main_js)
+        self.assertIn('window.formatTimestamps = formatTimestamps;', main_js)
+        self.assertIn("document.addEventListener('DOMContentLoaded', () => formatTimestamps());", main_js)
+        self.assertIn('setInterval(() => formatTimestamps(), 30000);', main_js)
+
     def test_attention_bell_defaults_new_users_to_inbox_only(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
         self.assertIn('function defaultCanopyAttentionFilters()', main_js)

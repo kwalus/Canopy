@@ -50,8 +50,22 @@
             if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
             return date.toLocaleString();
         }
+
+        function formatTimestamps(scope) {
+            const root = scope && typeof scope.querySelectorAll === 'function' ? scope : document;
+            root.querySelectorAll('[data-timestamp]').forEach(el => {
+                const timestamp = el.getAttribute('data-timestamp');
+                el.textContent = formatTimestamp(timestamp);
+                const parsed = parseCanopyTimestamp(timestamp);
+                if (parsed) {
+                    el.title = parsed.toLocaleString();
+                }
+            });
+        }
+
         window.parseCanopyTimestamp = parseCanopyTimestamp;
         window.formatCanopyTimestamp = formatTimestamp;
+        window.formatTimestamps = formatTimestamps;
         
         function showAlert(message, type = 'info') {
             const alertDiv = document.createElement('div');
@@ -5486,19 +5500,13 @@
             }
         })();
 
-        // Auto-refresh timestamps
-        setInterval(() => {
-            document.querySelectorAll('[data-timestamp]').forEach(el => {
-                const timestamp = el.getAttribute('data-timestamp');
-                el.textContent = formatTimestamp(timestamp);
-                if (typeof window.parseCanopyTimestamp === 'function') {
-                    const parsed = window.parseCanopyTimestamp(timestamp);
-                    if (parsed) {
-                        el.title = parsed.toLocaleString();
-                    }
-                }
-            });
-        }, 30000);
+        // Format timestamps immediately and then refresh relative labels.
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => formatTimestamps());
+        } else {
+            formatTimestamps();
+        }
+        setInterval(() => formatTimestamps(), 30000);
 
         // --- Attention center + peer rail ---
         function initCanopyAttentionCenter() {
