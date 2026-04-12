@@ -272,6 +272,17 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertIn('white-space: pre-wrap;', template)
         self.assertIn('line-height: 1.45;', template)
 
+    def test_inline_edit_js_reapplies_rich_content_after_text_update(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        template = (root / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
+        pattern = re.compile(
+            r"function applyInlineDmMessageEdit\(messageId, content, editedAt\)\s*\{.*?"
+            r"textEl\.textContent = content \|\| '';\s*"
+            r"applyDmRichContentInScope\(msgEl\);",
+            re.S,
+        )
+        self.assertRegex(template, pattern)
+
     def test_messages_page_acknowledges_dm_mentions_for_open_thread(self) -> None:
         self.conn.execute(
             """

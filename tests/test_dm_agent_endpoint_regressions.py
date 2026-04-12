@@ -480,6 +480,56 @@ class TestDmAgentEndpointRegressions(unittest.TestCase):
             ['agent-local', 'author', 'remote-shadow'],
         )
 
+    def test_resolve_group_members_skips_unrelated_group_rows_that_would_exhaust_limit(self) -> None:
+        shared_group_id = 'group:split-relay-limit'
+        filler_rows = [
+            (
+                f'DM-filler-{index}',
+                'remote-shadow',
+                f'group:filler-{index}',
+                f'Unrelated filler {index}',
+                'text',
+                'delivered',
+                f'2026-03-07T09:{index // 60:02d}:{index % 60:02d}+00:00',
+                f'2026-03-07T09:{index // 60:02d}:{index % 60:02d}+00:00',
+                None,
+                None,
+                json.dumps({'group_id': f'group:filler-{index}', 'group_members': ['peer-x', 'peer-y']}),
+            )
+            for index in range(1000)
+        ]
+        self.conn.executemany(
+            """
+            INSERT INTO messages (
+                id, sender_id, recipient_id, content, message_type, status,
+                created_at, delivered_at, read_at, edited_at, metadata
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    'DM-limit-local', 'agent-local', shared_group_id, 'Partial local leg',
+                    'text', 'delivered', '2026-03-07T08:59:00+00:00',
+                    '2026-03-07T08:59:01+00:00', None, None,
+                    json.dumps({'group_id': shared_group_id, 'group_members': ['author', 'agent-local']}),
+                ),
+                *filler_rows,
+                (
+                    'DM-limit-remote', 'remote-shadow', shared_group_id, 'Partial remote leg',
+                    'text', 'delivered', '2026-03-07T10:09:00+00:00',
+                    '2026-03-07T10:09:01+00:00', None, None,
+                    json.dumps({'group_id': shared_group_id, 'group_members': ['author', 'remote-shadow']}),
+                ),
+            ],
+        )
+        self.conn.commit()
+
+        resolved = self.message_manager.resolve_group_members(
+            'author',
+            shared_group_id,
+            ['author', 'agent-local'],
+        )
+        self.assertEqual(resolved, ['agent-local', 'author', 'remote-shadow'])
+
     def test_dm_inbox_exposes_reply_target_and_reply_endpoint_keeps_response_in_dm(self) -> None:
         send_resp = self.client.post(
             '/api/v1/messages',

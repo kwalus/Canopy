@@ -1096,7 +1096,6 @@ class MessageManager:
                     WHERE (
                         sender_id = ?
                         OR recipient_id = ?
-                        OR recipient_id LIKE 'group:%'
                         OR EXISTS (
                             SELECT 1
                             FROM json_each(
@@ -1163,7 +1162,6 @@ class MessageManager:
                     WHERE (
                         m.sender_id = ?
                         OR m.recipient_id = ?
-                        OR m.recipient_id LIKE 'group:%'
                         OR EXISTS (
                             SELECT 1
                             FROM json_each(
@@ -1193,10 +1191,8 @@ class MessageManager:
                     # Determine whether this row is a group-targeted message so we
                     # can apply the correct membership guard.  We check the recipient
                     # prefix and the group_id metadata field before the aliases set is
-                    # built, because the SQL WHERE clause uses an overly broad
-                    # `recipient_id LIKE 'group:%'` predicate that would otherwise
-                    # allow a non-member to read group messages that have no
-                    # group_members list (e.g. legacy or malformed rows).
+                    # built so rows with missing membership metadata still require the
+                    # sender shortcut before they can be surfaced.
                     _rcp_early = str(row['recipient_id'] or '').strip()
                     _gid_early = str(metadata.get('group_id') or '').strip()
                     _is_group_msg = _rcp_early.startswith('group:') or bool(_gid_early)

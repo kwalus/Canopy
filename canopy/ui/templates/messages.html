@@ -3274,6 +3274,7 @@
         }
         if (textEl) {
             textEl.textContent = content || '';
+            applyDmRichContentInScope(msgEl);
         }
         const footer = msgEl.querySelector('.dm-bubble-footer');
         if (footer) {

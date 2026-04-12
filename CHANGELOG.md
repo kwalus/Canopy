@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.10] - 2026-04-11
+
+### Fixed
+- **Inline-edited DMs now immediately regain rich rendering instead of falling back to plain text until the next snapshot refresh** - the inline edit path now reapplies the shared DM rich-content renderer as soon as edited text is written back into the message bubble.
+- **Group DM member resolution no longer burns its alias-repair scan budget on unrelated group rows** - DM group-member expansion now queries only rows that actually involve the current user, which prevents unrelated `group:*` traffic from crowding out relevant relay legs during bounded alias repair.
+
 ## [0.6.9] - 2026-04-11
 
 ### Fixed
