@@ -531,6 +531,49 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertIn('Relay delivered through broker', body)
         self.assertIn(f'/messages?group={canonical_group_id}', body)
 
+    def test_group_thread_merges_partial_relay_member_sets_by_group_alias(self) -> None:
+        shared_group_id = 'group:split-relay'
+        partial_group_id = compute_group_id(['owner', 'peer-b'])
+        self.conn.executemany(
+            """
+            INSERT INTO messages (
+                id, sender_id, recipient_id, content, message_type, status,
+                created_at, delivered_at, read_at, edited_at, metadata
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    'DM-split-b', 'peer-b', shared_group_id, 'Partial relay from Bob',
+                    'text', 'delivered', '2026-03-07T10:08:00+00:00',
+                    '2026-03-07T10:08:01+00:00', None, None,
+                    json.dumps({'group_id': shared_group_id, 'group_members': ['owner', 'peer-b']}),
+                ),
+                (
+                    'DM-split-c', 'peer-c', shared_group_id, 'Partial relay from Cara',
+                    'text', 'delivered', '2026-03-07T10:09:00+00:00',
+                    '2026-03-07T10:09:01+00:00', None, None,
+                    json.dumps({'group_id': shared_group_id, 'group_members': ['owner', 'peer-c']}),
+                ),
+            ],
+        )
+        self.conn.commit()
+
+        messages = self.message_manager.get_group_conversation('owner', partial_group_id, limit=20)
+        self.assertEqual([message.id for message in messages[-2:]], ['DM-split-b', 'DM-split-c'])
+
+        response = self.client.get(f'/ajax/messages/thread_snapshot?group={partial_group_id}')
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertIn('Partial relay from Bob', payload.get('thread_body_html') or '')
+        self.assertIn('Partial relay from Cara', payload.get('thread_body_html') or '')
+        composer_ids = sorted(
+            item.get('user_id')
+            for item in payload.get('composer_recipients') or []
+            if item.get('user_id')
+        )
+        self.assertEqual(composer_ids, ['peer-b', 'peer-c'])
+
 
 if __name__ == '__main__':
     unittest.main()

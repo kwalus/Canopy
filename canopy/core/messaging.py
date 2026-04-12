@@ -256,6 +256,34 @@ def compute_group_id(member_ids: Sequence[str]) -> str:
     return f"group:{digest}"
 
 
+def _normalize_group_member_ids(raw_members: Any) -> List[str]:
+    members: List[str] = []
+    if isinstance(raw_members, (list, tuple, set)):
+        for raw in raw_members:
+            member_id = str(raw or "").strip()
+            if member_id and member_id not in members:
+                members.append(member_id)
+    return members
+
+
+def _group_message_aliases(
+    metadata: Optional[Dict[str, Any]],
+    recipient_id: Optional[str],
+    group_members: Sequence[str],
+) -> set[str]:
+    aliases: set[str] = set()
+    meta = metadata if isinstance(metadata, dict) else {}
+    group_id = str(meta.get("group_id") or "").strip()
+    if group_id:
+        aliases.add(group_id)
+    clean_recipient = str(recipient_id or "").strip()
+    if clean_recipient.startswith("group:"):
+        aliases.add(clean_recipient)
+    if group_members:
+        aliases.add(compute_group_id(group_members))
+    return aliases
+
+
 def build_dm_preview(content: str, attachments: Optional[Sequence[Dict[str, Any]]] = None) -> Optional[str]:
     """Build a human-readable preview for DM inbox/catchup payloads."""
     text = str(content or "").strip()
@@ -1038,6 +1066,89 @@ class MessageManager:
             logger.error(f"Failed to search messages: {e}")
             return []
 
+    def resolve_group_members(
+        self,
+        user_id: str,
+        group_id: Optional[str],
+        seed_members: Optional[Sequence[str]] = None,
+    ) -> List[str]:
+        """Resolve a group DM's member union across rows sharing an alias."""
+        clean_user_id = str(user_id or "").strip()
+        requested_group_id = str(group_id or "").strip()
+        resolved_members = set(_normalize_group_member_ids(seed_members))
+        if clean_user_id:
+            resolved_members.add(clean_user_id)
+
+        target_aliases: set[str] = set()
+        if requested_group_id:
+            target_aliases.add(requested_group_id)
+        if resolved_members:
+            target_aliases.add(compute_group_id(sorted(resolved_members)))
+        if not target_aliases and not resolved_members:
+            return []
+
+        try:
+            with self.db.get_connection() as conn:
+                cursor = conn.execute(
+                    """
+                    SELECT sender_id, recipient_id, metadata
+                    FROM messages
+                    WHERE (
+                        sender_id = ?
+                        OR recipient_id = ?
+                        OR recipient_id LIKE 'group:%'
+                        OR EXISTS (
+                            SELECT 1
+                            FROM json_each(
+                                CASE WHEN json_valid(metadata) THEN metadata ELSE '{}' END,
+                                '$.group_members'
+                            ) gm
+                            WHERE CAST(gm.value AS TEXT) = ?
+                        )
+                    )
+                    ORDER BY created_at ASC
+                    LIMIT 1000
+                    """,
+                    (clean_user_id, clean_user_id, clean_user_id),
+                )
+                decoded_rows: list[tuple[list[str], set[str], str]] = []
+                for row in cursor.fetchall():
+                    try:
+                        meta = json.loads(row["metadata"]) if row["metadata"] else {}
+                    except Exception:
+                        meta = {}
+                    metadata = meta if isinstance(meta, dict) else {}
+                    members = _normalize_group_member_ids(metadata.get("group_members"))
+                    recipient_id = str(row["recipient_id"] or "").strip()
+                    row_group_id = str(metadata.get("group_id") or "").strip()
+                    is_group_msg = recipient_id.startswith("group:") or bool(row_group_id) or bool(members)
+                    if is_group_msg and members and clean_user_id not in members and row["sender_id"] != clean_user_id:
+                        continue
+                    if is_group_msg and not members and row["sender_id"] != clean_user_id:
+                        continue
+                    aliases = _group_message_aliases(metadata, recipient_id, members)
+                    if aliases or members:
+                        decoded_rows.append((members, aliases, str(row["sender_id"] or "").strip()))
+
+                changed = True
+                while changed:
+                    changed = False
+                    for members, aliases, sender_id in decoded_rows:
+                        if not aliases.intersection(target_aliases):
+                            continue
+                        before_alias_count = len(target_aliases)
+                        before_member_count = len(resolved_members)
+                        target_aliases.update(aliases)
+                        resolved_members.update(members)
+                        if sender_id:
+                            resolved_members.add(sender_id)
+                        if len(target_aliases) != before_alias_count or len(resolved_members) != before_member_count:
+                            changed = True
+        except Exception as e:
+            logger.debug(f"Failed to resolve group members for {group_id}: {e}")
+
+        return sorted(member for member in resolved_members if member)
+
     def get_group_conversation(self, user_id: str, group_id: str,
                                limit: int = 100) -> List[Message]:
         """Get conversation for a group DM by group_id."""
@@ -1078,11 +1189,7 @@ class MessageManager:
 
                     meta = json.loads(row['metadata']) if row['metadata'] else None
                     metadata = meta if isinstance(meta, dict) else {}
-                    row_group_members = [
-                        str(member_id).strip()
-                        for member_id in (metadata.get('group_members') or [])
-                        if str(member_id).strip()
-                    ]
+                    row_group_members = _normalize_group_member_ids(metadata.get('group_members'))
                     # Determine whether this row is a group-targeted message so we
                     # can apply the correct membership guard.  We check the recipient
                     # prefix and the group_id metadata field before the aliases set is
@@ -1101,24 +1208,35 @@ class MessageManager:
                     elif row_group_members and user_id not in row_group_members:
                         continue
 
-                    row_aliases: set[str] = set()
-                    row_group_id = str(metadata.get('group_id') or '').strip()
-                    if row_group_id:
-                        row_aliases.add(row_group_id)
                     row_recipient_id = str(row['recipient_id'] or '').strip()
-                    if row_recipient_id.startswith('group:'):
-                        row_aliases.add(row_recipient_id)
+                    row_aliases = _group_message_aliases(metadata, row_recipient_id, row_group_members)
                     row_canonical_key = compute_group_id(row_group_members) if row_group_members else None
-                    if row_canonical_key:
-                        row_aliases.add(row_canonical_key)
 
                     decoded_rows.append((row, content, metadata or None, row_group_members, row_aliases, row_canonical_key))
 
-                    if requested_group_id in row_aliases and row_canonical_key:
-                        target_canonical_keys.add(row_canonical_key)
+                    if requested_group_id in row_aliases:
+                        target_aliases.update(row_aliases)
+                        if row_canonical_key:
+                            target_canonical_keys.add(row_canonical_key)
 
                 if requested_group_id.startswith('group:'):
                     target_canonical_keys.add(requested_group_id)
+
+                changed = True
+                while changed:
+                    changed = False
+                    for _, _, _, _, row_aliases, row_canonical_key in decoded_rows:
+                        if not row_aliases.intersection(target_aliases) and (
+                            not row_canonical_key or row_canonical_key not in target_canonical_keys
+                        ):
+                            continue
+                        before_alias_count = len(target_aliases)
+                        before_key_count = len(target_canonical_keys)
+                        target_aliases.update(row_aliases)
+                        if row_canonical_key:
+                            target_canonical_keys.add(row_canonical_key)
+                        if len(target_aliases) != before_alias_count or len(target_canonical_keys) != before_key_count:
+                            changed = True
 
                 for row, content, meta, row_group_members, row_aliases, row_canonical_key in decoded_rows:
                     if not row_aliases and not row_group_members:

@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.9] - 2026-04-11
+
+### Fixed
+- **Relay-delivered group DMs now recover a fuller participant set instead of splitting one logical group into multiple partial threads** - group DM conversation lookup, sidebar grouping, reply fanout, edit rebroadcasts, and inbound metadata repair now expand through shared group aliases so relayed partial-member rows can converge back into one thread and target the full known participant union.
+
 ## [0.6.8] - 2026-04-11
 
 ### Changed

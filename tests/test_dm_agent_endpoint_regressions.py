@@ -426,6 +426,60 @@ class TestDmAgentEndpointRegressions(unittest.TestCase):
         )
         self.assertIsNotNone(dm_item.get('edited_at'))
 
+    def test_group_dm_reply_expands_partial_relay_member_sets(self) -> None:
+        shared_group_id = 'group:split-relay'
+        self.conn.executemany(
+            """
+            INSERT INTO messages (
+                id, sender_id, recipient_id, content, message_type, status,
+                created_at, delivered_at, read_at, edited_at, metadata
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    'DM-split-local', 'agent-local', shared_group_id, 'Partial local leg',
+                    'text', 'delivered', '2026-03-07T10:08:00+00:00',
+                    '2026-03-07T10:08:01+00:00', None, None,
+                    json.dumps({'group_id': shared_group_id, 'group_members': ['author', 'agent-local']}),
+                ),
+                (
+                    'DM-split-remote', 'remote-shadow', shared_group_id, 'Partial remote leg',
+                    'text', 'delivered', '2026-03-07T10:09:00+00:00',
+                    '2026-03-07T10:09:01+00:00', None, None,
+                    json.dumps({'group_id': shared_group_id, 'group_members': ['author', 'remote-shadow']}),
+                ),
+            ],
+        )
+        self.conn.commit()
+        self.p2p_manager.direct_messages.clear()
+
+        reply_resp = self.client.post(
+            '/api/v1/messages/reply',
+            json={
+                'message_id': 'DM-split-local',
+                'content': 'Reply to the whole split group',
+            },
+            headers=self._headers('key-author'),
+        )
+        self.assertEqual(reply_resp.status_code, 201)
+        payload = reply_resp.get_json() or {}
+        self.assertEqual(payload.get('group_id'), shared_group_id)
+        self.assertEqual(
+            sorted(item['recipient_id'] for item in self.p2p_manager.direct_messages),
+            ['agent-local', 'remote-shadow'],
+        )
+
+        row = self.conn.execute(
+            "SELECT metadata FROM messages WHERE id = ?",
+            ((payload.get('message') or {}).get('id'),),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        metadata = json.loads(row['metadata'])
+        self.assertEqual(
+            metadata.get('group_members'),
+            ['agent-local', 'author', 'remote-shadow'],
+        )
+
     def test_dm_inbox_exposes_reply_target_and_reply_endpoint_keeps_response_in_dm(self) -> None:
         send_resp = self.client.post(
             '/api/v1/messages',

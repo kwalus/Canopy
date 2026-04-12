@@ -4330,6 +4330,14 @@ def create_api_blueprint() -> Blueprint:
 
             if group_members:
                 group_id = str(original_meta.get('group_id') or original.recipient_id or '').strip()
+                try:
+                    group_members = message_manager.resolve_group_members(
+                        g.api_key_info.user_id,
+                        group_id or compute_group_id(sorted(set(group_members))),
+                        group_members,
+                    )
+                except Exception:
+                    group_members = sorted(set(group_members))
                 recipients = [member_id for member_id in group_members if member_id != g.api_key_info.user_id]
                 if not recipients:
                     return jsonify({'error': 'No other group members to reply to'}), 400
@@ -4490,6 +4498,22 @@ def create_api_blueprint() -> Blueprint:
                     for member_id in (final_metadata.get('group_members') or [])
                     if str(member_id).strip() and str(member_id).strip() != g.api_key_info.user_id
                 ]
+                if group_members_for_security:
+                    try:
+                        resolved_group_members = message_manager.resolve_group_members(
+                            g.api_key_info.user_id,
+                            str(final_metadata.get('group_id') or msg.recipient_id or '').strip(),
+                            [g.api_key_info.user_id, *group_members_for_security],
+                        )
+                        if resolved_group_members:
+                            final_metadata['group_members'] = resolved_group_members
+                            group_members_for_security = [
+                                member_id
+                                for member_id in resolved_group_members
+                                if member_id != g.api_key_info.user_id
+                            ]
+                    except Exception:
+                        pass
             target_ids_for_security = group_members_for_security or ([str(msg.recipient_id).strip()] if msg.recipient_id else [])
             if target_ids_for_security:
                 final_metadata['security'] = build_dm_security_summary(

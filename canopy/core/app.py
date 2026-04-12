@@ -41,6 +41,7 @@ from .messaging import (
     MessageType,
     build_dm_preview,
     build_dm_security_summary,
+    compute_group_id,
     filter_local_dm_targets,
     is_local_dm_user,
     unwrap_dm_transport_bundle,
@@ -7444,6 +7445,23 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     meta_payload = dict(meta_payload)
                     meta_payload.setdefault('origin_peer', from_peer)
                     meta_payload['security'] = dict(resolved_security)
+                    if meta_payload.get('group_id') or meta_payload.get('group_members'):
+                        normalized_members = []
+                        raw_members = meta_payload.get('group_members')
+                        if not isinstance(raw_members, (list, tuple, set)):
+                            raw_members = []
+                        for raw_member in raw_members:
+                            member_id = str(raw_member or '').strip()
+                            if member_id and member_id not in normalized_members:
+                                normalized_members.append(member_id)
+                        for required_member in (sender_id, recipient_id):
+                            member_id = str(required_member or '').strip()
+                            if member_id and not member_id.startswith('group:') and member_id not in normalized_members:
+                                normalized_members.append(member_id)
+                        if normalized_members:
+                            meta_payload['group_members'] = sorted(normalized_members)
+                            meta_payload.setdefault('group_id', compute_group_id(normalized_members))
+                            meta_payload['is_group'] = True
 
                 dm_target_ids = []
                 if isinstance(meta_payload, dict) and meta_payload.get('group_members'):

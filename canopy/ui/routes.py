@@ -4747,6 +4747,26 @@ def create_ui_blueprint() -> Blueprint:
                 right_aliases.add(right_group_id)
             return bool(left_aliases and right_aliases and left_aliases.intersection(right_aliases))
 
+        def _group_thread_alias_tokens(thread: dict[str, Any]) -> list[str]:
+            aliases: list[str] = []
+            for raw in (thread.get('alias_group_ids') or []):
+                token = str(raw or '').strip()
+                if token and token not in aliases:
+                    aliases.append(token)
+            for field in ('group_id', 'canonical_group_key'):
+                token = str(thread.get(field) or '').strip()
+                if token and token not in aliases:
+                    aliases.append(token)
+            return aliases
+
+        def _merge_unique_values(existing: Any, additions: Any) -> list[str]:
+            values: list[str] = []
+            for raw in list(existing or []) + list(additions or []):
+                token = str(raw or '').strip()
+                if token and token not in values:
+                    values.append(token)
+            return values
+
         def _format_thread_title(thread: dict[str, Any]) -> tuple[str, str, list[dict[str, Any]]]:
             if thread.get('kind') == 'direct':
                 other = _user_display(thread.get('user_id')) or {'display_name': thread.get('user_id')}
@@ -4797,11 +4817,18 @@ def create_ui_blueprint() -> Blueprint:
         ]
 
         conversations_by_key: dict[str, dict[str, Any]] = {}
+        group_entry_alias_index: dict[str, str] = {}
         for message in all_dm_messages:
             thread = _classify_thread(message)
             if not thread:
                 continue
             thread_key = str(thread['key'])
+            if thread.get('kind') == 'group':
+                for alias in _group_thread_alias_tokens(thread):
+                    indexed_key = group_entry_alias_index.get(alias)
+                    if indexed_key and indexed_key in conversations_by_key:
+                        thread_key = indexed_key
+                        break
             attachments = (_message_meta(message).get('attachments') or [])
             entry = conversations_by_key.get(thread_key)
             if entry is None:
@@ -4826,6 +4853,26 @@ def create_ui_blueprint() -> Blueprint:
                     'member_ids': thread.get('member_ids') or [],
                 }
                 conversations_by_key[thread_key] = entry
+            elif entry.get('kind') == 'group' and thread.get('kind') == 'group':
+                entry['alias_group_ids'] = _merge_unique_values(
+                    entry.get('alias_group_ids') or [],
+                    thread.get('alias_group_ids') or [],
+                )
+                entry['member_ids'] = _merge_unique_values(
+                    entry.get('member_ids') or [],
+                    thread.get('member_ids') or [],
+                )
+                if not entry.get('group_id') and thread.get('group_id'):
+                    entry['group_id'] = thread.get('group_id')
+                if not entry.get('canonical_group_key') and thread.get('canonical_group_key'):
+                    entry['canonical_group_key'] = thread.get('canonical_group_key')
+                title, subtitle, preview_users = _format_thread_title(entry)
+                entry['title'] = title
+                entry['subtitle'] = subtitle
+                entry['preview_users'] = preview_users
+            if entry.get('kind') == 'group':
+                for alias in _group_thread_alias_tokens(entry):
+                    group_entry_alias_index[alias] = thread_key
             entry['message_count'] += 1
             entry['preview'] = build_dm_preview(getattr(message, 'content', ''), attachments) or 'Attachment'
             if message.created_at >= (entry.get('updated_dt') or datetime.min.replace(tzinfo=timezone.utc)):
@@ -13516,6 +13563,22 @@ def create_ui_blueprint() -> Blueprint:
                     for member_id in (final_metadata.get('group_members') or [])
                     if str(member_id).strip() and str(member_id).strip() != user_id
                 ]
+                if group_members_for_security:
+                    try:
+                        resolved_group_members = message_manager.resolve_group_members(
+                            user_id,
+                            str(final_metadata.get('group_id') or row['recipient_id'] or '').strip(),
+                            [user_id, *group_members_for_security],
+                        )
+                        if resolved_group_members:
+                            final_metadata['group_members'] = resolved_group_members
+                            group_members_for_security = [
+                                member_id
+                                for member_id in resolved_group_members
+                                if member_id != user_id
+                            ]
+                    except Exception:
+                        pass
             target_ids_for_security = group_members_for_security or ([str(row['recipient_id']).strip()] if row['recipient_id'] else [])
             if target_ids_for_security:
                 final_metadata['security'] = build_dm_security_summary(
@@ -13666,6 +13729,14 @@ def create_ui_blueprint() -> Blueprint:
             if group_members:
                 if not group_id:
                     group_id = _compute_group_id(group_members)
+                try:
+                    group_members = message_manager.resolve_group_members(
+                        user_id,
+                        group_id,
+                        group_members,
+                    )
+                except Exception:
+                    group_members = sorted({str(member_id).strip() for member_id in group_members if str(member_id).strip()})
                 recipients = [member_id for member_id in group_members if member_id and member_id != user_id]
                 if not recipients:
                     return jsonify({'error': 'No other group members to reply to'}), 400
