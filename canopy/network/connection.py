@@ -173,6 +173,9 @@ class PeerConnection:
     protocol_version: Optional[int] = None
     endpoint_uri: Optional[str] = None
     advertised_endpoints: List[str] = field(default_factory=list)
+    meshspace_id: Optional[str] = None
+    meshspace_name: Optional[str] = None
+    meshspace_fingerprint: Optional[str] = None
     failure_reason: Optional[str] = None
     failure_detail: Optional[str] = None
     _send_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
@@ -210,6 +213,9 @@ class ConnectionManager:
                  advertised_endpoints_provider: Optional[Callable[[], List[str]]] = None,
                  canopy_version: str = "0.1.0",
                  protocol_version: int = 1,
+                 meshspace_id: str = "",
+                 meshspace_name: str = "",
+                 meshspace_fingerprint: str = "",
                  reject_protocol_mismatch: bool = False):
         """
         Initialize connection manager.
@@ -235,6 +241,9 @@ class ConnectionManager:
         self.advertised_endpoints_provider = advertised_endpoints_provider
         self.local_canopy_version = str(canopy_version or '0.1.0').strip() or '0.1.0'
         self.local_protocol_version = self._coerce_protocol_version(protocol_version, default=1)
+        self.local_meshspace_id = str(meshspace_id or '').strip()
+        self.local_meshspace_name = str(meshspace_name or '').strip()
+        self.local_meshspace_fingerprint = str(meshspace_fingerprint or '').strip()
         self.reject_protocol_mismatch = bool(reject_protocol_mismatch)
         
         # TLS configuration
@@ -295,11 +304,17 @@ class ConnectionManager:
         actual_peer_id: str,
         endpoint_uri: str,
     ) -> None:
-        """Clean up stale endpoint ownership after a verified peer-id mismatch."""
+        """Quarantine a stale endpoint after a verified peer-id mismatch.
+
+        Do not auto-register the unexpected peer against this endpoint. A stale
+        endpoint answering as another peer is exactly the condition that can
+        pollute a mesh during automatic reconnects; the unexpected peer must be
+        imported or connected explicitly by the user.
+        """
         clean_endpoint = str(endpoint_uri or '').strip()
         if clean_endpoint.endswith('/p2p'):
             clean_endpoint = clean_endpoint[:-4]
-        action_taken = 'mapping_reset'
+        action_taken = 'stale_endpoint_quarantined'
         if not clean_endpoint:
             logger.warning(
                 "handshake_peerid_mismatch expected_peer=%s actual_peer=%s endpoint=unknown action_taken=%s",
@@ -310,9 +325,8 @@ class ConnectionManager:
             return
         try:
             self.identity_manager.remove_endpoint(expected_peer_id, clean_endpoint)
-            self.identity_manager.record_endpoint(actual_peer_id, clean_endpoint, claim=True)
         except Exception:
-            action_taken = 'endpoint_quarantine'
+            action_taken = 'endpoint_quarantine_failed'
         logger.warning(
             "handshake_peerid_mismatch expected_peer=%s actual_peer=%s endpoint=%s action_taken=%s",
             expected_peer_id,
@@ -472,6 +486,12 @@ class ConnectionManager:
             extra['protocol_version'] = payload.get('protocol_version')
         if 'advertised_endpoints' in payload:
             extra['advertised_endpoints'] = payload.get('advertised_endpoints')
+        if 'meshspace_id' in payload:
+            extra['meshspace_id'] = payload.get('meshspace_id')
+        if 'meshspace_name' in payload:
+            extra['meshspace_name'] = payload.get('meshspace_name')
+        if 'meshspace_fingerprint' in payload:
+            extra['meshspace_fingerprint'] = payload.get('meshspace_fingerprint')
         return extra
 
     @staticmethod
@@ -825,6 +845,9 @@ class ConnectionManager:
                     handshake_data.get('protocol_version', 1),
                     default=1,
                 ),
+                meshspace_id=str(handshake_data.get('meshspace_id') or '').strip() or None,
+                meshspace_name=str(handshake_data.get('meshspace_name') or '').strip() or None,
+                meshspace_fingerprint=str(handshake_data.get('meshspace_fingerprint') or '').strip() or None,
             )
             connection.capabilities = {
                 cap: True for cap in self._normalize_capabilities(
@@ -880,6 +903,9 @@ class ConnectionManager:
                             'protocol_version': connection.protocol_version,
                             'capabilities': list(connection.capabilities or {}),
                             'advertised_endpoints': list(connection.advertised_endpoints or []),
+                            'meshspace_id': connection.meshspace_id,
+                            'meshspace_name': connection.meshspace_name,
+                            'meshspace_fingerprint': connection.meshspace_fingerprint,
                         }
                         self.on_peer_authenticated(peer_id, peer_meta)
                     except TypeError:
@@ -952,6 +978,9 @@ class ConnectionManager:
                 'canopy_version': self.local_canopy_version,
                 'protocol_version': self.local_protocol_version,
                 'advertised_endpoints': self._get_advertised_endpoints(),
+                'meshspace_id': self.local_meshspace_id,
+                'meshspace_name': self.local_meshspace_name,
+                'meshspace_fingerprint': self.local_meshspace_fingerprint,
                 'signature': signature.hex()
             }
             
@@ -1063,6 +1092,9 @@ class ConnectionManager:
                 response.get('protocol_version', 1),
                 default=1,
             )
+            connection.meshspace_id = str(response.get('meshspace_id') or '').strip() or None
+            connection.meshspace_name = str(response.get('meshspace_name') or '').strip() or None
+            connection.meshspace_fingerprint = str(response.get('meshspace_fingerprint') or '').strip() or None
 
             connection.capabilities = {
                 cap: True for cap in self._normalize_capabilities(
@@ -1152,6 +1184,9 @@ class ConnectionManager:
                 'canopy_version': self.local_canopy_version,
                 'protocol_version': self.local_protocol_version,
                 'advertised_endpoints': self._get_advertised_endpoints(),
+                'meshspace_id': self.local_meshspace_id,
+                'meshspace_name': self.local_meshspace_name,
+                'meshspace_fingerprint': self.local_meshspace_fingerprint,
                 'signature': signature.hex()
             }
             

@@ -5729,8 +5729,15 @@ def create_ui_blueprint() -> Blueprint:
                         continue
                     host, port, scheme = parsed
                     try:
+                        connect_to_endpoint = getattr(type(p2p_manager), '_connect_to_endpoint', None)
+                        if callable(connect_to_endpoint):
+                            connect_coro = connect_to_endpoint(p2p_manager, peer_id, ep)
+                        else:
+                            connect_coro = connection_manager.connect_to_peer(
+                                peer_id, host, port, scheme=scheme
+                            )
                         future = asyncio.run_coroutine_threadsafe(
-                            connection_manager.connect_to_peer(peer_id, host, port, scheme=scheme),
+                            connect_coro,
                             ev_loop,
                         )
                         connected = future.result(timeout=10.0)
@@ -7838,7 +7845,7 @@ def create_ui_blueprint() -> Blueprint:
     @require_login
     def connect_page():
         """Peer connection and invite code page."""
-        from ..network.invite import generate_invite, get_local_ips
+        from ..network.invite import generate_invite, get_local_ips, meshspace_fingerprint
         from ..core.device import get_device_label, get_device_profile
         try:
             _, _, _, _, _, _, _, _, _, config, p2p_manager = _get_app_components_any(current_app)
@@ -7848,7 +7855,10 @@ def create_ui_blueprint() -> Blueprint:
             peer_id = None
             endpoints = []
             local_ips = get_local_ips()
-            current_mesh_name = str(getattr(getattr(config, 'meshspace', None), 'name', '') or '').strip() or 'Default Mesh'
+            mesh_cfg = getattr(config, 'meshspace', None)
+            current_mesh_name = str(getattr(mesh_cfg, 'name', '') or '').strip() or 'Default Mesh'
+            current_meshspace_id = str(getattr(mesh_cfg, 'meshspace_id', '') or '').strip()
+            current_mesh_fingerprint = meshspace_fingerprint(current_meshspace_id, current_mesh_name)
             current_instance_label = str(getattr(config, 'device_label', '') or '').strip()
             current_peer_label = ''
             try:
@@ -7865,6 +7875,8 @@ def create_ui_blueprint() -> Blueprint:
                     p2p_manager.identity_manager,
                     mesh_port,
                     mesh_name=current_mesh_name,
+                    meshspace_id=current_meshspace_id or None,
+                    meshspace_fingerprint_value=current_mesh_fingerprint or None,
                     peer_label=current_peer_label or None,
                     instance_label=current_instance_label or None,
                     generated_at=datetime.now(timezone.utc).isoformat(),
@@ -7902,6 +7914,24 @@ def create_ui_blueprint() -> Blueprint:
                 for pid, identity in im.known_peers.items():
                     if identity.is_local():
                         continue
+                    meshspace_hint = (
+                        im.get_peer_meshspace_hint(pid)
+                        if hasattr(im, 'get_peer_meshspace_hint') else {}
+                    )
+                    remote_meshspace_id = str((meshspace_hint or {}).get('meshspace_id') or '').strip()
+                    cross_mesh_warning = ''
+                    if (
+                        bool(getattr(mesh_cfg, 'enabled', False))
+                        and current_meshspace_id
+                        and remote_meshspace_id
+                        and remote_meshspace_id != current_meshspace_id
+                        and not bool((meshspace_hint or {}).get('cross_mesh_allowed'))
+                    ):
+                        remote_name = str((meshspace_hint or {}).get('meshspace_name') or remote_meshspace_id)
+                        cross_mesh_warning = (
+                            f"This peer last advertised meshspace '{remote_name}', "
+                            f"not '{current_mesh_name}'. Reconnect only if this bridge is intentional."
+                        )
                     connection_type = 'offline'
                     if pid in connected_set:
                         connection_type = 'direct'
@@ -7911,6 +7941,8 @@ def create_ui_blueprint() -> Blueprint:
                         'peer_id': pid,
                         'display_name': im.peer_display_names.get(pid, ''),
                         'endpoints': im.peer_endpoints.get(pid, []),
+                        'meshspace_hint': meshspace_hint,
+                        'cross_mesh_warning': cross_mesh_warning,
                         'connected': connection_type in {'direct', 'relayed'},
                         'connection_type': connection_type,
                         'relay_via': active_relays.get(pid),
@@ -7962,6 +7994,8 @@ def create_ui_blueprint() -> Blueprint:
                                  endpoints=endpoints,
                                  local_ips=local_ips,
                                  current_mesh_name=current_mesh_name,
+                                 current_meshspace_id=current_meshspace_id,
+                                 current_mesh_fingerprint=current_mesh_fingerprint,
                                  current_peer_label=current_peer_label,
                                  current_instance_label=current_instance_label,
                                  mesh_port=config.network.mesh_port if config else 7771,

@@ -153,7 +153,12 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('function connectPreviewedInvite()', connect_template)
         self.assertIn('Review before connecting', connect_template)
         self.assertIn('Mesh hint differs from this workspace', connect_template)
+        self.assertIn('Meshspace ID differs from this workspace', connect_template)
+        self.assertIn('allow_cross_mesh', connect_template)
         self.assertIn('Labels are sender-provided hints', connect_template)
+        self.assertIn('Cross-mesh bridges require instance admin approval on this workspace.', connect_template)
+        self.assertIn('Only the instance admin can approve a cross-mesh connection from this workspace.', connect_template)
+        self.assertIn('Only the instance admin can approve a cross-mesh reconnect from this workspace.', connect_template)
         self.assertIn("btn.disabled = true;", connect_template)
 
     def test_feed_video_surfaces_preserve_actual_video_mime_type(self) -> None:

@@ -8,7 +8,7 @@ import tempfile
 import types
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 # Ensure repository root is importable when running tests directly.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -52,6 +52,12 @@ class _DummyConfig:
             e2e_private_channels=False,
             e2e_private_channels_enforce=False,
             identity_portability_enabled=False,
+        )
+        self.meshspace = types.SimpleNamespace(
+            enabled=True,
+            meshspace_id='family-mesh',
+            name='Family Mesh',
+            network_quarantined=False,
         )
 
 
@@ -103,6 +109,9 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
                 'ws://0.0.0.0:7771',
                 'not-an-endpoint',
             ],
+            mesh_name='Research Mesh',
+            meshspace_id='research-mesh',
+            meshspace_fingerprint='A123-B456',
         )
 
         imported = import_invite(identity_manager, None, invite)
@@ -114,6 +123,10 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             imported['endpoints'],
             ['ws://198.51.100.50:7771', 'ws://[2001:db8::10]:7771'],
+        )
+        self.assertEqual(
+            identity_manager.get_peer_meshspace_hint('peer-remote').get('meshspace_id'),
+            'research-mesh',
         )
 
     def test_generate_invite_accepts_explicit_external_mesh_endpoint(self) -> None:
@@ -136,6 +149,8 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
             x25519_public_key_b58='x-key',
             endpoints=['wss://mesh.example:443'],
             mesh_name='Family Mesh',
+            meshspace_id='family-mesh',
+            meshspace_fingerprint='E4A1-22B0',
             peer_label='Kitchen Node',
             instance_label='Mac Mini',
             generated_at='2026-04-10T12:00:00+00:00',
@@ -146,6 +161,8 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(decoded.peer_id, 'peer-remote')
         self.assertEqual(decoded.endpoints, ['wss://mesh.example:443'])
         self.assertEqual(decoded.mesh_name, 'Family Mesh')
+        self.assertEqual(decoded.meshspace_id, 'family-mesh')
+        self.assertEqual(decoded.meshspace_fingerprint, 'E4A1-22B0')
         self.assertEqual(decoded.peer_label, 'Kitchen Node')
         self.assertEqual(decoded.instance_label, 'Mac Mini')
         self.assertEqual(decoded.generated_at, '2026-04-10T12:00:00+00:00')
@@ -170,16 +187,38 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
             identity_manager,
             7771,
             mesh_name='Business Mesh',
+            meshspace_id='business-mesh',
             peer_label='VPS Bridge',
             instance_label='canopy-vps-1',
             generated_at='2026-04-10T12:00:00+00:00',
         )
 
         self.assertEqual(invite.mesh_name, 'Business Mesh')
+        self.assertEqual(invite.meshspace_id, 'business-mesh')
+        self.assertRegex(invite.meshspace_fingerprint or '', r'^[0-9A-F]{4}-[0-9A-F]{4}$')
         self.assertEqual(invite.peer_label, 'VPS Bridge')
         self.assertEqual(invite.instance_label, 'canopy-vps-1')
         self.assertEqual(invite.generated_at, '2026-04-10T12:00:00+00:00')
         self.assertEqual(InviteCode.decode(invite.encode()).mesh_name, 'Business Mesh')
+        self.assertEqual(InviteCode.decode(invite.encode()).meshspace_id, 'business-mesh')
+
+    def test_invite_decode_accepts_labeled_copy_block(self) -> None:
+        invite = InviteCode(
+            peer_id='peer-remote',
+            ed25519_public_key_b58='ed-key',
+            x25519_public_key_b58='x-key',
+            endpoints=['wss://mesh.example:443'],
+            mesh_name='Family Mesh',
+            meshspace_id='family-mesh',
+            meshspace_fingerprint='E4A1-22B0',
+        )
+
+        decoded = InviteCode.decode(
+            f"Canopy invite for Family Mesh [E4A1-22B0]\n{invite.encode()}\nVerify before connecting."
+        )
+
+        self.assertEqual(decoded.peer_id, 'peer-remote')
+        self.assertEqual(decoded.meshspace_id, 'family-mesh')
 
     def test_generate_invite_defaults_wss_external_endpoint_to_443(self) -> None:
         identity_manager = IdentityManager(Path(self.tempdir) / 'peer_identity.json')
@@ -400,6 +439,45 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
             manager._introduced_peers['peer-remote'].get('endpoint_sources', []),
         )
 
+    def test_incoming_cross_mesh_peer_is_disconnected_until_approved(self) -> None:
+        manager = self._build_manager()
+        manager._event_loop = MagicMock()
+        manager._event_loop.is_closed.return_value = False
+        manager.connection_manager = types.SimpleNamespace(disconnect_peer=AsyncMock())
+        manager._remember_peer_advertised_endpoints = MagicMock()
+        manager._remember_discovered_peer_endpoints = MagicMock()
+        manager._refresh_peer_version_info = MagicMock()
+        manager._record_connection_event = MagicMock()
+
+        with patch('asyncio.run_coroutine_threadsafe') as run_threadsafe:
+            manager._on_incoming_peer_authenticated(
+                'peer-remote',
+                {
+                    'meshspace_id': 'other-mesh',
+                    'meshspace_name': 'Other Mesh',
+                    'meshspace_fingerprint': 'ABCD-1234',
+                    'advertised_endpoints': ['wss://demo.example.com:443'],
+                },
+            )
+
+        self.assertEqual(
+            manager.identity_manager.get_peer_meshspace_hint('peer-remote').get('meshspace_id'),
+            'other-mesh',
+        )
+        manager._remember_peer_advertised_endpoints.assert_not_called()
+        manager._remember_discovered_peer_endpoints.assert_not_called()
+        run_threadsafe.assert_called_once()
+        disconnect_coro = run_threadsafe.call_args.args[0]
+        self.assertTrue(asyncio.iscoroutine(disconnect_coro))
+        disconnect_coro.close()
+        self.assertEqual(run_threadsafe.call_args.args[1], manager._event_loop)
+        blocked_calls = [
+            call for call in manager._record_connection_event.call_args_list
+            if call.kwargs.get('status') == 'blocked'
+        ]
+        self.assertEqual(len(blocked_calls), 1)
+        self.assertIn('Incoming connection rejected', blocked_calls[0].kwargs.get('detail', ''))
+
     def test_get_introduced_peers_marks_broker_only_when_no_direct_endpoints(self) -> None:
         manager = self._build_manager()
         manager._introduced_peers = {
@@ -567,6 +645,36 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
             'ws://198.51.100.100:7771',
             manager.identity_manager.peer_endpoints.get('peer-remote', []),
         )
+
+    async def test_startup_reconnect_skips_unapproved_cross_mesh_peer(self) -> None:
+        manager = self._build_manager()
+        manager.identity_manager.known_peers['peer-remote'] = types.SimpleNamespace()
+        manager.identity_manager.peer_endpoints['peer-remote'] = ['ws://198.51.100.50:7771']
+        manager.identity_manager.record_peer_meshspace_hint(
+            'peer-remote',
+            meshspace_id='business-mesh',
+            meshspace_name='Business Mesh',
+            meshspace_fingerprint='7D4A-22BE',
+            source='invite',
+        )
+        attempts: list[str] = []
+
+        async def _connect(peer_id: str, endpoint: str) -> bool:
+            attempts.append(endpoint)
+            return True
+
+        manager._connect_to_endpoint = _connect  # type: ignore[assignment]
+        manager.connection_manager = types.SimpleNamespace(
+            is_connected=lambda _peer_id: False
+        )
+
+        async def _fast_sleep(_delay: float) -> None:
+            return None
+
+        with patch('canopy.network.manager.asyncio.sleep', new=_fast_sleep):
+            await manager._reconnect_known_peers()
+
+        self.assertEqual(attempts, [])
 
     async def test_enqueue_sync_coalesces_duplicate_peer_requests(self) -> None:
         manager = self._build_manager()

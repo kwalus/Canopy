@@ -104,7 +104,7 @@ class TestConnectionLogNoiseRegressions(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(manager._should_replace_existing_connection(existing, candidate))
 
-    async def test_handshake_peerid_mismatch_reassigns_endpoint_to_actual_peer(self):
+    async def test_handshake_peerid_mismatch_quarantines_stale_endpoint_without_adopting_actual_peer(self):
         identity_manager = _FakeIdentityManager()
         manager = ConnectionManager(
             local_peer_id='peer-local',
@@ -114,17 +114,14 @@ class TestConnectionLogNoiseRegressions(unittest.IsolatedAsyncioTestCase):
         manager._record_handshake_peerid_mismatch(
             expected_peer_id='peer-expected',
             actual_peer_id='peer-actual',
-            endpoint_uri='ws://192.168.1.50:7771/p2p',
+            endpoint_uri='ws://198.51.100.50:7771/p2p',
         )
 
         self.assertEqual(
             identity_manager.removed,
-            [('peer-expected', 'ws://192.168.1.50:7771')],
+            [('peer-expected', 'ws://198.51.100.50:7771')],
         )
-        self.assertEqual(
-            identity_manager.recorded,
-            [('peer-actual', 'ws://192.168.1.50:7771', True)],
-        )
+        self.assertEqual(identity_manager.recorded, [])
 
 
 if __name__ == '__main__':

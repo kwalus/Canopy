@@ -399,6 +399,11 @@
                         <span class="badge bg-success-subtle text-success-emphasis border">
                             <i class="bi bi-diagram-3"></i> {{ current_mesh_name or 'Default Mesh' }}
                         </span>
+                        {% if current_mesh_fingerprint %}
+                        <span class="badge bg-warning-subtle text-warning-emphasis border" title="{{ current_meshspace_id }}">
+                            Mesh check {{ current_mesh_fingerprint }}
+                        </span>
+                        {% endif %}
                         {% if current_peer_label or current_instance_label %}
                         <span class="badge bg-info-subtle text-info-emphasis border">
                             <i class="bi bi-pc-display"></i> {{ current_peer_label or current_instance_label }}
@@ -755,13 +760,13 @@
                     <h5 class="mb-0"><i class="bi bi-journal-bookmark"></i> Known Peers</h5>
                     <div class="d-flex align-items-center gap-2">
                         <button class="btn btn-sm btn-outline-primary" onclick="reconnectAllPeers()">
-                            <i class="bi bi-arrow-repeat"></i> Reconnect All
+                            <i class="bi bi-arrow-repeat"></i> Reconnect Same-Mesh
                         </button>
                     </div>
                 </div>
             </div>
             <div class="card-body connect-scroll-list">
-                <p class="text-muted small">Previously connected peers. Click <strong>Reconnect</strong> to try reaching them again.</p>
+                <p class="text-muted small">Previously connected peers. Reconnect-all skips peers that last advertised a different mesh unless you reconnect that peer explicitly.</p>
                 <ul class="list-group list-group-flush">
                     {% for peer in known_peers %}
                     {% set kdev = peer_device_profiles.get(peer.peer_id) if peer_device_profiles else None %}
@@ -785,6 +790,17 @@
                                 {% if kdev and kdev.description %}
                                 <small class="text-muted d-block" style="font-size:0.7rem; opacity:0.7;">{{ kdev.description }}</small>
                                 {% endif %}
+                                {% if peer.meshspace_hint %}
+                                <span class="badge {% if peer.cross_mesh_warning %}bg-warning-subtle text-warning-emphasis{% else %}bg-success-subtle text-success-emphasis{% endif %} border me-1" style="font-size:0.65rem;"
+                                      title="{{ peer.meshspace_hint.meshspace_id or '' }}">
+                                    Mesh {{ peer.meshspace_hint.meshspace_fingerprint or peer.meshspace_hint.meshspace_name or peer.meshspace_hint.meshspace_id or 'hint' }}
+                                </span>
+                                {% endif %}
+                                {% if peer.cross_mesh_warning %}
+                                <small class="text-warning d-block" style="font-size:0.72rem;">
+                                    <i class="bi bi-exclamation-triangle"></i> {{ peer.cross_mesh_warning }}
+                                </small>
+                                {% endif %}
                                 {% for ep in peer.endpoints %}
                                 <span class="badge bg-secondary me-1" style="font-size:0.65rem;">{{ ep }}</span>
                                 {% endfor %}
@@ -807,6 +823,7 @@
                             {% else %}
                             {% if peer.endpoints %}
                             <button class="btn btn-sm btn-outline-primary"
+                                    data-cross-mesh-warning="{{ peer.cross_mesh_warning or '' }}"
                                     onclick="reconnectPeer('{{ peer.peer_id }}', this)">
                                 <i class="bi bi-arrow-repeat"></i> Reconnect
                             </button>
@@ -1072,6 +1089,8 @@
 <script>
 const PEER_LABELS = {{ peer_labels | tojson }};
 const CURRENT_MESH_NAME = {{ (current_mesh_name or 'Default Mesh') | tojson }};
+const CURRENT_MESHSPACE_ID = {{ (current_meshspace_id or '') | tojson }};
+const CURRENT_MESH_FINGERPRINT = {{ (current_mesh_fingerprint or '') | tojson }};
 const CURRENT_PEER_ID = {{ (peer_id or '') | tojson }};
 const USER_IS_ADMIN = {{ 'true' if is_admin else 'false' }};
 const connectionEvents = new Map();
@@ -1166,6 +1185,10 @@ function decodeInvitePreview(code) {
     if (!text) {
         throw new Error('Paste an invite code first.');
     }
+    if (!text.trim().startsWith('{') && !text.toLowerCase().startsWith('canopy:')) {
+        const token = text.match(/canopy:[A-Za-z0-9_-]+/);
+        if (token) text = token[0];
+    }
     if (text.toLowerCase().startsWith('canopy:')) {
         text = text.slice('canopy:'.length);
     }
@@ -1204,6 +1227,8 @@ function decodeInvitePreview(code) {
         version: data.v || 1,
         peerId: String(data.pid || ''),
         meshName: String(data.mn || '').trim(),
+        meshspaceId: String(data.mid || '').trim(),
+        meshFingerprint: String(data.mf || '').trim(),
         peerLabel: String(data.pl || '').trim(),
         instanceLabel: String(data.il || '').trim(),
         generatedAt: String(data.ts || '').trim(),
@@ -1223,6 +1248,12 @@ function invitePreviewWarnings(preview) {
     const warnings = [];
     if (CURRENT_PEER_ID && preview.peerId === CURRENT_PEER_ID) {
         warnings.push('This invite appears to point back to your own local peer.');
+    }
+    if (preview.meshspaceId && CURRENT_MESHSPACE_ID && preview.meshspaceId !== CURRENT_MESHSPACE_ID) {
+        warnings.push(`Meshspace ID differs from this workspace (${CURRENT_MESHSPACE_ID}). This is a cross-mesh bridge and requires explicit confirmation.`);
+        if (!USER_IS_ADMIN) {
+            warnings.push('Cross-mesh bridges require instance admin approval on this workspace.');
+        }
     }
     if (preview.meshName && CURRENT_MESH_NAME && preview.meshName !== CURRENT_MESH_NAME) {
         warnings.push(`Mesh hint differs from this workspace (${CURRENT_MESH_NAME}). Confirm you are importing into the intended meshspace.`);
@@ -1285,7 +1316,10 @@ function renderInvitePreview(preview, error) {
     const knownBadge = knownLabel
         ? '<span class="badge bg-info-subtle text-info-emphasis border">Known peer</span>'
         : '<span class="badge bg-success-subtle text-success-emphasis border">New peer</span>';
-    const meshBadge = preview.meshName && preview.meshName === CURRENT_MESH_NAME
+    const meshMatches = preview.meshspaceId && CURRENT_MESHSPACE_ID
+        ? preview.meshspaceId === CURRENT_MESHSPACE_ID
+        : (preview.meshName && preview.meshName === CURRENT_MESH_NAME);
+    const meshBadge = meshMatches
         ? '<span class="badge bg-success-subtle text-success-emphasis border">Current mesh hint</span>'
         : '<span class="badge bg-warning-subtle text-warning-emphasis border">Check mesh hint</span>';
     const warningHtml = warnings.length
@@ -1309,7 +1343,11 @@ function renderInvitePreview(preview, error) {
                 </div>
                 <div class="invite-preview-fact">
                     <div class="invite-preview-label">Mesh hint</div>
-                    <div class="invite-preview-value">${_escapeHtml(meshLabel)}</div>
+                    <div class="invite-preview-value">${_escapeHtml(meshLabel)}${preview.meshFingerprint ? ' · <code>' + _escapeHtml(preview.meshFingerprint) + '</code>' : ''}</div>
+                </div>
+                <div class="invite-preview-fact">
+                    <div class="invite-preview-label">Meshspace ID</div>
+                    <div class="invite-preview-value"><code>${_escapeHtml(preview.meshspaceId || 'Not specified')}</code></div>
                 </div>
                 <div class="invite-preview-fact">
                     <div class="invite-preview-label">Node hint</div>
@@ -1366,13 +1404,30 @@ function connectPreviewedInvite() {
         const preview = previewInvite(true);
         if (!preview) return;
     }
+    const preview = currentInvitePreview;
+    const isCrossMesh = Boolean(
+        preview && preview.meshspaceId && CURRENT_MESHSPACE_ID && preview.meshspaceId !== CURRENT_MESHSPACE_ID
+    );
+    if (isCrossMesh) {
+        if (!USER_IS_ADMIN) {
+            alert('Only the instance admin can approve a cross-mesh connection from this workspace.');
+            return;
+        }
+        const remoteMesh = preview.meshName || preview.meshspaceId;
+        const ok = confirm(
+            `This invite is for a different meshspace: ${remoteMesh} (${preview.meshspaceId}).\n\n` +
+            `Current meshspace: ${CURRENT_MESH_NAME} (${CURRENT_MESHSPACE_ID}).\n\n` +
+            'Connect only if you intentionally want to bridge these meshspaces.'
+        );
+        if (!ok) return;
+    }
     const btn = document.getElementById('importBtn');
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Connecting...';
 
     apiJsonFetch('/api/v1/p2p/invite/import', {
         method: 'POST',
-        body: JSON.stringify({invite_code: code})
+        body: JSON.stringify({invite_code: code, allow_cross_mesh: isCrossMesh})
     })
     .then(data => {
         const res = document.getElementById('importResult');
@@ -1515,11 +1570,21 @@ function checkBrokeredConnection(peerId, btn, attempt) {
 function reconnectPeer(peerId, buttonEl) {
     const btn = buttonEl || (typeof event !== 'undefined' ? event.target.closest('button') : null);
     if (!btn) return;
+    const crossMeshWarning = String(btn.dataset.crossMeshWarning || '').trim();
+    const allowCrossMesh = Boolean(crossMeshWarning);
+    if (crossMeshWarning) {
+        if (!USER_IS_ADMIN) {
+            alert('Only the instance admin can approve a cross-mesh reconnect from this workspace.');
+            return;
+        }
+        const ok = confirm(`${crossMeshWarning}\n\nReconnect anyway?`);
+        if (!ok) return;
+    }
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
     apiJsonFetch('/api/v1/p2p/reconnect', {
         method: 'POST',
-        body: JSON.stringify({peer_id: peerId})
+        body: JSON.stringify({peer_id: peerId, allow_cross_mesh: allowCrossMesh})
     })
     .then(data => {
         if (data.status === 'connected') {
@@ -1554,7 +1619,7 @@ function reconnectAllPeers() {
     apiJsonFetch('/api/v1/p2p/reconnect_all', {method: 'POST'})
         .then(data => {
             if (data.status === 'scheduled') {
-                showAlert('Reconnect scheduled for all known peers.', 'success');
+                showAlert('Reconnect scheduled for same-mesh known peers. Cross-mesh peers require explicit per-peer confirmation.', 'success');
                 setTimeout(refreshConnectPage, 1500);
             } else {
                 showAlert(data.message || 'Reconnect failed', 'danger');
@@ -1564,7 +1629,7 @@ function reconnectAllPeers() {
         .finally(() => {
             btns.forEach(btn => {
                 btn.disabled = false;
-                btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Reconnect All';
+                btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Reconnect Same-Mesh';
             });
         });
 }

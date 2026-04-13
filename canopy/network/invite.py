@@ -12,6 +12,8 @@ Invite payload (JSON, then base64url-encoded):
     "xpk": "<x25519_public_key base58>",
     "ep": ["ws://<ip>:<port>"],    # list of endpoints to try
     "mn": "<mesh_name>",           # optional mesh hint
+    "mid": "<meshspace_id>",       # optional stable meshspace id hint
+    "mf": "<mesh_fingerprint>",    # optional short human check code
     "pl": "<peer_label>",          # optional node/display hint
     "il": "<instance_label>",      # optional device/instance hint
     "ts": "<generated_at>"         # optional ISO timestamp
@@ -22,8 +24,10 @@ License: Apache 2.0
 """
 
 import base64
+import hashlib
 import json
 import logging
+import re
 import socket
 from urllib.parse import urlparse
 from typing import Dict, List, Optional, Any, Tuple
@@ -88,6 +92,15 @@ def _sanitize_invite_endpoints(endpoints: List[str]) -> List[str]:
     return out
 
 
+def meshspace_fingerprint(meshspace_id: Optional[str], mesh_name: Optional[str] = None) -> str:
+    """Return a short stable human check code for a meshspace hint."""
+    seed = str(meshspace_id or '').strip() or str(mesh_name or '').strip()
+    if not seed:
+        return ''
+    digest = hashlib.sha256(seed.encode('utf-8')).hexdigest().upper()
+    return f'{digest[:4]}-{digest[4:8]}'
+
+
 @dataclass
 class InviteCode:
     """Parsed invite code with peer identity and endpoints."""
@@ -96,6 +109,8 @@ class InviteCode:
     x25519_public_key_b58: str
     endpoints: List[str]
     mesh_name: Optional[str] = None
+    meshspace_id: Optional[str] = None
+    meshspace_fingerprint: Optional[str] = None
     peer_label: Optional[str] = None
     instance_label: Optional[str] = None
     generated_at: Optional[str] = None
@@ -111,6 +126,10 @@ class InviteCode:
         }
         if self.mesh_name:
             payload['mn'] = self.mesh_name
+        if self.meshspace_id:
+            payload['mid'] = self.meshspace_id
+        if self.meshspace_fingerprint:
+            payload['mf'] = self.meshspace_fingerprint
         if self.peer_label:
             payload['pl'] = self.peer_label
         if self.instance_label:
@@ -137,6 +156,13 @@ class InviteCode:
         """
         code = code.strip()
 
+        # Accept labeled invite blocks copied from the UI, as long as they
+        # contain one canopy:<payload> token.
+        if code and not code.lstrip().startswith('{') and not code.startswith('canopy:'):
+            match = re.search(r'canopy:[A-Za-z0-9_\-]+', code)
+            if match:
+                code = match.group(0)
+
         # Strip prefix
         if code.startswith('canopy:'):
             code = code[len('canopy:'):]
@@ -161,6 +187,8 @@ class InviteCode:
             x25519_public_key_b58=data['xpk'],
             endpoints=data.get('ep', []),
             mesh_name=data.get('mn') or None,
+            meshspace_id=data.get('mid') or None,
+            meshspace_fingerprint=data.get('mf') or None,
             peer_label=data.get('pl') or None,
             instance_label=data.get('il') or None,
             generated_at=data.get('ts') or None,
@@ -200,6 +228,8 @@ def generate_invite(identity_manager: Any, mesh_port: int,
                     public_port: Optional[int] = None,
                     external_endpoint: Optional[str] = None,
                     mesh_name: Optional[str] = None,
+                    meshspace_id: Optional[str] = None,
+                    meshspace_fingerprint_value: Optional[str] = None,
                     peer_label: Optional[str] = None,
                     instance_label: Optional[str] = None,
                     generated_at: Optional[str] = None) -> InviteCode:
@@ -213,6 +243,8 @@ def generate_invite(identity_manager: Any, mesh_port: int,
         public_port: Optional public port (if port-forwarded)
         external_endpoint: Optional full ws:// or wss:// endpoint
         mesh_name: Optional human-facing mesh label for preview UX
+        meshspace_id: Optional stable meshspace identifier for preview UX
+        meshspace_fingerprint_value: Optional precomputed short mesh check code
         peer_label: Optional human-facing peer label for preview UX
         instance_label: Optional device/instance label for preview UX
         generated_at: Optional ISO timestamp for invite age hints
@@ -253,6 +285,12 @@ def generate_invite(identity_manager: Any, mesh_port: int,
         x25519_public_key_b58=xpk,
         endpoints=endpoints,
         mesh_name=str(mesh_name or '').strip() or None,
+        meshspace_id=str(meshspace_id or '').strip() or None,
+        meshspace_fingerprint=(
+            str(meshspace_fingerprint_value or '').strip()
+            or meshspace_fingerprint(meshspace_id, mesh_name)
+            or None
+        ),
         peer_label=str(peer_label or '').strip() or None,
         instance_label=str(instance_label or '').strip() or None,
         generated_at=str(generated_at or '').strip() or None,
@@ -286,12 +324,19 @@ def import_invite(identity_manager: Any, connection_manager: Any, invite: Invite
     # Register as known peer and persist invite endpoints so reconnect
     # can recover even if the initial direct session drops later.
     endpoints = _sanitize_invite_endpoints(invite.endpoints or [])
+    meshspace_hint = {
+        'meshspace_id': invite.meshspace_id,
+        'meshspace_name': invite.mesh_name,
+        'meshspace_fingerprint': invite.meshspace_fingerprint,
+        'source': 'invite',
+    }
 
     identity_manager.create_remote_peer(
         invite.peer_id,
         ed25519_pub,
         x25519_pub,
         endpoints=endpoints,
+        meshspace_hint=meshspace_hint,
     )
 
     logger.info(f"Imported invite for peer {invite.peer_id} with {len(endpoints)} endpoint(s)")
@@ -299,4 +344,7 @@ def import_invite(identity_manager: Any, connection_manager: Any, invite: Invite
         'peer_id': invite.peer_id,
         'endpoints': endpoints,
         'status': 'imported',
+        'meshspace_hint': {
+            key: value for key, value in meshspace_hint.items() if value
+        },
     }

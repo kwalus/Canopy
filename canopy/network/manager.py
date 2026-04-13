@@ -39,6 +39,7 @@ from ..core.large_attachments import (
 from .identity import IdentityManager, PeerIdentity
 from .discovery import PeerDiscovery, DiscoveredPeer
 from .connection import ConnectionManager, PeerConnection
+from .invite import meshspace_fingerprint
 from .routing import (
     MessageRouter,
     P2PMessage,
@@ -244,6 +245,112 @@ class P2PNetworkManager:
     def _meshspace_network_quarantined(self) -> bool:
         mesh_cfg = getattr(self.config, 'meshspace', None)
         return bool(getattr(mesh_cfg, 'network_quarantined', False))
+
+    def _meshspace_boundary_enabled(self) -> bool:
+        """Return True when this runtime has explicit meshspace identity."""
+        mesh_cfg = getattr(self.config, 'meshspace', None)
+        return bool(getattr(mesh_cfg, 'enabled', False))
+
+    def _local_meshspace_identity(self) -> Dict[str, str]:
+        """Return local meshspace metadata used for safety hints."""
+        mesh_cfg = getattr(self.config, 'meshspace', None)
+        meshspace_id = str(getattr(mesh_cfg, 'meshspace_id', '') or '').strip()
+        meshspace_name = str(getattr(mesh_cfg, 'name', '') or '').strip()
+        fingerprint = meshspace_fingerprint(meshspace_id, meshspace_name)
+        return {
+            'meshspace_id': meshspace_id,
+            'meshspace_name': meshspace_name,
+            'meshspace_fingerprint': fingerprint,
+        }
+
+    def _record_peer_meshspace_hint(
+        self,
+        peer_id: str,
+        mesh_meta: Optional[Dict[str, Any]],
+        *,
+        source: str,
+        cross_mesh_allowed: Optional[bool] = None,
+    ) -> None:
+        """Persist a remote meshspace hint when a peer advertises one."""
+        if not peer_id or not isinstance(mesh_meta, dict):
+            return
+        meshspace_id = str(mesh_meta.get('meshspace_id') or '').strip()
+        meshspace_name = str(mesh_meta.get('meshspace_name') or '').strip()
+        meshspace_fingerprint_value = str(mesh_meta.get('meshspace_fingerprint') or '').strip()
+        if not (meshspace_id or meshspace_name or meshspace_fingerprint_value or cross_mesh_allowed is not None):
+            return
+        recorder = getattr(self.identity_manager, 'record_peer_meshspace_hint', None)
+        if not callable(recorder):
+            return
+        try:
+            recorder(
+                peer_id,
+                meshspace_id=meshspace_id or None,
+                meshspace_name=meshspace_name or None,
+                meshspace_fingerprint=meshspace_fingerprint_value or None,
+                source=source,
+                cross_mesh_allowed=cross_mesh_allowed,
+            )
+        except Exception:
+            logger.debug("Could not persist meshspace hint for %s", peer_id, exc_info=True)
+
+    def get_peer_cross_mesh_status(self, peer_id: str) -> Dict[str, Any]:
+        """Return whether a peer appears to belong to a different meshspace."""
+        local = self._local_meshspace_identity()
+        hint_getter = getattr(self.identity_manager, 'get_peer_meshspace_hint', None)
+        hint: Dict[str, Any] = {}
+        if callable(hint_getter):
+            try:
+                hint = dict(hint_getter(peer_id) or {})
+            except Exception:
+                hint = {}
+        else:
+            hint = dict(getattr(self.identity_manager, 'peer_meshspace_hints', {}).get(peer_id, {}) or {})
+
+        local_id = str(local.get('meshspace_id') or '').strip()
+        remote_id = str(hint.get('meshspace_id') or '').strip()
+        mismatch = bool(
+            self._meshspace_boundary_enabled()
+            and local_id
+            and remote_id
+            and remote_id != local_id
+        )
+        allowed = bool(hint.get('cross_mesh_allowed'))
+        return {
+            'peer_id': peer_id,
+            'local_meshspace_id': local_id,
+            'local_meshspace_name': local.get('meshspace_name') or '',
+            'local_meshspace_fingerprint': local.get('meshspace_fingerprint') or '',
+            'remote_meshspace_id': remote_id,
+            'remote_meshspace_name': str(hint.get('meshspace_name') or '').strip(),
+            'remote_meshspace_fingerprint': str(hint.get('meshspace_fingerprint') or '').strip(),
+            'mismatch': mismatch,
+            'cross_mesh_allowed': allowed,
+            'requires_manual_confirmation': bool(mismatch and not allowed),
+        }
+
+    def _peer_requires_manual_cross_mesh(self, peer_id: str) -> bool:
+        return bool(self.get_peer_cross_mesh_status(peer_id).get('requires_manual_confirmation'))
+
+    def mark_peer_cross_mesh_allowed(self, peer_id: str, allowed: bool = True) -> None:
+        """Persist the admin/user decision that a cross-mesh peer is intentional."""
+        status = self.get_peer_cross_mesh_status(peer_id)
+        self._record_peer_meshspace_hint(
+            peer_id,
+            {
+                'meshspace_id': status.get('remote_meshspace_id'),
+                'meshspace_name': status.get('remote_meshspace_name'),
+                'meshspace_fingerprint': status.get('remote_meshspace_fingerprint'),
+            },
+            source='manual_cross_mesh_confirmation',
+            cross_mesh_allowed=allowed,
+        )
+
+    def _cross_mesh_reconnect_detail(self, peer_id: str) -> str:
+        status = self.get_peer_cross_mesh_status(peer_id)
+        remote_name = status.get('remote_meshspace_name') or status.get('remote_meshspace_id') or 'another meshspace'
+        local_name = status.get('local_meshspace_name') or status.get('local_meshspace_id') or 'this meshspace'
+        return f"Cross-mesh reconnect blocked: {remote_name} is not {local_name}"
 
     def _build_local_capabilities(self) -> list[str]:
         """Compute P2P capability advertisement for this node."""
@@ -1021,6 +1128,7 @@ class P2PNetworkManager:
             network_config = self.config.network
             if self.local_identity is None:
                 raise RuntimeError("Local identity is not initialized")
+            local_meshspace = self._local_meshspace_identity()
             
             # Initialize connection manager FIRST (core functionality)
             # Always bind P2P listener to all interfaces for peer connectivity
@@ -1036,6 +1144,9 @@ class P2PNetworkManager:
                 advertised_endpoints_provider=self._get_local_advertised_endpoints,
                 canopy_version=self.local_canopy_version,
                 protocol_version=self.local_protocol_version,
+                meshspace_id=local_meshspace.get('meshspace_id', ''),
+                meshspace_name=local_meshspace.get('meshspace_name', ''),
+                meshspace_fingerprint=local_meshspace.get('meshspace_fingerprint', ''),
                 reject_protocol_mismatch=bool(
                     os.getenv('CANOPY_REJECT_PROTOCOL_MISMATCH', '').strip().lower() in ('1', 'true', 'yes', 'on')
                 ),
@@ -1198,6 +1309,15 @@ class P2PNetworkManager:
 
         for peer_id in list(known_peer_ids):
             if peer_id == local_id:
+                continue
+            if self._peer_requires_manual_cross_mesh(peer_id):
+                detail = self._cross_mesh_reconnect_detail(peer_id)
+                logger.warning("Startup reconnect skipped for %s: %s", peer_id, detail)
+                self._record_connection_event(
+                    peer_id,
+                    status='blocked',
+                    detail=detail,
+                )
                 continue
             if self.connection_manager and self.connection_manager.is_connected(peer_id):
                 continue
@@ -1630,7 +1750,13 @@ class P2PNetworkManager:
             })
         return rows
 
-    async def _connect_to_endpoint(self, peer_id: str, endpoint: str) -> bool:
+    async def _connect_to_endpoint(
+        self,
+        peer_id: str,
+        endpoint: str,
+        *,
+        allow_cross_mesh: bool = False,
+    ) -> bool:
         """Connect to a peer using a ws:// or wss:// endpoint string."""
         if not self.connection_manager:
             return False
@@ -1638,6 +1764,21 @@ class P2PNetworkManager:
         if peer_id == local_id:
             logger.debug("Reconnect: refusing to connect to self (%s)", peer_id)
             return False
+        if self._peer_requires_manual_cross_mesh(peer_id) and not allow_cross_mesh:
+            detail = self._cross_mesh_reconnect_detail(peer_id)
+            logger.warning("Reconnect refused for %s: %s", peer_id, detail)
+            self._record_connection_event(
+                peer_id,
+                status='blocked',
+                detail=detail,
+                endpoint=endpoint,
+            )
+            return False
+        if allow_cross_mesh:
+            try:
+                self.mark_peer_cross_mesh_allowed(peer_id, True)
+            except Exception:
+                pass
         canon = self._canonicalize_endpoint(endpoint)
         parsed = self._parse_endpoint(canon or endpoint)
         if not parsed:
@@ -1673,6 +1814,19 @@ class P2PNetworkManager:
         )
         ok = await self.connection_manager.connect_to_peer(peer_id, host, port, scheme=scheme)
         if ok and canon:
+            get_connection = getattr(self.connection_manager, 'get_connection', None)
+            conn = get_connection(peer_id) if callable(get_connection) else None
+            if conn:
+                self._record_peer_meshspace_hint(
+                    peer_id,
+                    {
+                        'meshspace_id': getattr(conn, 'meshspace_id', None),
+                        'meshspace_name': getattr(conn, 'meshspace_name', None),
+                        'meshspace_fingerprint': getattr(conn, 'meshspace_fingerprint', None),
+                    },
+                    source='handshake',
+                    cross_mesh_allowed=allow_cross_mesh if allow_cross_mesh else None,
+                )
             # Claim the endpoint so stale mappings don't keep retrying the wrong peer_id.
             self.identity_manager.record_endpoint(peer_id, canon, claim=True)
             self._record_endpoint_result(
@@ -1728,6 +1882,11 @@ class P2PNetworkManager:
         local_id = self.local_identity.peer_id if self.local_identity else ''
         if peer_id == local_id:
             return
+        if self._peer_requires_manual_cross_mesh(peer_id):
+            detail = self._cross_mesh_reconnect_detail(peer_id)
+            logger.warning("Automatic reconnect not scheduled for %s: %s", peer_id, detail)
+            self._record_connection_event(peer_id, status='blocked', detail=detail)
+            return
         if self.connection_manager and self.connection_manager.is_connected(peer_id):
             self._reconnect_tasks.pop(peer_id, None)
             return
@@ -1754,6 +1913,12 @@ class P2PNetworkManager:
 
             # Check if still needed
             if not self._running:
+                return
+            if self._peer_requires_manual_cross_mesh(peer_id):
+                detail = self._cross_mesh_reconnect_detail(peer_id)
+                logger.warning("Automatic reconnect cancelled for %s: %s", peer_id, detail)
+                self._record_connection_event(peer_id, status='blocked', detail=detail)
+                self._reconnect_tasks.pop(peer_id, None)
                 return
             if self.connection_manager and self.connection_manager.is_connected(peer_id):
                 logger.debug(f"Reconnect: {peer_id} already connected, skipping")
@@ -1874,6 +2039,11 @@ class P2PNetworkManager:
                     f"Ignoring discovered peer {peer.peer_id} with no usable discovery endpoints"
                 )
                 return
+            if self._peer_requires_manual_cross_mesh(peer.peer_id):
+                detail = self._cross_mesh_reconnect_detail(peer.peer_id)
+                logger.warning("Discovery auto-connect skipped for %s: %s", peer.peer_id, detail)
+                self._record_connection_event(peer.peer_id, status='blocked', detail=detail)
+                return
 
             # If we're already connected, just record/claim the endpoint and stop.
             if self.connection_manager and self.connection_manager.is_connected(peer.peer_id):
@@ -1948,6 +2118,9 @@ class P2PNetworkManager:
             'capabilities': self._normalize_capability_items(
                 list((getattr(conn, 'capabilities', None) or {}).keys())
             ),
+            'meshspace_id': str(getattr(conn, 'meshspace_id', '') or ''),
+            'meshspace_name': str(getattr(conn, 'meshspace_name', '') or ''),
+            'meshspace_fingerprint': str(getattr(conn, 'meshspace_fingerprint', '') or ''),
         }
         self.peer_versions[peer_id] = entry
 
@@ -1974,23 +2147,33 @@ class P2PNetworkManager:
         sync + catch-up on the P2P event loop.
         """
         logger.info(f"Incoming peer authenticated: {peer_id} — scheduling post-connect sync")
-        self._record_connection_event(
-            peer_id,
-            status='connected',
-            detail='Incoming connection authenticated',
-        )
+        cross_mesh_block_detail = ''
         if isinstance(peer_meta, dict):
-            try:
-                self._remember_peer_advertised_endpoints(
-                    peer_id,
-                    list(peer_meta.get('advertised_endpoints') or []),
-                )
-            except Exception:
-                pass
+            self._record_peer_meshspace_hint(
+                peer_id,
+                {
+                    'meshspace_id': peer_meta.get('meshspace_id'),
+                    'meshspace_name': peer_meta.get('meshspace_name'),
+                    'meshspace_fingerprint': peer_meta.get('meshspace_fingerprint'),
+                },
+                source='incoming_handshake',
+            )
+            if self._peer_requires_manual_cross_mesh(peer_id):
+                cross_mesh_block_detail = self._cross_mesh_reconnect_detail(peer_id)
+                logger.warning("Incoming peer %s carries cross-mesh hint: %s", peer_id, cross_mesh_block_detail)
+            else:
+                try:
+                    self._remember_peer_advertised_endpoints(
+                        peer_id,
+                        list(peer_meta.get('advertised_endpoints') or []),
+                    )
+                except Exception:
+                    pass
         # Do not invent reconnect endpoints from socket origin addresses. Only
         # persist discovery-derived endpoints, which are authoritative enough
         # to survive reconnects and peer announcements.
-        self._remember_discovered_peer_endpoints(peer_id)
+        if not cross_mesh_block_detail and not self._peer_requires_manual_cross_mesh(peer_id):
+            self._remember_discovered_peer_endpoints(peer_id)
         try:
             self._refresh_peer_version_info(peer_id)
             if peer_meta and peer_id in self.peer_versions:
@@ -1998,6 +2181,9 @@ class P2PNetworkManager:
                     'canopy_version': str(peer_meta.get('canopy_version') or self.peer_versions[peer_id].get('canopy_version') or 'unknown'),
                     'protocol_version': int(peer_meta.get('protocol_version') or self.peer_versions[peer_id].get('protocol_version') or 1),
                     'version': str(peer_meta.get('version') or self.peer_versions[peer_id].get('version') or '0.1.0'),
+                    'meshspace_id': str(peer_meta.get('meshspace_id') or self.peer_versions[peer_id].get('meshspace_id') or ''),
+                    'meshspace_name': str(peer_meta.get('meshspace_name') or self.peer_versions[peer_id].get('meshspace_name') or ''),
+                    'meshspace_fingerprint': str(peer_meta.get('meshspace_fingerprint') or self.peer_versions[peer_id].get('meshspace_fingerprint') or ''),
                 })
                 self.peer_versions[peer_id]['compatible_protocol'] = (
                     int(self.peer_versions[peer_id].get('protocol_version') or 1) == self.local_protocol_version
@@ -2005,6 +2191,30 @@ class P2PNetworkManager:
         except Exception:
             pass
 
+        if cross_mesh_block_detail:
+            self._record_connection_event(
+                peer_id,
+                status='blocked',
+                detail=(
+                    f"{cross_mesh_block_detail}. "
+                    "Incoming connection rejected until an admin explicitly approves this cross-mesh bridge."
+                ),
+            )
+            if self.connection_manager and self._event_loop and not self._event_loop.is_closed():
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        self.connection_manager.disconnect_peer(peer_id),
+                        self._event_loop,
+                    )
+                except Exception:
+                    logger.warning("Could not disconnect unapproved cross-mesh peer %s", peer_id, exc_info=True)
+            return
+
+        self._record_connection_event(
+            peer_id,
+            status='connected',
+            detail='Incoming connection authenticated',
+        )
         if self._event_loop and not self._event_loop.is_closed():
             asyncio.run_coroutine_threadsafe(
                 self._run_post_connect_sync(peer_id),
@@ -2128,6 +2338,11 @@ class P2PNetworkManager:
                     "Skipping automatic post-connect sync for untrusted peer %s because meshspace networking is isolated",
                     peer_id,
                 )
+                return
+            if self._peer_requires_manual_cross_mesh(peer_id):
+                detail = self._cross_mesh_reconnect_detail(peer_id)
+                logger.warning("Skipping automatic post-connect sync for %s: %s", peer_id, detail)
+                self._record_connection_event(peer_id, status='blocked', detail=detail)
                 return
             self._refresh_peer_version_info(peer_id)
             if not await self._wait_for_connection_settle(peer_id):

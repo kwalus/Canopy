@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.14] - 2026-04-13
+
+### Fixed
+- **Cross-mesh reconnects now fail more safely after a wrong invite import or stale peer mix-up** - endpoints learned from a verified peer-id mismatch continue to be quarantined instead of silently adopted under a different peer, unapproved incoming cross-mesh handshakes are disconnected before they can linger as an accidental bridge, and automatic reconnect or sync paths stay blocked until the bridge is explicitly approved.
+- **Cross-mesh approval now requires the workspace admin instead of any authenticated operator** - invite import, manual reconnect, and the Connect UI now require instance-admin approval before allowing a different meshspace to be bridged, which reduces the chance of an accidental user action re-linking two private meshes.
+
 ## [0.6.13] - 2026-04-12
 
 ### Fixed
