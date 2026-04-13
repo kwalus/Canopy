@@ -5486,8 +5486,37 @@ def create_ui_blueprint() -> Blueprint:
                     except Exception:
                         score_value = 0
                 is_trusted = bool(score_value is not None and score_value >= 50)
+                sync_status: dict[str, Any] = {}
+                if p2p_manager and hasattr(p2p_manager, 'get_peer_sync_status'):
+                    try:
+                        sync_status = dict(p2p_manager.get_peer_sync_status(clean_peer_id) or {})
+                    except Exception:
+                        sync_status = {}
+                sync_preview_only = bool(sync_status.get('preview_only'))
+                sync_effective_scope = str(sync_status.get('effective_scope') or '').strip().lower()
+                sync_explicit_scope = str(sync_status.get('explicit_scope') or '').strip().lower()
+                sync_approved_at = str(sync_status.get('approved_at') or '').strip()
+                inherited_from_peer_id = str(sync_status.get('inherited_from_peer_id') or '').strip()
+                remote_meshspace_id = str(sync_status.get('remote_meshspace_id') or '').strip()
+                remote_meshspace_name = str(sync_status.get('remote_meshspace_name') or '').strip()
+                remote_meshspace_fingerprint = str(sync_status.get('remote_meshspace_fingerprint') or '').strip()
+                sync_scope_label = {
+                    'peer': 'Peer approved',
+                    'mesh': 'Mesh approved',
+                }.get(sync_effective_scope, 'Approval required')
+                mesh_label = remote_meshspace_name or remote_meshspace_id or 'unknown mesh'
+                if sync_preview_only:
+                    sync_status_note = (
+                        f"Preview only. {mesh_label} can be reviewed, but channels and history stay paused until you approve sync."
+                    )
+                elif sync_effective_scope == 'mesh':
+                    sync_status_note = f"Sync is allowed for peers from {mesh_label}."
+                else:
+                    sync_status_note = "Sync is allowed for this peer."
 
                 connection_sort = {'live': 0, 'known': 1, 'introduced': 2, 'stale': 3}.get(connection_state, 4)
+                if sync_preview_only:
+                    attention_flags.append('Awaiting sync approval')
                 return {
                     'peer_id': clean_peer_id,
                     'short_id': f'{clean_peer_id[:12]}...',
@@ -5507,12 +5536,14 @@ def create_ui_blueprint() -> Blueprint:
                     'connected': clean_peer_id in connected_set,
                     'can_connect_now': clean_peer_id in introduced_map and endpoint_count > 0,
                     'can_reconnect': bool(endpoint_count) and clean_peer_id not in connected_set,
-                    'can_sync_now': clean_peer_id in connected_set,
+                    'can_sync_now': clean_peer_id in connected_set and not sync_preview_only,
+                    'can_allow_sync': sync_preview_only,
+                    'can_allow_mesh_sync': bool(sync_preview_only and (remote_meshspace_id or remote_meshspace_fingerprint)),
                     'can_refresh_profile': bool(
                         p2p_manager
                         and hasattr(p2p_manager, 'recover_peer_profile_state')
                         and hasattr(p2p_manager, 'clear_peer_profile_cache')
-                    ),
+                    ) and not sync_preview_only,
                     'connection_state': connection_state,
                     'connection_label': connection_label,
                     'connection_note': connection_note,
@@ -5531,6 +5562,17 @@ def create_ui_blueprint() -> Blueprint:
                     'has_profile': bool(profile_name),
                     'is_unverified': bool(public_identity.get('unverified')),
                     'public_identity': public_identity,
+                    'sync_preview_only': sync_preview_only,
+                    'sync_effective_scope': sync_effective_scope,
+                    'sync_explicit_scope': sync_explicit_scope,
+                    'sync_approved_at': sync_approved_at,
+                    'sync_scope_label': sync_scope_label,
+                    'sync_status_note': sync_status_note,
+                    'sync_status_class': 'preview' if sync_preview_only else ('mesh' if sync_effective_scope == 'mesh' else 'peer'),
+                    'remote_meshspace_id': remote_meshspace_id,
+                    'remote_meshspace_name': remote_meshspace_name,
+                    'remote_meshspace_fingerprint': remote_meshspace_fingerprint,
+                    'inherited_from_peer_id': inherited_from_peer_id,
                 }
 
             # Build tiered trust buckets for UI
@@ -5765,6 +5807,46 @@ def create_ui_blueprint() -> Blueprint:
                 if not trigger_sync(peer_id):
                     return jsonify({'error': 'Failed to trigger sync'}), 502
                 return jsonify({'success': True, 'peer_id': peer_id, 'action': action, 'message': 'Peer sync triggered.'})
+
+            if action in {'allow_sync', 'allow_mesh_sync'}:
+                approve_sync = getattr(p2p_manager, 'approve_peer_sync', None)
+                get_sync_status = getattr(p2p_manager, 'get_peer_sync_status', None)
+                trigger_sync = getattr(p2p_manager, 'trigger_peer_sync', None)
+                if not callable(approve_sync) or not callable(get_sync_status):
+                    return jsonify({'error': 'Peer sync approval unavailable'}), 500
+                current_sync_status = dict(get_sync_status(peer_id) or {})
+                if action == 'allow_mesh_sync' and not (
+                    str(current_sync_status.get('remote_meshspace_id') or '').strip()
+                    or str(current_sync_status.get('remote_meshspace_fingerprint') or '').strip()
+                ):
+                    return jsonify({'error': 'This peer has not advertised a stable meshspace identity yet.'}), 400
+                scope = 'mesh' if action == 'allow_mesh_sync' else 'peer'
+                sync_status = dict(approve_sync(peer_id, scope=scope) or {})
+                sync_started = False
+                if callable(trigger_sync):
+                    try:
+                        sync_started = bool(trigger_sync(peer_id))
+                    except Exception:
+                        sync_started = False
+                mesh_name = str(
+                    sync_status.get('remote_meshspace_name')
+                    or sync_status.get('remote_meshspace_id')
+                    or 'that meshspace'
+                ).strip()
+                if scope == 'mesh':
+                    message = f"Sync approved for peers from {mesh_name}."
+                else:
+                    message = 'Sync approved for this peer.'
+                if sync_started:
+                    message += ' Bootstrap sync started.'
+                return jsonify({
+                    'success': True,
+                    'peer_id': peer_id,
+                    'action': action,
+                    'sync_status': sync_status,
+                    'sync_started': sync_started,
+                    'message': message,
+                })
 
             if action == 'refresh_profile':
                 clear_cache = getattr(p2p_manager, 'clear_peer_profile_cache', None)

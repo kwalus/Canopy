@@ -436,7 +436,9 @@ def create_app(config: Optional[Config] = None) -> Flask:
         logger.info(f"P2P network manager initialized (relay_policy={relay_policy})")
 
         logger.info("Initializing meshspace registry manager...")
-        meshspace_registry = MeshspaceRegistryManager()
+        registry_root_value = str(getattr(config.meshspace, 'registry_root', '') or '').strip()
+        registry_root = Path(registry_root_value).expanduser() if registry_root_value else None
+        meshspace_registry = MeshspaceRegistryManager(registry_root=registry_root)
         local_peer_id = None
         try:
             local_peer_id = p2p_manager.get_peer_id()
@@ -3384,6 +3386,13 @@ def create_app(config: Optional[Config] = None) -> Flask:
             clean_peer = str(peer_id or '').strip()
             if not clean_peer or not trust_manager:
                 return False
+            if p2p_manager and hasattr(p2p_manager, 'get_peer_sync_status'):
+                try:
+                    sync_status = dict(p2p_manager.get_peer_sync_status(clean_peer) or {})
+                    if bool(sync_status.get('preview_only')):
+                        return False
+                except Exception:
+                    pass
             try:
                 if hasattr(trust_manager, 'has_explicit_trust_score') and not trust_manager.has_explicit_trust_score(clean_peer):
                     return False
@@ -3410,6 +3419,16 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
         def _meshspace_blocks_untrusted_sync(peer_id: Any) -> bool:
             return _meshspace_network_quarantined() and not _peer_is_trusted_for_content(peer_id)
+
+        def _peer_requires_sync_approval(peer_id: Any) -> bool:
+            clean_peer = str(peer_id or '').strip()
+            if not clean_peer or not p2p_manager or not hasattr(p2p_manager, 'get_peer_sync_status'):
+                return False
+            try:
+                sync_status = dict(p2p_manager.get_peer_sync_status(clean_peer) or {})
+                return bool(sync_status.get('preview_only'))
+            except Exception:
+                return False
 
         def _channel_definition_is_public(channel_type: Any, privacy_mode: Any) -> bool:
             if not channel_manager:
@@ -4477,6 +4496,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
         def _on_channel_sync(channels, from_peer):
             """Handle a CHANNEL_SYNC (bulk list) from a connected peer."""
             try:
+                if _peer_requires_sync_approval(from_peer):
+                    logger.info(
+                        "Ignoring channel sync from preview-only peer %s until sync is approved",
+                        from_peer,
+                    )
+                    return
                 trusted_content = _peer_is_trusted_for_content(from_peer)
                 if _meshspace_blocks_untrusted_sync(from_peer):
                     logger.info(
@@ -5255,6 +5280,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
             has_messages = bool(messages)
             has_extra = bool(feed_posts) or bool(circle_entries) or bool(circle_votes) or bool(circles) or bool(tasks)
             if not has_messages and not has_extra:
+                return
+            if _peer_requires_sync_approval(from_peer):
+                logger.info(
+                    "Ignoring catchup response from preview-only peer %s until sync is approved",
+                    from_peer,
+                )
                 return
             trusted_content = _peer_is_trusted_for_content(from_peer)
             if _meshspace_blocks_untrusted_sync(from_peer):
@@ -6235,6 +6266,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
             them from the Connect page.
             """
             try:
+                if _peer_requires_sync_approval(from_peer):
+                    logger.info(
+                        "Ignoring peer announcement from preview-only peer %s until sync is approved",
+                        from_peer,
+                    )
+                    return
                 if _meshspace_blocks_untrusted_sync(from_peer):
                     logger.info(
                         "Ignoring peer announcement from untrusted peer %s because this meshspace is isolated",

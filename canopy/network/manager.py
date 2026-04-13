@@ -243,17 +243,20 @@ class P2PNetworkManager:
         logger.info("P2PNetworkManager initialized")
 
     def _meshspace_network_quarantined(self) -> bool:
-        mesh_cfg = getattr(self.config, 'meshspace', None)
+        config = getattr(self, 'config', None)
+        mesh_cfg = getattr(config, 'meshspace', None)
         return bool(getattr(mesh_cfg, 'network_quarantined', False))
 
     def _meshspace_boundary_enabled(self) -> bool:
         """Return True when this runtime has explicit meshspace identity."""
-        mesh_cfg = getattr(self.config, 'meshspace', None)
+        config = getattr(self, 'config', None)
+        mesh_cfg = getattr(config, 'meshspace', None)
         return bool(getattr(mesh_cfg, 'enabled', False))
 
     def _local_meshspace_identity(self) -> Dict[str, str]:
         """Return local meshspace metadata used for safety hints."""
-        mesh_cfg = getattr(self.config, 'meshspace', None)
+        config = getattr(self, 'config', None)
+        mesh_cfg = getattr(config, 'meshspace', None)
         meshspace_id = str(getattr(mesh_cfg, 'meshspace_id', '') or '').strip()
         meshspace_name = str(getattr(mesh_cfg, 'name', '') or '').strip()
         fingerprint = meshspace_fingerprint(meshspace_id, meshspace_name)
@@ -279,7 +282,8 @@ class P2PNetworkManager:
         meshspace_fingerprint_value = str(mesh_meta.get('meshspace_fingerprint') or '').strip()
         if not (meshspace_id or meshspace_name or meshspace_fingerprint_value or cross_mesh_allowed is not None):
             return
-        recorder = getattr(self.identity_manager, 'record_peer_meshspace_hint', None)
+        identity_manager = getattr(self, 'identity_manager', None)
+        recorder = getattr(identity_manager, 'record_peer_meshspace_hint', None)
         if not callable(recorder):
             return
         try:
@@ -297,7 +301,8 @@ class P2PNetworkManager:
     def get_peer_cross_mesh_status(self, peer_id: str) -> Dict[str, Any]:
         """Return whether a peer appears to belong to a different meshspace."""
         local = self._local_meshspace_identity()
-        hint_getter = getattr(self.identity_manager, 'get_peer_meshspace_hint', None)
+        identity_manager = getattr(self, 'identity_manager', None)
+        hint_getter = getattr(identity_manager, 'get_peer_meshspace_hint', None)
         hint: Dict[str, Any] = {}
         if callable(hint_getter):
             try:
@@ -305,7 +310,7 @@ class P2PNetworkManager:
             except Exception:
                 hint = {}
         else:
-            hint = dict(getattr(self.identity_manager, 'peer_meshspace_hints', {}).get(peer_id, {}) or {})
+            hint = dict(getattr(identity_manager, 'peer_meshspace_hints', {}).get(peer_id, {}) or {})
 
         local_id = str(local.get('meshspace_id') or '').strip()
         remote_id = str(hint.get('meshspace_id') or '').strip()
@@ -328,6 +333,56 @@ class P2PNetworkManager:
             'cross_mesh_allowed': allowed,
             'requires_manual_confirmation': bool(mismatch and not allowed),
         }
+
+    def get_peer_sync_status(self, peer_id: str) -> Dict[str, Any]:
+        """Return whether a peer is still preview-only for sync import."""
+        clean_peer = str(peer_id or '').strip()
+        identity_manager = getattr(self, 'identity_manager', None)
+        hint_getter = getattr(identity_manager, 'get_peer_meshspace_hint', None)
+        sync_getter = getattr(identity_manager, 'get_peer_sync_approval_status', None)
+        hint: Dict[str, Any] = {}
+        if callable(hint_getter):
+            try:
+                hint = dict(hint_getter(clean_peer) or {})
+            except Exception:
+                hint = {}
+        sync_status: Dict[str, Any] = {}
+        if callable(sync_getter):
+            try:
+                sync_status = dict(sync_getter(clean_peer) or {})
+            except Exception:
+                sync_status = {}
+        explicit_scope = str(sync_status.get('explicit_scope') or '').strip().lower()
+        effective_scope = str(sync_status.get('effective_scope') or '').strip().lower()
+        default_preview_only = bool(identity_manager is not None and not effective_scope)
+        preview_only = bool(sync_status.get('preview_only', default_preview_only))
+        return {
+            'peer_id': clean_peer,
+            'preview_only': preview_only,
+            'explicit_scope': explicit_scope,
+            'effective_scope': effective_scope,
+            'approved_at': str(sync_status.get('approved_at') or '').strip(),
+            'inherited_from_peer_id': str(sync_status.get('inherited_from_peer_id') or '').strip(),
+            'remote_meshspace_id': str(hint.get('meshspace_id') or '').strip(),
+            'remote_meshspace_name': str(hint.get('meshspace_name') or '').strip(),
+            'remote_meshspace_fingerprint': str(hint.get('meshspace_fingerprint') or '').strip(),
+        }
+
+    def _peer_requires_sync_approval(self, peer_id: str) -> bool:
+        """Return True when a peer is limited to preview-only mode."""
+        return bool(self.get_peer_sync_status(peer_id).get('preview_only'))
+
+    def approve_peer_sync(self, peer_id: str, scope: str = 'peer') -> Dict[str, Any]:
+        """Persist that sync is allowed for one peer or its whole mesh."""
+        clean_scope = str(scope or '').strip().lower()
+        if clean_scope not in {'peer', 'mesh'}:
+            raise ValueError(f"Unsupported sync approval scope: {scope}")
+        identity_manager = getattr(self, 'identity_manager', None)
+        setter = getattr(identity_manager, 'set_peer_sync_approval', None)
+        if not callable(setter):
+            raise RuntimeError("Peer sync approval persistence unavailable")
+        setter(peer_id, clean_scope)
+        return self.get_peer_sync_status(peer_id)
 
     def _peer_requires_manual_cross_mesh(self, peer_id: str) -> bool:
         return bool(self.get_peer_cross_mesh_status(peer_id).get('requires_manual_confirmation'))
@@ -694,6 +749,8 @@ class P2PNetworkManager:
         local_peer = str(self.get_peer_id() or '').strip()
         if local_peer and clean_peer == local_peer:
             return True
+        if self._peer_requires_sync_approval(clean_peer):
+            return False
         has_explicit = getattr(self, 'has_explicit_trust_score', None)
         if has_explicit:
             try:
@@ -2398,6 +2455,21 @@ class P2PNetworkManager:
             if self.on_peer_connected:
                 self.on_peer_connected(peer_id)
 
+            if self._peer_requires_sync_approval(peer_id):
+                sync_status = self.get_peer_sync_status(peer_id)
+                remote_name = (
+                    sync_status.get('remote_meshspace_name')
+                    or sync_status.get('remote_meshspace_id')
+                    or 'this peer'
+                )
+                detail = (
+                    f"Preview-only connection: {remote_name} can be reviewed, "
+                    "but channel sync is paused until you approve this peer or meshspace."
+                )
+                logger.info("Skipping automatic post-connect sync for %s: %s", peer_id, detail)
+                self._record_connection_event(peer_id, status='preview_only', detail=detail)
+                return
+
             if not trusted_content:
                 logger.info(
                     "Post-connect sync running in public-only mode for untrusted peer %s",
@@ -2451,6 +2523,9 @@ class P2PNetworkManager:
 
         Returns True if the sync was successfully scheduled.
         """
+        if self._peer_requires_sync_approval(peer_id):
+            logger.info("Peer sync trigger refused for %s because preview-only approval is still required", peer_id)
+            return False
         if not self._event_loop or self._event_loop.is_closed():
             logger.warning("Cannot trigger peer sync — event loop unavailable")
             return False

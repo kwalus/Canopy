@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.16] - 2026-04-13
+
+### Fixed
+- **Fresh LAN-discovered peers now stop at a review boundary instead of immediately populating channels and history** - newly seen peers stay in a preview-only state that preserves identity and mesh hints for operator review while blocking automatic post-connect sync, incoming channel sync, catch-up import, and peer-introduction expansion until sync is explicitly approved.
+- **Trust review now exposes explicit sync approval actions for first-contact peers and whole meshspaces** - the Trust page can now show preview-only peer state, explain why sync is paused, and let an operator approve one peer or promote sync for later peers from the same advertised meshspace without conflating that decision with broader trust scoring.
+
 ## [0.6.15] - 2026-04-13
 
 ### Fixed

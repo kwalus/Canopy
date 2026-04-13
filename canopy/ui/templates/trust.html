@@ -440,6 +440,24 @@
         border-color: rgba(251, 113, 133, 0.24);
     }
 
+    .trust-badge.sync-preview {
+        color: #facc15;
+        border-color: rgba(250, 204, 21, 0.24);
+        background: rgba(113, 63, 18, 0.34);
+    }
+
+    .trust-badge.sync-peer {
+        color: #93c5fd;
+        border-color: rgba(96, 165, 250, 0.24);
+        background: rgba(30, 58, 138, 0.34);
+    }
+
+    .trust-badge.sync-mesh {
+        color: #34d399;
+        border-color: rgba(52, 211, 153, 0.28);
+        background: rgba(5, 46, 22, 0.5);
+    }
+
     .trust-peer-details {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -675,6 +693,12 @@
             {% if allow_actions %}
                 <div class="trust-brief-actions">
                     <a class="btn btn-outline-light btn-sm" href="#trust-peer-{{ peer.peer_id }}">Open card</a>
+                    {% if peer.can_allow_sync %}
+                        <button type="button" class="btn btn-warning btn-sm" onclick="runTrustPeerAction('{{ peer.peer_id }}', 'allow_sync', this)">Allow peer sync</button>
+                    {% endif %}
+                    {% if peer.can_allow_mesh_sync %}
+                        <button type="button" class="btn btn-outline-warning btn-sm" onclick="runTrustPeerAction('{{ peer.peer_id }}', 'allow_mesh_sync', this)">Allow mesh sync</button>
+                    {% endif %}
                     {% if peer.can_connect_now %}
                         <button type="button" class="btn btn-outline-primary btn-sm" onclick="runTrustPeerAction('{{ peer.peer_id }}', 'connect_introduced', this)">Connect</button>
                     {% elif peer.can_reconnect %}
@@ -718,6 +742,7 @@
             <span class="trust-badge connection-{{ peer.connection_state }}">{{ peer.connection_label }}</span>
             <span class="trust-badge role-{{ peer.role_state }}">{{ peer.role_label }}</span>
             <span class="trust-badge source-{{ 'fallback' if peer.display_name_source == 'fallback' else 'profile' }}">{{ peer.display_name_source_label }}</span>
+            <span class="trust-badge sync-{{ peer.sync_status_class }}">{{ peer.sync_scope_label }}</span>
             {% for flag in peer.attention_flags %}
                 <span class="trust-badge needs-attention">{{ flag }}</span>
             {% endfor %}
@@ -746,6 +771,20 @@
                 <span class="trust-detail-label">Introduced By</span>
                 <span class="trust-detail-value">{{ peer.introduced_by_label or 'Direct / unknown' }}</span>
             </div>
+            <div class="trust-detail">
+                <span class="trust-detail-label">Sync Boundary</span>
+                <span class="trust-detail-value">{{ peer.sync_status_note }}</span>
+            </div>
+            <div class="trust-detail">
+                <span class="trust-detail-label">Mesh Preview</span>
+                <span class="trust-detail-value">
+                    {% if peer.remote_meshspace_name or peer.remote_meshspace_id %}
+                        {{ peer.remote_meshspace_name or peer.remote_meshspace_id }}
+                    {% else %}
+                        No mesh hint yet
+                    {% endif %}
+                </span>
+            </div>
         </div>
 
         <div class="trust-peer-footer">
@@ -759,6 +798,16 @@
                 <option value="quarantine" {% if tier == 'quarantine' %}selected{% endif %}>Quarantine</option>
             </select>
             <div class="trust-peer-actions">
+                {% if peer.can_allow_sync %}
+                    <button type="button" class="btn btn-warning btn-sm" onclick="runTrustPeerAction('{{ peer_id }}', 'allow_sync', this)">
+                        Allow peer sync
+                    </button>
+                {% endif %}
+                {% if peer.can_allow_mesh_sync %}
+                    <button type="button" class="btn btn-outline-warning btn-sm" onclick="runTrustPeerAction('{{ peer_id }}', 'allow_mesh_sync', this)">
+                        Allow mesh sync
+                    </button>
+                {% endif %}
                 {% if peer.can_connect_now %}
                     <button type="button" class="btn btn-outline-primary btn-sm" onclick="runTrustPeerAction('{{ peer_id }}', 'connect_introduced', this)">
                         Connect
@@ -802,7 +851,7 @@
                 <p class="trust-subtitle">
                     Review live peers, stale records, pending introductions, and trust assignments from one place.
                     This view is designed to answer the operational questions that matter: who is actually connected,
-                    who is only partially identified, and who should be isolated or forgotten.
+                    who is only partially identified, and which peers are still preview-only until you approve sync.
                 </p>
                 <div class="trust-actions">
                     <button class="btn btn-warning" data-bs-toggle="modal" data-bs-target="#deleteSignalModal">
@@ -1127,7 +1176,7 @@
         })
         .then(data => {
             showAlert(data.message || 'Peer action completed.', 'success');
-            if (cleanAction === 'connect_introduced' || cleanAction === 'reconnect' || cleanAction === 'sync_now' || cleanAction === 'refresh_profile') {
+            if (cleanAction === 'connect_introduced' || cleanAction === 'reconnect' || cleanAction === 'sync_now' || cleanAction === 'refresh_profile' || cleanAction === 'allow_sync' || cleanAction === 'allow_mesh_sync') {
                 setTimeout(refreshTrust, 900);
             }
         })

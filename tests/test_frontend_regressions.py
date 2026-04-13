@@ -111,6 +111,14 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("runTrustPeerAction('{{ peer_id }}', 'sync_now', this)", trust_template)
         self.assertIn("href=\"#trust-peer-{{ peer.peer_id }}\"", trust_template)
 
+    def test_trust_page_surfaces_preview_only_sync_approval_controls(self) -> None:
+        trust_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'trust.html').read_text(encoding='utf-8')
+        self.assertIn("runTrustPeerAction('{{ peer_id }}', 'allow_sync', this)", trust_template)
+        self.assertIn("runTrustPeerAction('{{ peer_id }}', 'allow_mesh_sync', this)", trust_template)
+        self.assertIn('preview-only until you approve sync', trust_template)
+        self.assertIn('Mesh Preview', trust_template)
+        self.assertIn('trust-badge sync-{{ peer.sync_status_class }}', trust_template)
+
     def test_trust_page_disables_review_action_buttons_while_request_is_in_flight(self) -> None:
         trust_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'trust.html').read_text(encoding='utf-8')
         self.assertIn("if (triggerEl) {", trust_template)

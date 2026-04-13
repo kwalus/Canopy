@@ -129,6 +129,32 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
             'research-mesh',
         )
 
+    def test_identity_manager_mesh_sync_approval_inherits_to_later_peer(self) -> None:
+        identity_manager = IdentityManager(Path(self.tempdir) / 'peer_identity.json')
+        identity_manager.initialize()
+
+        identity_manager.record_peer_meshspace_hint(
+            'peer-alpha',
+            meshspace_id='family-mesh',
+            meshspace_name='Family Mesh',
+            meshspace_fingerprint='ABCD-1234',
+            source='handshake',
+        )
+        identity_manager.record_peer_meshspace_hint(
+            'peer-beta',
+            meshspace_id='family-mesh',
+            meshspace_name='Family Mesh',
+            meshspace_fingerprint='ABCD-1234',
+            source='handshake',
+        )
+
+        identity_manager.set_peer_sync_approval('peer-alpha', 'mesh')
+
+        status = identity_manager.get_peer_sync_approval_status('peer-beta')
+        self.assertFalse(status.get('preview_only'))
+        self.assertEqual(status.get('effective_scope'), 'mesh')
+        self.assertEqual(status.get('inherited_from_peer_id'), 'peer-alpha')
+
     def test_generate_invite_accepts_explicit_external_mesh_endpoint(self) -> None:
         identity_manager = IdentityManager(Path(self.tempdir) / 'peer_identity.json')
         identity_manager.initialize()
@@ -778,6 +804,7 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
         manager = self._build_manager()
         manager.on_peer_connected = None
         manager._peer_is_trusted_for_content = lambda peer_id: True
+        manager.get_peer_sync_status = lambda peer_id: {'preview_only': False}
         manager._refresh_peer_version_info = lambda peer_id: None
         cancelled: list[str] = []
         calls: list[tuple[str, str]] = []

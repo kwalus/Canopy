@@ -7,6 +7,7 @@ import sys
 import types
 import unittest
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
@@ -52,6 +53,13 @@ class TestManagerTrustGating(unittest.TestCase):
         manager._cancel_reconnect = lambda peer_id: None
         manager._refresh_peer_version_info = lambda peer_id: None
         manager._peer_is_trusted_for_content = lambda peer_id: False
+        manager.get_peer_sync_status = lambda peer_id: {'preview_only': False}
+        manager._remember_live_peer_endpoints = lambda peer_id: None
+        manager._wait_for_connection_settle = AsyncMock(return_value=True)
+        manager._post_connect_retry_counts = {}
+        manager._post_connect_retry_tokens = {}
+        manager._request_post_connect_sync_retry = lambda peer_id, reason: None
+        manager.connection_manager = SimpleNamespace(get_connection=lambda peer_id: None)
 
         calls = []
 
@@ -71,6 +79,51 @@ class TestManagerTrustGating(unittest.TestCase):
         asyncio.run(manager._run_post_connect_sync_impl('peer-guest'))
 
         self.assertEqual(calls, [('channel_sync', 'peer-guest'), ('metadata_replay', 'peer-guest'), ('catchup', 'peer-guest')])
+
+    def test_preview_only_peer_skips_post_connect_bootstrap(self) -> None:
+        manager = P2PNetworkManager.__new__(P2PNetworkManager)
+        manager.on_peer_connected = None
+        manager._cancel_reconnect = lambda peer_id: None
+        manager._refresh_peer_version_info = lambda peer_id: None
+        manager._peer_is_trusted_for_content = lambda peer_id: False
+        manager.get_peer_sync_status = lambda peer_id: {
+            'preview_only': True,
+            'remote_meshspace_name': 'Family Mesh',
+            'remote_meshspace_id': 'family-mesh',
+        }
+        manager._record_connection_event = lambda *args, **kwargs: None
+        manager._remember_live_peer_endpoints = lambda peer_id: None
+        manager._post_connect_retry_counts = {}
+        manager._post_connect_retry_tokens = {}
+        manager._request_post_connect_sync_retry = lambda peer_id, reason: None
+        manager._wait_for_connection_settle = AsyncMock(return_value=True)
+        manager.connection_manager = SimpleNamespace(get_connection=lambda peer_id: None)
+
+        calls = []
+
+        async def _record(name, peer_id):
+            calls.append((name, peer_id))
+
+        manager._send_channel_sync_to_peer = lambda peer_id: _record('channel_sync', peer_id)
+        manager._send_public_channel_metadata_replay_to_peer = lambda peer_id: _record('metadata_replay', peer_id)
+        manager._send_catchup_request = lambda peer_id: _record('catchup', peer_id)
+        manager._send_membership_recovery_query = lambda peer_id: _record('membership', peer_id)
+        manager._retry_missing_channel_key_requests_for_peer = lambda peer_id: _record('keys', peer_id)
+        manager._send_profile_to_peer = lambda peer_id: _record('profile', peer_id)
+        manager._send_peer_announcement_to = lambda peer_id: _record('peer_announce', peer_id)
+        manager._announce_new_peer_to_others = lambda peer_id: _record('announce_others', peer_id)
+        manager.message_router = SimpleNamespace(flush_pending_messages=lambda peer_id: _record('flush', peer_id))
+
+        asyncio.run(manager._run_post_connect_sync_impl('peer-guest'))
+
+        self.assertEqual(calls, [])
+
+    def test_trigger_peer_sync_refuses_preview_only_peer(self) -> None:
+        manager = P2PNetworkManager.__new__(P2PNetworkManager)
+        manager.get_peer_sync_status = lambda peer_id: {'preview_only': True}
+        manager._event_loop = None
+
+        self.assertFalse(manager.trigger_peer_sync('peer-guest'))
 
     def test_untrusted_catchup_request_sends_only_public_channel_timestamps(self) -> None:
         manager = P2PNetworkManager.__new__(P2PNetworkManager)

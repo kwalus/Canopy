@@ -13,6 +13,7 @@ import base58
 import hashlib
 import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Dict, Any
 from dataclasses import dataclass, asdict
@@ -350,6 +351,8 @@ class IdentityManager:
             'meshspace_fingerprint': 64,
             'source': 64,
             'last_source': 64,
+            'sync_approval_scope': 16,
+            'sync_approved_at': 64,
         }
         for key, limit in field_map.items():
             text = str(raw.get(key) or '').strip()
@@ -412,6 +415,85 @@ class IdentityManager:
     def get_peer_meshspace_hint(self, peer_id: str) -> Dict[str, Any]:
         """Return the persisted meshspace hint for a peer, if any."""
         return dict(self.peer_meshspace_hints.get(peer_id, {}) or {})
+
+    @staticmethod
+    def _meshspace_hints_match(left: Dict[str, Any], right: Dict[str, Any]) -> bool:
+        """Return True when two peer hints appear to refer to the same meshspace."""
+        left_fingerprint = str(left.get('meshspace_fingerprint') or '').strip()
+        right_fingerprint = str(right.get('meshspace_fingerprint') or '').strip()
+        if left_fingerprint and right_fingerprint:
+            return left_fingerprint == right_fingerprint
+        left_id = str(left.get('meshspace_id') or '').strip()
+        right_id = str(right.get('meshspace_id') or '').strip()
+        if left_id and right_id:
+            return left_id == right_id
+        return False
+
+    def set_peer_sync_approval(self, peer_id: str, scope: Optional[str]) -> None:
+        """Persist whether a peer is approved for sync preview exit."""
+        clean_peer = str(peer_id or '').strip()
+        if not clean_peer:
+            return
+        if self.local_identity and clean_peer == self.local_identity.peer_id:
+            return
+        clean_scope = str(scope or '').strip().lower()
+        if clean_scope not in {'', 'peer', 'mesh'}:
+            raise ValueError(f"Unsupported sync approval scope: {scope}")
+        existing = dict(self.peer_meshspace_hints.get(clean_peer) or {})
+        changed = False
+        if clean_scope:
+            if existing.get('sync_approval_scope') != clean_scope:
+                existing['sync_approval_scope'] = clean_scope
+                changed = True
+            approved_at = datetime.now(timezone.utc).isoformat()
+            if existing.get('sync_approved_at') != approved_at:
+                existing['sync_approved_at'] = approved_at
+                changed = True
+        else:
+            for key in ('sync_approval_scope', 'sync_approved_at'):
+                if key in existing:
+                    del existing[key]
+                    changed = True
+        if changed:
+            normalized = self._normalize_meshspace_hint(existing)
+            if normalized:
+                self.peer_meshspace_hints[clean_peer] = normalized
+            else:
+                self.peer_meshspace_hints.pop(clean_peer, None)
+            self._save_known_peers()
+
+    def get_peer_sync_approval_status(self, peer_id: str) -> Dict[str, Any]:
+        """Return explicit/effective sync approval state for a peer."""
+        clean_peer = str(peer_id or '').strip()
+        hint = dict(self.peer_meshspace_hints.get(clean_peer, {}) or {})
+        explicit_scope = str(hint.get('sync_approval_scope') or '').strip().lower()
+        effective_scope = explicit_scope if explicit_scope in {'peer', 'mesh'} else ''
+        inherited_from_peer_id = ''
+        if not effective_scope and hint:
+            for other_peer_id, other_hint in self.peer_meshspace_hints.items():
+                if other_peer_id == clean_peer or not isinstance(other_hint, dict):
+                    continue
+                other_scope = str(other_hint.get('sync_approval_scope') or '').strip().lower()
+                if other_scope != 'mesh':
+                    continue
+                if self._meshspace_hints_match(hint, other_hint):
+                    effective_scope = 'mesh'
+                    inherited_from_peer_id = other_peer_id
+                    break
+        approved_at = ''
+        if effective_scope == explicit_scope:
+            approved_at = str(hint.get('sync_approved_at') or '').strip()
+        elif inherited_from_peer_id:
+            inherited_hint = dict(self.peer_meshspace_hints.get(inherited_from_peer_id, {}) or {})
+            approved_at = str(inherited_hint.get('sync_approved_at') or '').strip()
+        return {
+            'peer_id': clean_peer,
+            'explicit_scope': explicit_scope,
+            'effective_scope': effective_scope,
+            'preview_only': not bool(effective_scope),
+            'approved_at': approved_at,
+            'inherited_from_peer_id': inherited_from_peer_id,
+        }
 
     def record_endpoint(self, peer_id: str, endpoint: str, *, claim: bool = True) -> None:
         """Record an endpoint for a peer and optionally "claim" it.
