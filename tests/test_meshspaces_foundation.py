@@ -62,6 +62,15 @@ class _FakeP2PNetworkManager:
     def get_connected_peers(self):
         return []
 
+    def get_discovered_peers(self):
+        return []
+
+    def get_introduced_peers(self):
+        return []
+
+    def get_relay_status(self):
+        return {}
+
     def peer_supports_capability(self, peer_id, capability):
         return False
 
@@ -1361,11 +1370,17 @@ class LegacyMeshspaceAdoptionTest(unittest.TestCase):
         self.assertIn('Rename the default mesh before adding more so each world stays clear.', body)
         self.assertIn('Needs name', body)
 
-    def test_invite_generation_prefers_registry_name_and_advertises_mesh_avatar(self) -> None:
+    def test_invite_generation_prefers_registry_name_without_bloating_invite_payload(self) -> None:
         self._authenticate()
         manager = self.app.config.get('MESHSPACE_REGISTRY_MANAGER')
         config = self.app.config['CANOPY_CONFIG']
         meshspace_id = config.meshspace.meshspace_id
+        with self.db_manager.get_connection() as conn:
+            conn.execute(
+                "UPDATE users SET display_name = ? WHERE id = ?",
+                ('Windy Admin', 'owner-user'),
+            )
+            conn.commit()
         manager.update_meshspace_metadata(meshspace_id, name='Windy Mesh')
         manager.set_meshspace_avatar(
             meshspace_id,
@@ -1383,14 +1398,45 @@ class LegacyMeshspaceAdoptionTest(unittest.TestCase):
             meshspace_fingerprint='ABCD-1234',
             to_dict=lambda: {'mn': 'Windy Mesh'},
         )
-        with patch('canopy.network.invite.generate_invite', return_value=fake_invite) as generate_invite_mock:
+        with patch('canopy.network.invite.generate_invite', return_value=fake_invite) as generate_invite_mock, \
+             patch('canopy.core.device.get_device_profile', return_value={'display_name': 'Alvin Node'}), \
+             patch('canopy.core.device.get_device_label', return_value='Alvin Device'):
             response = self.client.get('/api/v1/p2p/invite')
         self.assertEqual(response.status_code, 200)
         payload = response.get_json() or {}
         self.assertEqual(payload.get('meshspace_name'), 'Windy Mesh')
+        self.assertEqual(payload.get('peer_label'), 'Windy Admin')
+        self.assertEqual(payload.get('instance_label'), 'Alvin Node')
         self.assertEqual(generate_invite_mock.call_args.kwargs.get('mesh_name'), 'Windy Mesh')
-        self.assertTrue(generate_invite_mock.call_args.kwargs.get('meshspace_avatar_b64'))
-        self.assertEqual(generate_invite_mock.call_args.kwargs.get('meshspace_avatar_mime'), 'image/png')
+        self.assertEqual(generate_invite_mock.call_args.kwargs.get('peer_label'), 'Windy Admin')
+        self.assertEqual(generate_invite_mock.call_args.kwargs.get('instance_label'), 'Alvin Node')
+        self.assertIsNone(generate_invite_mock.call_args.kwargs.get('meshspace_avatar_b64'))
+        self.assertIsNone(generate_invite_mock.call_args.kwargs.get('meshspace_avatar_mime'))
+        self.assertIsNone(generate_invite_mock.call_args.kwargs.get('meshspace_id_aliases'))
+
+    def test_connect_page_uses_owner_profile_as_primary_hint_and_device_profile_as_node_hint(self) -> None:
+        self._authenticate()
+        with self.db_manager.get_connection() as conn:
+            conn.execute(
+                "UPDATE users SET display_name = ? WHERE id = ?",
+                ('Windy Admin', 'owner-user'),
+            )
+            conn.commit()
+
+        fake_invite = SimpleNamespace(
+            encode=lambda: 'canopy:test',
+            peer_id='peer-mesh-test',
+            endpoints=['ws://192.168.1.12:7771'],
+        )
+        with patch('canopy.core.device.get_device_profile', return_value={'display_name': 'Alvin Node'}), \
+             patch('canopy.core.device.get_device_label', return_value='Alvin Device'), \
+             patch('canopy.network.invite.generate_invite', return_value=fake_invite):
+            response = self.client.get('/connect')
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn('Windy Admin', body)
+        self.assertIn('Node hint Alvin Node', body)
 
     def test_admin_can_promote_legacy_meshspace_to_explicit_identity(self) -> None:
         self._authenticate()

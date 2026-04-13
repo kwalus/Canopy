@@ -81,10 +81,33 @@ class TestFrontendRegressions(unittest.TestCase):
     def test_connect_preview_understands_mesh_avatar_and_alias_hints(self) -> None:
         connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
         self.assertIn('CURRENT_MESHSPACE_ID_ALIASES', connect_template)
+        self.assertIn('PEER_PREVIEW_PROFILES', connect_template)
+        self.assertIn('PEER_MESH_HINTS', connect_template)
         self.assertIn('function meshIdsMatch(remoteId, remoteAliases)', connect_template)
         self.assertIn('meshspaceIdAliases', connect_template)
         self.assertIn('meshAvatarB64', connect_template)
+        self.assertIn('invite-preview-peer-avatar', connect_template)
         self.assertIn('Peer ID', connect_template)
+        self.assertIn('Node hint', connect_template)
+
+    def test_profile_settings_and_mesh_pages_explain_connection_hint_roles(self) -> None:
+        profile_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'profile.html').read_text(encoding='utf-8')
+        settings_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'settings.html').read_text(encoding='utf-8')
+        mesh_detail_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'meshspace_detail.html').read_text(encoding='utf-8')
+
+        self.assertIn('Connection Hint Preview', profile_template)
+        self.assertIn('Primary peer identity:', profile_template)
+        self.assertIn('shown to other users on Connect cards and invite review', profile_template)
+        self.assertIn('Secondary node hint', profile_template)
+
+        self.assertIn('secondary node hint', settings_template)
+        self.assertIn('primary peer identity', settings_template)
+        self.assertIn('Identity split:', settings_template)
+        self.assertIn('Connection Hint Preview', settings_template)
+
+        self.assertIn('shown during connection review', mesh_detail_template)
+        self.assertIn('Connection Hint Preview', mesh_detail_template)
+        self.assertIn('Secondary node hint', mesh_detail_template)
 
     def test_admin_governance_secondary_save_button_defaults_to_outline(self) -> None:
         admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')

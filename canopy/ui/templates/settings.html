@@ -106,10 +106,58 @@
             </div>
             <div class="card-body">
                 <p class="text-muted small mb-3">
-                    Give this device a unique identity that other peers will see in the network.
-                    Channels and content originating from this device will be tagged with this profile.
-                    This helps identify which of your devices created content when you run Canopy on multiple machines.
+                    Give this machine a secondary node hint for connection review.
+                    This is not the primary peer identity: the main peer name/avatar come from the instance owner profile,
+                    while the mesh name/avatar come from the active mesh.
+                    Use this device profile to help people distinguish which machine or node sent the invite.
                 </p>
+                {% if is_admin %}
+                <div class="alert alert-info small">
+                    <strong>Identity split:</strong> <code>Profile</code> controls the primary peer identity, <code>Mesh</code> controls the mesh hint,
+                    and <code>Device Profile</code> identifies the specific machine sending the invite.
+                </div>
+                <div class="card border-0 bg-body-tertiary mb-3">
+                    <div class="card-body">
+                        <div class="text-uppercase small text-muted mb-2">Connection Hint Preview</div>
+                        <div class="d-flex align-items-center gap-3 mb-3">
+                            <div class="rounded-circle overflow-hidden border d-flex align-items-center justify-content-center bg-body" style="width:52px; height:52px; flex-shrink:0;">
+                                {% if connection_identity_preview.peer_avatar_url %}
+                                <img src="{{ connection_identity_preview.peer_avatar_url }}" alt="" style="width:100%; height:100%; object-fit:cover;">
+                                {% else %}
+                                <i class="bi bi-person-circle fs-4 text-muted"></i>
+                                {% endif %}
+                            </div>
+                            <div>
+                                <div class="text-uppercase small text-muted">Primary peer identity</div>
+                                <div class="fw-semibold">{{ connection_identity_preview.peer_label or 'Set on Profile' }}</div>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-center gap-3 mb-3">
+                            <div class="rounded-4 overflow-hidden border d-flex align-items-center justify-content-center bg-body" style="width:52px; height:52px; flex-shrink:0;">
+                                {% if connection_identity_preview.mesh_avatar_url %}
+                                <img src="{{ connection_identity_preview.mesh_avatar_url }}" alt="" style="width:100%; height:100%; object-fit:cover;">
+                                {% else %}
+                                <i class="bi bi-diagram-3 fs-5 text-muted"></i>
+                                {% endif %}
+                            </div>
+                            <div>
+                                <div class="text-uppercase small text-muted">Mesh identity</div>
+                                <div class="fw-semibold">{{ connection_identity_preview.mesh_name }}</div>
+                                <div class="small text-muted">{{ connection_identity_preview.meshspace_id or 'Mesh ID pending' }}</div>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="rounded-4 border d-flex align-items-center justify-content-center bg-body" style="width:52px; height:52px; flex-shrink:0;">
+                                <i class="bi bi-pc-display fs-5 text-muted"></i>
+                            </div>
+                            <div>
+                                <div class="text-uppercase small text-muted">Secondary node hint</div>
+                                <div class="fw-semibold">{{ connection_identity_preview.instance_label or 'Set below' }}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
                 <div class="row settings-device-row">
                     <div class="col-md-3 text-center mb-3">
                         <div id="device-avatar-preview" style="width:100px; height:100px; border-radius:50%; margin:0 auto; background:var(--canopy-bg-card); border:2px dashed var(--canopy-border); display:flex; align-items:center; justify-content:center; overflow:hidden;">

@@ -198,6 +198,33 @@
         color: var(--canopy-text-primary);
         font-weight: 700;
     }
+    .invite-preview-peer-head {
+        display: flex;
+        align-items: center;
+        gap: 0.65rem;
+        min-width: 0;
+    }
+    .invite-preview-peer-avatar {
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 75%, transparent);
+        flex-shrink: 0;
+    }
+    .invite-preview-peer-initials {
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.78rem;
+        font-weight: 700;
+        color: #fff;
+        background: #334155;
+        flex-shrink: 0;
+    }
     .invite-preview-subtitle {
         color: var(--canopy-text-secondary);
         font-size: 0.8rem;
@@ -432,9 +459,19 @@
                             Mesh check {{ current_mesh_fingerprint }}
                         </span>
                         {% endif %}
-                        {% if current_peer_label or current_instance_label %}
+                        {% if current_peer_label %}
                         <span class="badge bg-info-subtle text-info-emphasis border">
-                            <i class="bi bi-pc-display"></i> {{ current_peer_label or current_instance_label }}
+                            {% if current_peer_avatar_url %}
+                            <img src="{{ current_peer_avatar_url }}" alt="" style="width:18px; height:18px; border-radius:50%; object-fit:cover; border:1px solid color-mix(in srgb, var(--canopy-border) 75%, transparent);" class="me-1">
+                            {% else %}
+                            <i class="bi bi-person-circle"></i>
+                            {% endif %}
+                            {{ current_peer_label }}
+                        </span>
+                        {% endif %}
+                        {% if current_instance_label %}
+                        <span class="badge bg-secondary-subtle text-secondary-emphasis border">
+                            <i class="bi bi-pc-display"></i> Node hint {{ current_instance_label }}
                         </span>
                         {% endif %}
                     </div>
@@ -1120,6 +1157,8 @@
 
 <script>
 const PEER_LABELS = {{ peer_labels | tojson }};
+const PEER_PREVIEW_PROFILES = {{ (peer_preview_profiles or {}) | tojson }};
+const PEER_MESH_HINTS = {{ (peer_mesh_hints or {}) | tojson }};
 const CURRENT_MESH_NAME = {{ (current_mesh_name or 'Default Mesh') | tojson }};
 const CURRENT_MESHSPACE_ID = {{ (current_meshspace_id or '') | tojson }};
 const CURRENT_MESHSPACE_ID_ALIASES = {{ (current_meshspace_id_aliases or []) | tojson }};
@@ -1141,6 +1180,14 @@ function meshIdsMatch(remoteId, remoteAliases) {
         if (localIds.has(value)) return true;
     }
     return false;
+}
+
+function peerInitials(label) {
+    const text = String(label || '').trim();
+    if (!text) return '?';
+    const parts = text.split(/\s+/).filter(Boolean).slice(0, 2);
+    const initials = parts.map((part) => part[0]).join('');
+    return (initials || text.slice(0, 2)).toUpperCase();
 }
 
 function apiJsonFetch(url, options = {}) {
@@ -1367,7 +1414,9 @@ function renderInvitePreview(preview, error) {
     currentInvitePreview = preview;
     const warnings = invitePreviewWarnings(preview);
     const knownLabel = PEER_LABELS[preview.peerId] || '';
-    const title = preview.peerLabel || knownLabel || preview.instanceLabel || preview.peerId.slice(0, 12);
+    const knownProfile = PEER_PREVIEW_PROFILES[preview.peerId] || {};
+    const knownMeshHint = PEER_MESH_HINTS[preview.peerId] || {};
+    const title = knownProfile.display_name || knownLabel || preview.peerLabel || preview.instanceLabel || preview.peerId.slice(0, 12);
     const meshLabel = preview.meshName || 'Not specified';
     const endpointLabel = preview.endpoints.length
         ? `${preview.endpoints.length} direct ${preview.endpoints.length === 1 ? 'endpoint' : 'endpoints'}`
@@ -1388,9 +1437,14 @@ function renderInvitePreview(preview, error) {
         : meshMatches
             ? '<span class="badge bg-success-subtle text-success-emphasis border">Current mesh hint</span>'
             : '<span class="badge bg-warning-subtle text-warning-emphasis border">Check mesh hint</span>';
-    const meshAvatarHtml = (preview.meshAvatarB64 && preview.meshAvatarMime)
-        ? `<img src="data:${_escapeHtml(preview.meshAvatarMime)};base64,${_escapeHtml(preview.meshAvatarB64)}" alt="" class="invite-preview-mesh-avatar">`
+    const meshAvatarB64 = preview.meshAvatarB64 || knownMeshHint.meshspace_avatar_b64 || '';
+    const meshAvatarMime = preview.meshAvatarMime || knownMeshHint.meshspace_avatar_mime || '';
+    const meshAvatarHtml = (meshAvatarB64 && meshAvatarMime)
+        ? `<img src="data:${_escapeHtml(meshAvatarMime)};base64,${_escapeHtml(meshAvatarB64)}" alt="" class="invite-preview-mesh-avatar">`
         : '';
+    const peerAvatarHtml = (knownProfile.avatar_b64 && knownProfile.avatar_mime)
+        ? `<img src="data:${_escapeHtml(knownProfile.avatar_mime)};base64,${_escapeHtml(knownProfile.avatar_b64)}" alt="" class="invite-preview-peer-avatar">`
+        : `<span class="invite-preview-peer-initials">${_escapeHtml(peerInitials(title))}</span>`;
     const warningHtml = warnings.length
         ? `<ul class="invite-warning-list">${warnings.map((warning) => `<li>${_escapeHtml(warning)}</li>`).join('')}</ul>`
         : '';
@@ -1399,9 +1453,12 @@ function renderInvitePreview(preview, error) {
     container.innerHTML = `
         <div class="invite-preview-card ${warnings.length ? 'invite-preview-warning' : ''}">
             <div class="d-flex align-items-start justify-content-between gap-2 flex-wrap">
-                <div>
-                    <div class="invite-preview-title"><i class="bi bi-person-check"></i> ${_escapeHtml(title)}</div>
-                    <div class="invite-preview-subtitle">Review before connecting. Labels are sender-provided hints; peer keys are verified when imported.</div>
+                <div class="invite-preview-peer-head">
+                    ${peerAvatarHtml}
+                    <div>
+                        <div class="invite-preview-title"><i class="bi bi-person-check"></i> ${_escapeHtml(title)}</div>
+                        <div class="invite-preview-subtitle">Review before connecting. Labels are sender-provided hints; peer keys are verified when imported.</div>
+                    </div>
                 </div>
                 <div class="d-flex gap-1 flex-wrap">${knownBadge}${meshBadge}</div>
             </div>

@@ -52,6 +52,7 @@ from ..security.csrf import generate_csrf_token, validate_csrf_request
 from ..core.profile import (
     DEFAULT_AGENT_DIRECTIVE_PRESETS,
     MAX_AGENT_DIRECTIVES_LENGTH,
+    build_local_peer_hint_payload,
     get_default_agent_directives,
     normalize_agent_directives,
 )
@@ -174,6 +175,47 @@ def _current_meshspace_hint_payload() -> dict[str, Any]:
     }
 
 
+def _current_local_peer_hint_payload(
+    db_manager: Any,
+    profile_manager: Any,
+    *,
+    fallback_device_label: str = '',
+    device_profile: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    return build_local_peer_hint_payload(
+        db_manager,
+        profile_manager,
+        fallback_device_label=fallback_device_label,
+        device_profile=device_profile,
+    )
+
+
+def _connection_identity_preview_payload(
+    mesh_hint: dict[str, Any],
+    peer_hint: dict[str, Any],
+) -> dict[str, Any]:
+    mesh_name = str(
+        mesh_hint.get('meshspace_name')
+        or mesh_hint.get('name')
+        or ''
+    ).strip() or 'Default Mesh'
+    meshspace_id = str(mesh_hint.get('meshspace_id') or '').strip()
+    return {
+        'peer_label': str(peer_hint.get('peer_label') or '').strip(),
+        'peer_avatar_url': str(peer_hint.get('peer_avatar_url') or '').strip(),
+        'instance_label': str(peer_hint.get('instance_label') or '').strip(),
+        'instance_description': str(peer_hint.get('instance_description') or '').strip(),
+        'mesh_name': mesh_name,
+        'meshspace_id': meshspace_id,
+        'mesh_fingerprint': str(mesh_hint.get('meshspace_fingerprint') or '').strip(),
+        'mesh_avatar_url': str(
+            mesh_hint.get('meshspace_avatar_url')
+            or mesh_hint.get('avatar_url')
+            or ''
+        ).strip(),
+    }
+
+
 def _refresh_runtime_meshspace_advertisement(record: dict[str, Any]) -> None:
     config = current_app.config.get('CANOPY_CONFIG')
     if not config:
@@ -201,6 +243,28 @@ def _refresh_runtime_meshspace_advertisement(record: dict[str, Any]) -> None:
         )
         connection_manager.local_meshspace_avatar_b64 = str(getattr(config.meshspace, 'avatar_preview_b64', '') or '').strip()
         connection_manager.local_meshspace_avatar_mime = str(getattr(config.meshspace, 'avatar_preview_mime', 'image/png') or 'image/png').strip() or 'image/png'
+
+
+def _current_invite_peer_label(
+    db_manager: Any,
+    *,
+    fallback_device_label: str = '',
+) -> str:
+    """Prefer the local owner display name for invite review, then device label."""
+    owner_user_id = ''
+    try:
+        owner_user_id = str(db_manager.get_instance_owner_user_id() or '').strip() if db_manager else ''
+    except Exception:
+        owner_user_id = ''
+    if owner_user_id and db_manager:
+        try:
+            owner = db_manager.get_user(owner_user_id) or {}
+            display_name = str(owner.get('display_name') or owner.get('username') or '').strip()
+            if display_name:
+                return display_name
+        except Exception:
+            pass
+    return str(fallback_device_label or '').strip()
 
 
 def _current_meshspace_default_agent_permissions() -> list[str]:
@@ -6904,7 +6968,7 @@ def create_ui_blueprint() -> Blueprint:
     def channels():
         """Slack-style channel interface for real-time messaging."""
         try:
-            db_manager, _, _, _, channel_manager, _, _, _, _, config, p2p_manager = _get_app_components_any(current_app)
+            db_manager, _, trust_manager, _, channel_manager, _, _, _, _, config, p2p_manager = _get_app_components_any(current_app)
             from ..core.polls import poll_edit_window_seconds
             user_id = get_current_user()
             workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
@@ -6977,15 +7041,35 @@ def create_ui_blueprint() -> Blueprint:
     def settings():
         """Application settings and configuration."""
         try:
-            db_manager, _, _, _, _, _, _, _, _, config, _ = _get_app_components_any(current_app)
+            db_manager, _, _, _, _, _, _, _, profile_manager, config, _ = _get_app_components_any(current_app)
             user_id = get_current_user()
             from .. import __version__ as canopy_version
+            from ..core.device import get_device_label, get_device_profile
             
             # Get database statistics
             db_stats = db_manager.get_database_stats()
             # Env-only options (read-only in UI; document in Settings)
             auto_approve_raw = (os.getenv('CANOPY_AUTO_APPROVE_AGENTS') or '').strip().lower()
             auto_approve_agents = auto_approve_raw in ('1', 'true', 'yes')
+            device_profile = {}
+            fallback_device_label = str(getattr(config, 'device_label', '') or '').strip()
+            try:
+                device_profile = get_device_profile() or {}
+                if not fallback_device_label:
+                    fallback_device_label = str(get_device_label() or '').strip()
+            except Exception:
+                device_profile = {}
+            current_local_peer_hint = _current_local_peer_hint_payload(
+                db_manager,
+                profile_manager,
+                fallback_device_label=fallback_device_label,
+                device_profile=device_profile,
+            )
+            current_mesh_hint = _current_meshspace_hint_payload()
+            connection_identity_preview = _connection_identity_preview_payload(
+                current_mesh_hint,
+                current_local_peer_hint,
+            )
             return render_template('settings.html',
                                  config=config.to_dict(),
                                  db_stats=db_stats,
@@ -6995,7 +7079,10 @@ def create_ui_blueprint() -> Blueprint:
                                  large_attachment_threshold_mb=int(LARGE_ATTACHMENT_THRESHOLD / 1024 / 1024),
                                  large_attachment_store_root=get_large_attachment_store_root(db_manager),
                                  large_attachment_download_mode=get_large_attachment_download_mode(db_manager),
-                                 is_admin=_is_admin())
+                                 is_admin=_is_admin(),
+                                 current_local_peer_hint=current_local_peer_hint,
+                                 current_mesh_hint=current_mesh_hint,
+                                 connection_identity_preview=connection_identity_preview)
                                  
         except Exception as e:
             logger.error(f"Settings error: {e}")
@@ -7387,10 +7474,43 @@ def create_ui_blueprint() -> Blueprint:
         item['launch_env'] = manager.launch_environment(item.get('meshspace_id')) or {}
         item['data_dir_exists'] = Path(str(item.get('data_dir') or '')).exists()
         item['database_exists'] = Path(str(item.get('database_path') or '')).exists()
+        from ..core.device import get_device_label, get_device_profile
+        from ..network.invite import meshspace_fingerprint
+
+        db_manager = current_app.config.get('DB_MANAGER')
+        profile_manager = current_app.config.get('PROFILE_MANAGER')
+        device_profile = {}
+        fallback_device_label = str(getattr(config, 'device_label', '') or '').strip()
+        try:
+            device_profile = get_device_profile() or {}
+            if not fallback_device_label:
+                fallback_device_label = str(get_device_label() or '').strip()
+        except Exception:
+            device_profile = {}
+        current_local_peer_hint = _current_local_peer_hint_payload(
+            db_manager,
+            profile_manager,
+            fallback_device_label=fallback_device_label,
+            device_profile=device_profile,
+        )
+        mesh_hint = {
+            'meshspace_id': str(item.get('meshspace_id') or '').strip(),
+            'meshspace_name': str(item.get('name') or '').strip(),
+            'meshspace_fingerprint': meshspace_fingerprint(
+                str(item.get('meshspace_id') or '').strip(),
+                str(item.get('name') or '').strip(),
+            ),
+            'meshspace_avatar_url': str(item.get('avatar_url') or '').strip(),
+        }
         return render_template(
             'meshspace_detail.html',
             meshspace=item,
             is_admin=True,
+            current_local_peer_hint=current_local_peer_hint,
+            connection_identity_preview=_connection_identity_preview_payload(
+                mesh_hint,
+                current_local_peer_hint,
+            ),
         )
 
     @ui.route('/meshes/<meshspace_id>/open')
@@ -8062,7 +8182,7 @@ def create_ui_blueprint() -> Blueprint:
         from ..network.invite import generate_invite, get_local_ips
         from ..core.device import get_device_label, get_device_profile
         try:
-            _, _, _, _, _, _, _, _, _, config, p2p_manager = _get_app_components_any(current_app)
+            db_manager, _, trust_manager, _, channel_manager, _, _, _, profile_manager, config, p2p_manager = _get_app_components_any(current_app)
             user_id = get_current_user()
 
             invite_code = None
@@ -8075,14 +8195,22 @@ def create_ui_blueprint() -> Blueprint:
             current_meshspace_id = str(current_mesh_hint.get('meshspace_id') or getattr(mesh_cfg, 'meshspace_id', '') or '').strip()
             current_mesh_fingerprint = str(current_mesh_hint.get('meshspace_fingerprint') or '').strip()
             current_instance_label = str(getattr(config, 'device_label', '') or '').strip()
-            current_peer_label = ''
+            device_profile = {}
             try:
-                device_profile = get_device_profile()
-                current_peer_label = str(device_profile.get('display_name') or '').strip()
+                device_profile = get_device_profile() or {}
                 if not current_instance_label:
                     current_instance_label = str(get_device_label() or '').strip()
             except Exception:
-                pass
+                device_profile = {}
+            current_local_peer_hint = _current_local_peer_hint_payload(
+                db_manager,
+                profile_manager,
+                fallback_device_label=current_instance_label,
+                device_profile=device_profile,
+            )
+            current_peer_label = str(current_local_peer_hint.get('peer_label') or '').strip()
+            current_peer_avatar_url = str(current_local_peer_hint.get('peer_avatar_url') or '').strip()
+            current_instance_label = str(current_local_peer_hint.get('instance_label') or '').strip()
 
             if p2p_manager and p2p_manager.identity_manager.local_identity:
                 mesh_port = config.network.mesh_port if config else 7771
@@ -8091,10 +8219,7 @@ def create_ui_blueprint() -> Blueprint:
                     mesh_port,
                     mesh_name=current_mesh_name,
                     meshspace_id=current_meshspace_id or None,
-                    meshspace_id_aliases=list(current_mesh_hint.get('meshspace_id_aliases') or []),
                     meshspace_fingerprint_value=current_mesh_fingerprint or None,
-                    meshspace_avatar_b64=str(current_mesh_hint.get('meshspace_avatar_b64') or '').strip() or None,
-                    meshspace_avatar_mime=str(current_mesh_hint.get('meshspace_avatar_mime') or '').strip() or None,
                     peer_label=current_peer_label or None,
                     instance_label=current_instance_label or None,
                     generated_at=datetime.now(timezone.utc).isoformat(),
@@ -8169,8 +8294,18 @@ def create_ui_blueprint() -> Blueprint:
                     })
 
             # Device profiles for peer identification
-            _, _, trust_manager, _, channel_manager, _, _, _, _, _, _ = _get_app_components_any(current_app)
             peer_device_profiles = channel_manager.get_all_peer_device_profiles() if channel_manager else {}
+            peer_preview_profiles = {}
+            if peer_device_profiles:
+                for pid, dev in peer_device_profiles.items():
+                    if not pid or not dev:
+                        continue
+                    peer_preview_profiles[pid] = {
+                        'display_name': str(getattr(dev, 'display_name', '') or '').strip(),
+                        'avatar_b64': str(getattr(dev, 'avatar_b64', '') or '').strip(),
+                        'avatar_mime': str(getattr(dev, 'avatar_mime', '') or '').strip(),
+                    }
+            peer_mesh_hints = {}
 
             # Trust scores for connected and known peers
             trust_scores = {}
@@ -8207,6 +8342,20 @@ def create_ui_blueprint() -> Blueprint:
                 pid = getattr(peer, 'peer_id', None)
                 if pid and pid not in peer_labels:
                     peer_labels[pid] = pid
+            if p2p_manager and hasattr(p2p_manager, 'identity_manager'):
+                im = p2p_manager.identity_manager
+                for pid in (set(peer_labels.keys()) | set(peer_preview_profiles.keys())):
+                    if not pid:
+                        continue
+                    try:
+                        hint = im.get_peer_meshspace_hint(pid) if hasattr(im, 'get_peer_meshspace_hint') else {}
+                    except Exception:
+                        hint = {}
+                    if isinstance(hint, dict) and hint:
+                        peer_mesh_hints[pid] = {
+                            'meshspace_avatar_b64': str(hint.get('meshspace_avatar_b64') or '').strip(),
+                            'meshspace_avatar_mime': str(hint.get('meshspace_avatar_mime') or '').strip(),
+                        }
 
             return render_template('connect.html',
                                  invite_code=invite_code,
@@ -8219,6 +8368,7 @@ def create_ui_blueprint() -> Blueprint:
                                  current_mesh_fingerprint=current_mesh_fingerprint,
                                  current_mesh_avatar_url=str(current_mesh_hint.get('meshspace_avatar_url') or '').strip(),
                                  current_peer_label=current_peer_label,
+                                 current_peer_avatar_url=current_peer_avatar_url,
                                  current_instance_label=current_instance_label,
                                  mesh_port=config.network.mesh_port if config else 7771,
                                  connected_peers=connected_peers,
@@ -8229,6 +8379,8 @@ def create_ui_blueprint() -> Blueprint:
                                  peer_device_profiles=peer_device_profiles,
                                  trust_scores=trust_scores,
                                  peer_labels=peer_labels,
+                                 peer_preview_profiles=peer_preview_profiles,
+                                 peer_mesh_hints=peer_mesh_hints,
                                  is_admin=_is_admin(),
                                  user_id=user_id)
         except Exception as e:
@@ -19351,11 +19503,32 @@ def create_ui_blueprint() -> Blueprint:
     def profile():
         """User profile management page."""
         try:
-            db_manager, _, _, _, _, _, _, _, profile_manager, _, _ = _get_app_components_any(current_app)
+            db_manager, _, _, _, _, _, _, _, profile_manager, config, _ = _get_app_components_any(current_app)
             user_id = get_current_user()
             
             # Get or create user profile
             user_profile = profile_manager.ensure_default_profile(user_id, user_id)
+            from ..core.device import get_device_label, get_device_profile
+
+            device_profile = {}
+            fallback_device_label = str(getattr(config, 'device_label', '') or '').strip()
+            try:
+                device_profile = get_device_profile() or {}
+                if not fallback_device_label:
+                    fallback_device_label = str(get_device_label() or '').strip()
+            except Exception:
+                device_profile = {}
+            current_local_peer_hint = _current_local_peer_hint_payload(
+                db_manager,
+                profile_manager,
+                fallback_device_label=fallback_device_label,
+                device_profile=device_profile,
+            )
+            current_mesh_hint = _current_meshspace_hint_payload()
+            connection_identity_preview = _connection_identity_preview_payload(
+                current_mesh_hint,
+                current_local_peer_hint,
+            )
 
             # Build activity stats from actual data (avoid placeholder values).
             stats = {
@@ -19413,7 +19586,11 @@ def create_ui_blueprint() -> Blueprint:
             return render_template('profile.html',
                                  profile=user_profile,
                                  profile_stats=stats,
-                                 user_id=user_id)
+                                 user_id=user_id,
+                                 is_instance_owner=_is_admin(),
+                                 current_local_peer_hint=current_local_peer_hint,
+                                 current_mesh_hint=current_mesh_hint,
+                                 connection_identity_preview=connection_identity_preview)
                                  
         except Exception as e:
             logger.error(f"Profile error: {e}")

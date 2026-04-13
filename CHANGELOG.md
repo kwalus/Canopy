@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.18] - 2026-04-13
+
+### Changed
+- **Connect hint identity setup is now much clearer for admins** - invite and Connect card peer hints now consistently use the instance owner's profile as the primary human-facing identity, while the device profile is labeled as a secondary node hint so operators can set recognition details in the right place.
+- **Profile, Settings, and Mesh pages now preview the full connection review bundle** - admins can now verify the peer image/name, mesh image/name/ID, and node hint from the existing pages before sharing invites, reducing confusion without adding invite payload bloat or a separate hint system.
+
 ## [0.6.17] - 2026-04-13
 
 ### Added

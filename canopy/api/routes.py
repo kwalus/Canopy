@@ -41,6 +41,7 @@ from ..core.mentions import (
     sync_edited_mention_activity,
 )
 from ..core.profile import (
+    build_local_peer_hint_payload,
     get_default_agent_directives,
     normalize_agent_directives,
 )
@@ -221,6 +222,21 @@ def _current_runtime_mesh_hint_payload() -> dict[str, Any]:
         'meshspace_avatar_b64': str(avatar_preview.get('avatar_b64') or '').strip(),
         'meshspace_avatar_mime': str(avatar_preview.get('avatar_mime') or 'image/png').strip() or 'image/png',
     }
+
+
+def _current_local_peer_hint_payload(
+    *,
+    fallback_device_label: str = '',
+    device_profile: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    db_manager = current_app.config.get('DB_MANAGER')
+    profile_manager = current_app.config.get('PROFILE_MANAGER')
+    return build_local_peer_hint_payload(
+        db_manager,
+        profile_manager,
+        fallback_device_label=fallback_device_label,
+        device_profile=device_profile,
+    )
 
 
 def _record_connection_event(p2p_manager: Any, peer_id: str, status: str,
@@ -3072,14 +3088,19 @@ def create_api_blueprint() -> Blueprint:
             meshspace_id = str(mesh_hint.get('meshspace_id') or '').strip()
             mesh_fingerprint = str(mesh_hint.get('meshspace_fingerprint') or '').strip()
             instance_label = str(getattr(config, 'device_label', '') or '').strip()
-            peer_label = ''
+            device_profile = {}
             try:
-                device_profile = get_device_profile()
-                peer_label = str(device_profile.get('display_name') or '').strip()
+                device_profile = get_device_profile() or {}
                 if not instance_label:
                     instance_label = str(get_device_label() or '').strip()
             except Exception:
-                pass
+                device_profile = {}
+            peer_hint = _current_local_peer_hint_payload(
+                fallback_device_label=instance_label,
+                device_profile=device_profile,
+            )
+            peer_label = str(peer_hint.get('peer_label') or '').strip()
+            instance_label = str(peer_hint.get('instance_label') or '').strip()
 
             invite = generate_invite(
                 p2p_manager.identity_manager,
@@ -3089,10 +3110,7 @@ def create_api_blueprint() -> Blueprint:
                 external_endpoint=external_endpoint,
                 mesh_name=mesh_name or None,
                 meshspace_id=meshspace_id or None,
-                meshspace_id_aliases=list(mesh_hint.get('meshspace_id_aliases') or []),
                 meshspace_fingerprint_value=mesh_fingerprint or None,
-                meshspace_avatar_b64=str(mesh_hint.get('meshspace_avatar_b64') or '').strip() or None,
-                meshspace_avatar_mime=str(mesh_hint.get('meshspace_avatar_mime') or '').strip() or None,
                 peer_label=peer_label or None,
                 instance_label=instance_label or None,
                 generated_at=datetime.now(timezone.utc).isoformat(),
@@ -3104,6 +3122,8 @@ def create_api_blueprint() -> Blueprint:
                 'meshspace_id': invite.meshspace_id,
                 'meshspace_name': invite.mesh_name,
                 'meshspace_fingerprint': invite.meshspace_fingerprint,
+                'peer_label': peer_label,
+                'instance_label': instance_label,
                 'safety_label': (
                     f"{invite.mesh_name or 'Canopy mesh'}"
                     f"{' · ' + invite.meshspace_fingerprint if invite.meshspace_fingerprint else ''}"
