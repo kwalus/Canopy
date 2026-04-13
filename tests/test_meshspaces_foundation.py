@@ -185,6 +185,32 @@ class MeshspaceFoundationTest(unittest.TestCase):
         self.assertEqual((identity_payload.get('meshspace') or {}).get('meshspace_id'), 'family-lab')
         self.assertEqual((identity_payload.get('peer') or {}).get('peer_id'), 'peer-mesh-test')
 
+    def test_public_mesh_identity_includes_compact_preview_fields(self) -> None:
+        manager = self.app.config.get('MESHSPACE_REGISTRY_MANAGER')
+        config = self.app.config['CANOPY_CONFIG']
+        meshspace_id = config.meshspace.meshspace_id
+        with self.db_manager.get_connection() as conn:
+            conn.execute(
+                "UPDATE users SET display_name = ? WHERE id = ?",
+                ('Windy Admin', 'owner-user'),
+            )
+            conn.commit()
+        manager.set_meshspace_avatar(
+            meshspace_id,
+            _PNG_1X1,
+            filename='identity.png',
+            content_type='image/png',
+        )
+
+        identity = self.client.get('/api/v1/mesh/identity')
+        self.assertEqual(identity.status_code, 200)
+        payload = identity.get_json() or {}
+        self.assertEqual((payload.get('meshspace') or {}).get('meshspace_id'), meshspace_id)
+        self.assertTrue((payload.get('meshspace') or {}).get('meshspace_fingerprint'))
+        self.assertTrue((payload.get('meshspace') or {}).get('meshspace_avatar_b64'))
+        self.assertEqual((payload.get('meshspace') or {}).get('meshspace_avatar_mime'), 'image/png')
+        self.assertEqual((payload.get('peer') or {}).get('peer_label'), 'Windy Admin')
+
     def test_meshspace_registry_tracks_current_runtime(self) -> None:
         manager = self.app.config.get('MESHSPACE_REGISTRY_MANAGER')
         record = manager.get_meshspace('family-lab')
@@ -1437,6 +1463,90 @@ class LegacyMeshspaceAdoptionTest(unittest.TestCase):
         body = response.get_data(as_text=True)
         self.assertIn('Windy Admin', body)
         self.assertIn('Node hint Alvin Node', body)
+
+    def test_invite_preview_probe_fetches_remote_mesh_identity_from_advertised_endpoint(self) -> None:
+        self._authenticate()
+
+        invite = (
+            'canopy:'
+            'eyJ2IjoxLCJwaWQiOiJwZWVyLXdpbmR5IiwiZXBrIjoiMTExMTExMTExMTExMTExMTExMTExMTExMTExMTEiLCJ4cGsiOiIxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExIiwiZXAiOlsid3M6Ly8xOTIuMTY4LjEuMTU5Ojc3NzEiXSwibW4iOiJHb2xkR2FuZyIsIm1pZCI6ImdvbGRnYW5nIiwibWYiOiI5M0Q4LTkzMTQifQ'
+        )
+
+        class _FakeResponse:
+            def __init__(self, payload, url):
+                self._payload = payload
+                self.status = 200
+                self.headers = {'Content-Type': 'application/json'}
+                self._url = url
+
+            def read(self, *_args, **_kwargs):
+                return json.dumps(self._payload).encode('utf-8')
+
+            def geturl(self):
+                return self._url
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        remote_payload = {
+            'meshspace': {
+                'meshspace_id': 'goldgang',
+                'meshspace_id_aliases': ['legacy-gold'],
+                'name': 'GoldGang',
+                'meshspace_fingerprint': '93D8-9314',
+                'meshspace_avatar_b64': base64.b64encode(_PNG_1X1).decode('ascii'),
+                'meshspace_avatar_mime': 'image/png',
+            },
+            'peer': {
+                'peer_id': 'peer-windy',
+                'peer_label': 'Maddog',
+                'instance_label': 'WINDYLAPTOP',
+            },
+            'version': '0.6.18',
+            'ready': True,
+        }
+        remote_url = 'http://192.168.1.159:7771/api/v1/mesh/identity'
+        with patch('canopy.api.routes.urlopen', return_value=_FakeResponse(remote_payload, remote_url)) as remote_get:
+            response = self.client.post(
+                '/api/v1/p2p/invite/preview',
+                json={'invite_code': invite},
+                headers={'X-CSRFToken': 'csrf-mesh'},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('ok'))
+        self.assertEqual(payload.get('meshspace_name'), 'GoldGang')
+        self.assertEqual(payload.get('meshspace_id'), 'goldgang')
+        self.assertTrue(payload.get('meshspace_avatar_b64'))
+        self.assertEqual(payload.get('peer_label'), 'Maddog')
+        self.assertEqual(payload.get('instance_label'), 'WINDYLAPTOP')
+        self.assertEqual(payload.get('source_endpoint'), 'ws://192.168.1.159:7771')
+        request_obj = remote_get.call_args.args[0]
+        self.assertEqual(request_obj.full_url, remote_url)
+
+    def test_invite_preview_probe_tolerates_remote_fetch_failure(self) -> None:
+        from urllib.error import URLError
+
+        self._authenticate()
+        invite = (
+            'canopy:'
+            'eyJ2IjoxLCJwaWQiOiJwZWVyLXdpbmR5IiwiZXBrIjoiMTExMTExMTExMTExMTExMTExMTExMTExMTExMTEiLCJ4cGsiOiIxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExIiwiZXAiOlsid3M6Ly8xOTIuMTY4LjEuMTU5Ojc3NzEiXSwibW4iOiJHb2xkR2FuZyIsIm1pZCI6ImdvbGRnYW5nIiwibWYiOiI5M0Q4LTkzMTQifQ'
+        )
+        with patch('canopy.api.routes.urlopen', side_effect=URLError('connection refused')):
+            response = self.client.post(
+                '/api/v1/p2p/invite/preview',
+                json={'invite_code': invite},
+                headers={'X-CSRFToken': 'csrf-mesh'},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertFalse(payload.get('ok'))
+        self.assertEqual(payload.get('status'), 'unavailable')
 
     def test_admin_can_promote_legacy_meshspace_to_explicit_identity(self) -> None:
         self._authenticate()

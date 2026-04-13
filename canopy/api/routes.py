@@ -239,6 +239,106 @@ def _current_local_peer_hint_payload(
     )
 
 
+def _public_mesh_identity_payload() -> dict[str, Any]:
+    """Return a shell-safe public identity payload for invite preview enrichment."""
+    from ..core.device import get_device_label, get_device_profile
+
+    runtime_payload = _build_meshspace_runtime_payload()
+    mesh_hint = _current_runtime_mesh_hint_payload()
+    config = current_app.config.get('CANOPY_CONFIG')
+    fallback_device_label = str(getattr(config, 'device_label', '') or '').strip()
+    device_profile: dict[str, Any] = {}
+    try:
+        device_profile = get_device_profile() or {}
+        if not fallback_device_label:
+            fallback_device_label = str(get_device_label() or '').strip()
+    except Exception:
+        device_profile = {}
+    peer_hint = _current_local_peer_hint_payload(
+        fallback_device_label=fallback_device_label,
+        device_profile=device_profile,
+    )
+
+    meshspace = dict(runtime_payload.get('meshspace') or {})
+    meshspace.update({
+        'meshspace_id': str(mesh_hint.get('meshspace_id') or meshspace.get('meshspace_id') or '').strip(),
+        'meshspace_id_aliases': list(mesh_hint.get('meshspace_id_aliases') or []),
+        'name': str(mesh_hint.get('meshspace_name') or meshspace.get('name') or '').strip(),
+        'meshspace_fingerprint': str(mesh_hint.get('meshspace_fingerprint') or '').strip(),
+        'meshspace_avatar_b64': str(mesh_hint.get('meshspace_avatar_b64') or '').strip(),
+        'meshspace_avatar_mime': str(mesh_hint.get('meshspace_avatar_mime') or 'image/png').strip() or 'image/png',
+    })
+    peer = dict(runtime_payload.get('peer') or {})
+    peer.update({
+        'peer_label': str(peer_hint.get('peer_label') or '').strip(),
+        'instance_label': str(peer_hint.get('instance_label') or '').strip(),
+    })
+    return {
+        'meshspace': meshspace,
+        'peer': peer,
+        'version': runtime_payload.get('version'),
+        'setup_required': runtime_payload.get('setup_required'),
+        'ready': runtime_payload.get('ready'),
+    }
+
+
+def _invite_endpoint_identity_url(endpoint: str) -> Optional[str]:
+    """Convert an invite websocket endpoint into its matching public identity URL."""
+    from ..network.invite import parse_invite_endpoint
+
+    parsed = parse_invite_endpoint(endpoint)
+    if not parsed:
+        return None
+    host, port, scheme = parsed
+    host_text = f'[{host}]' if ':' in host and not host.startswith('[') else host
+    http_scheme = 'https' if scheme == 'wss' else 'http'
+    return f'{http_scheme}://{host_text}:{port}/api/v1/mesh/identity'
+
+
+def _fetch_remote_mesh_identity_preview(endpoint: str, *, timeout_seconds: float = 2.0) -> dict[str, Any]:
+    """Fetch shell-safe preview metadata from a remote invite endpoint."""
+    target_url = _invite_endpoint_identity_url(endpoint)
+    if not target_url:
+        raise ValueError('Invite endpoint is not usable for preview fetch')
+
+    req = Request(target_url, headers={
+        'User-Agent': 'Canopy/1.0 invite-preview',
+        'Accept': 'application/json',
+        'Cache-Control': 'no-cache',
+    })
+    with urlopen(req, timeout=max(0.5, float(timeout_seconds))) as resp:
+        final_url = str(getattr(resp, 'geturl', lambda: target_url)() or target_url)
+        if final_url != target_url:
+            raise ValueError('Redirects are not allowed for remote preview fetches')
+        status_code = int(getattr(resp, 'status', 200) or 200)
+        if status_code != 200:
+            raise ValueError(f'Remote preview returned HTTP {status_code}')
+        raw = resp.read(32_768 + 1)
+        if len(raw) > 32_768:
+            raise ValueError('Remote preview payload exceeded size limit')
+        payload = json.loads(raw.decode('utf-8', errors='replace'))
+
+    meshspace = payload.get('meshspace') if isinstance(payload.get('meshspace'), dict) else {}
+    peer = payload.get('peer') if isinstance(payload.get('peer'), dict) else {}
+    return {
+        'meshspace_id': str(meshspace.get('meshspace_id') or '').strip(),
+        'meshspace_id_aliases': [
+            str(value or '').strip()
+            for value in (meshspace.get('meshspace_id_aliases') or [])
+            if str(value or '').strip()
+        ],
+        'meshspace_name': str(meshspace.get('name') or '').strip(),
+        'meshspace_fingerprint': str(meshspace.get('meshspace_fingerprint') or '').strip(),
+        'meshspace_avatar_b64': str(meshspace.get('meshspace_avatar_b64') or '').strip(),
+        'meshspace_avatar_mime': str(meshspace.get('meshspace_avatar_mime') or 'image/png').strip() or 'image/png',
+        'peer_label': str(peer.get('peer_label') or '').strip(),
+        'instance_label': str(peer.get('instance_label') or '').strip(),
+        'ready': bool(payload.get('ready')),
+        'version': str(payload.get('version') or '').strip(),
+        'source_endpoint': str(endpoint or '').strip(),
+    }
+
+
 def _record_connection_event(p2p_manager: Any, peer_id: str, status: str,
                              detail: str = '', endpoint: Optional[str] = None,
                              via_peer: Optional[str] = None) -> None:
@@ -2583,14 +2683,7 @@ def create_api_blueprint() -> Blueprint:
     @api.route('/mesh/identity', methods=['GET'])
     def mesh_identity():
         """Return shell-safe identity metadata for the current mesh runtime."""
-        payload = _build_meshspace_runtime_payload()
-        return jsonify({
-            'meshspace': payload.get('meshspace'),
-            'peer': payload.get('peer'),
-            'version': payload.get('version'),
-            'setup_required': payload.get('setup_required'),
-            'ready': payload.get('ready'),
-        })
+        return jsonify(_public_mesh_identity_payload())
 
     @api.route('/meshspace/shell_summary', methods=['GET'])
     def meshspace_shell_summary():
@@ -3136,6 +3229,63 @@ def create_api_blueprint() -> Blueprint:
         except Exception as e:
             logger.error(f"Failed to generate invite: {e}", exc_info=True)
             return jsonify({'error': 'Failed to generate invite'}), 500
+
+    @api.route('/p2p/invite/preview', methods=['POST'])
+    @require_auth(allow_session=True)
+    def preview_p2p_invite():
+        """Fetch a shell-safe remote identity preview for a pasted invite."""
+        from ..network.invite import InviteCode, canonicalize_invite_endpoint
+
+        data = request.get_json() or {}
+        invite_code = str(data.get('invite_code') or '').strip()
+        if not invite_code:
+            return jsonify({'error': 'invite_code required'}), 400
+
+        try:
+            invite = InviteCode.decode(invite_code)
+        except Exception:
+            return jsonify({
+                'ok': False,
+                'status': 'invalid_invite',
+                'message': 'This invite could not be decoded.',
+            }), 200
+
+        endpoints = [
+            canon for canon in (
+                canonicalize_invite_endpoint(str(value or '').strip())
+                for value in (invite.endpoints or [])
+            )
+            if canon
+        ]
+        if not endpoints:
+            return jsonify({
+                'ok': False,
+                'status': 'no_endpoints',
+                'message': 'Invite does not advertise any usable direct endpoints.',
+                'peer_id': invite.peer_id,
+            }), 200
+
+        failures: list[str] = []
+        for endpoint in endpoints[:3]:
+            try:
+                preview = _fetch_remote_mesh_identity_preview(endpoint)
+                return jsonify({
+                    'ok': True,
+                    'status': 'fetched',
+                    'peer_id': invite.peer_id,
+                    **preview,
+                })
+            except Exception as exc:
+                failures.append(str(exc))
+
+        return jsonify({
+            'ok': False,
+            'status': 'unavailable',
+            'message': 'Remote preview could not be refreshed from the advertised endpoints.',
+            'peer_id': invite.peer_id,
+            'attempted_endpoints': endpoints[:3],
+            'failures': failures[:3],
+        }), 200
 
     @api.route('/p2p/invite/import', methods=['POST'])
     @require_auth(allow_session=True)

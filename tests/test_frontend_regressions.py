@@ -89,6 +89,9 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('invite-preview-peer-avatar', connect_template)
         self.assertIn('Peer ID', connect_template)
         self.assertIn('Node hint', connect_template)
+        self.assertIn("apiJsonFetch('/api/v1/p2p/invite/preview'", connect_template)
+        self.assertIn('function enrichInvitePreview(preview, sequence)', connect_template)
+        self.assertIn('Remote preview refreshed from', connect_template)
 
     def test_profile_settings_and_mesh_pages_explain_connection_hint_roles(self) -> None:
         profile_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'profile.html').read_text(encoding='utf-8')

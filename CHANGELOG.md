@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.19] - 2026-04-13
+
+### Fixed
+- **Fresh invite review can now recover the remote mesh art and labels after a peer is forgotten** - the Connect page now keeps invite payloads short, then probes only the invite-advertised remote endpoint for public mesh preview metadata so the review card can refill the mesh avatar, mesh name, and peer hints without reintroducing oversized invite codes.
+
 ## [0.6.18] - 2026-04-13
 
 ### Changed

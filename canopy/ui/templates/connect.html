@@ -1169,6 +1169,7 @@ const connectionEvents = new Map();
 const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 let currentInvitePreview = null;
 let invitePreviewTimer = null;
+let invitePreviewFetchSequence = 0;
 
 function meshIdsMatch(remoteId, remoteAliases) {
     const localIds = new Set([String(CURRENT_MESHSPACE_ID || '').trim(), ...((CURRENT_MESHSPACE_ID_ALIASES || []).map((value) => String(value || '').trim()))]);
@@ -1354,6 +1355,45 @@ function invitePreviewAgeLabel(generatedAt) {
     return formatRelativeTime(deltaSeconds);
 }
 
+function mergeRemoteInvitePreview(preview, remote) {
+    const merged = { ...(preview || {}) };
+    if (!remote || typeof remote !== 'object') {
+        return merged;
+    }
+    if (remote.meshspace_name) merged.meshName = String(remote.meshspace_name || '').trim();
+    if (remote.meshspace_id) merged.meshspaceId = String(remote.meshspace_id || '').trim();
+    if (Array.isArray(remote.meshspace_id_aliases)) {
+        merged.meshspaceIdAliases = remote.meshspace_id_aliases.map((value) => String(value || '').trim()).filter(Boolean);
+    }
+    if (remote.meshspace_fingerprint) merged.meshFingerprint = String(remote.meshspace_fingerprint || '').trim();
+    if (remote.meshspace_avatar_b64) merged.meshAvatarB64 = String(remote.meshspace_avatar_b64 || '').trim();
+    if (remote.meshspace_avatar_mime) merged.meshAvatarMime = String(remote.meshspace_avatar_mime || '').trim();
+    if (remote.peer_label) merged.peerLabel = String(remote.peer_label || '').trim();
+    if (remote.instance_label) merged.instanceLabel = String(remote.instance_label || '').trim();
+    if (remote.source_endpoint) merged.remotePreviewSourceEndpoint = String(remote.source_endpoint || '').trim();
+    if (remote.version) merged.remotePreviewVersion = String(remote.version || '').trim();
+    merged.remotePreviewState = remote.ok ? 'fetched' : String(remote.status || '').trim() || 'unavailable';
+    return merged;
+}
+
+function enrichInvitePreview(preview, sequence) {
+    if (!preview || !preview.code || !Array.isArray(preview.endpoints) || !preview.endpoints.length) {
+        return Promise.resolve(null);
+    }
+    return apiJsonFetch('/api/v1/p2p/invite/preview', {
+        method: 'POST',
+        body: JSON.stringify({ invite_code: preview.code })
+    })
+    .then((data) => {
+        if (sequence !== invitePreviewFetchSequence) return null;
+        if (!currentInvitePreview || currentInvitePreview.code !== preview.code) return null;
+        currentInvitePreview = mergeRemoteInvitePreview(currentInvitePreview, data || {});
+        renderInvitePreview(currentInvitePreview);
+        return currentInvitePreview;
+    })
+    .catch(() => null);
+}
+
 function invitePreviewWarnings(preview) {
     const warnings = [];
     if (CURRENT_PEER_ID && preview.peerId === CURRENT_PEER_ID) {
@@ -1448,6 +1488,9 @@ function renderInvitePreview(preview, error) {
     const warningHtml = warnings.length
         ? `<ul class="invite-warning-list">${warnings.map((warning) => `<li>${_escapeHtml(warning)}</li>`).join('')}</ul>`
         : '';
+    const remotePreviewHtml = preview.remotePreviewSourceEndpoint
+        ? `<div class="invite-preview-subtitle mt-2">Remote preview refreshed from <code>${_escapeHtml(preview.remotePreviewSourceEndpoint)}</code>${preview.remotePreviewVersion ? ' · v' + _escapeHtml(preview.remotePreviewVersion) : ''}</div>`
+        : '';
 
     container.style.display = 'block';
     container.innerHTML = `
@@ -1493,6 +1536,7 @@ function renderInvitePreview(preview, error) {
                 </div>` : ''}
             </div>
             ${endpointPreview ? `<div class="invite-preview-subtitle mt-2">${endpointPreview}</div>` : ''}
+            ${remotePreviewHtml}
             ${warningHtml}
         </div>`;
     const isCrossMeshBlocked = Boolean(
@@ -1514,6 +1558,7 @@ function renderInvitePreview(preview, error) {
 function previewInvite(force) {
     const code = document.getElementById('importCode').value.trim();
     if (!code) {
+        invitePreviewFetchSequence += 1;
         renderInvitePreview(null);
         if (force) alert('Paste an invite code first.');
         return null;
@@ -1521,8 +1566,11 @@ function previewInvite(force) {
     try {
         const preview = decodeInvitePreview(code);
         renderInvitePreview(preview);
+        const sequence = ++invitePreviewFetchSequence;
+        enrichInvitePreview(preview, sequence);
         return preview;
     } catch (err) {
+        invitePreviewFetchSequence += 1;
         renderInvitePreview(null, err);
         return null;
     }
