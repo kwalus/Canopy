@@ -4848,6 +4848,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
             async task so the event loop stays responsive.
             """
             try:
+                if _peer_requires_sync_approval(from_peer):
+                    logger.info(
+                        "Ignoring catchup request from preview-only peer %s until sync is approved",
+                        from_peer,
+                    )
+                    return
                 trusted_content = _peer_is_trusted_for_content(from_peer)
                 if _meshspace_blocks_untrusted_sync(from_peer):
                     logger.info(
@@ -5708,9 +5714,6 @@ def create_app(config: Optional[Config] = None) -> Flask:
             profiles arriving via relay before any messages.
             """
             try:
-                if not _peer_is_trusted_for_content(from_peer):
-                    logger.info("Ignoring profile sync from untrusted peer %s", from_peer)
-                    return
                 remote_peer_id = profile_data.get('peer_id', from_peer)
 
                 # ---- Store device profile FIRST (independent of user/hash) ----
@@ -5736,6 +5739,20 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         bool(device_info.get('avatar_b64')),
                         str(device_info.get('display_name') or '').strip() or remote_peer_id[:12],
                     )
+                    if p2p_manager and getattr(p2p_manager, 'identity_manager', None):
+                        display_name = str(device_info.get('display_name') or '').strip()
+                        if display_name:
+                            try:
+                                p2p_manager.identity_manager.peer_display_names[remote_peer_id] = display_name
+                            except Exception:
+                                pass
+
+                if not _peer_is_trusted_for_content(from_peer):
+                    logger.info(
+                        "Stored preview device identity and skipped profile import from untrusted peer %s",
+                        from_peer,
+                    )
+                    return
 
                 # ---- Skip unchanged profiles (version hash dedup) ----
                 # Exception: if our copy of this user's avatar file is missing (e.g. after

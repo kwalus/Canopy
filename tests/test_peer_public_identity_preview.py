@@ -38,7 +38,7 @@ def _make_manager(*, introduced=None, peer_display_names=None):
 
 
 class TestPeerPublicIdentityHelper(unittest.TestCase):
-    def test_announced_display_name_is_preferred_without_avatar_bytes(self) -> None:
+    def test_announced_display_name_is_preferred_and_can_include_device_avatar(self) -> None:
         manager = _make_manager(
             introduced={
                 'peer-bob': {
@@ -57,12 +57,17 @@ class TestPeerPublicIdentityHelper(unittest.TestCase):
         self.assertEqual(result['node_name'], 'Bob Relay')
         self.assertEqual(result['source'], 'announced')
         self.assertEqual(result['avatar_initials'], 'BR')
-        self.assertIsNone(result['avatar_b64'])
-        self.assertIsNone(result['avatar_mime'])
+        self.assertEqual(result['avatar_b64'], 'SHOULD_NOT_LEAK')
+        self.assertEqual(result['avatar_mime'], 'image/png')
         self.assertTrue(result['unverified'])
 
-    def test_identity_cache_and_fallback_stay_public_safe(self) -> None:
+    def test_identity_cache_device_profile_and_fallback_stay_public_safe(self) -> None:
         manager = _make_manager(peer_display_names={'peer-charlie': 'Charlie Hub'})
+        manager.get_peer_device_profile = lambda peer_id: {
+            'display_name': 'Charlie Device',
+            'avatar_b64': 'avatar-preview',
+            'avatar_mime': 'image/webp',
+        } if peer_id == 'peer-charlie' else None
 
         identified = manager.get_peer_public_identity('peer-charlie')
         fallback = manager.get_peer_public_identity('abcdef1234567890')
@@ -70,6 +75,8 @@ class TestPeerPublicIdentityHelper(unittest.TestCase):
         self.assertEqual(identified['node_name'], 'Charlie Hub')
         self.assertEqual(identified['source'], 'identity')
         self.assertTrue(identified['avatar_color'].startswith('hsl('))
+        self.assertEqual(identified['avatar_b64'], 'avatar-preview')
+        self.assertEqual(identified['avatar_mime'], 'image/webp')
         self.assertEqual(fallback['node_name'], 'abcdef123456')
         self.assertEqual(fallback['source'], 'fallback')
         self.assertNotIn('bio', identified)

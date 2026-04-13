@@ -107,6 +107,7 @@ class TestManagerTrustGating(unittest.TestCase):
         manager._send_channel_sync_to_peer = lambda peer_id: _record('channel_sync', peer_id)
         manager._send_public_channel_metadata_replay_to_peer = lambda peer_id: _record('metadata_replay', peer_id)
         manager._send_catchup_request = lambda peer_id: _record('catchup', peer_id)
+        manager._send_device_preview_to_peer = lambda peer_id: _record('device_preview', peer_id)
         manager._send_membership_recovery_query = lambda peer_id: _record('membership', peer_id)
         manager._retry_missing_channel_key_requests_for_peer = lambda peer_id: _record('keys', peer_id)
         manager._send_profile_to_peer = lambda peer_id: _record('profile', peer_id)
@@ -116,7 +117,7 @@ class TestManagerTrustGating(unittest.TestCase):
 
         asyncio.run(manager._run_post_connect_sync_impl('peer-guest'))
 
-        self.assertEqual(calls, [])
+        self.assertEqual(calls, [('device_preview', 'peer-guest')])
 
     def test_trigger_peer_sync_refuses_preview_only_peer(self) -> None:
         manager = P2PNetworkManager.__new__(P2PNetworkManager)

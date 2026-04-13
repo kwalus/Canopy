@@ -296,6 +296,28 @@ class TestPublicChannelBootstrapSync(unittest.TestCase):
 
         self.assertIsNone(row)
 
+    def test_preview_only_peer_catchup_request_is_ignored_until_approved(self) -> None:
+        self._mark_peer_untrusted('peer-guest')
+        self.p2p_manager.sync_statuses['peer-guest'] = {
+            'preview_only': True,
+            'remote_meshspace_name': 'Family Mesh',
+        }
+
+        public_channel = self.channel_manager.create_channel(
+            name='preview-public',
+            channel_type=ChannelType.PUBLIC,
+            created_by='owner-user',
+            description='public room',
+            privacy_mode='open',
+        )
+        assert public_channel is not None
+        self.channel_manager.send_message(channel_id=public_channel.id, user_id='owner-user', content='should not leak')
+
+        with patch('asyncio.ensure_future', lambda coro: asyncio.run(coro)):
+            self.p2p_manager.on_catchup_request({}, 'peer-guest')
+
+        self.assertEqual(self.p2p_manager.sent_catchup, [])
+
     def test_trusted_catchup_request_backfills_older_public_history_when_peer_is_sparse(self) -> None:
         self.trust_manager.set_trust_score('peer-origin', 100, reason='test-trusted')
 

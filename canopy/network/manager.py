@@ -2462,6 +2462,7 @@ class P2PNetworkManager:
                     or sync_status.get('remote_meshspace_id')
                     or 'this peer'
                 )
+                await self._send_device_preview_to_peer(peer_id)
                 detail = (
                     f"Preview-only connection: {remote_name} can be reviewed, "
                     "but channel sync is paused until you approve this peer or meshspace."
@@ -2540,6 +2541,43 @@ class P2PNetworkManager:
     #  Profile sync helpers                                                #
     # ------------------------------------------------------------------ #
 
+    def _build_local_device_preview(self) -> Optional[Dict[str, Any]]:
+        """Return the lightweight local device identity preview."""
+        try:
+            from canopy.core.device import get_device_profile, get_device_id
+
+            dev_profile = get_device_profile()
+            return {
+                'device_id': get_device_id(),
+                'display_name': dev_profile.get('display_name', ''),
+                'description': dev_profile.get('description', ''),
+                'avatar_b64': dev_profile.get('avatar_b64', ''),
+                'avatar_mime': dev_profile.get('avatar_mime', ''),
+            }
+        except Exception:
+            return None
+
+    async def _send_device_preview_to_peer(self, peer_id: str) -> None:
+        """Send only device identity metadata to a preview-only peer."""
+        if not self.message_router:
+            return
+        local_peer_id = self.local_identity.peer_id if self.local_identity else ''
+        if not local_peer_id:
+            return
+        device_info = self._build_local_device_preview()
+        if not device_info:
+            return
+        try:
+            await self.message_router.send_profile_sync(
+                peer_id,
+                {
+                    'peer_id': local_peer_id,
+                    'device': device_info,
+                },
+            )
+        except Exception as e:
+            logger.error("Error sending device preview to %s: %s", peer_id, e, exc_info=True)
+
     async def _send_profile_to_peer(self, peer_id: str) -> None:
         """Send local profile cards (all registered users + device) to a peer.
 
@@ -2554,19 +2592,7 @@ class P2PNetworkManager:
             return
         try:
             # Build device info once (shared across all cards)
-            device_info = None
-            try:
-                from canopy.core.device import get_device_profile, get_device_id
-                dev_profile = get_device_profile()
-                device_info = {
-                    'device_id': get_device_id(),
-                    'display_name': dev_profile.get('display_name', ''),
-                    'description': dev_profile.get('description', ''),
-                    'avatar_b64': dev_profile.get('avatar_b64', ''),
-                    'avatar_mime': dev_profile.get('avatar_mime', ''),
-                }
-            except Exception:
-                pass
+            device_info = self._build_local_device_preview()
 
             local_peer_id = self.local_identity.peer_id if self.local_identity else ''
 
@@ -2956,6 +2982,19 @@ class P2PNetworkManager:
         if hasattr(self, '_introduced_peers'):
             introduced = self._introduced_peers.get(clean_peer_id) or {}
 
+        device_profile: Dict[str, Any] = {}
+        if isinstance(introduced, dict):
+            raw_profile = introduced.get('device_profile')
+            if isinstance(raw_profile, dict):
+                device_profile = dict(raw_profile)
+        if not device_profile and callable(getattr(self, 'get_peer_device_profile', None)):
+            try:
+                stored_profile = self.get_peer_device_profile(clean_peer_id)
+            except Exception:
+                stored_profile = None
+            if isinstance(stored_profile, dict):
+                device_profile = dict(stored_profile)
+
         node_name = ''
         if isinstance(introduced, dict):
             node_name = str(introduced.get('display_name') or '').strip()
@@ -2973,6 +3012,11 @@ class P2PNetworkManager:
                 result['source'] = 'identity'
 
         if not node_name:
+            node_name = str(device_profile.get('display_name') or '').strip()
+            if node_name:
+                result['source'] = 'profile'
+
+        if not node_name:
             node_name = clean_peer_id[:12]
 
         result['node_name'] = node_name
@@ -2984,7 +3028,11 @@ class P2PNetworkManager:
             initials = (node_name[:2] or clean_peer_id[:2]).upper()
         result['avatar_initials'] = initials
 
-        # Intentionally keep avatar_b64/avatar_mime unset pre-trust.
+        avatar_b64 = str(device_profile.get('avatar_b64') or '').strip()
+        if avatar_b64:
+            result['avatar_b64'] = avatar_b64
+            result['avatar_mime'] = str(device_profile.get('avatar_mime') or 'image/png').strip() or 'image/png'
+
         return result
 
     # ------------------------------------------------------------------ #
