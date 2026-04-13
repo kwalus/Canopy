@@ -624,7 +624,34 @@ def _port_accepts_connections(host: str, port: int, timeout: float = 0.5) -> boo
         return False
 
 
-def _windows_listener_pid_for_port(port: int) -> int:
+def _normalize_listener_host(host: str) -> str:
+    """Normalize a listener host string for host-aware PID matching."""
+    value = str(host or "").strip().lower()
+    if not value:
+        return ""
+    if value.startswith("[") and value.endswith("]"):
+        value = value[1:-1]
+    if value == "localhost":
+        return "127.0.0.1"
+    return value
+
+
+def _listener_host_matches(local_host: str, expected_host: Optional[str]) -> bool:
+    """Return True when a listener host is compatible with the expected host."""
+    normalized_local = _normalize_listener_host(local_host)
+    normalized_expected = _normalize_listener_host(expected_host or "")
+    if not normalized_expected:
+        return True
+    if normalized_local == normalized_expected:
+        return True
+    if normalized_local in {"0.0.0.0", "::", "*"}:
+        return True
+    if normalized_expected == "127.0.0.1" and normalized_local == "::1":
+        return True
+    return False
+
+
+def _windows_listener_pid_for_port(port: int, host: Optional[str] = None) -> int:
     """Resolve the PID listening on TCP *port* using ``netstat -ano`` (Windows).
 
     Without this, supervised mesh stop/restart falls back to registry PIDs, which
@@ -664,13 +691,15 @@ def _windows_listener_pid_for_port(port: int) -> int:
         host_part, _, port_part = local_addr.rpartition(":")
         if not host_part or port_part != port_s:
             continue
+        if not _listener_host_matches(host_part, host):
+            continue
         pid_str = parts[-1]
         if pid_str.isdigit():
             return int(pid_str)
     return 0
 
 
-def _ss_listener_pid_for_port(port: int) -> int:
+def _ss_listener_pid_for_port(port: int, host: Optional[str] = None) -> int:
     """Resolve the PID listening on TCP *port* using ``ss -tlnp`` on Linux."""
     if port <= 0:
         return 0
@@ -691,6 +720,12 @@ def _ss_listener_pid_for_port(port: int) -> int:
     for line in (result.stdout or "").splitlines():
         if f":{port_s}" not in line:
             continue
+        parts = line.split()
+        if len(parts) >= 4:
+            local_addr = parts[3]
+            local_host, _, local_port = local_addr.rpartition(":")
+            if local_port != port_s or not _listener_host_matches(local_host, host):
+                continue
         for part in line.split(","):
             part = part.strip()
             if part.startswith("pid="):
@@ -700,8 +735,8 @@ def _ss_listener_pid_for_port(port: int) -> int:
     return 0
 
 
-def _listener_pid_for_port(port: int) -> int:
-    """Best-effort lookup for the PID listening on a TCP port."""
+def _listener_pid_for_port(port: int, host: Optional[str] = None) -> int:
+    """Best-effort lookup for the PID listening on a TCP port and host."""
     if port <= 0:
         return 0
     try:
@@ -721,11 +756,11 @@ def _listener_pid_for_port(port: int) -> int:
     except Exception:
         pass
     if not _is_windows_platform():
-        ss_pid = _ss_listener_pid_for_port(port)
+        ss_pid = _ss_listener_pid_for_port(port, host=host)
         if ss_pid > 0:
             return ss_pid
     if _is_windows_platform():
-        win_pid = _windows_listener_pid_for_port(port)
+        win_pid = _windows_listener_pid_for_port(port, host=host)
         if win_pid > 0:
             return win_pid
     return 0
@@ -1530,7 +1565,7 @@ class MeshspaceRegistryManager:
         mesh_port = int(record.get("mesh_port") or 0)
         registry_pid = int(record.get("pid") or 0)
         registry_pid_alive = _pid_is_alive(registry_pid) if registry_pid > 0 else False
-        detected_pid = _listener_pid_for_port(http_port) or _listener_pid_for_port(mesh_port)
+        detected_pid = _listener_pid_for_port(http_port, host=probe_host) or _listener_pid_for_port(mesh_port, host=probe_host)
         http_listening = _port_accepts_connections(probe_host, http_port) if http_port > 0 else False
         health = _http_json(f"http://{probe_host}:{http_port}/api/v1/health", timeout=0.9) if http_port > 0 else {}
         health_meshspace = (health.get("meshspace") or {}) if isinstance(health.get("meshspace"), dict) else {}
@@ -1542,7 +1577,8 @@ class MeshspaceRegistryManager:
             or str(health.get("status") or "").strip().lower() in {"healthy", "ready"}
         )
         registry_status = str(record.get("status") or "defined").strip().lower() or "defined"
-        live = bool((registry_pid_alive or detected_pid > 0 or http_listening or health_ok) and not wrong_meshspace_detected)
+        registry_pid_counts_as_live = bool(registry_pid_alive and registry_status == "starting")
+        live = bool((registry_pid_counts_as_live or detected_pid > 0 or http_listening or health_ok) and not wrong_meshspace_detected)
         effective_status = registry_status
         if live:
             if health_ok or http_listening:
@@ -1653,8 +1689,9 @@ class MeshspaceRegistryManager:
         # either assigned runtime port is already occupied.
         http_port = int(record.get("http_port") or 0)
         mesh_port = int(record.get("mesh_port") or 0)
-        http_listener_pid = _listener_pid_for_port(http_port) if http_port > 0 else 0
-        mesh_listener_pid = _listener_pid_for_port(mesh_port) if mesh_port > 0 else 0
+        probe_host = "127.0.0.1" if str(record.get("http_host") or "").strip() in {"0.0.0.0", "::"} else str(record.get("http_host") or "127.0.0.1").strip() or "127.0.0.1"
+        http_listener_pid = _listener_pid_for_port(http_port, host=probe_host) if http_port > 0 else 0
+        mesh_listener_pid = _listener_pid_for_port(mesh_port, host=probe_host) if mesh_port > 0 else 0
         if http_listener_pid > 0 or mesh_listener_pid > 0:
             in_use = []
             if http_listener_pid > 0:

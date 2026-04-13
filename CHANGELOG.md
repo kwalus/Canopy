@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.22] - 2026-04-13
+
+### Fixed
+- **Meshspace stop/restart now ignores foreign listeners bound to the wrong host/interface** - supervised runtime probing and port-conflict checks now resolve listeners against the meshspace's actual host so stale loopback tunnels or wrong-interface listeners no longer keep a meshspace stuck in `stopping` or block restart with a false port conflict.
+
 ## [0.6.21] - 2026-04-13
 
 ### Changed
