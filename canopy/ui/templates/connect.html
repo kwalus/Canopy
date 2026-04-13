@@ -1369,8 +1369,11 @@ function mergeRemoteInvitePreview(preview, remote) {
     if (remote.meshspace_avatar_b64) merged.meshAvatarB64 = String(remote.meshspace_avatar_b64 || '').trim();
     if (remote.meshspace_avatar_mime) merged.meshAvatarMime = String(remote.meshspace_avatar_mime || '').trim();
     if (remote.peer_label) merged.peerLabel = String(remote.peer_label || '').trim();
+    if (remote.peer_avatar_b64) merged.peerAvatarB64 = String(remote.peer_avatar_b64 || '').trim();
+    if (remote.peer_avatar_mime) merged.peerAvatarMime = String(remote.peer_avatar_mime || '').trim();
     if (remote.instance_label) merged.instanceLabel = String(remote.instance_label || '').trim();
     if (remote.source_endpoint) merged.remotePreviewSourceEndpoint = String(remote.source_endpoint || '').trim();
+    if (remote.source_url) merged.remotePreviewSourceUrl = String(remote.source_url || '').trim();
     if (remote.version) merged.remotePreviewVersion = String(remote.version || '').trim();
     merged.remotePreviewState = remote.ok ? 'fetched' : String(remote.status || '').trim() || 'unavailable';
     return merged;
@@ -1456,7 +1459,7 @@ function renderInvitePreview(preview, error) {
     const knownLabel = PEER_LABELS[preview.peerId] || '';
     const knownProfile = PEER_PREVIEW_PROFILES[preview.peerId] || {};
     const knownMeshHint = PEER_MESH_HINTS[preview.peerId] || {};
-    const title = knownProfile.display_name || knownLabel || preview.peerLabel || preview.instanceLabel || preview.peerId.slice(0, 12);
+    const title = knownProfile.display_name || preview.peerLabel || knownLabel || preview.instanceLabel || preview.peerId.slice(0, 12);
     const meshLabel = preview.meshName || 'Not specified';
     const endpointLabel = preview.endpoints.length
         ? `${preview.endpoints.length} direct ${preview.endpoints.length === 1 ? 'endpoint' : 'endpoints'}`
@@ -1482,14 +1485,16 @@ function renderInvitePreview(preview, error) {
     const meshAvatarHtml = (meshAvatarB64 && meshAvatarMime)
         ? `<img src="data:${_escapeHtml(meshAvatarMime)};base64,${_escapeHtml(meshAvatarB64)}" alt="" class="invite-preview-mesh-avatar">`
         : '';
-    const peerAvatarHtml = (knownProfile.avatar_b64 && knownProfile.avatar_mime)
-        ? `<img src="data:${_escapeHtml(knownProfile.avatar_mime)};base64,${_escapeHtml(knownProfile.avatar_b64)}" alt="" class="invite-preview-peer-avatar">`
+    const peerAvatarB64 = knownProfile.avatar_b64 || preview.peerAvatarB64 || '';
+    const peerAvatarMime = knownProfile.avatar_mime || preview.peerAvatarMime || '';
+    const peerAvatarHtml = (peerAvatarB64 && peerAvatarMime)
+        ? `<img src="data:${_escapeHtml(peerAvatarMime)};base64,${_escapeHtml(peerAvatarB64)}" alt="" class="invite-preview-peer-avatar">`
         : `<span class="invite-preview-peer-initials">${_escapeHtml(peerInitials(title))}</span>`;
     const warningHtml = warnings.length
         ? `<ul class="invite-warning-list">${warnings.map((warning) => `<li>${_escapeHtml(warning)}</li>`).join('')}</ul>`
         : '';
     const remotePreviewHtml = preview.remotePreviewSourceEndpoint
-        ? `<div class="invite-preview-subtitle mt-2">Remote preview refreshed from <code>${_escapeHtml(preview.remotePreviewSourceEndpoint)}</code>${preview.remotePreviewVersion ? ' · v' + _escapeHtml(preview.remotePreviewVersion) : ''}</div>`
+        ? `<div class="invite-preview-subtitle mt-2">Remote preview refreshed from <code>${_escapeHtml(preview.remotePreviewSourceEndpoint)}</code>${preview.remotePreviewSourceUrl ? ' via <code>' + _escapeHtml(preview.remotePreviewSourceUrl) + '</code>' : ''}${preview.remotePreviewVersion ? ' · v' + _escapeHtml(preview.remotePreviewVersion) : ''}</div>`
         : '';
 
     container.style.display = 'block';

@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.20] - 2026-04-13
+
+### Fixed
+- **Remote invite review now probes the right Canopy endpoint for images** - the Connect page no longer tries to fetch public preview metadata from the peer websocket port, and it can now merge the remote peer avatar together with the remote mesh avatar so fresh invite review cards refill both images after a peer is forgotten.
+
 ## [0.6.19] - 2026-04-13
 
 ### Fixed

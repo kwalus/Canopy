@@ -189,20 +189,19 @@ class MeshspaceFoundationTest(unittest.TestCase):
         manager = self.app.config.get('MESHSPACE_REGISTRY_MANAGER')
         config = self.app.config['CANOPY_CONFIG']
         meshspace_id = config.meshspace.meshspace_id
-        with self.db_manager.get_connection() as conn:
-            conn.execute(
-                "UPDATE users SET display_name = ? WHERE id = ?",
-                ('Windy Admin', 'owner-user'),
-            )
-            conn.commit()
         manager.set_meshspace_avatar(
             meshspace_id,
             _PNG_1X1,
             filename='identity.png',
             content_type='image/png',
         )
-
-        identity = self.client.get('/api/v1/mesh/identity')
+        with patch('canopy.api.routes._current_local_peer_hint_payload', return_value={
+            'peer_label': 'Windy Admin',
+            'instance_label': 'Alvin Node',
+            'peer_avatar_b64': base64.b64encode(_PNG_1X1).decode('ascii'),
+            'peer_avatar_mime': 'image/png',
+        }):
+            identity = self.client.get('/api/v1/mesh/identity')
         self.assertEqual(identity.status_code, 200)
         payload = identity.get_json() or {}
         self.assertEqual((payload.get('meshspace') or {}).get('meshspace_id'), meshspace_id)
@@ -210,6 +209,8 @@ class MeshspaceFoundationTest(unittest.TestCase):
         self.assertTrue((payload.get('meshspace') or {}).get('meshspace_avatar_b64'))
         self.assertEqual((payload.get('meshspace') or {}).get('meshspace_avatar_mime'), 'image/png')
         self.assertEqual((payload.get('peer') or {}).get('peer_label'), 'Windy Admin')
+        self.assertTrue((payload.get('peer') or {}).get('peer_avatar_b64'))
+        self.assertEqual((payload.get('peer') or {}).get('peer_avatar_mime'), 'image/png')
 
     def test_meshspace_registry_tracks_current_runtime(self) -> None:
         manager = self.app.config.get('MESHSPACE_REGISTRY_MANAGER')
@@ -1503,12 +1504,14 @@ class LegacyMeshspaceAdoptionTest(unittest.TestCase):
             'peer': {
                 'peer_id': 'peer-windy',
                 'peer_label': 'Maddog',
+                'peer_avatar_b64': base64.b64encode(_PNG_1X1).decode('ascii'),
+                'peer_avatar_mime': 'image/png',
                 'instance_label': 'WINDYLAPTOP',
             },
             'version': '0.6.18',
             'ready': True,
         }
-        remote_url = 'http://192.168.1.159:7771/api/v1/mesh/identity'
+        remote_url = 'http://192.168.1.159:7770/api/v1/mesh/identity'
         with patch('canopy.api.routes.urlopen', return_value=_FakeResponse(remote_payload, remote_url)) as remote_get:
             response = self.client.post(
                 '/api/v1/p2p/invite/preview',
@@ -1523,8 +1526,10 @@ class LegacyMeshspaceAdoptionTest(unittest.TestCase):
         self.assertEqual(payload.get('meshspace_id'), 'goldgang')
         self.assertTrue(payload.get('meshspace_avatar_b64'))
         self.assertEqual(payload.get('peer_label'), 'Maddog')
+        self.assertTrue(payload.get('peer_avatar_b64'))
         self.assertEqual(payload.get('instance_label'), 'WINDYLAPTOP')
         self.assertEqual(payload.get('source_endpoint'), 'ws://192.168.1.159:7771')
+        self.assertEqual(payload.get('source_url'), remote_url)
         request_obj = remote_get.call_args.args[0]
         self.assertEqual(request_obj.full_url, remote_url)
 

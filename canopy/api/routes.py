@@ -272,6 +272,8 @@ def _public_mesh_identity_payload() -> dict[str, Any]:
     peer.update({
         'peer_label': str(peer_hint.get('peer_label') or '').strip(),
         'instance_label': str(peer_hint.get('instance_label') or '').strip(),
+        'peer_avatar_b64': str(peer_hint.get('peer_avatar_b64') or '').strip(),
+        'peer_avatar_mime': str(peer_hint.get('peer_avatar_mime') or 'image/jpeg').strip() or 'image/jpeg',
     })
     return {
         'meshspace': meshspace,
@@ -282,41 +284,65 @@ def _public_mesh_identity_payload() -> dict[str, Any]:
     }
 
 
-def _invite_endpoint_identity_url(endpoint: str) -> Optional[str]:
-    """Convert an invite websocket endpoint into its matching public identity URL."""
+def _invite_endpoint_identity_urls(endpoint: str) -> list[str]:
+    """Convert an invite websocket endpoint into likely public identity URLs."""
     from ..network.invite import parse_invite_endpoint
 
     parsed = parse_invite_endpoint(endpoint)
     if not parsed:
-        return None
+        return []
     host, port, scheme = parsed
     host_text = f'[{host}]' if ':' in host and not host.startswith('[') else host
     http_scheme = 'https' if scheme == 'wss' else 'http'
-    return f'{http_scheme}://{host_text}:{port}/api/v1/mesh/identity'
+    candidate_ports: list[int] = []
+    # Canopy normally allocates ports as http=N, mesh=N+1, discovery=N+2.
+    if port > 1:
+        candidate_ports.append(port - 1)
+    candidate_ports.append(port)
+    urls: list[str] = []
+    seen: set[str] = set()
+    for candidate_port in candidate_ports:
+        url = f'{http_scheme}://{host_text}:{candidate_port}/api/v1/mesh/identity'
+        if url in seen:
+            continue
+        seen.add(url)
+        urls.append(url)
+    return urls
 
 
 def _fetch_remote_mesh_identity_preview(endpoint: str, *, timeout_seconds: float = 2.0) -> dict[str, Any]:
     """Fetch shell-safe preview metadata from a remote invite endpoint."""
-    target_url = _invite_endpoint_identity_url(endpoint)
-    if not target_url:
+    target_urls = _invite_endpoint_identity_urls(endpoint)
+    if not target_urls:
         raise ValueError('Invite endpoint is not usable for preview fetch')
 
-    req = Request(target_url, headers={
-        'User-Agent': 'Canopy/1.0 invite-preview',
-        'Accept': 'application/json',
-        'Cache-Control': 'no-cache',
-    })
-    with urlopen(req, timeout=max(0.5, float(timeout_seconds))) as resp:
-        final_url = str(getattr(resp, 'geturl', lambda: target_url)() or target_url)
-        if final_url != target_url:
-            raise ValueError('Redirects are not allowed for remote preview fetches')
-        status_code = int(getattr(resp, 'status', 200) or 200)
-        if status_code != 200:
-            raise ValueError(f'Remote preview returned HTTP {status_code}')
-        raw = resp.read(32_768 + 1)
-        if len(raw) > 32_768:
-            raise ValueError('Remote preview payload exceeded size limit')
-        payload = json.loads(raw.decode('utf-8', errors='replace'))
+    payload: dict[str, Any] | None = None
+    last_error = 'Remote preview fetch failed'
+    source_url = ''
+    for target_url in target_urls:
+        req = Request(target_url, headers={
+            'User-Agent': 'Canopy/1.0 invite-preview',
+            'Accept': 'application/json',
+            'Cache-Control': 'no-cache',
+        })
+        try:
+            with urlopen(req, timeout=max(0.5, float(timeout_seconds))) as resp:
+                final_url = str(getattr(resp, 'geturl', lambda: target_url)() or target_url)
+                if final_url != target_url:
+                    raise ValueError('Redirects are not allowed for remote preview fetches')
+                status_code = int(getattr(resp, 'status', 200) or 200)
+                if status_code != 200:
+                    raise ValueError(f'Remote preview returned HTTP {status_code}')
+                raw = resp.read(32_768 + 1)
+                if len(raw) > 32_768:
+                    raise ValueError('Remote preview payload exceeded size limit')
+                payload = json.loads(raw.decode('utf-8', errors='replace'))
+                source_url = target_url
+                break
+        except Exception as exc:
+            last_error = str(exc)
+    if payload is None:
+        raise ValueError(last_error)
 
     meshspace = payload.get('meshspace') if isinstance(payload.get('meshspace'), dict) else {}
     peer = payload.get('peer') if isinstance(payload.get('peer'), dict) else {}
@@ -332,10 +358,13 @@ def _fetch_remote_mesh_identity_preview(endpoint: str, *, timeout_seconds: float
         'meshspace_avatar_b64': str(meshspace.get('meshspace_avatar_b64') or '').strip(),
         'meshspace_avatar_mime': str(meshspace.get('meshspace_avatar_mime') or 'image/png').strip() or 'image/png',
         'peer_label': str(peer.get('peer_label') or '').strip(),
+        'peer_avatar_b64': str(peer.get('peer_avatar_b64') or '').strip(),
+        'peer_avatar_mime': str(peer.get('peer_avatar_mime') or 'image/jpeg').strip() or 'image/jpeg',
         'instance_label': str(peer.get('instance_label') or '').strip(),
         'ready': bool(payload.get('ready')),
         'version': str(payload.get('version') or '').strip(),
         'source_endpoint': str(endpoint or '').strip(),
+        'source_url': source_url,
     }
 
 
