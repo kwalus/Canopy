@@ -1126,14 +1126,27 @@ function apiJsonFetch(url, options = {}) {
             if (response.status === 401 && !usingKey && /api key required|authentication required/i.test(message)) {
                 message = 'Authentication required. Your session may have expired. Reload and sign in again.';
             }
-            throw new Error(message);
+            const err = new Error(message);
+            err.status = response.status;
+            if (data && data.diagnostic_code) err.diagnosticCode = data.diagnostic_code;
+            throw err;
         }
         return data || {};
     });
 }
 
 function buildConnectErrorMessage(err) {
-    const text = String((err && err.message) ? err.message : (err || 'Unknown error'));
+    const code = err?.diagnosticCode;
+    if (code === 'cross_mesh_admin_required') {
+        return 'Instance admin permission is required to connect to a peer from a different meshspace.';
+    }
+    if (code === 'cross_mesh_confirmation_required') {
+        return 'This invite is for a different meshspace. Review the invite again before requesting a cross-mesh connection.';
+    }
+    if (code === 'cross_mesh_reconnect_confirmation_required') {
+        return 'This peer is from a different meshspace. Reload the page to review the current mesh warning and confirm explicitly.';
+    }
+    const text = String(err?.message ?? (err ?? 'Unknown error'));
     if (/session may have expired|authentication required|api key required/i.test(text)) {
         return 'Authentication required for this action. Please reload the page and sign in again. ' +
                'If you are using a script/CLI, include X-API-Key.';
@@ -1316,12 +1329,15 @@ function renderInvitePreview(preview, error) {
     const knownBadge = knownLabel
         ? '<span class="badge bg-info-subtle text-info-emphasis border">Known peer</span>'
         : '<span class="badge bg-success-subtle text-success-emphasis border">New peer</span>';
+    const hasMeshInfo = Boolean(preview.meshspaceId || preview.meshName);
     const meshMatches = preview.meshspaceId && CURRENT_MESHSPACE_ID
         ? preview.meshspaceId === CURRENT_MESHSPACE_ID
         : (preview.meshName && preview.meshName === CURRENT_MESH_NAME);
-    const meshBadge = meshMatches
-        ? '<span class="badge bg-success-subtle text-success-emphasis border">Current mesh hint</span>'
-        : '<span class="badge bg-warning-subtle text-warning-emphasis border">Check mesh hint</span>';
+    const meshBadge = !hasMeshInfo
+        ? '<span class="badge bg-secondary-subtle text-secondary-emphasis border">No mesh hint</span>'
+        : meshMatches
+            ? '<span class="badge bg-success-subtle text-success-emphasis border">Current mesh hint</span>'
+            : '<span class="badge bg-warning-subtle text-warning-emphasis border">Check mesh hint</span>';
     const warningHtml = warnings.length
         ? `<ul class="invite-warning-list">${warnings.map((warning) => `<li>${_escapeHtml(warning)}</li>`).join('')}</ul>`
         : '';
@@ -1366,10 +1382,20 @@ function renderInvitePreview(preview, error) {
             ${endpointPreview ? `<div class="invite-preview-subtitle mt-2">${endpointPreview}</div>` : ''}
             ${warningHtml}
         </div>`;
-    importBtn.disabled = false;
-    importBtn.innerHTML = preview.endpoints.length
-        ? '<i class="bi bi-plug"></i> Connect to this peer'
-        : '<i class="bi bi-box-arrow-in-down"></i> Import peer';
+    const isCrossMeshBlocked = Boolean(
+        preview.meshspaceId && CURRENT_MESHSPACE_ID && preview.meshspaceId !== CURRENT_MESHSPACE_ID && !USER_IS_ADMIN
+    );
+    if (isCrossMeshBlocked) {
+        importBtn.disabled = true;
+        importBtn.title = 'Instance admin permission is required to connect to a peer from a different meshspace.';
+        importBtn.innerHTML = '<i class="bi bi-lock"></i> Admin required';
+    } else {
+        importBtn.disabled = false;
+        importBtn.title = '';
+        importBtn.innerHTML = preview.endpoints.length
+            ? '<i class="bi bi-plug"></i> Connect to this peer'
+            : '<i class="bi bi-box-arrow-in-down"></i> Import peer';
+    }
 }
 
 function previewInvite(force) {
@@ -1457,10 +1483,21 @@ function connectPreviewedInvite() {
         res.innerHTML = '<i class="bi bi-x-circle-fill"></i> ' + _escapeHtml(buildConnectErrorMessage(err));
     })
     .finally(() => {
-        btn.disabled = false;
-        btn.innerHTML = currentInvitePreview && currentInvitePreview.endpoints.length
-            ? '<i class="bi bi-plug"></i> Connect to this peer'
-            : '<i class="bi bi-box-arrow-in-down"></i> Import peer';
+        const p = currentInvitePreview;
+        const blocked = Boolean(
+            p && p.meshspaceId && CURRENT_MESHSPACE_ID && p.meshspaceId !== CURRENT_MESHSPACE_ID && !USER_IS_ADMIN
+        );
+        if (blocked) {
+            btn.disabled = true;
+            btn.title = 'Instance admin permission is required to connect to a peer from a different meshspace.';
+            btn.innerHTML = '<i class="bi bi-lock"></i> Admin required';
+        } else {
+            btn.disabled = false;
+            btn.title = '';
+            btn.innerHTML = p && p.endpoints && p.endpoints.length
+                ? '<i class="bi bi-plug"></i> Connect to this peer'
+                : '<i class="bi bi-box-arrow-in-down"></i> Import peer';
+        }
     });
 }
 

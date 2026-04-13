@@ -161,6 +161,29 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('Only the instance admin can approve a cross-mesh reconnect from this workspace.', connect_template)
         self.assertIn("btn.disabled = true;", connect_template)
 
+    def test_connect_page_api_errors_carry_diagnostic_code(self) -> None:
+        connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
+        self.assertIn('err.status = response.status;', connect_template)
+        self.assertIn("if (data && data.diagnostic_code) err.diagnosticCode = data.diagnostic_code;", connect_template)
+        self.assertIn("const code = err?.diagnosticCode;", connect_template)
+        self.assertIn("code === 'cross_mesh_admin_required'", connect_template)
+        self.assertIn("code === 'cross_mesh_confirmation_required'", connect_template)
+        self.assertIn("code === 'cross_mesh_reconnect_confirmation_required'", connect_template)
+        self.assertIn('Instance admin permission is required to connect to a peer from a different meshspace.', connect_template)
+
+    def test_connect_page_mesh_badge_distinguishes_no_hint_from_mismatch(self) -> None:
+        connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
+        self.assertIn('No mesh hint', connect_template)
+        self.assertIn('const hasMeshInfo = Boolean(preview.meshspaceId || preview.meshName);', connect_template)
+        self.assertIn('Current mesh hint', connect_template)
+        self.assertIn('Check mesh hint', connect_template)
+
+    def test_connect_page_disables_import_button_for_non_admin_cross_mesh(self) -> None:
+        connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
+        self.assertIn('isCrossMeshBlocked', connect_template)
+        self.assertIn('Admin required', connect_template)
+        self.assertIn('const blocked = Boolean(', connect_template)
+
     def test_feed_video_surfaces_preserve_actual_video_mime_type(self) -> None:
         feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
         self.assertIn("metadata.video_type = firstType || 'video/mp4';", feed_template)

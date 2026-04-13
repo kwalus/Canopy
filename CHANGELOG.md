@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.15] - 2026-04-13
+
+### Fixed
+- **Wrong-mesh peers are now cut off in two additional connection paths that could still slip past the first safety pass** - outbound connections now re-check the peer's mesh hint immediately after handshake and disconnect if a foreign mesh is revealed without approval, and relay offers no longer create routes to known foreign-mesh peers before an admin explicitly allows that bridge.
+- **Cross-mesh connect guidance is clearer on the Connect page for non-admin operators** - invite preview now distinguishes missing mesh hints from actual mismatches, preserves server diagnostic codes for better error copy, and disables the cross-mesh connect button with an explicit admin-required state instead of waiting for a failed click.
+- **Cross-mesh blocked peers no longer get re-added to automatic reconnect cleanup after disconnect** - disconnect cleanup now skips the reconnect loop for peers that already require manual cross-mesh approval, reducing redundant retry work without weakening the boundary.
+
 ## [0.6.14] - 2026-04-13
 
 ### Fixed

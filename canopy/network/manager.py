@@ -1827,6 +1827,39 @@ class P2PNetworkManager:
                     source='handshake',
                     cross_mesh_allowed=allow_cross_mesh if allow_cross_mesh else None,
                 )
+            # A peer first seen through broker/discovery paths can pass the
+            # pre-connection guard because we had no prior mesh hint. Re-check
+            # immediately after the handshake fills that hint in.
+            if not allow_cross_mesh and self._peer_requires_manual_cross_mesh(peer_id):
+                detail = self._cross_mesh_reconnect_detail(peer_id)
+                logger.warning(
+                    "Outgoing connection to %s rejected post-handshake: %s",
+                    peer_id,
+                    detail,
+                )
+                self._record_endpoint_result(
+                    peer_id,
+                    canon,
+                    success=False,
+                    reason='cross_mesh_blocked_post_handshake',
+                    detail=detail,
+                    sources=endpoint_sources,
+                )
+                self._record_connection_event(
+                    peer_id,
+                    status='blocked',
+                    detail=detail,
+                    endpoint=canon,
+                )
+                try:
+                    await self.connection_manager.disconnect_peer(peer_id)
+                except Exception:
+                    logger.debug(
+                        "Could not disconnect cross-mesh peer %s post-handshake",
+                        peer_id,
+                        exc_info=True,
+                    )
+                return False
             # Claim the endpoint so stale mappings don't keep retrying the wrong peer_id.
             self.identity_manager.record_endpoint(peer_id, canon, claim=True)
             self._record_endpoint_result(
@@ -3037,6 +3070,16 @@ class P2PNetworkManager:
             )
             return
 
+        if self._peer_requires_manual_cross_mesh(target_peer):
+            detail = self._cross_mesh_reconnect_detail(target_peer)
+            logger.warning(
+                "Declining relay offer from %s for %s: %s",
+                relay_peer,
+                target_peer,
+                detail,
+            )
+            return
+
         logger.info(f"Accepted relay offer from {relay_peer} for {target_peer}")
         self.message_router.update_routing_table(target_peer, relay_peer)
         self._active_relays[target_peer] = relay_peer
@@ -3185,6 +3228,15 @@ class P2PNetworkManager:
             to_remove = [dest for dest, relay in self._active_relays.items() if relay == peer_id]
             for dest in to_remove:
                 del self._active_relays[dest]
+
+        # A peer that requires explicit cross-mesh approval should not be
+        # re-entered into the automatic reconnect loop on disconnect cleanup.
+        if self._peer_requires_manual_cross_mesh(peer_id):
+            logger.debug(
+                "Peer %s disconnected - skipping auto-reconnect because cross-mesh approval is required",
+                peer_id,
+            )
+            return
 
         # If a reconnect loop is already scheduled/running for this peer,
         # don't restart it (that resets backoff and can cause thrash).

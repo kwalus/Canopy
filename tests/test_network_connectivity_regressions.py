@@ -478,6 +478,26 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(blocked_calls), 1)
         self.assertIn('Incoming connection rejected', blocked_calls[0].kwargs.get('detail', ''))
 
+    def test_disconnected_cleanup_skips_reconnect_for_cross_mesh_peer(self) -> None:
+        manager = self._build_manager()
+        manager.identity_manager.known_peers['peer-remote'] = types.SimpleNamespace()
+        manager.identity_manager.peer_endpoints['peer-remote'] = ['ws://198.51.100.50:7771']
+        manager.identity_manager.record_peer_meshspace_hint(
+            'peer-remote',
+            meshspace_id='other-mesh',
+            meshspace_name='Other Mesh',
+            meshspace_fingerprint='DEAD-BEEF',
+            source='invite',
+        )
+        manager.message_router = None
+
+        schedule_calls: list[str] = []
+        manager._schedule_reconnect = lambda peer_id, attempt=1: schedule_calls.append(peer_id)  # type: ignore[assignment]
+
+        manager.on_peer_disconnected_cleanup('peer-remote')
+
+        self.assertEqual(schedule_calls, [])
+
     def test_get_introduced_peers_marks_broker_only_when_no_direct_endpoints(self) -> None:
         manager = self._build_manager()
         manager._introduced_peers = {
