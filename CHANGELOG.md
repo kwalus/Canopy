@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.21] - 2026-04-13
+
+### Changed
+- **Connect cards now treat the peer as the instance you are connecting to, not the admin account** - invite generation, remote preview enrichment, and the settings/profile guidance now use the device profile as the peer name/avatar shown during connection review, while the mesh page continues to own the mesh identity hints.
+
 ## [0.6.20] - 2026-04-13
 
 ### Fixed

@@ -1397,17 +1397,11 @@ class LegacyMeshspaceAdoptionTest(unittest.TestCase):
         self.assertIn('Rename the default mesh before adding more so each world stays clear.', body)
         self.assertIn('Needs name', body)
 
-    def test_invite_generation_prefers_registry_name_without_bloating_invite_payload(self) -> None:
+    def test_invite_generation_uses_device_profile_as_peer_identity_without_bloating_invite_payload(self) -> None:
         self._authenticate()
         manager = self.app.config.get('MESHSPACE_REGISTRY_MANAGER')
         config = self.app.config['CANOPY_CONFIG']
         meshspace_id = config.meshspace.meshspace_id
-        with self.db_manager.get_connection() as conn:
-            conn.execute(
-                "UPDATE users SET display_name = ? WHERE id = ?",
-                ('Windy Admin', 'owner-user'),
-            )
-            conn.commit()
         manager.update_meshspace_metadata(meshspace_id, name='Windy Mesh')
         manager.set_meshspace_avatar(
             meshspace_id,
@@ -1432,24 +1426,17 @@ class LegacyMeshspaceAdoptionTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.get_json() or {}
         self.assertEqual(payload.get('meshspace_name'), 'Windy Mesh')
-        self.assertEqual(payload.get('peer_label'), 'Windy Admin')
+        self.assertEqual(payload.get('peer_label'), 'Alvin Node')
         self.assertEqual(payload.get('instance_label'), 'Alvin Node')
         self.assertEqual(generate_invite_mock.call_args.kwargs.get('mesh_name'), 'Windy Mesh')
-        self.assertEqual(generate_invite_mock.call_args.kwargs.get('peer_label'), 'Windy Admin')
+        self.assertEqual(generate_invite_mock.call_args.kwargs.get('peer_label'), 'Alvin Node')
         self.assertEqual(generate_invite_mock.call_args.kwargs.get('instance_label'), 'Alvin Node')
         self.assertIsNone(generate_invite_mock.call_args.kwargs.get('meshspace_avatar_b64'))
         self.assertIsNone(generate_invite_mock.call_args.kwargs.get('meshspace_avatar_mime'))
         self.assertIsNone(generate_invite_mock.call_args.kwargs.get('meshspace_id_aliases'))
 
-    def test_connect_page_uses_owner_profile_as_primary_hint_and_device_profile_as_node_hint(self) -> None:
+    def test_connect_page_uses_device_profile_as_primary_peer_hint(self) -> None:
         self._authenticate()
-        with self.db_manager.get_connection() as conn:
-            conn.execute(
-                "UPDATE users SET display_name = ? WHERE id = ?",
-                ('Windy Admin', 'owner-user'),
-            )
-            conn.commit()
-
         fake_invite = SimpleNamespace(
             encode=lambda: 'canopy:test',
             peer_id='peer-mesh-test',
@@ -1462,7 +1449,7 @@ class LegacyMeshspaceAdoptionTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         body = response.get_data(as_text=True)
-        self.assertIn('Windy Admin', body)
+        self.assertIn('Alvin Node', body)
         self.assertIn('Node hint Alvin Node', body)
 
     def test_invite_preview_probe_fetches_remote_mesh_identity_from_advertised_endpoint(self) -> None:

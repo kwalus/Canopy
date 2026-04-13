@@ -103,15 +103,16 @@ def build_local_peer_hint_payload(
 ) -> Dict[str, Any]:
     """Build the local peer identity hints shared by Connect/invite surfaces.
 
-    The primary peer identity comes from the instance owner's profile card.
-    Device profile data is preserved as a secondary machine/node hint.
+    The primary peer identity comes from the instance/device profile because
+    that is the actual peer another node is connecting to. Owner profile data
+    is retained only as secondary context for future UI use.
     """
     owner_user_id = ''
-    peer_label = ''
+    owner_label = ''
     peer_username = ''
     peer_avatar_url = ''
-    peer_avatar_b64 = ''
-    peer_avatar_mime = ''
+    owner_avatar_b64 = ''
+    owner_avatar_mime = ''
 
     instance_label = ''
     instance_description = ''
@@ -134,30 +135,36 @@ def build_local_peer_hint_payload(
         try:
             card = profile_manager.get_profile_card(owner_user_id) or {}
             if isinstance(card, dict):
-                peer_label = str(card.get('display_name') or card.get('username') or '').strip()
+                owner_label = str(card.get('display_name') or card.get('username') or '').strip()
                 peer_username = str(card.get('username') or '').strip()
-                peer_avatar_b64 = str(card.get('avatar_thumbnail') or '').strip()
-                peer_avatar_mime = str(card.get('avatar_content_type') or '').strip()
+                owner_avatar_b64 = str(card.get('avatar_thumbnail') or '').strip()
+                owner_avatar_mime = str(card.get('avatar_content_type') or '').strip()
             if hasattr(profile_manager, 'get_user_avatar_url'):
                 peer_avatar_url = str(profile_manager.get_user_avatar_url(owner_user_id) or '').strip()
         except Exception:
             pass
 
-    if owner_user_id and db_manager and (not peer_label or not peer_username):
+    if owner_user_id and db_manager and (not owner_label or not peer_username):
         try:
             owner = db_manager.get_user(owner_user_id) or {}
-            if not peer_label:
-                peer_label = str(owner.get('display_name') or owner.get('username') or '').strip()
+            if not owner_label:
+                owner_label = str(owner.get('display_name') or owner.get('username') or '').strip()
             if not peer_username:
                 peer_username = str(owner.get('username') or '').strip()
         except Exception:
             pass
 
+    peer_label = instance_label
     if not peer_label:
-        peer_label = instance_label
+        peer_label = owner_label
 
+    peer_avatar_b64 = instance_avatar_b64
+    peer_avatar_mime = instance_avatar_mime
     if peer_avatar_b64 and not peer_avatar_mime:
         peer_avatar_mime = 'image/jpeg'
+    if peer_avatar_b64 and peer_avatar_mime:
+        peer_avatar_url = f'data:{peer_avatar_mime};base64,{peer_avatar_b64}'
+
     if instance_avatar_b64 and not instance_avatar_mime:
         instance_avatar_mime = 'image/jpeg'
 
@@ -172,6 +179,9 @@ def build_local_peer_hint_payload(
         'instance_description': instance_description,
         'instance_avatar_b64': instance_avatar_b64,
         'instance_avatar_mime': instance_avatar_mime,
+        'owner_label': owner_label,
+        'owner_avatar_b64': owner_avatar_b64,
+        'owner_avatar_mime': owner_avatar_mime,
     }
 
 

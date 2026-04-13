@@ -106,15 +106,14 @@
             </div>
             <div class="card-body">
                 <p class="text-muted small mb-3">
-                    Give this machine a secondary node hint for connection review.
-                    This is not the primary peer identity: the main peer name/avatar come from the instance owner profile,
-                    while the mesh name/avatar come from the active mesh.
-                    Use this device profile to help people distinguish which machine or node sent the invite.
+                    Give this machine the peer identity shown during connection review.
+                    The peer name/avatar now come from this device profile, while the mesh name/avatar come from the active mesh.
+                    Use it to help people recognize which instance or node sent the invite.
                 </p>
                 {% if is_admin %}
                 <div class="alert alert-info small">
-                    <strong>Identity split:</strong> <code>Profile</code> controls the primary peer identity, <code>Mesh</code> controls the mesh hint,
-                    and <code>Device Profile</code> identifies the specific machine sending the invite.
+                    <strong>Identity split:</strong> <code>Device Profile</code> controls the peer identity, <code>Mesh</code> controls the mesh hint,
+                    and <code>Profile</code> remains your in-app user account identity.
                 </div>
                 <div class="card border-0 bg-body-tertiary mb-3">
                     <div class="card-body">
@@ -128,8 +127,8 @@
                                 {% endif %}
                             </div>
                             <div>
-                                <div class="text-uppercase small text-muted">Primary peer identity</div>
-                                <div class="fw-semibold">{{ connection_identity_preview.peer_label or 'Set on Profile' }}</div>
+                                <div class="text-uppercase small text-muted">Peer identity</div>
+                                <div class="fw-semibold">{{ connection_identity_preview.peer_label or 'Set below' }}</div>
                             </div>
                         </div>
                         <div class="d-flex align-items-center gap-3 mb-3">
@@ -151,7 +150,7 @@
                                 <i class="bi bi-pc-display fs-5 text-muted"></i>
                             </div>
                             <div>
-                                <div class="text-uppercase small text-muted">Secondary node hint</div>
+                                <div class="text-uppercase small text-muted">Node hint</div>
                                 <div class="fw-semibold">{{ connection_identity_preview.instance_label or 'Set below' }}</div>
                             </div>
                         </div>

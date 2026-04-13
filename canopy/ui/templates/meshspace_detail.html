@@ -496,9 +496,9 @@
                         This runtime is the default meshspace on this machine. Its channels, trust, users, files, and peer identity are still exactly where they were before. Only the shell label is provisional. Rename it now before you create additional meshspaces.
                     </div>
                     {% endif %}
-                    <p>Update the mesh name, avatar, and review-facing mesh hints here. Storage, ports, and the primary peer identity stay unchanged.</p>
+                    <p>Update the mesh name, avatar, and review-facing mesh hints here. Storage, ports, and the device-level peer identity stay unchanged.</p>
                     <div class="mesh-detail-callout mb-3">
-                        Mesh name, mesh image, and mesh ID are the mesh hints shown during connection review. The primary peer name/avatar still come from the instance owner profile, and the node label still comes from the device profile.
+                        Mesh name, mesh image, and mesh ID are the mesh hints shown during connection review. The peer name/avatar come from the device profile in Settings, and any extra node hint still comes from that same device profile.
                     </div>
                     <div class="card border-0 bg-transparent mb-3">
                         <div class="card-body px-0 pt-0">
@@ -512,8 +512,8 @@
                                     {% endif %}
                                 </div>
                                 <div>
-                                    <div class="text-uppercase small text-muted">Primary peer identity</div>
-                                    <div class="fw-semibold">{{ connection_identity_preview.peer_label or 'Set on Profile' }}</div>
+                                    <div class="text-uppercase small text-muted">Peer identity</div>
+                                    <div class="fw-semibold">{{ connection_identity_preview.peer_label or 'Set in Settings' }}</div>
                                 </div>
                             </div>
                             <div class="d-flex align-items-center gap-3 mb-3">
@@ -535,7 +535,7 @@
                                     <i class="bi bi-pc-display fs-4"></i>
                                 </div>
                                 <div>
-                                    <div class="text-uppercase small text-muted">Secondary node hint</div>
+                                    <div class="text-uppercase small text-muted">Node hint</div>
                                     <div class="fw-semibold">{{ connection_identity_preview.instance_label or 'Set in Settings' }}</div>
                                 </div>
                             </div>

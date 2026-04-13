@@ -101,18 +101,18 @@ class TestFrontendRegressions(unittest.TestCase):
         mesh_detail_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'meshspace_detail.html').read_text(encoding='utf-8')
 
         self.assertIn('Connection Hint Preview', profile_template)
-        self.assertIn('Primary peer identity:', profile_template)
-        self.assertIn('shown to other users on Connect cards and invite review', profile_template)
-        self.assertIn('Secondary node hint', profile_template)
+        self.assertIn('Connection review model:', profile_template)
+        self.assertIn('device profile for the peer name and peer avatar', profile_template)
+        self.assertIn('Node hint', profile_template)
 
-        self.assertIn('secondary node hint', settings_template)
-        self.assertIn('primary peer identity', settings_template)
+        self.assertIn('peer identity shown during connection review', settings_template)
+        self.assertIn('peer identity', settings_template)
         self.assertIn('Identity split:', settings_template)
         self.assertIn('Connection Hint Preview', settings_template)
 
-        self.assertIn('shown during connection review', mesh_detail_template)
+        self.assertIn('device-level peer identity stay unchanged', mesh_detail_template)
         self.assertIn('Connection Hint Preview', mesh_detail_template)
-        self.assertIn('Secondary node hint', mesh_detail_template)
+        self.assertIn('Node hint', mesh_detail_template)
 
     def test_admin_governance_secondary_save_button_defaults_to_outline(self) -> None:
         admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')

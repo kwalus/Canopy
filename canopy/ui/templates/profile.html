@@ -280,12 +280,12 @@
 
     {% if is_instance_owner %}
     <div class="alert alert-info border-0 shadow-sm">
-        <strong>Primary peer identity:</strong> this owner profile is the main name and avatar shown to other users on Connect cards and invite review.
-        The mesh image/name come from the active mesh, and the machine label comes from <code>Settings &gt; Device Profile</code>.
+        <strong>Connection review model:</strong> Connect cards now use the device profile for the peer name and peer avatar,
+        while the mesh image/name come from the active mesh. This account profile remains your in-app user identity.
     </div>
     {% else %}
     <div class="alert alert-secondary border-0 shadow-sm">
-        This account has its own profile, but the instance owner profile controls the primary peer identity shown on Connect cards and invite review.
+        This account profile is for in-app identity. Connect cards and invite review now use the device profile for the peer identity instead.
     </div>
     {% endif %}
 
@@ -322,7 +322,7 @@
                                        maxlength="100">
                                 <div class="form-text text-muted">
                                     {% if is_instance_owner %}
-                                    This is the primary peer name shown to other users during connection review.
+                                    This is your account display name inside Canopy. The peer name on Connect cards now comes from <code>Settings &gt; Device Profile</code>.
                                     {% else %}
                                     This is your in-app profile name.
                                     {% endif %}
@@ -417,9 +417,9 @@
                             {% endif %}
                         </div>
                         <div class="min-w-0">
-                            <div class="text-uppercase small text-muted">Primary peer identity</div>
-                            <div class="fw-semibold">{{ connection_identity_preview.peer_label or 'Set a display name on this page' }}</div>
-                            <div class="small text-muted">Admin-set human identity from the owner profile.</div>
+                            <div class="text-uppercase small text-muted">Peer identity</div>
+                            <div class="fw-semibold">{{ connection_identity_preview.peer_label or 'Set in Settings > Device Profile' }}</div>
+                            <div class="small text-muted">Instance/device identity from <code>Settings &gt; Device Profile</code>.</div>
                         </div>
                     </div>
                     <div class="d-flex align-items-center gap-3 mb-3">
@@ -441,9 +441,9 @@
                             <i class="bi bi-pc-display fs-4 text-muted"></i>
                         </div>
                         <div class="min-w-0">
-                            <div class="text-uppercase small text-muted">Secondary node hint</div>
+                            <div class="text-uppercase small text-muted">Node hint</div>
                             <div class="fw-semibold">{{ connection_identity_preview.instance_label or 'Set a device name in Settings' }}</div>
-                            <div class="small text-muted">Machine label from <code>Settings &gt; Device Profile</code>.</div>
+                            <div class="small text-muted">Additional machine hint from <code>Settings &gt; Device Profile</code>.</div>
                         </div>
                     </div>
                 </div>
@@ -494,7 +494,7 @@
                         <i class="bi bi-info-circle"></i> 
                         <strong>Two ways to upload:</strong> Click the box below or drag and drop an image file onto it.
                         {% if is_instance_owner %}
-                        This avatar is also used as the primary peer image shown during connection review.
+                        This avatar stays with your user profile inside Canopy. The peer image shown during connection review now comes from <code>Settings &gt; Device Profile</code>.
                         {% endif %}
                     </p>
                     <div class="file-drop-zone" id="avatar-drop-zone">
