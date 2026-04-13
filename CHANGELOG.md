@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.17] - 2026-04-13
+
+### Added
+- **Connect review cards now carry the live mesh identity operators expect** - invites and reconnect surfaces now advertise the current registry-backed mesh name plus an optional mesh avatar/logo thumbnail so peers are easier to recognize before trust or sync approval.
+
+### Changed
+- **Legacy default meshes can now be promoted to a stable explicit mesh ID with a controlled restart** - the current mesh detail page exposes an admin-only migration flow that preserves the old legacy ID as an alias for transition-safe cross-mesh diagnostics and reconnect review instead of silently continuing to advertise a `legacy-*` ID.
+- **Connect review copy now labels the peer token correctly** - the review card now says `Peer ID` instead of implying the sender-provided value is a separate fingerprint.
+
 ## [0.6.16] - 2026-04-13
 
 ### Fixed

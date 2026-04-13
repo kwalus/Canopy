@@ -553,6 +553,37 @@
                         </div>
                     </form>
                 </section>
+
+                {% if meshspace.is_current and meshspace.runtime_mode == 'legacy-default' %}
+                <section class="mesh-detail-panel">
+                    <h2>Promote Legacy Mesh ID</h2>
+                    <div class="mesh-detail-callout mb-3">
+                        This converts the current legacy/default mesh into a stable explicit mesh ID. Canopy will keep the same data, trust graph, peer keys, channels, and files, but it will restart and begin advertising the new mesh identity. Older remembered hints remain as transition aliases so reconnect warnings stay sensible.
+                    </div>
+                    <p>This is admin-only and requires a restart. Existing peers may briefly see the new mesh as a different mesh hint until they reconnect.</p>
+                    <form class="mesh-detail-form" method="POST" action="{{ url_for('ui.meshspace_promote', meshspace_id=meshspace.meshspace_id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <div class="mesh-detail-form-grid">
+                            <div>
+                                <label class="form-label">Stable mesh ID</label>
+                                <input type="text" class="form-control" name="stable_meshspace_id" value="{{ meshspace.name|lower|replace(' ', '-') }}" placeholder="family-hq" pattern="[A-Za-z0-9._-]+" required>
+                            </div>
+                            <div>
+                                <label class="form-label">Advertised mesh name</label>
+                                <input type="text" class="form-control" name="stable_meshspace_name" value="{{ meshspace.name }}" required>
+                            </div>
+                        </div>
+                        <div class="mesh-avatar-sub">
+                            The previous legacy ID will be kept as a compatibility alias for diagnostics and reconnect review.
+                        </div>
+                        <div class="d-flex flex-wrap gap-2">
+                            <button type="submit" class="btn btn-outline-warning">
+                                <i class="bi bi-arrow-repeat me-2"></i>Promote and restart
+                            </button>
+                        </div>
+                    </form>
+                </section>
+                {% endif %}
             </div>
 
             <aside class="mesh-detail-side">

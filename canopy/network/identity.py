@@ -353,11 +353,26 @@ class IdentityManager:
             'last_source': 64,
             'sync_approval_scope': 16,
             'sync_approved_at': 64,
+            'meshspace_avatar_mime': 80,
         }
         for key, limit in field_map.items():
             text = str(raw.get(key) or '').strip()
             if text:
                 out[key] = text[:limit]
+        aliases = raw.get('meshspace_id_aliases')
+        if isinstance(aliases, (list, tuple, set)):
+            cleaned_aliases = []
+            current_id = str(out.get('meshspace_id') or '').strip()
+            for value in aliases:
+                alias = str(value or '').strip()
+                if not alias or alias == current_id or alias in cleaned_aliases:
+                    continue
+                cleaned_aliases.append(alias[:160])
+            if cleaned_aliases:
+                out['meshspace_id_aliases'] = cleaned_aliases[:8]
+        avatar_b64 = str(raw.get('meshspace_avatar_b64') or '').strip()
+        if avatar_b64:
+            out['meshspace_avatar_b64'] = avatar_b64[:65536]
         if 'cross_mesh_allowed' in raw:
             out['cross_mesh_allowed'] = bool(raw.get('cross_mesh_allowed'))
         if 'last_seen_at' in raw:
@@ -371,8 +386,11 @@ class IdentityManager:
         peer_id: str,
         *,
         meshspace_id: Optional[str] = None,
+        meshspace_id_aliases: Optional[list[str]] = None,
         meshspace_name: Optional[str] = None,
         meshspace_fingerprint: Optional[str] = None,
+        meshspace_avatar_b64: Optional[str] = None,
+        meshspace_avatar_mime: Optional[str] = None,
         source: str = '',
         cross_mesh_allowed: Optional[bool] = None,
     ) -> None:
@@ -389,8 +407,11 @@ class IdentityManager:
 
         incoming: Dict[str, Any] = {
             'meshspace_id': meshspace_id,
+            'meshspace_id_aliases': meshspace_id_aliases or [],
             'meshspace_name': meshspace_name,
             'meshspace_fingerprint': meshspace_fingerprint,
+            'meshspace_avatar_b64': meshspace_avatar_b64,
+            'meshspace_avatar_mime': meshspace_avatar_mime,
             'last_source': source,
         }
         if cross_mesh_allowed is not None:
@@ -408,6 +429,15 @@ class IdentityManager:
         if source and existing.get('last_source') != source:
             existing['last_source'] = source
             changed = True
+        if normalized.get('meshspace_id_aliases') and existing.get('meshspace_id_aliases') != normalized.get('meshspace_id_aliases'):
+            existing['meshspace_id_aliases'] = list(normalized.get('meshspace_id_aliases') or [])
+            changed = True
+        if normalized.get('meshspace_avatar_b64') and existing.get('meshspace_avatar_b64') != normalized.get('meshspace_avatar_b64'):
+            existing['meshspace_avatar_b64'] = normalized.get('meshspace_avatar_b64')
+            changed = True
+        if normalized.get('meshspace_avatar_mime') and existing.get('meshspace_avatar_mime') != normalized.get('meshspace_avatar_mime'):
+            existing['meshspace_avatar_mime'] = normalized.get('meshspace_avatar_mime')
+            changed = True
         if changed:
             self.peer_meshspace_hints[peer_id] = self._normalize_meshspace_hint(existing)
             self._save_known_peers()
@@ -423,10 +453,14 @@ class IdentityManager:
         right_fingerprint = str(right.get('meshspace_fingerprint') or '').strip()
         if left_fingerprint and right_fingerprint:
             return left_fingerprint == right_fingerprint
-        left_id = str(left.get('meshspace_id') or '').strip()
-        right_id = str(right.get('meshspace_id') or '').strip()
-        if left_id and right_id:
-            return left_id == right_id
+        left_ids = {str(left.get('meshspace_id') or '').strip()}
+        right_ids = {str(right.get('meshspace_id') or '').strip()}
+        left_ids.update(str(item or '').strip() for item in (left.get('meshspace_id_aliases') or []))
+        right_ids.update(str(item or '').strip() for item in (right.get('meshspace_id_aliases') or []))
+        left_ids.discard('')
+        right_ids.discard('')
+        if left_ids and right_ids:
+            return bool(left_ids.intersection(right_ids))
         return False
 
     def set_peer_sync_approval(self, peer_id: str, scope: Optional[str]) -> None:
@@ -592,8 +626,11 @@ class IdentityManager:
             self.record_peer_meshspace_hint(
                 peer_id,
                 meshspace_id=meshspace_hint.get('meshspace_id'),
+                meshspace_id_aliases=meshspace_hint.get('meshspace_id_aliases'),
                 meshspace_name=meshspace_hint.get('meshspace_name'),
                 meshspace_fingerprint=meshspace_hint.get('meshspace_fingerprint'),
+                meshspace_avatar_b64=meshspace_hint.get('meshspace_avatar_b64'),
+                meshspace_avatar_mime=meshspace_hint.get('meshspace_avatar_mime'),
                 source=str(meshspace_hint.get('source') or 'invite'),
                 cross_mesh_allowed=cross_mesh_allowed,
             )

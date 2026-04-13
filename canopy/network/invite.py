@@ -13,7 +13,10 @@ Invite payload (JSON, then base64url-encoded):
     "ep": ["ws://<ip>:<port>"],    # list of endpoints to try
     "mn": "<mesh_name>",           # optional mesh hint
     "mid": "<meshspace_id>",       # optional stable meshspace id hint
+    "mia": ["<old_meshspace_id>"], # optional legacy/current alias hints
     "mf": "<mesh_fingerprint>",    # optional short human check code
+    "mab": "<mesh_avatar_b64>",    # optional compact mesh avatar preview
+    "mam": "image/png",            # optional mesh avatar mime
     "pl": "<peer_label>",          # optional node/display hint
     "il": "<instance_label>",      # optional device/instance hint
     "ts": "<generated_at>"         # optional ISO timestamp
@@ -110,7 +113,10 @@ class InviteCode:
     endpoints: List[str]
     mesh_name: Optional[str] = None
     meshspace_id: Optional[str] = None
+    meshspace_id_aliases: Optional[List[str]] = None
     meshspace_fingerprint: Optional[str] = None
+    meshspace_avatar_b64: Optional[str] = None
+    meshspace_avatar_mime: Optional[str] = None
     peer_label: Optional[str] = None
     instance_label: Optional[str] = None
     generated_at: Optional[str] = None
@@ -128,8 +134,14 @@ class InviteCode:
             payload['mn'] = self.mesh_name
         if self.meshspace_id:
             payload['mid'] = self.meshspace_id
+        if self.meshspace_id_aliases:
+            payload['mia'] = [str(value or '').strip() for value in self.meshspace_id_aliases if str(value or '').strip()]
         if self.meshspace_fingerprint:
             payload['mf'] = self.meshspace_fingerprint
+        if self.meshspace_avatar_b64:
+            payload['mab'] = self.meshspace_avatar_b64
+        if self.meshspace_avatar_mime:
+            payload['mam'] = self.meshspace_avatar_mime
         if self.peer_label:
             payload['pl'] = self.peer_label
         if self.instance_label:
@@ -188,7 +200,10 @@ class InviteCode:
             endpoints=data.get('ep', []),
             mesh_name=data.get('mn') or None,
             meshspace_id=data.get('mid') or None,
+            meshspace_id_aliases=data.get('mia') or None,
             meshspace_fingerprint=data.get('mf') or None,
+            meshspace_avatar_b64=data.get('mab') or None,
+            meshspace_avatar_mime=data.get('mam') or None,
             peer_label=data.get('pl') or None,
             instance_label=data.get('il') or None,
             generated_at=data.get('ts') or None,
@@ -229,7 +244,10 @@ def generate_invite(identity_manager: Any, mesh_port: int,
                     external_endpoint: Optional[str] = None,
                     mesh_name: Optional[str] = None,
                     meshspace_id: Optional[str] = None,
+                    meshspace_id_aliases: Optional[List[str]] = None,
                     meshspace_fingerprint_value: Optional[str] = None,
+                    meshspace_avatar_b64: Optional[str] = None,
+                    meshspace_avatar_mime: Optional[str] = None,
                     peer_label: Optional[str] = None,
                     instance_label: Optional[str] = None,
                     generated_at: Optional[str] = None) -> InviteCode:
@@ -244,7 +262,10 @@ def generate_invite(identity_manager: Any, mesh_port: int,
         external_endpoint: Optional full ws:// or wss:// endpoint
         mesh_name: Optional human-facing mesh label for preview UX
         meshspace_id: Optional stable meshspace identifier for preview UX
+        meshspace_id_aliases: Optional legacy/current alias IDs for transition-aware preview UX
         meshspace_fingerprint_value: Optional precomputed short mesh check code
+        meshspace_avatar_b64: Optional compact mesh avatar preview art
+        meshspace_avatar_mime: Optional mime for mesh avatar preview art
         peer_label: Optional human-facing peer label for preview UX
         instance_label: Optional device/instance label for preview UX
         generated_at: Optional ISO timestamp for invite age hints
@@ -286,11 +307,18 @@ def generate_invite(identity_manager: Any, mesh_port: int,
         endpoints=endpoints,
         mesh_name=str(mesh_name or '').strip() or None,
         meshspace_id=str(meshspace_id or '').strip() or None,
+        meshspace_id_aliases=[
+            str(value or '').strip()
+            for value in (meshspace_id_aliases or [])
+            if str(value or '').strip()
+        ] or None,
         meshspace_fingerprint=(
             str(meshspace_fingerprint_value or '').strip()
             or meshspace_fingerprint(meshspace_id, mesh_name)
             or None
         ),
+        meshspace_avatar_b64=str(meshspace_avatar_b64 or '').strip() or None,
+        meshspace_avatar_mime=str(meshspace_avatar_mime or '').strip() or None,
         peer_label=str(peer_label or '').strip() or None,
         instance_label=str(instance_label or '').strip() or None,
         generated_at=str(generated_at or '').strip() or None,
@@ -326,8 +354,11 @@ def import_invite(identity_manager: Any, connection_manager: Any, invite: Invite
     endpoints = _sanitize_invite_endpoints(invite.endpoints or [])
     meshspace_hint = {
         'meshspace_id': invite.meshspace_id,
+        'meshspace_id_aliases': invite.meshspace_id_aliases or [],
         'meshspace_name': invite.mesh_name,
         'meshspace_fingerprint': invite.meshspace_fingerprint,
+        'meshspace_avatar_b64': invite.meshspace_avatar_b64,
+        'meshspace_avatar_mime': invite.meshspace_avatar_mime,
         'source': 'invite',
     }
 

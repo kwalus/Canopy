@@ -31,7 +31,11 @@ from .bookmarks import BookmarkManager
 from .tasks import TaskManager
 from .search import SearchManager
 from .streams import StreamManager
-from .meshspaces import MeshspaceRegistryManager, build_meshspace_shell_summary
+from .meshspaces import (
+    MeshspaceRegistryManager,
+    apply_meshspace_record_to_config,
+    build_meshspace_shell_summary,
+)
 from ..security.api_keys import ApiKeyManager
 from ..security.trust import TrustManager
 from .messaging import (
@@ -82,6 +86,7 @@ from .large_attachments import (
     is_large_attachment_reference,
 )
 from ..network.manager import P2PNetworkManager
+from ..network.invite import meshspace_fingerprint
 from ..network.routing import (
     decrypt_with_channel_key,
     decrypt_key_from_peer,
@@ -448,6 +453,25 @@ def create_app(config: Optional[Config] = None) -> Flask:
             config,
             peer_id=local_peer_id,
         )
+        meshspace_avatar_preview = meshspace_registry.get_meshspace_avatar_preview(
+            str(meshspace_record.get('meshspace_id') or '').strip()
+        )
+        apply_meshspace_record_to_config(
+            config,
+            meshspace_record,
+            avatar_preview=meshspace_avatar_preview,
+        )
+        connection_manager = getattr(p2p_manager, 'connection_manager', None)
+        if connection_manager:
+            connection_manager.local_meshspace_id = str(config.meshspace.meshspace_id or '').strip()
+            connection_manager.local_meshspace_name = str(config.meshspace.name or '').strip()
+            connection_manager.local_meshspace_fingerprint = meshspace_fingerprint(
+                connection_manager.local_meshspace_id,
+                connection_manager.local_meshspace_name,
+            )
+            connection_manager.local_meshspace_id_aliases = list(getattr(config.meshspace, 'meshspace_id_aliases', []) or [])
+            connection_manager.local_meshspace_avatar_b64 = str(getattr(config.meshspace, 'avatar_preview_b64', '') or '').strip()
+            connection_manager.local_meshspace_avatar_mime = str(getattr(config.meshspace, 'avatar_preview_mime', 'image/png') or 'image/png').strip() or 'image/png'
         app.config['MESHSPACE_REGISTRY_MANAGER'] = meshspace_registry
         app.config['MESHSPACE_RECORD'] = meshspace_record
         logger.info(

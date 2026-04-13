@@ -240,6 +240,27 @@
         gap: 0.5rem;
         flex-wrap: wrap;
     }
+    .mesh-hint-avatar,
+    .invite-preview-mesh-avatar {
+        width: 28px;
+        height: 28px;
+        border-radius: 10px;
+        object-fit: cover;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 75%, transparent);
+        flex-shrink: 0;
+    }
+    .invite-preview-mesh-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.55rem;
+        min-width: 0;
+    }
+    .invite-preview-mesh-meta {
+        min-width: 0;
+    }
+    .invite-preview-mesh-meta .invite-preview-label {
+        margin-bottom: 0.05rem;
+    }
 
     .connect-page .card-header .d-flex {
         min-width: 0;
@@ -397,7 +418,14 @@
                     <label class="form-label small text-muted">Invite identity hints</label>
                     <div class="d-flex flex-wrap gap-2">
                         <span class="badge bg-success-subtle text-success-emphasis border">
+                            {% if current_mesh_avatar_url %}
+                            <img src="{{ current_mesh_avatar_url }}" alt="" class="mesh-hint-avatar me-1">
+                            {% else %}
                             <i class="bi bi-diagram-3"></i> {{ current_mesh_name or 'Default Mesh' }}
+                            {% endif %}
+                            {% if current_mesh_avatar_url %}
+                            {{ current_mesh_name or 'Default Mesh' }}
+                            {% endif %}
                         </span>
                         {% if current_mesh_fingerprint %}
                         <span class="badge bg-warning-subtle text-warning-emphasis border" title="{{ current_meshspace_id }}">
@@ -791,8 +819,12 @@
                                 <small class="text-muted d-block" style="font-size:0.7rem; opacity:0.7;">{{ kdev.description }}</small>
                                 {% endif %}
                                 {% if peer.meshspace_hint %}
-                                <span class="badge {% if peer.cross_mesh_warning %}bg-warning-subtle text-warning-emphasis{% else %}bg-success-subtle text-success-emphasis{% endif %} border me-1" style="font-size:0.65rem;"
+                                <span class="badge {% if peer.cross_mesh_warning %}bg-warning-subtle text-warning-emphasis{% else %}bg-success-subtle text-success-emphasis{% endif %} border me-1 d-inline-flex align-items-center gap-1" style="font-size:0.65rem;"
                                       title="{{ peer.meshspace_hint.meshspace_id or '' }}">
+                                    {% if peer.meshspace_hint.meshspace_avatar_b64 and peer.meshspace_hint.meshspace_avatar_mime %}
+                                    <img src="data:{{ peer.meshspace_hint.meshspace_avatar_mime }};base64,{{ peer.meshspace_hint.meshspace_avatar_b64 }}"
+                                         alt="" class="mesh-hint-avatar" style="width:18px; height:18px; border-radius:6px;">
+                                    {% endif %}
                                     Mesh {{ peer.meshspace_hint.meshspace_fingerprint or peer.meshspace_hint.meshspace_name or peer.meshspace_hint.meshspace_id or 'hint' }}
                                 </span>
                                 {% endif %}
@@ -1090,6 +1122,7 @@
 const PEER_LABELS = {{ peer_labels | tojson }};
 const CURRENT_MESH_NAME = {{ (current_mesh_name or 'Default Mesh') | tojson }};
 const CURRENT_MESHSPACE_ID = {{ (current_meshspace_id or '') | tojson }};
+const CURRENT_MESHSPACE_ID_ALIASES = {{ (current_meshspace_id_aliases or []) | tojson }};
 const CURRENT_MESH_FINGERPRINT = {{ (current_mesh_fingerprint or '') | tojson }};
 const CURRENT_PEER_ID = {{ (peer_id or '') | tojson }};
 const USER_IS_ADMIN = {{ 'true' if is_admin else 'false' }};
@@ -1097,6 +1130,18 @@ const connectionEvents = new Map();
 const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 let currentInvitePreview = null;
 let invitePreviewTimer = null;
+
+function meshIdsMatch(remoteId, remoteAliases) {
+    const localIds = new Set([String(CURRENT_MESHSPACE_ID || '').trim(), ...((CURRENT_MESHSPACE_ID_ALIASES || []).map((value) => String(value || '').trim()))]);
+    const remoteIds = new Set([String(remoteId || '').trim(), ...((remoteAliases || []).map((value) => String(value || '').trim()))]);
+    localIds.delete('');
+    remoteIds.delete('');
+    if (!localIds.size || !remoteIds.size) return false;
+    for (const value of remoteIds) {
+        if (localIds.has(value)) return true;
+    }
+    return false;
+}
 
 function apiJsonFetch(url, options = {}) {
     const method = (options.method || 'GET').toUpperCase();
@@ -1241,7 +1286,12 @@ function decodeInvitePreview(code) {
         peerId: String(data.pid || ''),
         meshName: String(data.mn || '').trim(),
         meshspaceId: String(data.mid || '').trim(),
+        meshspaceIdAliases: Array.isArray(data.mia)
+            ? data.mia.map((value) => String(value || '').trim()).filter(Boolean)
+            : [],
         meshFingerprint: String(data.mf || '').trim(),
+        meshAvatarB64: String(data.mab || '').trim(),
+        meshAvatarMime: String(data.mam || '').trim(),
         peerLabel: String(data.pl || '').trim(),
         instanceLabel: String(data.il || '').trim(),
         generatedAt: String(data.ts || '').trim(),
@@ -1262,7 +1312,7 @@ function invitePreviewWarnings(preview) {
     if (CURRENT_PEER_ID && preview.peerId === CURRENT_PEER_ID) {
         warnings.push('This invite appears to point back to your own local peer.');
     }
-    if (preview.meshspaceId && CURRENT_MESHSPACE_ID && preview.meshspaceId !== CURRENT_MESHSPACE_ID) {
+    if (preview.meshspaceId && CURRENT_MESHSPACE_ID && !meshIdsMatch(preview.meshspaceId, preview.meshspaceIdAliases)) {
         warnings.push(`Meshspace ID differs from this workspace (${CURRENT_MESHSPACE_ID}). This is a cross-mesh bridge and requires explicit confirmation.`);
         if (!USER_IS_ADMIN) {
             warnings.push('Cross-mesh bridges require instance admin approval on this workspace.');
@@ -1331,13 +1381,16 @@ function renderInvitePreview(preview, error) {
         : '<span class="badge bg-success-subtle text-success-emphasis border">New peer</span>';
     const hasMeshInfo = Boolean(preview.meshspaceId || preview.meshName);
     const meshMatches = preview.meshspaceId && CURRENT_MESHSPACE_ID
-        ? preview.meshspaceId === CURRENT_MESHSPACE_ID
+        ? meshIdsMatch(preview.meshspaceId, preview.meshspaceIdAliases)
         : (preview.meshName && preview.meshName === CURRENT_MESH_NAME);
     const meshBadge = !hasMeshInfo
         ? '<span class="badge bg-secondary-subtle text-secondary-emphasis border">No mesh hint</span>'
         : meshMatches
             ? '<span class="badge bg-success-subtle text-success-emphasis border">Current mesh hint</span>'
             : '<span class="badge bg-warning-subtle text-warning-emphasis border">Check mesh hint</span>';
+    const meshAvatarHtml = (preview.meshAvatarB64 && preview.meshAvatarMime)
+        ? `<img src="data:${_escapeHtml(preview.meshAvatarMime)};base64,${_escapeHtml(preview.meshAvatarB64)}" alt="" class="invite-preview-mesh-avatar">`
+        : '';
     const warningHtml = warnings.length
         ? `<ul class="invite-warning-list">${warnings.map((warning) => `<li>${_escapeHtml(warning)}</li>`).join('')}</ul>`
         : '';
@@ -1354,12 +1407,15 @@ function renderInvitePreview(preview, error) {
             </div>
             <div class="invite-preview-grid">
                 <div class="invite-preview-fact">
-                    <div class="invite-preview-label">Peer fingerprint</div>
+                    <div class="invite-preview-label">Peer ID</div>
                     <div class="invite-preview-value"><code>${_escapeHtml(preview.peerId)}</code></div>
                 </div>
                 <div class="invite-preview-fact">
                     <div class="invite-preview-label">Mesh hint</div>
-                    <div class="invite-preview-value">${_escapeHtml(meshLabel)}${preview.meshFingerprint ? ' · <code>' + _escapeHtml(preview.meshFingerprint) + '</code>' : ''}</div>
+                    <div class="invite-preview-value invite-preview-mesh-badge">
+                        ${meshAvatarHtml}
+                        <span class="invite-preview-mesh-meta">${_escapeHtml(meshLabel)}${preview.meshFingerprint ? ' · <code>' + _escapeHtml(preview.meshFingerprint) + '</code>' : ''}</span>
+                    </div>
                 </div>
                 <div class="invite-preview-fact">
                     <div class="invite-preview-label">Meshspace ID</div>
@@ -1383,7 +1439,7 @@ function renderInvitePreview(preview, error) {
             ${warningHtml}
         </div>`;
     const isCrossMeshBlocked = Boolean(
-        preview.meshspaceId && CURRENT_MESHSPACE_ID && preview.meshspaceId !== CURRENT_MESHSPACE_ID && !USER_IS_ADMIN
+        preview.meshspaceId && CURRENT_MESHSPACE_ID && !meshIdsMatch(preview.meshspaceId, preview.meshspaceIdAliases) && !USER_IS_ADMIN
     );
     if (isCrossMeshBlocked) {
         importBtn.disabled = true;
@@ -1432,7 +1488,7 @@ function connectPreviewedInvite() {
     }
     const preview = currentInvitePreview;
     const isCrossMesh = Boolean(
-        preview && preview.meshspaceId && CURRENT_MESHSPACE_ID && preview.meshspaceId !== CURRENT_MESHSPACE_ID
+        preview && preview.meshspaceId && CURRENT_MESHSPACE_ID && !meshIdsMatch(preview.meshspaceId, preview.meshspaceIdAliases)
     );
     if (isCrossMesh) {
         if (!USER_IS_ADMIN) {
@@ -1485,7 +1541,7 @@ function connectPreviewedInvite() {
     .finally(() => {
         const p = currentInvitePreview;
         const blocked = Boolean(
-            p && p.meshspaceId && CURRENT_MESHSPACE_ID && p.meshspaceId !== CURRENT_MESHSPACE_ID && !USER_IS_ADMIN
+            p && p.meshspaceId && CURRENT_MESHSPACE_ID && !meshIdsMatch(p.meshspaceId, p.meshspaceIdAliases) && !USER_IS_ADMIN
         );
         if (blocked) {
             btn.disabled = true;

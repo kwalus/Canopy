@@ -187,6 +187,42 @@ def _build_meshspace_runtime_payload() -> dict[str, Any]:
     }
 
 
+def _current_runtime_mesh_hint_payload() -> dict[str, Any]:
+    """Return the current runtime mesh hint, preferring the registry-backed record."""
+    from ..network.invite import meshspace_fingerprint
+
+    config = current_app.config.get('CANOPY_CONFIG')
+    manager = current_app.config.get('MESHSPACE_REGISTRY_MANAGER')
+    record = current_app.config.get('MESHSPACE_RECORD')
+    mesh_cfg = getattr(config, 'meshspace', None)
+    current_meshspace_id = str(getattr(mesh_cfg, 'meshspace_id', '') or '').strip()
+    if manager and current_meshspace_id:
+        try:
+            fresh = manager.get_meshspace(current_meshspace_id)
+            if isinstance(fresh, dict) and fresh:
+                record = fresh
+                current_app.config['MESHSPACE_RECORD'] = dict(fresh)
+        except Exception:
+            pass
+    record = record if isinstance(record, dict) else {}
+    meshspace_id = str(record.get('meshspace_id') or getattr(mesh_cfg, 'meshspace_id', '') or '').strip()
+    meshspace_name = str(record.get('name') or getattr(mesh_cfg, 'name', '') or '').strip()
+    avatar_preview: dict[str, str] = {}
+    if manager and meshspace_id:
+        try:
+            avatar_preview = manager.get_meshspace_avatar_preview(meshspace_id)
+        except Exception:
+            avatar_preview = {}
+    return {
+        'meshspace_id': meshspace_id,
+        'meshspace_id_aliases': list(record.get('meshspace_id_aliases') or []),
+        'meshspace_name': meshspace_name,
+        'meshspace_fingerprint': meshspace_fingerprint(meshspace_id, meshspace_name),
+        'meshspace_avatar_b64': str(avatar_preview.get('avatar_b64') or '').strip(),
+        'meshspace_avatar_mime': str(avatar_preview.get('avatar_mime') or 'image/png').strip() or 'image/png',
+    }
+
+
 def _record_connection_event(p2p_manager: Any, peer_id: str, status: str,
                              detail: str = '', endpoint: Optional[str] = None,
                              via_peer: Optional[str] = None) -> None:
@@ -3019,7 +3055,7 @@ def create_api_blueprint() -> Blueprint:
     @require_auth(allow_session=True)
     def generate_p2p_invite():
         """Generate an invite code for remote peers to connect."""
-        from ..network.invite import generate_invite, meshspace_fingerprint
+        from ..network.invite import generate_invite
         from ..core.device import get_device_label, get_device_profile
         *_, config, p2p_manager = _get_app_components_any(current_app)
 
@@ -3031,10 +3067,10 @@ def create_api_blueprint() -> Blueprint:
             public_port = request.args.get('public_port', type=int)
             external_endpoint = request.args.get('external_endpoint', type=str)
             mesh_port = config.network.mesh_port if config else 7771
-            mesh_cfg = getattr(config, 'meshspace', None)
-            mesh_name = str(getattr(mesh_cfg, 'name', '') or '').strip()
-            meshspace_id = str(getattr(mesh_cfg, 'meshspace_id', '') or '').strip()
-            mesh_fingerprint = meshspace_fingerprint(meshspace_id, mesh_name)
+            mesh_hint = _current_runtime_mesh_hint_payload()
+            mesh_name = str(mesh_hint.get('meshspace_name') or '').strip()
+            meshspace_id = str(mesh_hint.get('meshspace_id') or '').strip()
+            mesh_fingerprint = str(mesh_hint.get('meshspace_fingerprint') or '').strip()
             instance_label = str(getattr(config, 'device_label', '') or '').strip()
             peer_label = ''
             try:
@@ -3053,7 +3089,10 @@ def create_api_blueprint() -> Blueprint:
                 external_endpoint=external_endpoint,
                 mesh_name=mesh_name or None,
                 meshspace_id=meshspace_id or None,
+                meshspace_id_aliases=list(mesh_hint.get('meshspace_id_aliases') or []),
                 meshspace_fingerprint_value=mesh_fingerprint or None,
+                meshspace_avatar_b64=str(mesh_hint.get('meshspace_avatar_b64') or '').strip() or None,
+                meshspace_avatar_mime=str(mesh_hint.get('meshspace_avatar_mime') or '').strip() or None,
                 peer_label=peer_label or None,
                 instance_label=instance_label or None,
                 generated_at=datetime.now(timezone.utc).isoformat(),
@@ -3099,14 +3138,28 @@ def create_api_blueprint() -> Blueprint:
             _, _, _, _, _, _, _, _, _, config, _ = _get_app_components_any(current_app)
             mesh_cfg = getattr(config, 'meshspace', None) if config else None
             local_meshspace_id = str(getattr(mesh_cfg, 'meshspace_id', '') or '').strip()
+            local_meshspace_aliases = [
+                str(value or '').strip()
+                for value in (getattr(mesh_cfg, 'meshspace_id_aliases', []) or [])
+                if str(value or '').strip()
+            ]
             local_meshspace_name = str(getattr(mesh_cfg, 'name', '') or '').strip()
             explicit_meshspace = bool(getattr(mesh_cfg, 'enabled', False))
             invite_meshspace_id = str(invite.meshspace_id or '').strip()
+            invite_meshspace_aliases = [
+                str(value or '').strip()
+                for value in (invite.meshspace_id_aliases or [])
+                if str(value or '').strip()
+            ]
+            local_meshspace_ids = {local_meshspace_id, *local_meshspace_aliases}
+            invite_meshspace_ids = {invite_meshspace_id, *invite_meshspace_aliases}
+            local_meshspace_ids.discard('')
+            invite_meshspace_ids.discard('')
             if (
                 explicit_meshspace
-                and local_meshspace_id
-                and invite_meshspace_id
-                and invite_meshspace_id != local_meshspace_id
+                and local_meshspace_ids
+                and invite_meshspace_ids
+                and not local_meshspace_ids.intersection(invite_meshspace_ids)
                 and not allow_cross_mesh
             ):
                 return jsonify({

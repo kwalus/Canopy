@@ -78,6 +78,14 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("workspaceGovernanceDirtyIndicator.textContent = workspaceGovernanceDirty ? 'Unsaved changes' : 'Saved';", admin_template)
         self.assertIn('[workspaceSaveGovernanceBtn, workspaceSaveGovernanceBottomBtn].filter(Boolean).forEach((button) => {', admin_template)
 
+    def test_connect_preview_understands_mesh_avatar_and_alias_hints(self) -> None:
+        connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
+        self.assertIn('CURRENT_MESHSPACE_ID_ALIASES', connect_template)
+        self.assertIn('function meshIdsMatch(remoteId, remoteAliases)', connect_template)
+        self.assertIn('meshspaceIdAliases', connect_template)
+        self.assertIn('meshAvatarB64', connect_template)
+        self.assertIn('Peer ID', connect_template)
+
     def test_admin_governance_secondary_save_button_defaults_to_outline(self) -> None:
         admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')
         self.assertIn('class="btn btn-outline-success btn-sm" id="workspace-save-governance-bottom-btn"', admin_template)

@@ -101,6 +101,7 @@ from ..core.large_attachments import (
     set_large_attachment_settings,
 )
 from ..core.meshspaces import (
+    apply_meshspace_record_to_config,
     build_meshspace_notification_summary,
     build_meshspace_shell_summary,
     build_runtime_environment_from_config,
@@ -147,6 +148,59 @@ def _current_meshspace_record() -> dict[str, Any]:
         'runtime_mode': str(getattr(mesh_cfg, 'runtime_mode', '') or ''),
         'status': 'running',
     }
+
+
+def _current_meshspace_hint_payload() -> dict[str, Any]:
+    record = _current_meshspace_record()
+    manager = _get_meshspace_registry_manager()
+    meshspace_id = str(record.get('meshspace_id') or '').strip()
+    meshspace_name = str(record.get('name') or '').strip()
+    avatar_preview: dict[str, str] = {}
+    if manager and meshspace_id:
+        try:
+            avatar_preview = manager.get_meshspace_avatar_preview(meshspace_id)
+        except Exception:
+            avatar_preview = {}
+    from ..network.invite import meshspace_fingerprint
+
+    return {
+        'meshspace_id': meshspace_id,
+        'meshspace_id_aliases': list(record.get('meshspace_id_aliases') or []),
+        'meshspace_name': meshspace_name,
+        'meshspace_fingerprint': meshspace_fingerprint(meshspace_id, meshspace_name),
+        'meshspace_avatar_b64': str(avatar_preview.get('avatar_b64') or '').strip(),
+        'meshspace_avatar_mime': str(avatar_preview.get('avatar_mime') or 'image/png').strip() or 'image/png',
+        'meshspace_avatar_url': _meshspace_avatar_url(record) if record.get('avatar_path') else '',
+    }
+
+
+def _refresh_runtime_meshspace_advertisement(record: dict[str, Any]) -> None:
+    config = current_app.config.get('CANOPY_CONFIG')
+    if not config:
+        return
+    manager = _get_meshspace_registry_manager()
+    meshspace_id = str(record.get('meshspace_id') or '').strip()
+    avatar_preview: dict[str, str] = {}
+    if manager and meshspace_id:
+        try:
+            avatar_preview = manager.get_meshspace_avatar_preview(meshspace_id)
+        except Exception:
+            avatar_preview = {}
+    apply_meshspace_record_to_config(config, record, avatar_preview=avatar_preview)
+    p2p_manager = current_app.config.get('P2P_MANAGER')
+    connection_manager = getattr(p2p_manager, 'connection_manager', None) if p2p_manager else None
+    if connection_manager:
+        from ..network.invite import meshspace_fingerprint
+
+        connection_manager.local_meshspace_id = str(config.meshspace.meshspace_id or '').strip()
+        connection_manager.local_meshspace_id_aliases = list(getattr(config.meshspace, 'meshspace_id_aliases', []) or [])
+        connection_manager.local_meshspace_name = str(config.meshspace.name or '').strip()
+        connection_manager.local_meshspace_fingerprint = meshspace_fingerprint(
+            connection_manager.local_meshspace_id,
+            connection_manager.local_meshspace_name,
+        )
+        connection_manager.local_meshspace_avatar_b64 = str(getattr(config.meshspace, 'avatar_preview_b64', '') or '').strip()
+        connection_manager.local_meshspace_avatar_mime = str(getattr(config.meshspace, 'avatar_preview_mime', 'image/png') or 'image/png').strip() or 'image/png'
 
 
 def _current_meshspace_default_agent_permissions() -> list[str]:
@@ -7465,10 +7519,88 @@ def create_ui_blueprint() -> Blueprint:
         config = current_app.config.get('CANOPY_CONFIG')
         current_meshspace_id = str(getattr(getattr(config, 'meshspace', None), 'meshspace_id', '') or '')
         if meshspace_id == current_meshspace_id:
-            config.meshspace.name = str(record.get('name') or config.meshspace.name)
-            config.meshspace.description = str(record.get('description') or '')
+            _refresh_runtime_meshspace_advertisement(record)
             current_app.config['MESHSPACE_RECORD'] = dict(record)
         flash(f"Updated meshspace '{record.get('name')}'.", 'success')
+        return redirect(url_for('ui.meshspace_detail', meshspace_id=meshspace_id))
+
+    @ui.route('/meshes/<meshspace_id>/promote', methods=['POST'])
+    @require_login
+    def meshspace_promote(meshspace_id: str):
+        """Convert the current legacy-default mesh into an explicit stable identity."""
+        if not _is_admin():
+            flash('Only the instance admin can promote the current mesh identity.', 'warning')
+            return redirect(url_for('ui.dashboard'))
+        manager = _get_meshspace_registry_manager()
+        if not manager:
+            flash('Meshspace registry is unavailable.', 'error')
+            return redirect(url_for('ui.meshes_home'))
+        config = current_app.config.get('CANOPY_CONFIG')
+        current_mid = str(getattr(getattr(config, 'meshspace', None), 'meshspace_id', '') or '').strip()
+        if meshspace_id != current_mid:
+            flash('Only the current legacy mesh can be promoted from this page.', 'warning')
+            return redirect(url_for('ui.meshspace_detail', meshspace_id=meshspace_id))
+
+        target_meshspace_id = str(request.form.get('stable_meshspace_id') or '').strip()
+        target_name = str(request.form.get('stable_meshspace_name') or '').strip()
+        try:
+            promoted = manager.promote_legacy_meshspace(
+                meshspace_id,
+                new_meshspace_id=target_meshspace_id,
+                new_name=target_name or None,
+            )
+            if not promoted:
+                flash('Meshspace not found.', 'error')
+                return redirect(url_for('ui.meshes_home'))
+            _refresh_runtime_meshspace_advertisement(promoted)
+            config.meshspace.enabled = True
+            config.meshspace.data_root = str(promoted.get('data_dir') or config.storage.data_dir or '').strip()
+            config.meshspace.registry_root = str(getattr(config.meshspace, 'registry_root', '') or '').strip()
+            env_map = build_runtime_environment_from_config(config)
+            schedule_self_restart(
+                env_map,
+                cwd=str(Path(__file__).resolve().parents[2]),
+                parent_pid=os.getpid(),
+                delay_seconds=0.9,
+            )
+            peer_id = ''
+            p2p_manager = current_app.config.get('P2P_MANAGER')
+            if p2p_manager:
+                try:
+                    peer_id = str(p2p_manager.get_peer_id() or '').strip()
+                except Exception:
+                    peer_id = ''
+            updated = manager.update_runtime_state(
+                str(promoted.get('meshspace_id') or ''),
+                'starting',
+                peer_id=peer_id,
+            ) or promoted
+            _refresh_runtime_meshspace_advertisement(updated)
+            current_app.config['MESHSPACE_RECORD'] = dict(updated)
+
+            def _terminate_current_runtime() -> None:
+                time.sleep(0.45)
+                try:
+                    os.kill(os.getpid(), signal.SIGTERM)
+                except Exception:
+                    logger.warning("Failed to terminate current meshspace process during promotion", exc_info=True)
+
+            threading.Thread(target=_terminate_current_runtime, daemon=True).start()
+            return render_template(
+                'meshspace_restarting.html',
+                meshspace=_meshspace_card_payload(
+                    updated,
+                    str(updated.get('meshspace_id') or ''),
+                    manager,
+                ),
+                target_url=_meshspace_launch_url(updated, str(updated.get('meshspace_id') or '')),
+                is_admin=True,
+            )
+        except ValueError as exc:
+            flash(str(exc), 'error')
+        except Exception as exc:
+            logger.error("Failed to promote meshspace %s: %s", meshspace_id, exc, exc_info=True)
+            flash(f'Failed to promote mesh identity: {exc}', 'error')
         return redirect(url_for('ui.meshspace_detail', meshspace_id=meshspace_id))
 
     @ui.route('/meshes/<meshspace_id>/restart', methods=['POST'])
@@ -7927,7 +8059,7 @@ def create_ui_blueprint() -> Blueprint:
     @require_login
     def connect_page():
         """Peer connection and invite code page."""
-        from ..network.invite import generate_invite, get_local_ips, meshspace_fingerprint
+        from ..network.invite import generate_invite, get_local_ips
         from ..core.device import get_device_label, get_device_profile
         try:
             _, _, _, _, _, _, _, _, _, config, p2p_manager = _get_app_components_any(current_app)
@@ -7938,9 +8070,10 @@ def create_ui_blueprint() -> Blueprint:
             endpoints = []
             local_ips = get_local_ips()
             mesh_cfg = getattr(config, 'meshspace', None)
-            current_mesh_name = str(getattr(mesh_cfg, 'name', '') or '').strip() or 'Default Mesh'
-            current_meshspace_id = str(getattr(mesh_cfg, 'meshspace_id', '') or '').strip()
-            current_mesh_fingerprint = meshspace_fingerprint(current_meshspace_id, current_mesh_name)
+            current_mesh_hint = _current_meshspace_hint_payload()
+            current_mesh_name = str(current_mesh_hint.get('meshspace_name') or getattr(mesh_cfg, 'name', '') or '').strip() or 'Default Mesh'
+            current_meshspace_id = str(current_mesh_hint.get('meshspace_id') or getattr(mesh_cfg, 'meshspace_id', '') or '').strip()
+            current_mesh_fingerprint = str(current_mesh_hint.get('meshspace_fingerprint') or '').strip()
             current_instance_label = str(getattr(config, 'device_label', '') or '').strip()
             current_peer_label = ''
             try:
@@ -7958,7 +8091,10 @@ def create_ui_blueprint() -> Blueprint:
                     mesh_port,
                     mesh_name=current_mesh_name,
                     meshspace_id=current_meshspace_id or None,
+                    meshspace_id_aliases=list(current_mesh_hint.get('meshspace_id_aliases') or []),
                     meshspace_fingerprint_value=current_mesh_fingerprint or None,
+                    meshspace_avatar_b64=str(current_mesh_hint.get('meshspace_avatar_b64') or '').strip() or None,
+                    meshspace_avatar_mime=str(current_mesh_hint.get('meshspace_avatar_mime') or '').strip() or None,
                     peer_label=current_peer_label or None,
                     instance_label=current_instance_label or None,
                     generated_at=datetime.now(timezone.utc).isoformat(),
@@ -8000,16 +8136,18 @@ def create_ui_blueprint() -> Blueprint:
                         im.get_peer_meshspace_hint(pid)
                         if hasattr(im, 'get_peer_meshspace_hint') else {}
                     )
-                    remote_meshspace_id = str((meshspace_hint or {}).get('meshspace_id') or '').strip()
+                    cross_mesh_status = (
+                        p2p_manager.get_peer_cross_mesh_status(pid)
+                        if hasattr(p2p_manager, 'get_peer_cross_mesh_status') else {}
+                    )
                     cross_mesh_warning = ''
-                    if (
-                        bool(getattr(mesh_cfg, 'enabled', False))
-                        and current_meshspace_id
-                        and remote_meshspace_id
-                        and remote_meshspace_id != current_meshspace_id
-                        and not bool((meshspace_hint or {}).get('cross_mesh_allowed'))
-                    ):
-                        remote_name = str((meshspace_hint or {}).get('meshspace_name') or remote_meshspace_id)
+                    if bool((cross_mesh_status or {}).get('requires_manual_confirmation')):
+                        remote_name = str(
+                            (cross_mesh_status or {}).get('remote_meshspace_name')
+                            or (cross_mesh_status or {}).get('remote_meshspace_id')
+                            or (meshspace_hint or {}).get('meshspace_name')
+                            or 'another meshspace'
+                        )
                         cross_mesh_warning = (
                             f"This peer last advertised meshspace '{remote_name}', "
                             f"not '{current_mesh_name}'. Reconnect only if this bridge is intentional."
@@ -8077,7 +8215,9 @@ def create_ui_blueprint() -> Blueprint:
                                  local_ips=local_ips,
                                  current_mesh_name=current_mesh_name,
                                  current_meshspace_id=current_meshspace_id,
+                                 current_meshspace_id_aliases=list(current_mesh_hint.get('meshspace_id_aliases') or []),
                                  current_mesh_fingerprint=current_mesh_fingerprint,
+                                 current_mesh_avatar_url=str(current_mesh_hint.get('meshspace_avatar_url') or '').strip(),
                                  current_peer_label=current_peer_label,
                                  current_instance_label=current_instance_label,
                                  mesh_port=config.network.mesh_port if config else 7771,

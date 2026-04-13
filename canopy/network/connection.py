@@ -174,8 +174,11 @@ class PeerConnection:
     endpoint_uri: Optional[str] = None
     advertised_endpoints: List[str] = field(default_factory=list)
     meshspace_id: Optional[str] = None
+    meshspace_id_aliases: List[str] = field(default_factory=list)
     meshspace_name: Optional[str] = None
     meshspace_fingerprint: Optional[str] = None
+    meshspace_avatar_b64: Optional[str] = None
+    meshspace_avatar_mime: Optional[str] = None
     failure_reason: Optional[str] = None
     failure_detail: Optional[str] = None
     _send_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
@@ -214,8 +217,11 @@ class ConnectionManager:
                  canopy_version: str = "0.1.0",
                  protocol_version: int = 1,
                  meshspace_id: str = "",
+                 meshspace_id_aliases: Optional[List[str]] = None,
                  meshspace_name: str = "",
                  meshspace_fingerprint: str = "",
+                 meshspace_avatar_b64: str = "",
+                 meshspace_avatar_mime: str = "",
                  reject_protocol_mismatch: bool = False):
         """
         Initialize connection manager.
@@ -242,8 +248,11 @@ class ConnectionManager:
         self.local_canopy_version = str(canopy_version or '0.1.0').strip() or '0.1.0'
         self.local_protocol_version = self._coerce_protocol_version(protocol_version, default=1)
         self.local_meshspace_id = str(meshspace_id or '').strip()
+        self.local_meshspace_id_aliases = self._normalize_endpoint_payload(meshspace_id_aliases or [])
         self.local_meshspace_name = str(meshspace_name or '').strip()
         self.local_meshspace_fingerprint = str(meshspace_fingerprint or '').strip()
+        self.local_meshspace_avatar_b64 = str(meshspace_avatar_b64 or '').strip()
+        self.local_meshspace_avatar_mime = str(meshspace_avatar_mime or 'image/png').strip() or 'image/png'
         self.reject_protocol_mismatch = bool(reject_protocol_mismatch)
         
         # TLS configuration
@@ -488,10 +497,16 @@ class ConnectionManager:
             extra['advertised_endpoints'] = payload.get('advertised_endpoints')
         if 'meshspace_id' in payload:
             extra['meshspace_id'] = payload.get('meshspace_id')
+        if 'meshspace_id_aliases' in payload:
+            extra['meshspace_id_aliases'] = payload.get('meshspace_id_aliases')
         if 'meshspace_name' in payload:
             extra['meshspace_name'] = payload.get('meshspace_name')
         if 'meshspace_fingerprint' in payload:
             extra['meshspace_fingerprint'] = payload.get('meshspace_fingerprint')
+        if 'meshspace_avatar_b64' in payload:
+            extra['meshspace_avatar_b64'] = payload.get('meshspace_avatar_b64')
+        if 'meshspace_avatar_mime' in payload:
+            extra['meshspace_avatar_mime'] = payload.get('meshspace_avatar_mime')
         return extra
 
     @staticmethod
@@ -846,8 +861,13 @@ class ConnectionManager:
                     default=1,
                 ),
                 meshspace_id=str(handshake_data.get('meshspace_id') or '').strip() or None,
+                meshspace_id_aliases=self._normalize_endpoint_payload(
+                    handshake_data.get('meshspace_id_aliases', [])
+                ),
                 meshspace_name=str(handshake_data.get('meshspace_name') or '').strip() or None,
                 meshspace_fingerprint=str(handshake_data.get('meshspace_fingerprint') or '').strip() or None,
+                meshspace_avatar_b64=str(handshake_data.get('meshspace_avatar_b64') or '').strip() or None,
+                meshspace_avatar_mime=str(handshake_data.get('meshspace_avatar_mime') or '').strip() or None,
             )
             connection.capabilities = {
                 cap: True for cap in self._normalize_capabilities(
@@ -904,8 +924,11 @@ class ConnectionManager:
                             'capabilities': list(connection.capabilities or {}),
                             'advertised_endpoints': list(connection.advertised_endpoints or []),
                             'meshspace_id': connection.meshspace_id,
+                            'meshspace_id_aliases': list(connection.meshspace_id_aliases or []),
                             'meshspace_name': connection.meshspace_name,
                             'meshspace_fingerprint': connection.meshspace_fingerprint,
+                            'meshspace_avatar_b64': connection.meshspace_avatar_b64,
+                            'meshspace_avatar_mime': connection.meshspace_avatar_mime,
                         }
                         self.on_peer_authenticated(peer_id, peer_meta)
                     except TypeError:
@@ -979,8 +1002,11 @@ class ConnectionManager:
                 'protocol_version': self.local_protocol_version,
                 'advertised_endpoints': self._get_advertised_endpoints(),
                 'meshspace_id': self.local_meshspace_id,
+                'meshspace_id_aliases': list(self.local_meshspace_id_aliases or []),
                 'meshspace_name': self.local_meshspace_name,
                 'meshspace_fingerprint': self.local_meshspace_fingerprint,
+                'meshspace_avatar_b64': self.local_meshspace_avatar_b64,
+                'meshspace_avatar_mime': self.local_meshspace_avatar_mime,
                 'signature': signature.hex()
             }
             
@@ -1093,8 +1119,13 @@ class ConnectionManager:
                 default=1,
             )
             connection.meshspace_id = str(response.get('meshspace_id') or '').strip() or None
+            connection.meshspace_id_aliases = self._normalize_endpoint_payload(
+                response.get('meshspace_id_aliases', [])
+            )
             connection.meshspace_name = str(response.get('meshspace_name') or '').strip() or None
             connection.meshspace_fingerprint = str(response.get('meshspace_fingerprint') or '').strip() or None
+            connection.meshspace_avatar_b64 = str(response.get('meshspace_avatar_b64') or '').strip() or None
+            connection.meshspace_avatar_mime = str(response.get('meshspace_avatar_mime') or '').strip() or None
 
             connection.capabilities = {
                 cap: True for cap in self._normalize_capabilities(
@@ -1185,8 +1216,11 @@ class ConnectionManager:
                 'protocol_version': self.local_protocol_version,
                 'advertised_endpoints': self._get_advertised_endpoints(),
                 'meshspace_id': self.local_meshspace_id,
+                'meshspace_id_aliases': list(self.local_meshspace_id_aliases or []),
                 'meshspace_name': self.local_meshspace_name,
                 'meshspace_fingerprint': self.local_meshspace_fingerprint,
+                'meshspace_avatar_b64': self.local_meshspace_avatar_b64,
+                'meshspace_avatar_mime': self.local_meshspace_avatar_mime,
                 'signature': signature.hex()
             }
             

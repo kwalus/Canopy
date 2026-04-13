@@ -203,10 +203,11 @@ class P2PNetworkManager:
                 '1', 'true', 'yes', 'on'
             )
 
-        # Startup grace period — serializes syncs and limits concurrency
+        # Startup grace period throttles initial syncs without making new or
+        # restarted peers wait minutes before catch-up repair begins.
         self._startup_time: Optional[float] = None
-        self._STARTUP_GRACE_PERIOD = 10.0  # seconds
-        self._POST_CONNECT_SETTLE_WINDOW_S = 1.5
+        self._STARTUP_GRACE_PERIOD = 8.0  # seconds
+        self._POST_CONNECT_SETTLE_WINDOW_S = 1.0
         self._sync_queue: asyncio.Queue[str] = asyncio.Queue()
         self._sync_queue_task: Optional[asyncio.Task] = None
         self._queued_sync_peers: set[str] = set()
@@ -216,8 +217,8 @@ class P2PNetworkManager:
         self._post_connect_retry_tokens: Dict[str, str] = {}
         self._POST_CONNECT_SYNC_MAX_RETRIES = 3
         self._active_catchups: set = set()
-        self._MAX_CONCURRENT_CATCHUPS_STARTUP = 2
-        self._MAX_CONCURRENT_CATCHUPS_NORMAL = 5
+        self._MAX_CONCURRENT_CATCHUPS_STARTUP = 3
+        self._MAX_CONCURRENT_CATCHUPS_NORMAL = 6
         self.sync_digest_enabled = bool(
             getattr(cfg_security, 'sync_digest_enabled', False)
         )
@@ -253,7 +254,31 @@ class P2PNetworkManager:
         mesh_cfg = getattr(config, 'meshspace', None)
         return bool(getattr(mesh_cfg, 'enabled', False))
 
-    def _local_meshspace_identity(self) -> Dict[str, str]:
+    @staticmethod
+    def _normalize_meshspace_id_aliases(raw: Any, *, current_id: str = "") -> list[str]:
+        aliases: list[str] = []
+        values = raw if isinstance(raw, (list, tuple, set)) else ([raw] if raw else [])
+        current = str(current_id or '').strip()
+        for value in values:
+            alias = str(value or '').strip()
+            if not alias or alias == current or alias in aliases:
+                continue
+            aliases.append(alias)
+        return aliases
+
+    @classmethod
+    def _meshspace_hint_ids(cls, hint: Dict[str, Any]) -> set[str]:
+        meshspace_id = str(hint.get('meshspace_id') or '').strip()
+        aliases = cls._normalize_meshspace_id_aliases(
+            hint.get('meshspace_id_aliases'),
+            current_id=meshspace_id,
+        )
+        ids = set(aliases)
+        if meshspace_id:
+            ids.add(meshspace_id)
+        return ids
+
+    def _local_meshspace_identity(self) -> Dict[str, Any]:
         """Return local meshspace metadata used for safety hints."""
         config = getattr(self, 'config', None)
         mesh_cfg = getattr(config, 'meshspace', None)
@@ -262,8 +287,14 @@ class P2PNetworkManager:
         fingerprint = meshspace_fingerprint(meshspace_id, meshspace_name)
         return {
             'meshspace_id': meshspace_id,
+            'meshspace_id_aliases': self._normalize_meshspace_id_aliases(
+                getattr(mesh_cfg, 'meshspace_id_aliases', []),
+                current_id=meshspace_id,
+            ),
             'meshspace_name': meshspace_name,
             'meshspace_fingerprint': fingerprint,
+            'meshspace_avatar_b64': str(getattr(mesh_cfg, 'avatar_preview_b64', '') or '').strip(),
+            'meshspace_avatar_mime': str(getattr(mesh_cfg, 'avatar_preview_mime', 'image/png') or 'image/png').strip() or 'image/png',
         }
 
     def _record_peer_meshspace_hint(
@@ -278,9 +309,18 @@ class P2PNetworkManager:
         if not peer_id or not isinstance(mesh_meta, dict):
             return
         meshspace_id = str(mesh_meta.get('meshspace_id') or '').strip()
+        meshspace_id_aliases = self._normalize_meshspace_id_aliases(
+            mesh_meta.get('meshspace_id_aliases'),
+            current_id=meshspace_id,
+        )
         meshspace_name = str(mesh_meta.get('meshspace_name') or '').strip()
         meshspace_fingerprint_value = str(mesh_meta.get('meshspace_fingerprint') or '').strip()
-        if not (meshspace_id or meshspace_name or meshspace_fingerprint_value or cross_mesh_allowed is not None):
+        meshspace_avatar_b64 = str(mesh_meta.get('meshspace_avatar_b64') or '').strip()
+        meshspace_avatar_mime = str(mesh_meta.get('meshspace_avatar_mime') or '').strip()
+        if not (
+            meshspace_id or meshspace_id_aliases or meshspace_name or meshspace_fingerprint_value
+            or meshspace_avatar_b64 or cross_mesh_allowed is not None
+        ):
             return
         identity_manager = getattr(self, 'identity_manager', None)
         recorder = getattr(identity_manager, 'record_peer_meshspace_hint', None)
@@ -290,8 +330,11 @@ class P2PNetworkManager:
             recorder(
                 peer_id,
                 meshspace_id=meshspace_id or None,
+                meshspace_id_aliases=meshspace_id_aliases or None,
                 meshspace_name=meshspace_name or None,
                 meshspace_fingerprint=meshspace_fingerprint_value or None,
+                meshspace_avatar_b64=meshspace_avatar_b64 or None,
+                meshspace_avatar_mime=meshspace_avatar_mime or None,
                 source=source,
                 cross_mesh_allowed=cross_mesh_allowed,
             )
@@ -314,21 +357,29 @@ class P2PNetworkManager:
 
         local_id = str(local.get('meshspace_id') or '').strip()
         remote_id = str(hint.get('meshspace_id') or '').strip()
-        mismatch = bool(
-            self._meshspace_boundary_enabled()
-            and local_id
-            and remote_id
-            and remote_id != local_id
-        )
+        local_ids = self._meshspace_hint_ids(local)
+        remote_ids = self._meshspace_hint_ids(hint)
+        local_fingerprint = str(local.get('meshspace_fingerprint') or '').strip()
+        remote_fingerprint = str(hint.get('meshspace_fingerprint') or '').strip()
+        mismatch = False
+        if self._meshspace_boundary_enabled():
+            if local_ids and remote_ids:
+                mismatch = not bool(local_ids.intersection(remote_ids))
+            elif local_fingerprint and remote_fingerprint:
+                mismatch = remote_fingerprint != local_fingerprint
         allowed = bool(hint.get('cross_mesh_allowed'))
         return {
             'peer_id': peer_id,
             'local_meshspace_id': local_id,
+            'local_meshspace_id_aliases': list(local.get('meshspace_id_aliases') or []),
             'local_meshspace_name': local.get('meshspace_name') or '',
-            'local_meshspace_fingerprint': local.get('meshspace_fingerprint') or '',
+            'local_meshspace_fingerprint': local_fingerprint,
             'remote_meshspace_id': remote_id,
+            'remote_meshspace_id_aliases': list(hint.get('meshspace_id_aliases') or []),
             'remote_meshspace_name': str(hint.get('meshspace_name') or '').strip(),
-            'remote_meshspace_fingerprint': str(hint.get('meshspace_fingerprint') or '').strip(),
+            'remote_meshspace_fingerprint': remote_fingerprint,
+            'remote_meshspace_avatar_b64': str(hint.get('meshspace_avatar_b64') or '').strip(),
+            'remote_meshspace_avatar_mime': str(hint.get('meshspace_avatar_mime') or '').strip(),
             'mismatch': mismatch,
             'cross_mesh_allowed': allowed,
             'requires_manual_confirmation': bool(mismatch and not allowed),
@@ -364,8 +415,11 @@ class P2PNetworkManager:
             'approved_at': str(sync_status.get('approved_at') or '').strip(),
             'inherited_from_peer_id': str(sync_status.get('inherited_from_peer_id') or '').strip(),
             'remote_meshspace_id': str(hint.get('meshspace_id') or '').strip(),
+            'remote_meshspace_id_aliases': list(hint.get('meshspace_id_aliases') or []),
             'remote_meshspace_name': str(hint.get('meshspace_name') or '').strip(),
             'remote_meshspace_fingerprint': str(hint.get('meshspace_fingerprint') or '').strip(),
+            'remote_meshspace_avatar_b64': str(hint.get('meshspace_avatar_b64') or '').strip(),
+            'remote_meshspace_avatar_mime': str(hint.get('meshspace_avatar_mime') or '').strip(),
         }
 
     def _peer_requires_sync_approval(self, peer_id: str) -> bool:
@@ -394,8 +448,11 @@ class P2PNetworkManager:
             peer_id,
             {
                 'meshspace_id': status.get('remote_meshspace_id'),
+                'meshspace_id_aliases': status.get('remote_meshspace_id_aliases'),
                 'meshspace_name': status.get('remote_meshspace_name'),
                 'meshspace_fingerprint': status.get('remote_meshspace_fingerprint'),
+                'meshspace_avatar_b64': status.get('remote_meshspace_avatar_b64'),
+                'meshspace_avatar_mime': status.get('remote_meshspace_avatar_mime'),
             },
             source='manual_cross_mesh_confirmation',
             cross_mesh_allowed=allowed,
@@ -1088,7 +1145,7 @@ class P2PNetworkManager:
                     self._syncs_in_progress.add(peer_id)
                     if not await self._acquire_catchup_slot(peer_id):
                         # Wait a bit and retry if at capacity
-                        await asyncio.sleep(2.0)
+                        await asyncio.sleep(0.75)
                         if not await self._acquire_catchup_slot(peer_id):
                             logger.warning(f"Skipping sync for {peer_id}: at capacity")
                             self._sync_queue.task_done()
@@ -1098,9 +1155,9 @@ class P2PNetworkManager:
 
                     # Delay between syncs to reduce contention
                     if self._in_startup_grace_period():
-                        await asyncio.sleep(1.0)
+                        await asyncio.sleep(0.5)
                     else:
-                        await asyncio.sleep(0.3)
+                        await asyncio.sleep(0.15)
                 except Exception as e:
                     logger.error(f"Error processing sync for {peer_id}: {e}", exc_info=True)
                 finally:
@@ -1202,8 +1259,11 @@ class P2PNetworkManager:
                 canopy_version=self.local_canopy_version,
                 protocol_version=self.local_protocol_version,
                 meshspace_id=local_meshspace.get('meshspace_id', ''),
+                meshspace_id_aliases=local_meshspace.get('meshspace_id_aliases', []),
                 meshspace_name=local_meshspace.get('meshspace_name', ''),
                 meshspace_fingerprint=local_meshspace.get('meshspace_fingerprint', ''),
+                meshspace_avatar_b64=local_meshspace.get('meshspace_avatar_b64', ''),
+                meshspace_avatar_mime=local_meshspace.get('meshspace_avatar_mime', 'image/png'),
                 reject_protocol_mismatch=bool(
                     os.getenv('CANOPY_REJECT_PROTOCOL_MISMATCH', '').strip().lower() in ('1', 'true', 'yes', 'on')
                 ),
@@ -5372,7 +5432,9 @@ class P2PNetworkManager:
         except Exception as e:
             logger.debug(f"Post-connect key retry for {peer_id} failed: {e}")
 
-    PERIODIC_CATCHUP_INTERVAL = 180  # seconds (3 minutes)
+    PERIODIC_CATCHUP_INITIAL_DELAY = 20  # seconds
+    PERIODIC_CATCHUP_INTERVAL = 90  # seconds
+    PERIODIC_CATCHUP_PEER_STAGGER = 0.75  # seconds
 
     async def _periodic_catchup_loop(self) -> None:
         """Periodically send catch-up requests to all connected peers.
@@ -5383,7 +5445,7 @@ class P2PNetworkManager:
         catch-up only fires once; this loop provides ongoing repair.
         """
         # Initial delay — let startup settle before first periodic run
-        await asyncio.sleep(60)
+        await asyncio.sleep(self.PERIODIC_CATCHUP_INITIAL_DELAY)
 
         while self._running:
             try:
@@ -5406,7 +5468,7 @@ class P2PNetworkManager:
                             logger.debug(f"Periodic catchup to {peer_id} "
                                          f"failed: {per_err}")
                         # Small stagger between peers
-                        await asyncio.sleep(2)
+                        await asyncio.sleep(self.PERIODIC_CATCHUP_PEER_STAGGER)
             except Exception as e:
                 logger.error(f"Error in periodic catchup loop: {e}",
                              exc_info=True)

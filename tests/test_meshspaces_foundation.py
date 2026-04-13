@@ -29,7 +29,8 @@ if 'zeroconf' not in sys.modules:
     sys.modules['zeroconf'] = zeroconf_stub
 
 from canopy.core.app import create_app
-from canopy.core.meshspaces import build_meshspace_notification_summary
+from canopy.core.meshspaces import MeshspaceRegistryManager, build_meshspace_notification_summary
+from canopy.network.invite import InviteCode
 
 _PNG_1X1 = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg=="
@@ -244,6 +245,9 @@ class MeshspaceFoundationTest(unittest.TestCase):
             name='Research Lab',
             meshspace_id='research-lab',
             description='Experimental mesh for testing.',
+            http_port=18700,
+            mesh_port=18701,
+            discovery_port=18702,
         )
         manager.update_runtime_state('research-lab', 'running', peer_id='peer-research')
 
@@ -380,7 +384,7 @@ class MeshspaceFoundationTest(unittest.TestCase):
 
         blocked = self.client.get(
             '/api/v1/meshspace/shell_summary',
-            environ_overrides={'REMOTE_ADDR': '10.0.0.8'},
+            environ_overrides={'REMOTE_ADDR': '203.0.113.8'},
         )
         self.assertEqual(blocked.status_code, 403)
 
@@ -1004,6 +1008,9 @@ class MeshspaceFoundationTest(unittest.TestCase):
             name='Research Lab',
             meshspace_id='research-lab',
             description='Experimental mesh for testing.',
+            http_port=18700,
+            mesh_port=18701,
+            discovery_port=18702,
         )
 
         response = self.client.get('/meshes/research-lab/open')
@@ -1046,9 +1053,9 @@ class MeshspaceFoundationTest(unittest.TestCase):
                 'launch_url': 'http://127.0.0.1:7800',
             },
             current_meshspace_id='family-lab',
-            request_host='192.168.1.77',
+            request_host='198.51.100.77',
         )
-        self.assertEqual(target, 'http://192.168.1.77:7800/login')
+        self.assertEqual(target, 'http://198.51.100.77:7800/login')
 
     def test_meshspace_open_shows_stale_runtime_copy_when_registry_is_stale(self) -> None:
         self._authenticate()
@@ -1353,6 +1360,198 @@ class LegacyMeshspaceAdoptionTest(unittest.TestCase):
         self.assertIn('Default Mesh', body)
         self.assertIn('Rename the default mesh before adding more so each world stays clear.', body)
         self.assertIn('Needs name', body)
+
+    def test_invite_generation_prefers_registry_name_and_advertises_mesh_avatar(self) -> None:
+        self._authenticate()
+        manager = self.app.config.get('MESHSPACE_REGISTRY_MANAGER')
+        config = self.app.config['CANOPY_CONFIG']
+        meshspace_id = config.meshspace.meshspace_id
+        manager.update_meshspace_metadata(meshspace_id, name='Windy Mesh')
+        manager.set_meshspace_avatar(
+            meshspace_id,
+            _PNG_1X1,
+            filename='windy.png',
+            content_type='image/png',
+        )
+
+        fake_invite = SimpleNamespace(
+            encode=lambda: 'canopy:test',
+            peer_id='peer-mesh-test',
+            endpoints=['ws://192.168.1.12:7771'],
+            meshspace_id=meshspace_id,
+            mesh_name='Windy Mesh',
+            meshspace_fingerprint='ABCD-1234',
+            to_dict=lambda: {'mn': 'Windy Mesh'},
+        )
+        with patch('canopy.network.invite.generate_invite', return_value=fake_invite) as generate_invite_mock:
+            response = self.client.get('/api/v1/p2p/invite')
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertEqual(payload.get('meshspace_name'), 'Windy Mesh')
+        self.assertEqual(generate_invite_mock.call_args.kwargs.get('mesh_name'), 'Windy Mesh')
+        self.assertTrue(generate_invite_mock.call_args.kwargs.get('meshspace_avatar_b64'))
+        self.assertEqual(generate_invite_mock.call_args.kwargs.get('meshspace_avatar_mime'), 'image/png')
+
+    def test_admin_can_promote_legacy_meshspace_to_explicit_identity(self) -> None:
+        self._authenticate()
+        config = self.app.config['CANOPY_CONFIG']
+        old_meshspace_id = config.meshspace.meshspace_id
+
+        class _NoopThread:
+            def __init__(self, target=None, daemon=None):
+                self.target = target
+                self.daemon = daemon
+
+            def start(self):
+                return None
+
+        with patch('canopy.ui.routes.schedule_self_restart', return_value=999) as restart_mock, \
+             patch('canopy.ui.routes.threading.Thread', _NoopThread):
+            response = self.client.post(
+                f'/meshes/{old_meshspace_id}/promote',
+                data={
+                    'csrf_token': 'csrf-mesh',
+                    'stable_meshspace_id': 'windy-mesh',
+                    'stable_meshspace_name': 'Windy Mesh',
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Restarting Windy Mesh', response.get_data(as_text=True))
+        restart_mock.assert_called_once()
+
+        manager = self.app.config.get('MESHSPACE_REGISTRY_MANAGER')
+        promoted = manager.get_meshspace('windy-mesh')
+        self.assertIsNotNone(promoted)
+        self.assertEqual(promoted.get('runtime_mode'), 'meshspace')
+        self.assertIn(old_meshspace_id, promoted.get('meshspace_id_aliases') or [])
+        self.assertIsNone(manager.get_meshspace(old_meshspace_id))
+
+        self.assertTrue(config.meshspace.enabled)
+        self.assertEqual(config.meshspace.meshspace_id, 'windy-mesh')
+        self.assertIn(old_meshspace_id, config.meshspace.meshspace_id_aliases)
+
+    def test_promoted_mesh_accepts_old_alias_invite_without_cross_mesh_confirmation(self) -> None:
+        self._authenticate()
+        config = self.app.config['CANOPY_CONFIG']
+        old_meshspace_id = config.meshspace.meshspace_id
+
+        class _NoopThread:
+            def __init__(self, target=None, daemon=None):
+                self.target = target
+                self.daemon = daemon
+
+            def start(self):
+                return None
+
+        with patch('canopy.ui.routes.schedule_self_restart', return_value=999), \
+             patch('canopy.ui.routes.threading.Thread', _NoopThread):
+            promote_response = self.client.post(
+                f'/meshes/{old_meshspace_id}/promote',
+                data={
+                    'csrf_token': 'csrf-mesh',
+                    'stable_meshspace_id': 'windy-mesh',
+                    'stable_meshspace_name': 'Windy Mesh',
+                },
+                follow_redirects=False,
+            )
+        self.assertEqual(promote_response.status_code, 200)
+
+        invite = InviteCode(
+            peer_id='peer-windy-remote',
+            ed25519_public_key_b58='11111111111111111111111111111111',
+            x25519_public_key_b58='11111111111111111111111111111111',
+            endpoints=['ws://192.168.1.80:7771'],
+            mesh_name='Windy Mesh',
+            meshspace_id=old_meshspace_id,
+        )
+        with patch('canopy.network.invite.InviteCode.decode', return_value=invite), \
+             patch('canopy.network.invite.import_invite', return_value={'peer_id': invite.peer_id, 'endpoints': invite.endpoints}):
+            response = self.client.post(
+                '/api/v1/p2p/invite/import',
+                json={'invite_code': 'canopy:test'},
+                headers={'X-CSRFToken': 'csrf-mesh'},
+            )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertNotEqual(payload.get('status'), 'confirmation_required')
+
+
+class MeshspaceRegistryManagerIsolationTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tempdir.cleanup)
+        self.registry_root = Path(self.tempdir.name) / 'registry'
+
+    def test_custom_registry_root_is_used_for_registry_writes(self) -> None:
+        manager = MeshspaceRegistryManager(registry_root=self.registry_root)
+        manager.create_meshspace(name='Research Lab', meshspace_id='research-lab')
+
+        registry_path = self.registry_root / 'registry.json'
+        self.assertTrue(registry_path.exists())
+
+        payload = json.loads(registry_path.read_text())
+        mesh_ids = {item.get('meshspace_id') for item in payload.get('meshspaces', [])}
+        self.assertIn('research-lab', mesh_ids)
+
+    def test_testing_legacy_runtime_uses_data_local_registry_root(self) -> None:
+        from canopy.core.config import Config
+
+        legacy_root = Path(self.tempdir.name) / 'legacy-current'
+        with patch.dict(
+            os.environ,
+            {
+                'CANOPY_TESTING': 'true',
+                'CANOPY_DATA_DIR': str(legacy_root),
+                'CANOPY_DATABASE_PATH': str(legacy_root / 'canopy.db'),
+                'CANOPY_SECRET_KEY': 'test-secret',
+            },
+            clear=False,
+        ):
+            config = Config.from_env()
+        self.assertEqual(config.meshspace.registry_root, str(legacy_root / '.meshspaces-registry'))
+
+    def test_list_meshspaces_prunes_stopped_temp_legacy_records(self) -> None:
+        manager = MeshspaceRegistryManager(registry_root=self.registry_root)
+        self.registry_root.mkdir(parents=True, exist_ok=True)
+        registry_path = self.registry_root / 'registry.json'
+        registry_path.write_text(json.dumps({
+            'version': 1,
+            'meshspaces': [
+                {
+                    'meshspace_id': 'legacy-device-temp',
+                    'name': 'Default Mesh',
+                    'runtime_mode': 'legacy-default',
+                    'is_default': True,
+                    'status': 'stopped',
+                    'data_dir': str(Path(tempfile.gettempdir()) / 'canopy-bad-legacy'),
+                    'database_path': str(Path(tempfile.gettempdir()) / 'canopy-bad-legacy' / 'canopy.db'),
+                    'http_port': 7770,
+                    'mesh_port': 7771,
+                    'discovery_port': 7772,
+                },
+                {
+                    'meshspace_id': 'research-lab',
+                    'name': 'Research Lab',
+                    'runtime_mode': 'meshspace',
+                    'is_default': False,
+                    'status': 'defined',
+                    'data_dir': str(Path(self.tempdir.name) / 'research-lab'),
+                    'database_path': str(Path(self.tempdir.name) / 'research-lab' / 'canopy.db'),
+                    'http_port': 7800,
+                    'mesh_port': 7801,
+                    'discovery_port': 7802,
+                },
+            ],
+        }))
+
+        records = manager.list_meshspaces()
+        self.assertEqual([record.get('meshspace_id') for record in records], ['research-lab'])
+
+        payload = json.loads(registry_path.read_text())
+        mesh_ids = {item.get('meshspace_id') for item in payload.get('meshspaces', [])}
+        self.assertEqual(mesh_ids, {'research-lab'})
 
 
 class WindowsMeshspacePortProbeTest(unittest.TestCase):
