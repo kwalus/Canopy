@@ -304,6 +304,7 @@ class P2PNetworkManager:
         *,
         source: str,
         cross_mesh_allowed: Optional[bool] = None,
+        mesh_relationship: Optional[str] = None,
     ) -> None:
         """Persist a remote meshspace hint when a peer advertises one."""
         if not peer_id or not isinstance(mesh_meta, dict):
@@ -337,6 +338,7 @@ class P2PNetworkManager:
                 meshspace_avatar_mime=meshspace_avatar_mime or None,
                 source=source,
                 cross_mesh_allowed=cross_mesh_allowed,
+                mesh_relationship=mesh_relationship,
             )
         except Exception:
             logger.debug("Could not persist meshspace hint for %s", peer_id, exc_info=True)
@@ -368,6 +370,21 @@ class P2PNetworkManager:
             elif local_fingerprint and remote_fingerprint:
                 mismatch = remote_fingerprint != local_fingerprint
         allowed = bool(hint.get('cross_mesh_allowed'))
+        stored_relationship = str(hint.get('mesh_relationship') or '').strip()
+        if not remote_ids and not remote_fingerprint:
+            relationship = stored_relationship or 'unknown'
+        elif mismatch and allowed:
+            relationship = 'cross_mesh_bridge_allowed'
+        elif mismatch:
+            relationship = 'mesh_mismatch_pending_review'
+        elif (
+            stored_relationship == 'same_mesh_alias_confirmed'
+            or (remote_id and local_id and remote_id != local_id and remote_id in local_ids)
+            or bool(local_ids.intersection(remote_ids) - {local_id})
+        ):
+            relationship = 'same_mesh_alias_confirmed'
+        else:
+            relationship = 'same_mesh_confirmed'
         return {
             'peer_id': peer_id,
             'local_meshspace_id': local_id,
@@ -382,7 +399,9 @@ class P2PNetworkManager:
             'remote_meshspace_avatar_mime': str(hint.get('meshspace_avatar_mime') or '').strip(),
             'mismatch': mismatch,
             'cross_mesh_allowed': allowed,
-            'requires_manual_confirmation': bool(mismatch and not allowed),
+            'mesh_relationship': relationship,
+            'requires_identity_review': bool(relationship == 'mesh_mismatch_pending_review'),
+            'requires_manual_confirmation': bool(relationship == 'mesh_mismatch_pending_review'),
         }
 
     def get_peer_sync_status(self, peer_id: str) -> Dict[str, Any]:
@@ -456,7 +475,82 @@ class P2PNetworkManager:
             },
             source='manual_cross_mesh_confirmation',
             cross_mesh_allowed=allowed,
+            mesh_relationship='cross_mesh_bridge_allowed' if allowed else '',
         )
+
+    def mark_peer_meshspace_equivalent(self, peer_id: str) -> Dict[str, Any]:
+        """Treat the peer's advertised mesh IDs as aliases of the local meshspace."""
+        status = self.get_peer_cross_mesh_status(peer_id)
+        local_meshspace_id = str(status.get('local_meshspace_id') or '').strip()
+        if not local_meshspace_id:
+            raise RuntimeError("Local meshspace identity is unavailable")
+
+        remote_ids: list[str] = []
+        remote_id = str(status.get('remote_meshspace_id') or '').strip()
+        if remote_id:
+            remote_ids.append(remote_id)
+        for alias in status.get('remote_meshspace_id_aliases') or []:
+            clean = str(alias or '').strip()
+            if clean and clean not in remote_ids:
+                remote_ids.append(clean)
+        if not remote_ids:
+            raise RuntimeError("Peer has not advertised a meshspace ID to alias")
+
+        mesh_cfg = getattr(getattr(self, 'config', None), 'meshspace', None)
+        current_aliases = self._normalize_meshspace_id_aliases(
+            getattr(mesh_cfg, 'meshspace_id_aliases', []),
+            current_id=local_meshspace_id,
+        )
+        aliases_to_add = [
+            value for value in remote_ids
+            if value != local_meshspace_id and value not in current_aliases
+        ]
+        merged_aliases = self._normalize_meshspace_id_aliases(
+            current_aliases + aliases_to_add,
+            current_id=local_meshspace_id,
+        )
+        if mesh_cfg is not None:
+            mesh_cfg.meshspace_id_aliases = list(merged_aliases)
+
+        registry_root = str(getattr(mesh_cfg, 'registry_root', '') or '').strip() if mesh_cfg else ''
+        if registry_root and aliases_to_add:
+            try:
+                from ..core.meshspaces import MeshspaceRegistryManager
+
+                registry = MeshspaceRegistryManager(registry_root=Path(registry_root).expanduser())
+                record = registry.add_meshspace_aliases(local_meshspace_id, aliases_to_add)
+                if isinstance(record, dict) and mesh_cfg is not None:
+                    mesh_cfg.meshspace_id_aliases = self._normalize_meshspace_id_aliases(
+                        record.get('meshspace_id_aliases'),
+                        current_id=local_meshspace_id,
+                    )
+            except Exception:
+                logger.warning(
+                    "Could not persist meshspace aliases %s for %s",
+                    aliases_to_add,
+                    local_meshspace_id,
+                    exc_info=True,
+                )
+
+        connection_manager = getattr(self, 'connection_manager', None)
+        if connection_manager is not None:
+            connection_manager.local_meshspace_id_aliases = list(getattr(mesh_cfg, 'meshspace_id_aliases', []) or merged_aliases)
+
+        self._record_peer_meshspace_hint(
+            peer_id,
+            {
+                'meshspace_id': status.get('remote_meshspace_id'),
+                'meshspace_id_aliases': status.get('remote_meshspace_id_aliases'),
+                'meshspace_name': status.get('remote_meshspace_name'),
+                'meshspace_fingerprint': status.get('remote_meshspace_fingerprint'),
+                'meshspace_avatar_b64': status.get('remote_meshspace_avatar_b64'),
+                'meshspace_avatar_mime': status.get('remote_meshspace_avatar_mime'),
+            },
+            source='manual_same_mesh_alias_confirmation',
+            cross_mesh_allowed=False,
+            mesh_relationship='same_mesh_alias_confirmed',
+        )
+        return self.get_peer_cross_mesh_status(peer_id)
 
     def _cross_mesh_reconnect_detail(self, peer_id: str) -> str:
         status = self.get_peer_cross_mesh_status(peer_id)
@@ -1873,6 +1967,7 @@ class P2PNetworkManager:
         endpoint: str,
         *,
         allow_cross_mesh: bool = False,
+        allow_mesh_review: bool = False,
     ) -> bool:
         """Connect to a peer using a ws:// or wss:// endpoint string."""
         if not self.connection_manager:
@@ -1881,7 +1976,7 @@ class P2PNetworkManager:
         if peer_id == local_id:
             logger.debug("Reconnect: refusing to connect to self (%s)", peer_id)
             return False
-        if self._peer_requires_manual_cross_mesh(peer_id) and not allow_cross_mesh:
+        if self._peer_requires_manual_cross_mesh(peer_id) and not (allow_cross_mesh or allow_mesh_review):
             detail = self._cross_mesh_reconnect_detail(peer_id)
             logger.warning("Reconnect refused for %s: %s", peer_id, detail)
             self._record_connection_event(
@@ -1938,8 +2033,11 @@ class P2PNetworkManager:
                     peer_id,
                     {
                         'meshspace_id': getattr(conn, 'meshspace_id', None),
+                        'meshspace_id_aliases': getattr(conn, 'meshspace_id_aliases', None),
                         'meshspace_name': getattr(conn, 'meshspace_name', None),
                         'meshspace_fingerprint': getattr(conn, 'meshspace_fingerprint', None),
+                        'meshspace_avatar_b64': getattr(conn, 'meshspace_avatar_b64', None),
+                        'meshspace_avatar_mime': getattr(conn, 'meshspace_avatar_mime', None),
                     },
                     source='handshake',
                     cross_mesh_allowed=allow_cross_mesh if allow_cross_mesh else None,
@@ -1949,34 +2047,47 @@ class P2PNetworkManager:
             # immediately after the handshake fills that hint in.
             if not allow_cross_mesh and self._peer_requires_manual_cross_mesh(peer_id):
                 detail = self._cross_mesh_reconnect_detail(peer_id)
-                logger.warning(
-                    "Outgoing connection to %s rejected post-handshake: %s",
-                    peer_id,
-                    detail,
-                )
-                self._record_endpoint_result(
-                    peer_id,
-                    canon,
-                    success=False,
-                    reason='cross_mesh_blocked_post_handshake',
-                    detail=detail,
-                    sources=endpoint_sources,
-                )
-                self._record_connection_event(
-                    peer_id,
-                    status='blocked',
-                    detail=detail,
-                    endpoint=canon,
-                )
-                try:
-                    await self.connection_manager.disconnect_peer(peer_id)
-                except Exception:
-                    logger.debug(
-                        "Could not disconnect cross-mesh peer %s post-handshake",
+                if allow_mesh_review:
+                    logger.info(
+                        "Outgoing connection to %s left connected for mesh identity review: %s",
                         peer_id,
-                        exc_info=True,
+                        detail,
                     )
-                return False
+                    self._record_connection_event(
+                        peer_id,
+                        status='mesh_review_required',
+                        detail=detail,
+                        endpoint=canon,
+                    )
+                else:
+                    logger.warning(
+                        "Outgoing connection to %s rejected post-handshake: %s",
+                        peer_id,
+                        detail,
+                    )
+                    self._record_endpoint_result(
+                        peer_id,
+                        canon,
+                        success=False,
+                        reason='cross_mesh_blocked_post_handshake',
+                        detail=detail,
+                        sources=endpoint_sources,
+                    )
+                    self._record_connection_event(
+                        peer_id,
+                        status='blocked',
+                        detail=detail,
+                        endpoint=canon,
+                    )
+                    try:
+                        await self.connection_manager.disconnect_peer(peer_id)
+                    except Exception:
+                        logger.debug(
+                            "Could not disconnect cross-mesh peer %s post-handshake",
+                            peer_id,
+                            exc_info=True,
+                        )
+                    return False
             # Claim the endpoint so stale mappings don't keep retrying the wrong peer_id.
             self.identity_manager.record_endpoint(peer_id, canon, claim=True)
             self._record_endpoint_result(
@@ -2303,8 +2414,11 @@ class P2PNetworkManager:
                 peer_id,
                 {
                     'meshspace_id': peer_meta.get('meshspace_id'),
+                    'meshspace_id_aliases': peer_meta.get('meshspace_id_aliases'),
                     'meshspace_name': peer_meta.get('meshspace_name'),
                     'meshspace_fingerprint': peer_meta.get('meshspace_fingerprint'),
+                    'meshspace_avatar_b64': peer_meta.get('meshspace_avatar_b64'),
+                    'meshspace_avatar_mime': peer_meta.get('meshspace_avatar_mime'),
                 },
                 source='incoming_handshake',
             )
@@ -2492,7 +2606,11 @@ class P2PNetworkManager:
             if self._peer_requires_manual_cross_mesh(peer_id):
                 detail = self._cross_mesh_reconnect_detail(peer_id)
                 logger.warning("Skipping automatic post-connect sync for %s: %s", peer_id, detail)
-                self._record_connection_event(peer_id, status='blocked', detail=detail)
+                try:
+                    await self._send_device_preview_to_peer(peer_id)
+                except Exception:
+                    logger.debug("Could not send device preview to mesh-review peer %s", peer_id, exc_info=True)
+                self._record_connection_event(peer_id, status='mesh_review_required', detail=detail)
                 return
             self._refresh_peer_version_info(peer_id)
             if not await self._wait_for_connection_settle(peer_id):

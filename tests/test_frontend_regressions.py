@@ -94,6 +94,10 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('Remote preview refreshed from', connect_template)
         self.assertIn('peerAvatarB64', connect_template)
         self.assertIn('preview.peerLabel || knownLabel', connect_template)
+        self.assertIn('const DEVICE_ICON_CHOICES = new Set([', connect_template)
+        self.assertIn('function normalizePeerIcon(icon)', connect_template)
+        self.assertIn('peerIcon: normalizePeerIcon(data.pi || \'\')', connect_template)
+        self.assertIn('remote.peer_icon', connect_template)
 
     def test_profile_settings_and_mesh_pages_explain_connection_hint_roles(self) -> None:
         profile_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'profile.html').read_text(encoding='utf-8')
@@ -109,6 +113,8 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('peer identity', settings_template)
         self.assertIn('Identity split:', settings_template)
         self.assertIn('Connection Hint Preview', settings_template)
+        self.assertIn('Node Hint Icon', settings_template)
+        self.assertIn('Shared in the invite as a compact fallback', settings_template)
 
         self.assertIn('device-level peer identity stay unchanged', mesh_detail_template)
         self.assertIn('Connection Hint Preview', mesh_detail_template)
@@ -151,8 +157,11 @@ class TestFrontendRegressions(unittest.TestCase):
         trust_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'trust.html').read_text(encoding='utf-8')
         self.assertIn("runTrustPeerAction('{{ peer_id }}', 'allow_sync', this)", trust_template)
         self.assertIn("runTrustPeerAction('{{ peer_id }}', 'allow_mesh_sync', this)", trust_template)
+        self.assertIn("runTrustPeerAction('{{ peer_id }}', 'treat_same_mesh', this)", trust_template)
+        self.assertIn("runTrustPeerAction('{{ peer_id }}', 'keep_cross_mesh_bridge', this)", trust_template)
         self.assertIn('preview-only until you approve sync', trust_template)
         self.assertIn('Mesh Preview', trust_template)
+        self.assertIn('Mesh Relationship', trust_template)
         self.assertIn('trust-badge sync-{{ peer.sync_status_class }}', trust_template)
 
     def test_trust_page_disables_review_action_buttons_while_request_is_in_flight(self) -> None:
@@ -200,9 +209,14 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('Meshspace ID differs from this workspace', connect_template)
         self.assertIn('allow_cross_mesh', connect_template)
         self.assertIn('Labels are sender-provided hints', connect_template)
-        self.assertIn('Cross-mesh bridges require instance admin approval on this workspace.', connect_template)
-        self.assertIn('Only the instance admin can approve a cross-mesh connection from this workspace.', connect_template)
+        self.assertIn('Mesh identity review requires instance admin approval on this workspace.', connect_template)
+        self.assertIn('Only the instance admin can connect and review a peer from a different meshspace.', connect_template)
         self.assertIn('Only the instance admin can approve a cross-mesh reconnect from this workspace.', connect_template)
+        self.assertIn('Connected to <code>\' + safePeerId + \'</code>, but mesh identity needs admin review before sync.', connect_template)
+        self.assertIn('function reviewPeerMesh(peerId, action, buttonEl)', connect_template)
+        self.assertIn('/api/v1/p2p/mesh_relationship', connect_template)
+        self.assertIn('Treat as same mesh', connect_template)
+        self.assertIn('Keep bridge', connect_template)
         self.assertIn("btn.disabled = true;", connect_template)
 
     def test_connect_page_api_errors_carry_diagnostic_code(self) -> None:
@@ -211,6 +225,7 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("if (data && data.diagnostic_code) err.diagnosticCode = data.diagnostic_code;", connect_template)
         self.assertIn("const code = err?.diagnosticCode;", connect_template)
         self.assertIn("code === 'cross_mesh_admin_required'", connect_template)
+        self.assertIn("code === 'mesh_identity_admin_required'", connect_template)
         self.assertIn("code === 'cross_mesh_confirmation_required'", connect_template)
         self.assertIn("code === 'cross_mesh_reconnect_confirmation_required'", connect_template)
         self.assertIn('Instance admin permission is required to connect to a peer from a different meshspace.', connect_template)

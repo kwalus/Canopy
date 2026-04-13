@@ -203,8 +203,10 @@ def _connection_identity_preview_payload(
     return {
         'peer_label': str(peer_hint.get('peer_label') or '').strip(),
         'peer_avatar_url': str(peer_hint.get('peer_avatar_url') or '').strip(),
+        'peer_icon': str(peer_hint.get('peer_icon') or '').strip(),
         'instance_label': str(peer_hint.get('instance_label') or '').strip(),
         'instance_description': str(peer_hint.get('instance_description') or '').strip(),
+        'instance_icon': str(peer_hint.get('instance_icon') or '').strip(),
         'mesh_name': mesh_name,
         'meshspace_id': meshspace_id,
         'mesh_fingerprint': str(mesh_hint.get('meshspace_fingerprint') or '').strip(),
@@ -5618,6 +5620,22 @@ def create_ui_blueprint() -> Blueprint:
                 remote_meshspace_id = str(sync_status.get('remote_meshspace_id') or '').strip()
                 remote_meshspace_name = str(sync_status.get('remote_meshspace_name') or '').strip()
                 remote_meshspace_fingerprint = str(sync_status.get('remote_meshspace_fingerprint') or '').strip()
+                cross_mesh_status: dict[str, Any] = {}
+                if p2p_manager and hasattr(p2p_manager, 'get_peer_cross_mesh_status'):
+                    try:
+                        cross_mesh_status = dict(p2p_manager.get_peer_cross_mesh_status(clean_peer_id) or {})
+                    except Exception:
+                        cross_mesh_status = {}
+                mesh_relationship = str(cross_mesh_status.get('mesh_relationship') or 'unknown').strip()
+                mesh_review_required = bool(cross_mesh_status.get('requires_manual_confirmation'))
+                cross_mesh_allowed = bool(cross_mesh_status.get('cross_mesh_allowed'))
+                mesh_relationship_label = {
+                    'same_mesh_confirmed': 'Same mesh',
+                    'same_mesh_alias_confirmed': 'Same mesh alias',
+                    'mesh_mismatch_pending_review': 'Mesh review required',
+                    'cross_mesh_bridge_allowed': 'Cross-mesh bridge',
+                    'unknown': 'Mesh unknown',
+                }.get(mesh_relationship, 'Mesh unknown')
                 sync_scope_label = {
                     'peer': 'Peer approved',
                     'mesh': 'Mesh approved',
@@ -5635,6 +5653,8 @@ def create_ui_blueprint() -> Blueprint:
                 connection_sort = {'live': 0, 'known': 1, 'introduced': 2, 'stale': 3}.get(connection_state, 4)
                 if sync_preview_only:
                     attention_flags.append('Awaiting sync approval')
+                if mesh_review_required:
+                    attention_flags.append('Mesh review required')
                 return {
                     'peer_id': clean_peer_id,
                     'short_id': f'{clean_peer_id[:12]}...',
@@ -5657,6 +5677,8 @@ def create_ui_blueprint() -> Blueprint:
                     'can_sync_now': clean_peer_id in connected_set and not sync_preview_only,
                     'can_allow_sync': sync_preview_only,
                     'can_allow_mesh_sync': bool(sync_preview_only and (remote_meshspace_id or remote_meshspace_fingerprint)),
+                    'can_treat_same_mesh': mesh_review_required,
+                    'can_keep_bridge': mesh_review_required and not cross_mesh_allowed,
                     'can_refresh_profile': bool(
                         p2p_manager
                         and hasattr(p2p_manager, 'recover_peer_profile_state')
@@ -5690,6 +5712,11 @@ def create_ui_blueprint() -> Blueprint:
                     'remote_meshspace_id': remote_meshspace_id,
                     'remote_meshspace_name': remote_meshspace_name,
                     'remote_meshspace_fingerprint': remote_meshspace_fingerprint,
+                    'cross_mesh_status': cross_mesh_status,
+                    'mesh_relationship': mesh_relationship,
+                    'mesh_relationship_label': mesh_relationship_label,
+                    'mesh_review_required': mesh_review_required,
+                    'cross_mesh_allowed': cross_mesh_allowed,
                     'inherited_from_peer_id': inherited_from_peer_id,
                 }
 
@@ -5925,6 +5952,35 @@ def create_ui_blueprint() -> Blueprint:
                 if not trigger_sync(peer_id):
                     return jsonify({'error': 'Failed to trigger sync'}), 502
                 return jsonify({'success': True, 'peer_id': peer_id, 'action': action, 'message': 'Peer sync triggered.'})
+
+            if action in {'treat_same_mesh', 'keep_cross_mesh_bridge'}:
+                if not _is_admin():
+                    return jsonify({'error': 'Only the instance admin can resolve mesh identity relationships.'}), 403
+                if action == 'treat_same_mesh':
+                    mark_same = getattr(p2p_manager, 'mark_peer_meshspace_equivalent', None)
+                    if not callable(mark_same):
+                        return jsonify({'error': 'Mesh alias reconciliation unavailable'}), 500
+                    status = dict(mark_same(peer_id) or {})
+                    return jsonify({
+                        'success': True,
+                        'peer_id': peer_id,
+                        'action': action,
+                        'cross_mesh': status,
+                        'message': 'Remote mesh ID saved as a compatibility alias for this mesh.',
+                    })
+                mark_bridge = getattr(p2p_manager, 'mark_peer_cross_mesh_allowed', None)
+                get_status = getattr(p2p_manager, 'get_peer_cross_mesh_status', None)
+                if not callable(mark_bridge):
+                    return jsonify({'error': 'Cross-mesh bridge approval unavailable'}), 500
+                mark_bridge(peer_id, True)
+                status = dict(get_status(peer_id) or {}) if callable(get_status) else {}
+                return jsonify({
+                    'success': True,
+                    'peer_id': peer_id,
+                    'action': action,
+                    'cross_mesh': status,
+                    'message': 'Peer kept as an intentional cross-mesh bridge. No mesh aliases were created.',
+                })
 
             if action in {'allow_sync', 'allow_mesh_sync'}:
                 approve_sync = getattr(p2p_manager, 'approve_peer_sync', None)
@@ -7044,7 +7100,7 @@ def create_ui_blueprint() -> Blueprint:
             db_manager, _, _, _, _, _, _, _, profile_manager, config, _ = _get_app_components_any(current_app)
             user_id = get_current_user()
             from .. import __version__ as canopy_version
-            from ..core.device import get_device_label, get_device_profile
+            from ..core.device import DEVICE_PROFILE_ICON_CHOICES, get_device_label, get_device_profile
             
             # Get database statistics
             db_stats = db_manager.get_database_stats()
@@ -7080,6 +7136,7 @@ def create_ui_blueprint() -> Blueprint:
                                  large_attachment_store_root=get_large_attachment_store_root(db_manager),
                                  large_attachment_download_mode=get_large_attachment_download_mode(db_manager),
                                  is_admin=_is_admin(),
+                                 device_icon_choices=DEVICE_PROFILE_ICON_CHOICES,
                                  current_local_peer_hint=current_local_peer_hint,
                                  current_mesh_hint=current_mesh_hint,
                                  connection_identity_preview=connection_identity_preview)
@@ -7474,6 +7531,20 @@ def create_ui_blueprint() -> Blueprint:
         item['launch_env'] = manager.launch_environment(item.get('meshspace_id')) or {}
         item['data_dir_exists'] = Path(str(item.get('data_dir') or '')).exists()
         item['database_exists'] = Path(str(item.get('database_path') or '')).exists()
+        port_status = str(item.get('status') or '').strip().lower()
+        item['can_update_ports'] = bool(
+            not item.get('is_current')
+            and not item.get('live_detected')
+            and port_status in {'defined', 'stopped', 'crashed', 'degraded'}
+        )
+        if item.get('is_current'):
+            item['port_update_blocked_reason'] = 'This is the currently running mesh. Stop or manage it from another supervisor before changing ports.'
+        elif item.get('live_detected'):
+            item['port_update_blocked_reason'] = 'Stop this mesh before changing its port block.'
+        elif port_status not in {'defined', 'stopped', 'crashed', 'degraded'}:
+            item['port_update_blocked_reason'] = f"Ports cannot be changed while this mesh is {port_status or 'in transition'}."
+        else:
+            item['port_update_blocked_reason'] = ''
         from ..core.device import get_device_label, get_device_profile
         from ..network.invite import meshspace_fingerprint
 
@@ -7642,6 +7713,38 @@ def create_ui_blueprint() -> Blueprint:
             _refresh_runtime_meshspace_advertisement(record)
             current_app.config['MESHSPACE_RECORD'] = dict(record)
         flash(f"Updated meshspace '{record.get('name')}'.", 'success')
+        return redirect(url_for('ui.meshspace_detail', meshspace_id=meshspace_id))
+
+    @ui.route('/meshes/<meshspace_id>/ports', methods=['POST'])
+    @require_login
+    def meshspace_ports(meshspace_id: str):
+        """Update the stopped meshspace runtime port block."""
+        if not _is_admin():
+            flash('Only the instance admin can change meshspace ports.', 'warning')
+            return redirect(url_for('ui.dashboard'))
+        manager = _get_meshspace_registry_manager()
+        if not manager:
+            flash('Meshspace registry is unavailable.', 'error')
+            return redirect(url_for('ui.meshes_home'))
+        raw_http_port = str(request.form.get('http_port') or '').strip()
+        try:
+            record = manager.update_meshspace_ports(meshspace_id, http_port=raw_http_port)
+        except ValueError as exc:
+            flash(str(exc), 'error')
+            return redirect(url_for('ui.meshspace_detail', meshspace_id=meshspace_id))
+        except Exception as exc:
+            logger.error("Meshspace port update failed for %s: %s", meshspace_id, exc, exc_info=True)
+            flash('Failed to update meshspace ports.', 'error')
+            return redirect(url_for('ui.meshspace_detail', meshspace_id=meshspace_id))
+        if not record:
+            flash('Meshspace not found.', 'error')
+            return redirect(url_for('ui.meshes_home'))
+        flash(
+            f"Updated '{record.get('name')}' to HTTP {record.get('http_port')}, "
+            f"mesh {record.get('mesh_port')}, discovery {record.get('discovery_port')}. "
+            "Restart the meshspace and share a fresh invite with peers that only know the old endpoint.",
+            'success',
+        )
         return redirect(url_for('ui.meshspace_detail', meshspace_id=meshspace_id))
 
     @ui.route('/meshes/<meshspace_id>/promote', methods=['POST'])
@@ -8219,6 +8322,7 @@ def create_ui_blueprint() -> Blueprint:
                     mesh_port,
                     mesh_name=current_mesh_name,
                     meshspace_id=current_meshspace_id or None,
+                    meshspace_id_aliases=list(current_mesh_hint.get('meshspace_id_aliases') or []) or None,
                     meshspace_fingerprint_value=current_mesh_fingerprint or None,
                     peer_label=current_peer_label or None,
                     instance_label=current_instance_label or None,
@@ -8265,8 +8369,10 @@ def create_ui_blueprint() -> Blueprint:
                         p2p_manager.get_peer_cross_mesh_status(pid)
                         if hasattr(p2p_manager, 'get_peer_cross_mesh_status') else {}
                     )
+                    mesh_relationship = str((cross_mesh_status or {}).get('mesh_relationship') or 'unknown').strip()
+                    mesh_review_required = bool((cross_mesh_status or {}).get('requires_manual_confirmation'))
                     cross_mesh_warning = ''
-                    if bool((cross_mesh_status or {}).get('requires_manual_confirmation')):
+                    if mesh_review_required:
                         remote_name = str(
                             (cross_mesh_status or {}).get('remote_meshspace_name')
                             or (cross_mesh_status or {}).get('remote_meshspace_id')
@@ -8274,8 +8380,8 @@ def create_ui_blueprint() -> Blueprint:
                             or 'another meshspace'
                         )
                         cross_mesh_warning = (
-                            f"This peer last advertised meshspace '{remote_name}', "
-                            f"not '{current_mesh_name}'. Reconnect only if this bridge is intentional."
+                            f"This peer advertises meshspace '{remote_name}', "
+                            f"not '{current_mesh_name}'. Keep transport connected only while you review whether this is the same mesh or an intentional bridge."
                         )
                     connection_type = 'offline'
                     if pid in connected_set:
@@ -8287,6 +8393,11 @@ def create_ui_blueprint() -> Blueprint:
                         'display_name': im.peer_display_names.get(pid, ''),
                         'endpoints': im.peer_endpoints.get(pid, []),
                         'meshspace_hint': meshspace_hint,
+                        'cross_mesh_status': cross_mesh_status,
+                        'mesh_relationship': mesh_relationship,
+                        'mesh_review_required': mesh_review_required,
+                        'can_treat_same_mesh': mesh_review_required,
+                        'can_keep_bridge': mesh_review_required and not bool((cross_mesh_status or {}).get('cross_mesh_allowed')),
                         'cross_mesh_warning': cross_mesh_warning,
                         'connected': connection_type in {'direct', 'relayed'},
                         'connection_type': connection_type,
@@ -8304,6 +8415,11 @@ def create_ui_blueprint() -> Blueprint:
                         'display_name': str(getattr(dev, 'display_name', '') or '').strip(),
                         'avatar_b64': str(getattr(dev, 'avatar_b64', '') or '').strip(),
                         'avatar_mime': str(getattr(dev, 'avatar_mime', '') or '').strip(),
+                        'icon': str(
+                            getattr(dev, 'icon', '')
+                            if not isinstance(dev, dict)
+                            else dev.get('icon', '')
+                        ).strip(),
                     }
             peer_mesh_hints = {}
 

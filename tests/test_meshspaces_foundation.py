@@ -200,6 +200,7 @@ class MeshspaceFoundationTest(unittest.TestCase):
             'instance_label': 'Alvin Node',
             'peer_avatar_b64': base64.b64encode(_PNG_1X1).decode('ascii'),
             'peer_avatar_mime': 'image/png',
+            'peer_icon': 'bi-laptop',
         }):
             identity = self.client.get('/api/v1/mesh/identity')
         self.assertEqual(identity.status_code, 200)
@@ -211,6 +212,7 @@ class MeshspaceFoundationTest(unittest.TestCase):
         self.assertEqual((payload.get('peer') or {}).get('peer_label'), 'Windy Admin')
         self.assertTrue((payload.get('peer') or {}).get('peer_avatar_b64'))
         self.assertEqual((payload.get('peer') or {}).get('peer_avatar_mime'), 'image/png')
+        self.assertEqual((payload.get('peer') or {}).get('peer_icon'), 'bi-laptop')
 
     def test_meshspace_registry_tracks_current_runtime(self) -> None:
         manager = self.app.config.get('MESHSPACE_REGISTRY_MANAGER')
@@ -865,6 +867,141 @@ class MeshspaceFoundationTest(unittest.TestCase):
         isolate_body = isolate_response.get_data(as_text=True)
         self.assertIn('Enable networking after restart', isolate_body)
 
+    def test_stopped_meshspace_port_update_preserves_identity_and_updates_launch_env(self) -> None:
+        manager = self.app.config.get('MESHSPACE_REGISTRY_MANAGER')
+        manager.create_meshspace(
+            name='Research Lab',
+            meshspace_id='research-lab',
+            description='Experimental mesh for testing.',
+            http_port=18700,
+            mesh_port=18701,
+            discovery_port=18702,
+        )
+        before = manager.get_meshspace('research-lab')
+        self.assertIsNotNone(before)
+
+        with patch('canopy.core.meshspaces._listener_pid_for_port', return_value=0), \
+             patch('canopy.core.meshspaces._port_accepts_connections', return_value=False), \
+             patch('canopy.core.meshspaces._http_json', return_value={}):
+            updated = manager.update_meshspace_ports('research-lab', http_port=18800)
+
+        self.assertIsNotNone(updated)
+        self.assertEqual(updated.get('http_port'), 18800)
+        self.assertEqual(updated.get('mesh_port'), 18801)
+        self.assertEqual(updated.get('discovery_port'), 18802)
+        self.assertEqual(updated.get('meshspace_id'), before.get('meshspace_id'))
+        self.assertEqual(updated.get('data_dir'), before.get('data_dir'))
+        self.assertEqual(updated.get('database_path'), before.get('database_path'))
+        self.assertEqual(updated.get('session_cookie_name'), before.get('session_cookie_name'))
+        self.assertEqual(updated.get('launch_url'), 'http://127.0.0.1:18800')
+
+        launch_env = manager.launch_environment('research-lab')
+        self.assertEqual(launch_env.get('CANOPY_PORT'), '18800')
+        self.assertEqual(launch_env.get('CANOPY_MESH_PORT'), '18801')
+        self.assertEqual(launch_env.get('CANOPY_DISCOVERY_PORT'), '18802')
+        self.assertEqual(launch_env.get('CANOPY_MESHSPACE_ID'), 'research-lab')
+
+    def test_stopped_meshspace_port_update_rejects_registry_conflict(self) -> None:
+        manager = self.app.config.get('MESHSPACE_REGISTRY_MANAGER')
+        manager.create_meshspace(
+            name='Research Lab',
+            meshspace_id='research-lab',
+            http_port=18700,
+            mesh_port=18701,
+            discovery_port=18702,
+        )
+        manager.create_meshspace(
+            name='Studio Lab',
+            meshspace_id='studio-lab',
+            http_port=18800,
+            mesh_port=18801,
+            discovery_port=18802,
+        )
+
+        with self.assertRaises(ValueError) as ctx:
+            manager.update_meshspace_ports('studio-lab', http_port=18700)
+        self.assertIn("Research Lab", str(ctx.exception))
+        self.assertIn("18700", str(ctx.exception))
+
+    def test_stopped_meshspace_port_update_rejects_live_runtime(self) -> None:
+        manager = self.app.config.get('MESHSPACE_REGISTRY_MANAGER')
+        manager.create_meshspace(
+            name='Research Lab',
+            meshspace_id='research-lab',
+            http_port=18700,
+            mesh_port=18701,
+            discovery_port=18702,
+        )
+        manager.update_runtime_state('research-lab', 'running', peer_id='peer-research')
+
+        with patch.object(manager, 'probe_meshspace_runtime', return_value={
+            'live': True,
+            'effective_status': 'running',
+            'detected_pid': 4242,
+        }):
+            with self.assertRaises(ValueError) as ctx:
+                manager.update_meshspace_ports('research-lab', http_port=18800)
+        self.assertIn('Stop this meshspace before changing its ports', str(ctx.exception))
+
+    def test_stopped_meshspace_port_update_rejects_host_aware_listener_conflict(self) -> None:
+        manager = self.app.config.get('MESHSPACE_REGISTRY_MANAGER')
+        manager.create_meshspace(
+            name='Research Lab',
+            meshspace_id='research-lab',
+            http_port=18700,
+            mesh_port=18701,
+            discovery_port=18702,
+        )
+
+        def _fake_listener(port, host=None):
+            self.assertEqual(host, '127.0.0.1')
+            return 4242 if int(port) == 18801 else 0
+
+        with patch('canopy.core.meshspaces._listener_pid_for_port', side_effect=_fake_listener), \
+             patch('canopy.core.meshspaces._port_accepts_connections', return_value=False), \
+             patch('canopy.core.meshspaces._http_json', return_value={}):
+            with self.assertRaises(ValueError) as ctx:
+                manager.update_meshspace_ports('research-lab', http_port=18800)
+        self.assertIn('mesh:18801 pid:4242', str(ctx.exception))
+
+    def test_admin_can_update_stopped_meshspace_ports_from_detail(self) -> None:
+        self._authenticate()
+
+        manager = self.app.config.get('MESHSPACE_REGISTRY_MANAGER')
+        manager.create_meshspace(
+            name='Research Lab',
+            meshspace_id='research-lab',
+            description='Experimental mesh for testing.',
+            http_port=18700,
+            mesh_port=18701,
+            discovery_port=18702,
+        )
+
+        with patch('canopy.core.meshspaces._listener_pid_for_port', return_value=0), \
+             patch('canopy.core.meshspaces._port_accepts_connections', return_value=False), \
+             patch('canopy.core.meshspaces._http_json', return_value={}):
+            response = self.client.post(
+                '/meshes/research-lab/ports',
+                data={
+                    'csrf_token': 'csrf-mesh',
+                    'http_port': '18800',
+                },
+                follow_redirects=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn('Updated', body)
+        self.assertIn('18800', body)
+        self.assertIn('18801', body)
+        self.assertIn('18802', body)
+        self.assertIn('/meshes/research-lab/ports', body)
+
+        record = manager.get_meshspace('research-lab')
+        self.assertEqual(record.get('http_port'), 18800)
+        self.assertEqual(record.get('mesh_port'), 18801)
+        self.assertEqual(record.get('discovery_port'), 18802)
+
     def test_admin_can_edit_meshspace_identity_metadata(self) -> None:
         self._authenticate()
 
@@ -1420,7 +1557,7 @@ class LegacyMeshspaceAdoptionTest(unittest.TestCase):
             to_dict=lambda: {'mn': 'Windy Mesh'},
         )
         with patch('canopy.network.invite.generate_invite', return_value=fake_invite) as generate_invite_mock, \
-             patch('canopy.core.device.get_device_profile', return_value={'display_name': 'Alvin Node'}), \
+             patch('canopy.core.device.get_device_profile', return_value={'display_name': 'Alvin Node', 'icon': 'bi-server'}), \
              patch('canopy.core.device.get_device_label', return_value='Alvin Device'):
             response = self.client.get('/api/v1/p2p/invite')
         self.assertEqual(response.status_code, 200)
@@ -1431,6 +1568,7 @@ class LegacyMeshspaceAdoptionTest(unittest.TestCase):
         self.assertEqual(generate_invite_mock.call_args.kwargs.get('mesh_name'), 'Windy Mesh')
         self.assertEqual(generate_invite_mock.call_args.kwargs.get('peer_label'), 'Alvin Node')
         self.assertEqual(generate_invite_mock.call_args.kwargs.get('instance_label'), 'Alvin Node')
+        self.assertEqual(generate_invite_mock.call_args.kwargs.get('peer_icon'), 'bi-server')
         self.assertIsNone(generate_invite_mock.call_args.kwargs.get('meshspace_avatar_b64'))
         self.assertIsNone(generate_invite_mock.call_args.kwargs.get('meshspace_avatar_mime'))
         self.assertIsNone(generate_invite_mock.call_args.kwargs.get('meshspace_id_aliases'))
@@ -1494,6 +1632,7 @@ class LegacyMeshspaceAdoptionTest(unittest.TestCase):
                 'peer_avatar_b64': base64.b64encode(_PNG_1X1).decode('ascii'),
                 'peer_avatar_mime': 'image/png',
                 'instance_label': 'WINDYLAPTOP',
+                'peer_icon': 'bi-laptop',
             },
             'version': '0.6.18',
             'ready': True,
@@ -1515,6 +1654,7 @@ class LegacyMeshspaceAdoptionTest(unittest.TestCase):
         self.assertEqual(payload.get('peer_label'), 'Maddog')
         self.assertTrue(payload.get('peer_avatar_b64'))
         self.assertEqual(payload.get('instance_label'), 'WINDYLAPTOP')
+        self.assertEqual(payload.get('peer_icon'), 'bi-laptop')
         self.assertEqual(payload.get('source_endpoint'), 'ws://192.168.1.159:7771')
         self.assertEqual(payload.get('source_url'), remote_url)
         request_obj = remote_get.call_args.args[0]

@@ -274,6 +274,7 @@ def _public_mesh_identity_payload() -> dict[str, Any]:
         'instance_label': str(peer_hint.get('instance_label') or '').strip(),
         'peer_avatar_b64': str(peer_hint.get('peer_avatar_b64') or '').strip(),
         'peer_avatar_mime': str(peer_hint.get('peer_avatar_mime') or 'image/jpeg').strip() or 'image/jpeg',
+        'peer_icon': str(peer_hint.get('peer_icon') or '').strip(),
     })
     return {
         'meshspace': meshspace,
@@ -360,6 +361,7 @@ def _fetch_remote_mesh_identity_preview(endpoint: str, *, timeout_seconds: float
         'peer_label': str(peer.get('peer_label') or '').strip(),
         'peer_avatar_b64': str(peer.get('peer_avatar_b64') or '').strip(),
         'peer_avatar_mime': str(peer.get('peer_avatar_mime') or 'image/jpeg').strip() or 'image/jpeg',
+        'peer_icon': str(peer.get('peer_icon') or '').strip(),
         'instance_label': str(peer.get('instance_label') or '').strip(),
         'ready': bool(payload.get('ready')),
         'version': str(payload.get('version') or '').strip(),
@@ -3223,6 +3225,7 @@ def create_api_blueprint() -> Blueprint:
             )
             peer_label = str(peer_hint.get('peer_label') or '').strip()
             instance_label = str(peer_hint.get('instance_label') or '').strip()
+            peer_icon = str(peer_hint.get('peer_icon') or '').strip()
 
             invite = generate_invite(
                 p2p_manager.identity_manager,
@@ -3232,9 +3235,11 @@ def create_api_blueprint() -> Blueprint:
                 external_endpoint=external_endpoint,
                 mesh_name=mesh_name or None,
                 meshspace_id=meshspace_id or None,
+                meshspace_id_aliases=list(mesh_hint.get('meshspace_id_aliases') or []) or None,
                 meshspace_fingerprint_value=mesh_fingerprint or None,
                 peer_label=peer_label or None,
                 instance_label=instance_label or None,
+                peer_icon=peer_icon or None,
                 generated_at=datetime.now(timezone.utc).isoformat(),
             )
             return jsonify({
@@ -3347,27 +3352,27 @@ def create_api_blueprint() -> Blueprint:
             invite_meshspace_id = str(invite.meshspace_id or '').strip()
             invite_meshspace_aliases = [
                 str(value or '').strip()
-                for value in (invite.meshspace_id_aliases or [])
+                for value in (getattr(invite, 'meshspace_id_aliases', None) or [])
                 if str(value or '').strip()
             ]
             local_meshspace_ids = {local_meshspace_id, *local_meshspace_aliases}
             invite_meshspace_ids = {invite_meshspace_id, *invite_meshspace_aliases}
             local_meshspace_ids.discard('')
             invite_meshspace_ids.discard('')
-            if (
+            invite_mesh_identity_mismatch = bool(
                 explicit_meshspace
                 and local_meshspace_ids
                 and invite_meshspace_ids
                 and not local_meshspace_ids.intersection(invite_meshspace_ids)
-                and not allow_cross_mesh
-            ):
+            )
+            if invite_mesh_identity_mismatch and not allow_cross_mesh and not _request_is_instance_admin(db_manager):
                 return jsonify({
-                    'status': 'confirmation_required',
-                    'error': 'Cross-mesh invite requires confirmation',
-                    'diagnostic_code': 'cross_mesh_confirmation_required',
+                    'status': 'admin_required',
+                    'error': 'Mesh identity review requires instance admin',
+                    'diagnostic_code': 'mesh_identity_admin_required',
                     'message': (
                         'This invite advertises a different meshspace. '
-                        'Confirm explicitly before connecting so Reconnect All cannot silently bridge meshes.'
+                        'An instance admin can connect it for review, then choose whether to treat it as the same mesh or keep it as a bridge.'
                     ),
                     'local_meshspace': {
                         'meshspace_id': local_meshspace_id,
@@ -3375,10 +3380,10 @@ def create_api_blueprint() -> Blueprint:
                     },
                     'invite_meshspace': {
                         'meshspace_id': invite_meshspace_id,
-                        'name': invite.mesh_name,
-                        'fingerprint': invite.meshspace_fingerprint,
+                        'name': getattr(invite, 'mesh_name', ''),
+                        'fingerprint': getattr(invite, 'meshspace_fingerprint', ''),
                     },
-                }), 409
+                }), 403
             if allow_cross_mesh and not _request_is_instance_admin(db_manager):
                 return jsonify({
                     'error': 'Instance admin required',
@@ -3398,7 +3403,7 @@ def create_api_blueprint() -> Blueprint:
             # Attempt to connect to each endpoint
             connected = False
             if p2p_manager.connection_manager:
-                for ep in invite.endpoints:
+                for ep in list(getattr(invite, 'endpoints', []) or []):
                     try:
                         _record_connection_event(
                             p2p_manager,
@@ -3424,6 +3429,7 @@ def create_api_blueprint() -> Blueprint:
                                     invite.peer_id,
                                     ep,
                                     allow_cross_mesh=allow_cross_mesh,
+                                    allow_mesh_review=bool(invite_mesh_identity_mismatch and not allow_cross_mesh),
                                 )
                             else:
                                 connect_coro = p2p_manager.connection_manager.connect_to_peer(
@@ -3439,20 +3445,42 @@ def create_api_blueprint() -> Blueprint:
                             connected = False
 
                         if connected:
-                            result['status'] = 'connected'
+                            cross_status = {}
+                            get_cross_status = getattr(p2p_manager, 'get_peer_cross_mesh_status', None)
+                            if callable(get_cross_status):
+                                try:
+                                    cross_status = dict(get_cross_status(invite.peer_id) or {})
+                                except Exception:
+                                    cross_status = {}
+                            mesh_review_required = bool(cross_status.get('requires_manual_confirmation'))
+                            result['status'] = 'connected_mesh_review_required' if mesh_review_required else 'connected'
                             result['connected_endpoint'] = ep
+                            if cross_status:
+                                result['cross_mesh'] = cross_status
+                                result['mesh_relationship'] = cross_status.get('mesh_relationship')
+                                result['local_meshspace_id'] = cross_status.get('local_meshspace_id')
+                                result['remote_meshspace_id'] = cross_status.get('remote_meshspace_id')
+                            if mesh_review_required:
+                                result['diagnostic_code'] = 'mesh_identity_review_required'
+                                result['message'] = (
+                                    'Peer connected. Mesh identity still needs admin review before same-mesh sync is allowed.'
+                                )
                             _record_connection_event(
                                 p2p_manager,
                                 invite.peer_id,
-                                status='connected',
-                                detail='Invite connected',
+                                status='mesh_review_required' if mesh_review_required else 'connected',
+                                detail=(
+                                    'Invite connected; mesh identity review required'
+                                    if mesh_review_required else 'Invite connected'
+                                ),
                                 endpoint=ep,
                             )
                             # Trigger channel-sync + catch-up for the new peer
-                            try:
-                                p2p_manager.trigger_peer_sync(invite.peer_id)
-                            except Exception as sync_err:
-                                logger.warning(f"Post-connect sync failed for {invite.peer_id}: {sync_err}")
+                            if not mesh_review_required:
+                                try:
+                                    p2p_manager.trigger_peer_sync(invite.peer_id)
+                                except Exception as sync_err:
+                                    logger.warning(f"Post-connect sync failed for {invite.peer_id}: {sync_err}")
                             break
                     except Exception as ce:
                         logger.warning(f"Connection to {ep} failed: {ce}")
@@ -3468,10 +3496,16 @@ def create_api_blueprint() -> Blueprint:
                     )
                 else:
                     result['diagnostic_code'] = 'direct_connect_failed'
-                    result['message'] = (
-                        'Peer registered but could not connect to any advertised endpoint. '
-                        'The peer may be offline, the endpoint may be stale, or the connection may require broker/relay help.'
-                    )
+                    if invite_mesh_identity_mismatch and not allow_cross_mesh:
+                        result['message'] = (
+                            'Peer registered for mesh identity review but could not connect to any advertised endpoint yet. '
+                            'When it is reachable, sync remains paused until an admin treats the mesh IDs as the same mesh or keeps a bridge.'
+                        )
+                    else:
+                        result['message'] = (
+                            'Peer registered but could not connect to any advertised endpoint. '
+                            'The peer may be offline, the endpoint may be stale, or the connection may require broker/relay help.'
+                        )
                 _record_connection_event(
                     p2p_manager,
                     invite.peer_id,
@@ -4031,6 +4065,66 @@ def create_api_blueprint() -> Blueprint:
 
         return jsonify({'status': 'disconnected', 'peer_id': peer_id})
 
+    @api.route('/p2p/mesh_relationship', methods=['POST'])
+    @require_auth(allow_session=True)
+    def resolve_peer_mesh_relationship():
+        """Resolve a peer's mesh identity mismatch without conflating bridge and alias decisions."""
+        db_manager, _, _, _, _, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+        if not _request_is_instance_admin(db_manager):
+            return jsonify({
+                'error': 'Instance admin required',
+                'diagnostic_code': 'mesh_identity_admin_required',
+                'message': 'Only the instance admin can resolve peer mesh identity relationships.',
+            }), 403
+        if not p2p_manager:
+            return jsonify({'error': 'P2P not running'}), 500
+
+        data = request.get_json() or {}
+        peer_id = str(data.get('peer_id') or '').strip()
+        action = str(data.get('action') or data.get('relationship') or '').strip().lower()
+        if not peer_id:
+            return jsonify({'error': 'peer_id required'}), 400
+        if action in {'same_mesh', 'same_mesh_alias', 'treat_as_same_mesh', 'alias'}:
+            mark_same = getattr(p2p_manager, 'mark_peer_meshspace_equivalent', None)
+            if not callable(mark_same):
+                return jsonify({'error': 'Mesh alias reconciliation unavailable'}), 500
+            try:
+                status = dict(mark_same(peer_id) or {})
+            except Exception as exc:
+                return jsonify({'error': str(exc) or 'Could not treat peer as same mesh'}), 400
+            return jsonify({
+                'success': True,
+                'status': 'same_mesh_alias_confirmed',
+                'peer_id': peer_id,
+                'cross_mesh': status,
+                'message': 'Remote mesh ID saved as a compatibility alias for this mesh.',
+            })
+        if action in {'bridge', 'cross_mesh_bridge', 'keep_bridge', 'allow_cross_mesh'}:
+            mark_bridge = getattr(p2p_manager, 'mark_peer_cross_mesh_allowed', None)
+            get_status = getattr(p2p_manager, 'get_peer_cross_mesh_status', None)
+            if not callable(mark_bridge):
+                return jsonify({'error': 'Cross-mesh bridge approval unavailable'}), 500
+            mark_bridge(peer_id, True)
+            status = dict(get_status(peer_id) or {}) if callable(get_status) else {}
+            return jsonify({
+                'success': True,
+                'status': 'cross_mesh_bridge_allowed',
+                'peer_id': peer_id,
+                'cross_mesh': status,
+                'message': 'Peer kept as an intentional cross-mesh bridge. No mesh aliases were created.',
+            })
+        if action in {'forget', 'disconnect_forget', 'disconnect'}:
+            result = _forget_peer_with_cleanup(
+                db_manager,
+                p2p_manager,
+                peer_id,
+                remove_introduced=True,
+                purge_residue=True,
+                remove_shadow_users=True,
+            )
+            return jsonify(result), (200 if result.get('success') else 400)
+        return jsonify({'error': 'Unsupported mesh relationship action'}), 400
+
     @api.route('/p2p/forget', methods=['POST'])
     @require_auth(allow_session=True)
     def forget_peer():
@@ -4304,7 +4398,7 @@ def create_api_blueprint() -> Blueprint:
         """Update this device's profile.
 
         Body: {"display_name": "...", "description": "...",
-               "avatar_b64": "...", "avatar_mime": "..."}
+               "avatar_b64": "...", "avatar_mime": "...", "icon": "..."}
         """
         from canopy.core.device import set_device_profile
         data = request.get_json()
@@ -4316,6 +4410,7 @@ def create_api_blueprint() -> Blueprint:
                 description=data.get('description'),
                 avatar_b64=data.get('avatar_b64'),
                 avatar_mime=data.get('avatar_mime'),
+                icon=data.get('icon'),
             )
         except ValueError as exc:
             return jsonify({'error': str(exc)}), 400

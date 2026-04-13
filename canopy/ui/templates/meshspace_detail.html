@@ -224,6 +224,42 @@
         color: rgba(254, 240, 138, 0.94);
     }
 
+    .mesh-port-preview {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+        margin: 0.65rem 0 0;
+    }
+
+    .mesh-port-chip {
+        padding: 0.72rem 0.78rem;
+        border-radius: 16px;
+        background: rgba(15, 23, 42, 0.72);
+        border: 1px solid rgba(148, 163, 184, 0.14);
+    }
+
+    .mesh-port-chip strong {
+        display: block;
+        font-size: 0.68rem;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: rgba(148, 163, 184, 0.92);
+        margin-bottom: 0.22rem;
+    }
+
+    .mesh-port-chip span {
+        font-family: 'IBM Plex Mono', ui-monospace, monospace;
+        font-weight: 700;
+        color: #dbeafe;
+    }
+
+    .mesh-port-warning {
+        margin-top: 0.8rem;
+        color: rgba(226, 232, 240, 0.74);
+        font-size: 0.9rem;
+        line-height: 1.45;
+    }
+
     .mesh-avatar-panel {
         display: flex;
         align-items: center;
@@ -282,6 +318,10 @@
         }
 
         .mesh-health-grid {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .mesh-port-preview {
             grid-template-columns: minmax(0, 1fr);
         }
 
@@ -345,6 +385,28 @@
             fallbackCopy(text, markDone);
         }
     };
+
+    function updatePortPreview() {
+        var input = document.getElementById('mesh-http-port-input');
+        if (!input) return;
+        var base = parseInt(input.value, 10);
+        var http = document.querySelector('[data-derived-http-port]');
+        var mesh = document.querySelector('[data-derived-mesh-port]');
+        var discovery = document.querySelector('[data-derived-discovery-port]');
+        var invalid = document.querySelector('[data-port-invalid]');
+        var valid = Number.isFinite(base) && base >= 1024 && base <= 65533;
+        if (http) http.textContent = valid ? String(base) : '-';
+        if (mesh) mesh.textContent = valid ? String(base + 1) : '-';
+        if (discovery) discovery.textContent = valid ? String(base + 2) : '-';
+        if (invalid) invalid.classList.toggle('d-none', valid);
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        var input = document.getElementById('mesh-http-port-input');
+        if (!input) return;
+        input.addEventListener('input', updatePortPreview);
+        updatePortPreview();
+    });
 })();
 </script>
 {% endblock %}
@@ -461,6 +523,69 @@
                 </section>
 
                 <section class="mesh-detail-panel">
+                    <h2>Port Block</h2>
+                    <p>Move this meshspace to a different local runtime port block when another process already owns the current ports.</p>
+                    {% if not meshspace.can_update_ports %}
+                    <div class="mesh-detail-callout mb-3">
+                        <i class="bi bi-lock me-1"></i>{{ meshspace.port_update_blocked_reason or 'Stop this mesh before changing ports.' }}
+                    </div>
+                    {% endif %}
+                    <form class="mesh-detail-form" method="POST" action="{{ url_for('ui.meshspace_ports', meshspace_id=meshspace.meshspace_id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <div class="mesh-detail-form-grid">
+                            <div>
+                                <label class="form-label" for="mesh-http-port-input">Base HTTP port</label>
+                                <input
+                                    type="number"
+                                    class="form-control"
+                                    id="mesh-http-port-input"
+                                    name="http_port"
+                                    min="1024"
+                                    max="65533"
+                                    step="1"
+                                    value="{{ meshspace.http_port }}"
+                                    {% if not meshspace.can_update_ports %}disabled{% endif %}
+                                    required
+                                >
+                            </div>
+                            <div>
+                                <label class="form-label">Derived block</label>
+                                <div class="mesh-port-preview">
+                                    <div class="mesh-port-chip">
+                                        <strong>HTTP</strong>
+                                        <span data-derived-http-port>{{ meshspace.http_port }}</span>
+                                    </div>
+                                    <div class="mesh-port-chip">
+                                        <strong>Mesh</strong>
+                                        <span data-derived-mesh-port>{{ (meshspace.http_port|int) + 1 }}</span>
+                                    </div>
+                                    <div class="mesh-port-chip">
+                                        <strong>Discovery</strong>
+                                        <span data-derived-discovery-port>{{ (meshspace.http_port|int) + 2 }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mesh-detail-callout d-none" data-port-invalid>
+                            Choose a base HTTP port between 1024 and 65533 so Canopy can reserve HTTP, mesh, and discovery ports as one block.
+                        </div>
+                        <div class="mesh-port-warning">
+                            Changing ports does not move data, change the mesh ID, rotate peer keys, or alter trust. It does change local launch URLs and the mesh websocket endpoint; peers that only remember the old endpoint may need a fresh invite after restart.
+                        </div>
+                        <div class="d-flex flex-wrap gap-2">
+                            <button type="submit" class="btn btn-outline-info" {% if not meshspace.can_update_ports %}disabled{% endif %}>
+                                <i class="bi bi-ethernet me-2"></i>Save port block
+                            </button>
+                            {% if meshspace.can_update_ports %}
+                            <span class="btn btn-outline-secondary disabled">
+                                Restart after saving
+                            </span>
+                            {% endif %}
+                        </div>
+                    </form>
+                </section>
+
+                <section class="mesh-detail-panel">
                     <h2>Launch</h2>
                     <p>Use this only if you want to run the mesh manually from a terminal.</p>
                     <div class="mesh-code" id="launch-cmd">{{ meshspace.launch_command }}</div>
@@ -508,7 +633,7 @@
                                     {% if connection_identity_preview.peer_avatar_url %}
                                     <img src="{{ connection_identity_preview.peer_avatar_url }}" alt="" style="width:100%; height:100%; object-fit:cover;">
                                     {% else %}
-                                    <i class="bi bi-person-circle fs-4"></i>
+                                    <i class="bi {{ connection_identity_preview.peer_icon or 'bi-pc-display-horizontal' }} fs-4"></i>
                                     {% endif %}
                                 </div>
                                 <div>
@@ -532,7 +657,7 @@
                             </div>
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-4 border d-flex align-items-center justify-content-center" style="width:56px; height:56px; flex-shrink:0; background: rgba(255,255,255,0.04);">
-                                    <i class="bi bi-pc-display fs-4"></i>
+                                    <i class="bi {{ connection_identity_preview.instance_icon or 'bi-pc-display-horizontal' }} fs-4"></i>
                                 </div>
                                 <div>
                                     <div class="text-uppercase small text-muted">Node hint</div>

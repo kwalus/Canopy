@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.23] - 2026-04-13
+
+### Changed
+- **Accepted cross-mesh invites can now connect for review instead of stalling in a dead-end mismatch state** - instance admins can import a mismatched peer, keep the transport up for review, then explicitly treat it as the same mesh or keep it as a bridge without silently merging meshes.
+
+### Fixed
+- **Node hints now carry a compact admin-chosen icon fallback when avatar images are unavailable** - device profiles now include a validated standard icon that rides inside invite/public preview metadata so Connect cards still show a recognizable node marker even when remote preview fetches fail or avatars do not load.
+
 ## [0.6.22] - 2026-04-13
 
 ### Fixed

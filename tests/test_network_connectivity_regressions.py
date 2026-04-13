@@ -56,7 +56,9 @@ class _DummyConfig:
         self.meshspace = types.SimpleNamespace(
             enabled=True,
             meshspace_id='family-mesh',
+            meshspace_id_aliases=[],
             name='Family Mesh',
+            registry_root='',
             network_quarantined=False,
         )
 
@@ -179,6 +181,7 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
             meshspace_fingerprint='E4A1-22B0',
             peer_label='Kitchen Node',
             instance_label='Mac Mini',
+            peer_icon='bi-laptop',
             generated_at='2026-04-10T12:00:00+00:00',
         )
 
@@ -191,6 +194,7 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(decoded.meshspace_fingerprint, 'E4A1-22B0')
         self.assertEqual(decoded.peer_label, 'Kitchen Node')
         self.assertEqual(decoded.instance_label, 'Mac Mini')
+        self.assertEqual(decoded.peer_icon, 'bi-laptop')
         self.assertEqual(decoded.generated_at, '2026-04-10T12:00:00+00:00')
 
     def test_invite_decode_raw_json_does_not_inherit_base64_padding(self) -> None:
@@ -216,6 +220,7 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
             meshspace_id='business-mesh',
             peer_label='VPS Bridge',
             instance_label='canopy-vps-1',
+            peer_icon='bi-server',
             generated_at='2026-04-10T12:00:00+00:00',
         )
 
@@ -224,6 +229,7 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertRegex(invite.meshspace_fingerprint or '', r'^[0-9A-F]{4}-[0-9A-F]{4}$')
         self.assertEqual(invite.peer_label, 'VPS Bridge')
         self.assertEqual(invite.instance_label, 'canopy-vps-1')
+        self.assertEqual(invite.peer_icon, 'bi-server')
         self.assertEqual(invite.generated_at, '2026-04-10T12:00:00+00:00')
         self.assertEqual(InviteCode.decode(invite.encode()).mesh_name, 'Business Mesh')
         self.assertEqual(InviteCode.decode(invite.encode()).meshspace_id, 'business-mesh')
@@ -524,6 +530,36 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(schedule_calls, [])
 
+    def test_cross_mesh_status_exposes_pending_bridge_and_alias_relationships(self) -> None:
+        manager = self._build_manager()
+        manager.identity_manager.record_peer_meshspace_hint(
+            'peer-remote',
+            meshspace_id='family-mesh-legacy',
+            meshspace_name='Family Mesh',
+            source='invite',
+        )
+
+        pending = manager.get_peer_cross_mesh_status('peer-remote')
+        self.assertTrue(pending.get('requires_manual_confirmation'))
+        self.assertEqual(pending.get('mesh_relationship'), 'mesh_mismatch_pending_review')
+
+        manager.mark_peer_cross_mesh_allowed('peer-remote', True)
+        bridge = manager.get_peer_cross_mesh_status('peer-remote')
+        self.assertFalse(bridge.get('requires_manual_confirmation'))
+        self.assertEqual(bridge.get('mesh_relationship'), 'cross_mesh_bridge_allowed')
+        self.assertNotIn('family-mesh-legacy', manager.config.meshspace.meshspace_id_aliases)
+
+        manager.identity_manager.record_peer_meshspace_hint(
+            'peer-alias',
+            meshspace_id='family-mesh-old',
+            meshspace_name='Family Mesh',
+            source='invite',
+        )
+        alias_status = manager.mark_peer_meshspace_equivalent('peer-alias')
+        self.assertFalse(alias_status.get('requires_manual_confirmation'))
+        self.assertEqual(alias_status.get('mesh_relationship'), 'same_mesh_alias_confirmed')
+        self.assertIn('family-mesh-old', manager.config.meshspace.meshspace_id_aliases)
+
     def test_get_introduced_peers_marks_broker_only_when_no_direct_endpoints(self) -> None:
         manager = self._build_manager()
         manager._introduced_peers = {
@@ -746,6 +782,17 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(manager._sync_queue.qsize(), 0)
         self.assertEqual(manager._resync_after_current, {'peer-remote'})
+
+    def test_catchup_timeconstants_are_tuned_for_fast_repair(self) -> None:
+        manager = self._build_manager()
+
+        self.assertEqual(manager._STARTUP_GRACE_PERIOD, 8.0)
+        self.assertEqual(manager._POST_CONNECT_SETTLE_WINDOW_S, 1.0)
+        self.assertEqual(manager._MAX_CONCURRENT_CATCHUPS_STARTUP, 3)
+        self.assertEqual(manager._MAX_CONCURRENT_CATCHUPS_NORMAL, 6)
+        self.assertEqual(manager.PERIODIC_CATCHUP_INITIAL_DELAY, 20)
+        self.assertEqual(manager.PERIODIC_CATCHUP_INTERVAL, 90)
+        self.assertEqual(manager.PERIODIC_CATCHUP_PEER_STAGGER, 0.75)
 
     async def test_wait_for_connection_settle_sleeps_until_window_elapses(self) -> None:
         manager = self._build_manager()

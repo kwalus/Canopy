@@ -26,10 +26,14 @@ if 'zeroconf' not in sys.modules:
     sys.modules['zeroconf'] = zeroconf_stub
 
 from canopy.api.routes import create_api_blueprint
-from canopy.core.device import normalize_device_avatar
+from canopy.core.device import normalize_device_avatar, normalize_device_icon
 
 
 class TestDeviceProfileAvatarHardening(unittest.TestCase):
+    def test_normalize_device_icon_clamps_to_known_choices(self):
+        self.assertEqual(normalize_device_icon('bi-laptop'), 'bi-laptop')
+        self.assertEqual(normalize_device_icon('bi totally-bad'), 'bi-pc-display-horizontal')
+
     def test_normalize_device_avatar_converts_to_bounded_jpeg(self):
         from PIL import Image
 

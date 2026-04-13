@@ -202,6 +202,48 @@ class TestConnectToEndpointPostHandshakeCrossMeshGuard(unittest.IsolatedAsyncioT
         self.assertTrue(result)
         manager.connection_manager.disconnect_peer.assert_not_called()
 
+    async def test_allow_mesh_review_keeps_transport_without_approving_bridge(self):
+        manager = self._make_manager_no_prior_hint()
+
+        foreign_conn = SimpleNamespace(
+            meshspace_id=FOREIGN_MESH_ID,
+            meshspace_name='Foreign Mesh',
+            meshspace_fingerprint='fp-foreign',
+        )
+        manager.connection_manager.connect_to_peer = AsyncMock(return_value=True)
+        manager.connection_manager.get_connection = MagicMock(return_value=foreign_conn)
+        manager.connection_manager.disconnect_peer = AsyncMock()
+        manager.identity_manager.record_endpoint = MagicMock()
+
+        def _side_effect_record_hint(peer_id, meta, *, source, cross_mesh_allowed=None):
+            if meta and meta.get('meshspace_id'):
+                hint = {
+                    'meshspace_id': meta['meshspace_id'],
+                    'meshspace_name': meta.get('meshspace_name', ''),
+                    'meshspace_fingerprint': meta.get('meshspace_fingerprint', ''),
+                    'cross_mesh_allowed': bool(cross_mesh_allowed),
+                }
+                manager.identity_manager.peer_meshspace_hints[peer_id] = hint
+                manager.identity_manager.get_peer_meshspace_hint.return_value = hint
+
+        manager._record_peer_meshspace_hint = _side_effect_record_hint
+        manager.mark_peer_cross_mesh_allowed = MagicMock()
+
+        result = await manager._connect_to_endpoint(
+            FOREIGN_PEER_ID,
+            'ws://10.0.0.5:7771',
+            allow_mesh_review=True,
+        )
+
+        self.assertTrue(result)
+        manager.mark_peer_cross_mesh_allowed.assert_not_called()
+        manager.connection_manager.disconnect_peer.assert_not_called()
+        statuses = [
+            (call.kwargs.get('status') or (call.args[1] if len(call.args) > 1 else ''))
+            for call in manager._record_connection_event.call_args_list
+        ]
+        self.assertIn('mesh_review_required', statuses)
+
     async def test_no_boundary_no_disconnect(self):
         manager = _make_base_manager(mesh_id='')
         im = MagicMock()

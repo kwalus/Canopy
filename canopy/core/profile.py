@@ -118,11 +118,13 @@ def build_local_peer_hint_payload(
     instance_description = ''
     instance_avatar_b64 = ''
     instance_avatar_mime = ''
+    instance_icon = ''
     if isinstance(device_profile, dict):
         instance_label = str(device_profile.get('display_name') or '').strip()
         instance_description = str(device_profile.get('description') or '').strip()
         instance_avatar_b64 = str(device_profile.get('avatar_b64') or '').strip()
         instance_avatar_mime = str(device_profile.get('avatar_mime') or '').strip()
+        instance_icon = str(device_profile.get('icon') or '').strip()
     if not instance_label:
         instance_label = str(fallback_device_label or '').strip()
 
@@ -175,10 +177,12 @@ def build_local_peer_hint_payload(
         'peer_avatar_url': peer_avatar_url,
         'peer_avatar_b64': peer_avatar_b64,
         'peer_avatar_mime': peer_avatar_mime,
+        'peer_icon': instance_icon,
         'instance_label': instance_label,
         'instance_description': instance_description,
         'instance_avatar_b64': instance_avatar_b64,
         'instance_avatar_mime': instance_avatar_mime,
+        'instance_icon': instance_icon,
         'owner_label': owner_label,
         'owner_avatar_b64': owner_avatar_b64,
         'owner_avatar_mime': owner_avatar_mime,

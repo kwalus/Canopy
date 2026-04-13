@@ -699,6 +699,12 @@
                     {% if peer.can_allow_mesh_sync %}
                         <button type="button" class="btn btn-outline-warning btn-sm" onclick="runTrustPeerAction('{{ peer.peer_id }}', 'allow_mesh_sync', this)">Allow mesh sync</button>
                     {% endif %}
+                    {% if peer.can_treat_same_mesh %}
+                        <button type="button" class="btn btn-outline-success btn-sm" onclick="runTrustPeerAction('{{ peer.peer_id }}', 'treat_same_mesh', this)">Treat as same mesh</button>
+                    {% endif %}
+                    {% if peer.can_keep_bridge %}
+                        <button type="button" class="btn btn-outline-warning btn-sm" onclick="runTrustPeerAction('{{ peer.peer_id }}', 'keep_cross_mesh_bridge', this)">Keep bridge</button>
+                    {% endif %}
                     {% if peer.can_connect_now %}
                         <button type="button" class="btn btn-outline-primary btn-sm" onclick="runTrustPeerAction('{{ peer.peer_id }}', 'connect_introduced', this)">Connect</button>
                     {% elif peer.can_reconnect %}
@@ -743,6 +749,7 @@
             <span class="trust-badge role-{{ peer.role_state }}">{{ peer.role_label }}</span>
             <span class="trust-badge source-{{ 'fallback' if peer.display_name_source == 'fallback' else 'profile' }}">{{ peer.display_name_source_label }}</span>
             <span class="trust-badge sync-{{ peer.sync_status_class }}">{{ peer.sync_scope_label }}</span>
+            <span class="trust-badge mesh-{{ peer.mesh_relationship }}">{{ peer.mesh_relationship_label }}</span>
             {% for flag in peer.attention_flags %}
                 <span class="trust-badge needs-attention">{{ flag }}</span>
             {% endfor %}
@@ -785,6 +792,10 @@
                     {% endif %}
                 </span>
             </div>
+            <div class="trust-detail">
+                <span class="trust-detail-label">Mesh Relationship</span>
+                <span class="trust-detail-value">{{ peer.mesh_relationship_label }}</span>
+            </div>
         </div>
 
         <div class="trust-peer-footer">
@@ -806,6 +817,16 @@
                 {% if peer.can_allow_mesh_sync %}
                     <button type="button" class="btn btn-outline-warning btn-sm" onclick="runTrustPeerAction('{{ peer_id }}', 'allow_mesh_sync', this)">
                         Allow mesh sync
+                    </button>
+                {% endif %}
+                {% if peer.can_treat_same_mesh %}
+                    <button type="button" class="btn btn-outline-success btn-sm" onclick="runTrustPeerAction('{{ peer_id }}', 'treat_same_mesh', this)">
+                        Treat as same mesh
+                    </button>
+                {% endif %}
+                {% if peer.can_keep_bridge %}
+                    <button type="button" class="btn btn-outline-warning btn-sm" onclick="runTrustPeerAction('{{ peer_id }}', 'keep_cross_mesh_bridge', this)">
+                        Keep bridge
                     </button>
                 {% endif %}
                 {% if peer.can_connect_now %}
@@ -1176,7 +1197,7 @@
         })
         .then(data => {
             showAlert(data.message || 'Peer action completed.', 'success');
-            if (cleanAction === 'connect_introduced' || cleanAction === 'reconnect' || cleanAction === 'sync_now' || cleanAction === 'refresh_profile' || cleanAction === 'allow_sync' || cleanAction === 'allow_mesh_sync') {
+            if (cleanAction === 'connect_introduced' || cleanAction === 'reconnect' || cleanAction === 'sync_now' || cleanAction === 'refresh_profile' || cleanAction === 'allow_sync' || cleanAction === 'allow_mesh_sync' || cleanAction === 'treat_same_mesh' || cleanAction === 'keep_cross_mesh_bridge') {
                 setTimeout(refreshTrust, 900);
             }
         })

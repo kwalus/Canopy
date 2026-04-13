@@ -869,6 +869,14 @@
                                 <small class="text-warning d-block" style="font-size:0.72rem;">
                                     <i class="bi bi-exclamation-triangle"></i> {{ peer.cross_mesh_warning }}
                                 </small>
+                                {% elif peer.mesh_relationship == 'cross_mesh_bridge_allowed' %}
+                                <small class="text-info d-block" style="font-size:0.72rem;">
+                                    <i class="bi bi-link-45deg"></i> Intentional cross-mesh bridge
+                                </small>
+                                {% elif peer.mesh_relationship == 'same_mesh_alias_confirmed' %}
+                                <small class="text-success d-block" style="font-size:0.72rem;">
+                                    <i class="bi bi-check-circle"></i> Same mesh alias confirmed
+                                </small>
                                 {% endif %}
                                 {% for ep in peer.endpoints %}
                                 <span class="badge bg-secondary me-1" style="font-size:0.65rem;">{{ ep }}</span>
@@ -879,6 +887,16 @@
                         <div class="ms-auto peer-actions">
                             {% if peer.connection_type == 'direct' %}
                             <span class="badge bg-success">Connected</span>
+                            {% if peer.can_treat_same_mesh %}
+                            <button class="btn btn-sm btn-outline-success" onclick="reviewPeerMesh('{{ peer.peer_id }}', 'same_mesh_alias', this)">
+                                <i class="bi bi-check2-circle"></i> Treat as Same Mesh
+                            </button>
+                            {% endif %}
+                            {% if peer.can_keep_bridge %}
+                            <button class="btn btn-sm btn-outline-warning" onclick="reviewPeerMesh('{{ peer.peer_id }}', 'cross_mesh_bridge', this)">
+                                <i class="bi bi-link-45deg"></i> Keep Bridge
+                            </button>
+                            {% endif %}
                             <button class="btn btn-sm btn-outline-secondary" onclick="disconnectPeer('{{ peer.peer_id }}')">
                                 <i class="bi bi-plug"></i> Disconnect
                             </button>
@@ -886,10 +904,30 @@
                             <span class="badge bg-info" title="Relayed via {{ (relaydev.display_name if relaydev and relaydev.display_name else (peer.relay_via[:12] if peer.relay_via else 'relay')) }}">
                                 <i class="bi bi-arrow-left-right"></i> Via {{ (relaydev.display_name if relaydev and relaydev.display_name else (peer.relay_via[:12] if peer.relay_via else 'relay')) }}
                             </span>
+                            {% if peer.can_treat_same_mesh %}
+                            <button class="btn btn-sm btn-outline-success" onclick="reviewPeerMesh('{{ peer.peer_id }}', 'same_mesh_alias', this)">
+                                <i class="bi bi-check2-circle"></i> Treat as Same Mesh
+                            </button>
+                            {% endif %}
+                            {% if peer.can_keep_bridge %}
+                            <button class="btn btn-sm btn-outline-warning" onclick="reviewPeerMesh('{{ peer.peer_id }}', 'cross_mesh_bridge', this)">
+                                <i class="bi bi-link-45deg"></i> Keep Bridge
+                            </button>
+                            {% endif %}
                             <button class="btn btn-sm btn-outline-success" onclick="promoteDirect('{{ peer.peer_id }}', this)">
                                 <i class="bi bi-lightning-charge"></i> Go Direct
                             </button>
                             {% else %}
+                            {% if peer.can_treat_same_mesh %}
+                            <button class="btn btn-sm btn-outline-success" onclick="reviewPeerMesh('{{ peer.peer_id }}', 'same_mesh_alias', this)">
+                                <i class="bi bi-check2-circle"></i> Treat as Same Mesh
+                            </button>
+                            {% endif %}
+                            {% if peer.can_keep_bridge %}
+                            <button class="btn btn-sm btn-outline-warning" onclick="reviewPeerMesh('{{ peer.peer_id }}', 'cross_mesh_bridge', this)">
+                                <i class="bi bi-link-45deg"></i> Keep Bridge
+                            </button>
+                            {% endif %}
                             {% if peer.endpoints %}
                             <button class="btn btn-sm btn-outline-primary"
                                     data-cross-mesh-warning="{{ peer.cross_mesh_warning or '' }}"
@@ -1165,6 +1203,16 @@ const CURRENT_MESHSPACE_ID_ALIASES = {{ (current_meshspace_id_aliases or []) | t
 const CURRENT_MESH_FINGERPRINT = {{ (current_mesh_fingerprint or '') | tojson }};
 const CURRENT_PEER_ID = {{ (peer_id or '') | tojson }};
 const USER_IS_ADMIN = {{ 'true' if is_admin else 'false' }};
+const DEVICE_ICON_CHOICES = new Set([
+    'bi-pc-display-horizontal',
+    'bi-laptop',
+    'bi-phone',
+    'bi-tablet',
+    'bi-cpu',
+    'bi-hdd-network',
+    'bi-router',
+    'bi-server',
+]);
 const connectionEvents = new Map();
 const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 let currentInvitePreview = null;
@@ -1189,6 +1237,11 @@ function peerInitials(label) {
     const parts = text.split(/\s+/).filter(Boolean).slice(0, 2);
     const initials = parts.map((part) => part[0]).join('');
     return (initials || text.slice(0, 2)).toUpperCase();
+}
+
+function normalizePeerIcon(icon) {
+    const clean = String(icon || '').trim();
+    return DEVICE_ICON_CHOICES.has(clean) ? clean : 'bi-pc-display-horizontal';
 }
 
 function apiJsonFetch(url, options = {}) {
@@ -1232,6 +1285,9 @@ function buildConnectErrorMessage(err) {
     const code = err?.diagnosticCode;
     if (code === 'cross_mesh_admin_required') {
         return 'Instance admin permission is required to connect to a peer from a different meshspace.';
+    }
+    if (code === 'mesh_identity_admin_required') {
+        return 'Instance admin permission is required to review a peer whose mesh identity differs from this workspace.';
     }
     if (code === 'cross_mesh_confirmation_required') {
         return 'This invite is for a different meshspace. Review the invite again before requesting a cross-mesh connection.';
@@ -1342,6 +1398,7 @@ function decodeInvitePreview(code) {
         meshAvatarMime: String(data.mam || '').trim(),
         peerLabel: String(data.pl || '').trim(),
         instanceLabel: String(data.il || '').trim(),
+        peerIcon: normalizePeerIcon(data.pi || ''),
         generatedAt: String(data.ts || '').trim(),
         endpoints,
     };
@@ -1372,6 +1429,7 @@ function mergeRemoteInvitePreview(preview, remote) {
     if (remote.peer_avatar_b64) merged.peerAvatarB64 = String(remote.peer_avatar_b64 || '').trim();
     if (remote.peer_avatar_mime) merged.peerAvatarMime = String(remote.peer_avatar_mime || '').trim();
     if (remote.instance_label) merged.instanceLabel = String(remote.instance_label || '').trim();
+    if (remote.peer_icon) merged.peerIcon = normalizePeerIcon(remote.peer_icon || '');
     if (remote.source_endpoint) merged.remotePreviewSourceEndpoint = String(remote.source_endpoint || '').trim();
     if (remote.source_url) merged.remotePreviewSourceUrl = String(remote.source_url || '').trim();
     if (remote.version) merged.remotePreviewVersion = String(remote.version || '').trim();
@@ -1403,9 +1461,9 @@ function invitePreviewWarnings(preview) {
         warnings.push('This invite appears to point back to your own local peer.');
     }
     if (preview.meshspaceId && CURRENT_MESHSPACE_ID && !meshIdsMatch(preview.meshspaceId, preview.meshspaceIdAliases)) {
-        warnings.push(`Meshspace ID differs from this workspace (${CURRENT_MESHSPACE_ID}). This is a cross-mesh bridge and requires explicit confirmation.`);
+        warnings.push(`Meshspace ID differs from this workspace (${CURRENT_MESHSPACE_ID}). The peer can connect for review, but sync stays paused until an admin treats it as the same mesh or keeps a bridge.`);
         if (!USER_IS_ADMIN) {
-            warnings.push('Cross-mesh bridges require instance admin approval on this workspace.');
+            warnings.push('Mesh identity review requires instance admin approval on this workspace.');
         }
     }
     if (preview.meshName && CURRENT_MESH_NAME && preview.meshName !== CURRENT_MESH_NAME) {
@@ -1460,6 +1518,7 @@ function renderInvitePreview(preview, error) {
     const knownProfile = PEER_PREVIEW_PROFILES[preview.peerId] || {};
     const knownMeshHint = PEER_MESH_HINTS[preview.peerId] || {};
     const title = knownProfile.display_name || preview.peerLabel || knownLabel || preview.instanceLabel || preview.peerId.slice(0, 12);
+    const nodeIcon = normalizePeerIcon(knownProfile.icon || preview.peerIcon || '');
     const meshLabel = preview.meshName || 'Not specified';
     const endpointLabel = preview.endpoints.length
         ? `${preview.endpoints.length} direct ${preview.endpoints.length === 1 ? 'endpoint' : 'endpoints'}`
@@ -1528,7 +1587,10 @@ function renderInvitePreview(preview, error) {
                 </div>
                 <div class="invite-preview-fact">
                     <div class="invite-preview-label">Node hint</div>
-                    <div class="invite-preview-value">${_escapeHtml(preview.instanceLabel || preview.peerLabel || 'Not specified')}</div>
+                    <div class="invite-preview-value d-inline-flex align-items-center gap-2">
+                        <i class="bi ${_escapeHtml(nodeIcon)} text-muted"></i>
+                        <span>${_escapeHtml(preview.instanceLabel || preview.peerLabel || 'Not specified')}</span>
+                    </div>
                 </div>
                 <div class="invite-preview-fact">
                     <div class="invite-preview-label">Reachability</div>
@@ -1602,14 +1664,14 @@ function connectPreviewedInvite() {
     );
     if (isCrossMesh) {
         if (!USER_IS_ADMIN) {
-            alert('Only the instance admin can approve a cross-mesh connection from this workspace.');
+            alert('Only the instance admin can connect and review a peer from a different meshspace.');
             return;
         }
         const remoteMesh = preview.meshName || preview.meshspaceId;
         const ok = confirm(
             `This invite is for a different meshspace: ${remoteMesh} (${preview.meshspaceId}).\n\n` +
             `Current meshspace: ${CURRENT_MESH_NAME} (${CURRENT_MESHSPACE_ID}).\n\n` +
-            'Connect only if you intentionally want to bridge these meshspaces.'
+            'Connect for review? Sync will stay paused until you choose "Treat as same mesh" or "Keep bridge".'
         );
         if (!ok) return;
     }
@@ -1619,7 +1681,7 @@ function connectPreviewedInvite() {
 
     apiJsonFetch('/api/v1/p2p/invite/import', {
         method: 'POST',
-        body: JSON.stringify({invite_code: code, allow_cross_mesh: isCrossMesh})
+        body: JSON.stringify({invite_code: code, allow_cross_mesh: false})
     })
     .then(data => {
         const res = document.getElementById('importResult');
@@ -1627,7 +1689,15 @@ function connectPreviewedInvite() {
         const safePeerId = _escapeHtml(data.peer_id || '');
         const safeEndpoint = _escapeHtml(data.connected_endpoint || '');
         const safeError = _escapeHtml(data.error || '');
-        if (data.status === 'connected') {
+        if (data.status === 'connected_mesh_review_required') {
+            res.className = 'mt-3 alert alert-warning';
+            res.innerHTML = '<i class="bi bi-exclamation-triangle-fill"></i> Connected to <code>' + safePeerId + '</code>, but mesh identity needs admin review before sync. ' +
+                '<div class="mt-2 d-flex flex-wrap gap-2">' +
+                '<button type="button" class="btn btn-sm btn-outline-success" onclick="reviewPeerMesh(\'' + safePeerId + '\', \'same_mesh_alias\', this)">Treat as same mesh</button>' +
+                '<button type="button" class="btn btn-sm btn-outline-warning" onclick="reviewPeerMesh(\'' + safePeerId + '\', \'cross_mesh_bridge\', this)">Keep bridge</button>' +
+                '<button type="button" class="btn btn-sm btn-outline-danger" onclick="forgetPeer(\'' + safePeerId + '\')">Disconnect / forget</button>' +
+                '</div>';
+        } else if (data.status === 'connected') {
             res.className = 'mt-3 alert alert-success';
             res.innerHTML = '<i class="bi bi-check-circle-fill"></i> Connected to <code>' + safePeerId + '</code> via <code>' + safeEndpoint + '</code>!';
         } else if (data.status === 'imported_not_connected') {
@@ -1770,18 +1840,51 @@ function checkBrokeredConnection(peerId, btn, attempt) {
     });
 }
 
+function reviewPeerMesh(peerId, action, buttonEl) {
+    const cleanPeerId = String(peerId || '').trim();
+    const cleanAction = String(action || '').trim();
+    if (!cleanPeerId || !cleanAction) return;
+    if (!USER_IS_ADMIN) {
+        alert('Only the instance admin can resolve mesh identity relationships.');
+        return;
+    }
+    const label = cleanAction === 'same_mesh_alias' ? 'treat this peer as the same mesh' : 'keep this peer as a cross-mesh bridge';
+    if (!confirm(`Confirm that you want to ${label}?`)) return;
+    const btn = buttonEl || (typeof event !== 'undefined' ? event.target.closest('button') : null);
+    const originalHtml = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    }
+    apiJsonFetch('/api/v1/p2p/mesh_relationship', {
+        method: 'POST',
+        body: JSON.stringify({peer_id: cleanPeerId, action: cleanAction})
+    })
+    .then(data => {
+        showAlert(data.message || 'Mesh relationship updated.', 'success');
+        setTimeout(() => window.location.reload(), 900);
+    })
+    .catch(err => {
+        showAlert('Mesh review failed: ' + buildConnectErrorMessage(err), 'danger');
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+    });
+}
+
 function reconnectPeer(peerId, buttonEl) {
     const btn = buttonEl || (typeof event !== 'undefined' ? event.target.closest('button') : null);
     if (!btn) return;
     const crossMeshWarning = String(btn.dataset.crossMeshWarning || '').trim();
-    const allowCrossMesh = Boolean(crossMeshWarning);
+    const allowCrossMesh = false;
     if (crossMeshWarning) {
         if (!USER_IS_ADMIN) {
             alert('Only the instance admin can approve a cross-mesh reconnect from this workspace.');
             return;
         }
-        const ok = confirm(`${crossMeshWarning}\n\nReconnect anyway?`);
-        if (!ok) return;
+        alert(`${crossMeshWarning}\n\nResolve this peer as "Treat as same mesh" or "Keep bridge" before reconnecting.`);
+        return;
     }
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';

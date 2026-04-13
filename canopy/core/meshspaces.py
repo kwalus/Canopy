@@ -743,16 +743,31 @@ def _listener_pid_for_port(port: int, host: Optional[str] = None) -> int:
         lsof = shutil.which("lsof")
         if lsof:
             result = subprocess.run(
-                [lsof, "-tiTCP:%d" % port, "-sTCP:LISTEN"],
+                [lsof, "-nP", "-iTCP:%d" % port, "-sTCP:LISTEN", "-Fp", "-Fn"],
                 capture_output=True,
                 text=True,
                 timeout=2,
                 check=False,
             )
+            current_pid = 0
             for line in (result.stdout or "").splitlines():
                 line = line.strip()
-                if line.isdigit():
-                    return int(line)
+                if not line:
+                    continue
+                if line.startswith("p") and line[1:].isdigit():
+                    current_pid = int(line[1:])
+                    continue
+                if not line.startswith("n") or current_pid <= 0:
+                    continue
+                name = line[1:].strip()
+                if name.lower().startswith("tcp "):
+                    name = name[4:].strip()
+                name = name.replace(" (LISTEN)", "").strip()
+                local_host, _, local_port = name.rpartition(":")
+                if local_port != str(int(port)):
+                    continue
+                if _listener_host_matches(local_host, host):
+                    return current_pid
     except Exception:
         pass
     if not _is_windows_platform():
@@ -1124,6 +1139,116 @@ class MeshspaceRegistryManager:
                     f"Meshspace root '{target_root}' overlaps existing meshspace '{existing_id}'"
                 )
 
+    def _port_block_from_http_port(self, http_port: Any) -> Dict[str, int]:
+        """Return the derived 3-port runtime block for a base HTTP port."""
+        try:
+            base = int(str(http_port).strip())
+        except Exception as exc:
+            raise ValueError("Base HTTP port must be a number") from exc
+        if base < 1024 or base > 65533:
+            raise ValueError("Base HTTP port must be between 1024 and 65533")
+        return {
+            "http_port": base,
+            "mesh_port": base + 1,
+            "discovery_port": base + 2,
+        }
+
+    def _probe_host_for_record(self, record: Dict[str, Any]) -> str:
+        host = str(record.get("http_host") or "127.0.0.1").strip() or "127.0.0.1"
+        return "127.0.0.1" if host in {"0.0.0.0", "::"} else host
+
+    def _listener_filter_host_for_record(self, record: Dict[str, Any]) -> Optional[str]:
+        host = str(record.get("http_host") or "127.0.0.1").strip() or "127.0.0.1"
+        return None if host in {"0.0.0.0", "::"} else host
+
+    def _launch_url_for_record(self, record: Dict[str, Any], *, http_port: Optional[int] = None) -> str:
+        host = self._probe_host_for_record(record)
+        port = int(http_port if http_port is not None else (record.get("http_port") or 0))
+        return f"http://{host}:{port}" if port > 0 else ""
+
+    def _validate_port_block_registry_ownership(
+        self,
+        meshspace_id: str,
+        block: Dict[str, int],
+    ) -> None:
+        normalized_id = sanitize_meshspace_id(meshspace_id, fallback="")
+        requested_ports = {
+            int(block["http_port"]),
+            int(block["mesh_port"]),
+            int(block["discovery_port"]),
+        }
+        for record in self.list_meshspaces():
+            other_id = sanitize_meshspace_id(str(record.get("meshspace_id") or ""), fallback="")
+            if not other_id or other_id == normalized_id:
+                continue
+            other_ports = {
+                int(record.get("http_port") or 0),
+                int(record.get("mesh_port") or 0),
+                int(record.get("discovery_port") or 0),
+            }
+            overlaps = sorted(port for port in (requested_ports & other_ports) if port > 0)
+            if overlaps:
+                other_name = str(record.get("name") or other_id).strip() or other_id
+                raise ValueError(
+                    f"Port block conflicts with meshspace '{other_name}' "
+                    f"({', '.join(str(port) for port in overlaps)})"
+                )
+
+    def _validate_port_block_listener_availability(
+        self,
+        record: Dict[str, Any],
+        block: Dict[str, int],
+    ) -> None:
+        listener_host = self._listener_filter_host_for_record(record)
+        display_host = listener_host or str(record.get("http_host") or "all interfaces").strip() or "all interfaces"
+        occupied: List[str] = []
+        for label, port in (
+            ("HTTP", int(block["http_port"])),
+            ("mesh", int(block["mesh_port"])),
+            ("discovery", int(block["discovery_port"])),
+        ):
+            pid = _listener_pid_for_port(port, host=listener_host)
+            if pid > 0:
+                occupied.append(f"{label}:{port} pid:{pid}")
+        if occupied:
+            raise ValueError(
+                "Cannot assign that port block because a listener is already active on "
+                f"{display_host} ({', '.join(occupied)})"
+            )
+
+    def update_meshspace_ports(self, meshspace_id: str, *, http_port: Any) -> Optional[Dict[str, Any]]:
+        """Change a stopped meshspace to a new derived HTTP/mesh/discovery port block."""
+        record = self.get_meshspace(meshspace_id)
+        if not record:
+            return None
+
+        current = self.reconcile_meshspace_runtime(meshspace_id) or record
+        probe = self.probe_meshspace_runtime(meshspace_id)
+        if probe.get("live"):
+            raise ValueError("Stop this meshspace before changing its ports")
+
+        status = str(probe.get("effective_status") or current.get("status") or "").strip().lower()
+        if status not in {"defined", "stopped", "crashed", "degraded"}:
+            raise ValueError(f"Ports can only be changed while the meshspace is stopped (current state: {status or 'unknown'})")
+
+        block = self._port_block_from_http_port(http_port)
+        existing_block = self._port_block_from_http_port(int(current.get("http_port") or 0)) if int(current.get("http_port") or 0) else {}
+        if existing_block and all(int(current.get(key) or 0) == int(block[key]) for key in ("http_port", "mesh_port", "discovery_port")):
+            current["launch_url"] = self._launch_url_for_record(current, http_port=block["http_port"])
+            current["updated_at"] = _utcnow_iso()
+            return self._upsert_record(current)
+
+        self._validate_port_block_registry_ownership(meshspace_id, block)
+        self._validate_port_block_listener_availability(current, block)
+
+        updated = dict(current)
+        updated.update(block)
+        updated["launch_url"] = self._launch_url_for_record(updated, http_port=block["http_port"])
+        updated["pid"] = 0
+        updated["status"] = status if status in {"defined", "crashed", "degraded"} else "stopped"
+        updated["updated_at"] = _utcnow_iso()
+        return self._upsert_record(updated)
+
     def ensure_runtime_registered(self, config: Any, peer_id: Optional[str] = None) -> Dict[str, Any]:
         mesh_cfg = getattr(config, "meshspace", None)
         meshspace_id = sanitize_meshspace_id(str(getattr(mesh_cfg, "meshspace_id", "") or "default"))
@@ -1411,6 +1536,22 @@ class MeshspaceRegistryManager:
         if default_agent_permissions is not None:
             record["default_agent_permissions"] = _normalize_agent_permission_values(default_agent_permissions)
         return self._upsert_record(record)
+
+    def add_meshspace_aliases(self, meshspace_id: str, aliases: List[str]) -> Optional[Dict[str, Any]]:
+        """Persist additional admin-approved compatibility aliases for a meshspace."""
+        record = self.get_meshspace(meshspace_id)
+        if not record:
+            return None
+        current_id = str(record.get("meshspace_id") or meshspace_id or "").strip()
+        merged_aliases = _normalize_meshspace_id_aliases(
+            list(record.get("meshspace_id_aliases") or []) + list(aliases or []),
+            current_id=current_id,
+        )
+        if merged_aliases == list(record.get("meshspace_id_aliases") or []):
+            return record
+        updated = dict(record)
+        updated["meshspace_id_aliases"] = merged_aliases
+        return self._upsert_record(updated)
 
     def promote_legacy_meshspace(
         self,

@@ -19,6 +19,7 @@ Invite payload (JSON, then base64url-encoded):
     "mam": "image/png",            # optional mesh avatar mime
     "pl": "<peer_label>",          # optional node/display hint
     "il": "<instance_label>",      # optional device/instance hint
+    "pi": "<peer_icon>",           # optional standard node icon hint
     "ts": "<generated_at>"         # optional ISO timestamp
 }
 
@@ -119,6 +120,7 @@ class InviteCode:
     meshspace_avatar_mime: Optional[str] = None
     peer_label: Optional[str] = None
     instance_label: Optional[str] = None
+    peer_icon: Optional[str] = None
     generated_at: Optional[str] = None
     version: int = 1
 
@@ -146,6 +148,8 @@ class InviteCode:
             payload['pl'] = self.peer_label
         if self.instance_label:
             payload['il'] = self.instance_label
+        if self.peer_icon:
+            payload['pi'] = self.peer_icon
         if self.generated_at:
             payload['ts'] = self.generated_at
         return payload
@@ -206,6 +210,7 @@ class InviteCode:
             meshspace_avatar_mime=data.get('mam') or None,
             peer_label=data.get('pl') or None,
             instance_label=data.get('il') or None,
+            peer_icon=data.get('pi') or None,
             generated_at=data.get('ts') or None,
         )
 
@@ -250,6 +255,7 @@ def generate_invite(identity_manager: Any, mesh_port: int,
                     meshspace_avatar_mime: Optional[str] = None,
                     peer_label: Optional[str] = None,
                     instance_label: Optional[str] = None,
+                    peer_icon: Optional[str] = None,
                     generated_at: Optional[str] = None) -> InviteCode:
     """
     Generate an invite code from the local peer identity.
@@ -268,6 +274,7 @@ def generate_invite(identity_manager: Any, mesh_port: int,
         meshspace_avatar_mime: Optional mime for mesh avatar preview art
         peer_label: Optional human-facing peer label for preview UX
         instance_label: Optional device/instance label for preview UX
+        peer_icon: Optional standard icon hint for the node/device
         generated_at: Optional ISO timestamp for invite age hints
 
     Returns:
@@ -321,6 +328,7 @@ def generate_invite(identity_manager: Any, mesh_port: int,
         meshspace_avatar_mime=str(meshspace_avatar_mime or '').strip() or None,
         peer_label=str(peer_label or '').strip() or None,
         instance_label=str(instance_label or '').strip() or None,
+        peer_icon=str(peer_icon or '').strip() or None,
         generated_at=str(generated_at or '').strip() or None,
     )
 

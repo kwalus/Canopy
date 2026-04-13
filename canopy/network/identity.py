@@ -353,6 +353,7 @@ class IdentityManager:
             'last_source': 64,
             'sync_approval_scope': 16,
             'sync_approved_at': 64,
+            'mesh_relationship': 48,
             'meshspace_avatar_mime': 80,
         }
         for key, limit in field_map.items():
@@ -393,6 +394,7 @@ class IdentityManager:
         meshspace_avatar_mime: Optional[str] = None,
         source: str = '',
         cross_mesh_allowed: Optional[bool] = None,
+        mesh_relationship: Optional[str] = None,
     ) -> None:
         """Persist the meshspace identity a peer advertised.
 
@@ -416,6 +418,8 @@ class IdentityManager:
         }
         if cross_mesh_allowed is not None:
             incoming['cross_mesh_allowed'] = bool(cross_mesh_allowed)
+        if mesh_relationship is not None:
+            incoming['mesh_relationship'] = str(mesh_relationship or '').strip()
 
         normalized = self._normalize_meshspace_hint(incoming)
         existing = dict(self.peer_meshspace_hints.get(peer_id) or {})
