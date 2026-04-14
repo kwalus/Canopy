@@ -87,6 +87,7 @@ class TestTrustPageIdentityContext(unittest.TestCase):
         payload = response.get_json() or {}
         self.assertEqual(payload.get('template'), 'trust.html')
         self.assertEqual(payload.get('user_id'), 'user-trust-42')
+        self.assertFalse(bool(payload.get('is_admin')))
 
     def test_pending_peer_cards_expose_decision_summary_without_duplicate_noise(self) -> None:
         with self.client.session_transaction() as sess:
@@ -193,6 +194,57 @@ class TestTrustPageIdentityContext(unittest.TestCase):
         attention = payload.get('attention_peers') or []
         self.assertEqual(len(attention), 1)
         self.assertEqual(attention[0].get('review_gate_label'), 'Mesh review required')
+
+    def test_preview_only_pending_peer_keeps_refresh_profile_available(self) -> None:
+        with self.client.session_transaction() as sess:
+            sess['authenticated'] = True
+            sess['user_id'] = 'user-trust-42'
+            sess['username'] = 'trustuser'
+            sess['display_name'] = 'Trust User'
+
+        comps = _mock_components()
+        p2p = comps[10]
+        p2p.identity_manager = types.SimpleNamespace(
+            known_peers={},
+            peer_display_names={},
+            peer_endpoints={'peer-preview-1': ['ws://192.168.1.9:7771']},
+        )
+        p2p.get_connected_peers.return_value = ['peer-preview-1']
+        p2p.get_introduced_peers.return_value = []
+        p2p.get_peer_public_identity.return_value = {
+            'node_name': 'Preview Peer',
+            'source': 'handshake',
+            'unverified': True,
+        }
+        p2p.get_peer_endpoint_diagnostics.return_value = [{
+            'endpoint': 'ws://192.168.1.9:7771',
+            'sources': ['handshake'],
+            'currently_connected': True,
+            'last_failure_reason': '',
+        }]
+        p2p.get_peer_sync_status.return_value = {
+            'preview_only': True,
+            'effective_scope': '',
+            'remote_meshspace_name': 'Preview Mesh',
+        }
+        p2p.get_peer_cross_mesh_status.return_value = {
+            'requires_manual_confirmation': False,
+            'mesh_relationship': 'same_mesh_confirmed',
+        }
+        p2p.clear_peer_profile_cache = MagicMock()
+        p2p.recover_peer_profile_state = MagicMock()
+
+        with patch('canopy.ui.routes._get_app_components_any', return_value=comps), \
+             patch('canopy.ui.routes.render_template') as rt:
+            rt.side_effect = lambda tpl, **ctx: jsonify({'template': tpl, **ctx})
+            response = self.client.get('/trust')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        peers = payload.get('potential_peers') or []
+        self.assertEqual(len(peers), 1)
+        self.assertTrue(bool(peers[0].get('can_refresh_profile')))
+        self.assertTrue(bool(peers[0].get('requires_review_attention')))
 
 
 class TestAdminPageIdentityContext(unittest.TestCase):

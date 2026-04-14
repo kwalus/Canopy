@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.26] - 2026-04-13
+
+### Fixed
+- **Preview-only peers can now refresh their human recognition hints without approving sync** - the Trust page `Refresh profile` action now clears cached preview identity and safely reconnects to relearn fresh label and avatar hints for untrusted peers, instead of leaving operators stuck with stale first-contact metadata.
+- **Trust review counts and controls now match the actual admin workflow** - `Needs Review` no longer drifts from badge side-effects, repeated connection text was removed from pending peer cards, and trust-tier plus sync-approval actions now consistently require the instance admin.
+
 ## [0.6.25] - 2026-04-13
 
 ### Changed

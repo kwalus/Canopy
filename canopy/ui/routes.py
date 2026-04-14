@@ -5694,6 +5694,13 @@ def create_ui_blueprint() -> Blueprint:
                     review_gate_note = sync_status_note
                     review_gate_class = 'review-clear'
 
+                requires_review_attention = bool(
+                    needs_profile
+                    or role_state == 'unknown'
+                    or connection_state == 'stale'
+                    or mesh_review_required
+                    or sync_preview_only
+                )
                 connection_summary_note = active_endpoint or connection_note
                 review_summary = [
                     {
@@ -5746,7 +5753,7 @@ def create_ui_blueprint() -> Blueprint:
                         p2p_manager
                         and hasattr(p2p_manager, 'recover_peer_profile_state')
                         and hasattr(p2p_manager, 'clear_peer_profile_cache')
-                    ) and not sync_preview_only,
+                    ),
                     'connection_state': connection_state,
                     'connection_label': connection_label,
                     'connection_note': connection_note,
@@ -5761,6 +5768,7 @@ def create_ui_blueprint() -> Blueprint:
                     'introduced_by_label': introduced_by_label,
                     'needs_profile': needs_profile,
                     'needs_label': needs_label,
+                    'requires_review_attention': requires_review_attention,
                     'attention_flags': attention_flags,
                     'has_profile': bool(profile_name),
                     'is_unverified': bool(public_identity.get('unverified')),
@@ -5848,13 +5856,7 @@ def create_ui_blueprint() -> Blueprint:
 
             attention_peers = [
                 peer for peer in peer_index.values()
-                if (
-                    peer.get('needs_profile')
-                    or peer.get('role_state') == 'unknown'
-                    or peer.get('connection_state') == 'stale'
-                    or peer.get('mesh_review_required')
-                    or peer.get('sync_preview_only')
-                )
+                if peer.get('requires_review_attention')
             ]
             attention_peers.sort(key=lambda peer: (peer['connection_sort'], str(peer.get('display_name') or '').lower()))
 
@@ -5881,6 +5883,7 @@ def create_ui_blueprint() -> Blueprint:
                                  connected_peer_cards=connected_peer_cards,
                                  attention_peers=attention_peers,
                                  trust_overview=trust_overview,
+                                 is_admin=_is_admin(),
                                  user_id=get_current_user())
                                  
         except Exception as e:
@@ -5893,6 +5896,8 @@ def create_ui_blueprint() -> Blueprint:
     def trust_update():
         """Update trust score directly (manual tier adjustment)."""
         try:
+            if not _is_admin():
+                return jsonify({'error': 'Only the instance admin can change trust tiers.'}), 403
             _, _, trust_manager, _, _, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
             if not trust_manager:
                 return jsonify({'error': 'Trust manager not available'}), 500
@@ -6014,6 +6019,73 @@ def create_ui_blueprint() -> Blueprint:
                         return True, ep
                 return False, 'Could not connect to any endpoint'
 
+            def _disconnect_peer(detail: str) -> tuple[bool, Optional[str]]:
+                connection_manager = getattr(p2p_manager, 'connection_manager', None)
+                ev_loop = getattr(p2p_manager, '_event_loop', None)
+                if not connection_manager or not hasattr(connection_manager, 'disconnect_peer'):
+                    return False, 'P2P connection manager unavailable'
+                if not ev_loop or ev_loop.is_closed():
+                    return False, 'P2P event loop unavailable'
+                try:
+                    future = asyncio.run_coroutine_threadsafe(
+                        connection_manager.disconnect_peer(peer_id),
+                        ev_loop,
+                    )
+                    future.result(timeout=10.0)
+                    try:
+                        _record_connection_event(
+                            p2p_manager,
+                            peer_id,
+                            status='disconnected',
+                            detail=detail,
+                        )
+                    except Exception:
+                        pass
+                    return True, None
+                except Exception as disconnect_err:
+                    logger.warning("Trust peer action disconnect failed for %s: %s", peer_id, disconnect_err)
+                    return False, str(disconnect_err)
+
+            def _candidate_refresh_endpoints() -> list[str]:
+                endpoints: list[str] = []
+                connection_manager = getattr(p2p_manager, 'connection_manager', None)
+                get_connection = getattr(connection_manager, 'get_connection', None)
+                if callable(get_connection):
+                    try:
+                        conn = get_connection(peer_id)
+                    except Exception:
+                        conn = None
+                    endpoint_uri = str(getattr(conn, 'endpoint_uri', '') or '').strip() if conn else ''
+                    if endpoint_uri:
+                        endpoints.append(endpoint_uri)
+                get_endpoint_diagnostics = getattr(p2p_manager, 'get_peer_endpoint_diagnostics', None)
+                if callable(get_endpoint_diagnostics):
+                    try:
+                        for row in list(get_endpoint_diagnostics(peer_id) or []):
+                            endpoint = str((row or {}).get('endpoint') or '').strip()
+                            if endpoint:
+                                endpoints.append(endpoint)
+                    except Exception:
+                        pass
+                identity_manager = getattr(p2p_manager, 'identity_manager', None)
+                for endpoint in list((getattr(identity_manager, 'peer_endpoints', {}) or {}).get(peer_id, []) or []):
+                    clean = str(endpoint or '').strip()
+                    if clean:
+                        endpoints.append(clean)
+                intro = (getattr(p2p_manager, '_introduced_peers', {}) or {}).get(peer_id) or {}
+                for endpoint in list(intro.get('endpoints') or []):
+                    clean = str(endpoint or '').strip()
+                    if clean:
+                        endpoints.append(clean)
+                deduped: list[str] = []
+                seen: set[str] = set()
+                for endpoint in endpoints:
+                    if endpoint in seen:
+                        continue
+                    seen.add(endpoint)
+                    deduped.append(endpoint)
+                return deduped
+
             if action == 'sync_now':
                 trigger_sync = getattr(p2p_manager, 'trigger_peer_sync', None)
                 if not callable(trigger_sync):
@@ -6052,6 +6124,8 @@ def create_ui_blueprint() -> Blueprint:
                 })
 
             if action in {'allow_sync', 'allow_mesh_sync'}:
+                if not _is_admin():
+                    return jsonify({'error': 'Only the instance admin can approve peer sync.'}), 403
                 approve_sync = getattr(p2p_manager, 'approve_peer_sync', None)
                 get_sync_status = getattr(p2p_manager, 'get_peer_sync_status', None)
                 trigger_sync = getattr(p2p_manager, 'trigger_peer_sync', None)
@@ -6094,9 +6168,44 @@ def create_ui_blueprint() -> Blueprint:
             if action == 'refresh_profile':
                 clear_cache = getattr(p2p_manager, 'clear_peer_profile_cache', None)
                 recover = getattr(p2p_manager, 'recover_peer_profile_state', None)
+                get_sync_status = getattr(p2p_manager, 'get_peer_sync_status', None)
                 if not callable(clear_cache) or not callable(recover):
                     return jsonify({'error': 'Profile refresh unavailable'}), 500
                 cache_result = clear_cache(peer_id)
+                sync_status = dict(get_sync_status(peer_id) or {}) if callable(get_sync_status) else {}
+                preview_only = bool(sync_status.get('preview_only'))
+                if preview_only:
+                    endpoints = _candidate_refresh_endpoints()
+                    connection_manager = getattr(p2p_manager, 'connection_manager', None)
+                    get_connection = getattr(connection_manager, 'get_connection', None)
+                    currently_connected = bool(callable(get_connection) and get_connection(peer_id))
+                    if currently_connected:
+                        disconnected, disconnect_error = _disconnect_peer('Preview identity refresh reconnect')
+                        if not disconnected:
+                            return jsonify({'error': str(disconnect_error or 'Could not disconnect peer for preview refresh')}), 502
+                    if not endpoints:
+                        return jsonify({
+                            'success': True,
+                            'peer_id': peer_id,
+                            'action': action,
+                            'cache_result': cache_result,
+                            'preview_only': True,
+                            'profile_recovery': {'ok': True, 'recovered_user_count': 0, 'skipped_untrusted': [peer_id]},
+                            'message': 'Cached identity hints were cleared, but this peer has no reusable endpoint for a preview refresh yet.',
+                        })
+                    refreshed, detail = _connect_via_endpoints(endpoints, 'Preview identity refresh reconnected peer')
+                    if not refreshed:
+                        return jsonify({'error': str(detail or 'Preview identity refresh failed')}), 502
+                    return jsonify({
+                        'success': True,
+                        'peer_id': peer_id,
+                        'action': action,
+                        'cache_result': cache_result,
+                        'preview_only': True,
+                        'endpoint': detail,
+                        'profile_recovery': {'ok': True, 'recovered_user_count': 0, 'skipped_untrusted': [peer_id]},
+                        'message': 'Preview identity refresh requested. The peer was reconnected so fresh label and avatar hints can be learned without approving sync.',
+                    })
                 recovery = recover(peer_id, trigger_sync=True)
                 skipped_untrusted = list((recovery or {}).get('skipped_untrusted') or [])
                 message = 'Profile refresh requested.'

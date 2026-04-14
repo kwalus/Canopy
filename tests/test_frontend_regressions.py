@@ -162,13 +162,27 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('preview-only until you approve sync', trust_template)
         self.assertIn('Mesh Preview', trust_template)
         self.assertIn('Mesh Relationship', trust_template)
-        self.assertIn('trust-badge sync-{{ peer.sync_status_class }}', trust_template)
+        self.assertIn('class="trust-peer-summary" aria-label="Peer review summary"', trust_template)
+        self.assertIn('{% for item in peer.review_summary %}', trust_template)
+
+    def test_trust_page_pending_peer_cards_prioritize_summary_over_status_pile(self) -> None:
+        trust_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'trust.html').read_text(encoding='utf-8')
+        self.assertIn('.trust-peer-summary {', trust_template)
+        self.assertIn('trust-summary-item {{ item.class_name }}', trust_template)
+        self.assertIn('trust-summary-value', trust_template)
+        self.assertIn('trust-summary-note', trust_template)
+        self.assertNotIn('trust-badge role-{{ peer.role_state }}', trust_template)
+        self.assertNotIn('trust-badge source-{{', trust_template)
+        self.assertIn('data-needs-review="{{ 1 if peer.requires_review_attention else 0 }}"', trust_template)
+        self.assertIn('Only the instance admin can change trust tiers.', trust_template)
+        self.assertIn('fresh label and avatar hints', (ROOT / 'canopy' / 'ui' / 'routes.py').read_text(encoding='utf-8'))
 
     def test_trust_page_disables_review_action_buttons_while_request_is_in_flight(self) -> None:
         trust_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'trust.html').read_text(encoding='utf-8')
         self.assertIn("if (triggerEl) {", trust_template)
         self.assertIn("triggerEl.disabled = true;", trust_template)
         self.assertIn("triggerEl.disabled = false;", trust_template)
+        self.assertIn('document.querySelectorAll(\'.trust-node[data-needs-review="1"]\')', trust_template)
 
     def test_trust_page_potential_peers_require_explicit_tier_assignment(self) -> None:
         trust_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'trust.html').read_text(encoding='utf-8')
