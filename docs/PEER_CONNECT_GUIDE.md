@@ -179,20 +179,12 @@ For bidirectional communication, Machine A should also import Machine B's invite
 
 After transport connects, use the following decision model:
 
-- If the peer and mesh hints look correct, open **Trust** and approve **peer sync**.
-- If this peer is the first trusted representative of a remote mesh you intend to share with, approve **mesh sync** when appropriate.
+- If the peer and mesh hints look correct, open **Trust** and approve **peer sync** so that specific peer can exchange workspace content.
+- If this peer is the first trusted representative of a remote mesh you intend to share with, approve **mesh sync** so that mesh is treated as part of the same shared workspace.
 - If the peer connected but the label/avatar hints look stale, use **Refresh profile** in **Trust** to relearn fresh preview identity hints without approving sync.
 - If the remote mesh identity differs from the current workspace, an admin should decide whether to:
-  - **Treat as same mesh**
-  - **Keep bridge**
-
-Trust action quick definitions:
-
-- **Peer sync** = trust this one peer for channel/history sync.
-- **Mesh sync** = trust that mesh identity for broader sync policy.
-- **Treat as same mesh** = resolve mismatch when both sides are the same real workspace.
-- **Keep bridge** = keep connectivity between meshes without merging trust scope.
-- **Refresh profile** = refresh stale identity hints without approving sync.
+  - **Treat as same mesh** when the remote mesh name/ID is really the same workspace under a different label
+  - **Keep bridge** when the connection should stay between separate meshes without merging them
 
 This keeps mistaken imports from immediately syncing history or channels into the wrong workspace.
 

@@ -82,15 +82,17 @@ While a peer is preview-only:
 
 This is intentional. It prevents a first-contact mistake from immediately contaminating the workspace with the wrong peer or wrong mesh.
 
-### Trust actions, in plain language
+---
 
-When a peer is preview-only, finish the decision in **Trust**:
+### What the Trust actions mean
 
-- **Approve peer sync**: allow this specific peer to exchange channel/history data.
-- **Approve mesh sync**: trust that remote mesh identity so future peers from the same mesh can sync under normal policy.
-- **Treat as same mesh**: resolve a mesh-hint mismatch when both sides are actually the same real workspace.
-- **Keep bridge**: keep transport connectivity for cross-mesh routing without merging that peer into your current mesh trust scope.
-- **Refresh profile**: re-fetch peer-facing label/avatar hints when they look stale, without approving sync.
+When a peer shows up in **Trust**, the common actions are:
+
+- **Allow peer sync**: trust this specific peer enough to exchange channels, history, and other workspace content with it.
+- **Allow mesh sync**: trust that peer's mesh as part of the same shared workspace, so future peers from that mesh do not stay stuck in review-only state.
+- **Treat as same mesh**: confirm that a mismatched mesh name/ID is really just another identifier for the same workspace.
+- **Keep bridge**: keep the connection between two different meshes without treating them as one shared workspace.
+- **Refresh profile**: clear stale preview identity hints and reconnect so Canopy can relearn the current name/avatar without automatically approving sync.
 
 ---
 

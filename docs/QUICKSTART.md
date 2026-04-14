@@ -228,7 +228,7 @@ Quick interpretation:
 - **Trust**
   - This is where admins finish first-contact review after transport connects.
   - Use it to approve peer sync, approve mesh-wide sync, treat a peer as the same mesh, keep a cross-mesh bridge, or refresh stale preview identity hints.
-  - In plain language: peer sync = trust one peer, mesh sync = trust that mesh identity, same mesh = resolve mismatch as one workspace, keep bridge = keep cross-mesh routing without merging trust scope.
+  - In plain language: `peer sync` trusts one peer to exchange workspace content, `mesh sync` trusts that peer's mesh as part of the same workspace, `same mesh` resolves a naming/ID mismatch as one real workspace, `bridge` keeps separate meshes connected without merging them, and `Refresh profile` relearns the peer's current label/avatar without approving sync.
 
 - **Connected Peers / Known Peers / Introduced Peers**
   - `Reconnect`, `Reconnect All`, `Disconnect`, and `Forget` manage peer state/endpoints.
