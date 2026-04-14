@@ -49,6 +49,7 @@ class _FakeP2PNetworkManager:
         self.sync_requests = []
         self.metadata_requests = []
         self.metadata_replies = []
+        self.sync_statuses = {}
         self.on_channel_sync = None
         self.on_catchup_request = None
         self.on_catchup_response = None
@@ -75,6 +76,9 @@ class _FakeP2PNetworkManager:
     def trigger_peer_sync(self, peer_id):
         self.sync_requests.append(peer_id)
         return True
+
+    def get_peer_sync_status(self, peer_id):
+        return dict(self.sync_statuses.get(peer_id) or {})
 
     def send_channel_metadata_request(self, to_peer, channel_ids, request_id=None, reason=None):
         self.metadata_requests.append(
@@ -206,6 +210,32 @@ class TestPublicChannelBootstrapSync(unittest.TestCase):
         self.assertIsNone(private_row)
         self.assertIsNotNone(local_membership)
 
+    def test_preview_only_peer_channel_sync_is_ignored_until_approved(self) -> None:
+        self._mark_peer_untrusted('peer-guest')
+        self.p2p_manager.sync_statuses['peer-guest'] = {
+            'preview_only': True,
+            'remote_meshspace_name': 'Family Mesh',
+        }
+
+        self.p2p_manager.on_channel_sync(
+            [
+                {
+                    'id': 'Cpreview001',
+                    'name': 'preview-news',
+                    'type': 'public',
+                    'desc': 'public',
+                    'privacy_mode': 'open',
+                    'origin_peer': 'peer-guest',
+                },
+            ],
+            'peer-guest',
+        )
+
+        with self.db_manager.get_connection() as conn:
+            row = conn.execute("SELECT id FROM channels WHERE id = 'Cpreview001'").fetchone()
+
+        self.assertIsNone(row)
+
     def test_untrusted_catchup_request_serves_only_public_messages(self) -> None:
         self._mark_peer_untrusted('peer-guest')
 
@@ -238,6 +268,55 @@ class TestPublicChannelBootstrapSync(unittest.TestCase):
         self.assertEqual(channel_ids, {public_channel.id})
         self.assertIsNone((payload.get('extra_data') or {}).get('circles'))
         self.assertIsNone((payload.get('extra_data') or {}).get('tasks'))
+
+    def test_preview_only_peer_catchup_response_is_ignored_until_approved(self) -> None:
+        self._mark_peer_untrusted('peer-guest')
+        self.p2p_manager.sync_statuses['peer-guest'] = {
+            'preview_only': True,
+            'remote_meshspace_name': 'Family Mesh',
+        }
+
+        self.p2p_manager.on_catchup_response(
+            [
+                {
+                    'id': 'Mpreview001',
+                    'channel_id': 'general',
+                    'channel_type': 'public',
+                    'channel_privacy_mode': 'open',
+                    'user_id': 'peer-user',
+                    'content': 'preview hello',
+                    'created_at': '2026-04-13T12:00:00+00:00',
+                }
+            ],
+            'peer-guest',
+        )
+
+        with self.db_manager.get_connection() as conn:
+            row = conn.execute("SELECT id FROM channel_messages WHERE id = 'Mpreview001'").fetchone()
+
+        self.assertIsNone(row)
+
+    def test_preview_only_peer_catchup_request_is_ignored_until_approved(self) -> None:
+        self._mark_peer_untrusted('peer-guest')
+        self.p2p_manager.sync_statuses['peer-guest'] = {
+            'preview_only': True,
+            'remote_meshspace_name': 'Family Mesh',
+        }
+
+        public_channel = self.channel_manager.create_channel(
+            name='preview-public',
+            channel_type=ChannelType.PUBLIC,
+            created_by='owner-user',
+            description='public room',
+            privacy_mode='open',
+        )
+        assert public_channel is not None
+        self.channel_manager.send_message(channel_id=public_channel.id, user_id='owner-user', content='should not leak')
+
+        with patch('asyncio.ensure_future', lambda coro: asyncio.run(coro)):
+            self.p2p_manager.on_catchup_request({}, 'peer-guest')
+
+        self.assertEqual(self.p2p_manager.sent_catchup, [])
 
     def test_trusted_catchup_request_backfills_older_public_history_when_peer_is_sparse(self) -> None:
         self.trust_manager.set_trust_score('peer-origin', 100, reason='test-trusted')

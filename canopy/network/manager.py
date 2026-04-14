@@ -39,6 +39,7 @@ from ..core.large_attachments import (
 from .identity import IdentityManager, PeerIdentity
 from .discovery import PeerDiscovery, DiscoveredPeer
 from .connection import ConnectionManager, PeerConnection
+from .invite import meshspace_fingerprint
 from .routing import (
     MessageRouter,
     P2PMessage,
@@ -151,6 +152,7 @@ class P2PNetworkManager:
         self.on_profile_sync: Optional[Callable] = None
         self.get_local_profile_card: Optional[Callable] = None
         self.get_all_local_profile_cards: Optional[Callable] = None
+        self.get_local_peer_public_hint: Optional[Callable[[], Dict[str, Any]]] = None
         # Optional callback to fetch a device profile for a peer_id
         self.get_peer_device_profile: Optional[Callable[[str], Optional[Dict[str, Any]]]] = None
 
@@ -202,10 +204,11 @@ class P2PNetworkManager:
                 '1', 'true', 'yes', 'on'
             )
 
-        # Startup grace period — serializes syncs and limits concurrency
+        # Startup grace period throttles initial syncs without making new or
+        # restarted peers wait minutes before catch-up repair begins.
         self._startup_time: Optional[float] = None
-        self._STARTUP_GRACE_PERIOD = 10.0  # seconds
-        self._POST_CONNECT_SETTLE_WINDOW_S = 1.5
+        self._STARTUP_GRACE_PERIOD = 8.0  # seconds
+        self._POST_CONNECT_SETTLE_WINDOW_S = 1.0
         self._sync_queue: asyncio.Queue[str] = asyncio.Queue()
         self._sync_queue_task: Optional[asyncio.Task] = None
         self._queued_sync_peers: set[str] = set()
@@ -215,8 +218,8 @@ class P2PNetworkManager:
         self._post_connect_retry_tokens: Dict[str, str] = {}
         self._POST_CONNECT_SYNC_MAX_RETRIES = 3
         self._active_catchups: set = set()
-        self._MAX_CONCURRENT_CATCHUPS_STARTUP = 2
-        self._MAX_CONCURRENT_CATCHUPS_NORMAL = 5
+        self._MAX_CONCURRENT_CATCHUPS_STARTUP = 3
+        self._MAX_CONCURRENT_CATCHUPS_NORMAL = 6
         self.sync_digest_enabled = bool(
             getattr(cfg_security, 'sync_digest_enabled', False)
         )
@@ -242,8 +245,416 @@ class P2PNetworkManager:
         logger.info("P2PNetworkManager initialized")
 
     def _meshspace_network_quarantined(self) -> bool:
-        mesh_cfg = getattr(self.config, 'meshspace', None)
+        config = getattr(self, 'config', None)
+        mesh_cfg = getattr(config, 'meshspace', None)
         return bool(getattr(mesh_cfg, 'network_quarantined', False))
+
+    def _meshspace_boundary_enabled(self) -> bool:
+        """Return True when this runtime has explicit meshspace identity."""
+        config = getattr(self, 'config', None)
+        mesh_cfg = getattr(config, 'meshspace', None)
+        return bool(getattr(mesh_cfg, 'enabled', False))
+
+    @staticmethod
+    def _normalize_meshspace_id_aliases(raw: Any, *, current_id: str = "") -> list[str]:
+        aliases: list[str] = []
+        values = raw if isinstance(raw, (list, tuple, set)) else ([raw] if raw else [])
+        current = str(current_id or '').strip()
+        for value in values:
+            alias = str(value or '').strip()
+            if not alias or alias == current or alias in aliases:
+                continue
+            aliases.append(alias)
+        return aliases
+
+    @classmethod
+    def _meshspace_hint_ids(cls, hint: Dict[str, Any]) -> set[str]:
+        meshspace_id = str(hint.get('meshspace_id') or '').strip()
+        aliases = cls._normalize_meshspace_id_aliases(
+            hint.get('meshspace_id_aliases'),
+            current_id=meshspace_id,
+        )
+        ids = set(aliases)
+        if meshspace_id:
+            ids.add(meshspace_id)
+        return ids
+
+    def _local_meshspace_identity(self) -> Dict[str, Any]:
+        """Return local meshspace metadata used for safety hints."""
+        config = getattr(self, 'config', None)
+        mesh_cfg = getattr(config, 'meshspace', None)
+        meshspace_id = str(getattr(mesh_cfg, 'meshspace_id', '') or '').strip()
+        meshspace_name = str(getattr(mesh_cfg, 'name', '') or '').strip()
+        fingerprint = meshspace_fingerprint(meshspace_id, meshspace_name)
+        return {
+            'meshspace_id': meshspace_id,
+            'meshspace_id_aliases': self._normalize_meshspace_id_aliases(
+                getattr(mesh_cfg, 'meshspace_id_aliases', []),
+                current_id=meshspace_id,
+            ),
+            'meshspace_name': meshspace_name,
+            'meshspace_fingerprint': fingerprint,
+            'meshspace_avatar_b64': str(getattr(mesh_cfg, 'avatar_preview_b64', '') or '').strip(),
+            'meshspace_avatar_mime': str(getattr(mesh_cfg, 'avatar_preview_mime', 'image/png') or 'image/png').strip() or 'image/png',
+        }
+
+    def _record_peer_meshspace_hint(
+        self,
+        peer_id: str,
+        mesh_meta: Optional[Dict[str, Any]],
+        *,
+        source: str,
+        cross_mesh_allowed: Optional[bool] = None,
+        mesh_relationship: Optional[str] = None,
+    ) -> None:
+        """Persist a remote meshspace hint when a peer advertises one."""
+        if not peer_id or not isinstance(mesh_meta, dict):
+            return
+        meshspace_id = str(mesh_meta.get('meshspace_id') or '').strip()
+        meshspace_id_aliases = self._normalize_meshspace_id_aliases(
+            mesh_meta.get('meshspace_id_aliases'),
+            current_id=meshspace_id,
+        )
+        meshspace_name = str(mesh_meta.get('meshspace_name') or '').strip()
+        meshspace_fingerprint_value = str(mesh_meta.get('meshspace_fingerprint') or '').strip()
+        meshspace_avatar_b64 = str(mesh_meta.get('meshspace_avatar_b64') or '').strip()
+        meshspace_avatar_mime = str(mesh_meta.get('meshspace_avatar_mime') or '').strip()
+        if not (
+            meshspace_id or meshspace_id_aliases or meshspace_name or meshspace_fingerprint_value
+            or meshspace_avatar_b64 or cross_mesh_allowed is not None
+        ):
+            return
+        identity_manager = getattr(self, 'identity_manager', None)
+        recorder = getattr(identity_manager, 'record_peer_meshspace_hint', None)
+        if not callable(recorder):
+            return
+        try:
+            recorder(
+                peer_id,
+                meshspace_id=meshspace_id or None,
+                meshspace_id_aliases=meshspace_id_aliases or None,
+                meshspace_name=meshspace_name or None,
+                meshspace_fingerprint=meshspace_fingerprint_value or None,
+                meshspace_avatar_b64=meshspace_avatar_b64 or None,
+                meshspace_avatar_mime=meshspace_avatar_mime or None,
+                source=source,
+                cross_mesh_allowed=cross_mesh_allowed,
+                mesh_relationship=mesh_relationship,
+            )
+        except Exception:
+            logger.debug("Could not persist meshspace hint for %s", peer_id, exc_info=True)
+
+    @staticmethod
+    def _sanitize_public_peer_label(value: Any, *, limit: int = 96) -> str:
+        text = str(value or '').replace('\r', ' ').replace('\n', ' ').strip()
+        text = ''.join(ch for ch in text if ch == '\t' or ord(ch) >= 32)
+        while '  ' in text:
+            text = text.replace('  ', ' ')
+        return text[:limit]
+
+    def _local_peer_public_identity_hint(self) -> Dict[str, str]:
+        """Return compact local peer labels to advertise before trust."""
+        hint: Dict[str, Any] = {}
+        provider = getattr(self, 'get_local_peer_public_hint', None)
+        if callable(provider):
+            try:
+                candidate = provider() or {}
+                if isinstance(candidate, dict):
+                    hint = dict(candidate)
+            except Exception:
+                logger.debug("Could not build local peer public hint from callback", exc_info=True)
+        if not hint:
+            device = self._build_local_device_preview() or {}
+            hint = {
+                'peer_label': device.get('display_name') or '',
+                'instance_label': device.get('display_name') or '',
+            }
+        peer_label = self._sanitize_public_peer_label(
+            hint.get('peer_label') or hint.get('node_name') or hint.get('instance_label')
+        )
+        instance_label = self._sanitize_public_peer_label(
+            hint.get('instance_label') or peer_label
+        )
+        return {
+            'peer_label': peer_label,
+            'instance_label': instance_label,
+        }
+
+    def refresh_local_public_identity_hint(self) -> Dict[str, str]:
+        """Refresh the live handshake labels used for new outbound/inbound connections."""
+        hint = self._local_peer_public_identity_hint()
+        connection_manager = getattr(self, 'connection_manager', None)
+        if connection_manager is not None:
+            try:
+                sanitize = getattr(connection_manager, '_sanitize_public_label', None)
+                peer_label = str(hint.get('peer_label') or '').strip()
+                instance_label = str(hint.get('instance_label') or '').strip()
+                connection_manager.local_peer_label = sanitize(peer_label) if callable(sanitize) else peer_label
+                connection_manager.local_instance_label = sanitize(instance_label) if callable(sanitize) else instance_label
+            except Exception:
+                logger.debug("Could not refresh live connection-manager public hint", exc_info=True)
+        return hint
+
+    def _remember_peer_public_identity_hint(
+        self,
+        peer_id: str,
+        peer_meta: Optional[Dict[str, Any]],
+        *,
+        source: str,
+    ) -> Dict[str, str]:
+        """Persist untrusted human-readable peer labels learned during handshake/intro."""
+        clean_peer_id = str(peer_id or '').strip()
+        if not clean_peer_id or not isinstance(peer_meta, dict):
+            return {}
+        peer_label = self._sanitize_public_peer_label(
+            peer_meta.get('peer_label') or peer_meta.get('display_name') or peer_meta.get('node_name')
+        )
+        instance_label = self._sanitize_public_peer_label(peer_meta.get('instance_label'))
+        display_name = peer_label or instance_label
+        if not display_name:
+            return {}
+
+        identity_manager = getattr(self, 'identity_manager', None)
+        changed = False
+        if identity_manager is not None:
+            try:
+                existing = str(getattr(identity_manager, 'peer_display_names', {}).get(clean_peer_id) or '').strip()
+                if existing != display_name:
+                    identity_manager.peer_display_names[clean_peer_id] = display_name
+                    changed = True
+                if changed and hasattr(identity_manager, '_save_known_peers'):
+                    identity_manager._save_known_peers()
+            except Exception:
+                logger.debug("Could not persist public peer label for %s", clean_peer_id, exc_info=True)
+
+        if hasattr(self, '_introduced_peers'):
+            introduced = self._introduced_peers.get(clean_peer_id)
+            if isinstance(introduced, dict):
+                introduced['display_name'] = display_name
+                introduced['peer_label'] = peer_label
+                introduced['instance_label'] = instance_label
+                introduced['public_identity_source'] = source
+
+        return {
+            'display_name': display_name,
+            'peer_label': peer_label,
+            'instance_label': instance_label,
+        }
+
+    def get_peer_cross_mesh_status(self, peer_id: str) -> Dict[str, Any]:
+        """Return whether a peer appears to belong to a different meshspace."""
+        local = self._local_meshspace_identity()
+        identity_manager = getattr(self, 'identity_manager', None)
+        hint_getter = getattr(identity_manager, 'get_peer_meshspace_hint', None)
+        hint: Dict[str, Any] = {}
+        if callable(hint_getter):
+            try:
+                hint = dict(hint_getter(peer_id) or {})
+            except Exception:
+                hint = {}
+        else:
+            hint = dict(getattr(identity_manager, 'peer_meshspace_hints', {}).get(peer_id, {}) or {})
+
+        local_id = str(local.get('meshspace_id') or '').strip()
+        remote_id = str(hint.get('meshspace_id') or '').strip()
+        local_ids = self._meshspace_hint_ids(local)
+        remote_ids = self._meshspace_hint_ids(hint)
+        local_fingerprint = str(local.get('meshspace_fingerprint') or '').strip()
+        remote_fingerprint = str(hint.get('meshspace_fingerprint') or '').strip()
+        mismatch = False
+        if self._meshspace_boundary_enabled():
+            if local_ids and remote_ids:
+                mismatch = not bool(local_ids.intersection(remote_ids))
+            elif local_fingerprint and remote_fingerprint:
+                mismatch = remote_fingerprint != local_fingerprint
+        allowed = bool(hint.get('cross_mesh_allowed'))
+        stored_relationship = str(hint.get('mesh_relationship') or '').strip()
+        if not remote_ids and not remote_fingerprint:
+            relationship = stored_relationship or 'unknown'
+        elif mismatch and allowed:
+            relationship = 'cross_mesh_bridge_allowed'
+        elif mismatch:
+            relationship = 'mesh_mismatch_pending_review'
+        elif (
+            stored_relationship == 'same_mesh_alias_confirmed'
+            or (remote_id and local_id and remote_id != local_id and remote_id in local_ids)
+            or bool(local_ids.intersection(remote_ids) - {local_id})
+        ):
+            relationship = 'same_mesh_alias_confirmed'
+        else:
+            relationship = 'same_mesh_confirmed'
+        return {
+            'peer_id': peer_id,
+            'local_meshspace_id': local_id,
+            'local_meshspace_id_aliases': list(local.get('meshspace_id_aliases') or []),
+            'local_meshspace_name': local.get('meshspace_name') or '',
+            'local_meshspace_fingerprint': local_fingerprint,
+            'remote_meshspace_id': remote_id,
+            'remote_meshspace_id_aliases': list(hint.get('meshspace_id_aliases') or []),
+            'remote_meshspace_name': str(hint.get('meshspace_name') or '').strip(),
+            'remote_meshspace_fingerprint': remote_fingerprint,
+            'remote_meshspace_avatar_b64': str(hint.get('meshspace_avatar_b64') or '').strip(),
+            'remote_meshspace_avatar_mime': str(hint.get('meshspace_avatar_mime') or '').strip(),
+            'mismatch': mismatch,
+            'cross_mesh_allowed': allowed,
+            'mesh_relationship': relationship,
+            'requires_identity_review': bool(relationship == 'mesh_mismatch_pending_review'),
+            'requires_manual_confirmation': bool(relationship == 'mesh_mismatch_pending_review'),
+        }
+
+    def get_peer_sync_status(self, peer_id: str) -> Dict[str, Any]:
+        """Return whether a peer is still preview-only for sync import."""
+        clean_peer = str(peer_id or '').strip()
+        identity_manager = getattr(self, 'identity_manager', None)
+        hint_getter = getattr(identity_manager, 'get_peer_meshspace_hint', None)
+        sync_getter = getattr(identity_manager, 'get_peer_sync_approval_status', None)
+        hint: Dict[str, Any] = {}
+        if callable(hint_getter):
+            try:
+                hint = dict(hint_getter(clean_peer) or {})
+            except Exception:
+                hint = {}
+        sync_status: Dict[str, Any] = {}
+        if callable(sync_getter):
+            try:
+                sync_status = dict(sync_getter(clean_peer) or {})
+            except Exception:
+                sync_status = {}
+        explicit_scope = str(sync_status.get('explicit_scope') or '').strip().lower()
+        effective_scope = str(sync_status.get('effective_scope') or '').strip().lower()
+        default_preview_only = bool(identity_manager is not None and not effective_scope)
+        preview_only = bool(sync_status.get('preview_only', default_preview_only))
+        return {
+            'peer_id': clean_peer,
+            'preview_only': preview_only,
+            'explicit_scope': explicit_scope,
+            'effective_scope': effective_scope,
+            'approved_at': str(sync_status.get('approved_at') or '').strip(),
+            'inherited_from_peer_id': str(sync_status.get('inherited_from_peer_id') or '').strip(),
+            'remote_meshspace_id': str(hint.get('meshspace_id') or '').strip(),
+            'remote_meshspace_id_aliases': list(hint.get('meshspace_id_aliases') or []),
+            'remote_meshspace_name': str(hint.get('meshspace_name') or '').strip(),
+            'remote_meshspace_fingerprint': str(hint.get('meshspace_fingerprint') or '').strip(),
+            'remote_meshspace_avatar_b64': str(hint.get('meshspace_avatar_b64') or '').strip(),
+            'remote_meshspace_avatar_mime': str(hint.get('meshspace_avatar_mime') or '').strip(),
+        }
+
+    def _peer_requires_sync_approval(self, peer_id: str) -> bool:
+        """Return True when a peer is limited to preview-only mode."""
+        return bool(self.get_peer_sync_status(peer_id).get('preview_only'))
+
+    def approve_peer_sync(self, peer_id: str, scope: str = 'peer') -> Dict[str, Any]:
+        """Persist that sync is allowed for one peer or its whole mesh."""
+        clean_scope = str(scope or '').strip().lower()
+        if clean_scope not in {'peer', 'mesh'}:
+            raise ValueError(f"Unsupported sync approval scope: {scope}")
+        identity_manager = getattr(self, 'identity_manager', None)
+        setter = getattr(identity_manager, 'set_peer_sync_approval', None)
+        if not callable(setter):
+            raise RuntimeError("Peer sync approval persistence unavailable")
+        setter(peer_id, clean_scope)
+        return self.get_peer_sync_status(peer_id)
+
+    def _peer_requires_manual_cross_mesh(self, peer_id: str) -> bool:
+        return bool(self.get_peer_cross_mesh_status(peer_id).get('requires_manual_confirmation'))
+
+    def mark_peer_cross_mesh_allowed(self, peer_id: str, allowed: bool = True) -> None:
+        """Persist the admin/user decision that a cross-mesh peer is intentional."""
+        status = self.get_peer_cross_mesh_status(peer_id)
+        self._record_peer_meshspace_hint(
+            peer_id,
+            {
+                'meshspace_id': status.get('remote_meshspace_id'),
+                'meshspace_id_aliases': status.get('remote_meshspace_id_aliases'),
+                'meshspace_name': status.get('remote_meshspace_name'),
+                'meshspace_fingerprint': status.get('remote_meshspace_fingerprint'),
+                'meshspace_avatar_b64': status.get('remote_meshspace_avatar_b64'),
+                'meshspace_avatar_mime': status.get('remote_meshspace_avatar_mime'),
+            },
+            source='manual_cross_mesh_confirmation',
+            cross_mesh_allowed=allowed,
+            mesh_relationship='cross_mesh_bridge_allowed' if allowed else '',
+        )
+
+    def mark_peer_meshspace_equivalent(self, peer_id: str) -> Dict[str, Any]:
+        """Treat the peer's advertised mesh IDs as aliases of the local meshspace."""
+        status = self.get_peer_cross_mesh_status(peer_id)
+        local_meshspace_id = str(status.get('local_meshspace_id') or '').strip()
+        if not local_meshspace_id:
+            raise RuntimeError("Local meshspace identity is unavailable")
+
+        remote_ids: list[str] = []
+        remote_id = str(status.get('remote_meshspace_id') or '').strip()
+        if remote_id:
+            remote_ids.append(remote_id)
+        for alias in status.get('remote_meshspace_id_aliases') or []:
+            clean = str(alias or '').strip()
+            if clean and clean not in remote_ids:
+                remote_ids.append(clean)
+        if not remote_ids:
+            raise RuntimeError("Peer has not advertised a meshspace ID to alias")
+
+        mesh_cfg = getattr(getattr(self, 'config', None), 'meshspace', None)
+        current_aliases = self._normalize_meshspace_id_aliases(
+            getattr(mesh_cfg, 'meshspace_id_aliases', []),
+            current_id=local_meshspace_id,
+        )
+        aliases_to_add = [
+            value for value in remote_ids
+            if value != local_meshspace_id and value not in current_aliases
+        ]
+        merged_aliases = self._normalize_meshspace_id_aliases(
+            current_aliases + aliases_to_add,
+            current_id=local_meshspace_id,
+        )
+        if mesh_cfg is not None:
+            mesh_cfg.meshspace_id_aliases = list(merged_aliases)
+
+        registry_root = str(getattr(mesh_cfg, 'registry_root', '') or '').strip() if mesh_cfg else ''
+        if registry_root and aliases_to_add:
+            try:
+                from ..core.meshspaces import MeshspaceRegistryManager
+
+                registry = MeshspaceRegistryManager(registry_root=Path(registry_root).expanduser())
+                record = registry.add_meshspace_aliases(local_meshspace_id, aliases_to_add)
+                if isinstance(record, dict) and mesh_cfg is not None:
+                    mesh_cfg.meshspace_id_aliases = self._normalize_meshspace_id_aliases(
+                        record.get('meshspace_id_aliases'),
+                        current_id=local_meshspace_id,
+                    )
+            except Exception:
+                logger.warning(
+                    "Could not persist meshspace aliases %s for %s",
+                    aliases_to_add,
+                    local_meshspace_id,
+                    exc_info=True,
+                )
+
+        connection_manager = getattr(self, 'connection_manager', None)
+        if connection_manager is not None:
+            connection_manager.local_meshspace_id_aliases = list(getattr(mesh_cfg, 'meshspace_id_aliases', []) or merged_aliases)
+
+        self._record_peer_meshspace_hint(
+            peer_id,
+            {
+                'meshspace_id': status.get('remote_meshspace_id'),
+                'meshspace_id_aliases': status.get('remote_meshspace_id_aliases'),
+                'meshspace_name': status.get('remote_meshspace_name'),
+                'meshspace_fingerprint': status.get('remote_meshspace_fingerprint'),
+                'meshspace_avatar_b64': status.get('remote_meshspace_avatar_b64'),
+                'meshspace_avatar_mime': status.get('remote_meshspace_avatar_mime'),
+            },
+            source='manual_same_mesh_alias_confirmation',
+            cross_mesh_allowed=False,
+            mesh_relationship='same_mesh_alias_confirmed',
+        )
+        return self.get_peer_cross_mesh_status(peer_id)
+
+    def _cross_mesh_reconnect_detail(self, peer_id: str) -> str:
+        status = self.get_peer_cross_mesh_status(peer_id)
+        remote_name = status.get('remote_meshspace_name') or status.get('remote_meshspace_id') or 'another meshspace'
+        local_name = status.get('local_meshspace_name') or status.get('local_meshspace_id') or 'this meshspace'
+        return f"Cross-mesh reconnect blocked: {remote_name} is not {local_name}"
 
     def _build_local_capabilities(self) -> list[str]:
         """Compute P2P capability advertisement for this node."""
@@ -587,6 +998,8 @@ class P2PNetworkManager:
         local_peer = str(self.get_peer_id() or '').strip()
         if local_peer and clean_peer == local_peer:
             return True
+        if self._peer_requires_sync_approval(clean_peer):
+            return False
         has_explicit = getattr(self, 'has_explicit_trust_score', None)
         if has_explicit:
             try:
@@ -924,7 +1337,7 @@ class P2PNetworkManager:
                     self._syncs_in_progress.add(peer_id)
                     if not await self._acquire_catchup_slot(peer_id):
                         # Wait a bit and retry if at capacity
-                        await asyncio.sleep(2.0)
+                        await asyncio.sleep(0.75)
                         if not await self._acquire_catchup_slot(peer_id):
                             logger.warning(f"Skipping sync for {peer_id}: at capacity")
                             self._sync_queue.task_done()
@@ -934,9 +1347,9 @@ class P2PNetworkManager:
 
                     # Delay between syncs to reduce contention
                     if self._in_startup_grace_period():
-                        await asyncio.sleep(1.0)
+                        await asyncio.sleep(0.5)
                     else:
-                        await asyncio.sleep(0.3)
+                        await asyncio.sleep(0.15)
                 except Exception as e:
                     logger.error(f"Error processing sync for {peer_id}: {e}", exc_info=True)
                 finally:
@@ -1021,6 +1434,8 @@ class P2PNetworkManager:
             network_config = self.config.network
             if self.local_identity is None:
                 raise RuntimeError("Local identity is not initialized")
+            local_meshspace = self._local_meshspace_identity()
+            local_peer_hint = self._local_peer_public_identity_hint()
             
             # Initialize connection manager FIRST (core functionality)
             # Always bind P2P listener to all interfaces for peer connectivity
@@ -1036,6 +1451,14 @@ class P2PNetworkManager:
                 advertised_endpoints_provider=self._get_local_advertised_endpoints,
                 canopy_version=self.local_canopy_version,
                 protocol_version=self.local_protocol_version,
+                meshspace_id=local_meshspace.get('meshspace_id', ''),
+                meshspace_id_aliases=local_meshspace.get('meshspace_id_aliases', []),
+                meshspace_name=local_meshspace.get('meshspace_name', ''),
+                meshspace_fingerprint=local_meshspace.get('meshspace_fingerprint', ''),
+                meshspace_avatar_b64=local_meshspace.get('meshspace_avatar_b64', ''),
+                meshspace_avatar_mime=local_meshspace.get('meshspace_avatar_mime', 'image/png'),
+                peer_label=local_peer_hint.get('peer_label', ''),
+                instance_label=local_peer_hint.get('instance_label', ''),
                 reject_protocol_mismatch=bool(
                     os.getenv('CANOPY_REJECT_PROTOCOL_MISMATCH', '').strip().lower() in ('1', 'true', 'yes', 'on')
                 ),
@@ -1198,6 +1621,15 @@ class P2PNetworkManager:
 
         for peer_id in list(known_peer_ids):
             if peer_id == local_id:
+                continue
+            if self._peer_requires_manual_cross_mesh(peer_id):
+                detail = self._cross_mesh_reconnect_detail(peer_id)
+                logger.warning("Startup reconnect skipped for %s: %s", peer_id, detail)
+                self._record_connection_event(
+                    peer_id,
+                    status='blocked',
+                    detail=detail,
+                )
                 continue
             if self.connection_manager and self.connection_manager.is_connected(peer_id):
                 continue
@@ -1630,7 +2062,14 @@ class P2PNetworkManager:
             })
         return rows
 
-    async def _connect_to_endpoint(self, peer_id: str, endpoint: str) -> bool:
+    async def _connect_to_endpoint(
+        self,
+        peer_id: str,
+        endpoint: str,
+        *,
+        allow_cross_mesh: bool = False,
+        allow_mesh_review: bool = False,
+    ) -> bool:
         """Connect to a peer using a ws:// or wss:// endpoint string."""
         if not self.connection_manager:
             return False
@@ -1638,6 +2077,21 @@ class P2PNetworkManager:
         if peer_id == local_id:
             logger.debug("Reconnect: refusing to connect to self (%s)", peer_id)
             return False
+        if self._peer_requires_manual_cross_mesh(peer_id) and not (allow_cross_mesh or allow_mesh_review):
+            detail = self._cross_mesh_reconnect_detail(peer_id)
+            logger.warning("Reconnect refused for %s: %s", peer_id, detail)
+            self._record_connection_event(
+                peer_id,
+                status='blocked',
+                detail=detail,
+                endpoint=endpoint,
+            )
+            return False
+        if allow_cross_mesh:
+            try:
+                self.mark_peer_cross_mesh_allowed(peer_id, True)
+            except Exception:
+                pass
         canon = self._canonicalize_endpoint(endpoint)
         parsed = self._parse_endpoint(canon or endpoint)
         if not parsed:
@@ -1673,6 +2127,76 @@ class P2PNetworkManager:
         )
         ok = await self.connection_manager.connect_to_peer(peer_id, host, port, scheme=scheme)
         if ok and canon:
+            get_connection = getattr(self.connection_manager, 'get_connection', None)
+            conn = get_connection(peer_id) if callable(get_connection) else None
+            if conn:
+                self._remember_peer_public_identity_hint(
+                    peer_id,
+                    {
+                        'peer_label': getattr(conn, 'peer_label', None),
+                        'instance_label': getattr(conn, 'instance_label', None),
+                    },
+                    source='handshake',
+                )
+                self._record_peer_meshspace_hint(
+                    peer_id,
+                    {
+                        'meshspace_id': getattr(conn, 'meshspace_id', None),
+                        'meshspace_id_aliases': getattr(conn, 'meshspace_id_aliases', None),
+                        'meshspace_name': getattr(conn, 'meshspace_name', None),
+                        'meshspace_fingerprint': getattr(conn, 'meshspace_fingerprint', None),
+                        'meshspace_avatar_b64': getattr(conn, 'meshspace_avatar_b64', None),
+                        'meshspace_avatar_mime': getattr(conn, 'meshspace_avatar_mime', None),
+                    },
+                    source='handshake',
+                    cross_mesh_allowed=allow_cross_mesh if allow_cross_mesh else None,
+                )
+            # A peer first seen through broker/discovery paths can pass the
+            # pre-connection guard because we had no prior mesh hint. Re-check
+            # immediately after the handshake fills that hint in.
+            if not allow_cross_mesh and self._peer_requires_manual_cross_mesh(peer_id):
+                detail = self._cross_mesh_reconnect_detail(peer_id)
+                if allow_mesh_review:
+                    logger.info(
+                        "Outgoing connection to %s left connected for mesh identity review: %s",
+                        peer_id,
+                        detail,
+                    )
+                    self._record_connection_event(
+                        peer_id,
+                        status='mesh_review_required',
+                        detail=detail,
+                        endpoint=canon,
+                    )
+                else:
+                    logger.warning(
+                        "Outgoing connection to %s rejected post-handshake: %s",
+                        peer_id,
+                        detail,
+                    )
+                    self._record_endpoint_result(
+                        peer_id,
+                        canon,
+                        success=False,
+                        reason='cross_mesh_blocked_post_handshake',
+                        detail=detail,
+                        sources=endpoint_sources,
+                    )
+                    self._record_connection_event(
+                        peer_id,
+                        status='blocked',
+                        detail=detail,
+                        endpoint=canon,
+                    )
+                    try:
+                        await self.connection_manager.disconnect_peer(peer_id)
+                    except Exception:
+                        logger.debug(
+                            "Could not disconnect cross-mesh peer %s post-handshake",
+                            peer_id,
+                            exc_info=True,
+                        )
+                    return False
             # Claim the endpoint so stale mappings don't keep retrying the wrong peer_id.
             self.identity_manager.record_endpoint(peer_id, canon, claim=True)
             self._record_endpoint_result(
@@ -1728,6 +2252,11 @@ class P2PNetworkManager:
         local_id = self.local_identity.peer_id if self.local_identity else ''
         if peer_id == local_id:
             return
+        if self._peer_requires_manual_cross_mesh(peer_id):
+            detail = self._cross_mesh_reconnect_detail(peer_id)
+            logger.warning("Automatic reconnect not scheduled for %s: %s", peer_id, detail)
+            self._record_connection_event(peer_id, status='blocked', detail=detail)
+            return
         if self.connection_manager and self.connection_manager.is_connected(peer_id):
             self._reconnect_tasks.pop(peer_id, None)
             return
@@ -1754,6 +2283,12 @@ class P2PNetworkManager:
 
             # Check if still needed
             if not self._running:
+                return
+            if self._peer_requires_manual_cross_mesh(peer_id):
+                detail = self._cross_mesh_reconnect_detail(peer_id)
+                logger.warning("Automatic reconnect cancelled for %s: %s", peer_id, detail)
+                self._record_connection_event(peer_id, status='blocked', detail=detail)
+                self._reconnect_tasks.pop(peer_id, None)
                 return
             if self.connection_manager and self.connection_manager.is_connected(peer_id):
                 logger.debug(f"Reconnect: {peer_id} already connected, skipping")
@@ -1874,6 +2409,11 @@ class P2PNetworkManager:
                     f"Ignoring discovered peer {peer.peer_id} with no usable discovery endpoints"
                 )
                 return
+            if self._peer_requires_manual_cross_mesh(peer.peer_id):
+                detail = self._cross_mesh_reconnect_detail(peer.peer_id)
+                logger.warning("Discovery auto-connect skipped for %s: %s", peer.peer_id, detail)
+                self._record_connection_event(peer.peer_id, status='blocked', detail=detail)
+                return
 
             # If we're already connected, just record/claim the endpoint and stop.
             if self.connection_manager and self.connection_manager.is_connected(peer.peer_id):
@@ -1948,6 +2488,9 @@ class P2PNetworkManager:
             'capabilities': self._normalize_capability_items(
                 list((getattr(conn, 'capabilities', None) or {}).keys())
             ),
+            'meshspace_id': str(getattr(conn, 'meshspace_id', '') or ''),
+            'meshspace_name': str(getattr(conn, 'meshspace_name', '') or ''),
+            'meshspace_fingerprint': str(getattr(conn, 'meshspace_fingerprint', '') or ''),
         }
         self.peer_versions[peer_id] = entry
 
@@ -1974,23 +2517,41 @@ class P2PNetworkManager:
         sync + catch-up on the P2P event loop.
         """
         logger.info(f"Incoming peer authenticated: {peer_id} — scheduling post-connect sync")
-        self._record_connection_event(
-            peer_id,
-            status='connected',
-            detail='Incoming connection authenticated',
-        )
+        cross_mesh_block_detail = ''
         if isinstance(peer_meta, dict):
-            try:
-                self._remember_peer_advertised_endpoints(
-                    peer_id,
-                    list(peer_meta.get('advertised_endpoints') or []),
-                )
-            except Exception:
-                pass
+            self._remember_peer_public_identity_hint(
+                peer_id,
+                peer_meta,
+                source='incoming_handshake',
+            )
+            self._record_peer_meshspace_hint(
+                peer_id,
+                {
+                    'meshspace_id': peer_meta.get('meshspace_id'),
+                    'meshspace_id_aliases': peer_meta.get('meshspace_id_aliases'),
+                    'meshspace_name': peer_meta.get('meshspace_name'),
+                    'meshspace_fingerprint': peer_meta.get('meshspace_fingerprint'),
+                    'meshspace_avatar_b64': peer_meta.get('meshspace_avatar_b64'),
+                    'meshspace_avatar_mime': peer_meta.get('meshspace_avatar_mime'),
+                },
+                source='incoming_handshake',
+            )
+            if self._peer_requires_manual_cross_mesh(peer_id):
+                cross_mesh_block_detail = self._cross_mesh_reconnect_detail(peer_id)
+                logger.warning("Incoming peer %s carries cross-mesh hint: %s", peer_id, cross_mesh_block_detail)
+            else:
+                try:
+                    self._remember_peer_advertised_endpoints(
+                        peer_id,
+                        list(peer_meta.get('advertised_endpoints') or []),
+                    )
+                except Exception:
+                    pass
         # Do not invent reconnect endpoints from socket origin addresses. Only
         # persist discovery-derived endpoints, which are authoritative enough
         # to survive reconnects and peer announcements.
-        self._remember_discovered_peer_endpoints(peer_id)
+        if not cross_mesh_block_detail and not self._peer_requires_manual_cross_mesh(peer_id):
+            self._remember_discovered_peer_endpoints(peer_id)
         try:
             self._refresh_peer_version_info(peer_id)
             if peer_meta and peer_id in self.peer_versions:
@@ -1998,6 +2559,9 @@ class P2PNetworkManager:
                     'canopy_version': str(peer_meta.get('canopy_version') or self.peer_versions[peer_id].get('canopy_version') or 'unknown'),
                     'protocol_version': int(peer_meta.get('protocol_version') or self.peer_versions[peer_id].get('protocol_version') or 1),
                     'version': str(peer_meta.get('version') or self.peer_versions[peer_id].get('version') or '0.1.0'),
+                    'meshspace_id': str(peer_meta.get('meshspace_id') or self.peer_versions[peer_id].get('meshspace_id') or ''),
+                    'meshspace_name': str(peer_meta.get('meshspace_name') or self.peer_versions[peer_id].get('meshspace_name') or ''),
+                    'meshspace_fingerprint': str(peer_meta.get('meshspace_fingerprint') or self.peer_versions[peer_id].get('meshspace_fingerprint') or ''),
                 })
                 self.peer_versions[peer_id]['compatible_protocol'] = (
                     int(self.peer_versions[peer_id].get('protocol_version') or 1) == self.local_protocol_version
@@ -2005,6 +2569,30 @@ class P2PNetworkManager:
         except Exception:
             pass
 
+        if cross_mesh_block_detail:
+            self._record_connection_event(
+                peer_id,
+                status='blocked',
+                detail=(
+                    f"{cross_mesh_block_detail}. "
+                    "Incoming connection rejected until an admin explicitly approves this cross-mesh bridge."
+                ),
+            )
+            if self.connection_manager and self._event_loop and not self._event_loop.is_closed():
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        self.connection_manager.disconnect_peer(peer_id),
+                        self._event_loop,
+                    )
+                except Exception:
+                    logger.warning("Could not disconnect unapproved cross-mesh peer %s", peer_id, exc_info=True)
+            return
+
+        self._record_connection_event(
+            peer_id,
+            status='connected',
+            detail='Incoming connection authenticated',
+        )
         if self._event_loop and not self._event_loop.is_closed():
             asyncio.run_coroutine_threadsafe(
                 self._run_post_connect_sync(peer_id),
@@ -2129,6 +2717,15 @@ class P2PNetworkManager:
                     peer_id,
                 )
                 return
+            if self._peer_requires_manual_cross_mesh(peer_id):
+                detail = self._cross_mesh_reconnect_detail(peer_id)
+                logger.warning("Skipping automatic post-connect sync for %s: %s", peer_id, detail)
+                try:
+                    await self._send_device_preview_to_peer(peer_id)
+                except Exception:
+                    logger.debug("Could not send device preview to mesh-review peer %s", peer_id, exc_info=True)
+                self._record_connection_event(peer_id, status='mesh_review_required', detail=detail)
+                return
             self._refresh_peer_version_info(peer_id)
             if not await self._wait_for_connection_settle(peer_id):
                 connection_manager = getattr(self, 'connection_manager', None)
@@ -2149,6 +2746,22 @@ class P2PNetworkManager:
             # Notify application layer
             if self.on_peer_connected:
                 self.on_peer_connected(peer_id)
+
+            if self._peer_requires_sync_approval(peer_id):
+                sync_status = self.get_peer_sync_status(peer_id)
+                remote_name = (
+                    sync_status.get('remote_meshspace_name')
+                    or sync_status.get('remote_meshspace_id')
+                    or 'this peer'
+                )
+                await self._send_device_preview_to_peer(peer_id)
+                detail = (
+                    f"Preview-only connection: {remote_name} can be reviewed, "
+                    "but channel sync is paused until you approve this peer or meshspace."
+                )
+                logger.info("Skipping automatic post-connect sync for %s: %s", peer_id, detail)
+                self._record_connection_event(peer_id, status='preview_only', detail=detail)
+                return
 
             if not trusted_content:
                 logger.info(
@@ -2203,6 +2816,9 @@ class P2PNetworkManager:
 
         Returns True if the sync was successfully scheduled.
         """
+        if self._peer_requires_sync_approval(peer_id):
+            logger.info("Peer sync trigger refused for %s because preview-only approval is still required", peer_id)
+            return False
         if not self._event_loop or self._event_loop.is_closed():
             logger.warning("Cannot trigger peer sync — event loop unavailable")
             return False
@@ -2216,6 +2832,43 @@ class P2PNetworkManager:
     # ------------------------------------------------------------------ #
     #  Profile sync helpers                                                #
     # ------------------------------------------------------------------ #
+
+    def _build_local_device_preview(self) -> Optional[Dict[str, Any]]:
+        """Return the lightweight local device identity preview."""
+        try:
+            from canopy.core.device import get_device_profile, get_device_id
+
+            dev_profile = get_device_profile()
+            return {
+                'device_id': get_device_id(),
+                'display_name': dev_profile.get('display_name', ''),
+                'description': dev_profile.get('description', ''),
+                'avatar_b64': dev_profile.get('avatar_b64', ''),
+                'avatar_mime': dev_profile.get('avatar_mime', ''),
+            }
+        except Exception:
+            return None
+
+    async def _send_device_preview_to_peer(self, peer_id: str) -> None:
+        """Send only device identity metadata to a preview-only peer."""
+        if not self.message_router:
+            return
+        local_peer_id = self.local_identity.peer_id if self.local_identity else ''
+        if not local_peer_id:
+            return
+        device_info = self._build_local_device_preview()
+        if not device_info:
+            return
+        try:
+            await self.message_router.send_profile_sync(
+                peer_id,
+                {
+                    'peer_id': local_peer_id,
+                    'device': device_info,
+                },
+            )
+        except Exception as e:
+            logger.error("Error sending device preview to %s: %s", peer_id, e, exc_info=True)
 
     async def _send_profile_to_peer(self, peer_id: str) -> None:
         """Send local profile cards (all registered users + device) to a peer.
@@ -2231,19 +2884,7 @@ class P2PNetworkManager:
             return
         try:
             # Build device info once (shared across all cards)
-            device_info = None
-            try:
-                from canopy.core.device import get_device_profile, get_device_id
-                dev_profile = get_device_profile()
-                device_info = {
-                    'device_id': get_device_id(),
-                    'display_name': dev_profile.get('display_name', ''),
-                    'description': dev_profile.get('description', ''),
-                    'avatar_b64': dev_profile.get('avatar_b64', ''),
-                    'avatar_mime': dev_profile.get('avatar_mime', ''),
-                }
-            except Exception:
-                pass
+            device_info = self._build_local_device_preview()
 
             local_peer_id = self.local_identity.peer_id if self.local_identity else ''
 
@@ -2347,9 +2988,12 @@ class P2PNetworkManager:
                     if device_profile and device_profile.get('display_name')
                     else self.identity_manager.peer_display_names.get(pid, pid[:8])
                 )
+                display_name = self._sanitize_public_peer_label(display_name)
                 introduced.append({
                     'peer_id': pid,
                     'display_name': display_name,
+                    'peer_label': display_name,
+                    'instance_label': display_name,
                     'endpoints': endpoints,
                     'ed25519_public_key': base58.b58encode(identity.ed25519_public_key).decode(),
                     'x25519_public_key': base58.b58encode(identity.x25519_public_key).decode(),
@@ -2394,9 +3038,12 @@ class P2PNetworkManager:
                 if device_profile and device_profile.get('display_name')
                 else self.identity_manager.peer_display_names.get(new_peer_id, new_peer_id[:8])
             )
+            display_name = self._sanitize_public_peer_label(display_name)
             new_peer_info = [{
                 'peer_id': new_peer_id,
                 'display_name': display_name,
+                'peer_label': display_name,
+                'instance_label': display_name,
                 'endpoints': endpoints,
                 'ed25519_public_key': base58.b58encode(identity.ed25519_public_key).decode(),
                 'x25519_public_key': base58.b58encode(identity.x25519_public_key).decode(),
@@ -2455,6 +3102,13 @@ class P2PNetworkManager:
             # Preserve prior metadata when possible, then overlay latest data.
             cleaned = dict(existing) if isinstance(existing, dict) else {}
             cleaned.update(dict(p))
+            public_hint = self._remember_peer_public_identity_hint(
+                pid,
+                cleaned,
+                source='announcement',
+            )
+            if public_hint.get('display_name') and not cleaned.get('display_name'):
+                cleaned['display_name'] = public_hint['display_name']
             cleaned['endpoints'] = endpoints
             cleaned['introduced_by'] = from_peer
             cleaned['capabilities'] = self._normalize_capability_items(cleaned.get('capabilities'))
@@ -2633,6 +3287,15 @@ class P2PNetworkManager:
         if hasattr(self, '_introduced_peers'):
             introduced = self._introduced_peers.get(clean_peer_id) or {}
 
+        device_profile: Dict[str, Any] = {}
+        if callable(getattr(self, 'get_peer_device_profile', None)):
+            try:
+                stored_profile = self.get_peer_device_profile(clean_peer_id)
+            except Exception:
+                stored_profile = None
+            if isinstance(stored_profile, dict):
+                device_profile = dict(stored_profile)
+
         node_name = ''
         if isinstance(introduced, dict):
             node_name = str(introduced.get('display_name') or '').strip()
@@ -2650,6 +3313,11 @@ class P2PNetworkManager:
                 result['source'] = 'identity'
 
         if not node_name:
+            node_name = str(device_profile.get('display_name') or '').strip()
+            if node_name:
+                result['source'] = 'profile'
+
+        if not node_name:
             node_name = clean_peer_id[:12]
 
         result['node_name'] = node_name
@@ -2661,7 +3329,11 @@ class P2PNetworkManager:
             initials = (node_name[:2] or clean_peer_id[:2]).upper()
         result['avatar_initials'] = initials
 
-        # Intentionally keep avatar_b64/avatar_mime unset pre-trust.
+        avatar_b64 = str(device_profile.get('avatar_b64') or '').strip()
+        if avatar_b64:
+            result['avatar_b64'] = avatar_b64
+            result['avatar_mime'] = str(device_profile.get('avatar_mime') or 'image/png').strip() or 'image/png'
+
         return result
 
     # ------------------------------------------------------------------ #
@@ -2822,6 +3494,16 @@ class P2PNetworkManager:
             )
             return
 
+        if self._peer_requires_manual_cross_mesh(target_peer):
+            detail = self._cross_mesh_reconnect_detail(target_peer)
+            logger.warning(
+                "Declining relay offer from %s for %s: %s",
+                relay_peer,
+                target_peer,
+                detail,
+            )
+            return
+
         logger.info(f"Accepted relay offer from {relay_peer} for {target_peer}")
         self.message_router.update_routing_table(target_peer, relay_peer)
         self._active_relays[target_peer] = relay_peer
@@ -2970,6 +3652,15 @@ class P2PNetworkManager:
             to_remove = [dest for dest, relay in self._active_relays.items() if relay == peer_id]
             for dest in to_remove:
                 del self._active_relays[dest]
+
+        # A peer that requires explicit cross-mesh approval should not be
+        # re-entered into the automatic reconnect loop on disconnect cleanup.
+        if self._peer_requires_manual_cross_mesh(peer_id):
+            logger.debug(
+                "Peer %s disconnected - skipping auto-reconnect because cross-mesh approval is required",
+                peer_id,
+            )
+            return
 
         # If a reconnect loop is already scheduled/running for this peer,
         # don't restart it (that resets backoff and can cause thrash).
@@ -4982,7 +5673,9 @@ class P2PNetworkManager:
         except Exception as e:
             logger.debug(f"Post-connect key retry for {peer_id} failed: {e}")
 
-    PERIODIC_CATCHUP_INTERVAL = 180  # seconds (3 minutes)
+    PERIODIC_CATCHUP_INITIAL_DELAY = 20  # seconds
+    PERIODIC_CATCHUP_INTERVAL = 90  # seconds
+    PERIODIC_CATCHUP_PEER_STAGGER = 0.75  # seconds
 
     async def _periodic_catchup_loop(self) -> None:
         """Periodically send catch-up requests to all connected peers.
@@ -4993,7 +5686,7 @@ class P2PNetworkManager:
         catch-up only fires once; this loop provides ongoing repair.
         """
         # Initial delay — let startup settle before first periodic run
-        await asyncio.sleep(60)
+        await asyncio.sleep(self.PERIODIC_CATCHUP_INITIAL_DELAY)
 
         while self._running:
             try:
@@ -5016,7 +5709,7 @@ class P2PNetworkManager:
                             logger.debug(f"Periodic catchup to {peer_id} "
                                          f"failed: {per_err}")
                         # Small stagger between peers
-                        await asyncio.sleep(2)
+                        await asyncio.sleep(self.PERIODIC_CATCHUP_PEER_STAGGER)
             except Exception as e:
                 logger.error(f"Error in periodic catchup loop: {e}",
                              exc_info=True)

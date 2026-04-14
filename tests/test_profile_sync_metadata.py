@@ -406,6 +406,43 @@ class TestProfileSyncMetadata(unittest.TestCase):
         self.assertEqual(row['display_name'], 'Remote Node')
         self.assertEqual(row['avatar_b64'], 'abc123')
 
+    def test_untrusted_profile_sync_stores_device_preview_without_importing_user(self) -> None:
+        app, db_manager, _trust_manager, p2p_manager = self._make_test_app()
+
+        profile_payload = {
+            'peer_id': 'peer-preview',
+            'user_id': 'remote-user',
+            'display_name': 'Remote User',
+            'username': 'remote_user',
+            'device': {
+                'display_name': 'Preview Node',
+                'description': 'visible before trust',
+                'avatar_b64': 'preview-avatar',
+                'avatar_mime': 'image/png',
+            },
+        }
+
+        with app.app_context():
+            p2p_manager.on_profile_sync(profile_payload, 'peer-preview')
+            with db_manager.get_connection() as conn:
+                profile_row = conn.execute(
+                    "SELECT display_name, avatar_b64 FROM peer_device_profiles WHERE peer_id = ?",
+                    ('peer-preview',),
+                ).fetchone()
+                user_row = conn.execute(
+                    "SELECT id FROM users WHERE id = ?",
+                    ('remote-user',),
+                ).fetchone()
+
+        self.assertIsNotNone(profile_row)
+        self.assertEqual(profile_row['display_name'], 'Preview Node')
+        self.assertEqual(profile_row['avatar_b64'], 'preview-avatar')
+        self.assertIsNone(user_row)
+        self.assertEqual(
+            p2p_manager.identity_manager.peer_display_names.get('peer-preview'),
+            'Preview Node',
+        )
+
     def test_profile_sync_reapplies_avatar_when_hash_is_unchanged_and_avatar_file_id_is_missing(self) -> None:
         app, db_manager, trust_manager, p2p_manager = self._make_test_app()
 

@@ -258,6 +258,53 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertNotIn("threadPane.addEventListener('paste'", body)
         self.assertIn('grid-template-rows: auto minmax(0, 1fr);', body)
         self.assertIn('position: sticky;', body)
+        self.assertIn('class="messages-page has-active-thread"', body)
+        self.assertIn('dm-sidebar-mobile-header', body)
+        self.assertIn('dm-mobile-sidebar-backdrop', body)
+        self.assertIn('toggleDmMobileSidebar(true)', body)
+        self.assertIn('function syncDmMobileLayoutState(options)', body)
+        self.assertIn("window.addEventListener('resize', scheduleDmMobileLayoutSync);", body)
+
+    def test_dm_message_text_preserves_multiline_content(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        template = (root / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
+        self.assertIn('.dm-bubble-copy {', template)
+        self.assertIn('white-space: pre-wrap;', template)
+        self.assertIn('line-height: 1.45;', template)
+
+    def test_inline_edit_js_reapplies_rich_content_after_text_update(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        template = (root / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
+        pattern = re.compile(
+            r"function applyInlineDmMessageEdit\(messageId, content, editedAt\)\s*\{.*?"
+            r"textEl\.textContent = content \|\| '';\s*"
+            r"applyDmRichContentInScope\(msgEl\);",
+            re.S,
+        )
+        self.assertRegex(template, pattern)
+
+    def test_inline_edit_success_path_avoids_full_thread_snapshot_reload(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        template = (root / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
+        pattern = re.compile(
+            r"showAlert\('Message updated successfully', 'success'\);\s*"
+            r"(?:(?!loadDmSnapshot).)*?\.catch\(err => showAlert\('Failed to update message:",
+            re.S,
+        )
+        self.assertRegex(template, pattern)
+
+    def test_visibility_change_relies_on_event_poll_without_forcing_full_snapshot(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        template = (root / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
+        pattern = re.compile(
+            r"document\.addEventListener\('visibilitychange', \(\) => \{\s*"
+            r"if \(!document\.hidden && !isDmSearchActive\(\)\) \{\s*"
+            r"syncDmMobileLayoutState\(\{ keepSidebarOpen: true \}\);\s*"
+            r"pollDmEvents\(\);\s*"
+            r"\}\s*\}\);",
+            re.S,
+        )
+        self.assertRegex(template, pattern)
 
     def test_messages_page_acknowledges_dm_mentions_for_open_thread(self) -> None:
         self.conn.execute(
@@ -507,6 +554,38 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertEqual(metadata.get('reply_to'), 'DM-root')
         self.assertEqual(self.p2p_manager.direct_messages[-1]['metadata'].get('reply_to'), 'DM-root')
 
+    def test_ajax_send_message_can_start_fresh_same_member_group_thread(self) -> None:
+        base_group_id = compute_group_id(['owner', 'peer-b', 'peer-c'])
+        response = self.client.post(
+            '/ajax/send_message',
+            json={
+                'recipient_ids': ['peer-b', 'peer-c'],
+                'content': 'Fresh same people thread',
+                'force_new_group': True,
+            },
+            headers={'X-CSRFToken': 'csrf-ui-messages'},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertTrue(payload.get('group_thread_id'))
+        self.assertTrue(payload.get('group_id'))
+        self.assertNotEqual(payload.get('group_id'), base_group_id)
+        self.assertEqual(payload.get('base_group_id'), base_group_id)
+
+        row = self.conn.execute(
+            'SELECT recipient_id, metadata FROM messages WHERE id = ?',
+            (payload['message']['id'],),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(row['recipient_id'], payload.get('group_id'))
+        metadata = json.loads(row['metadata']) if row['metadata'] else {}
+        self.assertEqual(metadata.get('group_id'), payload.get('group_id'))
+        self.assertEqual(metadata.get('base_group_id'), base_group_id)
+        self.assertEqual(metadata.get('group_thread_id'), payload.get('group_thread_id'))
+        self.assertEqual(metadata.get('group_members'), ['owner', 'peer-b', 'peer-c'])
+        self.assertEqual(self.p2p_manager.direct_messages[-1]['metadata'].get('group_thread_id'), payload.get('group_thread_id'))
+
     def test_group_thread_view_uses_canonical_identity_for_relayed_group_messages(self) -> None:
         canonical_group_id = compute_group_id(['owner', 'peer-b', 'peer-c'])
 
@@ -517,6 +596,49 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertIn('Group check-in', body)
         self.assertIn('Relay delivered through broker', body)
         self.assertIn(f'/messages?group={canonical_group_id}', body)
+
+    def test_group_thread_merges_partial_relay_member_sets_by_group_alias(self) -> None:
+        shared_group_id = 'group:split-relay'
+        partial_group_id = compute_group_id(['owner', 'peer-b'])
+        self.conn.executemany(
+            """
+            INSERT INTO messages (
+                id, sender_id, recipient_id, content, message_type, status,
+                created_at, delivered_at, read_at, edited_at, metadata
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    'DM-split-b', 'peer-b', shared_group_id, 'Partial relay from Bob',
+                    'text', 'delivered', '2026-03-07T10:08:00+00:00',
+                    '2026-03-07T10:08:01+00:00', None, None,
+                    json.dumps({'group_id': shared_group_id, 'group_members': ['owner', 'peer-b']}),
+                ),
+                (
+                    'DM-split-c', 'peer-c', shared_group_id, 'Partial relay from Cara',
+                    'text', 'delivered', '2026-03-07T10:09:00+00:00',
+                    '2026-03-07T10:09:01+00:00', None, None,
+                    json.dumps({'group_id': shared_group_id, 'group_members': ['owner', 'peer-c']}),
+                ),
+            ],
+        )
+        self.conn.commit()
+
+        messages = self.message_manager.get_group_conversation('owner', partial_group_id, limit=20)
+        self.assertEqual([message.id for message in messages[-2:]], ['DM-split-b', 'DM-split-c'])
+
+        response = self.client.get(f'/ajax/messages/thread_snapshot?group={partial_group_id}')
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertIn('Partial relay from Bob', payload.get('thread_body_html') or '')
+        self.assertIn('Partial relay from Cara', payload.get('thread_body_html') or '')
+        composer_ids = sorted(
+            item.get('user_id')
+            for item in payload.get('composer_recipients') or []
+            if item.get('user_id')
+        )
+        self.assertEqual(composer_ids, ['peer-b', 'peer-c'])
 
 
 if __name__ == '__main__':

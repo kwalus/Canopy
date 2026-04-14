@@ -173,6 +173,14 @@ class PeerConnection:
     protocol_version: Optional[int] = None
     endpoint_uri: Optional[str] = None
     advertised_endpoints: List[str] = field(default_factory=list)
+    meshspace_id: Optional[str] = None
+    meshspace_id_aliases: List[str] = field(default_factory=list)
+    meshspace_name: Optional[str] = None
+    meshspace_fingerprint: Optional[str] = None
+    meshspace_avatar_b64: Optional[str] = None
+    meshspace_avatar_mime: Optional[str] = None
+    peer_label: Optional[str] = None
+    instance_label: Optional[str] = None
     failure_reason: Optional[str] = None
     failure_detail: Optional[str] = None
     _send_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
@@ -210,6 +218,14 @@ class ConnectionManager:
                  advertised_endpoints_provider: Optional[Callable[[], List[str]]] = None,
                  canopy_version: str = "0.1.0",
                  protocol_version: int = 1,
+                 meshspace_id: str = "",
+                 meshspace_id_aliases: Optional[List[str]] = None,
+                 meshspace_name: str = "",
+                 meshspace_fingerprint: str = "",
+                 meshspace_avatar_b64: str = "",
+                 meshspace_avatar_mime: str = "",
+                 peer_label: str = "",
+                 instance_label: str = "",
                  reject_protocol_mismatch: bool = False):
         """
         Initialize connection manager.
@@ -235,6 +251,14 @@ class ConnectionManager:
         self.advertised_endpoints_provider = advertised_endpoints_provider
         self.local_canopy_version = str(canopy_version or '0.1.0').strip() or '0.1.0'
         self.local_protocol_version = self._coerce_protocol_version(protocol_version, default=1)
+        self.local_meshspace_id = str(meshspace_id or '').strip()
+        self.local_meshspace_id_aliases = self._normalize_endpoint_payload(meshspace_id_aliases or [])
+        self.local_meshspace_name = str(meshspace_name or '').strip()
+        self.local_meshspace_fingerprint = str(meshspace_fingerprint or '').strip()
+        self.local_meshspace_avatar_b64 = str(meshspace_avatar_b64 or '').strip()
+        self.local_meshspace_avatar_mime = str(meshspace_avatar_mime or 'image/png').strip() or 'image/png'
+        self.local_peer_label = self._sanitize_public_label(peer_label)
+        self.local_instance_label = self._sanitize_public_label(instance_label)
         self.reject_protocol_mismatch = bool(reject_protocol_mismatch)
         
         # TLS configuration
@@ -295,11 +319,17 @@ class ConnectionManager:
         actual_peer_id: str,
         endpoint_uri: str,
     ) -> None:
-        """Clean up stale endpoint ownership after a verified peer-id mismatch."""
+        """Quarantine a stale endpoint after a verified peer-id mismatch.
+
+        Do not auto-register the unexpected peer against this endpoint. A stale
+        endpoint answering as another peer is exactly the condition that can
+        pollute a mesh during automatic reconnects; the unexpected peer must be
+        imported or connected explicitly by the user.
+        """
         clean_endpoint = str(endpoint_uri or '').strip()
         if clean_endpoint.endswith('/p2p'):
             clean_endpoint = clean_endpoint[:-4]
-        action_taken = 'mapping_reset'
+        action_taken = 'stale_endpoint_quarantined'
         if not clean_endpoint:
             logger.warning(
                 "handshake_peerid_mismatch expected_peer=%s actual_peer=%s endpoint=unknown action_taken=%s",
@@ -310,9 +340,8 @@ class ConnectionManager:
             return
         try:
             self.identity_manager.remove_endpoint(expected_peer_id, clean_endpoint)
-            self.identity_manager.record_endpoint(actual_peer_id, clean_endpoint, claim=True)
         except Exception:
-            action_taken = 'endpoint_quarantine'
+            action_taken = 'endpoint_quarantine_failed'
         logger.warning(
             "handshake_peerid_mismatch expected_peer=%s actual_peer=%s endpoint=%s action_taken=%s",
             expected_peer_id,
@@ -472,7 +501,57 @@ class ConnectionManager:
             extra['protocol_version'] = payload.get('protocol_version')
         if 'advertised_endpoints' in payload:
             extra['advertised_endpoints'] = payload.get('advertised_endpoints')
+        if 'meshspace_id' in payload:
+            extra['meshspace_id'] = payload.get('meshspace_id')
+        if 'meshspace_id_aliases' in payload:
+            extra['meshspace_id_aliases'] = payload.get('meshspace_id_aliases')
+        if 'meshspace_name' in payload:
+            extra['meshspace_name'] = payload.get('meshspace_name')
+        if 'meshspace_fingerprint' in payload:
+            extra['meshspace_fingerprint'] = payload.get('meshspace_fingerprint')
+        if 'meshspace_avatar_b64' in payload:
+            extra['meshspace_avatar_b64'] = payload.get('meshspace_avatar_b64')
+        if 'meshspace_avatar_mime' in payload:
+            extra['meshspace_avatar_mime'] = payload.get('meshspace_avatar_mime')
+        if 'peer_label' in payload:
+            extra['peer_label'] = payload.get('peer_label')
+        if 'instance_label' in payload:
+            extra['instance_label'] = payload.get('instance_label')
         return extra
+
+    @staticmethod
+    def _sanitize_public_label(value: Any, *, limit: int = 96) -> str:
+        """Return a compact printable label safe for handshake preview metadata."""
+        text = str(value or '').replace('\r', ' ').replace('\n', ' ').strip()
+        text = ''.join(ch for ch in text if ch == '\t' or ord(ch) >= 32)
+        while '  ' in text:
+            text = text.replace('  ', ' ')
+        return text[:limit]
+
+    def _remote_public_label(self, payload: Dict[str, Any]) -> str:
+        """Prefer peer label, then instance label, for untrusted UI display."""
+        return (
+            self._sanitize_public_label(payload.get('peer_label'))
+            or self._sanitize_public_label(payload.get('instance_label'))
+        )
+
+    def _add_known_peer_with_label(self, remote_identity: Any, display_name: str = "") -> None:
+        """Persist peer keys and an optional unverified display hint compatibly."""
+        clean_label = self._sanitize_public_label(display_name)
+        try:
+            self.identity_manager.add_known_peer(
+                remote_identity,
+                display_name=clean_label or None,
+            )
+        except TypeError:
+            self.identity_manager.add_known_peer(remote_identity)
+        if clean_label:
+            try:
+                self.identity_manager.peer_display_names[remote_identity.peer_id] = clean_label
+                if hasattr(self.identity_manager, '_save_known_peers'):
+                    self.identity_manager._save_known_peers()
+            except Exception:
+                logger.debug("Could not persist peer display hint for %s", remote_identity.peer_id, exc_info=True)
 
     @staticmethod
     def _normalize_endpoint_payload(raw: Any) -> List[str]:
@@ -808,8 +887,11 @@ class ConnectionManager:
             
             logger.debug(f"Verified identity of incoming peer: {peer_id}")
             
-            # Store verified peer identity
-            self.identity_manager.add_known_peer(remote_identity)
+            # Store verified peer identity and compact untrusted display hint.
+            self._add_known_peer_with_label(
+                remote_identity,
+                self._remote_public_label(handshake_data),
+            )
             
             # Create connection
             connection = PeerConnection(
@@ -825,6 +907,16 @@ class ConnectionManager:
                     handshake_data.get('protocol_version', 1),
                     default=1,
                 ),
+                meshspace_id=str(handshake_data.get('meshspace_id') or '').strip() or None,
+                meshspace_id_aliases=self._normalize_endpoint_payload(
+                    handshake_data.get('meshspace_id_aliases', [])
+                ),
+                meshspace_name=str(handshake_data.get('meshspace_name') or '').strip() or None,
+                meshspace_fingerprint=str(handshake_data.get('meshspace_fingerprint') or '').strip() or None,
+                meshspace_avatar_b64=str(handshake_data.get('meshspace_avatar_b64') or '').strip() or None,
+                meshspace_avatar_mime=str(handshake_data.get('meshspace_avatar_mime') or '').strip() or None,
+                peer_label=self._sanitize_public_label(handshake_data.get('peer_label')) or None,
+                instance_label=self._sanitize_public_label(handshake_data.get('instance_label')) or None,
             )
             connection.capabilities = {
                 cap: True for cap in self._normalize_capabilities(
@@ -880,6 +972,14 @@ class ConnectionManager:
                             'protocol_version': connection.protocol_version,
                             'capabilities': list(connection.capabilities or {}),
                             'advertised_endpoints': list(connection.advertised_endpoints or []),
+                            'meshspace_id': connection.meshspace_id,
+                            'meshspace_id_aliases': list(connection.meshspace_id_aliases or []),
+                            'meshspace_name': connection.meshspace_name,
+                            'meshspace_fingerprint': connection.meshspace_fingerprint,
+                            'meshspace_avatar_b64': connection.meshspace_avatar_b64,
+                            'meshspace_avatar_mime': connection.meshspace_avatar_mime,
+                            'peer_label': connection.peer_label,
+                            'instance_label': connection.instance_label,
                         }
                         self.on_peer_authenticated(peer_id, peer_meta)
                     except TypeError:
@@ -952,6 +1052,14 @@ class ConnectionManager:
                 'canopy_version': self.local_canopy_version,
                 'protocol_version': self.local_protocol_version,
                 'advertised_endpoints': self._get_advertised_endpoints(),
+                'meshspace_id': self.local_meshspace_id,
+                'meshspace_id_aliases': list(self.local_meshspace_id_aliases or []),
+                'meshspace_name': self.local_meshspace_name,
+                'meshspace_fingerprint': self.local_meshspace_fingerprint,
+                'meshspace_avatar_b64': self.local_meshspace_avatar_b64,
+                'meshspace_avatar_mime': self.local_meshspace_avatar_mime,
+                'peer_label': self.local_peer_label,
+                'instance_label': self.local_instance_label,
                 'signature': signature.hex()
             }
             
@@ -1054,8 +1162,11 @@ class ConnectionManager:
                 connection.failure_detail = f'Handshake signature verification failed for {resp_peer_id}'
                 return False
             
-            # Store the verified peer identity
-            self.identity_manager.add_known_peer(remote_identity)
+            # Store the verified peer identity and compact untrusted display hint.
+            self._add_known_peer_with_label(
+                remote_identity,
+                self._remote_public_label(response),
+            )
 
             connection.handshake_version = str(response.get('version', '0.1.0') or '0.1.0')
             connection.canopy_version = str(response.get('canopy_version') or response.get('version', '0.1.0') or '0.1.0')
@@ -1063,6 +1174,16 @@ class ConnectionManager:
                 response.get('protocol_version', 1),
                 default=1,
             )
+            connection.meshspace_id = str(response.get('meshspace_id') or '').strip() or None
+            connection.meshspace_id_aliases = self._normalize_endpoint_payload(
+                response.get('meshspace_id_aliases', [])
+            )
+            connection.meshspace_name = str(response.get('meshspace_name') or '').strip() or None
+            connection.meshspace_fingerprint = str(response.get('meshspace_fingerprint') or '').strip() or None
+            connection.meshspace_avatar_b64 = str(response.get('meshspace_avatar_b64') or '').strip() or None
+            connection.meshspace_avatar_mime = str(response.get('meshspace_avatar_mime') or '').strip() or None
+            connection.peer_label = self._sanitize_public_label(response.get('peer_label')) or None
+            connection.instance_label = self._sanitize_public_label(response.get('instance_label')) or None
 
             connection.capabilities = {
                 cap: True for cap in self._normalize_capabilities(
@@ -1152,6 +1273,14 @@ class ConnectionManager:
                 'canopy_version': self.local_canopy_version,
                 'protocol_version': self.local_protocol_version,
                 'advertised_endpoints': self._get_advertised_endpoints(),
+                'meshspace_id': self.local_meshspace_id,
+                'meshspace_id_aliases': list(self.local_meshspace_id_aliases or []),
+                'meshspace_name': self.local_meshspace_name,
+                'meshspace_fingerprint': self.local_meshspace_fingerprint,
+                'meshspace_avatar_b64': self.local_meshspace_avatar_b64,
+                'meshspace_avatar_mime': self.local_meshspace_avatar_mime,
+                'peer_label': self.local_peer_label,
+                'instance_label': self.local_instance_label,
                 'signature': signature.hex()
             }
             

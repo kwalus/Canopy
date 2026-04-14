@@ -8,6 +8,150 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.27] - 2026-04-13
+
+### Changed
+- **Public-facing docs now teach the current connection review workflow instead of older blind-connect assumptions** - the README, Quick Start, Connect FAQ, and peer connection guide now explain device-profile-based peer identity, review-before-connect invite flow, preview-only sync boundaries, Trust-page review actions, and stale-hint refresh guidance using the shipped 0.6.27 behavior.
+
+## [0.6.26] - 2026-04-13
+
+### Fixed
+- **Preview-only peers can now refresh their human recognition hints without approving sync** - the Trust page `Refresh profile` action now clears cached preview identity and safely reconnects to relearn fresh label and avatar hints for untrusted peers, instead of leaving operators stuck with stale first-contact metadata.
+- **Trust review counts and controls now match the actual admin workflow** - `Needs Review` no longer drifts from badge side-effects, repeated connection text was removed from pending peer cards, and trust-tier plus sync-approval actions now consistently require the instance admin.
+
+## [0.6.25] - 2026-04-13
+
+### Changed
+- **Trust pending-peer cards now emphasize the actual operator decision instead of badge noise** - the Trust page keeps the `Connection / Review gate / Identity` summary model, uses clearer peer-recognition wording when only a raw peer ID is known, and ensures mesh-review and sync-review peers count toward the admin attention surface.
+
+## [0.6.24] - 2026-04-13
+
+### Fixed
+- **Untrusted peer rows now stay human-readable even when images are missing** - Connect surfaces for connected, discovered, relayed, and introduced peers now fall back to readable unverified labels plus initials badges instead of raw peer IDs, making first-contact review much safer for human operators.
+- **Saving the device profile now refreshes the node label immediately for new handshakes** - updating the local device profile now refreshes the live advertised peer/instance labels without waiting for a full instance restart, while third-party announced avatar blobs are no longer treated as trusted stored peer profiles.
+
+## [0.6.23] - 2026-04-13
+
+### Changed
+- **Accepted cross-mesh invites can now connect for review instead of stalling in a dead-end mismatch state** - instance admins can import a mismatched peer, keep the transport up for review, then explicitly treat it as the same mesh or keep it as a bridge without silently merging meshes.
+
+### Fixed
+- **Node hints now carry a compact admin-chosen icon fallback when avatar images are unavailable** - device profiles now include a validated standard icon that rides inside invite/public preview metadata so Connect cards still show a recognizable node marker even when remote preview fetches fail or avatars do not load.
+
+## [0.6.22] - 2026-04-13
+
+### Fixed
+- **Meshspace stop/restart now ignores foreign listeners bound to the wrong host/interface** - supervised runtime probing and port-conflict checks now resolve listeners against the meshspace's actual host so stale loopback tunnels or wrong-interface listeners no longer keep a meshspace stuck in `stopping` or block restart with a false port conflict.
+
+## [0.6.21] - 2026-04-13
+
+### Changed
+- **Connect cards now treat the peer as the instance you are connecting to, not the admin account** - invite generation, remote preview enrichment, and the settings/profile guidance now use the device profile as the peer name/avatar shown during connection review, while the mesh page continues to own the mesh identity hints.
+
+## [0.6.20] - 2026-04-13
+
+### Fixed
+- **Remote invite review now probes the right Canopy endpoint for images** - the Connect page no longer tries to fetch public preview metadata from the peer websocket port, and it can now merge the remote peer avatar together with the remote mesh avatar so fresh invite review cards refill both images after a peer is forgotten.
+
+## [0.6.19] - 2026-04-13
+
+### Fixed
+- **Fresh invite review can now recover the remote mesh art and labels after a peer is forgotten** - the Connect page now keeps invite payloads short, then probes only the invite-advertised remote endpoint for public mesh preview metadata so the review card can refill the mesh avatar, mesh name, and peer hints without reintroducing oversized invite codes.
+
+## [0.6.18] - 2026-04-13
+
+### Changed
+- **Connect hint identity setup is now much clearer for admins** - invite and Connect card peer hints now consistently use the instance owner's profile as the primary human-facing identity, while the device profile is labeled as a secondary node hint so operators can set recognition details in the right place.
+- **Profile, Settings, and Mesh pages now preview the full connection review bundle** - admins can now verify the peer image/name, mesh image/name/ID, and node hint from the existing pages before sharing invites, reducing confusion without adding invite payload bloat or a separate hint system.
+
+## [0.6.17] - 2026-04-13
+
+### Added
+- **Connect review cards now carry the live mesh identity operators expect** - invites and reconnect surfaces now advertise the current registry-backed mesh name plus an optional mesh avatar/logo thumbnail so peers are easier to recognize before trust or sync approval.
+
+### Changed
+- **Legacy default meshes can now be promoted to a stable explicit mesh ID with a controlled restart** - the current mesh detail page exposes an admin-only migration flow that preserves the old legacy ID as an alias for transition-safe cross-mesh diagnostics and reconnect review instead of silently continuing to advertise a `legacy-*` ID.
+- **Connect review copy now labels the peer token correctly** - the review card now says `Peer ID` instead of implying the sender-provided value is a separate fingerprint.
+
+## [0.6.16] - 2026-04-13
+
+### Fixed
+- **Fresh LAN-discovered peers now stop at a review boundary instead of immediately populating channels and history** - newly seen peers stay in a preview-only state that preserves identity and mesh hints for operator review while blocking automatic post-connect sync, incoming channel sync, catch-up import, and peer-introduction expansion until sync is explicitly approved.
+- **Trust review now exposes explicit sync approval actions for first-contact peers and whole meshspaces** - the Trust page can now show preview-only peer state, explain why sync is paused, and let an operator approve one peer or promote sync for later peers from the same advertised meshspace without conflating that decision with broader trust scoring.
+
+## [0.6.15] - 2026-04-13
+
+### Fixed
+- **Wrong-mesh peers are now cut off in two additional connection paths that could still slip past the first safety pass** - outbound connections now re-check the peer's mesh hint immediately after handshake and disconnect if a foreign mesh is revealed without approval, and relay offers no longer create routes to known foreign-mesh peers before an admin explicitly allows that bridge.
+- **Cross-mesh connect guidance is clearer on the Connect page for non-admin operators** - invite preview now distinguishes missing mesh hints from actual mismatches, preserves server diagnostic codes for better error copy, and disables the cross-mesh connect button with an explicit admin-required state instead of waiting for a failed click.
+- **Cross-mesh blocked peers no longer get re-added to automatic reconnect cleanup after disconnect** - disconnect cleanup now skips the reconnect loop for peers that already require manual cross-mesh approval, reducing redundant retry work without weakening the boundary.
+
+## [0.6.14] - 2026-04-13
+
+### Fixed
+- **Cross-mesh reconnects now fail more safely after a wrong invite import or stale peer mix-up** - endpoints learned from a verified peer-id mismatch continue to be quarantined instead of silently adopted under a different peer, unapproved incoming cross-mesh handshakes are disconnected before they can linger as an accidental bridge, and automatic reconnect or sync paths stay blocked until the bridge is explicitly approved.
+- **Cross-mesh approval now requires the workspace admin instead of any authenticated operator** - invite import, manual reconnect, and the Connect UI now require instance-admin approval before allowing a different meshspace to be bridged, which reduces the chance of an accidental user action re-linking two private meshes.
+
+## [0.6.13] - 2026-04-12
+
+### Fixed
+- **Same-participant group DMs can now deliberately start a fresh thread without collapsing back into the older discussion** - explicit fresh-group instances carry their own thread metadata so replies, edits, bookmarks, and sidebar links stay on the new conversation while legacy split-relay groups still retain the older alias-repair merge behavior.
+- **Portrait photos with EXIF rotation metadata now generate correctly oriented feed thumbnails instead of showing up sideways** - thumbnail generation now transposes images before resizing and lazily regenerates stale rotated thumbs when the original image still exposes a side-rotation EXIF mismatch.
+
+## [0.6.12] - 2026-04-12
+
+### Fixed
+- **DM and sidebar switching now avoid several redundant refresh bursts that made the UI feel heavier than necessary** - the DM workspace no longer forces a full thread snapshot after every inline edit or every tab-visibility return, while the global sidebar refresh path now coalesces focus/visibility bursts instead of replaying duplicate attention and DM snapshot requests back-to-back.
+
+### Changed
+- **Current-mesh attention summaries now compute at most once per request instead of repeating the same DB-backed summary work for multiple template consumers on the same page render** - the active mesh attention payload is cached in `flask.g` for the life of the request and returned as copies so callers cannot mutate the shared cached value.
+
+## [0.6.11] - 2026-04-11
+
+### Fixed
+- **DM timestamps now localize immediately instead of briefly showing raw UTC strings on first paint or fast refresh paths** - the shared frontend timestamp formatter is now exposed as a reusable global, runs immediately on load, and is reused by DM workspace refreshes and optimistic rows so direct-message timestamps render in the viewer's local time without waiting for the 30-second refresh loop.
+
+## [0.6.10] - 2026-04-11
+
+### Fixed
+- **Inline-edited DMs now immediately regain rich rendering instead of falling back to plain text until the next snapshot refresh** - the inline edit path now reapplies the shared DM rich-content renderer as soon as edited text is written back into the message bubble.
+- **Group DM member resolution no longer burns its alias-repair scan budget on unrelated group rows** - DM group-member expansion now queries only rows that actually involve the current user, which prevents unrelated `group:*` traffic from crowding out relevant relay legs during bounded alias repair.
+
+## [0.6.9] - 2026-04-11
+
+### Fixed
+- **Relay-delivered group DMs now recover a fuller participant set instead of splitting one logical group into multiple partial threads** - group DM conversation lookup, sidebar grouping, reply fanout, edit rebroadcasts, and inbound metadata repair now expand through shared group aliases so relayed partial-member rows can converge back into one thread and target the full known participant union.
+
+## [0.6.8] - 2026-04-11
+
+### Changed
+- **Messages and posts now support a bounded safe Markdown subset without opening the door to raw HTML rendering** - the shared client-side rich-content pipeline can now render lightweight headings, lists, blockquotes, inline code, bold, italic, and strikethrough across channels, DMs, and feed posts while still escaping user HTML first and preserving the existing safe link, image, fenced-code, embed, and math behavior.
+
+## [0.6.7] - 2026-04-11
+
+### Fixed
+- **Direct messages now preserve authored line breaks instead of flattening multiline text into one paragraph** - DM bubble text now renders with whitespace preservation so server-rendered messages, optimistic rows, and inline-edited DM copies all keep intentional newlines and blank lines while still wrapping normally inside the bubble.
+
+## [0.6.6] - 2026-04-11
+
+### Fixed
+- **Approved agents now land in open public channels instead of staying stranded in quarantine-only membership** - the shared default-channel repair path now backfills all open public channels, and the admin approval and classification flows reuse that path immediately after agent quarantine succeeds so newly approved agent accounts can post where operators expect without manual database repair.
+
+## [0.6.5] - 2026-04-10
+
+### Changed
+- **Invite import now gives operators a safer preview with mesh-aware hints before connecting** — the Connect page can decode an invite locally, surface sender-provided mesh, node, fingerprint, reachability, and age hints before import, and still falls back to the existing server-side verification path for the actual peer registration and connection attempt.
+
+## [0.6.4] - 2026-04-09
+
+### Fixed
+- **Compact mobile layouts now do less redundant resize work while keeping drawer and composer state more truthful** — the DM, channel, and feed mobile helpers now coalesce repeated resize-driven layout sync into a single animation-frame pass, the DM chats backdrop updates its accessibility state alongside the drawer toggle, and the feed composer toggle now exposes its controlled region from initial render instead of waiting for client-side setup.
+
+## [0.6.3] - 2026-04-09
+
+### Changed
+- **DMs, channels, and feed now waste less vertical space on phones** — the DM view switches to an active-thread-first mobile layout with a one-tap chats drawer, channel search stays collapsed by default across phone-width layouts until needed, and the feed composer now starts collapsed on compact screens unless there is already draft content or attachments waiting.
+
 ## [0.6.2] - 2026-04-07
 
 ### Fixed

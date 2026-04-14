@@ -31,6 +31,7 @@ if 'zeroconf' not in sys.modules:
 from canopy.api.routes import create_api_blueprint
 from canopy.core.inbox import InboxManager
 from canopy.core.messaging import MessageManager
+from canopy.core.messaging import compute_group_id
 from canopy.security.api_keys import ApiKeyInfo, Permission
 
 
@@ -425,6 +426,164 @@ class TestDmAgentEndpointRegressions(unittest.TestCase):
             ['agent-local', 'author', 'remote-shadow'],
         )
         self.assertIsNotNone(dm_item.get('edited_at'))
+
+    def test_api_group_dm_can_start_fresh_same_member_thread(self) -> None:
+        base_group_id = compute_group_id(['agent-local', 'author', 'remote-shadow'])
+        response = self.client.post(
+            '/api/v1/messages',
+            json={
+                'content': 'Fresh group instance',
+                'recipient_ids': ['agent-local', 'remote-shadow'],
+                'force_new_group': True,
+            },
+            headers=self._headers('key-author'),
+        )
+        self.assertEqual(response.status_code, 201)
+        payload = response.get_json() or {}
+        message = payload.get('message') or {}
+        self.assertTrue(message.get('id'))
+        self.assertTrue(payload.get('group_id'))
+        self.assertTrue(payload.get('group_thread_id'))
+        self.assertEqual(payload.get('base_group_id'), base_group_id)
+        self.assertNotEqual(payload.get('group_id'), base_group_id)
+
+        metadata = message.get('metadata') or {}
+        self.assertEqual(metadata.get('group_id'), payload.get('group_id'))
+        self.assertEqual(metadata.get('base_group_id'), base_group_id)
+        self.assertEqual(metadata.get('group_thread_id'), payload.get('group_thread_id'))
+
+        inbox_row = self.conn.execute(
+            "SELECT payload_json FROM agent_inbox WHERE source_id = ? AND agent_user_id = ?",
+            (message.get('id'), 'agent-local'),
+        ).fetchone()
+        self.assertIsNotNone(inbox_row)
+        inbox_payload = json.loads(inbox_row['payload_json'])
+        self.assertEqual(inbox_payload.get('group_thread_id'), payload.get('group_thread_id'))
+        self.assertEqual(inbox_payload.get('base_group_id'), base_group_id)
+
+        self.p2p_manager.direct_messages.clear()
+        reply_resp = self.client.post(
+            '/api/v1/messages/reply',
+            json={
+                'message_id': message.get('id'),
+                'content': 'Reply inside fresh group instance',
+            },
+            headers=self._headers('key-agent-local'),
+        )
+        self.assertEqual(reply_resp.status_code, 201)
+        reply_payload = reply_resp.get_json() or {}
+        reply_message = reply_payload.get('message') or {}
+        self.assertEqual(reply_payload.get('group_id'), payload.get('group_id'))
+        self.assertEqual(reply_payload.get('group_thread_id'), payload.get('group_thread_id'))
+        self.assertEqual((reply_message.get('metadata') or {}).get('group_thread_id'), payload.get('group_thread_id'))
+        self.assertEqual(
+            sorted(item['recipient_id'] for item in self.p2p_manager.direct_messages),
+            ['author', 'remote-shadow'],
+        )
+
+    def test_group_dm_reply_expands_partial_relay_member_sets(self) -> None:
+        shared_group_id = 'group:split-relay'
+        self.conn.executemany(
+            """
+            INSERT INTO messages (
+                id, sender_id, recipient_id, content, message_type, status,
+                created_at, delivered_at, read_at, edited_at, metadata
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    'DM-split-local', 'agent-local', shared_group_id, 'Partial local leg',
+                    'text', 'delivered', '2026-03-07T10:08:00+00:00',
+                    '2026-03-07T10:08:01+00:00', None, None,
+                    json.dumps({'group_id': shared_group_id, 'group_members': ['author', 'agent-local']}),
+                ),
+                (
+                    'DM-split-remote', 'remote-shadow', shared_group_id, 'Partial remote leg',
+                    'text', 'delivered', '2026-03-07T10:09:00+00:00',
+                    '2026-03-07T10:09:01+00:00', None, None,
+                    json.dumps({'group_id': shared_group_id, 'group_members': ['author', 'remote-shadow']}),
+                ),
+            ],
+        )
+        self.conn.commit()
+        self.p2p_manager.direct_messages.clear()
+
+        reply_resp = self.client.post(
+            '/api/v1/messages/reply',
+            json={
+                'message_id': 'DM-split-local',
+                'content': 'Reply to the whole split group',
+            },
+            headers=self._headers('key-author'),
+        )
+        self.assertEqual(reply_resp.status_code, 201)
+        payload = reply_resp.get_json() or {}
+        self.assertEqual(payload.get('group_id'), shared_group_id)
+        self.assertEqual(
+            sorted(item['recipient_id'] for item in self.p2p_manager.direct_messages),
+            ['agent-local', 'remote-shadow'],
+        )
+
+        row = self.conn.execute(
+            "SELECT metadata FROM messages WHERE id = ?",
+            ((payload.get('message') or {}).get('id'),),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        metadata = json.loads(row['metadata'])
+        self.assertEqual(
+            metadata.get('group_members'),
+            ['agent-local', 'author', 'remote-shadow'],
+        )
+
+    def test_resolve_group_members_skips_unrelated_group_rows_that_would_exhaust_limit(self) -> None:
+        shared_group_id = 'group:split-relay-limit'
+        filler_rows = [
+            (
+                f'DM-filler-{index}',
+                'remote-shadow',
+                f'group:filler-{index}',
+                f'Unrelated filler {index}',
+                'text',
+                'delivered',
+                f'2026-03-07T09:{index // 60:02d}:{index % 60:02d}+00:00',
+                f'2026-03-07T09:{index // 60:02d}:{index % 60:02d}+00:00',
+                None,
+                None,
+                json.dumps({'group_id': f'group:filler-{index}', 'group_members': ['peer-x', 'peer-y']}),
+            )
+            for index in range(1000)
+        ]
+        self.conn.executemany(
+            """
+            INSERT INTO messages (
+                id, sender_id, recipient_id, content, message_type, status,
+                created_at, delivered_at, read_at, edited_at, metadata
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    'DM-limit-local', 'agent-local', shared_group_id, 'Partial local leg',
+                    'text', 'delivered', '2026-03-07T08:59:00+00:00',
+                    '2026-03-07T08:59:01+00:00', None, None,
+                    json.dumps({'group_id': shared_group_id, 'group_members': ['author', 'agent-local']}),
+                ),
+                *filler_rows,
+                (
+                    'DM-limit-remote', 'remote-shadow', shared_group_id, 'Partial remote leg',
+                    'text', 'delivered', '2026-03-07T10:09:00+00:00',
+                    '2026-03-07T10:09:01+00:00', None, None,
+                    json.dumps({'group_id': shared_group_id, 'group_members': ['author', 'remote-shadow']}),
+                ),
+            ],
+        )
+        self.conn.commit()
+
+        resolved = self.message_manager.resolve_group_members(
+            'author',
+            shared_group_id,
+            ['author', 'agent-local'],
+        )
+        self.assertEqual(resolved, ['agent-local', 'author', 'remote-shadow'])
 
     def test_dm_inbox_exposes_reply_target_and_reply_endpoint_keeps_response_in_dm(self) -> None:
         send_resp = self.client.post(

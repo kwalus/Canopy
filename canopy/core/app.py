@@ -25,13 +25,17 @@ from .database import DatabaseManager
 from .logging_config import setup_logging
 from .files import FileManager
 from .interactions import InteractionManager
-from .profile import ProfileManager
+from .profile import ProfileManager, build_local_peer_hint_payload
 from .feed import FeedManager
 from .bookmarks import BookmarkManager
 from .tasks import TaskManager
 from .search import SearchManager
 from .streams import StreamManager
-from .meshspaces import MeshspaceRegistryManager, build_meshspace_shell_summary
+from .meshspaces import (
+    MeshspaceRegistryManager,
+    apply_meshspace_record_to_config,
+    build_meshspace_shell_summary,
+)
 from ..security.api_keys import ApiKeyManager
 from ..security.trust import TrustManager
 from .messaging import (
@@ -41,6 +45,7 @@ from .messaging import (
     MessageType,
     build_dm_preview,
     build_dm_security_summary,
+    compute_group_id,
     filter_local_dm_targets,
     is_local_dm_user,
     unwrap_dm_transport_bundle,
@@ -81,6 +86,7 @@ from .large_attachments import (
     is_large_attachment_reference,
 )
 from ..network.manager import P2PNetworkManager
+from ..network.invite import meshspace_fingerprint
 from ..network.routing import (
     decrypt_with_channel_key,
     decrypt_key_from_peer,
@@ -435,7 +441,9 @@ def create_app(config: Optional[Config] = None) -> Flask:
         logger.info(f"P2P network manager initialized (relay_policy={relay_policy})")
 
         logger.info("Initializing meshspace registry manager...")
-        meshspace_registry = MeshspaceRegistryManager()
+        registry_root_value = str(getattr(config.meshspace, 'registry_root', '') or '').strip()
+        registry_root = Path(registry_root_value).expanduser() if registry_root_value else None
+        meshspace_registry = MeshspaceRegistryManager(registry_root=registry_root)
         local_peer_id = None
         try:
             local_peer_id = p2p_manager.get_peer_id()
@@ -445,6 +453,25 @@ def create_app(config: Optional[Config] = None) -> Flask:
             config,
             peer_id=local_peer_id,
         )
+        meshspace_avatar_preview = meshspace_registry.get_meshspace_avatar_preview(
+            str(meshspace_record.get('meshspace_id') or '').strip()
+        )
+        apply_meshspace_record_to_config(
+            config,
+            meshspace_record,
+            avatar_preview=meshspace_avatar_preview,
+        )
+        connection_manager = getattr(p2p_manager, 'connection_manager', None)
+        if connection_manager:
+            connection_manager.local_meshspace_id = str(config.meshspace.meshspace_id or '').strip()
+            connection_manager.local_meshspace_name = str(config.meshspace.name or '').strip()
+            connection_manager.local_meshspace_fingerprint = meshspace_fingerprint(
+                connection_manager.local_meshspace_id,
+                connection_manager.local_meshspace_name,
+            )
+            connection_manager.local_meshspace_id_aliases = list(getattr(config.meshspace, 'meshspace_id_aliases', []) or [])
+            connection_manager.local_meshspace_avatar_b64 = str(getattr(config.meshspace, 'avatar_preview_b64', '') or '').strip()
+            connection_manager.local_meshspace_avatar_mime = str(getattr(config.meshspace, 'avatar_preview_mime', 'image/png') or 'image/png').strip() or 'image/png'
         app.config['MESHSPACE_REGISTRY_MANAGER'] = meshspace_registry
         app.config['MESHSPACE_RECORD'] = meshspace_record
         logger.info(
@@ -3383,6 +3410,13 @@ def create_app(config: Optional[Config] = None) -> Flask:
             clean_peer = str(peer_id or '').strip()
             if not clean_peer or not trust_manager:
                 return False
+            if p2p_manager and hasattr(p2p_manager, 'get_peer_sync_status'):
+                try:
+                    sync_status = dict(p2p_manager.get_peer_sync_status(clean_peer) or {})
+                    if bool(sync_status.get('preview_only')):
+                        return False
+                except Exception:
+                    pass
             try:
                 if hasattr(trust_manager, 'has_explicit_trust_score') and not trust_manager.has_explicit_trust_score(clean_peer):
                     return False
@@ -3409,6 +3443,16 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
         def _meshspace_blocks_untrusted_sync(peer_id: Any) -> bool:
             return _meshspace_network_quarantined() and not _peer_is_trusted_for_content(peer_id)
+
+        def _peer_requires_sync_approval(peer_id: Any) -> bool:
+            clean_peer = str(peer_id or '').strip()
+            if not clean_peer or not p2p_manager or not hasattr(p2p_manager, 'get_peer_sync_status'):
+                return False
+            try:
+                sync_status = dict(p2p_manager.get_peer_sync_status(clean_peer) or {})
+                return bool(sync_status.get('preview_only'))
+            except Exception:
+                return False
 
         def _channel_definition_is_public(channel_type: Any, privacy_mode: Any) -> bool:
             if not channel_manager:
@@ -4476,6 +4520,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
         def _on_channel_sync(channels, from_peer):
             """Handle a CHANNEL_SYNC (bulk list) from a connected peer."""
             try:
+                if _peer_requires_sync_approval(from_peer):
+                    logger.info(
+                        "Ignoring channel sync from preview-only peer %s until sync is approved",
+                        from_peer,
+                    )
+                    return
                 trusted_content = _peer_is_trusted_for_content(from_peer)
                 if _meshspace_blocks_untrusted_sync(from_peer):
                     logger.info(
@@ -4822,6 +4872,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
             async task so the event loop stays responsive.
             """
             try:
+                if _peer_requires_sync_approval(from_peer):
+                    logger.info(
+                        "Ignoring catchup request from preview-only peer %s until sync is approved",
+                        from_peer,
+                    )
+                    return
                 trusted_content = _peer_is_trusted_for_content(from_peer)
                 if _meshspace_blocks_untrusted_sync(from_peer):
                     logger.info(
@@ -5255,6 +5311,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
             has_extra = bool(feed_posts) or bool(circle_entries) or bool(circle_votes) or bool(circles) or bool(tasks)
             if not has_messages and not has_extra:
                 return
+            if _peer_requires_sync_approval(from_peer):
+                logger.info(
+                    "Ignoring catchup response from preview-only peer %s until sync is approved",
+                    from_peer,
+                )
+                return
             trusted_content = _peer_is_trusted_for_content(from_peer)
             if _meshspace_blocks_untrusted_sync(from_peer):
                 logger.info(
@@ -5676,9 +5738,6 @@ def create_app(config: Optional[Config] = None) -> Flask:
             profiles arriving via relay before any messages.
             """
             try:
-                if not _peer_is_trusted_for_content(from_peer):
-                    logger.info("Ignoring profile sync from untrusted peer %s", from_peer)
-                    return
                 remote_peer_id = profile_data.get('peer_id', from_peer)
 
                 # ---- Store device profile FIRST (independent of user/hash) ----
@@ -5704,6 +5763,20 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         bool(device_info.get('avatar_b64')),
                         str(device_info.get('display_name') or '').strip() or remote_peer_id[:12],
                     )
+                    if p2p_manager and getattr(p2p_manager, 'identity_manager', None):
+                        display_name = str(device_info.get('display_name') or '').strip()
+                        if display_name:
+                            try:
+                                p2p_manager.identity_manager.peer_display_names[remote_peer_id] = display_name
+                            except Exception:
+                                pass
+
+                if not _peer_is_trusted_for_content(from_peer):
+                    logger.info(
+                        "Stored preview device identity and skipped profile import from untrusted peer %s",
+                        from_peer,
+                    )
+                    return
 
                 # ---- Skip unchanged profiles (version hash dedup) ----
                 # Exception: if our copy of this user's avatar file is missing (e.g. after
@@ -6207,6 +6280,27 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
         p2p_manager.get_local_profile_card = _get_local_profile_card
 
+        def _get_local_peer_public_hint() -> dict[str, Any]:
+            """Return compact local peer labels for handshake/invite preview."""
+            try:
+                from .device import get_device_label, get_device_profile
+
+                fallback_device_label = str(getattr(config, 'device_label', '') or '').strip()
+                device_profile = get_device_profile() or {}
+                if not fallback_device_label:
+                    fallback_device_label = str(get_device_label() or '').strip()
+                return build_local_peer_hint_payload(
+                    db_manager,
+                    profile_manager,
+                    fallback_device_label=fallback_device_label,
+                    device_profile=device_profile,
+                )
+            except Exception as exc:
+                logger.debug("Could not build local peer public hint: %s", exc, exc_info=True)
+                return {}
+
+        p2p_manager.get_local_peer_public_hint = _get_local_peer_public_hint
+
         def _get_all_local_profile_cards():
             """Return profile cards for ALL registered local users.
             
@@ -6234,6 +6328,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
             them from the Connect page.
             """
             try:
+                if _peer_requires_sync_approval(from_peer):
+                    logger.info(
+                        "Ignoring peer announcement from preview-only peer %s until sync is approved",
+                        from_peer,
+                    )
+                    return
                 if _meshspace_blocks_untrusted_sync(from_peer):
                     logger.info(
                         "Ignoring peer announcement from untrusted peer %s because this meshspace is isolated",
@@ -6255,19 +6355,6 @@ def create_app(config: Optional[Config] = None) -> Flask:
                             )
                         except Exception as e:
                             logger.warning(f"Could not register introduced peer {pid}: {e}")
-                    # Store device profile if provided (helps show friendly names for contacts list)
-                    if pid and device_profile and channel_manager:
-                        try:
-                            channel_manager.store_peer_device_profile(
-                                pid,
-                                display_name=device_profile.get('display_name'),
-                                description=device_profile.get('description'),
-                                avatar_b64=device_profile.get('avatar_b64'),
-                                avatar_mime=device_profile.get('avatar_mime'),
-                            )
-                        except Exception:
-                            pass
-
                 p2p_manager.store_introduced_peers(introduced_peers, from_peer)
                 logger.info(f"Peer announcement from {from_peer}: "
                             f"{len(introduced_peers)} peer(s) introduced")
@@ -7444,6 +7531,23 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     meta_payload = dict(meta_payload)
                     meta_payload.setdefault('origin_peer', from_peer)
                     meta_payload['security'] = dict(resolved_security)
+                    if meta_payload.get('group_id') or meta_payload.get('group_members'):
+                        normalized_members = []
+                        raw_members = meta_payload.get('group_members')
+                        if not isinstance(raw_members, (list, tuple, set)):
+                            raw_members = []
+                        for raw_member in raw_members:
+                            member_id = str(raw_member or '').strip()
+                            if member_id and member_id not in normalized_members:
+                                normalized_members.append(member_id)
+                        for required_member in (sender_id, recipient_id):
+                            member_id = str(required_member or '').strip()
+                            if member_id and not member_id.startswith('group:') and member_id not in normalized_members:
+                                normalized_members.append(member_id)
+                        if normalized_members:
+                            meta_payload['group_members'] = sorted(normalized_members)
+                            meta_payload.setdefault('group_id', compute_group_id(normalized_members))
+                            meta_payload['is_group'] = True
 
                 dm_target_ids = []
                 if isinstance(meta_payload, dict) and meta_payload.get('group_members'):

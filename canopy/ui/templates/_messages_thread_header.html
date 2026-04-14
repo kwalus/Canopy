@@ -24,6 +24,9 @@
             </div>
         </div>
         <div class="dm-thread-actions">
+            <button class="btn btn-sm btn-outline-secondary dm-mobile-sidebar-toggle" type="button" onclick="toggleDmMobileSidebar(true)" aria-controls="dm-sidebar" aria-expanded="false">
+                <i class="bi bi-list"></i><span class="dm-btn-label">Chats</span>
+            </button>
             {% if active_thread.security %}
                 {% set thread_sec_mode = active_thread.security.get('mode') %}
                 {% set thread_sec_state = active_thread.security.get('state') %}
@@ -36,6 +39,11 @@
                     <i class="bi bi-{% if thread_sec_mode == 'peer_e2e_v1' %}shield-lock-fill{% elif thread_sec_mode == 'local_only' %}pc-display{% elif thread_sec_state == 'decrypt_failed' %}shield-x{% else %}shield-exclamation{% endif %}"></i>
                     <span class="visually-hidden security-text">{{ active_thread.security.get('label') }}</span>
                 </span>
+            {% endif %}
+            {% if active_thread.kind == 'group' %}
+            <button class="btn btn-sm btn-outline-secondary" type="button" onclick="startFreshGroupDiscussion()" title="Start a separate group DM with these same participants">
+                <i class="bi bi-chat-square-plus"></i><span class="dm-btn-label">Fresh thread</span>
+            </button>
             {% endif %}
             <button class="btn btn-sm btn-outline-secondary" type="button" onclick="startNewConversation()">
                 <i class="bi bi-pencil-square"></i><span class="dm-btn-label">New</span>

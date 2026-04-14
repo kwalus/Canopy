@@ -106,10 +106,57 @@
             </div>
             <div class="card-body">
                 <p class="text-muted small mb-3">
-                    Give this device a unique identity that other peers will see in the network.
-                    Channels and content originating from this device will be tagged with this profile.
-                    This helps identify which of your devices created content when you run Canopy on multiple machines.
+                    Give this machine the peer identity shown during connection review.
+                    The peer name/avatar now come from this device profile, while the mesh name/avatar come from the active mesh.
+                    Use it to help people recognize which instance or node sent the invite.
                 </p>
+                {% if is_admin %}
+                <div class="alert alert-info small">
+                    <strong>Identity split:</strong> <code>Device Profile</code> controls the peer identity, <code>Mesh</code> controls the mesh hint,
+                    and <code>Profile</code> remains your in-app user account identity.
+                </div>
+                <div class="card border-0 bg-body-tertiary mb-3">
+                    <div class="card-body">
+                        <div class="text-uppercase small text-muted mb-2">Connection Hint Preview</div>
+                        <div class="d-flex align-items-center gap-3 mb-3">
+                            <div class="rounded-circle overflow-hidden border d-flex align-items-center justify-content-center bg-body" style="width:52px; height:52px; flex-shrink:0;">
+                                {% if connection_identity_preview.peer_avatar_url %}
+                                <img src="{{ connection_identity_preview.peer_avatar_url }}" alt="" style="width:100%; height:100%; object-fit:cover;">
+                                {% else %}
+                                <i class="bi {{ connection_identity_preview.peer_icon or 'bi-pc-display-horizontal' }} fs-4 text-muted"></i>
+                                {% endif %}
+                            </div>
+                            <div>
+                                <div class="text-uppercase small text-muted">Peer identity</div>
+                                <div class="fw-semibold">{{ connection_identity_preview.peer_label or 'Set below' }}</div>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-center gap-3 mb-3">
+                            <div class="rounded-4 overflow-hidden border d-flex align-items-center justify-content-center bg-body" style="width:52px; height:52px; flex-shrink:0;">
+                                {% if connection_identity_preview.mesh_avatar_url %}
+                                <img src="{{ connection_identity_preview.mesh_avatar_url }}" alt="" style="width:100%; height:100%; object-fit:cover;">
+                                {% else %}
+                                <i class="bi bi-diagram-3 fs-5 text-muted"></i>
+                                {% endif %}
+                            </div>
+                            <div>
+                                <div class="text-uppercase small text-muted">Mesh identity</div>
+                                <div class="fw-semibold">{{ connection_identity_preview.mesh_name }}</div>
+                                <div class="small text-muted">{{ connection_identity_preview.meshspace_id or 'Mesh ID pending' }}</div>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="rounded-4 border d-flex align-items-center justify-content-center bg-body" style="width:52px; height:52px; flex-shrink:0;">
+                                <i class="bi {{ connection_identity_preview.instance_icon or 'bi-pc-display-horizontal' }} fs-5 text-muted"></i>
+                            </div>
+                            <div>
+                                <div class="text-uppercase small text-muted">Node hint</div>
+                                <div class="fw-semibold">{{ connection_identity_preview.instance_label or 'Set below' }}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
                 <div class="row settings-device-row">
                     <div class="col-md-3 text-center mb-3">
                         <div id="device-avatar-preview" style="width:100px; height:100px; border-radius:50%; margin:0 auto; background:var(--canopy-bg-card); border:2px dashed var(--canopy-border); display:flex; align-items:center; justify-content:center; overflow:hidden;">
@@ -131,6 +178,17 @@
                             <label for="device-description" class="form-label">Description</label>
                             <textarea class="form-control" id="device-description" rows="2"
                                       placeholder="Brief description of this device"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label for="device-icon" class="form-label">Node Hint Icon</label>
+                            <select class="form-select" id="device-icon" onchange="updateDeviceIconPreview()">
+                                {% for choice in device_icon_choices %}
+                                <option value="{{ choice.value }}">{{ choice.label }}</option>
+                                {% endfor %}
+                            </select>
+                            <div class="form-text">
+                                Shared in the invite as a compact fallback when avatar images are missing or remote preview fetches fail.
+                            </div>
                         </div>
                         <button class="btn btn-primary btn-sm" onclick="saveDeviceProfile()">
                             <i class="bi bi-check-lg"></i> Save Device Profile
@@ -709,6 +767,18 @@
         status.style.color = cssVar || 'var(--bs-secondary)';
     }
 
+    function selectedDeviceIcon() {
+        return document.getElementById('device-icon')?.value || 'bi-pc-display-horizontal';
+    }
+
+    function updateDeviceIconPreview() {
+        const placeholder = document.getElementById('device-avatar-placeholder');
+        if (!placeholder) return;
+        placeholder.className = 'bi ' + selectedDeviceIcon();
+        placeholder.style.fontSize = '2rem';
+        placeholder.style.opacity = '0.4';
+    }
+
     function loadDeviceProfile() {
         fetch('/api/v1/device/profile')
             .then(r => r.json())
@@ -719,6 +789,9 @@
                 if (data.description) {
                     document.getElementById('device-description').value = data.description;
                 }
+                if (data.icon) {
+                    document.getElementById('device-icon').value = data.icon;
+                }
                 if (data.avatar_b64 && data.avatar_mime) {
                     _deviceAvatarB64 = data.avatar_b64;
                     _deviceAvatarMime = data.avatar_mime;
@@ -727,6 +800,7 @@
                     img.style.display = 'block';
                     document.getElementById('device-avatar-placeholder').style.display = 'none';
                 }
+                updateDeviceIconPreview();
             })
             .catch(() => {});
     }
@@ -801,6 +875,7 @@
         const body = {
             display_name: document.getElementById('device-display-name').value,
             description: document.getElementById('device-description').value,
+            icon: selectedDeviceIcon(),
         };
         if (_deviceAvatarB64) {
             body.avatar_b64 = _deviceAvatarB64;

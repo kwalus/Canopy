@@ -212,6 +212,30 @@ def set_device_label(label: str) -> bool:
 _DEVICE_PROFILE_FILE = _DEVICE_DIR / 'device_profile.json'
 _DEVICE_AVATAR_MAX_SIZE = 256
 _DEVICE_AVATAR_MAX_BYTES = 48 * 1024
+DEFAULT_DEVICE_ICON = 'bi-pc-display-horizontal'
+DEVICE_PROFILE_ICON_CHOICES = (
+    {'value': 'bi-pc-display-horizontal', 'label': 'Desktop'},
+    {'value': 'bi-laptop', 'label': 'Laptop'},
+    {'value': 'bi-phone', 'label': 'Phone'},
+    {'value': 'bi-tablet', 'label': 'Tablet'},
+    {'value': 'bi-cpu', 'label': 'Compute'},
+    {'value': 'bi-hdd-network', 'label': 'Storage node'},
+    {'value': 'bi-router', 'label': 'Router'},
+    {'value': 'bi-server', 'label': 'Server'},
+)
+_DEVICE_PROFILE_ICON_SET = {
+    str(choice.get('value') or '').strip()
+    for choice in DEVICE_PROFILE_ICON_CHOICES
+    if str(choice.get('value') or '').strip()
+}
+
+
+def normalize_device_icon(icon: Optional[str]) -> str:
+    """Clamp device profile icon to a safe, standard set."""
+    clean = str(icon or '').strip()
+    if clean in _DEVICE_PROFILE_ICON_SET:
+        return clean
+    return DEFAULT_DEVICE_ICON
 
 
 def get_device_profile() -> Dict[str, Any]:
@@ -228,6 +252,7 @@ def get_device_profile() -> Dict[str, Any]:
         'description': '',
         'avatar_b64': '',
         'avatar_mime': '',
+        'icon': DEFAULT_DEVICE_ICON,
     }
     if _DEVICE_PROFILE_FILE.exists():
         try:
@@ -235,6 +260,7 @@ def get_device_profile() -> Dict[str, Any]:
             for k in default:
                 if k not in data:
                     data[k] = default[k]
+            data['icon'] = normalize_device_icon(data.get('icon'))
             return cast(Dict[str, Any], data)
         except Exception as e:
             logger.warning(f"Could not read device profile: {e}")
@@ -297,7 +323,8 @@ def normalize_device_avatar(avatar_b64: Optional[str],
 def set_device_profile(display_name: Optional[str] = None,
                        description: Optional[str] = None,
                        avatar_b64: Optional[str] = None,
-                       avatar_mime: Optional[str] = None) -> bool:
+                       avatar_mime: Optional[str] = None,
+                       icon: Optional[str] = None) -> bool:
     """Update one or more device profile fields.  None = keep existing."""
     try:
         profile = get_device_profile()
@@ -305,6 +332,8 @@ def set_device_profile(display_name: Optional[str] = None,
             profile['display_name'] = display_name
         if description is not None:
             profile['description'] = description
+        if icon is not None:
+            profile['icon'] = normalize_device_icon(icon)
         if avatar_b64 is not None or avatar_mime is not None:
             normalized_b64, normalized_mime = normalize_device_avatar(avatar_b64, avatar_mime)
             profile['avatar_b64'] = normalized_b64

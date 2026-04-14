@@ -26,10 +26,14 @@ if 'zeroconf' not in sys.modules:
     sys.modules['zeroconf'] = zeroconf_stub
 
 from canopy.api.routes import create_api_blueprint
-from canopy.core.device import normalize_device_avatar
+from canopy.core.device import normalize_device_avatar, normalize_device_icon
 
 
 class TestDeviceProfileAvatarHardening(unittest.TestCase):
+    def test_normalize_device_icon_clamps_to_known_choices(self):
+        self.assertEqual(normalize_device_icon('bi-laptop'), 'bi-laptop')
+        self.assertEqual(normalize_device_icon('bi totally-bad'), 'bi-pc-display-horizontal')
+
     def test_normalize_device_avatar_converts_to_bounded_jpeg(self):
         from PIL import Image
 
@@ -106,6 +110,55 @@ class TestDeviceProfileAvatarHardening(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         payload = response.get_json() or {}
         self.assertIn('base64', str(payload.get('error') or '').lower())
+
+    def test_device_profile_api_refreshes_live_public_hint(self):
+        db_manager = MagicMock()
+        db_manager.get_user.return_value = {
+            'id': 'test-user',
+            'username': 'test-user',
+            'display_name': 'Test User',
+            'account_type': 'human',
+            'status': 'active',
+        }
+        api_key_manager = MagicMock()
+        api_key_manager.validate_key.return_value = None
+        p2p_manager = MagicMock()
+        p2p_manager.is_running.return_value = False
+
+        components = (
+            db_manager,
+            api_key_manager,
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            p2p_manager,
+        )
+
+        with patch('canopy.api.routes.get_app_components', return_value=components), \
+             patch('canopy.core.device.set_device_profile', return_value=True):
+            app = Flask(__name__)
+            app.config['TESTING'] = True
+            app.secret_key = 'test-secret'
+            app.register_blueprint(create_api_blueprint(), url_prefix='/api/v1')
+            client = app.test_client()
+            with client.session_transaction() as sess:
+                sess['authenticated'] = True
+                sess['user_id'] = 'test-user'
+                sess['_csrf_token'] = 'csrf-device-refresh'
+
+            response = client.post(
+                '/api/v1/device/profile',
+                json={'display_name': 'Updated Device'},
+                headers={'X-CSRFToken': 'csrf-device-refresh'},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        p2p_manager.refresh_local_public_identity_hint.assert_called_once()
 
 
 if __name__ == '__main__':

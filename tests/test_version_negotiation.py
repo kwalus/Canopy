@@ -37,6 +37,8 @@ class _FakeLocalIdentity:
 class _FakeIdentityManager:
     def __init__(self) -> None:
         self.local_identity = _FakeLocalIdentity()
+        self.peer_display_names = {}
+        self.saved = False
 
     def export_public_identity(self):
         return {
@@ -47,8 +49,13 @@ class _FakeIdentityManager:
     def verify_peer_id(self, _peer_id, _pubkey):
         return True
 
-    def add_known_peer(self, _peer):
+    def add_known_peer(self, peer, endpoints=None, display_name=None):
+        if display_name:
+            self.peer_display_names[peer.peer_id] = display_name
         return None
+
+    def _save_known_peers(self):
+        self.saved = True
 
 
 class _FakePeerIdentity:
@@ -73,7 +80,13 @@ class _FakeWebSocket:
         return self._response
 
 
-def _handshake_ack(peer_id='peer-remote', canopy_version='0.4.30', protocol_version=1):
+def _handshake_ack(
+    peer_id='peer-remote',
+    canopy_version='0.4.30',
+    protocol_version=1,
+    peer_label='',
+    instance_label='',
+):
     return {
         'type': 'handshake_ack',
         'peer_id': peer_id,
@@ -82,6 +95,8 @@ def _handshake_ack(peer_id='peer-remote', canopy_version='0.4.30', protocol_vers
         'version': '0.1.0',
         'canopy_version': canopy_version,
         'protocol_version': protocol_version,
+        'peer_label': peer_label,
+        'instance_label': instance_label,
         'capabilities': ['chat', 'files'],
         'timestamp': 1700000000.0,
         'signature': 'bb' * 64,
@@ -115,6 +130,39 @@ class TestVersionNegotiation(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(connection.canopy_version, '0.4.30')
         self.assertEqual(websocket.sent[0].get('protocol_version'), 1)
         self.assertEqual(websocket.sent[0].get('canopy_version'), '0.4.30')
+
+    async def test_handshake_exchanges_public_peer_labels_before_trust(self):
+        identity_manager = _FakeIdentityManager()
+        manager = ConnectionManager(
+            local_peer_id='peer-local',
+            identity_manager=identity_manager,
+            canopy_version='0.6.20',
+            protocol_version=1,
+            peer_label='Local Kitchen Node',
+            instance_label='Kitchen Mac Mini',
+        )
+        websocket = _FakeWebSocket(_handshake_ack(
+            protocol_version=1,
+            peer_label='Remote Goose Node',
+            instance_label='Goose Laptop',
+        ))
+        connection = PeerConnection(
+            peer_id='peer-remote',
+            address='127.0.0.1',
+            port=7771,
+            state=ConnectionState.HANDSHAKING,
+            websocket=websocket,
+        )
+
+        with patch('canopy.network.identity.PeerIdentity', _FakePeerIdentity):
+            ok = await manager._perform_handshake(connection)
+
+        self.assertTrue(ok)
+        self.assertEqual(websocket.sent[0].get('peer_label'), 'Local Kitchen Node')
+        self.assertEqual(websocket.sent[0].get('instance_label'), 'Kitchen Mac Mini')
+        self.assertEqual(connection.peer_label, 'Remote Goose Node')
+        self.assertEqual(connection.instance_label, 'Goose Laptop')
+        self.assertEqual(identity_manager.peer_display_names.get('peer-remote'), 'Remote Goose Node')
 
     async def test_canopy_version_diff_with_same_protocol_is_allowed(self):
         identity_manager = _FakeIdentityManager()

@@ -2,18 +2,28 @@
 
 This guide is for an AI agent (or human) setting up a **second Canopy instance** on a different machine and connecting it to an existing instance via invite codes.
 
+Version scope: this guide is aligned to Canopy `0.6.27`.
+
 ---
 
 ## Overview
 
 Canopy is a local-first, P2P encrypted communication tool. Each instance generates its own cryptographic identity on first launch. Two instances connect by exchanging **invite codes** — compact strings that encode the peer's public keys and network endpoints.
 
+In current Canopy, first contact is a **review flow**, not just a blind import:
+
+- the sender's **Device Profile** provides the peer-facing machine identity
+- the receiver reviews **peer hint**, **mesh hint**, **meshspace ID**, **node hint**, and **reachability**
+- the connection can succeed while remaining **preview-only** until an admin approves sync in **Trust**
+- cross-mesh peers can be reviewed and then kept as either the same mesh or an intentional bridge
+
 **What you'll do:**
 1. Clone the repo and install dependencies
 2. Launch Canopy on the new machine
-3. Get an invite code from the existing instance (Machine A)
-4. Import it on the new instance (Machine B) — or vice versa
-5. Verify the connection
+3. Set the **Device Profile** the remote side should recognize
+4. Get an invite code from the existing instance (Machine A)
+5. Review and import it on the new instance (Machine B) — or vice versa
+6. Verify the connection and resolve any preview-only review in **Trust**
 
 ---
 
@@ -81,7 +91,19 @@ On first visit you'll be asked to create a username and password — this is loc
 
 ---
 
-## 4. Connect Two Instances (Same LAN)
+## 4. Set the peer-facing identity before sharing invites
+
+Before you share an invite, open **Settings -> Device Profile** on each machine and set:
+
+- a recognizable device name
+- an avatar or node hint icon
+- an optional short description
+
+This matters because the invite review card shows the **machine/node identity** from Device Profile, not the local in-app user profile. If operators only see a raw peer ID or an old machine label, it becomes much harder to decide what to trust.
+
+---
+
+## 5. Connect Two Instances (Same LAN)
 
 If both machines are on the same WiFi/LAN, **mDNS discovery should find them automatically**. Check the **Connect** page in the web UI sidebar — discovered peers will appear under "Discovered Peers (LAN)."
 
@@ -113,7 +135,9 @@ This returns:
 **Option 1 — Web UI:**  
 1. Click **Connect** in the sidebar
 2. Paste Machine A's invite code in "Import Friend's Invite"
-3. Click **Connect**
+3. Click **Review Invite**
+4. Verify the peer identity, mesh hint, node hint, and endpoints
+5. Click **Connect to this peer**
 
 **Option 2 — API:**
 ```bash
@@ -133,6 +157,8 @@ curl -X POST http://localhost:7770/api/v1/p2p/invite/import \
 }
 ```
 
+If this is first contact, a successful transport connection can still remain **preview-only** until an admin approves sync in **Trust**.
+
 **Expected response (peer not reachable):**
 ```json
 {
@@ -143,13 +169,28 @@ curl -X POST http://localhost:7770/api/v1/p2p/invite/import \
 }
 ```
 
-### Then do the reverse!
+### Then do the reverse
 
 For bidirectional communication, Machine A should also import Machine B's invite code. Get it from Machine B (`/api/v1/p2p/invite`) and import it on Machine A using the same auth pattern.
 
 ---
 
-## 5. Connect Two Instances (Different Networks / Over the Internet)
+## 6. What to do after first contact
+
+After transport connects, use the following decision model:
+
+- If the peer and mesh hints look correct, open **Trust** and approve **peer sync** so that specific peer can exchange workspace content.
+- If this peer is the first trusted representative of a remote mesh you intend to share with, approve **mesh sync** so that mesh is treated as part of the same shared workspace.
+- If the peer connected but the label/avatar hints look stale, use **Refresh profile** in **Trust** to relearn fresh preview identity hints without approving sync.
+- If the remote mesh identity differs from the current workspace, an admin should decide whether to:
+  - **Treat as same mesh** when the remote mesh name/ID is really the same workspace under a different label
+  - **Keep bridge** when the connection should stay between separate meshes without merging them
+
+This keeps mistaken imports from immediately syncing history or channels into the wrong workspace.
+
+---
+
+## 7. Connect Two Instances (Different Networks / Over the Internet)
 
 When machines are on different networks (e.g. different houses), you have three main options: **VPN** (easiest), **port forwarding**, or a **tunnel endpoint** such as ngrok.
 
@@ -228,7 +269,7 @@ Canopy preserves the explicit `ws://` or `wss://` scheme from the invite during 
 
 ---
 
-## 6. Send a Message Between Peers
+## 8. Send a Message Between Peers
 
 Once connected, you can send P2P messages:
 
@@ -255,7 +296,7 @@ Use the Messages page — select a recipient or broadcast to all.
 
 ---
 
-## 7. Useful API Endpoints
+## 9. Useful API Endpoints
 
 For CLI and automation clients, include `X-API-Key` on authenticated endpoints.
 The web UI can call selected endpoints via authenticated browser session + CSRF.
@@ -274,7 +315,7 @@ The web UI can call selected endpoints via authenticated browser session + CSRF.
 
 ---
 
-## 8. Mesh Relay & Brokering (Connecting Unreachable Peers)
+## 10. Mesh Relay & Brokering (Connecting Unreachable Peers)
 
 When two peers can't reach each other directly (e.g. Machine B on a home network and a VM behind NAT on Machine A), Canopy can broker or relay the connection through a mutual contact.
 
@@ -356,7 +397,7 @@ Response includes:
 
 ---
 
-## 9. Profile Sync & Peer Discovery
+## 11. Profile Sync, preview-only review, and peer discovery
 
 ### Profile Sync
 
@@ -364,9 +405,28 @@ When two peers connect, they automatically exchange profile cards containing:
 - Display name, bio, and avatar thumbnail (user profile)
 - Device name, description, and avatar (device profile)
 
+Recent Canopy builds treat these differently during first contact:
+
+- **Device Profile** drives the machine identity shown during connection review
+- **Profile** remains the in-app user identity
+- Untrusted or preview-only peers can still share compact identity hints for human recognition
+- Full sync remains paused until approved
+
 Profiles propagate through the mesh: if Machine A is connected to both B and a VM, and B's profile arrives at A, it is re-broadcast to the VM. This means everyone in the mesh sees real usernames, device names, and avatars — not just peer IDs.
 
-**Device profiles** are configured in **Settings → Device Profile**. They help identify which machine is which in the Connect page and channel list (remote channels show the originating device).
+**Device profiles** are configured in **Settings -> Device Profile**. They help identify which machine is which in invite review, the Connect page, and channel lists.
+
+### Preview-only review
+
+Preview-only means the peer is connected enough to inspect, but not yet approved to sync workspace content.
+
+This is where the **Trust** page matters:
+
+- approve **peer sync** for just that peer
+- approve **mesh sync** for peers from that mesh
+- keep the peer pending while you verify identity
+- refresh stale label/avatar hints without approving sync
+- resolve a mesh mismatch as **same mesh** or **bridge**
 
 ### Peer Announcements
 
@@ -394,7 +454,7 @@ curl -X POST http://localhost:7770/api/v1/p2p/reconnect \
 
 ---
 
-## 10. Troubleshooting
+## 12. Troubleshooting
 
 **"Could not connect to any endpoint"**  
 - Is the other machine's Canopy actually running?
@@ -427,13 +487,22 @@ curl -X POST http://localhost:7770/api/v1/p2p/reconnect \
 **Import says "Peer ID does not match public key"**  
 - The invite code may be corrupted (truncated when copying). Make sure you copy the full `canopy:eyJ2...` string
 
+**Peer connected but still shows preview-only**  
+- This is expected until an admin approves sync in **Trust**
+- Review the peer identity, mesh hint, and review gate there
+- Use **Refresh profile** if the preview label/avatar looks stale
+
+**Wrong person or wrong machine is showing on the invite card**  
+- Update **Settings -> Device Profile** on the sending machine
+- That page controls the peer-facing machine name/avatar shown during connection review
+
 **Connection works but messages don't arrive**  
 - Both sides need to import each other's invites for bidirectional messaging
 - Check that the API key has `WRITE_MESSAGES` permission
 
 ---
 
-## 11. Security Notes
+## 13. Security Notes
 
 - **All P2P messages are end-to-end encrypted** using ChaCha20-Poly1305 with ECDH key agreement (X25519)
 - **Peer identities are cryptographically verified** — the invite code contains the peer's public keys, and the peer ID is derived from them

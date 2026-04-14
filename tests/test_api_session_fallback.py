@@ -90,8 +90,16 @@ class TestApiSessionFallback(unittest.TestCase):
         self.p2p_manager.identity_manager = MagicMock()
         self.p2p_manager.identity_manager.peer_display_names = {}
         self.p2p_manager.identity_manager.peer_endpoints = {}
+        self.p2p_manager.identity_manager.local_identity = object()
         self.p2p_manager._active_relays = {}
         self.p2p_manager.reconnect_known_peers.return_value = True
+        self.config = types.SimpleNamespace(
+            meshspace=types.SimpleNamespace(
+                enabled=True,
+                meshspace_id='family-mesh',
+                name='Family Mesh',
+            )
+        )
 
         # Order must match get_app_components in canopy.core.utils
         components = (
@@ -104,7 +112,7 @@ class TestApiSessionFallback(unittest.TestCase):
             MagicMock(),               # feed_manager
             MagicMock(),               # interaction_manager
             MagicMock(),               # profile_manager
-            MagicMock(),               # config
+            self.config,               # config
             self.p2p_manager,          # p2p_manager
         )
 
@@ -286,6 +294,108 @@ class TestApiSessionFallback(unittest.TestCase):
         self.assertEqual(call_args[0].kwargs.get('scheme'), 'wss')
         self.assertEqual(call_args[1].args[1:], ('198.51.100.159', 7771))
         self.assertEqual(call_args[1].kwargs.get('scheme'), 'ws')
+
+    def test_non_admin_session_cannot_confirm_cross_mesh_reconnect(self) -> None:
+        csrf_token = 'csrf-cross-mesh-reconnect'
+        self._set_authenticated_session(csrf_token=csrf_token)
+        self.db_manager.get_instance_owner_user_id.return_value = 'owner-user'
+        self.p2p_manager.get_peer_cross_mesh_status.return_value = {
+            'requires_manual_confirmation': True,
+            'remote_meshspace_name': 'Other Mesh',
+        }
+
+        response = self.client.post(
+            '/api/v1/p2p/reconnect',
+            json={'peer_id': 'peer-beta', 'allow_cross_mesh': True},
+            headers={'X-CSRFToken': csrf_token},
+        )
+
+        self.assertEqual(response.status_code, 403)
+        payload = response.get_json() or {}
+        self.assertEqual(payload.get('diagnostic_code'), 'cross_mesh_admin_required')
+        self.p2p_manager.mark_peer_cross_mesh_allowed.assert_not_called()
+
+    def test_non_admin_session_cannot_confirm_cross_mesh_invite_import(self) -> None:
+        csrf_token = 'csrf-cross-mesh-invite'
+        self._set_authenticated_session(csrf_token=csrf_token)
+        self.db_manager.get_instance_owner_user_id.return_value = 'owner-user'
+
+        invite = types.SimpleNamespace(
+            peer_id='peer-foreign',
+            meshspace_id='other-mesh',
+            mesh_name='Other Mesh',
+            meshspace_fingerprint='ABCD-1234',
+        )
+
+        with patch('canopy.network.invite.InviteCode.decode', return_value=invite):
+            response = self.client.post(
+                '/api/v1/p2p/invite/import',
+                json={'invite_code': 'canopy:test', 'allow_cross_mesh': True},
+                headers={'X-CSRFToken': csrf_token},
+            )
+
+        self.assertEqual(response.status_code, 403)
+        payload = response.get_json() or {}
+        self.assertEqual(payload.get('diagnostic_code'), 'cross_mesh_admin_required')
+        self.p2p_manager.mark_peer_cross_mesh_allowed.assert_not_called()
+
+    def test_admin_can_treat_peer_mesh_as_same_mesh_alias(self) -> None:
+        csrf_token = 'csrf-mesh-alias'
+        self._set_authenticated_session(csrf_token=csrf_token)
+        self.db_manager.get_instance_owner_user_id.return_value = 'test-user'
+        self.p2p_manager.mark_peer_meshspace_equivalent.return_value = {
+            'peer_id': 'peer-beta',
+            'mesh_relationship': 'same_mesh_alias_confirmed',
+        }
+
+        response = self.client.post(
+            '/api/v1/p2p/mesh_relationship',
+            json={'peer_id': 'peer-beta', 'action': 'same_mesh_alias'},
+            headers={'X-CSRFToken': csrf_token},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertEqual(payload.get('status'), 'same_mesh_alias_confirmed')
+        self.p2p_manager.mark_peer_meshspace_equivalent.assert_called_once_with('peer-beta')
+        self.p2p_manager.mark_peer_cross_mesh_allowed.assert_not_called()
+
+    def test_admin_can_keep_cross_mesh_bridge_without_aliasing(self) -> None:
+        csrf_token = 'csrf-mesh-bridge'
+        self._set_authenticated_session(csrf_token=csrf_token)
+        self.db_manager.get_instance_owner_user_id.return_value = 'test-user'
+        self.p2p_manager.get_peer_cross_mesh_status.return_value = {
+            'peer_id': 'peer-beta',
+            'mesh_relationship': 'cross_mesh_bridge_allowed',
+        }
+
+        response = self.client.post(
+            '/api/v1/p2p/mesh_relationship',
+            json={'peer_id': 'peer-beta', 'action': 'cross_mesh_bridge'},
+            headers={'X-CSRFToken': csrf_token},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertEqual(payload.get('status'), 'cross_mesh_bridge_allowed')
+        self.p2p_manager.mark_peer_cross_mesh_allowed.assert_called_once_with('peer-beta', True)
+        self.p2p_manager.mark_peer_meshspace_equivalent.assert_not_called()
+
+    def test_non_admin_cannot_resolve_mesh_relationship(self) -> None:
+        csrf_token = 'csrf-mesh-review-denied'
+        self._set_authenticated_session(csrf_token=csrf_token)
+        self.db_manager.get_instance_owner_user_id.return_value = 'owner-user'
+
+        response = self.client.post(
+            '/api/v1/p2p/mesh_relationship',
+            json={'peer_id': 'peer-beta', 'action': 'same_mesh_alias'},
+            headers={'X-CSRFToken': csrf_token},
+        )
+
+        self.assertEqual(response.status_code, 403)
+        payload = response.get_json() or {}
+        self.assertEqual(payload.get('diagnostic_code'), 'mesh_identity_admin_required')
+        self.p2p_manager.mark_peer_meshspace_equivalent.assert_not_called()
 
     def test_authorization_header_parses_lowercase_bearer_scheme(self) -> None:
         key_info = ApiKeyInfo(

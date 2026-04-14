@@ -25,7 +25,13 @@
             <i class="bi bi-plus-circle"></i>
             <span class="fw-semibold">Create a post</span>
         </div>
-        <small class="text-muted">P2P</small>
+        <div class="d-flex align-items-center gap-2">
+            <small class="text-muted">P2P</small>
+            <button type="button" class="btn btn-sm btn-outline-secondary feed-mobile-composer-toggle" id="feed-mobile-composer-toggle" onclick="toggleFeedComposer()" aria-expanded="false" aria-controls="post-composer">
+                <i class="bi bi-chevron-down"></i>
+                <span class="visually-hidden">Toggle post composer</span>
+            </button>
+        </div>
     </div>
     <div class="card-body">
         <form id="createPostForm" onsubmit="event.preventDefault(); createPost();">
@@ -2514,6 +2520,10 @@
     gap: 0.5rem;
 }
 
+.feed-mobile-composer-toggle {
+    display: none;
+}
+
 .composer-action-row {
     gap: 0.5rem;
 }
@@ -2540,13 +2550,32 @@
     .feed-page-header {
         align-items: flex-start !important;
         gap: 0.45rem;
+        margin-bottom: 0.85rem !important;
     }
     .feed-page-actions {
         width: 100%;
         justify-content: flex-start;
+        gap: 0.4rem;
     }
     .feed-page-actions .btn {
         min-height: 40px;
+    }
+    #post-composer {
+        margin-bottom: 0.9rem !important;
+    }
+    #post-composer.mobile-collapsed .card-body {
+        display: none;
+    }
+    #post-composer.mobile-collapsed .card-header {
+        border-bottom: 0;
+    }
+    .feed-mobile-composer-toggle {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 2rem;
+        min-width: 2rem;
+        border-radius: 999px;
     }
     .composer-action-row {
         align-items: stretch !important;
@@ -4243,8 +4272,17 @@
 }
 @media (max-width: 576px) {
     .icon-action-btn { font-size: 0.78rem; }
+    .feed-page-actions {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: stretch;
+    }
     .feed-page-actions .btn {
         width: 100%;
+    }
+    .feed-page-actions .btn-outline-primary {
+        width: auto;
+        min-width: 2.6rem;
     }
     .composer-action-tools .btn,
     .composer-submit-row .btn {
@@ -4298,11 +4336,75 @@
 	    function openComposer() {
 	        const composer = document.getElementById('post-composer');
 	        if (!composer) return;
+            syncFeedComposerLayout({ forceExpand: true });
 	        composer.scrollIntoView({ behavior: 'smooth', block: 'start' });
 	        const textarea = document.getElementById('postContent');
 	        if (textarea) textarea.focus();
 	        loadTagSuggestionsOnce();
 	    }
+
+        function isFeedCompactViewport() {
+            return window.matchMedia('(max-width: 768px)').matches;
+        }
+
+        // rAF gate: prevents rapid resize events from thrashing the composer
+        // layout on each pixel change during a window resize or soft-keyboard
+        // transition.
+        let _feedComposerSyncQueued = false;
+        function scheduleFeedComposerSync() {
+            if (_feedComposerSyncQueued) return;
+            _feedComposerSyncQueued = true;
+            requestAnimationFrame(() => {
+                _feedComposerSyncQueued = false;
+                syncFeedComposerLayout();
+            });
+        }
+
+        function syncFeedComposerLayout(options = {}) {
+            const composer = document.getElementById('post-composer');
+            const toggle = document.getElementById('feed-mobile-composer-toggle');
+            const textarea = document.getElementById('postContent');
+            if (!composer) return;
+
+            if (!isFeedCompactViewport()) {
+                composer.classList.remove('mobile-collapsed');
+                composer.dataset.mobileExpanded = 'true';
+            } else {
+                if (options.forceExpand) {
+                    composer.dataset.mobileExpanded = 'true';
+                } else if (options.forceCollapse) {
+                    composer.dataset.mobileExpanded = 'false';
+                } else if (!Object.prototype.hasOwnProperty.call(composer.dataset, 'mobileExpanded')) {
+                    const hasDraft = !!String(textarea?.value || '').trim() || (Array.isArray(selectedPostFiles) && selectedPostFiles.length > 0);
+                    composer.dataset.mobileExpanded = hasDraft ? 'true' : 'false';
+                }
+                composer.classList.toggle('mobile-collapsed', composer.dataset.mobileExpanded !== 'true');
+            }
+
+            if (toggle) {
+                const expanded = !composer.classList.contains('mobile-collapsed');
+                toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+                toggle.setAttribute('aria-label', expanded ? 'Collapse post composer' : 'Expand post composer');
+                toggle.innerHTML = expanded
+                    ? '<i class="bi bi-chevron-up"></i><span class="visually-hidden">Collapse post composer</span>'
+                    : '<i class="bi bi-chevron-down"></i><span class="visually-hidden">Expand post composer</span>';
+            }
+        }
+
+        function toggleFeedComposer(forceOpen) {
+            const composer = document.getElementById('post-composer');
+            if (!composer) return;
+            const nextExpanded = typeof forceOpen === 'boolean'
+                ? forceOpen
+                : composer.classList.contains('mobile-collapsed');
+            syncFeedComposerLayout({ forceExpand: nextExpanded, forceCollapse: !nextExpanded });
+            if (nextExpanded) {
+                const textarea = document.getElementById('postContent');
+                if (textarea) {
+                    requestAnimationFrame(() => textarea.focus());
+                }
+            }
+        }
 
         function getMentionContext(textarea) {
             if (!textarea) return null;
@@ -7271,6 +7373,8 @@
 	        formatTimestamps();
 	        updateUserAvatars(); // Load user avatars
 	        loadTagSuggestionsOnce();
+            syncFeedComposerLayout();
+            window.addEventListener('resize', scheduleFeedComposerSync);
 	        focusPostFromQuery();
 	        handleExpiryChange();
 	        updateExpiryBadges();
@@ -7306,6 +7410,7 @@
 	        });
             const postContent = document.getElementById('postContent');
             if (postContent) {
+                postContent.addEventListener('focus', () => syncFeedComposerLayout({ forceExpand: true }));
                 function updateCharCounter() {
                     const charCounter = document.getElementById('charCounter');
                     const charWarning = document.getElementById('charWarning');
