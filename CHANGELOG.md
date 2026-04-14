@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.27] - 2026-04-13
+
+### Changed
+- **Public-facing docs now teach the current connection review workflow instead of older blind-connect assumptions** - the README, Quick Start, Connect FAQ, and peer connection guide now explain device-profile-based peer identity, review-before-connect invite flow, preview-only sync boundaries, Trust-page review actions, and stale-hint refresh guidance using the shipped 0.6.27 behavior.
+
 ## [0.6.26] - 2026-04-13
 
 ### Fixed

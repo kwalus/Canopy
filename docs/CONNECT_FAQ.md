@@ -1,6 +1,6 @@
 # Connect Page FAQ and Feature Reference
 
-This document explains exactly what each section/button on the **Connect** page does, and clarifies common confusion around endpoint addresses, public IP usage, and authentication errors.
+This document explains exactly what each section/button on the **Connect** page does, and clarifies common confusion around endpoint addresses, preview-only peers, mesh review, public IP usage, and authentication errors.
 
 ---
 
@@ -9,9 +9,10 @@ This document explains exactly what each section/button on the **Connect** page 
 The Connect page is the operational control center for:
 
 - generating shareable invite codes,
-- importing and connecting to peer invites,
+- reviewing, importing, and connecting to peer invites,
 - monitoring peer connectivity state,
 - reconnect/disconnect/forget workflows,
+- sending first-contact peers into Trust for review,
 - mesh diagnostics and connection history.
 
 It is intentionally action-first. The important value is whether you can connect, reconnect, relay, and diagnose peers from one place, not how many decorative counters fit at the top of the page.
@@ -27,6 +28,7 @@ What it shows:
 - **Peer ID**: your local cryptographic identity.
 - **Reachable at**: one or more `ws://host:port` endpoint candidates included in your invite.
 - **Invite code**: compact `canopy:...` payload containing identity + endpoint list.
+- **Peer-facing identity hints**: the remote side will see the peer name/avatar/node hint built from **Settings -> Device Profile** plus the active mesh hint.
 
 Buttons/actions:
 
@@ -37,6 +39,7 @@ Why this makes sense:
 
 - Invite codes need both identity and reachability hints.
 - Including multiple endpoint candidates increases the chance another peer can connect.
+- Keeping the human-facing peer identity in **Device Profile** helps people recognize the machine or node they are being asked to trust.
 
 ---
 
@@ -44,18 +47,50 @@ Why this makes sense:
 
 Action:
 
-- Paste a `canopy:...` invite and click **Connect**.
+- Paste a `canopy:...` invite, click **Review Invite**, then click **Connect to this peer** if the review looks right.
 
 Behavior:
 
-- Registers the remote peer identity locally.
+- Decodes the invite locally so you can review:
+  - **Peer identity**
+  - **Mesh hint**
+  - **Meshspace ID**
+  - **Node hint**
+  - **Reachability**
+- Can enrich the preview with a safe remote fetch of mesh/peer art when the remote node is reachable.
+- Registers the remote peer identity locally when imported.
 - Attempts to connect to each endpoint in the invite.
 - Returns either connected status or imported-but-not-connected state.
+- If transport succeeds on first contact, the peer may still remain **preview-only** until an admin approves sync.
 
 Why this makes sense:
 
-- Import succeeds independently of immediate network success.
-- This allows later reconnect when endpoint/network conditions improve.
+- Import and transport review are separated from trust/sync approval.
+- This lets operators verify who they are connecting to before history and channels begin syncing.
+- Import succeeds independently of immediate network success, so later reconnect is still possible when endpoint/network conditions improve.
+
+### What "preview-only" means
+
+`preview-only` means the peer connection is real enough to review, but Canopy is still pausing channel/history sync until an admin approves it in **Trust**.
+
+While a peer is preview-only:
+
+- transport can be connected
+- human-readable peer labels and node hints can still appear
+- mesh hints can still be compared
+- channel sync, history catch-up, and wider mesh expansion stay paused
+
+This is intentional. It prevents a first-contact mistake from immediately contaminating the workspace with the wrong peer or wrong mesh.
+
+### Trust actions, in plain language
+
+When a peer is preview-only, finish the decision in **Trust**:
+
+- **Approve peer sync**: allow this specific peer to exchange channel/history data.
+- **Approve mesh sync**: trust that remote mesh identity so future peers from the same mesh can sync under normal policy.
+- **Treat as same mesh**: resolve a mesh-hint mismatch when both sides are actually the same real workspace.
+- **Keep bridge**: keep transport connectivity for cross-mesh routing without merging that peer into your current mesh trust scope.
+- **Refresh profile**: re-fetch peer-facing label/avatar hints when they look stale, without approving sync.
 
 ---
 
@@ -75,6 +110,7 @@ Why this makes sense:
 
 - `Disconnect` is temporary.
 - `Forget` is persistent cleanup and should be a deliberate choice.
+- A peer can appear here even while still preview-only. Connected does not automatically mean approved for sync.
 
 ---
 
@@ -117,6 +153,15 @@ Actions:
 Why this makes sense:
 
 - Persisted peer memory enables recovery after restarts/network interruptions.
+
+### Cross-mesh review
+
+If the invite preview or Trust page says the remote peer advertises a different mesh identity:
+
+- **Treat as same mesh** when the remote mesh ID/name is just a compatibility mismatch or alias for the same real workspace.
+- **Keep bridge** when the peer should stay connected as an intentional cross-mesh bridge, not as part of the same workspace.
+
+This decision belongs on the **Trust** page because it affects sync scope, not just transport reachability.
 
 ---
 
@@ -174,6 +219,33 @@ Fix:
 3. Retry action.
 
 For scripts/CLI/integrations, include `X-API-Key`.
+
+### Why does the invite review show a peer name/avatar that is different from the local user profile?
+
+That is expected. Canopy now separates:
+
+- **Device Profile**: what remote peers see during connection review
+- **Profile**: your in-app user/account identity
+- **Mesh**: the active workspace identity
+
+If you want other operators to recognize this machine during invite review, update **Settings -> Device Profile**.
+
+### What should I do if the peer label or avatar looks stale?
+
+Open **Trust** and use **Refresh profile** on that peer.
+
+For preview-only peers, this clears cached preview identity and safely reconnects so Canopy can relearn fresh label and avatar hints without approving sync. For trusted peers, it can also recover richer profile state.
+
+### When should I leave a peer preview-only?
+
+Leave a peer preview-only when:
+
+- the peer name or avatar is missing or suspicious
+- the mesh hint is unexpected
+- the peer was introduced through another contact and you want to confirm it first
+- the operator has not yet decided whether this is the same mesh or a bridge
+
+Approve sync only when the human-facing identity and mesh context are good enough for that workspace.
 
 ### If I'm behind NAT/router, can I still connect?
 
