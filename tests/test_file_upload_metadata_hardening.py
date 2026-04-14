@@ -9,6 +9,7 @@ import unittest
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
+import io
 from pathlib import Path
 
 # Ensure repository root is importable when running tests directly.
@@ -128,6 +129,34 @@ class TestFileUploadMetadataHardening(unittest.TestCase):
         assert row is not None
         self.assertEqual(row["original_name"], "file.md")
         self.assertEqual(row["content_type"], "text/markdown")
+
+    def test_image_thumbnail_applies_exif_orientation(self) -> None:
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow unavailable")
+
+        image = Image.new("RGB", (1200, 800), (32, 96, 160))
+        exif = Image.Exif()
+        exif[274] = 6  # rotate 90 degrees clockwise for display
+        raw = io.BytesIO()
+        image.save(raw, format="JPEG", exif=exif)
+
+        info = self.file_manager.save_file(
+            file_data=raw.getvalue(),
+            original_name="phone-portrait.jpg",
+            content_type="image/jpeg",
+            uploaded_by="user-test",
+        )
+        self.assertIsNotNone(info)
+        assert info is not None
+
+        thumb = self.file_manager.get_thumbnail_data(info.id)
+        self.assertIsNotNone(thumb)
+        assert thumb is not None
+        thumb_bytes, _ = thumb
+        opened = Image.open(io.BytesIO(thumb_bytes))
+        self.assertGreater(opened.size[1], opened.size[0])
 
 
 if __name__ == '__main__':

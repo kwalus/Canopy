@@ -13,6 +13,7 @@ import base58
 import hashlib
 import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Dict, Any
 from dataclasses import dataclass, asdict
@@ -150,6 +151,10 @@ class IdentityManager:
         self.peer_endpoints: Dict[str, list] = {}
         # Display names for known peers (peer_id -> display_name)
         self.peer_display_names: Dict[str, str] = {}
+        # Meshspace hints learned from invites/handshakes (peer_id -> metadata).
+        # These hints are not cryptographic authorization; they are safety rails
+        # for preventing silent reconnects across visibly different meshspaces.
+        self.peer_meshspace_hints: Dict[str, Dict[str, Any]] = {}
         
         # Persistence path for known peers
         self._known_peers_path = self.identity_path.parent / 'known_peers.json'
@@ -275,6 +280,9 @@ class IdentityManager:
                 entry = identity.to_dict(include_private=False)
                 entry['endpoints'] = self.peer_endpoints.get(pid, [])
                 entry['display_name'] = self.peer_display_names.get(pid, '')
+                hint = self.peer_meshspace_hints.get(pid)
+                if isinstance(hint, dict) and hint:
+                    entry['meshspace_hint'] = hint
                 peers_data.append(entry)
 
             self._known_peers_path.parent.mkdir(parents=True, exist_ok=True)
@@ -307,6 +315,11 @@ class IdentityManager:
                         self.peer_endpoints[identity.peer_id] = entry['endpoints']
                     if entry.get('display_name'):
                         self.peer_display_names[identity.peer_id] = entry['display_name']
+                    hint = entry.get('meshspace_hint')
+                    if isinstance(hint, dict):
+                        cleaned = self._normalize_meshspace_hint(hint)
+                        if cleaned:
+                            self.peer_meshspace_hints[identity.peer_id] = cleaned
                     loaded += 1
                 except Exception as e:
                     logger.warning(f"Skipping invalid known peer entry: {e}")
@@ -327,6 +340,198 @@ class IdentityManager:
             self.peer_display_names[identity.peer_id] = display_name
         self._save_known_peers()
         logger.debug(f"Added known peer: {identity.peer_id}")
+
+    @staticmethod
+    def _normalize_meshspace_hint(raw: Dict[str, Any]) -> Dict[str, Any]:
+        """Return a compact, persistence-safe meshspace hint dict."""
+        out: Dict[str, Any] = {}
+        field_map = {
+            'meshspace_id': 160,
+            'meshspace_name': 160,
+            'meshspace_fingerprint': 64,
+            'source': 64,
+            'last_source': 64,
+            'sync_approval_scope': 16,
+            'sync_approved_at': 64,
+            'mesh_relationship': 48,
+            'meshspace_avatar_mime': 80,
+        }
+        for key, limit in field_map.items():
+            text = str(raw.get(key) or '').strip()
+            if text:
+                out[key] = text[:limit]
+        aliases = raw.get('meshspace_id_aliases')
+        if isinstance(aliases, (list, tuple, set)):
+            cleaned_aliases = []
+            current_id = str(out.get('meshspace_id') or '').strip()
+            for value in aliases:
+                alias = str(value or '').strip()
+                if not alias or alias == current_id or alias in cleaned_aliases:
+                    continue
+                cleaned_aliases.append(alias[:160])
+            if cleaned_aliases:
+                out['meshspace_id_aliases'] = cleaned_aliases[:8]
+        avatar_b64 = str(raw.get('meshspace_avatar_b64') or '').strip()
+        if avatar_b64:
+            out['meshspace_avatar_b64'] = avatar_b64[:65536]
+        if 'cross_mesh_allowed' in raw:
+            out['cross_mesh_allowed'] = bool(raw.get('cross_mesh_allowed'))
+        if 'last_seen_at' in raw:
+            text = str(raw.get('last_seen_at') or '').strip()
+            if text:
+                out['last_seen_at'] = text[:64]
+        return out
+
+    def record_peer_meshspace_hint(
+        self,
+        peer_id: str,
+        *,
+        meshspace_id: Optional[str] = None,
+        meshspace_id_aliases: Optional[list[str]] = None,
+        meshspace_name: Optional[str] = None,
+        meshspace_fingerprint: Optional[str] = None,
+        meshspace_avatar_b64: Optional[str] = None,
+        meshspace_avatar_mime: Optional[str] = None,
+        source: str = '',
+        cross_mesh_allowed: Optional[bool] = None,
+        mesh_relationship: Optional[str] = None,
+    ) -> None:
+        """Persist the meshspace identity a peer advertised.
+
+        The hint is intentionally separate from cryptographic peer identity.
+        It supports UI review and avoids automatic reconnects silently crossing
+        meshspace boundaries.
+        """
+        if not peer_id:
+            return
+        if self.local_identity and peer_id == self.local_identity.peer_id:
+            return
+
+        incoming: Dict[str, Any] = {
+            'meshspace_id': meshspace_id,
+            'meshspace_id_aliases': meshspace_id_aliases or [],
+            'meshspace_name': meshspace_name,
+            'meshspace_fingerprint': meshspace_fingerprint,
+            'meshspace_avatar_b64': meshspace_avatar_b64,
+            'meshspace_avatar_mime': meshspace_avatar_mime,
+            'last_source': source,
+        }
+        if cross_mesh_allowed is not None:
+            incoming['cross_mesh_allowed'] = bool(cross_mesh_allowed)
+        if mesh_relationship is not None:
+            incoming['mesh_relationship'] = str(mesh_relationship or '').strip()
+
+        normalized = self._normalize_meshspace_hint(incoming)
+        existing = dict(self.peer_meshspace_hints.get(peer_id) or {})
+        changed = False
+        for key, value in normalized.items():
+            if value is None or value == '':
+                continue
+            if existing.get(key) != value:
+                existing[key] = value
+                changed = True
+        if source and existing.get('last_source') != source:
+            existing['last_source'] = source
+            changed = True
+        if normalized.get('meshspace_id_aliases') and existing.get('meshspace_id_aliases') != normalized.get('meshspace_id_aliases'):
+            existing['meshspace_id_aliases'] = list(normalized.get('meshspace_id_aliases') or [])
+            changed = True
+        if normalized.get('meshspace_avatar_b64') and existing.get('meshspace_avatar_b64') != normalized.get('meshspace_avatar_b64'):
+            existing['meshspace_avatar_b64'] = normalized.get('meshspace_avatar_b64')
+            changed = True
+        if normalized.get('meshspace_avatar_mime') and existing.get('meshspace_avatar_mime') != normalized.get('meshspace_avatar_mime'):
+            existing['meshspace_avatar_mime'] = normalized.get('meshspace_avatar_mime')
+            changed = True
+        if changed:
+            self.peer_meshspace_hints[peer_id] = self._normalize_meshspace_hint(existing)
+            self._save_known_peers()
+
+    def get_peer_meshspace_hint(self, peer_id: str) -> Dict[str, Any]:
+        """Return the persisted meshspace hint for a peer, if any."""
+        return dict(self.peer_meshspace_hints.get(peer_id, {}) or {})
+
+    @staticmethod
+    def _meshspace_hints_match(left: Dict[str, Any], right: Dict[str, Any]) -> bool:
+        """Return True when two peer hints appear to refer to the same meshspace."""
+        left_fingerprint = str(left.get('meshspace_fingerprint') or '').strip()
+        right_fingerprint = str(right.get('meshspace_fingerprint') or '').strip()
+        if left_fingerprint and right_fingerprint:
+            return left_fingerprint == right_fingerprint
+        left_ids = {str(left.get('meshspace_id') or '').strip()}
+        right_ids = {str(right.get('meshspace_id') or '').strip()}
+        left_ids.update(str(item or '').strip() for item in (left.get('meshspace_id_aliases') or []))
+        right_ids.update(str(item or '').strip() for item in (right.get('meshspace_id_aliases') or []))
+        left_ids.discard('')
+        right_ids.discard('')
+        if left_ids and right_ids:
+            return bool(left_ids.intersection(right_ids))
+        return False
+
+    def set_peer_sync_approval(self, peer_id: str, scope: Optional[str]) -> None:
+        """Persist whether a peer is approved for sync preview exit."""
+        clean_peer = str(peer_id or '').strip()
+        if not clean_peer:
+            return
+        if self.local_identity and clean_peer == self.local_identity.peer_id:
+            return
+        clean_scope = str(scope or '').strip().lower()
+        if clean_scope not in {'', 'peer', 'mesh'}:
+            raise ValueError(f"Unsupported sync approval scope: {scope}")
+        existing = dict(self.peer_meshspace_hints.get(clean_peer) or {})
+        changed = False
+        if clean_scope:
+            if existing.get('sync_approval_scope') != clean_scope:
+                existing['sync_approval_scope'] = clean_scope
+                changed = True
+            approved_at = datetime.now(timezone.utc).isoformat()
+            if existing.get('sync_approved_at') != approved_at:
+                existing['sync_approved_at'] = approved_at
+                changed = True
+        else:
+            for key in ('sync_approval_scope', 'sync_approved_at'):
+                if key in existing:
+                    del existing[key]
+                    changed = True
+        if changed:
+            normalized = self._normalize_meshspace_hint(existing)
+            if normalized:
+                self.peer_meshspace_hints[clean_peer] = normalized
+            else:
+                self.peer_meshspace_hints.pop(clean_peer, None)
+            self._save_known_peers()
+
+    def get_peer_sync_approval_status(self, peer_id: str) -> Dict[str, Any]:
+        """Return explicit/effective sync approval state for a peer."""
+        clean_peer = str(peer_id or '').strip()
+        hint = dict(self.peer_meshspace_hints.get(clean_peer, {}) or {})
+        explicit_scope = str(hint.get('sync_approval_scope') or '').strip().lower()
+        effective_scope = explicit_scope if explicit_scope in {'peer', 'mesh'} else ''
+        inherited_from_peer_id = ''
+        if not effective_scope and hint:
+            for other_peer_id, other_hint in self.peer_meshspace_hints.items():
+                if other_peer_id == clean_peer or not isinstance(other_hint, dict):
+                    continue
+                other_scope = str(other_hint.get('sync_approval_scope') or '').strip().lower()
+                if other_scope != 'mesh':
+                    continue
+                if self._meshspace_hints_match(hint, other_hint):
+                    effective_scope = 'mesh'
+                    inherited_from_peer_id = other_peer_id
+                    break
+        approved_at = ''
+        if effective_scope == explicit_scope:
+            approved_at = str(hint.get('sync_approved_at') or '').strip()
+        elif inherited_from_peer_id:
+            inherited_hint = dict(self.peer_meshspace_hints.get(inherited_from_peer_id, {}) or {})
+            approved_at = str(inherited_hint.get('sync_approved_at') or '').strip()
+        return {
+            'peer_id': clean_peer,
+            'explicit_scope': explicit_scope,
+            'effective_scope': effective_scope,
+            'preview_only': not bool(effective_scope),
+            'approved_at': approved_at,
+            'inherited_from_peer_id': inherited_from_peer_id,
+        }
 
     def record_endpoint(self, peer_id: str, endpoint: str, *, claim: bool = True) -> None:
         """Record an endpoint for a peer and optionally "claim" it.
@@ -383,6 +588,9 @@ class IdentityManager:
         if peer_id in self.peer_display_names:
             del self.peer_display_names[peer_id]
             changed = True
+        if peer_id in self.peer_meshspace_hints:
+            del self.peer_meshspace_hints[peer_id]
+            changed = True
         if changed:
             self._save_known_peers()
         return changed
@@ -394,7 +602,9 @@ class IdentityManager:
     def create_remote_peer(self, peer_id: str, ed25519_public_key: bytes,
                           x25519_public_key: bytes,
                           endpoints: Optional[list] = None,
-                          display_name: Optional[str] = None) -> PeerIdentity:
+                          display_name: Optional[str] = None,
+                          meshspace_hint: Optional[Dict[str, Any]] = None,
+                          cross_mesh_allowed: Optional[bool] = None) -> PeerIdentity:
         """
         Create identity for a remote peer (without private keys).
         
@@ -416,6 +626,18 @@ class IdentityManager:
         
         self.add_known_peer(identity, endpoints=endpoints,
                            display_name=display_name)
+        if isinstance(meshspace_hint, dict) and meshspace_hint:
+            self.record_peer_meshspace_hint(
+                peer_id,
+                meshspace_id=meshspace_hint.get('meshspace_id'),
+                meshspace_id_aliases=meshspace_hint.get('meshspace_id_aliases'),
+                meshspace_name=meshspace_hint.get('meshspace_name'),
+                meshspace_fingerprint=meshspace_hint.get('meshspace_fingerprint'),
+                meshspace_avatar_b64=meshspace_hint.get('meshspace_avatar_b64'),
+                meshspace_avatar_mime=meshspace_hint.get('meshspace_avatar_mime'),
+                source=str(meshspace_hint.get('source') or 'invite'),
+                cross_mesh_allowed=cross_mesh_allowed,
+            )
         return identity
     
     def verify_peer_id(self, peer_id: str, ed25519_public_key: bytes) -> bool:

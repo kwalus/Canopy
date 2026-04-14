@@ -28,6 +28,7 @@ from .large_attachments import (
 # Pillow for thumbnail generation (optional — graceful degradation)
 try:
     from PIL import Image
+    from PIL import ImageOps
     import io as _io
     _PILLOW_AVAILABLE = True
 except ImportError:
@@ -549,12 +550,39 @@ class FileManager:
     # ------------------------------------------------------------------
 
     THUMB_MAX_SIZE = 800  # longest side in px
+    _EXIF_ORIENTATION_TAG = 274
 
     def _thumb_path_for(self, original_path: Path) -> Path:
         """Return the expected thumbnail path for a given original file path."""
         stem = original_path.stem
         suffix = original_path.suffix
         return original_path.with_name(f"{stem}_thumb{suffix}")
+
+    def _image_exif_orientation(self, image: Any) -> Optional[int]:
+        """Return the EXIF orientation tag if present."""
+        try:
+            exif = image.getexif()
+            orientation = int(exif.get(self._EXIF_ORIENTATION_TAG, 1)) if exif else 1
+            return orientation
+        except Exception:
+            return None
+
+    def _thumbnail_orientation_mismatch(self, original_path: Path, thumb_path: Path) -> bool:
+        """Detect old thumbnails that ignored side-rotation EXIF orientation."""
+        if not _PILLOW_AVAILABLE or not original_path.exists() or not thumb_path.exists():
+            return False
+        try:
+            original = Image.open(str(original_path))
+            orientation = self._image_exif_orientation(original)
+            if orientation not in {5, 6, 7, 8}:
+                return False
+            normalized = ImageOps.exif_transpose(original)
+            thumb = Image.open(str(thumb_path))
+            expected_portrait = normalized.size[1] > normalized.size[0]
+            actual_portrait = thumb.size[1] > thumb.size[0]
+            return expected_portrait != actual_portrait
+        except Exception:
+            return False
 
     def _generate_thumbnail(self, file_data: bytes, original_path: Path,
                             file_extension: str) -> None:
@@ -564,9 +592,13 @@ class FileManager:
         """
         try:
             img: Any = Image.open(_io.BytesIO(file_data))
+            orientation = self._image_exif_orientation(img)
+            needs_orientation_fix = bool(orientation and orientation != 1)
+            if needs_orientation_fix:
+                img = ImageOps.exif_transpose(img)
             # Skip tiny images that are already smaller than the thumb size
             w, h = img.size
-            if max(w, h) <= self.THUMB_MAX_SIZE:
+            if max(w, h) <= self.THUMB_MAX_SIZE and not needs_orientation_fix:
                 logger.debug(f"Image {original_path.name} already ≤{self.THUMB_MAX_SIZE}px, skipping thumbnail")
                 return
 
@@ -610,6 +642,12 @@ class FileManager:
         original_path = self._resolve_file_disk_path(file_info.file_path)
 
         thumb_path = self._thumb_path_for(original_path)
+        if _PILLOW_AVAILABLE and str(file_info.content_type or '').startswith('image/') and original_path.exists():
+            if not thumb_path.exists() or self._thumbnail_orientation_mismatch(original_path, thumb_path):
+                try:
+                    self._generate_thumbnail(original_path.read_bytes(), original_path, original_path.suffix)
+                except Exception as e:
+                    logger.debug(f"Lazy thumbnail normalization skipped for {file_id}: {e}")
         target = thumb_path if thumb_path.exists() else original_path
 
         if not target.exists():

@@ -41,6 +41,14 @@ class TestUiPolishRegressions(unittest.TestCase):
         self.assertIn("Repost</span>", feed)
         self.assertIn('aria-label="More post actions"', feed)
 
+    def test_feed_mobile_uses_collapsible_composer(self) -> None:
+        feed = (ROOT / "canopy" / "ui" / "templates" / "feed.html").read_text(encoding="utf-8")
+        self.assertIn('id="feed-mobile-composer-toggle"', feed)
+        self.assertIn('#post-composer.mobile-collapsed .card-body', feed)
+        self.assertIn("function syncFeedComposerLayout(options = {})", feed)
+        self.assertIn("function toggleFeedComposer(forceOpen)", feed)
+        self.assertIn("syncFeedComposerLayout({ forceExpand: true });", feed)
+
     def test_dm_sidebar_empty_states_have_icons(self) -> None:
         sidebar = (ROOT / "canopy" / "ui" / "templates" / "_messages_sidebar_sections.html").read_text(encoding="utf-8")
         self.assertIn("bi bi-chat-dots", sidebar)
@@ -81,6 +89,7 @@ class TestUiPolishRegressions(unittest.TestCase):
         self.assertIn('id="channel-header-search-toggle"', channels)
         self.assertIn(".channel-header-search.mobile-open", channels)
         self.assertIn("function toggleChannelHeaderSearch(forceOpen)", channels)
+        self.assertIn("return window.innerWidth <= 767;", channels)
         self.assertIn('id="channel-composer-more-toggle"', channels)
         self.assertIn("More compose tools", channels)
         self.assertIn(".channel-composer-advanced-tool", channels)
@@ -119,6 +128,26 @@ class TestUiPolishRegressions(unittest.TestCase):
     def test_profile_avatar_image_has_meaningful_alt_text(self) -> None:
         profile = (ROOT / "canopy" / "ui" / "templates" / "profile.html").read_text(encoding="utf-8")
         self.assertIn("Profile picture of", profile)
+
+    def test_dm_backdrop_has_aria_hidden_initially(self) -> None:
+        messages = (ROOT / "canopy" / "ui" / "templates" / "messages.html").read_text(encoding="utf-8")
+        self.assertIn('class="dm-mobile-sidebar-backdrop"', messages)
+        self.assertIn('aria-hidden="true"', messages)
+
+    def test_dm_mobile_sidebar_updates_backdrop_aria_hidden(self) -> None:
+        messages = (ROOT / "canopy" / "ui" / "templates" / "messages.html").read_text(encoding="utf-8")
+        self.assertIn("backdrop.setAttribute('aria-hidden', isSidebarOpen ? 'false' : 'true');", messages)
+        fn_start = messages.index("function toggleDmMobileSidebar(forceOpen)")
+        fn_end = messages.index("\n    function ", fn_start)
+        fn_body = messages[fn_start:fn_end]
+        self.assertIn("button.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');", fn_body)
+        self.assertIn("backdrop.setAttribute('aria-hidden', shouldOpen ? 'false' : 'true');", fn_body)
+
+    def test_feed_composer_toggle_has_initial_aria_binding(self) -> None:
+        feed = (ROOT / "canopy" / "ui" / "templates" / "feed.html").read_text(encoding="utf-8")
+        self.assertIn('id="feed-mobile-composer-toggle"', feed)
+        self.assertIn('aria-expanded="false"', feed)
+        self.assertIn('aria-controls="post-composer"', feed)
 
 
 if __name__ == "__main__":

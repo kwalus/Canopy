@@ -12,6 +12,7 @@ License: Apache 2.0
 import json
 import logging
 import os
+import tempfile
 from pathlib import Path
 from typing import Dict, Any, Optional, cast
 from dataclasses import dataclass, field
@@ -25,6 +26,17 @@ from .meshspaces import (
 )
 
 logger = logging.getLogger('canopy.config')
+
+
+def _resolve_meshspace_registry_root(config: 'Config', data_root: str) -> str:
+    """Choose the registry root for this runtime."""
+    override = os.getenv('CANOPY_MESHSPACE_REGISTRY_ROOT', '').strip()
+    if override:
+        return str(Path(override).expanduser())
+    if config.testing:
+        base_root = Path(data_root).expanduser() if str(data_root or '').strip() else Path(tempfile.gettempdir()) / 'canopy-testing'
+        return str(base_root / '.meshspaces-registry')
+    return str(meshspaces_root_dir())
 
 
 @dataclass
@@ -84,6 +96,7 @@ class MeshspaceConfig:
     """Meshspace runtime configuration."""
     enabled: bool = False
     meshspace_id: str = ""
+    meshspace_id_aliases: list[str] = field(default_factory=list)
     name: str = ""
     description: str = ""
     data_root: str = ""
@@ -93,6 +106,10 @@ class MeshspaceConfig:
     supervised: bool = False
     network_quarantined: bool = False
     session_cookie_name: str = ""
+    avatar_path: str = ""
+    avatar_mime: str = ""
+    avatar_preview_b64: str = ""
+    avatar_preview_mime: str = ""
 
 
 def _load_or_create_secret_key(data_dir: Optional[Path] = None) -> str:
@@ -212,7 +229,7 @@ def _apply_meshspace_paths(
     config.meshspace.meshspace_id = normalized_id
     config.meshspace.name = str(meshspace_name or normalized_id).strip() or normalized_id
     config.meshspace.data_root = str(root)
-    config.meshspace.registry_root = str(meshspaces_root_dir())
+    config.meshspace.registry_root = _resolve_meshspace_registry_root(config, str(root))
     config.meshspace.runtime_mode = "meshspace"
     config.meshspace.is_default = False
     config.meshspace.supervised = bool(supervised)
@@ -236,7 +253,7 @@ def _finalize_legacy_meshspace(config: 'Config') -> None:
     config.meshspace.meshspace_id = meshspace_id
     config.meshspace.name = "Default Mesh"
     config.meshspace.data_root = data_dir
-    config.meshspace.registry_root = str(meshspaces_root_dir())
+    config.meshspace.registry_root = _resolve_meshspace_registry_root(config, data_dir)
     config.meshspace.runtime_mode = "legacy-default"
     config.meshspace.is_default = True
     config.meshspace.supervised = False

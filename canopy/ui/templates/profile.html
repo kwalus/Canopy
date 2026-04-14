@@ -278,6 +278,17 @@
         </div>
     </div>
 
+    {% if is_instance_owner %}
+    <div class="alert alert-info border-0 shadow-sm">
+        <strong>Connection review model:</strong> Connect cards now use the device profile for the peer name and peer avatar,
+        while the mesh image/name come from the active mesh. This account profile remains your in-app user identity.
+    </div>
+    {% else %}
+    <div class="alert alert-secondary border-0 shadow-sm">
+        This account profile is for in-app identity. Connect cards and invite review now use the device profile for the peer identity instead.
+    </div>
+    {% endif %}
+
     <div class="row">
         <div class="col-lg-8">
             <!-- Profile Information Form -->
@@ -309,7 +320,13 @@
                                        value="{{ profile.display_name or '' }}" 
                                        placeholder="How others see your name"
                                        maxlength="100">
-                                <div class="form-text text-muted">This is the name shown to other users (optional)</div>
+                                <div class="form-text text-muted">
+                                    {% if is_instance_owner %}
+                                    This is your account display name inside Canopy. The peer name on Connect cards now comes from <code>Settings &gt; Device Profile</code>.
+                                    {% else %}
+                                    This is your in-app profile name.
+                                    {% endif %}
+                                </div>
                             </div>
                         </div>
                         
@@ -382,6 +399,56 @@
         </div>
 
         <div class="col-lg-4">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <i class="bi bi-person-badge me-2"></i>
+                    Connection Hint Preview
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small mb-3">
+                        This is the identity bundle remote users review before connecting.
+                    </p>
+                    <div class="d-flex align-items-center gap-3 mb-3">
+                        <div class="rounded-circle overflow-hidden border d-flex align-items-center justify-content-center bg-body-tertiary" style="width:56px; height:56px; flex-shrink:0;">
+                            {% if connection_identity_preview.peer_avatar_url %}
+                            <img src="{{ connection_identity_preview.peer_avatar_url }}" alt="" style="width:100%; height:100%; object-fit:cover;">
+                            {% else %}
+                            <i class="bi {{ connection_identity_preview.peer_icon or 'bi-pc-display-horizontal' }} fs-3 text-muted"></i>
+                            {% endif %}
+                        </div>
+                        <div class="min-w-0">
+                            <div class="text-uppercase small text-muted">Peer identity</div>
+                            <div class="fw-semibold">{{ connection_identity_preview.peer_label or 'Set in Settings > Device Profile' }}</div>
+                            <div class="small text-muted">Instance/device identity from <code>Settings &gt; Device Profile</code>.</div>
+                        </div>
+                    </div>
+                    <div class="d-flex align-items-center gap-3 mb-3">
+                        <div class="rounded-4 overflow-hidden border d-flex align-items-center justify-content-center bg-body-tertiary" style="width:56px; height:56px; flex-shrink:0;">
+                            {% if connection_identity_preview.mesh_avatar_url %}
+                            <img src="{{ connection_identity_preview.mesh_avatar_url }}" alt="" style="width:100%; height:100%; object-fit:cover;">
+                            {% else %}
+                            <i class="bi bi-diagram-3 fs-4 text-muted"></i>
+                            {% endif %}
+                        </div>
+                        <div class="min-w-0">
+                            <div class="text-uppercase small text-muted">Mesh identity</div>
+                            <div class="fw-semibold">{{ connection_identity_preview.mesh_name }}</div>
+                            <div class="small text-muted">{{ connection_identity_preview.meshspace_id or 'Mesh ID pending' }}</div>
+                        </div>
+                    </div>
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="rounded-4 border d-flex align-items-center justify-content-center bg-body-tertiary" style="width:56px; height:56px; flex-shrink:0;">
+                            <i class="bi {{ connection_identity_preview.instance_icon or 'bi-pc-display-horizontal' }} fs-4 text-muted"></i>
+                        </div>
+                        <div class="min-w-0">
+                            <div class="text-uppercase small text-muted">Node hint</div>
+                            <div class="fw-semibold">{{ connection_identity_preview.instance_label or 'Set a device name in Settings' }}</div>
+                            <div class="small text-muted">Additional machine hint from <code>Settings &gt; Device Profile</code>.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Change Password -->
             <div class="card mb-4">
                 <div class="card-header">
@@ -426,6 +493,9 @@
                     <p class="text-muted small mb-2">
                         <i class="bi bi-info-circle"></i> 
                         <strong>Two ways to upload:</strong> Click the box below or drag and drop an image file onto it.
+                        {% if is_instance_owner %}
+                        This avatar stays with your user profile inside Canopy. The peer image shown during connection review now comes from <code>Settings &gt; Device Profile</code>.
+                        {% endif %}
                     </p>
                     <div class="file-drop-zone" id="avatar-drop-zone">
                         <i class="bi bi-cloud-upload fs-2 text-muted mb-2"></i>

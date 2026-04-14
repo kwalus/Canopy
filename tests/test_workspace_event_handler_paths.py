@@ -1,6 +1,7 @@
 """End-to-end handler-path regressions for workspace event Patch 1."""
 
 import os
+import json
 import sqlite3
 import sys
 import tempfile
@@ -222,6 +223,39 @@ class TestWorkspaceEventHandlerPaths(unittest.TestCase):
             self.assertEqual([row['id'] for row in messages], ['DM-handler-1'])
             self.assertEqual(len(event_rows), 1)
             self.assertEqual(event_rows[0]['message_id'], 'DM-handler-1')
+
+    def test_real_inbound_group_dm_repairs_partial_member_list_for_local_recipient(self) -> None:
+        self._mark_peer_trusted('peer-remote')
+        with self.app.app_context():
+            self.p2p_manager.on_direct_message(
+                sender_id='remote-user',
+                recipient_id='agent-local',
+                content='partial group hello',
+                message_id='DM-handler-group-partial',
+                timestamp='2026-03-09T12:00:30+00:00',
+                display_name='Remote User',
+                metadata={
+                    'group_id': 'group:split-relay',
+                    'group_members': ['remote-user', 'other-remote'],
+                    'is_group': True,
+                },
+                update_only=False,
+                edited_at=None,
+                from_peer='peer-remote',
+            )
+            with self.db_manager.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT recipient_id, metadata FROM messages WHERE id = ?",
+                    ('DM-handler-group-partial',),
+                ).fetchone()
+
+        self.assertIsNotNone(row)
+        self.assertEqual(row['recipient_id'], 'group:split-relay')
+        metadata = json.loads(row['metadata'])
+        self.assertEqual(
+            metadata.get('group_members'),
+            ['agent-local', 'other-remote', 'remote-user'],
+        )
 
     def test_real_inbound_dm_delete_emits_one_deleted_event_and_cleans_inbox(self) -> None:
         self._mark_peer_trusted('peer-remote')

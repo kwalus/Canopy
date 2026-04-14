@@ -168,9 +168,11 @@ class TestTrustProfileRecovery(unittest.TestCase):
             'recovered_user_count': 2,
             'sync_triggered_for': ['peer-1'],
         }
+        db_manager = MagicMock()
+        db_manager.get_instance_owner_user_id.return_value = 'owner'
 
         components = (
-            MagicMock(),   # db_manager
+            db_manager,    # db_manager
             MagicMock(),   # api_key_manager
             trust_manager, # trust_manager
             MagicMock(),   # message_manager
@@ -219,6 +221,53 @@ class TestTrustProfileRecovery(unittest.TestCase):
         )
         p2p_manager.recover_peer_profile_state.assert_called_once_with('peer-1', trigger_sync=True)
 
+    def test_trust_update_requires_instance_admin(self) -> None:
+        trust_manager = _FakeTrustManager()
+        p2p_manager = MagicMock()
+        db_manager = MagicMock()
+        db_manager.get_instance_owner_user_id.return_value = 'owner'
+
+        components = (
+            db_manager,
+            MagicMock(),
+            trust_manager,
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            p2p_manager,
+        )
+
+        patcher = patch('canopy.ui.routes._get_app_components_any', return_value=components)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+        app = Flask(__name__)
+        app.config['TESTING'] = True
+        app.secret_key = 'test-secret'
+        app.register_blueprint(create_ui_blueprint())
+        client = app.test_client()
+
+        token = 'csrf-trust-update-non-admin'
+        with client.session_transaction() as sess:
+            sess['authenticated'] = True
+            sess['user_id'] = 'not-owner'
+            sess['username'] = 'not-owner'
+            sess['_csrf_token'] = token
+
+        response = client.post(
+            '/trust/update',
+            json={'peer_id': 'peer-1', 'tier': 'safe'},
+            headers={'X-CSRFToken': token},
+        )
+
+        self.assertEqual(response.status_code, 403)
+        payload = response.get_json() or {}
+        self.assertIn('instance admin', payload.get('error', ''))
+
     def test_trust_peer_action_refresh_profile_clears_cache_and_recovers(self) -> None:
         trust_manager = _FakeTrustManager()
         p2p_manager = MagicMock()
@@ -228,9 +277,11 @@ class TestTrustProfileRecovery(unittest.TestCase):
             'skipped_untrusted': [],
             'recovered_user_count': 1,
         }
+        db_manager = MagicMock()
+        db_manager.get_instance_owner_user_id.return_value = 'owner'
 
         components = (
-            MagicMock(),
+            db_manager,
             MagicMock(),
             trust_manager,
             MagicMock(),
@@ -272,13 +323,87 @@ class TestTrustProfileRecovery(unittest.TestCase):
         p2p_manager.clear_peer_profile_cache.assert_called_once_with('peer-1')
         p2p_manager.recover_peer_profile_state.assert_called_once_with('peer-1', trigger_sync=True)
 
+    def test_trust_peer_action_refresh_profile_reconnects_preview_only_peer(self) -> None:
+        trust_manager = _FakeTrustManager()
+        p2p_manager = MagicMock()
+        p2p_manager.clear_peer_profile_cache.return_value = {'cleared_hashes': 1, 'cleared_relays': 0}
+        p2p_manager.get_peer_sync_status.return_value = {
+            'preview_only': True,
+            'remote_meshspace_name': 'Preview Mesh',
+        }
+        connection_manager = MagicMock()
+        connection_manager.get_connection.return_value = types.SimpleNamespace(endpoint_uri='ws://192.168.1.44:7771')
+        disconnect_future = MagicMock()
+        disconnect_future.result.return_value = None
+        connect_future = MagicMock()
+        connect_future.result.return_value = True
+        p2p_manager.connection_manager = connection_manager
+        p2p_manager._event_loop = types.SimpleNamespace(is_closed=lambda: False)
+        p2p_manager.identity_manager = types.SimpleNamespace(peer_endpoints={'peer-1': ['ws://192.168.1.44:7771']})
+        p2p_manager.get_peer_endpoint_diagnostics.return_value = [{
+            'endpoint': 'ws://192.168.1.44:7771',
+            'sources': ['handshake'],
+            'currently_connected': True,
+            'last_failure_reason': '',
+        }]
+        db_manager = MagicMock()
+        db_manager.get_instance_owner_user_id.return_value = 'owner'
+
+        components = (
+            db_manager,
+            MagicMock(),
+            trust_manager,
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            p2p_manager,
+        )
+
+        patcher = patch('canopy.ui.routes._get_app_components_any', return_value=components)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+        app = Flask(__name__)
+        app.config['TESTING'] = True
+        app.secret_key = 'test-secret'
+        app.register_blueprint(create_ui_blueprint())
+        client = app.test_client()
+
+        token = 'csrf-trust-peer-action-refresh-preview'
+        with client.session_transaction() as sess:
+            sess['authenticated'] = True
+            sess['user_id'] = 'owner'
+            sess['username'] = 'owner'
+            sess['_csrf_token'] = token
+
+        with patch('asyncio.run_coroutine_threadsafe', side_effect=[disconnect_future, connect_future]):
+            response = client.post(
+                '/trust/peer_action',
+                json={'peer_id': 'peer-1', 'action': 'refresh_profile'},
+                headers={'X-CSRFToken': token},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertTrue(payload.get('preview_only'))
+        self.assertIn('fresh label and avatar hints', payload.get('message', ''))
+        p2p_manager.clear_peer_profile_cache.assert_called_once_with('peer-1')
+        p2p_manager.recover_peer_profile_state.assert_not_called()
+
     def test_trust_peer_action_sync_now_triggers_peer_sync(self) -> None:
         trust_manager = _FakeTrustManager()
         p2p_manager = MagicMock()
         p2p_manager.trigger_peer_sync.return_value = True
+        db_manager = MagicMock()
+        db_manager.get_instance_owner_user_id.return_value = 'owner'
 
         components = (
-            MagicMock(),
+            db_manager,
             MagicMock(),
             trust_manager,
             MagicMock(),
@@ -318,6 +443,168 @@ class TestTrustProfileRecovery(unittest.TestCase):
         payload = response.get_json() or {}
         self.assertTrue(payload.get('success'))
         p2p_manager.trigger_peer_sync.assert_called_once_with('peer-1')
+
+    def test_trust_peer_action_allow_sync_approves_peer_and_triggers_bootstrap(self) -> None:
+        trust_manager = _FakeTrustManager()
+        p2p_manager = MagicMock()
+        p2p_manager.get_peer_sync_status.return_value = {
+            'preview_only': True,
+            'remote_meshspace_name': 'Family Mesh',
+        }
+        p2p_manager.approve_peer_sync.return_value = {
+            'preview_only': False,
+            'effective_scope': 'peer',
+            'remote_meshspace_name': 'Family Mesh',
+        }
+        p2p_manager.trigger_peer_sync.return_value = True
+        db_manager = MagicMock()
+        db_manager.get_instance_owner_user_id.return_value = 'owner'
+
+        components = (
+            db_manager,
+            MagicMock(),
+            trust_manager,
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            p2p_manager,
+        )
+
+        patcher = patch('canopy.ui.routes._get_app_components_any', return_value=components)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+        app = Flask(__name__)
+        app.config['TESTING'] = True
+        app.secret_key = 'test-secret'
+        app.register_blueprint(create_ui_blueprint())
+        client = app.test_client()
+
+        token = 'csrf-trust-peer-action-allow-sync'
+        with client.session_transaction() as sess:
+            sess['authenticated'] = True
+            sess['user_id'] = 'owner'
+            sess['username'] = 'owner'
+            sess['_csrf_token'] = token
+
+        response = client.post(
+            '/trust/peer_action',
+            json={'peer_id': 'peer-1', 'action': 'allow_sync'},
+            headers={'X-CSRFToken': token},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        p2p_manager.approve_peer_sync.assert_called_once_with('peer-1', scope='peer')
+        p2p_manager.trigger_peer_sync.assert_called_once_with('peer-1')
+
+    def test_trust_peer_action_allow_sync_requires_instance_admin(self) -> None:
+        trust_manager = _FakeTrustManager()
+        p2p_manager = MagicMock()
+        p2p_manager.get_peer_sync_status.return_value = {'preview_only': True}
+        db_manager = MagicMock()
+        db_manager.get_instance_owner_user_id.return_value = 'owner'
+
+        components = (
+            db_manager,
+            MagicMock(),
+            trust_manager,
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            p2p_manager,
+        )
+
+        patcher = patch('canopy.ui.routes._get_app_components_any', return_value=components)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+        app = Flask(__name__)
+        app.config['TESTING'] = True
+        app.secret_key = 'test-secret'
+        app.register_blueprint(create_ui_blueprint())
+        client = app.test_client()
+
+        token = 'csrf-trust-peer-action-allow-sync-non-admin'
+        with client.session_transaction() as sess:
+            sess['authenticated'] = True
+            sess['user_id'] = 'not-owner'
+            sess['username'] = 'not-owner'
+            sess['_csrf_token'] = token
+
+        response = client.post(
+            '/trust/peer_action',
+            json={'peer_id': 'peer-1', 'action': 'allow_sync'},
+            headers={'X-CSRFToken': token},
+        )
+
+        self.assertEqual(response.status_code, 403)
+        payload = response.get_json() or {}
+        self.assertIn('instance admin', payload.get('error', ''))
+        p2p_manager.approve_peer_sync.assert_not_called()
+
+    def test_trust_peer_action_allow_mesh_sync_requires_mesh_identity(self) -> None:
+        trust_manager = _FakeTrustManager()
+        p2p_manager = MagicMock()
+        p2p_manager.get_peer_sync_status.return_value = {
+            'preview_only': True,
+            'remote_meshspace_name': '',
+            'remote_meshspace_id': '',
+            'remote_meshspace_fingerprint': '',
+        }
+        db_manager = MagicMock()
+        db_manager.get_instance_owner_user_id.return_value = 'owner'
+
+        components = (
+            db_manager,
+            MagicMock(),
+            trust_manager,
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            p2p_manager,
+        )
+
+        patcher = patch('canopy.ui.routes._get_app_components_any', return_value=components)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+        app = Flask(__name__)
+        app.config['TESTING'] = True
+        app.secret_key = 'test-secret'
+        app.register_blueprint(create_ui_blueprint())
+        client = app.test_client()
+
+        token = 'csrf-trust-peer-action-allow-mesh'
+        with client.session_transaction() as sess:
+            sess['authenticated'] = True
+            sess['user_id'] = 'owner'
+            sess['username'] = 'owner'
+            sess['_csrf_token'] = token
+
+        response = client.post(
+            '/trust/peer_action',
+            json={'peer_id': 'peer-1', 'action': 'allow_mesh_sync'},
+            headers={'X-CSRFToken': token},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        payload = response.get_json() or {}
+        self.assertIn('stable meshspace identity', payload.get('error', ''))
+        p2p_manager.approve_peer_sync.assert_not_called()
 
     def test_trust_view_marks_introduced_peer_with_no_endpoints_for_attention(self) -> None:
         trust_manager = _FakeTrustManager()

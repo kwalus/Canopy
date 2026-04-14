@@ -8,6 +8,7 @@ metadata; it does not read child runtime databases directly.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import logging
@@ -20,6 +21,7 @@ import threading
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
 from urllib.error import HTTPError, URLError
@@ -41,6 +43,8 @@ _PORT_BLOCK_BASE = 7800
 _PORT_BLOCK_SIZE = 3
 _MESHSPACE_AVATAR_MAX_BYTES = 5 * 1024 * 1024
 _MESHSPACE_AVATAR_MAX_DIMENSION = 768
+_MESHSPACE_AVATAR_PREVIEW_MAX_BYTES = 24 * 1024
+_MESHSPACE_AVATAR_PREVIEW_DIMENSION = 96
 _PROBE_CACHE_TTL = 2.0
 _WINDOWS_DETACHED_PROCESS = getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
 _WINDOWS_NEW_PROCESS_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
@@ -379,12 +383,14 @@ def meshspaces_root_dir() -> Path:
     return root
 
 
-def _registry_file_path() -> Path:
-    return meshspaces_root_dir() / "registry.json"
+def _registry_file_path(registry_root: Optional[Path] = None) -> Path:
+    root = Path(registry_root).expanduser() if registry_root is not None else meshspaces_root_dir()
+    return root / "registry.json"
 
 
-def _registry_lock_path() -> Path:
-    return meshspaces_root_dir() / "registry.lock"
+def _registry_lock_path(registry_root: Optional[Path] = None) -> Path:
+    root = Path(registry_root).expanduser() if registry_root is not None else meshspaces_root_dir()
+    return root / "registry.lock"
 
 
 def default_meshspace_root(meshspace_id: str) -> Path:
@@ -531,6 +537,51 @@ def meshspace_cookie_name(meshspace_id: str) -> str:
     return f"canopy_session_{suffix}"
 
 
+def _normalize_meshspace_id_aliases(raw: Any, *, current_id: str = "") -> List[str]:
+    aliases: List[str] = []
+    values = raw if isinstance(raw, (list, tuple, set)) else ([raw] if raw else [])
+    current = sanitize_meshspace_id(current_id, fallback="") if current_id else ""
+    for value in values:
+        alias = sanitize_meshspace_id(str(value or "").strip(), fallback="")
+        if not alias or alias == current or alias in aliases:
+            continue
+        aliases.append(alias)
+    return aliases
+
+
+def apply_meshspace_record_to_config(
+    config: Any,
+    record: Dict[str, Any],
+    *,
+    avatar_preview: Optional[Dict[str, str]] = None,
+) -> None:
+    """Copy registry-backed mesh identity fields onto the active config."""
+    if not config or not isinstance(record, dict):
+        return
+    mesh_cfg = getattr(config, "meshspace", None)
+    if not mesh_cfg:
+        return
+    mesh_cfg.meshspace_id = str(record.get("meshspace_id") or mesh_cfg.meshspace_id or "").strip()
+    mesh_cfg.meshspace_id_aliases = _normalize_meshspace_id_aliases(
+        record.get("meshspace_id_aliases"),
+        current_id=mesh_cfg.meshspace_id,
+    )
+    mesh_cfg.name = str(record.get("name") or mesh_cfg.name or "").strip()
+    mesh_cfg.description = str(record.get("description") or "").strip()
+    mesh_cfg.runtime_mode = str(record.get("runtime_mode") or mesh_cfg.runtime_mode or "").strip() or "meshspace"
+    mesh_cfg.is_default = bool(record.get("is_default"))
+    mesh_cfg.supervised = bool(record.get("supervised"))
+    mesh_cfg.network_quarantined = bool(record.get("network_quarantined"))
+    mesh_cfg.session_cookie_name = str(
+        record.get("session_cookie_name") or mesh_cfg.session_cookie_name or meshspace_cookie_name(mesh_cfg.meshspace_id)
+    ).strip()
+    mesh_cfg.avatar_path = str(record.get("avatar_path") or "").strip()
+    mesh_cfg.avatar_mime = str(record.get("avatar_mime") or "image/png").strip() or "image/png"
+    preview = avatar_preview if isinstance(avatar_preview, dict) else {}
+    mesh_cfg.avatar_preview_b64 = str(preview.get("avatar_b64") or "").strip()
+    mesh_cfg.avatar_preview_mime = str(preview.get("avatar_mime") or "image/png").strip() or "image/png"
+
+
 def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -573,7 +624,34 @@ def _port_accepts_connections(host: str, port: int, timeout: float = 0.5) -> boo
         return False
 
 
-def _windows_listener_pid_for_port(port: int) -> int:
+def _normalize_listener_host(host: str) -> str:
+    """Normalize a listener host string for host-aware PID matching."""
+    value = str(host or "").strip().lower()
+    if not value:
+        return ""
+    if value.startswith("[") and value.endswith("]"):
+        value = value[1:-1]
+    if value == "localhost":
+        return "127.0.0.1"
+    return value
+
+
+def _listener_host_matches(local_host: str, expected_host: Optional[str]) -> bool:
+    """Return True when a listener host is compatible with the expected host."""
+    normalized_local = _normalize_listener_host(local_host)
+    normalized_expected = _normalize_listener_host(expected_host or "")
+    if not normalized_expected:
+        return True
+    if normalized_local == normalized_expected:
+        return True
+    if normalized_local in {"0.0.0.0", "::", "*"}:
+        return True
+    if normalized_expected == "127.0.0.1" and normalized_local == "::1":
+        return True
+    return False
+
+
+def _windows_listener_pid_for_port(port: int, host: Optional[str] = None) -> int:
     """Resolve the PID listening on TCP *port* using ``netstat -ano`` (Windows).
 
     Without this, supervised mesh stop/restart falls back to registry PIDs, which
@@ -613,13 +691,15 @@ def _windows_listener_pid_for_port(port: int) -> int:
         host_part, _, port_part = local_addr.rpartition(":")
         if not host_part or port_part != port_s:
             continue
+        if not _listener_host_matches(host_part, host):
+            continue
         pid_str = parts[-1]
         if pid_str.isdigit():
             return int(pid_str)
     return 0
 
 
-def _ss_listener_pid_for_port(port: int) -> int:
+def _ss_listener_pid_for_port(port: int, host: Optional[str] = None) -> int:
     """Resolve the PID listening on TCP *port* using ``ss -tlnp`` on Linux."""
     if port <= 0:
         return 0
@@ -640,6 +720,12 @@ def _ss_listener_pid_for_port(port: int) -> int:
     for line in (result.stdout or "").splitlines():
         if f":{port_s}" not in line:
             continue
+        parts = line.split()
+        if len(parts) >= 4:
+            local_addr = parts[3]
+            local_host, _, local_port = local_addr.rpartition(":")
+            if local_port != port_s or not _listener_host_matches(local_host, host):
+                continue
         for part in line.split(","):
             part = part.strip()
             if part.startswith("pid="):
@@ -649,32 +735,47 @@ def _ss_listener_pid_for_port(port: int) -> int:
     return 0
 
 
-def _listener_pid_for_port(port: int) -> int:
-    """Best-effort lookup for the PID listening on a TCP port."""
+def _listener_pid_for_port(port: int, host: Optional[str] = None) -> int:
+    """Best-effort lookup for the PID listening on a TCP port and host."""
     if port <= 0:
         return 0
     try:
         lsof = shutil.which("lsof")
         if lsof:
             result = subprocess.run(
-                [lsof, "-tiTCP:%d" % port, "-sTCP:LISTEN"],
+                [lsof, "-nP", "-iTCP:%d" % port, "-sTCP:LISTEN", "-Fp", "-Fn"],
                 capture_output=True,
                 text=True,
                 timeout=2,
                 check=False,
             )
+            current_pid = 0
             for line in (result.stdout or "").splitlines():
                 line = line.strip()
-                if line.isdigit():
-                    return int(line)
+                if not line:
+                    continue
+                if line.startswith("p") and line[1:].isdigit():
+                    current_pid = int(line[1:])
+                    continue
+                if not line.startswith("n") or current_pid <= 0:
+                    continue
+                name = line[1:].strip()
+                if name.lower().startswith("tcp "):
+                    name = name[4:].strip()
+                name = name.replace(" (LISTEN)", "").strip()
+                local_host, _, local_port = name.rpartition(":")
+                if local_port != str(int(port)):
+                    continue
+                if _listener_host_matches(local_host, host):
+                    return current_pid
     except Exception:
         pass
     if not _is_windows_platform():
-        ss_pid = _ss_listener_pid_for_port(port)
+        ss_pid = _ss_listener_pid_for_port(port, host=host)
         if ss_pid > 0:
             return ss_pid
     if _is_windows_platform():
-        win_pid = _windows_listener_pid_for_port(port)
+        win_pid = _windows_listener_pid_for_port(port, host=host)
         if win_pid > 0:
             return win_pid
     return 0
@@ -693,8 +794,8 @@ def _http_json(url: str, timeout: float = 1.0) -> Dict[str, Any]:
 
 
 @contextmanager
-def _locked_registry_file() -> Iterator[None]:
-    lock_path = _registry_lock_path()
+def _locked_registry_file(registry_root: Optional[Path] = None) -> Iterator[None]:
+    lock_path = _registry_lock_path(registry_root)
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with open(lock_path, "a+b") as fh:
         try:
@@ -718,8 +819,8 @@ def _locked_registry_file() -> Iterator[None]:
                 pass
 
 
-def _read_registry_file() -> Dict[str, Any]:
-    path = _registry_file_path()
+def _read_registry_file(registry_root: Optional[Path] = None) -> Dict[str, Any]:
+    path = _registry_file_path(registry_root)
     if not path.exists():
         return {"version": 1, "meshspaces": []}
     try:
@@ -738,8 +839,8 @@ def _read_registry_file() -> Dict[str, Any]:
     }
 
 
-def _write_registry_file(payload: Dict[str, Any]) -> None:
-    path = _registry_file_path()
+def _write_registry_file(payload: Dict[str, Any], registry_root: Optional[Path] = None) -> None:
+    path = _registry_file_path(registry_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(prefix="registry-", suffix=".json.tmp", dir=str(path.parent))
     try:
@@ -767,6 +868,60 @@ class MeshspaceRegistryManager:
         self.registry_root = Path(registry_root or meshspaces_root_dir())
         self.registry_root.mkdir(parents=True, exist_ok=True)
         self._probe_cache: Dict[str, Dict[str, Any]] = {}
+
+    def _path_under_system_temp(self, value: str | Path) -> bool:
+        raw = str(value or "").strip()
+        if not raw:
+            return False
+        candidate = _resolved_path(raw)
+        temp_root = _resolved_path(Path(tempfile.gettempdir()))
+        return candidate == temp_root or temp_root in candidate.parents
+
+    def _record_port_signature(self, record: Dict[str, Any]) -> tuple[int, int, int]:
+        return (
+            int(record.get("http_port") or 0),
+            int(record.get("mesh_port") or 0),
+            int(record.get("discovery_port") or 0),
+        )
+
+    def _should_prune_registry_record(
+        self,
+        record: Dict[str, Any],
+        *,
+        stable_legacy_signatures: Optional[set[tuple[int, int, int]]] = None,
+    ) -> bool:
+        runtime_mode = str(record.get("runtime_mode") or "").strip().lower()
+        if runtime_mode != "legacy-default":
+            return False
+        data_dir = str(record.get("data_dir") or "").strip()
+        if not data_dir or not self._path_under_system_temp(data_dir):
+            return False
+        signature = self._record_port_signature(record)
+        if stable_legacy_signatures and signature in stable_legacy_signatures:
+            return True
+        status = str(record.get("status") or "").strip().lower()
+        return status not in {"running", "starting", "degraded", "stopping"}
+
+    def _prune_registry_payload(self, payload: Dict[str, Any]) -> tuple[Dict[str, Any], bool]:
+        meshspaces = [item for item in payload.get("meshspaces", []) if isinstance(item, dict)]
+        stable_legacy_signatures = {
+            self._record_port_signature(item)
+            for item in meshspaces
+            if str(item.get("runtime_mode") or "").strip().lower() == "legacy-default"
+            and not self._path_under_system_temp(str(item.get("data_dir") or "").strip())
+        }
+        kept = []
+        removed = False
+        for item in meshspaces:
+            if self._should_prune_registry_record(item, stable_legacy_signatures=stable_legacy_signatures):
+                removed = True
+                continue
+            kept.append(item)
+        if not removed:
+            return payload, False
+        pruned = dict(payload)
+        pruned["meshspaces"] = kept
+        return pruned, True
 
     def _avatar_root(self) -> Path:
         path = self.registry_root / "avatars"
@@ -859,6 +1014,10 @@ class MeshspaceRegistryManager:
         )
         normalized = {
             "meshspace_id": meshspace_id,
+            "meshspace_id_aliases": _normalize_meshspace_id_aliases(
+                record.get("meshspace_id_aliases"),
+                current_id=meshspace_id,
+            ),
             "name": str(record.get("name") or meshspace_id).strip() or meshspace_id,
             "description": str(record.get("description") or "").strip(),
             "icon": str(record.get("icon") or "bi-grid-1x2").strip() or "bi-grid-1x2",
@@ -893,8 +1052,11 @@ class MeshspaceRegistryManager:
         return normalized
 
     def list_meshspaces(self) -> List[Dict[str, Any]]:
-        with _locked_registry_file():
-            payload = _read_registry_file()
+        with _locked_registry_file(self.registry_root):
+            payload = _read_registry_file(self.registry_root)
+            payload, changed = self._prune_registry_payload(payload)
+            if changed:
+                _write_registry_file(payload, self.registry_root)
         records = [self._normalize_record(cast) for cast in payload.get("meshspaces", []) if isinstance(cast, dict)]
         records.sort(key=lambda rec: (not rec.get("is_default"), str(rec.get("name") or "").lower()))
         return records
@@ -908,8 +1070,9 @@ class MeshspaceRegistryManager:
 
     def _upsert_record(self, record: Dict[str, Any]) -> Dict[str, Any]:
         normalized = self._normalize_record(record)
-        with _locked_registry_file():
-            payload = _read_registry_file()
+        with _locked_registry_file(self.registry_root):
+            payload = _read_registry_file(self.registry_root)
+            payload, _ = self._prune_registry_payload(payload)
             meshspaces = [item for item in payload.get("meshspaces", []) if isinstance(item, dict)]
             updated = []
             found = False
@@ -927,7 +1090,30 @@ class MeshspaceRegistryManager:
                 normalized["updated_at"] = _utcnow_iso()
                 updated.append(normalized)
             payload["meshspaces"] = updated
-            _write_registry_file(payload)
+            _write_registry_file(payload, self.registry_root)
+        self._probe_cache.pop(normalized["meshspace_id"], None)
+        return self.get_meshspace(normalized["meshspace_id"]) or normalized
+
+    def _replace_record(self, old_meshspace_id: str, new_record: Dict[str, Any]) -> Dict[str, Any]:
+        normalized_old = sanitize_meshspace_id(old_meshspace_id, fallback="")
+        normalized = self._normalize_record(new_record)
+        with _locked_registry_file(self.registry_root):
+            payload = _read_registry_file(self.registry_root)
+            payload, _ = self._prune_registry_payload(payload)
+            updated: List[Dict[str, Any]] = []
+            for item in payload.get("meshspaces", []):
+                if not isinstance(item, dict):
+                    continue
+                item_id = sanitize_meshspace_id(str(item.get("meshspace_id") or ""), fallback="")
+                if item_id in {normalized_old, normalized["meshspace_id"]}:
+                    continue
+                updated.append(item)
+            normalized["updated_at"] = _utcnow_iso()
+            normalized["created_at"] = str(normalized.get("created_at") or _utcnow_iso())
+            updated.append(normalized)
+            payload["meshspaces"] = updated
+            _write_registry_file(payload, self.registry_root)
+        self._probe_cache.pop(normalized_old, None)
         self._probe_cache.pop(normalized["meshspace_id"], None)
         return self.get_meshspace(normalized["meshspace_id"]) or normalized
 
@@ -952,6 +1138,116 @@ class MeshspaceRegistryManager:
                 raise ValueError(
                     f"Meshspace root '{target_root}' overlaps existing meshspace '{existing_id}'"
                 )
+
+    def _port_block_from_http_port(self, http_port: Any) -> Dict[str, int]:
+        """Return the derived 3-port runtime block for a base HTTP port."""
+        try:
+            base = int(str(http_port).strip())
+        except Exception as exc:
+            raise ValueError("Base HTTP port must be a number") from exc
+        if base < 1024 or base > 65533:
+            raise ValueError("Base HTTP port must be between 1024 and 65533")
+        return {
+            "http_port": base,
+            "mesh_port": base + 1,
+            "discovery_port": base + 2,
+        }
+
+    def _probe_host_for_record(self, record: Dict[str, Any]) -> str:
+        host = str(record.get("http_host") or "127.0.0.1").strip() or "127.0.0.1"
+        return "127.0.0.1" if host in {"0.0.0.0", "::"} else host
+
+    def _listener_filter_host_for_record(self, record: Dict[str, Any]) -> Optional[str]:
+        host = str(record.get("http_host") or "127.0.0.1").strip() or "127.0.0.1"
+        return None if host in {"0.0.0.0", "::"} else host
+
+    def _launch_url_for_record(self, record: Dict[str, Any], *, http_port: Optional[int] = None) -> str:
+        host = self._probe_host_for_record(record)
+        port = int(http_port if http_port is not None else (record.get("http_port") or 0))
+        return f"http://{host}:{port}" if port > 0 else ""
+
+    def _validate_port_block_registry_ownership(
+        self,
+        meshspace_id: str,
+        block: Dict[str, int],
+    ) -> None:
+        normalized_id = sanitize_meshspace_id(meshspace_id, fallback="")
+        requested_ports = {
+            int(block["http_port"]),
+            int(block["mesh_port"]),
+            int(block["discovery_port"]),
+        }
+        for record in self.list_meshspaces():
+            other_id = sanitize_meshspace_id(str(record.get("meshspace_id") or ""), fallback="")
+            if not other_id or other_id == normalized_id:
+                continue
+            other_ports = {
+                int(record.get("http_port") or 0),
+                int(record.get("mesh_port") or 0),
+                int(record.get("discovery_port") or 0),
+            }
+            overlaps = sorted(port for port in (requested_ports & other_ports) if port > 0)
+            if overlaps:
+                other_name = str(record.get("name") or other_id).strip() or other_id
+                raise ValueError(
+                    f"Port block conflicts with meshspace '{other_name}' "
+                    f"({', '.join(str(port) for port in overlaps)})"
+                )
+
+    def _validate_port_block_listener_availability(
+        self,
+        record: Dict[str, Any],
+        block: Dict[str, int],
+    ) -> None:
+        listener_host = self._listener_filter_host_for_record(record)
+        display_host = listener_host or str(record.get("http_host") or "all interfaces").strip() or "all interfaces"
+        occupied: List[str] = []
+        for label, port in (
+            ("HTTP", int(block["http_port"])),
+            ("mesh", int(block["mesh_port"])),
+            ("discovery", int(block["discovery_port"])),
+        ):
+            pid = _listener_pid_for_port(port, host=listener_host)
+            if pid > 0:
+                occupied.append(f"{label}:{port} pid:{pid}")
+        if occupied:
+            raise ValueError(
+                "Cannot assign that port block because a listener is already active on "
+                f"{display_host} ({', '.join(occupied)})"
+            )
+
+    def update_meshspace_ports(self, meshspace_id: str, *, http_port: Any) -> Optional[Dict[str, Any]]:
+        """Change a stopped meshspace to a new derived HTTP/mesh/discovery port block."""
+        record = self.get_meshspace(meshspace_id)
+        if not record:
+            return None
+
+        current = self.reconcile_meshspace_runtime(meshspace_id) or record
+        probe = self.probe_meshspace_runtime(meshspace_id)
+        if probe.get("live"):
+            raise ValueError("Stop this meshspace before changing its ports")
+
+        status = str(probe.get("effective_status") or current.get("status") or "").strip().lower()
+        if status not in {"defined", "stopped", "crashed", "degraded"}:
+            raise ValueError(f"Ports can only be changed while the meshspace is stopped (current state: {status or 'unknown'})")
+
+        block = self._port_block_from_http_port(http_port)
+        existing_block = self._port_block_from_http_port(int(current.get("http_port") or 0)) if int(current.get("http_port") or 0) else {}
+        if existing_block and all(int(current.get(key) or 0) == int(block[key]) for key in ("http_port", "mesh_port", "discovery_port")):
+            current["launch_url"] = self._launch_url_for_record(current, http_port=block["http_port"])
+            current["updated_at"] = _utcnow_iso()
+            return self._upsert_record(current)
+
+        self._validate_port_block_registry_ownership(meshspace_id, block)
+        self._validate_port_block_listener_availability(current, block)
+
+        updated = dict(current)
+        updated.update(block)
+        updated["launch_url"] = self._launch_url_for_record(updated, http_port=block["http_port"])
+        updated["pid"] = 0
+        updated["status"] = status if status in {"defined", "crashed", "degraded"} else "stopped"
+        updated["updated_at"] = _utcnow_iso()
+        return self._upsert_record(updated)
 
     def ensure_runtime_registered(self, config: Any, peer_id: Optional[str] = None) -> Dict[str, Any]:
         mesh_cfg = getattr(config, "meshspace", None)
@@ -1134,6 +1430,42 @@ class MeshspaceRegistryManager:
         candidate = Path(raw).expanduser()
         return candidate if candidate.exists() else None
 
+    def get_meshspace_avatar_preview(
+        self,
+        meshspace_id: str,
+        *,
+        max_dimension: int = _MESHSPACE_AVATAR_PREVIEW_DIMENSION,
+        max_bytes: int = _MESHSPACE_AVATAR_PREVIEW_MAX_BYTES,
+    ) -> Dict[str, str]:
+        """Return a compact base64 PNG preview for invite/handshake hints."""
+        avatar_path = self.get_meshspace_avatar_path(meshspace_id)
+        if not avatar_path or not avatar_path.exists():
+            return {}
+        try:
+            from PIL import Image
+        except Exception:
+            return {}
+        resampling = getattr(getattr(Image, "Resampling", Image), "LANCZOS", getattr(Image, "LANCZOS", 1))
+        try:
+            with Image.open(avatar_path) as opened_image:
+                opened_image.load()
+                if opened_image.mode not in ("RGB", "RGBA"):
+                    image = opened_image.convert("RGBA" if "A" in opened_image.getbands() else "RGB")
+                else:
+                    image = opened_image.copy()
+            image.thumbnail((max_dimension, max_dimension), resampling)
+            buffer = BytesIO()
+            image.save(buffer, format="PNG", optimize=True)
+            payload = buffer.getvalue()
+        except Exception:
+            return {}
+        if not payload or len(payload) > max_bytes:
+            return {}
+        return {
+            "avatar_b64": base64.b64encode(payload).decode("ascii"),
+            "avatar_mime": "image/png",
+        }
+
     def create_meshspace(
         self,
         *,
@@ -1204,6 +1536,75 @@ class MeshspaceRegistryManager:
         if default_agent_permissions is not None:
             record["default_agent_permissions"] = _normalize_agent_permission_values(default_agent_permissions)
         return self._upsert_record(record)
+
+    def add_meshspace_aliases(self, meshspace_id: str, aliases: List[str]) -> Optional[Dict[str, Any]]:
+        """Persist additional admin-approved compatibility aliases for a meshspace."""
+        record = self.get_meshspace(meshspace_id)
+        if not record:
+            return None
+        current_id = str(record.get("meshspace_id") or meshspace_id or "").strip()
+        merged_aliases = _normalize_meshspace_id_aliases(
+            list(record.get("meshspace_id_aliases") or []) + list(aliases or []),
+            current_id=current_id,
+        )
+        if merged_aliases == list(record.get("meshspace_id_aliases") or []):
+            return record
+        updated = dict(record)
+        updated["meshspace_id_aliases"] = merged_aliases
+        return self._upsert_record(updated)
+
+    def promote_legacy_meshspace(
+        self,
+        meshspace_id: str,
+        *,
+        new_meshspace_id: str,
+        new_name: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Convert a legacy-default runtime record into a stable explicit mesh identity."""
+        record = self.get_meshspace(meshspace_id)
+        if not record:
+            return None
+        runtime_mode = str(record.get("runtime_mode") or "").strip().lower()
+        if runtime_mode != "legacy-default":
+            raise ValueError("Only legacy default meshes can be promoted to a stable mesh ID")
+        old_meshspace_id = str(record.get("meshspace_id") or "").strip()
+        normalized_new_id = sanitize_meshspace_id(new_meshspace_id, fallback="")
+        if len(normalized_new_id) < 2:
+            raise ValueError("Mesh ID must contain at least 2 letters or numbers")
+        existing = self.get_meshspace(normalized_new_id)
+        if existing and str(existing.get("meshspace_id") or "").strip() != old_meshspace_id:
+            raise ValueError(f"Meshspace '{normalized_new_id}' already exists")
+
+        avatar_path_raw = str(record.get("avatar_path") or "").strip()
+        old_avatar_path = Path(avatar_path_raw).expanduser() if avatar_path_raw else self._avatar_path_for(old_meshspace_id)
+        avatar_path = str(old_avatar_path)
+        if old_avatar_path.exists():
+            new_avatar_path = self._avatar_path_for(normalized_new_id)
+            try:
+                if old_avatar_path != new_avatar_path:
+                    new_avatar_path.parent.mkdir(parents=True, exist_ok=True)
+                    os.replace(old_avatar_path, new_avatar_path)
+                avatar_path = str(new_avatar_path)
+            except Exception:
+                avatar_path = str(old_avatar_path)
+
+        promoted = dict(record)
+        promoted["meshspace_id"] = normalized_new_id
+        promoted["meshspace_id_aliases"] = _normalize_meshspace_id_aliases(
+            list(record.get("meshspace_id_aliases") or []) + [old_meshspace_id],
+            current_id=normalized_new_id,
+        )
+        if new_name is not None:
+            cleaned_name = str(new_name or "").strip()
+            if len(cleaned_name) < 2:
+                raise ValueError("Mesh name must be at least 2 characters")
+            promoted["name"] = cleaned_name
+        promoted["runtime_mode"] = "meshspace"
+        promoted["is_default"] = False
+        promoted["session_cookie_name"] = meshspace_cookie_name(normalized_new_id)
+        promoted["avatar_path"] = avatar_path if avatar_path and Path(avatar_path).expanduser().exists() else str(record.get("avatar_path") or "")
+        promoted["updated_at"] = _utcnow_iso()
+        return self._replace_record(old_meshspace_id, promoted)
 
     def allocate_port_block(self) -> Dict[str, int]:
         records = self.list_meshspaces()
@@ -1305,7 +1706,7 @@ class MeshspaceRegistryManager:
         mesh_port = int(record.get("mesh_port") or 0)
         registry_pid = int(record.get("pid") or 0)
         registry_pid_alive = _pid_is_alive(registry_pid) if registry_pid > 0 else False
-        detected_pid = _listener_pid_for_port(http_port) or _listener_pid_for_port(mesh_port)
+        detected_pid = _listener_pid_for_port(http_port, host=probe_host) or _listener_pid_for_port(mesh_port, host=probe_host)
         http_listening = _port_accepts_connections(probe_host, http_port) if http_port > 0 else False
         health = _http_json(f"http://{probe_host}:{http_port}/api/v1/health", timeout=0.9) if http_port > 0 else {}
         health_meshspace = (health.get("meshspace") or {}) if isinstance(health.get("meshspace"), dict) else {}
@@ -1317,7 +1718,8 @@ class MeshspaceRegistryManager:
             or str(health.get("status") or "").strip().lower() in {"healthy", "ready"}
         )
         registry_status = str(record.get("status") or "defined").strip().lower() or "defined"
-        live = bool((registry_pid_alive or detected_pid > 0 or http_listening or health_ok) and not wrong_meshspace_detected)
+        registry_pid_counts_as_live = bool(registry_pid_alive and registry_status == "starting")
+        live = bool((registry_pid_counts_as_live or detected_pid > 0 or http_listening or health_ok) and not wrong_meshspace_detected)
         effective_status = registry_status
         if live:
             if health_ok or http_listening:
@@ -1428,8 +1830,9 @@ class MeshspaceRegistryManager:
         # either assigned runtime port is already occupied.
         http_port = int(record.get("http_port") or 0)
         mesh_port = int(record.get("mesh_port") or 0)
-        http_listener_pid = _listener_pid_for_port(http_port) if http_port > 0 else 0
-        mesh_listener_pid = _listener_pid_for_port(mesh_port) if mesh_port > 0 else 0
+        probe_host = "127.0.0.1" if str(record.get("http_host") or "").strip() in {"0.0.0.0", "::"} else str(record.get("http_host") or "127.0.0.1").strip() or "127.0.0.1"
+        http_listener_pid = _listener_pid_for_port(http_port, host=probe_host) if http_port > 0 else 0
+        mesh_listener_pid = _listener_pid_for_port(mesh_port, host=probe_host) if mesh_port > 0 else 0
         if http_listener_pid > 0 or mesh_listener_pid > 0:
             in_use = []
             if http_listener_pid > 0:

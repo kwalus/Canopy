@@ -78,6 +78,48 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("workspaceGovernanceDirtyIndicator.textContent = workspaceGovernanceDirty ? 'Unsaved changes' : 'Saved';", admin_template)
         self.assertIn('[workspaceSaveGovernanceBtn, workspaceSaveGovernanceBottomBtn].filter(Boolean).forEach((button) => {', admin_template)
 
+    def test_connect_preview_understands_mesh_avatar_and_alias_hints(self) -> None:
+        connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
+        self.assertIn('CURRENT_MESHSPACE_ID_ALIASES', connect_template)
+        self.assertIn('PEER_PREVIEW_PROFILES', connect_template)
+        self.assertIn('PEER_MESH_HINTS', connect_template)
+        self.assertIn('function meshIdsMatch(remoteId, remoteAliases)', connect_template)
+        self.assertIn('meshspaceIdAliases', connect_template)
+        self.assertIn('meshAvatarB64', connect_template)
+        self.assertIn('invite-preview-peer-avatar', connect_template)
+        self.assertIn('Peer ID', connect_template)
+        self.assertIn('Node hint', connect_template)
+        self.assertIn("apiJsonFetch('/api/v1/p2p/invite/preview'", connect_template)
+        self.assertIn('function enrichInvitePreview(preview, sequence)', connect_template)
+        self.assertIn('Remote preview refreshed from', connect_template)
+        self.assertIn('peerAvatarB64', connect_template)
+        self.assertIn('preview.peerLabel || knownLabel', connect_template)
+        self.assertIn('const DEVICE_ICON_CHOICES = new Set([', connect_template)
+        self.assertIn('function normalizePeerIcon(icon)', connect_template)
+        self.assertIn('peerIcon: normalizePeerIcon(data.pi || \'\')', connect_template)
+        self.assertIn('remote.peer_icon', connect_template)
+
+    def test_profile_settings_and_mesh_pages_explain_connection_hint_roles(self) -> None:
+        profile_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'profile.html').read_text(encoding='utf-8')
+        settings_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'settings.html').read_text(encoding='utf-8')
+        mesh_detail_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'meshspace_detail.html').read_text(encoding='utf-8')
+
+        self.assertIn('Connection Hint Preview', profile_template)
+        self.assertIn('Connection review model:', profile_template)
+        self.assertIn('device profile for the peer name and peer avatar', profile_template)
+        self.assertIn('Node hint', profile_template)
+
+        self.assertIn('peer identity shown during connection review', settings_template)
+        self.assertIn('peer identity', settings_template)
+        self.assertIn('Identity split:', settings_template)
+        self.assertIn('Connection Hint Preview', settings_template)
+        self.assertIn('Node Hint Icon', settings_template)
+        self.assertIn('Shared in the invite as a compact fallback', settings_template)
+
+        self.assertIn('device-level peer identity stay unchanged', mesh_detail_template)
+        self.assertIn('Connection Hint Preview', mesh_detail_template)
+        self.assertIn('Node hint', mesh_detail_template)
+
     def test_admin_governance_secondary_save_button_defaults_to_outline(self) -> None:
         admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')
         self.assertIn('class="btn btn-outline-success btn-sm" id="workspace-save-governance-bottom-btn"', admin_template)
@@ -111,11 +153,36 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("runTrustPeerAction('{{ peer_id }}', 'sync_now', this)", trust_template)
         self.assertIn("href=\"#trust-peer-{{ peer.peer_id }}\"", trust_template)
 
+    def test_trust_page_surfaces_preview_only_sync_approval_controls(self) -> None:
+        trust_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'trust.html').read_text(encoding='utf-8')
+        self.assertIn("runTrustPeerAction('{{ peer_id }}', 'allow_sync', this)", trust_template)
+        self.assertIn("runTrustPeerAction('{{ peer_id }}', 'allow_mesh_sync', this)", trust_template)
+        self.assertIn("runTrustPeerAction('{{ peer_id }}', 'treat_same_mesh', this)", trust_template)
+        self.assertIn("runTrustPeerAction('{{ peer_id }}', 'keep_cross_mesh_bridge', this)", trust_template)
+        self.assertIn('preview-only until you approve sync', trust_template)
+        self.assertIn('Mesh Preview', trust_template)
+        self.assertIn('Mesh Relationship', trust_template)
+        self.assertIn('class="trust-peer-summary" aria-label="Peer review summary"', trust_template)
+        self.assertIn('{% for item in peer.review_summary %}', trust_template)
+
+    def test_trust_page_pending_peer_cards_prioritize_summary_over_status_pile(self) -> None:
+        trust_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'trust.html').read_text(encoding='utf-8')
+        self.assertIn('.trust-peer-summary {', trust_template)
+        self.assertIn('trust-summary-item {{ item.class_name }}', trust_template)
+        self.assertIn('trust-summary-value', trust_template)
+        self.assertIn('trust-summary-note', trust_template)
+        self.assertNotIn('trust-badge role-{{ peer.role_state }}', trust_template)
+        self.assertNotIn('trust-badge source-{{', trust_template)
+        self.assertIn('data-needs-review="{{ 1 if peer.requires_review_attention else 0 }}"', trust_template)
+        self.assertIn('Only the instance admin can change trust tiers.', trust_template)
+        self.assertIn('fresh label and avatar hints', (ROOT / 'canopy' / 'ui' / 'routes.py').read_text(encoding='utf-8'))
+
     def test_trust_page_disables_review_action_buttons_while_request_is_in_flight(self) -> None:
         trust_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'trust.html').read_text(encoding='utf-8')
         self.assertIn("if (triggerEl) {", trust_template)
         self.assertIn("triggerEl.disabled = true;", trust_template)
         self.assertIn("triggerEl.disabled = false;", trust_template)
+        self.assertIn('document.querySelectorAll(\'.trust-node[data-needs-review="1"]\')', trust_template)
 
     def test_trust_page_potential_peers_require_explicit_tier_assignment(self) -> None:
         trust_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'trust.html').read_text(encoding='utf-8')
@@ -144,11 +211,100 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('external_endpoint=', connect_template)
         self.assertIn('Regenerated with external endpoint!', connect_template)
 
+    def test_connect_page_previews_invites_before_importing(self) -> None:
+        connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
+        self.assertIn('id="invitePreview"', connect_template)
+        self.assertIn('function decodeInvitePreview(code)', connect_template)
+        self.assertIn("new TextDecoder('utf-8').decode(bytes)", connect_template)
+        self.assertIn('function previewInvite(force)', connect_template)
+        self.assertIn('function connectPreviewedInvite()', connect_template)
+        self.assertIn('Review before connecting', connect_template)
+        self.assertIn('Mesh hint differs from this workspace', connect_template)
+        self.assertIn('Meshspace ID differs from this workspace', connect_template)
+        self.assertIn('allow_cross_mesh', connect_template)
+        self.assertIn('Labels are sender-provided hints', connect_template)
+        self.assertIn('Mesh identity review requires instance admin approval on this workspace.', connect_template)
+        self.assertIn('Only the instance admin can connect and review a peer from a different meshspace.', connect_template)
+        self.assertIn('Only the instance admin can approve a cross-mesh reconnect from this workspace.', connect_template)
+        self.assertIn('Connected to <code>\' + safePeerId + \'</code>, but mesh identity needs admin review before sync.', connect_template)
+        self.assertIn('function reviewPeerMesh(peerId, action, buttonEl)', connect_template)
+        self.assertIn('/api/v1/p2p/mesh_relationship', connect_template)
+        self.assertIn('Treat as same mesh', connect_template)
+        self.assertIn('Keep bridge', connect_template)
+        self.assertIn("btn.disabled = true;", connect_template)
+
+    def test_connect_known_peer_rows_use_public_identity_fallback(self) -> None:
+        connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
+        self.assertIn("{% set pubid = peer.public_identity if peer.public_identity else {} %}", connect_template)
+        self.assertIn("{% elif pubid.node_name %}", connect_template)
+        self.assertIn("Unverified {{ pubid.source }} label", connect_template)
+
+    def test_connect_connected_and_discovered_rows_use_public_identity_fallback(self) -> None:
+        connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
+        self.assertIn("{% set pub = peer_public_identities.get(pid) if peer_public_identities else {} %}", connect_template)
+        self.assertIn("{% elif pub and pub.node_name %}", connect_template)
+        self.assertIn("{% set dpub = peer_public_identities.get(peer.peer_id) if peer_public_identities else {} %}", connect_template)
+        self.assertIn("{% elif dpub and dpub.node_name %}", connect_template)
+        self.assertIn("pub.avatar_initials", connect_template)
+        self.assertIn("dpub.avatar_initials", connect_template)
+
+    def test_connect_page_api_errors_carry_diagnostic_code(self) -> None:
+        connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
+        self.assertIn('err.status = response.status;', connect_template)
+        self.assertIn("if (data && data.diagnostic_code) err.diagnosticCode = data.diagnostic_code;", connect_template)
+        self.assertIn("const code = err?.diagnosticCode;", connect_template)
+        self.assertIn("code === 'cross_mesh_admin_required'", connect_template)
+        self.assertIn("code === 'mesh_identity_admin_required'", connect_template)
+        self.assertIn("code === 'cross_mesh_confirmation_required'", connect_template)
+        self.assertIn("code === 'cross_mesh_reconnect_confirmation_required'", connect_template)
+        self.assertIn('Instance admin permission is required to connect to a peer from a different meshspace.', connect_template)
+
+    def test_connect_page_mesh_badge_distinguishes_no_hint_from_mismatch(self) -> None:
+        connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
+        self.assertIn('No mesh hint', connect_template)
+        self.assertIn('const hasMeshInfo = Boolean(preview.meshspaceId || preview.meshName);', connect_template)
+        self.assertIn('Current mesh hint', connect_template)
+        self.assertIn('Check mesh hint', connect_template)
+
+    def test_connect_page_disables_import_button_for_non_admin_cross_mesh(self) -> None:
+        connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
+        self.assertIn('isCrossMeshBlocked', connect_template)
+        self.assertIn('Admin required', connect_template)
+        self.assertIn('const blocked = Boolean(', connect_template)
+
     def test_feed_video_surfaces_preserve_actual_video_mime_type(self) -> None:
         feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
         self.assertIn("metadata.video_type = firstType || 'video/mp4';", feed_template)
         self.assertIn("type=\"{{ post.metadata.video_type or 'video/mp4' }}\"", feed_template)
         self.assertIn("type=\"{{ em.get('video_type') or 'video/mp4' }}\"", feed_template)
+
+    def test_safe_markdown_renderer_is_bounded_and_shared(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+        self.assertIn('function hasCanopyMarkdownSyntax(text)', main_js)
+        self.assertIn('function renderCanopyInlineMarkdown(html)', main_js)
+        self.assertIn('function renderCanopyBlockMarkdown(html)', main_js)
+        self.assertIn('hasCanopyMarkdownSyntax(rawText)', main_js)
+        self.assertIn('<code class="canopy-inline-code no-katex">', main_js)
+        self.assertIn('class="canopy-md-list"', main_js)
+        self.assertIn('class="canopy-md-quote"', main_js)
+        self.assertIn('class="canopy-md-heading ', main_js)
+        self.assertIn("html.includes('<ul')", main_js)
+        self.assertIn("html.includes('<blockquote')", main_js)
+        self.assertIn('.canopy-inline-code', base_template)
+        self.assertIn('.canopy-md-heading', base_template)
+        self.assertIn('.canopy-md-list', base_template)
+        self.assertIn('.canopy-md-quote', base_template)
+
+    def test_timestamp_formatter_is_immediate_shared_and_utc_safe(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        self.assertIn("normalized = raw.replace(' ', 'T') + 'Z';", main_js)
+        self.assertIn("normalized = raw + 'Z';", main_js)
+        self.assertIn('function formatTimestamps(scope)', main_js)
+        self.assertIn("root.querySelectorAll('[data-timestamp]').forEach", main_js)
+        self.assertIn('window.formatTimestamps = formatTimestamps;', main_js)
+        self.assertIn("document.addEventListener('DOMContentLoaded', () => formatTimestamps());", main_js)
+        self.assertIn('setInterval(() => formatTimestamps(), 30000);', main_js)
 
     def test_attention_bell_defaults_new_users_to_inbox_only(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
@@ -259,6 +415,23 @@ class TestFrontendRegressions(unittest.TestCase):
         macros_template = (ROOT / 'canopy' / 'ui' / 'templates' / '_messages_macros.html').read_text(encoding='utf-8')
         self.assertIn('title="Download from peer"', macros_template)
         self.assertIn('<i class="bi bi-cloud-download"></i> Download', macros_template)
+
+    def test_messages_workspace_uses_mobile_thread_first_layout(self) -> None:
+        template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
+        header = (ROOT / 'canopy' / 'ui' / 'templates' / '_messages_thread_header.html').read_text(encoding='utf-8')
+        self.assertIn('.messages-page.has-active-thread .messages-topbar {', template)
+        self.assertIn('.messages-page.has-active-thread .dm-sidebar {', template)
+        self.assertIn('.messages-page.has-active-thread.dm-mobile-sidebar-open .dm-sidebar {', template)
+        self.assertIn('.dm-sidebar-mobile-header', template)
+        self.assertIn('.dm-mobile-sidebar-backdrop', template)
+        self.assertIn('dm-composer-recipient-mode', template)
+        self.assertIn('function toggleDmMobileSidebar(forceOpen)', template)
+        self.assertIn('function syncDmMobileLayoutState(options)', template)
+        self.assertIn("toggleDmMobileSidebar(false)", template)
+        self.assertIn('id="dm-sidebar"', template)
+        self.assertIn("button.setAttribute('aria-expanded', isSidebarOpen ? 'true' : 'false');", template)
+        self.assertIn('class="btn btn-sm btn-outline-secondary dm-mobile-sidebar-toggle"', header)
+        self.assertIn('aria-controls="dm-sidebar"', header)
 
     def test_miniplayer_no_longer_eagerly_docks_youtube_on_update(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
@@ -480,6 +653,16 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('function startCanopyWorkspaceAttentionPolling()', main_js)
         self.assertIn('function pollCanopyWorkspaceAttentionEvents()', main_js)
         self.assertIn("requestCanopySidebarDmRefresh({ force: false }).catch(() => {});", main_js)
+
+    def test_sidebar_refresh_dedup_guard_and_debounce_present(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        self.assertIn('listenersAttached: false,', main_js)
+        self.assertIn('visibilityFocusDebounceHandle: null,', main_js)
+        self.assertIn('function _scheduleCanopyVisibilityFocusRefresh()', main_js)
+        self.assertIn('window.clearTimeout(canopySidebarAttentionState.visibilityFocusDebounceHandle);', main_js)
+        self.assertIn('if (!canopySidebarAttentionState.listenersAttached) {', main_js)
+        self.assertIn("document.addEventListener('visibilitychange', function() {", main_js)
+        self.assertIn('_scheduleCanopyVisibilityFocusRefresh();', main_js)
 
     def test_bookmarks_navigation_and_save_controls_exist(self) -> None:
         base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
@@ -1182,3 +1365,21 @@ class TestFrontendRegressions(unittest.TestCase):
             "if (data && (data.marked_read || Number(data.acknowledged_mentions || 0) > 0) && typeof window.requestCanopySidebarAttentionRefresh === 'function') {",
             channels_template,
         )
+
+    def test_mobile_resize_dedup_gates_collapse_redundant_layout_work(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        messages_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
+        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+
+        self.assertIn('let channelViewportSyncQueued = false;', channels_template)
+        self.assertIn('function scheduleChannelViewportSync()', channels_template)
+        self.assertIn("window.addEventListener('resize', scheduleChannelViewportSync)", channels_template)
+        self.assertIn("window.visualViewport.addEventListener('resize', scheduleChannelViewportSync)", channels_template)
+
+        self.assertIn('let _dmLayoutSyncQueued = false;', messages_template)
+        self.assertIn('function scheduleDmMobileLayoutSync()', messages_template)
+        self.assertIn("window.addEventListener('resize', scheduleDmMobileLayoutSync)", messages_template)
+
+        self.assertIn('let _feedComposerSyncQueued = false;', feed_template)
+        self.assertIn('function scheduleFeedComposerSync()', feed_template)
+        self.assertIn("window.addEventListener('resize', scheduleFeedComposerSync)", feed_template)

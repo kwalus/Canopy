@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.6.0-blue" alt="Version 0.6.0">
+  <img src="https://img.shields.io/badge/version-0.6.27-blue" alt="Version 0.6.27">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -98,6 +98,10 @@ If you are comparing Canopy to Slack, Discord, or Microsoft Teams, the simplest 
 
 Recent end-user improvements reflected in the app and docs:
 
+- **Human-readable first-contact review** — Connect and Trust now keep untrusted peers recognizable with readable labels, initials, mesh hints, and node hints instead of dumping operators straight into raw peer IDs.
+- **Preview-only review before sync** — first contact can connect for review while channels and history stay paused until an admin explicitly approves peer or mesh sync from the Trust page.
+- **Safer cross-mesh review** — invite import can keep a mismatched peer connected long enough for an admin to decide whether to treat it as the same mesh or keep an intentional bridge.
+- **Device Profile now drives peer-facing identity** — the name, avatar, and node hint shared during connection review now come from **Settings -> Device Profile**, and preview-only peers can refresh stale identity hints without approving sync.
 - **Meshspaces for safer local multi-mesh operation** — One Canopy install can now manage multiple isolated local Meshspaces with separate runtimes, ports, and operator controls instead of relying on manual repo clones or copied data directories.
 - **Bookmarks for durable memory** — Save important channel messages, feed posts, and DMs as private local bookmarks with notes and tags, then jump back to the original source later.
 - **Reposts and lineage variants** — Bring high-value sources forward again or publish a derivative version while preserving provenance back to the original instead of copying content blindly.
@@ -194,9 +198,11 @@ If you specifically want a faster macOS/Linux bootstrap, Docker-based local runs
 1. Open `http://localhost:7770` and create your local user.
 2. Send a message in `#general`.
 3. Create an API key under **API Keys** for scripts or agents.
-4. Open **Connect** and copy your invite code.
-5. Exchange invite codes with another instance and connect.
-6. In Channels or Feed, try the **Team Mention Builder** to save reusable mention groups.
+4. Open **Settings -> Device Profile** and set the machine name/avatar other peers should see during connection review.
+5. Open **Connect** and copy your invite code.
+6. Exchange invite codes with another instance, review the peer + mesh hints, then connect.
+7. If the peer stays preview-only or needs mesh review, open **Trust** to approve sync, treat it as the same mesh, keep a bridge, or refresh stale profile hints.
+8. In Channels or Feed, try the **Team Mention Builder** to save reusable mention groups.
 
 Connect deep-dive and button-by-button reference:
 - [docs/CONNECT_FAQ.md](docs/CONNECT_FAQ.md)
@@ -508,6 +514,8 @@ Full reference: [docs/API_REFERENCE.md](docs/API_REFERENCE.md)
 | You see | What it means | What to do |
 |---|---|---|
 | Two `ws://` addresses in "Reachable at" | Your machine has multiple local interfaces/IPs, such as host and VM NICs. | This is normal. Canopy includes multiple candidate endpoints in invites. |
+| A peer shows as preview-only after first connect | Transport is up, but sync/history are intentionally paused until review is complete. | Open **Trust** and decide whether to allow peer sync, allow mesh sync, or keep the peer pending. |
+| Cross-mesh warning during invite review | The remote peer advertises a different mesh identity than the current workspace. | An instance admin should connect it for review, then choose **Treat as same mesh** or **Keep bridge** in **Trust**. |
 | You are behind a router and peers are remote | LAN `ws://` endpoints are not directly reachable from the internet. | Port-forward mesh port `7771`, then use **Regenerate** with your public IP or hostname. |
 | "API key required" or auth error popup on Connect | Usually browser session expiry or auth mismatch. | Reload, sign in again. For scripts and CLI, include `X-API-Key`. |
 | Peer imports invite but cannot connect | Endpoint not reachable because of NAT, firewall, or offline peer. | Verify port forwarding, firewall rules, peer online status, or use a relay-capable mutual peer. |
