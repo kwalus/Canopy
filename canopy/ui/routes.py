@@ -5527,6 +5527,7 @@ def create_ui_blueprint() -> Blueprint:
 
                 display_name = ''
                 label_source = 'fallback'
+
                 if profile_name:
                     display_name = profile_name
                     label_source = 'profile'
@@ -5538,6 +5539,13 @@ def create_ui_blueprint() -> Blueprint:
                     label_source = 'identity'
                 else:
                     display_name = clean_peer_id[:12]
+
+                display_name_source_label = {
+                    'profile': 'Profile label',
+                    'announced': 'Announced label',
+                    'identity': 'Known label',
+                    'fallback': 'Fallback label',
+                }.get(label_source, 'Known label')
 
                 role_label, role_state = _infer_role(profile, public_identity, display_name)
                 endpoint_rows: list[dict[str, Any]] = []
@@ -5584,14 +5592,19 @@ def create_ui_blueprint() -> Blueprint:
                 needs_profile = not profile_name
                 needs_label = label_source == 'fallback'
                 attention_flags: list[str] = []
+
+                def _add_attention_flag(label: str) -> None:
+                    if label and label not in attention_flags:
+                        attention_flags.append(label)
+
                 if needs_profile:
-                    attention_flags.append('Needs profile')
-                if role_state == 'unknown':
-                    attention_flags.append('Role unknown')
+                    _add_attention_flag('Needs profile')
+                if role_state == 'unknown' and not needs_profile:
+                    _add_attention_flag('Role unknown')
                 if connection_state == 'stale':
-                    attention_flags.append('Stale')
+                    _add_attention_flag('Stale')
                 if connection_state in ('stale', 'introduced') and endpoint_count == 0:
-                    attention_flags.append('No endpoints')
+                    _add_attention_flag('No endpoints')
 
                 introduced_by_label = ''
                 if introduced_by:
@@ -5651,22 +5664,72 @@ def create_ui_blueprint() -> Blueprint:
                     sync_status_note = "Sync is allowed for this peer."
 
                 connection_sort = {'live': 0, 'known': 1, 'introduced': 2, 'stale': 3}.get(connection_state, 4)
-                if sync_preview_only:
-                    attention_flags.append('Awaiting sync approval')
+                if profile_name:
+                    identity_status_label = 'Profile verified'
+                    identity_status_note = 'Device profile is available.'
+                    identity_status_class = 'identity-verified'
+                elif needs_label:
+                    identity_status_label = 'Only peer ID available'
+                    identity_status_note = 'No recognizable peer name has been learned yet.'
+                    identity_status_class = 'identity-incomplete'
+                else:
+                    identity_status_label = 'Unverified label'
+                    identity_status_note = f"{display_name_source_label} before trust."
+                    identity_status_class = 'identity-unverified'
+
                 if mesh_review_required:
-                    attention_flags.append('Mesh review required')
+                    review_gate_label = 'Mesh review required'
+                    review_gate_note = 'Resolve same-mesh vs bridge before sync.'
+                    review_gate_class = 'review-blocked'
+                elif sync_preview_only:
+                    review_gate_label = 'Sync approval required'
+                    review_gate_note = 'History stays paused until approved.'
+                    review_gate_class = 'review-pending'
+                elif score_value is None:
+                    review_gate_label = 'Assign trust tier'
+                    review_gate_note = 'Choose Safe, Guarded, Restricted, or Quarantine.'
+                    review_gate_class = 'review-pending'
+                else:
+                    review_gate_label = 'Trust tier assigned'
+                    review_gate_note = sync_status_note
+                    review_gate_class = 'review-clear'
+
+                connection_summary_note = active_endpoint or connection_note
+                review_summary = [
+                    {
+                        'label': 'Connection',
+                        'value': connection_label,
+                        'note': connection_summary_note,
+                        'class_name': f'connection-{connection_state}',
+                    },
+                    {
+                        'label': 'Review gate',
+                        'value': review_gate_label,
+                        'note': review_gate_note,
+                        'class_name': review_gate_class,
+                    },
+                    {
+                        'label': 'Identity',
+                        'value': identity_status_label,
+                        'note': identity_status_note,
+                        'class_name': identity_status_class,
+                    },
+                ]
+
                 return {
                     'peer_id': clean_peer_id,
                     'short_id': f'{clean_peer_id[:12]}...',
                     'display_name': display_name,
                     'description': str(_profile_value(profile, 'description', '') or '').strip(),
                     'display_name_source': label_source,
-                    'display_name_source_label': {
-                        'profile': 'Profile label',
-                        'announced': 'Announced label',
-                        'identity': 'Known label',
-                        'fallback': 'Fallback label',
-                    }.get(label_source, 'Known label'),
+                    'display_name_source_label': display_name_source_label,
+                    'identity_status_label': identity_status_label,
+                    'identity_status_note': identity_status_note,
+                    'identity_status_class': identity_status_class,
+                    'review_gate_label': review_gate_label,
+                    'review_gate_note': review_gate_note,
+                    'review_gate_class': review_gate_class,
+                    'review_summary': review_summary,
                     'avatar_b64': _profile_value(profile, 'avatar_b64', ''),
                     'avatar_mime': _profile_value(profile, 'avatar_mime', 'image/png'),
                     'public_avatar_color': str(public_identity.get('avatar_color') or '').strip(),
@@ -5785,7 +5848,13 @@ def create_ui_blueprint() -> Blueprint:
 
             attention_peers = [
                 peer for peer in peer_index.values()
-                if peer.get('needs_profile') or peer.get('role_state') == 'unknown' or peer.get('connection_state') == 'stale'
+                if (
+                    peer.get('needs_profile')
+                    or peer.get('role_state') == 'unknown'
+                    or peer.get('connection_state') == 'stale'
+                    or peer.get('mesh_review_required')
+                    or peer.get('sync_preview_only')
+                )
             ]
             attention_peers.sort(key=lambda peer: (peer['connection_sort'], str(peer.get('display_name') or '').lower()))
 

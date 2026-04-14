@@ -88,6 +88,112 @@ class TestTrustPageIdentityContext(unittest.TestCase):
         self.assertEqual(payload.get('template'), 'trust.html')
         self.assertEqual(payload.get('user_id'), 'user-trust-42')
 
+    def test_pending_peer_cards_expose_decision_summary_without_duplicate_noise(self) -> None:
+        with self.client.session_transaction() as sess:
+            sess['authenticated'] = True
+            sess['user_id'] = 'user-trust-42'
+            sess['username'] = 'trustuser'
+            sess['display_name'] = 'Trust User'
+
+        comps = _mock_components()
+        p2p = comps[10]
+        p2p.identity_manager = types.SimpleNamespace(
+            known_peers={},
+            peer_display_names={},
+            peer_endpoints={},
+        )
+        p2p.get_connected_peers.return_value = ['peer-pending-1234567890']
+        p2p.get_introduced_peers.return_value = []
+        p2p.get_peer_public_identity.return_value = {
+            'node_name': 'peer-pending',
+            'source': 'fallback',
+            'unverified': True,
+        }
+        p2p.get_peer_endpoint_diagnostics.return_value = [{
+            'endpoint': 'ws://192.168.1.104:61321',
+            'sources': ['handshake'],
+            'currently_connected': True,
+            'last_failure_reason': '',
+        }]
+        p2p.get_peer_sync_status.return_value = {
+            'preview_only': True,
+            'effective_scope': '',
+            'remote_meshspace_name': 'canopy-mesh',
+        }
+        p2p.get_peer_cross_mesh_status.return_value = {
+            'requires_manual_confirmation': False,
+            'mesh_relationship': 'same_mesh_confirmed',
+        }
+
+        with patch('canopy.ui.routes._get_app_components_any', return_value=comps), \
+             patch('canopy.ui.routes.render_template') as rt:
+            rt.side_effect = lambda tpl, **ctx: jsonify({'template': tpl, **ctx})
+            response = self.client.get('/trust')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        peers = payload.get('potential_peers') or []
+        self.assertEqual(len(peers), 1)
+        peer = peers[0]
+        summary = peer.get('review_summary') or []
+        self.assertEqual([item.get('label') for item in summary], ['Connection', 'Review gate', 'Identity'])
+        self.assertEqual(summary[0].get('value'), 'Connected')
+        self.assertEqual(summary[1].get('value'), 'Sync approval required')
+        self.assertEqual(summary[2].get('value'), 'Only peer ID available')
+        self.assertNotIn('Role unknown', peer.get('attention_flags') or [])
+        self.assertNotIn('Awaiting sync approval', peer.get('attention_flags') or [])
+        self.assertEqual((payload.get('trust_overview') or {}).get('attention_count'), 1)
+
+    def test_mesh_review_pending_peer_counts_toward_attention_metric(self) -> None:
+        with self.client.session_transaction() as sess:
+            sess['authenticated'] = True
+            sess['user_id'] = 'user-trust-42'
+            sess['username'] = 'trustuser'
+            sess['display_name'] = 'Trust User'
+
+        comps = _mock_components()
+        p2p = comps[10]
+        p2p.identity_manager = types.SimpleNamespace(
+            known_peers={},
+            peer_display_names={},
+            peer_endpoints={'peer-mesh-review-123': ['ws://192.168.1.5:7771']},
+        )
+        p2p.get_connected_peers.return_value = ['peer-mesh-review-123']
+        p2p.get_introduced_peers.return_value = []
+        p2p.get_peer_public_identity.return_value = {
+            'node_name': 'Windy Laptop',
+            'source': 'handshake',
+            'unverified': True,
+        }
+        p2p.get_peer_endpoint_diagnostics.return_value = [{
+            'endpoint': 'ws://192.168.1.5:7771',
+            'sources': ['handshake'],
+            'currently_connected': True,
+            'last_failure_reason': '',
+        }]
+        p2p.get_peer_sync_status.return_value = {
+            'preview_only': False,
+            'effective_scope': '',
+            'remote_meshspace_name': 'gold-gang',
+        }
+        p2p.get_peer_cross_mesh_status.return_value = {
+            'requires_manual_confirmation': True,
+            'mesh_relationship': 'mesh_mismatch_pending_review',
+            'cross_mesh_allowed': False,
+        }
+
+        with patch('canopy.ui.routes._get_app_components_any', return_value=comps), \
+             patch('canopy.ui.routes.render_template') as rt:
+            rt.side_effect = lambda tpl, **ctx: jsonify({'template': tpl, **ctx})
+            response = self.client.get('/trust')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertEqual((payload.get('trust_overview') or {}).get('attention_count'), 1)
+        attention = payload.get('attention_peers') or []
+        self.assertEqual(len(attention), 1)
+        self.assertEqual(attention[0].get('review_gate_label'), 'Mesh review required')
+
 
 class TestAdminPageIdentityContext(unittest.TestCase):
     def setUp(self) -> None:

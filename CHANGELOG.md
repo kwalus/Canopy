@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.25] - 2026-04-13
+
+### Changed
+- **Trust pending-peer cards now emphasize the actual operator decision instead of badge noise** - the Trust page keeps the `Connection / Review gate / Identity` summary model, uses clearer peer-recognition wording when only a raw peer ID is known, and ensures mesh-review and sync-review peers count toward the admin attention surface.
+
 ## [0.6.24] - 2026-04-13
 
 ### Fixed
