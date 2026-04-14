@@ -152,6 +152,7 @@ class P2PNetworkManager:
         self.on_profile_sync: Optional[Callable] = None
         self.get_local_profile_card: Optional[Callable] = None
         self.get_all_local_profile_cards: Optional[Callable] = None
+        self.get_local_peer_public_hint: Optional[Callable[[], Dict[str, Any]]] = None
         # Optional callback to fetch a device profile for a peer_id
         self.get_peer_device_profile: Optional[Callable[[str], Optional[Dict[str, Any]]]] = None
 
@@ -342,6 +343,103 @@ class P2PNetworkManager:
             )
         except Exception:
             logger.debug("Could not persist meshspace hint for %s", peer_id, exc_info=True)
+
+    @staticmethod
+    def _sanitize_public_peer_label(value: Any, *, limit: int = 96) -> str:
+        text = str(value or '').replace('\r', ' ').replace('\n', ' ').strip()
+        text = ''.join(ch for ch in text if ch == '\t' or ord(ch) >= 32)
+        while '  ' in text:
+            text = text.replace('  ', ' ')
+        return text[:limit]
+
+    def _local_peer_public_identity_hint(self) -> Dict[str, str]:
+        """Return compact local peer labels to advertise before trust."""
+        hint: Dict[str, Any] = {}
+        provider = getattr(self, 'get_local_peer_public_hint', None)
+        if callable(provider):
+            try:
+                candidate = provider() or {}
+                if isinstance(candidate, dict):
+                    hint = dict(candidate)
+            except Exception:
+                logger.debug("Could not build local peer public hint from callback", exc_info=True)
+        if not hint:
+            device = self._build_local_device_preview() or {}
+            hint = {
+                'peer_label': device.get('display_name') or '',
+                'instance_label': device.get('display_name') or '',
+            }
+        peer_label = self._sanitize_public_peer_label(
+            hint.get('peer_label') or hint.get('node_name') or hint.get('instance_label')
+        )
+        instance_label = self._sanitize_public_peer_label(
+            hint.get('instance_label') or peer_label
+        )
+        return {
+            'peer_label': peer_label,
+            'instance_label': instance_label,
+        }
+
+    def refresh_local_public_identity_hint(self) -> Dict[str, str]:
+        """Refresh the live handshake labels used for new outbound/inbound connections."""
+        hint = self._local_peer_public_identity_hint()
+        connection_manager = getattr(self, 'connection_manager', None)
+        if connection_manager is not None:
+            try:
+                sanitize = getattr(connection_manager, '_sanitize_public_label', None)
+                peer_label = str(hint.get('peer_label') or '').strip()
+                instance_label = str(hint.get('instance_label') or '').strip()
+                connection_manager.local_peer_label = sanitize(peer_label) if callable(sanitize) else peer_label
+                connection_manager.local_instance_label = sanitize(instance_label) if callable(sanitize) else instance_label
+            except Exception:
+                logger.debug("Could not refresh live connection-manager public hint", exc_info=True)
+        return hint
+
+    def _remember_peer_public_identity_hint(
+        self,
+        peer_id: str,
+        peer_meta: Optional[Dict[str, Any]],
+        *,
+        source: str,
+    ) -> Dict[str, str]:
+        """Persist untrusted human-readable peer labels learned during handshake/intro."""
+        clean_peer_id = str(peer_id or '').strip()
+        if not clean_peer_id or not isinstance(peer_meta, dict):
+            return {}
+        peer_label = self._sanitize_public_peer_label(
+            peer_meta.get('peer_label') or peer_meta.get('display_name') or peer_meta.get('node_name')
+        )
+        instance_label = self._sanitize_public_peer_label(peer_meta.get('instance_label'))
+        display_name = peer_label or instance_label
+        if not display_name:
+            return {}
+
+        identity_manager = getattr(self, 'identity_manager', None)
+        changed = False
+        if identity_manager is not None:
+            try:
+                existing = str(getattr(identity_manager, 'peer_display_names', {}).get(clean_peer_id) or '').strip()
+                if existing != display_name:
+                    identity_manager.peer_display_names[clean_peer_id] = display_name
+                    changed = True
+                if changed and hasattr(identity_manager, '_save_known_peers'):
+                    identity_manager._save_known_peers()
+            except Exception:
+                logger.debug("Could not persist public peer label for %s", clean_peer_id, exc_info=True)
+
+        if hasattr(self, '_introduced_peers'):
+            introduced = self._introduced_peers.get(clean_peer_id)
+            if isinstance(introduced, dict):
+                introduced['display_name'] = display_name
+                introduced['peer_label'] = peer_label
+                introduced['instance_label'] = instance_label
+                introduced['public_identity_source'] = source
+
+        return {
+            'display_name': display_name,
+            'peer_label': peer_label,
+            'instance_label': instance_label,
+        }
 
     def get_peer_cross_mesh_status(self, peer_id: str) -> Dict[str, Any]:
         """Return whether a peer appears to belong to a different meshspace."""
@@ -1337,6 +1435,7 @@ class P2PNetworkManager:
             if self.local_identity is None:
                 raise RuntimeError("Local identity is not initialized")
             local_meshspace = self._local_meshspace_identity()
+            local_peer_hint = self._local_peer_public_identity_hint()
             
             # Initialize connection manager FIRST (core functionality)
             # Always bind P2P listener to all interfaces for peer connectivity
@@ -1358,6 +1457,8 @@ class P2PNetworkManager:
                 meshspace_fingerprint=local_meshspace.get('meshspace_fingerprint', ''),
                 meshspace_avatar_b64=local_meshspace.get('meshspace_avatar_b64', ''),
                 meshspace_avatar_mime=local_meshspace.get('meshspace_avatar_mime', 'image/png'),
+                peer_label=local_peer_hint.get('peer_label', ''),
+                instance_label=local_peer_hint.get('instance_label', ''),
                 reject_protocol_mismatch=bool(
                     os.getenv('CANOPY_REJECT_PROTOCOL_MISMATCH', '').strip().lower() in ('1', 'true', 'yes', 'on')
                 ),
@@ -2029,6 +2130,14 @@ class P2PNetworkManager:
             get_connection = getattr(self.connection_manager, 'get_connection', None)
             conn = get_connection(peer_id) if callable(get_connection) else None
             if conn:
+                self._remember_peer_public_identity_hint(
+                    peer_id,
+                    {
+                        'peer_label': getattr(conn, 'peer_label', None),
+                        'instance_label': getattr(conn, 'instance_label', None),
+                    },
+                    source='handshake',
+                )
                 self._record_peer_meshspace_hint(
                     peer_id,
                     {
@@ -2410,6 +2519,11 @@ class P2PNetworkManager:
         logger.info(f"Incoming peer authenticated: {peer_id} — scheduling post-connect sync")
         cross_mesh_block_detail = ''
         if isinstance(peer_meta, dict):
+            self._remember_peer_public_identity_hint(
+                peer_id,
+                peer_meta,
+                source='incoming_handshake',
+            )
             self._record_peer_meshspace_hint(
                 peer_id,
                 {
@@ -2874,9 +2988,12 @@ class P2PNetworkManager:
                     if device_profile and device_profile.get('display_name')
                     else self.identity_manager.peer_display_names.get(pid, pid[:8])
                 )
+                display_name = self._sanitize_public_peer_label(display_name)
                 introduced.append({
                     'peer_id': pid,
                     'display_name': display_name,
+                    'peer_label': display_name,
+                    'instance_label': display_name,
                     'endpoints': endpoints,
                     'ed25519_public_key': base58.b58encode(identity.ed25519_public_key).decode(),
                     'x25519_public_key': base58.b58encode(identity.x25519_public_key).decode(),
@@ -2921,9 +3038,12 @@ class P2PNetworkManager:
                 if device_profile and device_profile.get('display_name')
                 else self.identity_manager.peer_display_names.get(new_peer_id, new_peer_id[:8])
             )
+            display_name = self._sanitize_public_peer_label(display_name)
             new_peer_info = [{
                 'peer_id': new_peer_id,
                 'display_name': display_name,
+                'peer_label': display_name,
+                'instance_label': display_name,
                 'endpoints': endpoints,
                 'ed25519_public_key': base58.b58encode(identity.ed25519_public_key).decode(),
                 'x25519_public_key': base58.b58encode(identity.x25519_public_key).decode(),
@@ -2982,6 +3102,13 @@ class P2PNetworkManager:
             # Preserve prior metadata when possible, then overlay latest data.
             cleaned = dict(existing) if isinstance(existing, dict) else {}
             cleaned.update(dict(p))
+            public_hint = self._remember_peer_public_identity_hint(
+                pid,
+                cleaned,
+                source='announcement',
+            )
+            if public_hint.get('display_name') and not cleaned.get('display_name'):
+                cleaned['display_name'] = public_hint['display_name']
             cleaned['endpoints'] = endpoints
             cleaned['introduced_by'] = from_peer
             cleaned['capabilities'] = self._normalize_capability_items(cleaned.get('capabilities'))
@@ -3161,11 +3288,7 @@ class P2PNetworkManager:
             introduced = self._introduced_peers.get(clean_peer_id) or {}
 
         device_profile: Dict[str, Any] = {}
-        if isinstance(introduced, dict):
-            raw_profile = introduced.get('device_profile')
-            if isinstance(raw_profile, dict):
-                device_profile = dict(raw_profile)
-        if not device_profile and callable(getattr(self, 'get_peer_device_profile', None)):
+        if callable(getattr(self, 'get_peer_device_profile', None)):
             try:
                 stored_profile = self.get_peer_device_profile(clean_peer_id)
             except Exception:

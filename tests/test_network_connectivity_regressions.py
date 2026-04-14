@@ -423,6 +423,9 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
             captured[0][0]['endpoints'],
             ['ws://198.51.100.55:7771'],
         )
+        self.assertEqual(captured[0][0]['display_name'], 'Remote Node')
+        self.assertEqual(captured[0][0]['peer_label'], 'Remote Node')
+        self.assertEqual(captured[0][0]['instance_label'], 'Remote Node')
 
     def test_current_connection_endpoint_preserves_wss_scheme_from_endpoint_uri(self) -> None:
         manager = self._build_manager()

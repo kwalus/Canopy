@@ -219,6 +219,21 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('Keep bridge', connect_template)
         self.assertIn("btn.disabled = true;", connect_template)
 
+    def test_connect_known_peer_rows_use_public_identity_fallback(self) -> None:
+        connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
+        self.assertIn("{% set pubid = peer.public_identity if peer.public_identity else {} %}", connect_template)
+        self.assertIn("{% elif pubid.node_name %}", connect_template)
+        self.assertIn("Unverified {{ pubid.source }} label", connect_template)
+
+    def test_connect_connected_and_discovered_rows_use_public_identity_fallback(self) -> None:
+        connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
+        self.assertIn("{% set pub = peer_public_identities.get(pid) if peer_public_identities else {} %}", connect_template)
+        self.assertIn("{% elif pub and pub.node_name %}", connect_template)
+        self.assertIn("{% set dpub = peer_public_identities.get(peer.peer_id) if peer_public_identities else {} %}", connect_template)
+        self.assertIn("{% elif dpub and dpub.node_name %}", connect_template)
+        self.assertIn("pub.avatar_initials", connect_template)
+        self.assertIn("dpub.avatar_initials", connect_template)
+
     def test_connect_page_api_errors_carry_diagnostic_code(self) -> None:
         connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
         self.assertIn('err.status = response.status;', connect_template)

@@ -25,7 +25,7 @@ from .database import DatabaseManager
 from .logging_config import setup_logging
 from .files import FileManager
 from .interactions import InteractionManager
-from .profile import ProfileManager
+from .profile import ProfileManager, build_local_peer_hint_payload
 from .feed import FeedManager
 from .bookmarks import BookmarkManager
 from .tasks import TaskManager
@@ -6280,6 +6280,27 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
         p2p_manager.get_local_profile_card = _get_local_profile_card
 
+        def _get_local_peer_public_hint() -> dict[str, Any]:
+            """Return compact local peer labels for handshake/invite preview."""
+            try:
+                from .device import get_device_label, get_device_profile
+
+                fallback_device_label = str(getattr(config, 'device_label', '') or '').strip()
+                device_profile = get_device_profile() or {}
+                if not fallback_device_label:
+                    fallback_device_label = str(get_device_label() or '').strip()
+                return build_local_peer_hint_payload(
+                    db_manager,
+                    profile_manager,
+                    fallback_device_label=fallback_device_label,
+                    device_profile=device_profile,
+                )
+            except Exception as exc:
+                logger.debug("Could not build local peer public hint: %s", exc, exc_info=True)
+                return {}
+
+        p2p_manager.get_local_peer_public_hint = _get_local_peer_public_hint
+
         def _get_all_local_profile_cards():
             """Return profile cards for ALL registered local users.
             
@@ -6334,19 +6355,6 @@ def create_app(config: Optional[Config] = None) -> Flask:
                             )
                         except Exception as e:
                             logger.warning(f"Could not register introduced peer {pid}: {e}")
-                    # Store device profile if provided (helps show friendly names for contacts list)
-                    if pid and device_profile and channel_manager:
-                        try:
-                            channel_manager.store_peer_device_profile(
-                                pid,
-                                display_name=device_profile.get('display_name'),
-                                description=device_profile.get('description'),
-                                avatar_b64=device_profile.get('avatar_b64'),
-                                avatar_mime=device_profile.get('avatar_mime'),
-                            )
-                        except Exception:
-                            pass
-
                 p2p_manager.store_introduced_peers(introduced_peers, from_peer)
                 logger.info(f"Peer announcement from {from_peer}: "
                             f"{len(introduced_peers)} peer(s) introduced")

@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.24] - 2026-04-13
+
+### Fixed
+- **Untrusted peer rows now stay human-readable even when images are missing** - Connect surfaces for connected, discovered, relayed, and introduced peers now fall back to readable unverified labels plus initials badges instead of raw peer IDs, making first-contact review much safer for human operators.
+- **Saving the device profile now refreshes the node label immediately for new handshakes** - updating the local device profile now refreshes the live advertised peer/instance labels without waiting for a full instance restart, while third-party announced avatar blobs are no longer treated as trusted stored peer profiles.
+
 ## [0.6.23] - 2026-04-13
 
 ### Changed

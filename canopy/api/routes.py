@@ -4415,8 +4415,13 @@ def create_api_blueprint() -> Blueprint:
         except ValueError as exc:
             return jsonify({'error': str(exc)}), 400
         if ok:
-            # Broadcast updated device profile to connected peers
             *_, p2p_manager = _get_app_components_any(current_app)
+            if p2p_manager and hasattr(p2p_manager, 'refresh_local_public_identity_hint'):
+                try:
+                    p2p_manager.refresh_local_public_identity_hint()
+                except Exception:
+                    pass
+            # Broadcast updated device profile to connected peers
             if p2p_manager and p2p_manager.is_running():
                 try:
                     p2p_manager.broadcast_profile_update(

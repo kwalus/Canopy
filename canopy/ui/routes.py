@@ -8388,9 +8388,16 @@ def create_ui_blueprint() -> Blueprint:
                         connection_type = 'direct'
                     elif pid in relayed_set:
                         connection_type = 'relayed'
+                    public_identity = {}
+                    if hasattr(p2p_manager, 'get_peer_public_identity'):
+                        try:
+                            public_identity = dict(p2p_manager.get_peer_public_identity(pid) or {})
+                        except Exception:
+                            public_identity = {}
                     known_peers.append({
                         'peer_id': pid,
                         'display_name': im.peer_display_names.get(pid, ''),
+                        'public_identity': public_identity,
                         'endpoints': im.peer_endpoints.get(pid, []),
                         'meshspace_hint': meshspace_hint,
                         'cross_mesh_status': cross_mesh_status,
@@ -8422,6 +8429,7 @@ def create_ui_blueprint() -> Blueprint:
                         ).strip(),
                     }
             peer_mesh_hints = {}
+            peer_public_identities = {}
 
             # Trust scores for connected and known peers
             trust_scores = {}
@@ -8458,11 +8466,25 @@ def create_ui_blueprint() -> Blueprint:
                 pid = getattr(peer, 'peer_id', None)
                 if pid and pid not in peer_labels:
                     peer_labels[pid] = pid
+            for dest, relay in active_relays.items():
+                if dest and dest not in peer_labels:
+                    peer_labels[dest] = dest
+                if relay and relay not in peer_labels:
+                    peer_labels[relay] = relay
+            for peer in introduced_peers:
+                introducer = peer.get('introduced_by') if isinstance(peer, dict) else None
+                if introducer and introducer not in peer_labels:
+                    peer_labels[introducer] = introducer
             if p2p_manager and hasattr(p2p_manager, 'identity_manager'):
                 im = p2p_manager.identity_manager
                 for pid in (set(peer_labels.keys()) | set(peer_preview_profiles.keys())):
                     if not pid:
                         continue
+                    if p2p_manager and hasattr(p2p_manager, 'get_peer_public_identity'):
+                        try:
+                            peer_public_identities[pid] = dict(p2p_manager.get_peer_public_identity(pid) or {})
+                        except Exception:
+                            pass
                     try:
                         hint = im.get_peer_meshspace_hint(pid) if hasattr(im, 'get_peer_meshspace_hint') else {}
                     except Exception:
@@ -8496,6 +8518,7 @@ def create_ui_blueprint() -> Blueprint:
                                  trust_scores=trust_scores,
                                  peer_labels=peer_labels,
                                  peer_preview_profiles=peer_preview_profiles,
+                                 peer_public_identities=peer_public_identities,
                                  peer_mesh_hints=peer_mesh_hints,
                                  is_admin=_is_admin(),
                                  user_id=user_id)

@@ -38,7 +38,7 @@ def _make_manager(*, introduced=None, peer_display_names=None):
 
 
 class TestPeerPublicIdentityHelper(unittest.TestCase):
-    def test_announced_display_name_is_preferred_and_can_include_device_avatar(self) -> None:
+    def test_announced_display_name_is_preferred_without_leaking_announced_avatar(self) -> None:
         manager = _make_manager(
             introduced={
                 'peer-bob': {
@@ -57,8 +57,8 @@ class TestPeerPublicIdentityHelper(unittest.TestCase):
         self.assertEqual(result['node_name'], 'Bob Relay')
         self.assertEqual(result['source'], 'announced')
         self.assertEqual(result['avatar_initials'], 'BR')
-        self.assertEqual(result['avatar_b64'], 'SHOULD_NOT_LEAK')
-        self.assertEqual(result['avatar_mime'], 'image/png')
+        self.assertIsNone(result['avatar_b64'])
+        self.assertIsNone(result['avatar_mime'])
         self.assertTrue(result['unverified'])
 
     def test_identity_cache_device_profile_and_fallback_stay_public_safe(self) -> None:
@@ -81,6 +81,35 @@ class TestPeerPublicIdentityHelper(unittest.TestCase):
         self.assertEqual(fallback['source'], 'fallback')
         self.assertNotIn('bio', identified)
         self.assertNotIn('email', identified)
+
+    def test_handshake_public_label_is_remembered_before_trust(self) -> None:
+        manager = _make_manager()
+
+        remembered = manager._remember_peer_public_identity_hint(
+            'peer-handshake',
+            {
+                'peer_label': 'Goose Laptop',
+                'instance_label': 'MSI Node',
+            },
+            source='handshake',
+        )
+        identity = manager.get_peer_public_identity('peer-handshake')
+
+        self.assertEqual(remembered['display_name'], 'Goose Laptop')
+        self.assertEqual(identity['node_name'], 'Goose Laptop')
+        self.assertEqual(identity['source'], 'identity')
+
+    def test_local_public_peer_hint_uses_callback_and_sanitizes_labels(self) -> None:
+        manager = _make_manager()
+        manager.get_local_peer_public_hint = lambda: {
+            'peer_label': '  Local Node\nName  ',
+            'instance_label': '  Local Instance  ',
+        }
+
+        hint = manager._local_peer_public_identity_hint()
+
+        self.assertEqual(hint['peer_label'], 'Local Node Name')
+        self.assertEqual(hint['instance_label'], 'Local Instance')
 
 
 def _mock_trust_components():

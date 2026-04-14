@@ -583,11 +583,17 @@
                 <ul class="list-group list-group-flush">
                     {% for pid in connected_peers %}
                     {% set dev = peer_device_profiles.get(pid) if peer_device_profiles else None %}
+                    {% set pub = peer_public_identities.get(pid) if peer_public_identities else {} %}
                     <li class="list-group-item d-flex align-items-start peer-row" data-peer-id="{{ pid }}" style="background:transparent; color:var(--canopy-text-primary); border-color:var(--canopy-border);">
                         <span class="peer-status-dot"></span>
                         {% if dev and dev.avatar_b64 and dev.avatar_mime %}
                         <img src="data:{{ dev.avatar_mime }};base64,{{ dev.avatar_b64 }}"
                              alt="" style="width:32px; height:32px; border-radius:50%; margin:0 10px; object-fit:cover;">
+                        {% elif pub and pub.avatar_initials %}
+                        <span class="d-inline-flex align-items-center justify-content-center fw-semibold"
+                              style="width:32px; height:32px; border-radius:50%; margin:0 10px; color:#fff; background:{{ pub.avatar_color or 'var(--canopy-accent)' }}; font-size:0.78rem;">
+                            {{ pub.avatar_initials }}
+                        </span>
                         {% else %}
                         <i class="bi bi-pc-display-horizontal me-2" style="font-size:1.2rem; opacity:0.5; margin:0 10px 0 6px;"></i>
                         {% endif %}
@@ -598,6 +604,12 @@
                             {% if dev.description %}
                             <small class="text-muted d-block" style="font-size:0.7rem; opacity:0.7;">{{ dev.description }}</small>
                             {% endif %}
+                            {% elif pub and pub.node_name %}
+                            <div class="peer-title">{{ pub.node_name }}</div>
+                            {% if pub.source and pub.source != 'fallback' %}
+                            <small class="text-muted d-block" style="font-size:0.68rem;">Unverified {{ pub.source }} label</small>
+                            {% endif %}
+                            <small class="text-muted d-block" style="font-size:0.75rem;">{{ pid[:16] }}...</small>
                             {% else %}
                             <code>{{ pid }}</code>
                             {% endif %}
@@ -632,17 +644,30 @@
                     {% for dest, relay in relay_status.active_relays.items() %}
                     {% set rdev = peer_device_profiles.get(dest) if peer_device_profiles else None %}
                     {% set viadev = peer_device_profiles.get(relay) if peer_device_profiles else None %}
+                    {% set rpub = peer_public_identities.get(dest) if peer_public_identities else {} %}
+                    {% set viapub = peer_public_identities.get(relay) if peer_public_identities else {} %}
                     <li class="list-group-item d-flex align-items-start peer-row" data-peer-id="{{ dest }}" style="background:transparent; color:var(--canopy-text-primary); border-color:var(--canopy-border);">
                         <span class="peer-status-dot relay"></span>
                         {% if rdev and rdev.avatar_b64 and rdev.avatar_mime %}
                         <img src="data:{{ rdev.avatar_mime }};base64,{{ rdev.avatar_b64 }}"
                              alt="" style="width:32px; height:32px; border-radius:50%; margin:0 10px; object-fit:cover;">
+                        {% elif rpub and rpub.avatar_initials %}
+                        <span class="d-inline-flex align-items-center justify-content-center fw-semibold"
+                              style="width:32px; height:32px; border-radius:50%; margin:0 10px; color:#fff; background:{{ rpub.avatar_color or 'var(--canopy-accent)' }}; font-size:0.78rem;">
+                            {{ rpub.avatar_initials }}
+                        </span>
                         {% else %}
                         <i class="bi bi-pc-display-horizontal me-2" style="font-size:1.2rem; opacity:0.5; margin:0 10px 0 6px;"></i>
                         {% endif %}
                         <div class="peer-meta">
                             {% if rdev and rdev.display_name %}
                             <div class="peer-title">{{ rdev.display_name }}</div>
+                            <small class="text-muted d-block" style="font-size:0.75rem;">{{ dest[:16] }}...</small>
+                            {% elif rpub and rpub.node_name %}
+                            <div class="peer-title">{{ rpub.node_name }}</div>
+                            {% if rpub.source and rpub.source != 'fallback' %}
+                            <small class="text-muted d-block" style="font-size:0.68rem;">Unverified {{ rpub.source }} label</small>
+                            {% endif %}
                             <small class="text-muted d-block" style="font-size:0.75rem;">{{ dest[:16] }}...</small>
                             {% else %}
                             <code>{{ dest[:16] }}...</code>
@@ -651,8 +676,8 @@
                             <small class="peer-activity d-block" data-peer-last>Last activity: —</small>
                         </div>
                         <div class="ms-auto peer-actions">
-                            <span class="badge bg-info" title="Relayed via {{ (viadev.display_name if viadev and viadev.display_name else relay[:12]) }}">
-                                <i class="bi bi-arrow-left-right"></i> Via {{ (viadev.display_name if viadev and viadev.display_name else relay[:12]) }}
+                            <span class="badge bg-info" title="Relayed via {{ (viadev.display_name if viadev and viadev.display_name else (viapub.node_name if viapub and viapub.node_name else relay[:12])) }}">
+                                <i class="bi bi-arrow-left-right"></i> Via {{ (viadev.display_name if viadev and viadev.display_name else (viapub.node_name if viapub and viapub.node_name else relay[:12])) }}
                             </span>
                             <button class="btn btn-sm btn-outline-success ms-1" title="Attempt direct connection"
                                     onclick="promoteDirect('{{ dest }}', this); return false;">
@@ -689,15 +714,27 @@
                 <ul class="list-group list-group-flush">
                     {% for peer in discovered_peers %}
                     {% set ddev = peer_device_profiles.get(peer.peer_id) if peer_device_profiles else None %}
+                    {% set dpub = peer_public_identities.get(peer.peer_id) if peer_public_identities else {} %}
                     <li class="list-group-item d-flex justify-content-between align-items-center" style="background:transparent; color:var(--canopy-text-primary); border-color:var(--canopy-border);">
                         <div class="d-flex align-items-center">
                             {% if ddev and ddev.avatar_b64 and ddev.avatar_mime %}
                             <img src="data:{{ ddev.avatar_mime }};base64,{{ ddev.avatar_b64 }}"
                                  alt="" style="width:28px; height:28px; border-radius:50%; margin-right:8px; object-fit:cover;">
+                            {% elif dpub and dpub.avatar_initials %}
+                            <span class="d-inline-flex align-items-center justify-content-center fw-semibold"
+                                  style="width:28px; height:28px; border-radius:50%; margin-right:8px; color:#fff; background:{{ dpub.avatar_color or 'var(--canopy-accent)' }}; font-size:0.72rem;">
+                                {{ dpub.avatar_initials }}
+                            </span>
                             {% endif %}
                             <div>
                                 {% if ddev and ddev.display_name %}
                                 <strong>{{ ddev.display_name }}</strong>
+                                <small class="text-muted d-block" style="font-size:0.75rem;">{{ peer.peer_id[:16] }} &middot; {{ peer.address }}:{{ peer.port }}</small>
+                                {% elif dpub and dpub.node_name %}
+                                <strong>{{ dpub.node_name }}</strong>
+                                {% if dpub.source and dpub.source != 'fallback' %}
+                                <small class="text-muted d-block" style="font-size:0.68rem;">Unverified {{ dpub.source }} label</small>
+                                {% endif %}
                                 <small class="text-muted d-block" style="font-size:0.75rem;">{{ peer.peer_id[:16] }} &middot; {{ peer.address }}:{{ peer.port }}</small>
                                 {% else %}
                                 <code>{{ peer.peer_id }}</code>
@@ -744,6 +781,7 @@
                             {% set idev = peer_device_profiles.get(peer.peer_id) if peer_device_profiles else None %}
                             {% set ibydev = peer_device_profiles.get(peer.introduced_by) if peer_device_profiles else None %}
                             {% set pub = peer.public_identity if peer.public_identity else None %}
+                            {% set bypub = peer_public_identities.get(peer.introduced_by) if peer_public_identities else {} %}
                             <tr>
                                 <td>
                                     <div class="d-flex align-items-center">
@@ -793,6 +831,11 @@
                                 <td>
                                     {% if ibydev and ibydev.display_name %}
                                     <strong>{{ ibydev.display_name }}</strong>
+                                    {% elif bypub and bypub.node_name %}
+                                    <strong>{{ bypub.node_name }}</strong>
+                                    {% if bypub.source and bypub.source != 'fallback' %}
+                                    <small class="text-muted d-block" style="font-size:0.68rem;">Unverified {{ bypub.source }} label</small>
+                                    {% endif %}
                                     {% else %}
                                     <code>{{ peer.introduced_by[:12] }}...</code>
                                     {% endif %}
@@ -836,12 +879,21 @@
                     {% for peer in known_peers %}
                     {% set kdev = peer_device_profiles.get(peer.peer_id) if peer_device_profiles else None %}
                     {% set relaydev = peer_device_profiles.get(peer.relay_via) if (peer_device_profiles and peer.relay_via) else None %}
+                    {% set pubid = peer.public_identity if peer.public_identity else {} %}
                     <li class="list-group-item d-flex align-items-start peer-row" data-peer-id="{{ peer.peer_id }}" style="background:transparent; color:var(--canopy-text-primary); border-color:var(--canopy-border);">
                         <span class="peer-status-dot {% if peer.connection_type == 'relayed' %}relay{% elif not peer.connected %}offline{% endif %}"></span>
                         <div class="d-flex align-items-center">
                             {% if kdev and kdev.avatar_b64 and kdev.avatar_mime %}
                             <img src="data:{{ kdev.avatar_mime }};base64,{{ kdev.avatar_b64 }}"
                                  alt="" style="width:32px; height:32px; border-radius:50%; margin:0 10px; object-fit:cover;">
+                            {% elif pubid.avatar_b64 and pubid.avatar_mime %}
+                            <img src="data:{{ pubid.avatar_mime }};base64,{{ pubid.avatar_b64 }}"
+                                 alt="" style="width:32px; height:32px; border-radius:50%; margin:0 10px; object-fit:cover;">
+                            {% elif pubid.avatar_initials %}
+                            <span class="d-inline-flex align-items-center justify-content-center fw-semibold"
+                                  style="width:32px; height:32px; border-radius:50%; margin:0 10px; color:#fff; background:{{ pubid.avatar_color or 'var(--canopy-accent)' }}; font-size:0.78rem;">
+                                {{ pubid.avatar_initials }}
+                            </span>
                             {% else %}
                             <i class="bi bi-pc-display-horizontal me-2" style="font-size:1.3rem; opacity:0.4; margin:0 10px 0 6px;"></i>
                             {% endif %}
@@ -850,6 +902,11 @@
                                 <div class="peer-title">{{ kdev.display_name }}</div>
                                 {% elif peer.display_name %}
                                 <div class="peer-title">{{ peer.display_name }}</div>
+                                {% elif pubid.node_name %}
+                                <div class="peer-title">{{ pubid.node_name }}</div>
+                                {% endif %}
+                                {% if pubid.source and pubid.source != 'fallback' %}
+                                <small class="text-muted d-block" style="font-size:0.68rem;">Unverified {{ pubid.source }} label</small>
                                 {% endif %}
                                 <small class="text-muted d-block" style="font-size:0.75rem;">{{ peer.peer_id[:16] }}...</small>
                                 {% if kdev and kdev.description %}
