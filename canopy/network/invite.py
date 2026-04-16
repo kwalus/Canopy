@@ -338,6 +338,7 @@ def generate_invite(identity_manager: Any, mesh_port: int,
                     public_port: Optional[int] = None,
                     external_endpoint: Optional[str] = None,
                     allow_plain_fallback: bool = False,
+                    endpoint_scheme: str = 'ws',
                     mesh_name: Optional[str] = None,
                     meshspace_id: Optional[str] = None,
                     meshspace_id_aliases: Optional[List[str]] = None,
@@ -358,6 +359,7 @@ def generate_invite(identity_manager: Any, mesh_port: int,
         public_port: Optional public port (if port-forwarded)
         external_endpoint: Optional full ws:// or wss:// endpoint
         allow_plain_fallback: If true, explicit WSS invites may also advertise same-host plain WS candidates
+        endpoint_scheme: Scheme for Canopy-owned listener endpoints (ws or wss)
         mesh_name: Optional human-facing mesh label for preview UX
         meshspace_id: Optional stable meshspace identifier for preview UX
         meshspace_id_aliases: Optional legacy/current alias IDs for transition-aware preview UX
@@ -381,6 +383,9 @@ def generate_invite(identity_manager: Any, mesh_port: int,
 
     endpoints: List[str] = []
     explicit_wss_endpoint = ''
+    listener_scheme = str(endpoint_scheme or 'ws').strip().lower()
+    if listener_scheme not in {'ws', 'wss'}:
+        listener_scheme = 'ws'
 
     # Explicit external endpoint first (e.g. ngrok or another tunnel)
     if external_endpoint:
@@ -395,13 +400,13 @@ def generate_invite(identity_manager: Any, mesh_port: int,
     # Public / port-forwarded endpoint next
     if public_host:
         port = public_port or mesh_port
-        public_endpoint = f"ws://{_format_endpoint_host(public_host)}:{port}"
+        public_endpoint = f"{listener_scheme}://{_format_endpoint_host(public_host)}:{port}"
         if not (explicit_wss_endpoint and not allow_plain_fallback and _is_same_host(public_endpoint, explicit_wss_endpoint)):
             endpoints.append(public_endpoint)
 
     # LAN endpoints
     for ip in get_local_ips():
-        ep = f"ws://{ip}:{mesh_port}"
+        ep = f"{listener_scheme}://{ip}:{mesh_port}"
         if explicit_wss_endpoint and not allow_plain_fallback and _is_same_host(ep, explicit_wss_endpoint):
             continue
         if ep not in endpoints:

@@ -456,11 +456,12 @@
 .admin-section-agent-template { order: 3; }
 .admin-section-agent-ops { order: 4; }
 .admin-section-instance { order: 5; }
-.admin-section-users-secondary { order: 6; }
-.admin-section-relay { order: 7; }
-.admin-section-attachments { order: 8; }
-.admin-section-data { order: 9; }
-.admin-section-environment { order: 10; }
+.admin-section-transport { order: 6; }
+.admin-section-users-secondary { order: 7; }
+.admin-section-relay { order: 8; }
+.admin-section-attachments { order: 9; }
+.admin-section-data { order: 10; }
+.admin-section-environment { order: 11; }
 
 .admin-summary-row {
     --bs-gutter-y: 0.75rem;
@@ -494,6 +495,51 @@
 .meshspace-template-summary {
     font-size: 0.82rem;
     color: #9fb2cf;
+}
+
+.transport-admin-shell {
+    border: 1px solid rgba(75, 208, 166, 0.22);
+    background: linear-gradient(145deg, rgba(12, 42, 38, 0.82), rgba(10, 20, 36, 0.84));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.transport-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.6rem;
+}
+
+.transport-kpi {
+    border: 1px solid rgba(139, 171, 222, 0.2);
+    border-radius: 12px;
+    background: rgba(7, 17, 32, 0.68);
+    padding: 0.65rem 0.75rem;
+}
+
+.transport-kpi-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #8fa6c9;
+}
+
+.transport-kpi-value {
+    margin-top: 0.15rem;
+    font-weight: 700;
+    color: var(--canopy-text-primary);
+    word-break: break-word;
+}
+
+.transport-mode-card {
+    height: 100%;
+    border: 1px solid rgba(139, 171, 222, 0.2);
+    border-radius: 14px;
+    background: rgba(8, 19, 35, 0.7);
+    padding: 0.85rem;
+}
+
+.transport-mode-card .form-control {
+    min-width: 0;
 }
 
 .keys-new-key-row {
@@ -996,6 +1042,101 @@
             <button type="button" class="btn btn-outline-info btn-sm" id="transfer-admin-btn">Transfer</button>
         </div>
         <div id="transfer-message" class="small mt-2 text-danger" style="display: none;"></div>
+    </div>
+</div>
+
+{% set ts = transport_security_admin or {} %}
+<div class="card mb-4 transport-admin-shell admin-section-transport" id="transportSecurityAdminCard" data-initial-status='{{ ts|tojson|safe }}'>
+    <div class="card-header bg-success bg-opacity-10">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div>
+                <h5 class="mb-0"><i class="bi bi-shield-check"></i> Transport Security</h5>
+                <div class="small text-muted">Configure how this meshspace advertises secure public WebSocket transport.</div>
+            </div>
+            <span class="badge {% if ts.get('secure_invite_ready') %}bg-success{% elif ts.get('restart_required') %}bg-warning text-dark{% else %}bg-secondary{% endif %}" id="transportInviteBadge">
+                {{ ts.get('invite_readiness_label') or 'Loading...' }}
+            </span>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="transport-kpi-grid mb-3">
+            <div class="transport-kpi">
+                <div class="transport-kpi-label">Listener</div>
+                <div class="transport-kpi-value font-monospace small" id="transportListenerValue">{{ ts.get('listener_endpoint') or '-' }}</div>
+            </div>
+            <div class="transport-kpi">
+                <div class="transport-kpi-label">TLS mode</div>
+                <div class="transport-kpi-value" id="transportModeValue">{{ ts.get('mode_label') or ts.get('transport_security_mode_label') or 'Disabled' }}</div>
+            </div>
+            <div class="transport-kpi">
+                <div class="transport-kpi-label">Verification</div>
+                <div class="transport-kpi-value" id="transportVerifyValue">{{ ts.get('client_verification_mode') or 'permissive' }}</div>
+            </div>
+            <div class="transport-kpi">
+                <div class="transport-kpi-label">Recommended</div>
+                <div class="transport-kpi-value font-monospace small" id="transportRecommendedValue">{{ ts.get('recommended_endpoint') or '-' }}</div>
+            </div>
+        </div>
+
+        <div class="alert {% if ts.get('secure_invite_ready') %}alert-success{% elif ts.get('restart_required') %}alert-warning{% else %}alert-secondary{% endif %} py-2" id="transportReadinessAlert">
+            <div class="fw-semibold" id="transportReadinessTitle">{{ ts.get('invite_readiness_label') or 'Transport status loading' }}</div>
+            <div class="small" id="transportReadinessDetail">{{ ts.get('invite_readiness_detail') or '' }}</div>
+        </div>
+
+        <div class="row g-3">
+            <div class="col-lg-4">
+                <div class="transport-mode-card">
+                    <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                        <div>
+                            <h6 class="mb-1">Self-signed TLS</h6>
+                            <div class="small text-muted">Fastest path for testing or controlled meshes.</div>
+                        </div>
+                        <i class="bi bi-lightning-charge text-success"></i>
+                    </div>
+                    <button type="button" class="btn btn-success btn-sm w-100" id="transportSelfSignedBtn">
+                        Enable self-signed TLS
+                    </button>
+                </div>
+            </div>
+            <div class="col-lg-4">
+                <div class="transport-mode-card">
+                    <h6 class="mb-2">Certificate files</h6>
+                    <input type="text" class="form-control form-control-sm mb-2" id="transportCertPath" placeholder="/path/to/fullchain.pem" value="{{ ts.get('configured_tls_cert_path') or '' }}">
+                    <input type="text" class="form-control form-control-sm mb-2" id="transportKeyPath" placeholder="/path/to/privkey.pem" value="{{ ts.get('configured_tls_key_path') or '' }}">
+                    <button type="button" class="btn btn-outline-success btn-sm w-100" id="transportProvidedCertBtn">
+                        Use certificate files
+                    </button>
+                </div>
+            </div>
+            <div class="col-lg-4">
+                <div class="transport-mode-card">
+                    <h6 class="mb-2">External TLS terminator</h6>
+                    <input type="text" class="form-control form-control-sm mb-2" id="transportExternalEndpoint" placeholder="wss://mesh.example.com:443" value="{{ ts.get('external_tls_endpoint') or '' }}">
+                    <button type="button" class="btn btn-outline-info btn-sm w-100" id="transportExternalBtn">
+                        Advertise external wss://
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3">
+            <div class="small text-muted">
+                Settings file: <code id="transportConfigPath">{{ ts.get('config_path') or '-' }}</code>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+                <div class="form-check form-switch d-flex align-items-center gap-1 me-2">
+                    <input class="form-check-input" type="checkbox" role="switch" id="transportRequireVerifiedWss" {% if ts.get('client_verification_mode') == 'verified' %}checked{% endif %}>
+                    <label class="form-check-label small" for="transportRequireVerifiedWss">Verify outbound wss certs</label>
+                </div>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="transportRefreshBtn">Refresh</button>
+                <button type="button" class="btn btn-outline-danger btn-sm" id="transportDisableBtn">Disable</button>
+                <button type="button" class="btn btn-warning btn-sm" id="transportRestartBtn" {% if not ts.get('restart_required') %}disabled{% endif %}>
+                    Restart meshspace
+                </button>
+            </div>
+        </div>
+        <div id="transportWarnings" class="mt-2 small text-warning"></div>
+        <div id="transportAdminStatus" class="mt-2 small text-muted"></div>
     </div>
 </div>
 
@@ -3200,6 +3341,181 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
             });
     }
 
+    function transportEscapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function setTransportText(id, value) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value || '-';
+    }
+
+    function renderTransportSecurityAdmin(status) {
+        const card = document.getElementById('transportSecurityAdminCard');
+        if (!card || !status) return;
+        setTransportText('transportListenerValue', status.listener_endpoint || '-');
+        setTransportText('transportModeValue', status.mode_label || status.transport_security_mode_label || 'Disabled');
+        setTransportText('transportVerifyValue', status.client_verification_mode || 'permissive');
+        setTransportText('transportRecommendedValue', status.recommended_endpoint || '-');
+        setTransportText('transportConfigPath', status.config_path || '-');
+        setTransportText('transportReadinessTitle', status.invite_readiness_label || 'Transport status unavailable');
+        setTransportText('transportReadinessDetail', status.invite_readiness_detail || '');
+
+        const badge = document.getElementById('transportInviteBadge');
+        if (badge) {
+            badge.textContent = status.invite_readiness_label || 'Unknown';
+            badge.classList.remove('bg-success', 'bg-warning', 'bg-secondary', 'text-dark');
+            if (status.secure_invite_ready) {
+                badge.classList.add('bg-success');
+            } else if (status.restart_required) {
+                badge.classList.add('bg-warning', 'text-dark');
+            } else {
+                badge.classList.add('bg-secondary');
+            }
+        }
+
+        const alert = document.getElementById('transportReadinessAlert');
+        if (alert) {
+            alert.classList.remove('alert-success', 'alert-warning', 'alert-secondary');
+            if (status.secure_invite_ready) alert.classList.add('alert-success');
+            else if (status.restart_required) alert.classList.add('alert-warning');
+            else alert.classList.add('alert-secondary');
+        }
+
+        const certInput = document.getElementById('transportCertPath');
+        const keyInput = document.getElementById('transportKeyPath');
+        const externalInput = document.getElementById('transportExternalEndpoint');
+        if (certInput && document.activeElement !== certInput && status.configured_tls_cert_path) {
+            certInput.value = status.configured_tls_cert_path;
+        }
+        if (keyInput && document.activeElement !== keyInput && status.configured_tls_key_path) {
+            keyInput.value = status.configured_tls_key_path;
+        }
+        if (externalInput && document.activeElement !== externalInput) {
+            externalInput.value = status.external_tls_endpoint || '';
+        }
+        const verifyInput = document.getElementById('transportRequireVerifiedWss');
+        if (verifyInput) {
+            verifyInput.checked = (status.client_verification_mode || '').toLowerCase() === 'verified';
+        }
+
+        const restartBtn = document.getElementById('transportRestartBtn');
+        if (restartBtn) restartBtn.disabled = !status.restart_required;
+
+        const warnings = Array.isArray(status.warnings) ? status.warnings.filter(Boolean) : [];
+        const warningsEl = document.getElementById('transportWarnings');
+        if (warningsEl) {
+            warningsEl.innerHTML = warnings.length
+                ? warnings.map(item => `<div><i class="bi bi-exclamation-triangle me-1"></i>${transportEscapeHtml(item)}</div>`).join('')
+                : '';
+        }
+        const statusLine = document.getElementById('transportAdminStatus');
+        if (statusLine) {
+            const mode = status.mode_label || status.transport_security_mode_label || 'Disabled';
+            const restart = status.restart_required ? 'Restart required.' : 'No restart pending.';
+            statusLine.textContent = `${mode}. ${restart}`;
+        }
+    }
+
+    async function loadTransportSecurityStatus() {
+        const card = document.getElementById('transportSecurityAdminCard');
+        if (!card) return;
+        try {
+            const { ok, data } = await api('GET', '/ajax/admin/transport-security/status');
+            if (ok && data && data.success !== false) {
+                renderTransportSecurityAdmin(data);
+            }
+        } catch (_) {
+            const statusLine = document.getElementById('transportAdminStatus');
+            if (statusLine) statusLine.textContent = 'Transport status unavailable.';
+        }
+    }
+
+    async function postTransportSecurityAction(buttonId, url, body, busyLabel) {
+        setButtonBusy(buttonId, true, busyLabel || '<i class="bi bi-hourglass-split"></i> Saving...');
+        try {
+            const { ok, data } = await api('POST', url, body || {});
+            if (!ok || !data.success) {
+                throw new Error(data.error || data.message || 'Transport security update failed');
+            }
+            renderTransportSecurityAdmin(data.status || data);
+            showAlert(data.message || 'Transport security updated.', 'success');
+        } catch (err) {
+            showAlert('Transport security update failed: ' + extractErrorMessage(err, 'Unknown error'), 'danger');
+        } finally {
+            setButtonBusy(buttonId, false);
+        }
+    }
+
+    function bindTransportSecurityAdmin() {
+        const card = document.getElementById('transportSecurityAdminCard');
+        if (!card) return;
+        try {
+            const initial = JSON.parse(card.dataset.initialStatus || '{}');
+            if (initial && Object.keys(initial).length) renderTransportSecurityAdmin(initial);
+        } catch (_) {}
+
+        document.getElementById('transportRefreshBtn')?.addEventListener('click', loadTransportSecurityStatus);
+        document.getElementById('transportSelfSignedBtn')?.addEventListener('click', () => {
+            const requireVerified = !!document.getElementById('transportRequireVerifiedWss')?.checked;
+            postTransportSecurityAction(
+                'transportSelfSignedBtn',
+                '/ajax/admin/transport-security/self-signed',
+                { require_verified_wss: requireVerified },
+                '<i class="bi bi-hourglass-split"></i> Generating...'
+            );
+        });
+        document.getElementById('transportProvidedCertBtn')?.addEventListener('click', () => {
+            const certPath = document.getElementById('transportCertPath')?.value || '';
+            const keyPath = document.getElementById('transportKeyPath')?.value || '';
+            const requireVerified = !!document.getElementById('transportRequireVerifiedWss')?.checked;
+            postTransportSecurityAction(
+                'transportProvidedCertBtn',
+                '/ajax/admin/transport-security/certificate',
+                { cert_path: certPath, key_path: keyPath, require_verified_wss: requireVerified },
+                '<i class="bi bi-hourglass-split"></i> Validating...'
+            );
+        });
+        document.getElementById('transportExternalBtn')?.addEventListener('click', () => {
+            const endpoint = document.getElementById('transportExternalEndpoint')?.value || '';
+            const requireVerified = !!document.getElementById('transportRequireVerifiedWss')?.checked;
+            postTransportSecurityAction(
+                'transportExternalBtn',
+                '/ajax/admin/transport-security/external',
+                { external_tls_endpoint: endpoint, require_verified_wss: requireVerified },
+                '<i class="bi bi-hourglass-split"></i> Saving...'
+            );
+        });
+        document.getElementById('transportDisableBtn')?.addEventListener('click', () => {
+            if (!confirm('Disable local TLS and external TLS terminator settings for this meshspace?')) return;
+            postTransportSecurityAction(
+                'transportDisableBtn',
+                '/ajax/admin/transport-security/disable',
+                {},
+                '<i class="bi bi-hourglass-split"></i> Disabling...'
+            );
+        });
+        document.getElementById('transportRestartBtn')?.addEventListener('click', async () => {
+            if (!confirm('Restart this meshspace now to apply transport changes?')) return;
+            setButtonBusy('transportRestartBtn', true, '<i class="bi bi-hourglass-split"></i> Restarting...');
+            try {
+                const { ok, data } = await api('POST', '/ajax/admin/transport-security/restart', {});
+                if (!ok || !data.success) throw new Error(data.error || 'Restart failed');
+                showAlert(data.message || 'Restart scheduled.', 'success');
+                setTimeout(() => window.location.reload(), 4500);
+            } catch (err) {
+                showAlert('Restart failed: ' + extractErrorMessage(err, 'Unknown error'), 'danger');
+                setButtonBusy('transportRestartBtn', false);
+            }
+        });
+        loadTransportSecurityStatus();
+    }
+
     window.cleanupDatabase = cleanupDatabase;
     window.exportData = exportData;
     window.openImportDataPicker = openImportDataPicker;
@@ -3215,6 +3531,7 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
         });
     }
     loadRelayStatus();
+    bindTransportSecurityAdmin();
 
     const reconcileChannelIds = document.getElementById('admin-reconcile-channel-ids');
     const reconcileTargetPeer = document.getElementById('admin-reconcile-target-peer');

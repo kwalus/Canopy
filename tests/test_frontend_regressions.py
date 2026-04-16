@@ -231,6 +231,17 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('Active transport:', connect_template)
         self.assertIn('This invite mixes wss:// and ws:// endpoints', connect_template)
 
+    def test_admin_page_exposes_transport_security_controls(self) -> None:
+        admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')
+        self.assertIn('Transport Security', admin_template)
+        self.assertIn('transportSecurityAdminCard', admin_template)
+        self.assertIn('Enable self-signed TLS', admin_template)
+        self.assertIn('Use certificate files', admin_template)
+        self.assertIn('Advertise external wss://', admin_template)
+        self.assertIn('/ajax/admin/transport-security/self-signed', admin_template)
+        self.assertIn('/ajax/admin/transport-security/external', admin_template)
+        self.assertIn('function renderTransportSecurityAdmin', admin_template)
+
     def test_connect_page_previews_invites_before_importing(self) -> None:
         connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
         self.assertIn('id="invitePreview"', connect_template)

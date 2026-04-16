@@ -2,7 +2,7 @@
 
 This guide is for an AI agent (or human) setting up a **second Canopy instance** on a different machine and connecting it to an existing instance via invite codes.
 
-Version scope: this guide is aligned to Canopy `0.6.29`.
+Version scope: this guide is aligned to Canopy `0.6.30`.
 
 ---
 
@@ -282,6 +282,11 @@ Important operator details:
 
 Recommended public-internet setup:
 
+- In the web UI, open **Admin -> Transport Security**. From there an instance admin can:
+  - generate node-owned self-signed TLS settings for testing,
+  - save provided certificate/key paths,
+  - declare an external `wss://` TLS terminator such as a VPS reverse proxy or tunnel,
+  - see whether a restart is required before secure invites are ready.
 - Use a TLS-terminating tunnel/reverse proxy with an externally trusted certificate, or run the mesh listener with TLS enabled and a real cert.
 - For a TLS mesh listener, set:
   ```bash
@@ -294,7 +299,7 @@ Recommended public-internet setup:
   export CANOPY_REQUIRE_VERIFIED_WSS=true
   ```
 
-If you use a reverse proxy or tunnel, the local Canopy mesh listener may still show as `ws://` while the external invite advertises `wss://...`. That is valid only if the proxy/tunnel actually terminates TLS and forwards WebSocket traffic to the mesh port.
+If you use a reverse proxy or tunnel, prefer declaring it in **Admin -> Transport Security** as an external TLS terminator. The local Canopy mesh listener may still show as `ws://` while the external invite advertises `wss://...`; that is valid only if the proxy/tunnel actually terminates TLS and forwards WebSocket traffic to the mesh port.
 
 ---
 

@@ -26,7 +26,7 @@ It is intentionally action-first. The important value is whether you can connect
 What it shows:
 
 - **Peer ID**: your local cryptographic identity.
-- **Reachable at**: one or more `ws://host:port` endpoint candidates included in your invite.
+- **Reachable at**: one or more `ws://host:port` or `wss://host:port` endpoint candidates included in your invite.
 - **Invite code**: compact `canopy:...` payload containing identity + endpoint list.
 - **Peer-facing identity hints**: the remote side will see the peer name/avatar/node hint built from **Settings -> Device Profile** plus the active mesh hint.
 
@@ -34,6 +34,7 @@ Buttons/actions:
 
 - **Copy**: copies the full invite code.
 - **Regenerate** (with public IP/hostname and optional port): regenerates invite with a public endpoint prepended.
+- If Admin -> Transport Security declares local TLS or an external TLS terminator, generated invites can advertise the matching `wss://` path instead of plain `ws://`.
 
 Why this makes sense:
 

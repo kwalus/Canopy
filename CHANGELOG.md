@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.30] - 2026-04-16
+
+### Changed
+- **Admins can now configure secure mesh transport from the UI instead of hand-editing shell environment** - the Admin page adds a Transport Security panel for self-signed local TLS, provided certificate paths, external TLS terminator declaration, restart-required state, and secure-invite readiness so VPS and tunnel setup is much easier to understand and operate.
+- **Generated invites and handshake advertisements now stay honest while transport changes are pending restart** - saving a future TLS mode no longer causes Canopy to advertise `wss://` listener endpoints before the running mesh listener has actually restarted into secure mode, and stale external endpoint intent is cleared when operators switch back to non-external modes.
+
 ## [0.6.29] - 2026-04-16
 
 ### Changed

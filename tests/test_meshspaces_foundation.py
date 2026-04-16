@@ -1573,6 +1573,27 @@ class LegacyMeshspaceAdoptionTest(unittest.TestCase):
         self.assertIsNone(generate_invite_mock.call_args.kwargs.get('meshspace_avatar_mime'))
         self.assertIsNone(generate_invite_mock.call_args.kwargs.get('meshspace_id_aliases'))
 
+    def test_invite_generation_keeps_live_ws_scheme_until_tls_listener_restarts(self) -> None:
+        self._authenticate()
+        config = self.app.config['CANOPY_CONFIG']
+        config.network.enable_tls = True
+        config.network.transport_security_mode = 'self_signed'
+
+        fake_invite = SimpleNamespace(
+            encode=lambda: 'canopy:test',
+            peer_id='peer-mesh-test',
+            endpoints=['ws://192.168.1.12:7771'],
+            meshspace_id=config.meshspace.meshspace_id,
+            mesh_name=config.meshspace.name,
+            meshspace_fingerprint='ABCD-1234',
+            to_dict=lambda: {'mn': config.meshspace.name},
+        )
+        with patch('canopy.network.invite.generate_invite', return_value=fake_invite) as generate_invite_mock:
+            response = self.client.get('/api/v1/p2p/invite')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(generate_invite_mock.call_args.kwargs.get('endpoint_scheme'), 'ws')
+
     def test_connect_page_uses_device_profile_as_primary_peer_hint(self) -> None:
         self._authenticate()
         fake_invite = SimpleNamespace(

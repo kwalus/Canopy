@@ -257,6 +257,9 @@ def _transport_security_status(
         try:
             status = dict(conn_mgr.get_transport_security_status(advertised_endpoints=endpoints) or {})
             status.update(classification)
+            decorator = getattr(p2p_manager, '_decorate_transport_security_status', None) if p2p_manager else None
+            if callable(decorator) and getattr(decorator, '__self__', None) is p2p_manager:
+                status = dict(decorator(status) or status)
             return status
         except Exception:
             logger.debug("Could not load connection-manager transport security status", exc_info=True)
@@ -289,6 +292,14 @@ def _transport_security_status(
         'warnings': ['P2P transport security status is unavailable.'],
         **classification,
     }
+
+
+def _live_invite_endpoint_scheme(config: Any, p2p_manager: Any) -> str:
+    """Return the current listener scheme for truthful invite generation."""
+    conn_mgr = getattr(p2p_manager, 'connection_manager', None) if p2p_manager else None
+    if conn_mgr is not None:
+        return 'wss' if bool(getattr(conn_mgr, 'enable_tls', False)) else 'ws'
+    return 'wss' if bool(getattr(getattr(config, 'network', None), 'enable_tls', False)) else 'ws'
 
 
 def _public_mesh_identity_payload() -> dict[str, Any]:
@@ -3271,6 +3282,9 @@ def create_api_blueprint() -> Blueprint:
             external_endpoint = request.args.get('external_endpoint', type=str)
             allow_plain_fallback = _as_bool(request.args.get('allow_plain_fallback'))
             mesh_port = config.network.mesh_port if config else 7771
+            configured_external_endpoint = str(getattr(getattr(config, 'network', None), 'external_tls_endpoint', '') or '').strip()
+            effective_external_endpoint = str(external_endpoint or configured_external_endpoint or '').strip() or None
+            endpoint_scheme = _live_invite_endpoint_scheme(config, p2p_manager)
             mesh_hint = _current_runtime_mesh_hint_payload()
             mesh_name = str(mesh_hint.get('meshspace_name') or '').strip()
             meshspace_id = str(mesh_hint.get('meshspace_id') or '').strip()
@@ -3296,8 +3310,9 @@ def create_api_blueprint() -> Blueprint:
                 mesh_port,
                 public_host=public_host,
                 public_port=public_port,
-                external_endpoint=external_endpoint,
+                external_endpoint=effective_external_endpoint,
                 allow_plain_fallback=allow_plain_fallback,
+                endpoint_scheme=endpoint_scheme,
                 mesh_name=mesh_name or None,
                 meshspace_id=meshspace_id or None,
                 meshspace_id_aliases=list(mesh_hint.get('meshspace_id_aliases') or []) or None,
@@ -3315,7 +3330,7 @@ def create_api_blueprint() -> Blueprint:
             if callable(remember_operator):
                 try:
                     remember_operator(
-                        external_endpoint=external_endpoint,
+                        external_endpoint=effective_external_endpoint,
                         public_host=public_host,
                         public_port=public_port,
                         allow_plain_fallback=allow_plain_fallback,

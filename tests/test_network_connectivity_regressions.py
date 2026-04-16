@@ -32,6 +32,12 @@ from canopy.network.connection import ConnectionManager
 from canopy.network.invite import InviteCode, classify_invite_endpoints, import_invite, generate_invite
 from canopy.network.manager import P2PNetworkManager
 from canopy.network.identity import IdentityManager
+from canopy.core.config import (
+    Config,
+    apply_transport_security_settings,
+    load_transport_security_settings,
+    save_transport_security_settings,
+)
 
 
 class _DummyConfig:
@@ -44,6 +50,9 @@ class _DummyConfig:
             enable_tls=False,
             tls_cert_path=None,
             tls_key_path=None,
+            require_verified_wss=False,
+            external_tls_endpoint='',
+            transport_security_mode='',
         )
         self.security = types.SimpleNamespace(
             allow_unverified_relay_messages=False,
@@ -171,6 +180,40 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(invite.endpoints[0], 'wss://demo.ngrok-free.app:443')
         self.assertIn('ws://192.168.1.10:7771', invite.endpoints[1:])
+
+    def test_generate_invite_uses_wss_for_local_tls_listener_endpoints(self) -> None:
+        identity_manager = IdentityManager(Path(self.tempdir) / 'peer_identity.json')
+        identity_manager.initialize()
+
+        with patch('canopy.network.invite.get_local_ips', return_value=['192.168.1.10']):
+            invite = generate_invite(
+                identity_manager,
+                7771,
+                public_host='mesh.example.com',
+                endpoint_scheme='wss',
+            )
+
+        self.assertIn('wss://mesh.example.com:7771', invite.endpoints)
+        self.assertIn('wss://192.168.1.10:7771', invite.endpoints)
+        self.assertNotIn('ws://mesh.example.com:7771', invite.endpoints)
+
+    def test_transport_security_settings_persist_per_data_dir(self) -> None:
+        config = Config()
+        config.storage.data_dir = self.tempdir
+
+        path = save_transport_security_settings(config, {
+            'mode': 'external_terminator',
+            'external_tls_endpoint': 'wss://mesh.example.com:443',
+            'require_verified_wss': True,
+        })
+        loaded = load_transport_security_settings(config)
+        applied = apply_transport_security_settings(config, loaded)
+
+        self.assertTrue(path.exists())
+        self.assertEqual(applied.get('mode'), 'external_terminator')
+        self.assertFalse(config.network.enable_tls)
+        self.assertEqual(config.network.external_tls_endpoint, 'wss://mesh.example.com:443')
+        self.assertTrue(config.network.require_verified_wss)
 
     def test_generate_invite_suppresses_same_host_plain_public_wss_fallback_by_default(self) -> None:
         identity_manager = IdentityManager(Path(self.tempdir) / 'peer_identity.json')
@@ -821,6 +864,31 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(endpoints[0], 'wss://50.6.243.52:7771')
         self.assertNotIn('ws://50.6.243.52:7771', endpoints)
         self.assertIn('ws://192.168.1.10:7771', endpoints)
+
+    def test_local_tls_config_advertises_wss_handshake_endpoints(self) -> None:
+        manager = self._build_manager()
+        manager.config.network.enable_tls = True
+        manager.config.network.transport_security_mode = 'self_signed'
+        manager.identity_manager.initialize()
+        manager.local_identity = manager.identity_manager.local_identity
+
+        with patch('canopy.network.invite.get_local_ips', return_value=['192.168.1.10']):
+            endpoints = manager._get_local_advertised_endpoints()
+
+        self.assertEqual(endpoints, ['wss://192.168.1.10:7771'])
+
+    def test_pending_tls_config_does_not_advertise_wss_until_listener_restarts(self) -> None:
+        manager = self._build_manager()
+        manager.config.network.enable_tls = True
+        manager.config.network.transport_security_mode = 'self_signed'
+        manager.identity_manager.initialize()
+        manager.local_identity = manager.identity_manager.local_identity
+        manager.connection_manager = types.SimpleNamespace(enable_tls=False)
+
+        with patch('canopy.network.invite.get_local_ips', return_value=['192.168.1.10']):
+            endpoints = manager._get_local_advertised_endpoints()
+
+        self.assertEqual(endpoints, ['ws://192.168.1.10:7771'])
 
     def test_clearing_operator_endpoint_restores_default_handshake_advertisements(self) -> None:
         manager = self._build_manager()

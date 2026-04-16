@@ -1793,13 +1793,29 @@ class P2PNetworkManager:
             mesh_port = int(getattr(self.config.network, 'mesh_port', 0) or 0)
             if mesh_port <= 0:
                 return []
+            network_config = getattr(self.config, 'network', None)
+            external_endpoint = (
+                self._operator_external_endpoint
+                or str(getattr(network_config, 'external_tls_endpoint', '') or '').strip()
+                or None
+            )
+            # Advertise the transport the listener is using right now, not just
+            # the next persisted mode. Admin transport changes require restart,
+            # so invite/handshake truth must follow the live connection manager
+            # until that restart actually happens.
+            conn_mgr = getattr(self, 'connection_manager', None)
+            if conn_mgr is not None:
+                endpoint_scheme = 'wss' if bool(getattr(conn_mgr, 'enable_tls', False)) else 'ws'
+            else:
+                endpoint_scheme = 'wss' if bool(getattr(network_config, 'enable_tls', False)) else 'ws'
             invite = generate_invite(
                 self.identity_manager,
                 mesh_port,
                 public_host=self._operator_public_host,
                 public_port=self._operator_public_port,
-                external_endpoint=self._operator_external_endpoint,
+                external_endpoint=external_endpoint,
                 allow_plain_fallback=self._operator_allow_plain_fallback,
+                endpoint_scheme=endpoint_scheme,
             )
             local_peer_id = self.local_identity.peer_id if self.local_identity else ''
             return self._sanitize_endpoints(local_peer_id, list(invite.endpoints or []))
@@ -6104,7 +6120,7 @@ class P2PNetworkManager:
             try:
                 status = dict(conn_mgr.get_transport_security_status(advertised_endpoints=advertised) or {})
                 status.update(classification)
-                return status
+                return self._decorate_transport_security_status(status)
             except Exception:
                 logger.debug("Could not get transport security status from connection manager", exc_info=True)
         scheme = self.ws_scheme
@@ -6115,7 +6131,7 @@ class P2PNetworkManager:
             warnings.append('Invite currently advertises only plain ws:// endpoints.')
         if classification.get('has_public_plain_fallback'):
             warnings.append('This invite still advertises a plain public ws:// fallback. Remote peers may connect insecurely unless you remove plain fallback.')
-        return {
+        status = {
             'mesh_scheme': scheme,
             'tls_enabled': scheme == 'wss',
             'transport_label': 'Secure WebSocket (wss)' if scheme == 'wss' else 'Plain WebSocket (ws)',
@@ -6135,6 +6151,56 @@ class P2PNetworkManager:
             'warnings': warnings,
             **classification,
         }
+        return self._decorate_transport_security_status(status)
+
+    def _decorate_transport_security_status(self, status: Dict[str, Any]) -> Dict[str, Any]:
+        """Add config-backed transport mode/readiness details for admin/operator UX."""
+        network_config = getattr(self.config, 'network', None)
+        configured_tls = bool(getattr(network_config, 'enable_tls', False))
+        external_endpoint = str(getattr(network_config, 'external_tls_endpoint', '') or '').strip()
+        mode = str(getattr(network_config, 'transport_security_mode', '') or '').strip().lower()
+        tls_cert_path = str(getattr(network_config, 'tls_cert_path', '') or '').strip()
+        tls_key_path = str(getattr(network_config, 'tls_key_path', '') or '').strip()
+        if mode not in {'disabled', 'self_signed', 'provided', 'external_terminator'}:
+            if external_endpoint:
+                mode = 'external_terminator'
+            elif configured_tls:
+                live_mode = str(status.get('tls_cert_mode') or '').strip().lower()
+                mode = live_mode if live_mode in {'self_signed', 'provided'} else ('provided' if tls_cert_path and tls_key_path else 'self_signed')
+            else:
+                mode = 'disabled'
+        labels = {
+            'disabled': 'Disabled',
+            'self_signed': 'Self-signed local TLS',
+            'provided': 'Provided certificate',
+            'external_terminator': 'External TLS terminator',
+        }
+        external_declared = bool(mode == 'external_terminator' and external_endpoint.lower().startswith('wss://'))
+        warnings = [
+            str(item)
+            for item in (status.get('warnings') or [])
+            if str(item or '').strip()
+        ]
+        if external_declared:
+            warnings = [
+                item for item in warnings
+                if not item.startswith('Canopy cannot verify external TLS termination')
+            ]
+            if not bool(status.get('tls_enabled')):
+                warnings.append(
+                    'External TLS terminator mode is declared; Canopy advertises the public wss:// endpoint while the local mesh listener remains ws:// behind the proxy.'
+                )
+        secure_invite_ready = bool(status.get('tls_enabled')) or external_declared
+        status.update({
+            'configured_tls_enabled': configured_tls,
+            'external_tls_endpoint': external_endpoint,
+            'external_tls_terminator_declared': external_declared,
+            'transport_security_mode': mode,
+            'transport_security_mode_label': labels.get(mode, 'Disabled'),
+            'secure_invite_ready': secure_invite_ready,
+            'warnings': warnings,
+        })
+        return status
 
     def get_peer_id(self) -> Optional[str]:
         """Get local peer ID."""

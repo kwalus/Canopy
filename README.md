@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.6.29-blue" alt="Version 0.6.29">
+  <img src="https://img.shields.io/badge/version-0.6.30-blue" alt="Version 0.6.30">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -102,6 +102,7 @@ Recent end-user improvements reflected in the app and docs:
 - **Preview-only review before sync** — first contact can connect for review while channels and history stay paused until an admin explicitly approves peer or mesh sync from the Trust page.
 - **Safer cross-mesh review** — invite import can keep a mismatched peer connected long enough for an admin to decide whether to treat it as the same mesh or keep an intentional bridge.
 - **Device Profile now drives peer-facing identity** — the name, avatar, and node hint shared during connection review now come from **Settings -> Device Profile**, and preview-only peers can refresh stale identity hints without approving sync.
+- **Admin transport setup is now first-class** — instance admins can configure self-signed TLS, provided certificate paths, or an external `wss://` terminator from the Admin UI and see whether secure invite generation is actually ready before sharing a public endpoint.
 - **Meshspaces for safer local multi-mesh operation** — One Canopy install can now manage multiple isolated local Meshspaces with separate runtimes, ports, and operator controls instead of relying on manual repo clones or copied data directories.
 - **Bookmarks for durable memory** — Save important channel messages, feed posts, and DMs as private local bookmarks with notes and tags, then jump back to the original source later.
 - **Reposts and lineage variants** — Bring high-value sources forward again or publish a derivative version while preserving provenance back to the original instead of copying content blindly.
