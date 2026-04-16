@@ -210,6 +210,19 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('wss://example.ngrok-free.app or ws://0.tcp.ngrok.io:12345', connect_template)
         self.assertIn('external_endpoint=', connect_template)
         self.assertIn('Regenerated with external endpoint!', connect_template)
+        self.assertIn('data.transport_security', connect_template)
+        self.assertIn("renderEndpointBadges('invite-endpoints-list', data.endpoints)", connect_template)
+
+    def test_connect_page_surfaces_transport_security_status(self) -> None:
+        connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
+        self.assertIn('Transport security', connect_template)
+        self.assertIn('transport-security-card', connect_template)
+        self.assertIn('transport-security-title', connect_template)
+        self.assertIn('Outbound wss verification', connect_template)
+        self.assertIn('Explicit <code>wss://</code> endpoints will not silently downgrade', connect_template)
+        self.assertIn('function updateTransportSecurityPanel(status)', connect_template)
+        self.assertIn('function endpointBadgeHtml(endpoint)', connect_template)
+        self.assertIn('secure_transport_failed', connect_template)
 
     def test_connect_page_previews_invites_before_importing(self) -> None:
         connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
@@ -257,6 +270,7 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("code === 'mesh_identity_admin_required'", connect_template)
         self.assertIn("code === 'cross_mesh_confirmation_required'", connect_template)
         self.assertIn("code === 'cross_mesh_reconnect_confirmation_required'", connect_template)
+        self.assertIn("code === 'secure_transport_failed'", connect_template)
         self.assertIn('Instance admin permission is required to connect to a peer from a different meshspace.', connect_template)
 
     def test_connect_page_mesh_badge_distinguishes_no_hint_from_mismatch(self) -> None:

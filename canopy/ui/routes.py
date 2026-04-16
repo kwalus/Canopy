@@ -269,6 +269,51 @@ def _current_invite_peer_label(
     return str(fallback_device_label or '').strip()
 
 
+def _transport_security_status(
+    p2p_manager: Any,
+    advertised_endpoints: Optional[list[str]] = None,
+) -> dict[str, Any]:
+    """Return UI-safe transport security diagnostics for the active mesh listener."""
+    endpoints = [
+        str(endpoint or '').strip()
+        for endpoint in (advertised_endpoints or [])
+        if str(endpoint or '').strip()
+    ]
+    conn_mgr = getattr(p2p_manager, 'connection_manager', None) if p2p_manager else None
+    if conn_mgr and hasattr(conn_mgr, 'get_transport_security_status'):
+        try:
+            return dict(conn_mgr.get_transport_security_status(advertised_endpoints=endpoints) or {})
+        except Exception:
+            logger.debug("Could not load connection-manager transport security status", exc_info=True)
+    if p2p_manager and hasattr(p2p_manager, 'get_transport_security_status'):
+        try:
+            status = dict(p2p_manager.get_transport_security_status() or {})
+            if endpoints:
+                status['advertised_endpoints'] = endpoints
+                status['advertised_secure_count'] = sum(1 for ep in endpoints if ep.lower().startswith('wss://'))
+                status['advertised_plain_count'] = sum(1 for ep in endpoints if ep.lower().startswith('ws://'))
+            return status
+        except Exception:
+            logger.debug("Could not load P2P transport security status", exc_info=True)
+    secure_count = sum(1 for ep in endpoints if ep.lower().startswith('wss://'))
+    plain_count = sum(1 for ep in endpoints if ep.lower().startswith('ws://'))
+    return {
+        'mesh_scheme': 'ws',
+        'tls_enabled': False,
+        'transport_label': 'Plain WebSocket (ws)',
+        'listener_endpoint': '',
+        'tls_cert_mode': 'disabled',
+        'tls_cert_path_present': False,
+        'tls_key_path_present': False,
+        'client_verification_mode': 'permissive',
+        'advertised_endpoints': endpoints,
+        'advertised_secure_count': secure_count,
+        'advertised_plain_count': plain_count,
+        'explicit_wss_downgrade_allowed': False,
+        'warnings': ['P2P transport security status is unavailable.'],
+    }
+
+
 def _current_meshspace_default_agent_permissions() -> list[str]:
     record = _current_meshspace_record()
     raw = record.get('default_agent_permissions') if isinstance(record, dict) else None
@@ -5995,7 +6040,11 @@ def create_ui_blueprint() -> Blueprint:
                             connect_coro = connect_to_endpoint(p2p_manager, peer_id, ep)
                         else:
                             connect_coro = connection_manager.connect_to_peer(
-                                peer_id, host, port, scheme=scheme
+                                peer_id,
+                                host,
+                                port,
+                                scheme=scheme,
+                                scheme_explicit=str(ep or '').strip().lower().startswith('wss://'),
                             )
                         future = asyncio.run_coroutine_threadsafe(
                             connect_coro,
@@ -8509,6 +8558,7 @@ def create_ui_blueprint() -> Blueprint:
                 invite_code = invite.encode()
                 peer_id = invite.peer_id
                 endpoints = invite.endpoints
+            transport_security = _transport_security_status(p2p_manager, list(endpoints or []))
 
             # Connected / discovered peers
             connected_peers = p2p_manager.get_connected_peers() if p2p_manager else []
@@ -8677,6 +8727,7 @@ def create_ui_blueprint() -> Blueprint:
                                  invite_code=invite_code,
                                  peer_id=peer_id,
                                  endpoints=endpoints,
+                                 transport_security=transport_security,
                                  local_ips=local_ips,
                                  current_mesh_name=current_mesh_name,
                                  current_meshspace_id=current_meshspace_id,
@@ -20428,6 +20479,7 @@ def create_ui_blueprint() -> Blueprint:
                 local_endpoints = list(invite.endpoints)
             except Exception:
                 pass
+            transport_security = _transport_security_status(p2p_manager, local_endpoints)
 
             return jsonify({
                 'success': True,
@@ -20437,6 +20489,7 @@ def create_ui_blueprint() -> Blueprint:
                     'mesh_port': mesh_port,
                     'endpoints': local_endpoints,
                     'relay_policy': relay_status.get('relay_policy', 'broker_only'),
+                    'transport_security': transport_security,
                 },
             })
         except Exception as e:

@@ -52,6 +52,7 @@ class NetworkConfig:
     enable_tls: bool = False  # Use wss:// for P2P connections
     tls_cert_path: str = ""  # Path to TLS cert (auto-generated if empty)
     tls_key_path: str = ""   # Path to TLS key (auto-generated if empty)
+    require_verified_wss: bool = False  # Verify outbound wss:// certs/hostnames
 
 
 @dataclass
@@ -336,6 +337,15 @@ class Config:
         if relay := os.getenv('CANOPY_RELAY_POLICY'):
             if relay in ('off', 'broker_only', 'full_relay'):
                 config.network.relay_policy = relay
+        config.network.enable_tls = _env_bool('CANOPY_ENABLE_TLS', config.network.enable_tls)
+        if tls_cert_path := os.getenv('CANOPY_TLS_CERT_PATH'):
+            config.network.tls_cert_path = tls_cert_path
+        if tls_key_path := os.getenv('CANOPY_TLS_KEY_PATH'):
+            config.network.tls_key_path = tls_key_path
+        config.network.require_verified_wss = _env_bool(
+            'CANOPY_REQUIRE_VERIFIED_WSS',
+            config.network.require_verified_wss,
+        )
 
         # Store device info on config for display. The peer identity remains mesh-local
         # because it lives under config.storage.data_dir, but the machine device label is
@@ -409,6 +419,11 @@ class Config:
                 'discovery_port': self.network.discovery_port,
                 'max_peers': self.network.max_peers,
                 'connection_timeout': self.network.connection_timeout,
+                'relay_policy': self.network.relay_policy,
+                'enable_tls': self.network.enable_tls,
+                'tls_cert_path': self.network.tls_cert_path,
+                'tls_key_path': self.network.tls_key_path,
+                'require_verified_wss': self.network.require_verified_wss,
             },
             'security': {
                 'encryption_algorithm': self.security.encryption_algorithm,

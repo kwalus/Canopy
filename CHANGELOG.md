@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.28] - 2026-04-16
+
+### Changed
+- **WSS invite handling is now safer and clearer for VPS/public operators** - explicit `wss://` peer endpoints no longer silently downgrade to `ws://` when TLS fails, Connect now shows transport-security posture and secure-vs-plain advertised endpoint counts, and the docs explain how Canopy currently handles TLS, reverse proxies, self-signed certificates, and strict verified-WSS mode.
+
 ## [0.6.27] - 2026-04-13
 
 ### Changed

@@ -28,6 +28,7 @@ if 'zeroconf' not in sys.modules:
     sys.modules['zeroconf'] = zeroconf_stub
 
 from canopy.network.discovery import DiscoveredPeer, PeerDiscovery
+from canopy.network.connection import ConnectionManager
 from canopy.network.invite import InviteCode, import_invite, generate_invite
 from canopy.network.manager import P2PNetworkManager
 from canopy.network.identity import IdentityManager
@@ -329,10 +330,10 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
 
     async def test_connect_to_endpoint_preserves_explicit_wss_scheme(self) -> None:
         manager = self._build_manager()
-        captured: list[tuple[str, str, int, str | None]] = []
+        captured: list[tuple[str, str, int, str | None, bool]] = []
 
-        async def _connect(peer_id: str, host: str, port: int, scheme=None) -> bool:
-            captured.append((peer_id, host, port, scheme))
+        async def _connect(peer_id: str, host: str, port: int, scheme=None, scheme_explicit=False) -> bool:
+            captured.append((peer_id, host, port, scheme, scheme_explicit))
             return True
 
         manager.connection_manager = types.SimpleNamespace(
@@ -347,15 +348,15 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(ok)
         self.assertEqual(
             captured,
-            [('peer-remote', 'demo.ngrok-free.app', 443, 'wss')],
+            [('peer-remote', 'demo.ngrok-free.app', 443, 'wss', True)],
         )
 
     async def test_connect_to_endpoint_defaults_missing_wss_port_to_443(self) -> None:
         manager = self._build_manager()
-        captured: list[tuple[str, str, int, str | None]] = []
+        captured: list[tuple[str, str, int, str | None, bool]] = []
 
-        async def _connect(peer_id: str, host: str, port: int, scheme=None) -> bool:
-            captured.append((peer_id, host, port, scheme))
+        async def _connect(peer_id: str, host: str, port: int, scheme=None, scheme_explicit=False) -> bool:
+            captured.append((peer_id, host, port, scheme, scheme_explicit))
             return True
 
         manager.connection_manager = types.SimpleNamespace(
@@ -370,8 +371,143 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(ok)
         self.assertEqual(
             captured,
-            [('peer-remote', 'demo.ngrok-free.app', 443, 'wss')],
+            [('peer-remote', 'demo.ngrok-free.app', 443, 'wss', True)],
         )
+
+    async def test_explicit_wss_connect_does_not_retry_plain_ws_after_tls_failure(self) -> None:
+        manager = ConnectionManager(
+            local_peer_id='local-peer',
+            identity_manager=types.SimpleNamespace(),
+            enable_tls=False,
+        )
+        attempts: list[str] = []
+
+        async def _fail_connect(uri: str, **_kwargs):
+            attempts.append(uri)
+            raise OSError('tls failed')
+
+        with patch('canopy.network.connection.websockets.connect', new=_fail_connect):
+            ok = await manager.connect_to_peer(
+                'peer-remote',
+                'demo.ngrok-free.app',
+                443,
+                scheme='wss',
+                scheme_explicit=True,
+            )
+
+        self.assertFalse(ok)
+        self.assertEqual(attempts, ['wss://demo.ngrok-free.app:443/p2p'])
+        failure = manager.get_last_connect_failure('peer-remote', 'demo.ngrok-free.app', 443)
+        self.assertEqual(failure.get('reason'), 'wss_downgrade_blocked')
+
+    async def test_inferred_tls_connect_can_still_retry_plain_ws_for_legacy_peers(self) -> None:
+        manager = ConnectionManager(
+            local_peer_id='local-peer',
+            identity_manager=types.SimpleNamespace(),
+            enable_tls=False,
+        )
+        manager.enable_tls = True
+        manager._client_ssl = None
+        attempts: list[str] = []
+
+        class _FakeWebSocket:
+            async def close(self):
+                return None
+
+        async def _connect(uri: str, **_kwargs):
+            attempts.append(uri)
+            if uri.startswith('wss://'):
+                raise OSError('tls failed')
+            return _FakeWebSocket()
+
+        async def _handshake(_connection):
+            return False
+
+        manager._perform_handshake = _handshake  # type: ignore[assignment]
+
+        with patch('canopy.network.connection.websockets.connect', new=_connect):
+            ok = await manager.connect_to_peer(
+                'peer-remote',
+                'demo.ngrok-free.app',
+                7771,
+                scheme=None,
+                scheme_explicit=False,
+            )
+
+        self.assertFalse(ok)
+        self.assertEqual(
+            attempts,
+            ['wss://demo.ngrok-free.app:7771/p2p', 'ws://demo.ngrok-free.app:7771/p2p'],
+        )
+
+    async def test_verified_wss_mode_blocks_inferred_plain_ws_downgrade(self) -> None:
+        manager = ConnectionManager(
+            local_peer_id='local-peer',
+            identity_manager=types.SimpleNamespace(),
+            enable_tls=False,
+            require_verified_wss=True,
+        )
+        manager.enable_tls = True
+        attempts: list[str] = []
+
+        async def _fail_connect(uri: str, **_kwargs):
+            attempts.append(uri)
+            raise OSError('certificate verify failed')
+
+        with patch('canopy.network.connection.websockets.connect', new=_fail_connect):
+            ok = await manager.connect_to_peer(
+                'peer-remote',
+                'secure.example.com',
+                443,
+                scheme=None,
+                scheme_explicit=False,
+            )
+
+        self.assertFalse(ok)
+        self.assertEqual(attempts, ['wss://secure.example.com:443/p2p'])
+        failure = manager.get_last_connect_failure('peer-remote', 'secure.example.com', 443)
+        self.assertEqual(failure.get('reason'), 'wss_downgrade_blocked')
+
+    def test_transport_security_status_reports_plain_invite_endpoints(self) -> None:
+        manager = ConnectionManager(
+            local_peer_id='local-peer',
+            identity_manager=types.SimpleNamespace(),
+            enable_tls=False,
+        )
+
+        status = manager.get_transport_security_status(
+            advertised_endpoints=['ws://192.168.1.10:7771']
+        )
+
+        self.assertEqual(status.get('mesh_scheme'), 'ws')
+        self.assertFalse(status.get('tls_enabled'))
+        self.assertEqual(status.get('tls_cert_mode'), 'disabled')
+        self.assertEqual(status.get('client_verification_mode'), 'permissive')
+        self.assertEqual(status.get('advertised_secure_count'), 0)
+        self.assertEqual(status.get('advertised_plain_count'), 1)
+        self.assertFalse(status.get('explicit_wss_downgrade_allowed'))
+
+    def test_transport_security_status_reports_self_signed_tls_listener(self) -> None:
+        cert_path = Path(self.tempdir) / 'tls' / 'canopy.crt'
+        key_path = Path(self.tempdir) / 'tls' / 'canopy.key'
+        manager = ConnectionManager(
+            local_peer_id='local-peer',
+            identity_manager=types.SimpleNamespace(),
+            enable_tls=True,
+            tls_cert_path=str(cert_path),
+            tls_key_path=str(key_path),
+        )
+
+        status = manager.get_transport_security_status(
+            advertised_endpoints=['wss://mesh.example.com:443']
+        )
+
+        self.assertEqual(status.get('mesh_scheme'), 'wss')
+        self.assertTrue(status.get('tls_enabled'))
+        self.assertEqual(status.get('tls_cert_mode'), 'self_signed')
+        self.assertTrue(status.get('tls_cert_path_present'))
+        self.assertTrue(status.get('tls_key_path_present'))
+        self.assertEqual(status.get('advertised_secure_count'), 1)
 
     def test_parse_endpoint_rejects_non_websocket_schemes(self) -> None:
         manager = self._build_manager()

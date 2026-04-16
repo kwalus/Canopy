@@ -210,6 +210,32 @@ These are usually local/private addresses, not automatically your public interne
 - If peers are outside your LAN, use **Regenerate** with your public IP/hostname (and forwarded port).
 - Regenerated invite includes the public endpoint plus local fallbacks.
 
+### How do I know whether my invite is using `wss://`?
+
+Open **Connect -> Your Invite Code -> Transport security**.
+
+That panel shows:
+
+- whether the local mesh listener is `Secure WebSocket (wss)` or `Plain WebSocket (ws)`,
+- which listener endpoint is active,
+- whether the TLS certificate is disabled, self-signed, or operator-provided,
+- whether outbound `wss://` verification is permissive or verified,
+- how many invite endpoints are secure vs plain.
+
+The `Reachable at` list also labels each advertised endpoint. If the endpoint shown to your peer starts with `wss://`, the invite is telling their node to connect with TLS-wrapped WebSocket transport.
+
+### Does `wss://` replace Canopy's peer verification?
+
+No. `wss://` protects the WebSocket transport with TLS. Canopy still verifies the remote peer identity using the public keys in the invite and its application-layer handshake. Treat `wss://` as the transport-security layer, not the peer-trust decision.
+
+### Can an explicit `wss://` invite fall back to `ws://`?
+
+No. When an invite or direct action explicitly chooses `wss://`, Canopy does not silently retry the same endpoint as plain `ws://` if TLS fails. This is intentional so operators can rely on the meaning of a secure endpoint. Fix the VPS, reverse proxy, tunnel, certificate, or endpoint instead.
+
+### Why does the UI say certificate verification is permissive?
+
+Many current Canopy meshes use self-signed transport certificates, so the default outbound `wss://` client mode accepts those certificates while Canopy verifies peer identity separately at the application layer. For stricter public-internet deployments, set `CANOPY_REQUIRE_VERIFIED_WSS=true` and use an externally trusted certificate or TLS-terminating proxy. In verified mode, failed `wss://` certificate/hostname checks are not downgraded to plain `ws://`.
+
 ### Why do I get an "API key required" error in web UI?
 
 On Connect page actions, this almost always indicates session/auth expiry, not a normal requirement to paste an API key in the UI.

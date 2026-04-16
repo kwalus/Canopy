@@ -2,7 +2,7 @@
 
 This guide is for an AI agent (or human) setting up a **second Canopy instance** on a different machine and connecting it to an existing instance via invite codes.
 
-Version scope: this guide is aligned to Canopy `0.6.27`.
+Version scope: this guide is aligned to Canopy `0.6.28`.
 
 ---
 
@@ -266,6 +266,34 @@ curl -s "http://localhost:7770/api/v1/p2p/invite?external_endpoint=wss://example
 ```
 
 Canopy preserves the explicit `ws://` or `wss://` scheme from the invite during import, reconnect, and direct connect attempts.
+
+### What `wss://` means in Canopy
+
+`wss://` means the P2P WebSocket transport is wrapped in TLS. It is useful for VPS, public internet, and tunnel endpoints because it prevents the mesh transport itself from being plain WebSocket. Canopy still performs its own application-layer peer identity verification using the public keys in the invite, and message contents remain protected by Canopy's cryptographic transport.
+
+Important operator details:
+
+- An invite only uses `wss://` when the advertised endpoint starts with `wss://`.
+- The Connect page now shows **Transport security**, including whether the local mesh listener is `ws://` or `wss://`, what certificate mode is active, and whether the invite advertises secure or plain endpoints.
+- If you enter `wss://example.ngrok-free.app`, the invite advertises that exact secure endpoint.
+- If an explicit `wss://` endpoint fails, Canopy does **not** silently retry the same endpoint as `ws://`. Fix the TLS endpoint, tunnel, proxy, or certificate instead.
+- Current default outbound `wss://` certificate handling is permissive for self-signed mesh deployments unless `CANOPY_REQUIRE_VERIFIED_WSS=true` is set. When verified mode is enabled, a failed `wss://` certificate/hostname check is not downgraded to plain `ws://`.
+
+Recommended public-internet setup:
+
+- Use a TLS-terminating tunnel/reverse proxy with an externally trusted certificate, or run the mesh listener with TLS enabled and a real cert.
+- For a TLS mesh listener, set:
+  ```bash
+  export CANOPY_ENABLE_TLS=true
+  export CANOPY_TLS_CERT_PATH=/path/to/fullchain.pem
+  export CANOPY_TLS_KEY_PATH=/path/to/privkey.pem
+  ```
+- For stricter VPS/client behavior, additionally set:
+  ```bash
+  export CANOPY_REQUIRE_VERIFIED_WSS=true
+  ```
+
+If you use a reverse proxy or tunnel, the local Canopy mesh listener may still show as `ws://` while the external invite advertises `wss://...`. That is valid only if the proxy/tunnel actually terminates TLS and forwards WebSocket traffic to the mesh port.
 
 ---
 

@@ -1459,6 +1459,7 @@ class P2PNetworkManager:
                 meshspace_avatar_mime=local_meshspace.get('meshspace_avatar_mime', 'image/png'),
                 peer_label=local_peer_hint.get('peer_label', ''),
                 instance_label=local_peer_hint.get('instance_label', ''),
+                require_verified_wss=bool(getattr(network_config, 'require_verified_wss', False)),
                 reject_protocol_mismatch=bool(
                     os.getenv('CANOPY_REJECT_PROTOCOL_MISMATCH', '').strip().lower() in ('1', 'true', 'yes', 'on')
                 ),
@@ -2103,9 +2104,9 @@ class P2PNetworkManager:
                 logger.debug(f"Reconnect: skipping unusable endpoint {endpoint} for {peer_id}")
                 return False
         if scheme == 'wss' and not self.connection_manager.enable_tls:
-            logger.warning(
-                f"Reconnect: endpoint {endpoint} requires TLS, but TLS is disabled; "
-                f"connection may fail."
+            logger.debug(
+                "Reconnect: attempting outbound wss:// endpoint while the local listener is plain ws://; "
+                "this is expected for tunnels or reverse proxies."
             )
         endpoint_sources: list[str] = []
         stored = set(
@@ -2125,7 +2126,15 @@ class P2PNetworkManager:
             detail='Attempting connection',
             endpoint=canon or endpoint,
         )
-        ok = await self.connection_manager.connect_to_peer(peer_id, host, port, scheme=scheme)
+        endpoint_text = str(endpoint or '').strip().lower()
+        scheme_explicit = endpoint_text.startswith('wss://')
+        ok = await self.connection_manager.connect_to_peer(
+            peer_id,
+            host,
+            port,
+            scheme=scheme,
+            scheme_explicit=scheme_explicit,
+        )
         if ok and canon:
             get_connection = getattr(self.connection_manager, 'get_connection', None)
             conn = get_connection(peer_id) if callable(get_connection) else None
@@ -6020,6 +6029,41 @@ class P2PNetworkManager:
         if self.connection_manager and getattr(self.connection_manager, 'enable_tls', False):
             return 'wss'
         return 'ws'
+
+    def get_transport_security_status(self) -> Dict[str, Any]:
+        """Return operator-facing WebSocket/TLS status for UI diagnostics."""
+        advertised = self._get_local_advertised_endpoints()
+        conn_mgr = self.connection_manager
+        if conn_mgr and hasattr(conn_mgr, 'get_transport_security_status'):
+            try:
+                return dict(conn_mgr.get_transport_security_status(advertised_endpoints=advertised) or {})
+            except Exception:
+                logger.debug("Could not get transport security status from connection manager", exc_info=True)
+        scheme = self.ws_scheme
+        secure_count = sum(1 for endpoint in advertised if str(endpoint).lower().startswith('wss://'))
+        plain_count = sum(1 for endpoint in advertised if str(endpoint).lower().startswith('ws://'))
+        warnings = []
+        if plain_count and not secure_count:
+            warnings.append('Invite currently advertises only plain ws:// endpoints.')
+        return {
+            'mesh_scheme': scheme,
+            'tls_enabled': scheme == 'wss',
+            'transport_label': 'Secure WebSocket (wss)' if scheme == 'wss' else 'Plain WebSocket (ws)',
+            'listener_endpoint': f"{scheme}://0.0.0.0:{getattr(self.config.network, 'mesh_port', 7771)}",
+            'tls_cert_mode': 'unknown' if scheme == 'wss' else 'disabled',
+            'tls_cert_path_present': False,
+            'tls_key_path_present': False,
+            'client_verification_mode': (
+                'verified'
+                if bool(getattr(self.config.network, 'require_verified_wss', False))
+                else 'permissive'
+            ),
+            'advertised_endpoints': advertised,
+            'advertised_secure_count': secure_count,
+            'advertised_plain_count': plain_count,
+            'explicit_wss_downgrade_allowed': False,
+            'warnings': warnings,
+        }
 
     def get_peer_id(self) -> Optional[str]:
         """Get local peer ID."""

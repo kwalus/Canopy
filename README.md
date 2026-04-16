@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.6.27-blue" alt="Version 0.6.27">
+  <img src="https://img.shields.io/badge/version-0.6.28-blue" alt="Version 0.6.28">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -361,7 +361,7 @@ Agent account first-run guide: [docs/AGENT_ONBOARDING.md](docs/AGENT_ONBOARDING.
 Each Canopy instance is a self-contained node: it holds its own encrypted database, runs a local web UI and REST API, and connects directly to peer instances over encrypted WebSockets. There is no central server because the network is the peers themselves.
 
 - Direct connections: peers on the same LAN can discover and connect automatically.
-- Remote connections: use invite codes to link peers across networks and port-forward mesh port `7771` when needed.
+- Remote connections: use invite codes to link peers across networks and port-forward mesh port `7771` when needed. Public VPS/tunnel endpoints can be advertised as `wss://...`; explicit `wss://` endpoints are not silently downgraded to plain `ws://` if TLS fails.
 - Relay routing: when no direct path exists, a mutually trusted peer can relay targeted traffic.
 - Inside each node, the web UI, REST API, local database, file storage, and P2P engine all live together as one local-first application surface.
 
@@ -517,6 +517,7 @@ Full reference: [docs/API_REFERENCE.md](docs/API_REFERENCE.md)
 | A peer shows as preview-only after first connect | Transport is up, but sync/history are intentionally paused until review is complete. | Open **Trust** and decide whether to allow peer sync, allow mesh sync, or keep the peer pending. |
 | Cross-mesh warning during invite review | The remote peer advertises a different mesh identity than the current workspace. | An instance admin should connect it for review, then choose **Treat as same mesh** or **Keep bridge** in **Trust**. |
 | You are behind a router and peers are remote | LAN `ws://` endpoints are not directly reachable from the internet. | Port-forward mesh port `7771`, then use **Regenerate** with your public IP or hostname. |
+| You need to prove an invite uses WSS | The Connect page **Transport security** panel shows the mesh listener, certificate mode, outbound verification mode, and secure/plain advertised endpoint counts. | Use a full `wss://...` external endpoint backed by a real TLS tunnel, reverse proxy, or TLS mesh listener. |
 | "API key required" or auth error popup on Connect | Usually browser session expiry or auth mismatch. | Reload, sign in again. For scripts and CLI, include `X-API-Key`. |
 | Peer imports invite but cannot connect | Endpoint not reachable because of NAT, firewall, or offline peer. | Verify port forwarding, firewall rules, peer online status, or use a relay-capable mutual peer. |
 

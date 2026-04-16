@@ -152,6 +152,70 @@
         color: var(--canopy-text-secondary);
         font-size: 0.8rem;
     }
+    .transport-security-card {
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 82%, transparent);
+        border-radius: 14px;
+        padding: 0.75rem;
+        background:
+            radial-gradient(circle at top left, rgba(14, 165, 233, 0.12), transparent 34%),
+            color-mix(in srgb, var(--canopy-bg-tertiary) 78%, transparent);
+    }
+    .transport-security-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+    }
+    .transport-security-title {
+        font-weight: 700;
+        color: var(--canopy-text-primary);
+    }
+    .transport-security-copy {
+        color: var(--canopy-text-secondary);
+        font-size: 0.8rem;
+        line-height: 1.45;
+    }
+    .transport-security-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 0.5rem;
+        margin-top: 0.65rem;
+    }
+    .transport-security-fact {
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 70%, transparent);
+        border-radius: 12px;
+        padding: 0.55rem 0.6rem;
+        min-width: 0;
+    }
+    .transport-security-label {
+        color: var(--canopy-text-secondary);
+        font-size: 0.66rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        margin-bottom: 0.15rem;
+    }
+    .transport-security-value {
+        color: var(--canopy-text-primary);
+        font-weight: 650;
+        overflow-wrap: anywhere;
+    }
+    .endpoint-badge-secure {
+        background: rgba(16, 185, 129, 0.16) !important;
+        color: #047857 !important;
+        border: 1px solid rgba(16, 185, 129, 0.34);
+    }
+    .endpoint-badge-plain {
+        background: rgba(245, 158, 11, 0.16) !important;
+        color: #92400e !important;
+        border: 1px solid rgba(245, 158, 11, 0.34);
+    }
+    [data-bs-theme="dark"] .endpoint-badge-secure {
+        color: #6ee7b7 !important;
+    }
+    [data-bs-theme="dark"] .endpoint-badge-plain {
+        color: #fbbf24 !important;
+    }
     .connect-page .card {
         margin-bottom: 0.85rem;
     }
@@ -477,11 +541,64 @@
                     </div>
                 </div>
 
+                {% set ts = transport_security or {} %}
+                <div class="mb-3">
+                    <label class="form-label small text-muted">Transport security</label>
+                    <div class="transport-security-card">
+                        <div class="transport-security-top">
+                            <div>
+                                <div class="transport-security-title" id="transport-security-title">
+                                    {{ ts.transport_label or 'Plain WebSocket (ws)' }}
+                                </div>
+                                <div class="transport-security-copy">
+                                    <code>wss://</code> wraps the mesh WebSocket in TLS. Canopy still verifies peer identity at the application layer using peer keys from the invite.
+                                </div>
+                            </div>
+                            <span id="transport-security-badge" class="badge {% if ts.tls_enabled %}endpoint-badge-secure{% else %}endpoint-badge-plain{% endif %}">
+                                {% if ts.tls_enabled %}<i class="bi bi-shield-lock"></i> wss listener{% else %}<i class="bi bi-unlock"></i> ws listener{% endif %}
+                            </span>
+                        </div>
+                        <div class="transport-security-grid">
+                            <div class="transport-security-fact">
+                                <div class="transport-security-label">Mesh listener</div>
+                                <div class="transport-security-value" id="transport-listener-endpoint">{{ ts.listener_endpoint or 'Not running' }}</div>
+                            </div>
+                            <div class="transport-security-fact">
+                                <div class="transport-security-label">Certificate</div>
+                                <div class="transport-security-value" id="transport-cert-mode">{{ (ts.tls_cert_mode or 'disabled')|replace('_', ' ')|title }}</div>
+                            </div>
+                            <div class="transport-security-fact">
+                                <div class="transport-security-label">Outbound wss verification</div>
+                                <div class="transport-security-value" id="transport-client-verification">{{ (ts.client_verification_mode or 'permissive')|title }}</div>
+                            </div>
+                            <div class="transport-security-fact">
+                                <div class="transport-security-label">Invite advertises</div>
+                                <div class="transport-security-value" id="transport-advertised-summary">
+                                    {{ ts.advertised_secure_count or 0 }} secure / {{ ts.advertised_plain_count or 0 }} plain
+                                </div>
+                            </div>
+                        </div>
+                        <div class="transport-security-copy mt-2" id="transport-security-warnings">
+                            {% if ts.warnings %}
+                                {% for warning in ts.warnings[:2] %}
+                                    <div><i class="bi bi-info-circle"></i> {{ warning }}</div>
+                                {% endfor %}
+                            {% else %}
+                                <div><i class="bi bi-check-circle"></i> Explicit <code>wss://</code> endpoints will not silently downgrade to <code>ws://</code>.</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+
                 <div class="mb-3">
                     <label class="form-label small text-muted">Reachable at</label>
-                    <div>
+                    <div id="invite-endpoints-list">
                         {% for ep in endpoints %}
-                        <span class="badge bg-secondary me-1 mb-1">{{ ep }}</span>
+                        {% set ep_lower = ep|lower %}
+                        <span class="badge me-1 mb-1 {% if ep_lower.startswith('wss://') %}endpoint-badge-secure{% else %}endpoint-badge-plain{% endif %}">
+                            {% if ep_lower.startswith('wss://') %}<i class="bi bi-shield-lock"></i>{% else %}<i class="bi bi-unlock"></i>{% endif %}
+                            {{ ep }}
+                        </span>
                         {% endfor %}
                     </div>
                 </div>
@@ -504,7 +621,7 @@
                 <hr>
                 <p class="text-muted small mb-2">
                     <i class="bi bi-globe"></i> <strong>Connecting from outside your LAN?</strong><br>
-                    If you use ngrok or another tunnel, generate the invite from your full external mesh endpoint. Port-forwarded host/port still works as a fallback.
+                    If you use ngrok or another tunnel, generate the invite from your full external mesh endpoint. Use <code>wss://</code> when the tunnel or VPS endpoint actually terminates TLS; explicit <code>wss://</code> imports now fail instead of downgrading to plain <code>ws://</code>.
                 </p>
                 <div class="input-group mb-2 public-host-group">
                     <input type="text" class="form-control" id="externalEndpoint" placeholder="wss://example.ngrok-free.app or ws://0.tcp.ngrok.io:12345">
@@ -1182,7 +1299,11 @@
                         <div class="mesh-muted mb-2">Advertised endpoints</div>
                         <div id="ts-endpoints-list">
                             {% for ep in endpoints %}
-                            <span class="badge bg-secondary me-1 mb-1">{{ ep }}</span>
+                            {% set ep_lower = ep|lower %}
+                            <span class="badge me-1 mb-1 {% if ep_lower.startswith('wss://') %}endpoint-badge-secure{% else %}endpoint-badge-plain{% endif %}">
+                                {% if ep_lower.startswith('wss://') %}<i class="bi bi-shield-lock"></i>{% else %}<i class="bi bi-unlock"></i>{% endif %}
+                                {{ ep }}
+                            </span>
                             {% else %}
                             <span class="text-muted small">None detected</span>
                             {% endfor %}
@@ -1207,6 +1328,10 @@
                             <li class="mb-2">
                                 <i class="bi bi-globe text-success me-2"></i>
                                 <strong>Public endpoint</strong> — Use the "Regenerate" button above with a public IP or full tunnel endpoint so the invite contains a dialable address.
+                            </li>
+                            <li class="mb-2">
+                                <i class="bi bi-shield-lock text-success me-2"></i>
+                                <strong>wss:// endpoints</strong> — <code>wss://</code> means TLS-wrapped WebSocket transport. Canopy still verifies peer keys separately, and explicit <code>wss://</code> endpoints are not downgraded to <code>ws://</code> if TLS fails.
                             </li>
                         </ul>
                     </div>
@@ -1238,7 +1363,7 @@
                 </div>
                 <div class="col-md-4 mb-3">
                     <h6><span class="badge bg-primary me-1">2</span> Different location</h6>
-                    <p class="small text-muted mb-0">One person shares a reachable endpoint: public IP plus port-forwarding, a VPS public IP, or a full tunnel endpoint such as <code>wss://...</code>.</p>
+                    <p class="small text-muted mb-0">One person shares a reachable endpoint: public IP plus port-forwarding, a VPS public IP, or a full tunnel endpoint such as <code>wss://...</code>. Prefer <code>wss://</code> for public internet use when TLS is really terminated at that endpoint.</p>
                 </div>
                 <div class="col-md-4 mb-3">
                     <h6><span class="badge bg-primary me-1">3</span> Friend imports the code</h6>
@@ -1258,6 +1383,7 @@ const CURRENT_MESH_NAME = {{ (current_mesh_name or 'Default Mesh') | tojson }};
 const CURRENT_MESHSPACE_ID = {{ (current_meshspace_id or '') | tojson }};
 const CURRENT_MESHSPACE_ID_ALIASES = {{ (current_meshspace_id_aliases or []) | tojson }};
 const CURRENT_MESH_FINGERPRINT = {{ (current_mesh_fingerprint or '') | tojson }};
+let currentTransportSecurity = {{ (transport_security or {}) | tojson }};
 const CURRENT_PEER_ID = {{ (peer_id or '') | tojson }};
 const USER_IS_ADMIN = {{ 'true' if is_admin else 'false' }};
 const DEVICE_ICON_CHOICES = new Set([
@@ -1352,6 +1478,9 @@ function buildConnectErrorMessage(err) {
     if (code === 'cross_mesh_reconnect_confirmation_required') {
         return 'This peer is from a different meshspace. Reload the page to review the current mesh warning and confirm explicitly.';
     }
+    if (code === 'secure_transport_failed') {
+        return 'The explicit wss:// endpoint failed TLS connection and Canopy refused to downgrade it to plain ws://. Verify the VPS, tunnel, or reverse proxy is serving secure WebSocket traffic.';
+    }
     const text = String(err?.message ?? (err ?? 'Unknown error'));
     if (/session may have expired|authentication required|api key required/i.test(text)) {
         return 'Authentication required for this action. Please reload the page and sign in again. ' +
@@ -1387,6 +1516,18 @@ function regenerateInvite() {
     apiJsonFetch(url).then(data => {
         if (data.invite_code) {
             document.getElementById('inviteCode').value = data.invite_code;
+            if (Array.isArray(data.endpoints)) {
+                renderEndpointBadges('invite-endpoints-list', data.endpoints);
+            }
+            if (data.transport_security || Array.isArray(data.endpoints)) {
+                currentTransportSecurity = data.transport_security || currentTransportSecurity || {};
+                if (Array.isArray(data.endpoints)) {
+                    currentTransportSecurity.advertised_endpoints = data.endpoints;
+                    currentTransportSecurity.advertised_secure_count = data.endpoints.filter(ep => String(ep || '').toLowerCase().startsWith('wss://')).length;
+                    currentTransportSecurity.advertised_plain_count = data.endpoints.filter(ep => String(ep || '').toLowerCase().startsWith('ws://')).length;
+                }
+                updateTransportSecurityPanel(currentTransportSecurity);
+            }
             const s = document.getElementById('copySuccess');
             s.textContent = externalEndpoint ? 'Regenerated with external endpoint!' : 'Regenerated with public endpoint!';
             s.style.display = 'block';
@@ -1528,6 +1669,8 @@ function invitePreviewWarnings(preview) {
     }
     if (!preview.endpoints.length) {
         warnings.push('No direct endpoints are advertised. Canopy can register the peer, but direct connection may require broker/relay help.');
+    } else if (!preview.endpoints.some((ep) => String(ep || '').toLowerCase().startsWith('wss://'))) {
+        warnings.push('This invite advertises only plain ws:// endpoints. Use a wss:// tunnel, reverse proxy, or TLS mesh listener for public internet connections when possible.');
     }
     const knownLabel = PEER_LABELS[preview.peerId] || '';
     if (knownLabel && preview.peerLabel && knownLabel !== preview.peerLabel) {
@@ -1581,8 +1724,8 @@ function renderInvitePreview(preview, error) {
         ? `${preview.endpoints.length} direct ${preview.endpoints.length === 1 ? 'endpoint' : 'endpoints'}`
         : 'No direct endpoints';
     const endpointPreview = preview.endpoints.slice(0, 3)
-        .map((ep) => `<code>${_escapeHtml(ep)}</code>`)
-        .join('<br>');
+        .map((ep) => endpointBadgeHtml(ep))
+        .join(' ');
     const ageLabel = invitePreviewAgeLabel(preview.generatedAt);
     const knownBadge = knownLabel
         ? '<span class="badge bg-info-subtle text-info-emphasis border">Known peer</span>'
@@ -1761,6 +1904,9 @@ function connectPreviewedInvite() {
             res.className = 'mt-3 alert alert-warning';
             if (data.diagnostic_code === 'invite_has_no_usable_endpoints') {
                 res.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Peer <code>' + safePeerId + '</code> registered, but the invite did not include any usable direct endpoints. Ask the remote peer to regenerate the invite with a public or tunnel endpoint.';
+            } else if (data.diagnostic_code === 'secure_transport_failed') {
+                res.className = 'mt-3 alert alert-danger';
+                res.innerHTML = '<i class="bi bi-shield-exclamation"></i> Peer <code>' + safePeerId + '</code> registered, but its explicit <code>wss://</code> endpoint failed and Canopy refused to downgrade to plain <code>ws://</code>. Confirm the VPS, tunnel, or reverse proxy is accepting secure WebSocket traffic at the advertised endpoint.';
             } else {
                 res.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Peer <code>' + safePeerId + '</code> registered but could not connect to any advertised endpoint. The peer may be offline, the endpoint may be stale, or the connection may require broker/relay help.';
             }
@@ -2163,6 +2309,56 @@ function _escapeHtml(text) {
     return div.innerHTML;
 }
 
+function endpointBadgeHtml(endpoint) {
+    const ep = String(endpoint || '').trim();
+    if (!ep) return '';
+    const secure = ep.toLowerCase().startsWith('wss://');
+    const cls = secure ? 'endpoint-badge-secure' : 'endpoint-badge-plain';
+    const icon = secure ? 'bi-shield-lock' : 'bi-unlock';
+    const label = secure ? 'Secure TLS endpoint' : 'Plain WebSocket endpoint';
+    return `<span class="badge ${cls} me-1 mb-1" title="${label}"><i class="bi ${icon}"></i> ${_escapeHtml(ep)}</span>`;
+}
+
+function renderEndpointBadges(containerId, endpoints) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const list = Array.isArray(endpoints) ? endpoints.filter(Boolean) : [];
+    container.innerHTML = list.length
+        ? list.map(endpointBadgeHtml).join('')
+        : '<span class="text-muted small">None detected</span>';
+}
+
+function updateTransportSecurityPanel(status) {
+    const ts = status || {};
+    const tlsEnabled = !!ts.tls_enabled;
+    const titleEl = document.getElementById('transport-security-title');
+    const badgeEl = document.getElementById('transport-security-badge');
+    const listenerEl = document.getElementById('transport-listener-endpoint');
+    const certEl = document.getElementById('transport-cert-mode');
+    const verificationEl = document.getElementById('transport-client-verification');
+    const advertisedEl = document.getElementById('transport-advertised-summary');
+    const warningsEl = document.getElementById('transport-security-warnings');
+    if (titleEl) titleEl.textContent = ts.transport_label || (tlsEnabled ? 'Secure WebSocket (wss)' : 'Plain WebSocket (ws)');
+    if (badgeEl) {
+        badgeEl.className = `badge ${tlsEnabled ? 'endpoint-badge-secure' : 'endpoint-badge-plain'}`;
+        badgeEl.innerHTML = tlsEnabled
+            ? '<i class="bi bi-shield-lock"></i> wss listener'
+            : '<i class="bi bi-unlock"></i> ws listener';
+    }
+    if (listenerEl) listenerEl.textContent = ts.listener_endpoint || 'Not running';
+    if (certEl) certEl.textContent = String(ts.tls_cert_mode || 'disabled').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    if (verificationEl) verificationEl.textContent = String(ts.client_verification_mode || 'permissive').replace(/\b\w/g, c => c.toUpperCase());
+    const secureCount = Number(ts.advertised_secure_count || 0);
+    const plainCount = Number(ts.advertised_plain_count || 0);
+    if (advertisedEl) advertisedEl.textContent = `${secureCount} secure / ${plainCount} plain`;
+    if (warningsEl) {
+        const warnings = Array.isArray(ts.warnings) ? ts.warnings.slice(0, 2) : [];
+        warningsEl.innerHTML = warnings.length
+            ? warnings.map(warning => `<div><i class="bi bi-info-circle"></i> ${_escapeHtml(warning)}</div>`).join('')
+            : '<div><i class="bi bi-check-circle"></i> Explicit <code>wss://</code> endpoints will not silently downgrade to <code>ws://</code>.</div>';
+    }
+}
+
 function renderConnectionHistory() {
     const list = document.getElementById('connection-history-list');
     if (!list) return;
@@ -2403,14 +2599,12 @@ function updateTroubleshootingPanel(local) {
     const endpointsList = document.getElementById('ts-endpoints-list');
     const endpointCount = document.getElementById('ts-endpoint-count');
     if (endpointsList && Array.isArray(local.endpoints)) {
-        if (local.endpoints.length) {
-            endpointsList.innerHTML = local.endpoints.map(ep =>
-                `<span class="badge bg-secondary me-1 mb-1">${_escapeHtml(ep)}</span>`
-            ).join('');
-        } else {
-            endpointsList.innerHTML = '<span class="text-muted small">None detected</span>';
-        }
+        renderEndpointBadges('ts-endpoints-list', local.endpoints);
         if (endpointCount) endpointCount.textContent = local.endpoints.length;
+    }
+    if (local.transport_security) {
+        currentTransportSecurity = local.transport_security;
+        updateTransportSecurityPanel(currentTransportSecurity);
     }
 }
 

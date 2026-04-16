@@ -49,6 +49,19 @@ def _make_mock_p2p_manager(
 
     conn_mgr = MagicMock()
     conn_mgr.get_connection.return_value = None
+    conn_mgr.get_transport_security_status.return_value = {
+        'mesh_scheme': 'ws',
+        'tls_enabled': False,
+        'transport_label': 'Plain WebSocket (ws)',
+        'listener_endpoint': 'ws://0.0.0.0:7771',
+        'tls_cert_mode': 'disabled',
+        'client_verification_mode': 'permissive',
+        'advertised_endpoints': [],
+        'advertised_secure_count': 0,
+        'advertised_plain_count': 0,
+        'explicit_wss_downgrade_allowed': False,
+        'warnings': ['Invite currently advertises only plain ws:// endpoints.'],
+    }
 
     p2p = MagicMock()
     p2p.identity_manager = im
@@ -135,6 +148,18 @@ class TestConnectionDiagnosticsEndpoint(unittest.TestCase):
         local = data.get('local', {})
         self.assertEqual(local.get('mesh_port'), 7771)
         self.assertEqual(local.get('relay_policy'), 'broker_only')
+
+    def test_local_section_contains_transport_security_status(self):
+        """local section exposes operator-visible ws/wss transport status."""
+        self._authenticate()
+        with patch('canopy.network.invite.generate_invite', side_effect=Exception('no-op')):
+            response = self.client.get('/ajax/connection_diagnostics')
+        data = response.get_json()
+        security = (data.get('local', {}) or {}).get('transport_security') or {}
+        self.assertEqual(security.get('mesh_scheme'), 'ws')
+        self.assertEqual(security.get('tls_cert_mode'), 'disabled')
+        self.assertEqual(security.get('client_verification_mode'), 'permissive')
+        self.assertFalse(security.get('explicit_wss_downgrade_allowed'))
 
     def test_direct_peer_is_reported_as_direct(self):
         """A peer not in active_relays is labelled as a direct connection."""
@@ -257,20 +282,20 @@ class TestConnectionDiagnosticsEndpoint(unittest.TestCase):
         """Known but disconnected peers should still appear with endpoint diagnostics."""
         self.p2p_manager.identity_manager.known_peers = {'peer-abc': object()}
         self.p2p_manager.identity_manager.peer_endpoints = {
-            'peer-abc': ['ws://192.168.1.50:7771']
+            'peer-abc': ['ws://198.51.100.50:7771']
         }
         self.p2p_manager.get_discovered_peers.return_value = [
             {
                 'peer_id': 'peer-abc',
-                'address': '192.168.1.50',
-                'addresses': ['192.168.1.50'],
+                'address': '198.51.100.50',
+                'addresses': ['198.51.100.50'],
                 'port': 7771,
                 'connected': False,
             }
         ]
         self.p2p_manager.get_peer_endpoint_diagnostics.side_effect = lambda peer_id: (
             [{
-                'endpoint': 'ws://192.168.1.50:7771',
+                'endpoint': 'ws://198.51.100.50:7771',
                 'sources': ['stored', 'discovered'],
                 'currently_connected': False,
                 'attempt_count': 2,
