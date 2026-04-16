@@ -244,15 +244,20 @@ def _transport_security_status(
     advertised_endpoints: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     """Return API-safe transport security diagnostics for invite responses."""
+    from ..network.invite import classify_invite_endpoints
+
     endpoints = [
         str(endpoint or '').strip()
         for endpoint in (advertised_endpoints or [])
         if str(endpoint or '').strip()
     ]
+    classification = classify_invite_endpoints(endpoints)
     conn_mgr = getattr(p2p_manager, 'connection_manager', None) if p2p_manager else None
     if conn_mgr and hasattr(conn_mgr, 'get_transport_security_status'):
         try:
-            return dict(conn_mgr.get_transport_security_status(advertised_endpoints=endpoints) or {})
+            status = dict(conn_mgr.get_transport_security_status(advertised_endpoints=endpoints) or {})
+            status.update(classification)
+            return status
         except Exception:
             logger.debug("Could not load connection-manager transport security status", exc_info=True)
     if p2p_manager and hasattr(p2p_manager, 'get_transport_security_status'):
@@ -262,6 +267,7 @@ def _transport_security_status(
                 status['advertised_endpoints'] = endpoints
                 status['advertised_secure_count'] = sum(1 for ep in endpoints if ep.lower().startswith('wss://'))
                 status['advertised_plain_count'] = sum(1 for ep in endpoints if ep.lower().startswith('ws://'))
+            status.update(classification)
             return status
         except Exception:
             logger.debug("Could not load P2P transport security status", exc_info=True)
@@ -281,6 +287,7 @@ def _transport_security_status(
         'advertised_plain_count': plain_count,
         'explicit_wss_downgrade_allowed': False,
         'warnings': ['P2P transport security status is unavailable.'],
+        **classification,
     }
 
 
@@ -3217,11 +3224,22 @@ def create_api_blueprint() -> Blueprint:
             connected_peer_details = []
             for peer_id in connected_peers:
                 ver = peer_versions.get(peer_id, {}) if isinstance(peer_versions, dict) else {}
+                active_transport = {}
+                get_active_transport = getattr(p2p_manager, 'get_peer_active_transport', None)
+                if callable(get_active_transport):
+                    try:
+                        active_transport = dict(get_active_transport(peer_id) or {})
+                    except Exception:
+                        active_transport = {}
                 connected_peer_details.append({
                     'peer_id': peer_id,
                     'canopy_version': ver.get('canopy_version'),
                     'protocol_version': ver.get('protocol_version'),
                     'compatible_protocol': ver.get('compatible_protocol'),
+                    'active_endpoint': active_transport.get('active_endpoint', ''),
+                    'active_transport': active_transport.get('active_transport', ''),
+                    'active_transport_label': active_transport.get('active_transport_label', ''),
+                    'active_transport_secure': bool(active_transport.get('active_transport_secure')),
                 })
             
             return jsonify({
@@ -3251,6 +3269,7 @@ def create_api_blueprint() -> Blueprint:
             public_host = request.args.get('public_host')
             public_port = request.args.get('public_port', type=int)
             external_endpoint = request.args.get('external_endpoint', type=str)
+            allow_plain_fallback = _as_bool(request.args.get('allow_plain_fallback'))
             mesh_port = config.network.mesh_port if config else 7771
             mesh_hint = _current_runtime_mesh_hint_payload()
             mesh_name = str(mesh_hint.get('meshspace_name') or '').strip()
@@ -3278,6 +3297,7 @@ def create_api_blueprint() -> Blueprint:
                 public_host=public_host,
                 public_port=public_port,
                 external_endpoint=external_endpoint,
+                allow_plain_fallback=allow_plain_fallback,
                 mesh_name=mesh_name or None,
                 meshspace_id=meshspace_id or None,
                 meshspace_id_aliases=list(mesh_hint.get('meshspace_id_aliases') or []) or None,
@@ -3291,11 +3311,26 @@ def create_api_blueprint() -> Blueprint:
                 p2p_manager,
                 list(invite.endpoints or []),
             )
+            remember_operator = getattr(p2p_manager, 'remember_operator_advertised_endpoint', None)
+            if callable(remember_operator):
+                try:
+                    remember_operator(
+                        external_endpoint=external_endpoint,
+                        public_host=public_host,
+                        public_port=public_port,
+                        allow_plain_fallback=allow_plain_fallback,
+                    )
+                except Exception:
+                    logger.debug("Could not remember operator advertised endpoint", exc_info=True)
             return jsonify({
                 'invite_code': invite.encode(),
                 'peer_id': invite.peer_id,
                 'endpoints': invite.endpoints,
                 'transport_security': transport_security,
+                'recommended_endpoint': transport_security.get('recommended_endpoint'),
+                'recommended_transport': transport_security.get('recommended_transport'),
+                'invite_policy': transport_security.get('invite_policy'),
+                'invite_policy_label': transport_security.get('invite_policy_label'),
                 'meshspace_id': invite.meshspace_id,
                 'meshspace_name': invite.mesh_name,
                 'meshspace_fingerprint': invite.meshspace_fingerprint,

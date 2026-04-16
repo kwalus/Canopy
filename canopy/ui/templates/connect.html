@@ -577,10 +577,18 @@
                                     {{ ts.advertised_secure_count or 0 }} secure / {{ ts.advertised_plain_count or 0 }} plain
                                 </div>
                             </div>
+                            <div class="transport-security-fact">
+                                <div class="transport-security-label">Invite mode</div>
+                                <div class="transport-security-value" id="transport-invite-policy">{{ ts.invite_policy_label or 'Plain invite' }}</div>
+                            </div>
+                            <div class="transport-security-fact">
+                                <div class="transport-security-label">Recommended path</div>
+                                <div class="transport-security-value" id="transport-recommended-endpoint">{{ ts.recommended_endpoint or 'None' }}</div>
+                            </div>
                         </div>
                         <div class="transport-security-copy mt-2" id="transport-security-warnings">
                             {% if ts.warnings %}
-                                {% for warning in ts.warnings[:2] %}
+                                {% for warning in ts.warnings[:3] %}
                                     <div><i class="bi bi-info-circle"></i> {{ warning }}</div>
                                 {% endfor %}
                             {% else %}
@@ -628,6 +636,12 @@
                     <button class="btn btn-outline-primary" onclick="regenerateInvite()">
                         <i class="bi bi-arrow-repeat"></i> Regenerate
                     </button>
+                </div>
+                <div class="form-check form-switch mb-2">
+                    <input class="form-check-input" type="checkbox" id="allowPlainFallback">
+                    <label class="form-check-label small text-muted" for="allowPlainFallback">
+                        Also advertise plain <code>ws://</code> fallback for compatibility. Leave off for WSS-only public intent.
+                    </label>
                 </div>
                 <p class="text-muted small mb-2">
                     Port forwarding instead? Enter the public host and mesh port below.
@@ -701,6 +715,7 @@
                     {% for pid in connected_peers %}
                     {% set dev = peer_device_profiles.get(pid) if peer_device_profiles else None %}
                     {% set pub = peer_public_identities.get(pid) if peer_public_identities else {} %}
+                    {% set active = peer_active_transports.get(pid) if peer_active_transports else {} %}
                     <li class="list-group-item d-flex align-items-start peer-row" data-peer-id="{{ pid }}" style="background:transparent; color:var(--canopy-text-primary); border-color:var(--canopy-border);">
                         <span class="peer-status-dot"></span>
                         {% if dev and dev.avatar_b64 and dev.avatar_mime %}
@@ -732,6 +747,15 @@
                             {% endif %}
                             <small class="peer-activity d-block" data-peer-connected>Connected: —</small>
                             <small class="peer-activity d-block" data-peer-last>Last activity: —</small>
+                            <small class="peer-activity d-block" data-peer-active-transport>
+                                Active transport:
+                                {% if active and active.active_transport %}
+                                    {{ active.active_transport_label or active.active_transport }}
+                                    {% if active.active_endpoint %} · {{ active.active_endpoint }}{% endif %}
+                                {% else %}
+                                    Detecting...
+                                {% endif %}
+                            </small>
                         </div>
                         <div class="ms-auto peer-actions">
                             {% set tscore = trust_scores.get(pid, 100) if trust_scores is defined else 100 %}
@@ -743,6 +767,17 @@
                             <span class="badge bg-secondary" title="Trust score: {{ tscore }}/100" style="opacity:0.6;"><i class="bi bi-shield-check"></i> {{ tscore }}</span>
                             {% endif %}
                             <span class="badge bg-success" title="Direct connection" data-peer-conn-type><i class="bi bi-lightning-charge"></i> Direct</span>
+                            <span class="badge {% if active and active.active_transport == 'wss' %}endpoint-badge-secure{% elif active and active.active_transport == 'ws' %}endpoint-badge-plain{% else %}bg-secondary{% endif %} peer-pill"
+                                  data-peer-active-transport-badge
+                                  title="{{ active.active_endpoint if active else '' }}">
+                                {% if active and active.active_transport == 'wss' %}
+                                <i class="bi bi-shield-lock"></i> wss active
+                                {% elif active and active.active_transport == 'ws' %}
+                                <i class="bi bi-unlock"></i> ws active
+                                {% else %}
+                                <i class="bi bi-question-circle"></i> transport pending
+                                {% endif %}
+                            </span>
                             <span class="badge bg-secondary peer-pill" data-peer-latency style="display:none;" title="Round-trip latency"></span>
                             <div class="dropdown peer-controls">
                                 <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
@@ -1055,12 +1090,29 @@
                                 {% for ep in peer.endpoints %}
                                 <span class="badge bg-secondary me-1" style="font-size:0.65rem;">{{ ep }}</span>
                                 {% endfor %}
+                                {% if peer.active_transport %}
+                                <small class="peer-activity d-block" data-peer-active-transport>
+                                    Active transport: {{ peer.active_transport_label or peer.active_transport }}
+                                    {% if peer.active_endpoint %} · {{ peer.active_endpoint }}{% endif %}
+                                </small>
+                                {% endif %}
                                 <small class="peer-activity d-block" data-peer-last>Last activity: —</small>
                             </div>
                         </div>
                         <div class="ms-auto peer-actions">
                             {% if peer.connection_type == 'direct' %}
                             <span class="badge bg-success">Connected</span>
+                            <span class="badge {% if peer.active_transport == 'wss' %}endpoint-badge-secure{% elif peer.active_transport == 'ws' %}endpoint-badge-plain{% else %}bg-secondary{% endif %} peer-pill"
+                                  data-peer-active-transport-badge
+                                  title="{{ peer.active_endpoint or '' }}">
+                                {% if peer.active_transport == 'wss' %}
+                                <i class="bi bi-shield-lock"></i> wss active
+                                {% elif peer.active_transport == 'ws' %}
+                                <i class="bi bi-unlock"></i> ws active
+                                {% else %}
+                                <i class="bi bi-question-circle"></i> transport pending
+                                {% endif %}
+                            </span>
                             {% if peer.can_treat_same_mesh %}
                             <button class="btn btn-sm btn-outline-success" onclick="reviewPeerMesh('{{ peer.peer_id }}', 'same_mesh_alias', this)">
                                 <i class="bi bi-check2-circle"></i> Treat as Same Mesh
@@ -1500,6 +1552,7 @@ function copyInvite() {
 
 function regenerateInvite() {
     const externalEndpoint = document.getElementById('externalEndpoint').value.trim();
+    const allowPlainFallback = !!document.getElementById('allowPlainFallback')?.checked;
     const host = document.getElementById('publicHost').value.trim();
     const port = document.getElementById('publicPort').value.trim();
     if (!externalEndpoint && !host) {
@@ -1509,6 +1562,7 @@ function regenerateInvite() {
     let url = '/api/v1/p2p/invite';
     if (externalEndpoint) {
         url += '?external_endpoint=' + encodeURIComponent(externalEndpoint);
+        if (allowPlainFallback) url += '&allow_plain_fallback=true';
     } else {
         url += '?public_host=' + encodeURIComponent(host);
         if (port) url += '&public_port=' + encodeURIComponent(port);
@@ -1671,6 +1725,8 @@ function invitePreviewWarnings(preview) {
         warnings.push('No direct endpoints are advertised. Canopy can register the peer, but direct connection may require broker/relay help.');
     } else if (!preview.endpoints.some((ep) => String(ep || '').toLowerCase().startsWith('wss://'))) {
         warnings.push('This invite advertises only plain ws:// endpoints. Use a wss:// tunnel, reverse proxy, or TLS mesh listener for public internet connections when possible.');
+    } else if (preview.endpoints.some((ep) => String(ep || '').toLowerCase().startsWith('ws://'))) {
+        warnings.push('This invite mixes wss:// and ws:// endpoints. The active session is only secure if Canopy actually connects over the wss:// endpoint.');
     }
     const knownLabel = PEER_LABELS[preview.peerId] || '';
     if (knownLabel && preview.peerLabel && knownLabel !== preview.peerLabel) {
@@ -2337,6 +2393,8 @@ function updateTransportSecurityPanel(status) {
     const certEl = document.getElementById('transport-cert-mode');
     const verificationEl = document.getElementById('transport-client-verification');
     const advertisedEl = document.getElementById('transport-advertised-summary');
+    const policyEl = document.getElementById('transport-invite-policy');
+    const recommendedEl = document.getElementById('transport-recommended-endpoint');
     const warningsEl = document.getElementById('transport-security-warnings');
     if (titleEl) titleEl.textContent = ts.transport_label || (tlsEnabled ? 'Secure WebSocket (wss)' : 'Plain WebSocket (ws)');
     if (badgeEl) {
@@ -2351,8 +2409,10 @@ function updateTransportSecurityPanel(status) {
     const secureCount = Number(ts.advertised_secure_count || 0);
     const plainCount = Number(ts.advertised_plain_count || 0);
     if (advertisedEl) advertisedEl.textContent = `${secureCount} secure / ${plainCount} plain`;
+    if (policyEl) policyEl.textContent = ts.invite_policy_label || 'Plain invite';
+    if (recommendedEl) recommendedEl.textContent = ts.recommended_endpoint || 'None';
     if (warningsEl) {
-        const warnings = Array.isArray(ts.warnings) ? ts.warnings.slice(0, 2) : [];
+        const warnings = Array.isArray(ts.warnings) ? ts.warnings.slice(0, 3) : [];
         warningsEl.innerHTML = warnings.length
             ? warnings.map(warning => `<div><i class="bi bi-info-circle"></i> ${_escapeHtml(warning)}</div>`).join('')
             : '<div><i class="bi bi-check-circle"></i> Explicit <code>wss://</code> endpoints will not silently downgrade to <code>ws://</code>.</div>';
@@ -2573,6 +2633,36 @@ function updatePeerConnDiag(peers) {
                     connTypeBadge.title = 'Direct connection';
                     connTypeBadge.innerHTML = '<i class="bi bi-lightning-charge"></i> Direct';
                 }
+            }
+            const activeTransport = String(info.active_transport || '').toLowerCase();
+            const activeEndpoint = String(info.active_endpoint || '');
+            const activeLabel = info.active_transport_label || (
+                activeTransport === 'wss' ? 'Secure WebSocket (wss)' :
+                activeTransport === 'ws' ? 'Plain WebSocket (ws)' :
+                info.connection_type === 'relayed' ? 'Relayed' : 'Unknown'
+            );
+            const activeText = row.querySelector('[data-peer-active-transport]');
+            if (activeText) {
+                activeText.textContent = activeEndpoint
+                    ? `Active transport: ${activeLabel} · ${activeEndpoint}`
+                    : `Active transport: ${activeLabel}`;
+            }
+            const activeBadge = row.querySelector('[data-peer-active-transport-badge]');
+            if (activeBadge) {
+                if (activeTransport === 'wss') {
+                    activeBadge.className = 'badge endpoint-badge-secure peer-pill';
+                    activeBadge.innerHTML = '<i class="bi bi-shield-lock"></i> wss active';
+                } else if (activeTransport === 'ws') {
+                    activeBadge.className = 'badge endpoint-badge-plain peer-pill';
+                    activeBadge.innerHTML = '<i class="bi bi-unlock"></i> ws active';
+                } else if (info.connection_type === 'relayed') {
+                    activeBadge.className = 'badge bg-info peer-pill';
+                    activeBadge.innerHTML = '<i class="bi bi-arrow-left-right"></i> relayed';
+                } else {
+                    activeBadge.className = 'badge bg-secondary peer-pill';
+                    activeBadge.innerHTML = '<i class="bi bi-question-circle"></i> transport pending';
+                }
+                activeBadge.title = activeEndpoint || activeLabel;
             }
             // Update latency badge
             const latBadge = row.querySelector('[data-peer-latency]');

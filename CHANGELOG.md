@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.29] - 2026-04-16
+
+### Changed
+- **Explicit public WSS invites now stay clearer from generation through live transport state** - public `wss://` invites no longer co-advertise same-host plain `ws://` fallback unless the operator explicitly opts in, active peer rows/diagnostics now distinguish the current live transport from other known endpoints, and operator-selected public endpoint intent no longer lingers after invite generation returns to the default/local path.
+
 ## [0.6.28] - 2026-04-16
 
 ### Changed

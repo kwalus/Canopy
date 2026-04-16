@@ -222,7 +222,11 @@ That panel shows:
 - whether outbound `wss://` verification is permissive or verified,
 - how many invite endpoints are secure vs plain.
 
-The `Reachable at` list also labels each advertised endpoint. If the endpoint shown to your peer starts with `wss://`, the invite is telling their node to connect with TLS-wrapped WebSocket transport.
+The `Reachable at` list also labels each advertised endpoint. If the endpoint shown to your peer starts with `wss://`, the invite is telling their node to connect with TLS-wrapped WebSocket transport. The panel now also shows the recommended endpoint and invite mode: secure public, mixed secure/plain, plain public, or LAN-only.
+
+### Why do I still see both `wss://` and `ws://` endpoints?
+
+For an explicitly generated public `wss://...` invite, Canopy suppresses same-host public `ws://...` fallback by default. LAN/private `ws://...` fallbacks may still appear for same-network convenience, and a plain public fallback can be intentionally enabled with the compatibility option. If a mixed invite is shown, check the connected peer card or diagnostics for **Active transport**; the live session is only WSS if the active endpoint is `wss://...`.
 
 ### Does `wss://` replace Canopy's peer verification?
 

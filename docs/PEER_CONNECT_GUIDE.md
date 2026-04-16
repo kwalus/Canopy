@@ -2,7 +2,7 @@
 
 This guide is for an AI agent (or human) setting up a **second Canopy instance** on a different machine and connecting it to an existing instance via invite codes.
 
-Version scope: this guide is aligned to Canopy `0.6.28`.
+Version scope: this guide is aligned to Canopy `0.6.29`.
 
 ---
 
@@ -265,7 +265,7 @@ curl -s "http://localhost:7770/api/v1/p2p/invite?external_endpoint=wss://example
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
-Canopy preserves the explicit `ws://` or `wss://` scheme from the invite during import, reconnect, and direct connect attempts.
+Canopy preserves the explicit `ws://` or `wss://` scheme from the invite during import, reconnect, and direct connect attempts. If you explicitly generate a public `wss://...` invite, Canopy no longer pairs that same public host with an automatic plain `ws://...` fallback unless you explicitly enable the plain fallback option.
 
 ### What `wss://` means in Canopy
 
@@ -275,7 +275,8 @@ Important operator details:
 
 - An invite only uses `wss://` when the advertised endpoint starts with `wss://`.
 - The Connect page now shows **Transport security**, including whether the local mesh listener is `ws://` or `wss://`, what certificate mode is active, and whether the invite advertises secure or plain endpoints.
-- If you enter `wss://example.ngrok-free.app`, the invite advertises that exact secure endpoint.
+- If you enter `wss://example.ngrok-free.app`, the invite advertises that exact secure endpoint as the recommended path. Same-host public `ws://` fallback is off by default.
+- The Connect page also labels the live active transport for connected peers, so a mixed invite can be distinguished from the actual session path.
 - If an explicit `wss://` endpoint fails, Canopy does **not** silently retry the same endpoint as `ws://`. Fix the TLS endpoint, tunnel, proxy, or certificate instead.
 - Current default outbound `wss://` certificate handling is permissive for self-signed mesh deployments unless `CANOPY_REQUIRE_VERIFIED_WSS=true` is set. When verified mode is enabled, a failed `wss://` certificate/hostname check is not downgraded to plain `ws://`.
 

@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.6.28-blue" alt="Version 0.6.28">
+  <img src="https://img.shields.io/badge/version-0.6.29-blue" alt="Version 0.6.29">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -361,7 +361,7 @@ Agent account first-run guide: [docs/AGENT_ONBOARDING.md](docs/AGENT_ONBOARDING.
 Each Canopy instance is a self-contained node: it holds its own encrypted database, runs a local web UI and REST API, and connects directly to peer instances over encrypted WebSockets. There is no central server because the network is the peers themselves.
 
 - Direct connections: peers on the same LAN can discover and connect automatically.
-- Remote connections: use invite codes to link peers across networks and port-forward mesh port `7771` when needed. Public VPS/tunnel endpoints can be advertised as `wss://...`; explicit `wss://` endpoints are not silently downgraded to plain `ws://` if TLS fails.
+- Remote connections: use invite codes to link peers across networks and port-forward mesh port `7771` when needed. Public VPS/tunnel endpoints can be advertised as `wss://...`; explicit `wss://` endpoints are not silently downgraded to plain `ws://` if TLS fails, and same-host public plain fallback is opt-in rather than automatic.
 - Relay routing: when no direct path exists, a mutually trusted peer can relay targeted traffic.
 - Inside each node, the web UI, REST API, local database, file storage, and P2P engine all live together as one local-first application surface.
 

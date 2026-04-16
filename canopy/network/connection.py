@@ -322,6 +322,8 @@ class ConnectionManager:
         advertised_endpoints: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Return operator-facing TLS/WebSocket transport status."""
+        from .invite import classify_invite_endpoints
+
         tls_active = bool(self.enable_tls and self._server_ssl)
         scheme = 'wss' if tls_active else 'ws'
         cert_path = Path(self.tls_cert_path)
@@ -331,15 +333,20 @@ class ConnectionManager:
             for endpoint in (advertised_endpoints or [])
             if str(endpoint or '').strip()
         ]
+        classification = classify_invite_endpoints(endpoints)
         secure_count = sum(1 for endpoint in endpoints if endpoint.lower().startswith('wss://'))
         plain_count = sum(1 for endpoint in endpoints if endpoint.lower().startswith('ws://'))
         warnings: List[str] = []
         if not tls_active:
             warnings.append('Local mesh listener is plain ws:// unless a tunnel or reverse proxy terminates TLS.')
+        if classification.get('has_public_plain_fallback'):
+            warnings.append('This invite still advertises a plain public ws:// fallback. Remote peers may connect insecurely unless you remove plain fallback.')
         if endpoints and plain_count and secure_count:
             warnings.append('Invite advertises both secure and plain endpoints; remote peers may use either candidate.')
         elif endpoints and plain_count and not secure_count:
             warnings.append('Invite currently advertises only plain ws:// endpoints.')
+        if not tls_active and classification.get('public_secure_endpoints'):
+            warnings.append('Canopy cannot verify external TLS termination from this local plain ws:// listener alone.')
         if tls_active and self.tls_cert_mode == 'self_signed':
             warnings.append('Local TLS certificate is self-signed; public VPS deployments should prefer a trusted cert or TLS reverse proxy.')
         if self.client_verification_mode == 'permissive':
@@ -358,6 +365,7 @@ class ConnectionManager:
             'advertised_plain_count': plain_count,
             'explicit_wss_downgrade_allowed': False,
             'warnings': warnings,
+            **classification,
         }
 
     @staticmethod

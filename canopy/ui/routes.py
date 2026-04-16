@@ -274,15 +274,20 @@ def _transport_security_status(
     advertised_endpoints: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     """Return UI-safe transport security diagnostics for the active mesh listener."""
+    from ..network.invite import classify_invite_endpoints
+
     endpoints = [
         str(endpoint or '').strip()
         for endpoint in (advertised_endpoints or [])
         if str(endpoint or '').strip()
     ]
+    classification = classify_invite_endpoints(endpoints)
     conn_mgr = getattr(p2p_manager, 'connection_manager', None) if p2p_manager else None
     if conn_mgr and hasattr(conn_mgr, 'get_transport_security_status'):
         try:
-            return dict(conn_mgr.get_transport_security_status(advertised_endpoints=endpoints) or {})
+            status = dict(conn_mgr.get_transport_security_status(advertised_endpoints=endpoints) or {})
+            status.update(classification)
+            return status
         except Exception:
             logger.debug("Could not load connection-manager transport security status", exc_info=True)
     if p2p_manager and hasattr(p2p_manager, 'get_transport_security_status'):
@@ -292,6 +297,7 @@ def _transport_security_status(
                 status['advertised_endpoints'] = endpoints
                 status['advertised_secure_count'] = sum(1 for ep in endpoints if ep.lower().startswith('wss://'))
                 status['advertised_plain_count'] = sum(1 for ep in endpoints if ep.lower().startswith('ws://'))
+            status.update(classification)
             return status
         except Exception:
             logger.debug("Could not load P2P transport security status", exc_info=True)
@@ -311,6 +317,7 @@ def _transport_security_status(
         'advertised_plain_count': plain_count,
         'explicit_wss_downgrade_allowed': False,
         'warnings': ['P2P transport security status is unavailable.'],
+        **classification,
     }
 
 
@@ -8563,6 +8570,14 @@ def create_ui_blueprint() -> Blueprint:
             # Connected / discovered peers
             connected_peers = p2p_manager.get_connected_peers() if p2p_manager else []
             discovered_peers = p2p_manager.get_discovered_peers() if p2p_manager else []
+            peer_active_transports: dict[str, dict[str, Any]] = {}
+            get_active_transport = getattr(p2p_manager, 'get_peer_active_transport', None) if p2p_manager else None
+            if callable(get_active_transport):
+                for pid in connected_peers:
+                    try:
+                        peer_active_transports[pid] = dict(get_active_transport(pid) or {})
+                    except Exception:
+                        peer_active_transports[pid] = {}
 
             # Peers introduced by contacts
             introduced_peers = p2p_manager.get_introduced_peers() if p2p_manager else []
@@ -8616,6 +8631,7 @@ def create_ui_blueprint() -> Blueprint:
                         connection_type = 'direct'
                     elif pid in relayed_set:
                         connection_type = 'relayed'
+                    active_transport = peer_active_transports.get(pid, {}) if pid in connected_set else {}
                     public_identity = {}
                     if hasattr(p2p_manager, 'get_peer_public_identity'):
                         try:
@@ -8637,6 +8653,10 @@ def create_ui_blueprint() -> Blueprint:
                         'connected': connection_type in {'direct', 'relayed'},
                         'connection_type': connection_type,
                         'relay_via': active_relays.get(pid),
+                        'active_endpoint': str(active_transport.get('active_endpoint') or ''),
+                        'active_transport': str(active_transport.get('active_transport') or ''),
+                        'active_transport_label': str(active_transport.get('active_transport_label') or ''),
+                        'active_transport_secure': bool(active_transport.get('active_transport_secure')),
                     })
 
             # Device profiles for peer identification
@@ -8739,6 +8759,7 @@ def create_ui_blueprint() -> Blueprint:
                                  current_instance_label=current_instance_label,
                                  mesh_port=config.network.mesh_port if config else 7771,
                                  connected_peers=connected_peers,
+                                 peer_active_transports=peer_active_transports,
                                  discovered_peers=discovered_peers,
                                  introduced_peers=introduced_peers,
                                  known_peers=known_peers,
@@ -20438,6 +20459,30 @@ def create_ui_blueprint() -> Blueprint:
                     except Exception:
                         reconnect_scheduled = True
                 discovered_entry = discovered_by_peer.get(peer_id, {})
+                active_endpoint = next(
+                    (
+                        str(item.get('endpoint') or '').strip()
+                        for item in endpoint_details
+                        if item.get('currently_connected') and str(item.get('endpoint') or '').strip()
+                    ),
+                    '',
+                )
+                if not active_endpoint and conn is not None:
+                    active_endpoint = str(getattr(conn, 'endpoint_uri', '') or '').strip()
+                active_transport = ''
+                if active_endpoint:
+                    try:
+                        from ..network.invite import parse_invite_endpoint
+
+                        parsed_active = parse_invite_endpoint(active_endpoint)
+                        if parsed_active:
+                            active_transport = parsed_active[2]
+                    except Exception:
+                        active_transport = ''
+                active_transport_label = {
+                    'wss': 'Secure WebSocket (wss)',
+                    'ws': 'Plain WebSocket (ws)',
+                }.get(active_transport, 'Relayed' if is_relayed else 'Unknown')
                 peers.append({
                     'peer_id': peer_id,
                     'display_name': im.peer_display_names.get(peer_id, ''),
@@ -20447,6 +20492,10 @@ def create_ui_blueprint() -> Blueprint:
                     'latency_ms': latency_ms,
                     'connected_at': conn.connected_at if conn else None,
                     'last_activity': conn.last_activity if conn else None,
+                    'active_endpoint': active_endpoint,
+                    'active_transport': active_transport,
+                    'active_transport_label': active_transport_label,
+                    'active_transport_secure': active_transport == 'wss',
                     'endpoints': [item.get('endpoint') for item in endpoint_details if item.get('endpoint')],
                     'endpoint_details': endpoint_details,
                     'discovered': bool(discovered_entry),

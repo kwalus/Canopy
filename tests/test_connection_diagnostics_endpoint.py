@@ -175,6 +175,35 @@ class TestConnectionDiagnosticsEndpoint(unittest.TestCase):
         self.assertEqual(peers[0]['connection_type'], 'direct')
         self.assertIsNone(peers[0]['relay_via'])
 
+    def test_direct_peer_reports_active_transport_separately_from_known_endpoints(self):
+        """Diagnostics should expose the live ws/wss path separately from advertised candidates."""
+        self.p2p_manager.get_connected_peers.return_value = ['peer-abc']
+        self.p2p_manager.get_peer_endpoint_diagnostics.return_value = [
+            {
+                'endpoint': 'wss://vps.example.com:443',
+                'sources': ['active'],
+                'currently_connected': True,
+                'attempt_count': 1,
+                'success_count': 1,
+            },
+            {
+                'endpoint': 'ws://vps.example.com:443',
+                'sources': ['stored'],
+                'currently_connected': False,
+                'attempt_count': 0,
+                'success_count': 0,
+            },
+        ]
+        self._authenticate()
+        with patch('canopy.network.invite.generate_invite', side_effect=Exception('no-op')):
+            response = self.client.get('/ajax/connection_diagnostics')
+        data = response.get_json()
+        peer = data.get('peers', [])[0]
+        self.assertEqual(peer.get('active_endpoint'), 'wss://vps.example.com:443')
+        self.assertEqual(peer.get('active_transport'), 'wss')
+        self.assertTrue(peer.get('active_transport_secure'))
+        self.assertIn('ws://vps.example.com:443', peer.get('endpoints', []))
+
     def test_relayed_peer_is_reported_as_relayed(self):
         """A peer in active_relays is labelled as a relayed connection."""
         self.p2p_manager.get_connected_peers.return_value = []

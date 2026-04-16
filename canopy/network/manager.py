@@ -133,6 +133,10 @@ class P2PNetworkManager:
         self._activity_events: Deque[Dict[str, Any]] = deque(maxlen=200)
         self._endpoint_health_lock = threading.Lock()
         self._endpoint_health: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        self._operator_external_endpoint: Optional[str] = None
+        self._operator_public_host: Optional[str] = None
+        self._operator_public_port: Optional[int] = None
+        self._operator_allow_plain_fallback: bool = False
         
         # Callback that returns list of public channels for sync
         self.get_public_channels_for_sync: Optional[Callable] = None
@@ -1789,12 +1793,53 @@ class P2PNetworkManager:
             mesh_port = int(getattr(self.config.network, 'mesh_port', 0) or 0)
             if mesh_port <= 0:
                 return []
-            invite = generate_invite(self.identity_manager, mesh_port)
+            invite = generate_invite(
+                self.identity_manager,
+                mesh_port,
+                public_host=self._operator_public_host,
+                public_port=self._operator_public_port,
+                external_endpoint=self._operator_external_endpoint,
+                allow_plain_fallback=self._operator_allow_plain_fallback,
+            )
             local_peer_id = self.local_identity.peer_id if self.local_identity else ''
             return self._sanitize_endpoints(local_peer_id, list(invite.endpoints or []))
         except Exception as exc:
             logger.debug("Could not compute local advertised endpoints: %s", exc)
             return []
+
+    def remember_operator_advertised_endpoint(
+        self,
+        *,
+        external_endpoint: Optional[str] = None,
+        public_host: Optional[str] = None,
+        public_port: Optional[int] = None,
+        allow_plain_fallback: bool = False,
+    ) -> None:
+        """Remember the operator's current public invite endpoint for handshakes."""
+        from .invite import canonicalize_invite_endpoint
+
+        clean_external = str(external_endpoint or '').strip()
+        if clean_external:
+            canon = canonicalize_invite_endpoint(clean_external)
+            if canon:
+                self._operator_external_endpoint = canon
+                self._operator_public_host = None
+                self._operator_public_port = None
+                self._operator_allow_plain_fallback = bool(allow_plain_fallback)
+                return
+
+        clean_host = str(public_host or '').strip()
+        if clean_host:
+            self._operator_external_endpoint = None
+            self._operator_public_host = clean_host
+            self._operator_public_port = int(public_port) if public_port else None
+            self._operator_allow_plain_fallback = bool(allow_plain_fallback)
+            return
+
+        self._operator_external_endpoint = None
+        self._operator_public_host = None
+        self._operator_public_port = None
+        self._operator_allow_plain_fallback = False
 
     @staticmethod
     def _merge_endpoint_lists(*endpoint_groups: list[str]) -> list[str]:
@@ -5997,6 +6042,24 @@ class P2PNetworkManager:
             return []
         return self.connection_manager.get_connected_peers()
 
+    def get_peer_active_transport(self, peer_id: str) -> Dict[str, Any]:
+        """Return the active direct endpoint and transport scheme for a peer."""
+        active_endpoint = self._current_connection_endpoint(peer_id) or ''
+        parsed = self._parse_endpoint(active_endpoint) if active_endpoint else None
+        scheme = parsed[2] if parsed else ''
+        if scheme == 'wss':
+            label = 'Secure WebSocket (wss)'
+        elif scheme == 'ws':
+            label = 'Plain WebSocket (ws)'
+        else:
+            label = 'Unknown'
+        return {
+            'active_endpoint': active_endpoint,
+            'active_transport': scheme,
+            'active_transport_label': label,
+            'active_transport_secure': scheme == 'wss',
+        }
+
     def get_peer_versions(self) -> Dict[str, Dict[str, Any]]:
         """Return cached per-peer version/protocol metadata."""
         # Refresh cache opportunistically from current live connections.
@@ -6032,11 +6095,16 @@ class P2PNetworkManager:
 
     def get_transport_security_status(self) -> Dict[str, Any]:
         """Return operator-facing WebSocket/TLS status for UI diagnostics."""
+        from .invite import classify_invite_endpoints
+
         advertised = self._get_local_advertised_endpoints()
+        classification = classify_invite_endpoints(advertised)
         conn_mgr = self.connection_manager
         if conn_mgr and hasattr(conn_mgr, 'get_transport_security_status'):
             try:
-                return dict(conn_mgr.get_transport_security_status(advertised_endpoints=advertised) or {})
+                status = dict(conn_mgr.get_transport_security_status(advertised_endpoints=advertised) or {})
+                status.update(classification)
+                return status
             except Exception:
                 logger.debug("Could not get transport security status from connection manager", exc_info=True)
         scheme = self.ws_scheme
@@ -6045,6 +6113,8 @@ class P2PNetworkManager:
         warnings = []
         if plain_count and not secure_count:
             warnings.append('Invite currently advertises only plain ws:// endpoints.')
+        if classification.get('has_public_plain_fallback'):
+            warnings.append('This invite still advertises a plain public ws:// fallback. Remote peers may connect insecurely unless you remove plain fallback.')
         return {
             'mesh_scheme': scheme,
             'tls_enabled': scheme == 'wss',
@@ -6063,6 +6133,7 @@ class P2PNetworkManager:
             'advertised_plain_count': plain_count,
             'explicit_wss_downgrade_allowed': False,
             'warnings': warnings,
+            **classification,
         }
 
     def get_peer_id(self) -> Optional[str]:

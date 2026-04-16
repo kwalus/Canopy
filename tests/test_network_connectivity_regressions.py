@@ -29,7 +29,7 @@ if 'zeroconf' not in sys.modules:
 
 from canopy.network.discovery import DiscoveredPeer, PeerDiscovery
 from canopy.network.connection import ConnectionManager
-from canopy.network.invite import InviteCode, import_invite, generate_invite
+from canopy.network.invite import InviteCode, classify_invite_endpoints, import_invite, generate_invite
 from canopy.network.manager import P2PNetworkManager
 from canopy.network.identity import IdentityManager
 
@@ -162,14 +162,58 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
         identity_manager = IdentityManager(Path(self.tempdir) / 'peer_identity.json')
         identity_manager.initialize()
 
-        invite = generate_invite(
-            identity_manager,
-            7771,
-            external_endpoint='wss://demo.ngrok-free.app:443',
-        )
+        with patch('canopy.network.invite.get_local_ips', return_value=['192.168.1.10']):
+            invite = generate_invite(
+                identity_manager,
+                7771,
+                external_endpoint='wss://demo.ngrok-free.app:443',
+            )
 
         self.assertEqual(invite.endpoints[0], 'wss://demo.ngrok-free.app:443')
-        self.assertTrue(any(endpoint.startswith('ws://') for endpoint in invite.endpoints[1:]))
+        self.assertIn('ws://192.168.1.10:7771', invite.endpoints[1:])
+
+    def test_generate_invite_suppresses_same_host_plain_public_wss_fallback_by_default(self) -> None:
+        identity_manager = IdentityManager(Path(self.tempdir) / 'peer_identity.json')
+        identity_manager.initialize()
+
+        with patch('canopy.network.invite.get_local_ips', return_value=['50.6.243.52', '192.168.1.10']):
+            invite = generate_invite(
+                identity_manager,
+                7771,
+                external_endpoint='wss://50.6.243.52:7771',
+                public_host='50.6.243.52',
+            )
+
+        self.assertIn('wss://50.6.243.52:7771', invite.endpoints)
+        self.assertNotIn('ws://50.6.243.52:7771', invite.endpoints)
+        self.assertIn('ws://192.168.1.10:7771', invite.endpoints)
+
+    def test_generate_invite_allows_same_host_plain_fallback_when_explicitly_requested(self) -> None:
+        identity_manager = IdentityManager(Path(self.tempdir) / 'peer_identity.json')
+        identity_manager.initialize()
+
+        with patch('canopy.network.invite.get_local_ips', return_value=['50.6.243.52']):
+            invite = generate_invite(
+                identity_manager,
+                7771,
+                external_endpoint='wss://50.6.243.52:7771',
+                allow_plain_fallback=True,
+            )
+
+        self.assertEqual(invite.endpoints[0], 'wss://50.6.243.52:7771')
+        self.assertIn('ws://50.6.243.52:7771', invite.endpoints)
+
+    def test_classify_invite_endpoints_marks_secure_public_and_lan_fallbacks(self) -> None:
+        classification = classify_invite_endpoints([
+            'wss://50.6.243.52:7771',
+            'ws://192.168.1.10:7771',
+        ])
+
+        self.assertEqual(classification.get('recommended_endpoint'), 'wss://50.6.243.52:7771')
+        self.assertEqual(classification.get('recommended_transport'), 'wss')
+        self.assertEqual(classification.get('invite_policy'), 'secure_public')
+        self.assertFalse(classification.get('has_public_plain_fallback'))
+        self.assertTrue(classification.get('has_lan_fallback'))
 
     def test_invite_encode_decode_preserves_preview_metadata(self) -> None:
         invite = InviteCode(
@@ -761,6 +805,55 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
             manager.message_router.send_broker_request.call_args.kwargs['requester_endpoints'],
             ['wss://demo.example.com:443'],
         )
+
+    def test_operator_wss_endpoint_is_reused_for_handshake_advertisements(self) -> None:
+        manager = self._build_manager()
+        manager.identity_manager.initialize()
+        manager.local_identity = manager.identity_manager.local_identity
+        manager.remember_operator_advertised_endpoint(
+            external_endpoint='wss://50.6.243.52:7771',
+            allow_plain_fallback=False,
+        )
+
+        with patch('canopy.network.invite.get_local_ips', return_value=['50.6.243.52', '192.168.1.10']):
+            endpoints = manager._get_local_advertised_endpoints()
+
+        self.assertEqual(endpoints[0], 'wss://50.6.243.52:7771')
+        self.assertNotIn('ws://50.6.243.52:7771', endpoints)
+        self.assertIn('ws://192.168.1.10:7771', endpoints)
+
+    def test_clearing_operator_endpoint_restores_default_handshake_advertisements(self) -> None:
+        manager = self._build_manager()
+        manager.identity_manager.initialize()
+        manager.local_identity = manager.identity_manager.local_identity
+        manager.remember_operator_advertised_endpoint(
+            external_endpoint='wss://50.6.243.52:7771',
+            allow_plain_fallback=False,
+        )
+        manager.remember_operator_advertised_endpoint()
+
+        with patch('canopy.network.invite.get_local_ips', return_value=['50.6.243.52', '192.168.1.10']):
+            endpoints = manager._get_local_advertised_endpoints()
+
+        self.assertNotIn('wss://50.6.243.52:7771', endpoints)
+        self.assertIn('ws://50.6.243.52:7771', endpoints)
+        self.assertIn('ws://192.168.1.10:7771', endpoints)
+
+    def test_peer_active_transport_reports_current_endpoint_scheme(self) -> None:
+        manager = self._build_manager()
+        manager.connection_manager = types.SimpleNamespace(
+            get_connection=lambda peer_id: types.SimpleNamespace(
+                endpoint_uri='wss://demo.ngrok-free.app:443',
+                address='10.0.0.10',
+                port=7771,
+            )
+        )
+
+        status = manager.get_peer_active_transport('peer-remote')
+
+        self.assertEqual(status.get('active_endpoint'), 'wss://demo.ngrok-free.app:443')
+        self.assertEqual(status.get('active_transport'), 'wss')
+        self.assertTrue(status.get('active_transport_secure'))
 
     def test_connectable_endpoints_prefer_public_over_stale_private_storage(self) -> None:
         manager = self._build_manager()
