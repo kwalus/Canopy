@@ -27,6 +27,11 @@
         border-color: var(--canopy-border);
         background: var(--canopy-bg-tertiary);
     }
+    .peer-row:target {
+        scroll-margin-top: 92px;
+        border-color: rgba(34, 197, 94, 0.62) !important;
+        box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.16);
+    }
     .peer-meta {
         min-width: 0;
     }
@@ -698,7 +703,7 @@
 <!-- Connected / Discovered Peers -->
 <div class="row">
     <div class="col-lg-6 mb-4">
-        <div class="card">
+        <div class="card" id="connected-peers">
             <div class="card-header">
                 <div class="d-flex justify-content-between align-items-center">
                     <h5 class="mb-0"><i class="bi bi-people"></i> Connected Peers</h5>
@@ -716,7 +721,7 @@
                     {% set dev = peer_device_profiles.get(pid) if peer_device_profiles else None %}
                     {% set pub = peer_public_identities.get(pid) if peer_public_identities else {} %}
                     {% set active = peer_active_transports.get(pid) if peer_active_transports else {} %}
-                    <li class="list-group-item d-flex align-items-start peer-row" data-peer-id="{{ pid }}" style="background:transparent; color:var(--canopy-text-primary); border-color:var(--canopy-border);">
+                    <li class="list-group-item d-flex align-items-start peer-row" id="connected-peer-{{ pid }}" data-peer-id="{{ pid }}" style="background:transparent; color:var(--canopy-text-primary); border-color:var(--canopy-border);">
                         <span class="peer-status-dot"></span>
                         {% if dev and dev.avatar_b64 and dev.avatar_mime %}
                         <img src="data:{{ dev.avatar_mime }};base64,{{ dev.avatar_b64 }}"
@@ -798,7 +803,7 @@
                     {% set viadev = peer_device_profiles.get(relay) if peer_device_profiles else None %}
                     {% set rpub = peer_public_identities.get(dest) if peer_public_identities else {} %}
                     {% set viapub = peer_public_identities.get(relay) if peer_public_identities else {} %}
-                    <li class="list-group-item d-flex align-items-start peer-row" data-peer-id="{{ dest }}" style="background:transparent; color:var(--canopy-text-primary); border-color:var(--canopy-border);">
+                    <li class="list-group-item d-flex align-items-start peer-row" id="relayed-peer-{{ dest }}" data-peer-id="{{ dest }}" style="background:transparent; color:var(--canopy-text-primary); border-color:var(--canopy-border);">
                         <span class="peer-status-dot relay"></span>
                         {% if rdev and rdev.avatar_b64 and rdev.avatar_mime %}
                         <img src="data:{{ rdev.avatar_mime }};base64,{{ rdev.avatar_b64 }}"

@@ -2901,11 +2901,29 @@
             border-radius: 11px;
             background: rgba(255, 255, 255, 0.03);
             border: 1px solid rgba(255, 255, 255, 0.04);
+            color: inherit;
             min-width: 0;
             width: 100%;
             overflow: hidden;
             box-sizing: border-box;
             min-height: 42px;
+            text-decoration: none;
+            cursor: pointer;
+            transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
+        }
+
+        .sidebar-peer:hover,
+        .sidebar-peer:focus-visible {
+            color: inherit;
+            text-decoration: none;
+            border-color: rgba(34, 197, 94, 0.3);
+            background: rgba(34, 197, 94, 0.08);
+            transform: translateY(-1px);
+        }
+
+        .sidebar-peer:focus-visible {
+            outline: 2px solid rgba(34, 197, 94, 0.5);
+            outline-offset: 2px;
         }
 
         .sidebar-peer-avatar {
@@ -7845,7 +7863,7 @@
                     <i class="bi bi-list"></i>
                 </button>
                 {% if sidebar_connected_peers is defined %}
-                <a href="{{ url_for('ui.connect_page') }}" class="nav-link header-peer-link d-inline-flex align-items-center gap-1 me-2 text-nowrap" title="P2P peer connections">
+                <a href="{{ url_for('ui.connect_page') }}#connected-peers" class="nav-link header-peer-link d-inline-flex align-items-center gap-1 me-2 text-nowrap" title="P2P peer connections">
                     <i class="bi bi-link-45deg"></i>
                     <span class="badge rounded-pill {% if sidebar_connected_peers|length > 0 %}bg-success{% else %}bg-secondary{% endif %}" id="header-peer-count">{{ sidebar_connected_peers|length }}</span>
                 </a>
@@ -8325,7 +8343,11 @@
                                     {% else %}
                                         {% set trust_class = 'quarantine' %}
                                     {% endif %}
-                                    <div class="sidebar-peer" data-peer-id="{{ peer_id }}">
+                                    <a class="sidebar-peer"
+                                       data-peer-id="{{ peer_id }}"
+                                       href="{{ url_for('ui.trust_management') }}#trust-peer-{{ peer_id|urlencode }}"
+                                       title="Open {{ display_name }} in Trust Network"
+                                       aria-label="Open {{ display_name }} in Trust Network">
                                         <div class="sidebar-peer-avatar">
                                             {% if profile and profile.avatar_b64 %}
                                                 <img src="data:{{ profile.avatar_mime or 'image/png' }};base64,{{ profile.avatar_b64 }}" alt="{{ display_name }}">
@@ -8349,7 +8371,7 @@
                                             {% endif %}
                                             <span class="trust-pill {{ trust_class }}">{{ trust_label }}</span>
                                         {% endif %}
-                                    </div>
+                                    </a>
                                 {% endfor %}
                             {% else %}
                                 <div class="sidebar-peer-empty">No active peers</div>
@@ -8625,6 +8647,8 @@
                 feed: {{ url_for('ui.feed')|tojson }},
                 channels: {{ url_for('ui.channels')|tojson }},
                 messages: {{ url_for('ui.messages')|tojson }},
+                trustNetwork: {{ url_for('ui.trust_management')|tojson }},
+                connect: {{ url_for('ui.connect_page')|tojson }},
                 sidebarAttentionSummary: {{ url_for('ui.ajax_sidebar_attention_summary')|tojson }},
                 sidebarAttentionSnapshot: {{ url_for('ui.ajax_sidebar_attention_snapshot')|tojson }},
                 sidebarAttentionClear: {{ url_for('ui.ajax_sidebar_attention_clear')|tojson }},

@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.31] - 2026-04-17
+
+### Changed
+- **Sidebar connected peers now deep-link into the right review surfaces instead of behaving like inert labels** - clicking an individual connected peer in the left rail now opens the matching Trust Network card, the header peer-count link now jumps to the Connected Peers section on Connect, and both destinations add target highlighting so operators land on the right peer state immediately.
+- **Notification bell filters now support multi-toggle adjustment without collapsing the menu after every click** - Mentions, Inbox, DMs, Channels, Feed, and Reset now keep the dropdown open while the user refines filters, without changing normal notification-item navigation or clear behavior.
+
 ## [0.6.30] - 2026-04-16
 
 ### Changed
