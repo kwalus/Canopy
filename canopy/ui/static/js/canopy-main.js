@@ -1736,7 +1736,14 @@
             'deck.media.observe',
             'clipboard.write',
             'module.storage.local',
+            'module.storage.module',
         ]);
+        const CANOPY_MODULE_STORAGE_PREFIX = 'canopy-module:v2';
+        const CANOPY_MODULE_STORAGE_MAX_KEY_BYTES = 128;
+        const CANOPY_MODULE_STORAGE_MAX_VALUE_BYTES = 32 * 1024;
+        const CANOPY_MODULE_STORAGE_MAX_SCOPE_BYTES = 128 * 1024;
+        const CANOPY_MODULE_STORAGE_MAX_KEYS_PER_SCOPE = 80;
+        const CANOPY_MODULE_STORAGE_SCOPES = new Set(['source', 'module']);
         const CANOPY_DECK_IFRAME_HOSTS = new Set([
             'www.youtube-nocookie.com',
             'player.vimeo.com',
@@ -8040,15 +8047,251 @@
                 return JSON.stringify(value || {}).replace(/</g, '\\u003c');
             }
 
-            function deckModuleSessionStorageKey(session, payloadKey) {
-                if (!session || !session.item || !session.item.manifest) return '';
-                const key = normalizeDeckWidgetText(payloadKey, 64);
+            function deckModuleStorageByteLength(value) {
+                const text = String(value == null ? '' : value);
+                try {
+                    return new TextEncoder().encode(text).length;
+                } catch (_) {
+                    try {
+                        return unescape(encodeURIComponent(text)).length;
+                    } catch (__) {
+                        return text.length;
+                    }
+                }
+            }
+
+            function normalizeDeckModuleStorageComponent(value, fallback, maxLength = 140) {
+                const raw = String(value == null ? '' : value).trim() || fallback || 'unknown';
+                return encodeURIComponent(raw)
+                    .replace(/%/g, '~')
+                    .replace(/[!'()*]/g, '')
+                    .slice(0, maxLength) || String(fallback || 'unknown');
+            }
+
+            function normalizeDeckModuleStorageKey(payloadKey) {
+                const key = String(payloadKey == null ? '' : payloadKey).trim();
                 if (!key) return '';
+                if (deckModuleStorageByteLength(key) > CANOPY_MODULE_STORAGE_MAX_KEY_BYTES) return '';
+                if (!/^[A-Za-z0-9._:-]+$/.test(key)) return '';
+                return key;
+            }
+
+            function normalizeDeckModuleStorageValue(rawValue) {
+                let value;
+                if (typeof rawValue === 'string') {
+                    value = rawValue;
+                } else if (rawValue == null) {
+                    value = '';
+                } else {
+                    try {
+                        value = JSON.stringify(rawValue);
+                    } catch (_) {
+                        value = String(rawValue);
+                    }
+                }
+                if (deckModuleStorageByteLength(value) > CANOPY_MODULE_STORAGE_MAX_VALUE_BYTES) {
+                    throw new Error(`Value exceeds local module storage limit (${CANOPY_MODULE_STORAGE_MAX_VALUE_BYTES} bytes)`);
+                }
+                return value;
+            }
+
+            function getCurrentMeshspaceIdForModuleStorage() {
+                const meshNode = document.querySelector('[data-meshspace-current-id]');
+                return String(
+                    (meshNode && meshNode.getAttribute('data-meshspace-current-id'))
+                    || (window.CANOPY_VARS && window.CANOPY_VARS.currentMeshspaceId)
+                    || 'default-mesh'
+                ).trim() || 'default-mesh';
+            }
+
+            function getCurrentUserIdForModuleStorage() {
+                return String(
+                    (window.CANOPY_VARS && (window.CANOPY_VARS.localUserId || window.CANOPY_VARS.userId))
+                    || 'local-user'
+                ).trim() || 'local-user';
+            }
+
+            function deckModuleStorageSourceId(session) {
                 const sourceEl = deckItemSourceEl(session.item);
-                const sourceId = sourceEl
+                return sourceEl
                     ? String(sourceEl.getAttribute('data-post-id') || sourceEl.getAttribute('data-message-id') || 'source')
                     : 'source';
+            }
+
+            function deckModuleStorageScope(rawScope) {
+                const scope = String(rawScope || 'source').trim().toLowerCase();
+                return CANOPY_MODULE_STORAGE_SCOPES.has(scope) ? scope : 'source';
+            }
+
+            function deckModuleStorageCapabilityForScope(rawScope) {
+                return deckModuleStorageScope(rawScope) === 'module'
+                    ? 'module.storage.module'
+                    : 'module.storage.local';
+            }
+
+            function deckModuleSessionStoragePrefix(session, rawScope) {
+                if (!session || !session.item || !session.item.manifest) return '';
+                const manifest = session.item.manifest || {};
+                const runtime = manifest.module_runtime || {};
+                const scope = deckModuleStorageScope(rawScope);
+                const meshId = normalizeDeckModuleStorageComponent(getCurrentMeshspaceIdForModuleStorage(), 'mesh');
+                const userId = normalizeDeckModuleStorageComponent(getCurrentUserIdForModuleStorage(), 'user');
+                const moduleId = normalizeDeckModuleStorageComponent(
+                    runtime.bundle_file_id || runtime.bundle_url || manifest.key || 'module',
+                    'module',
+                    170
+                );
+                const manifestKey = normalizeDeckModuleStorageComponent(manifest.key || moduleId, 'manifest', 170);
+                const sourceId = scope === 'source'
+                    ? normalizeDeckModuleStorageComponent(deckModuleStorageSourceId(session), 'source', 170)
+                    : 'all-sources';
+                return `${CANOPY_MODULE_STORAGE_PREFIX}:${meshId}:${userId}:${moduleId}:${manifestKey}:${scope}:${sourceId}:`;
+            }
+
+            function deckModuleSessionStorageKey(session, payloadKey, rawScope) {
+                const key = normalizeDeckModuleStorageKey(payloadKey);
+                if (!key) return '';
+                const prefix = deckModuleSessionStoragePrefix(session, rawScope);
+                return prefix ? `${prefix}${key}` : '';
+            }
+
+            function deckModuleLegacyStorageKey(session, payloadKey) {
+                if (!session || !session.item || !session.item.manifest) return '';
+                const key = normalizeDeckModuleStorageKey(payloadKey);
+                if (!key) return '';
+                const sourceId = deckModuleStorageSourceId(session);
                 return `canopy-module:${session.item.manifest.key}:${sourceId}:${key}`;
+            }
+
+            function deckModuleStorageScopeEntries(session, rawScope) {
+                const prefix = deckModuleSessionStoragePrefix(session, rawScope);
+                if (!prefix || !window.localStorage) return [];
+                const entries = [];
+                for (let i = 0; i < window.localStorage.length; i += 1) {
+                    const storageKey = window.localStorage.key(i);
+                    if (!storageKey || !storageKey.startsWith(prefix)) continue;
+                    const key = storageKey.slice(prefix.length);
+                    entries.push({
+                        key,
+                        storageKey,
+                        value: window.localStorage.getItem(storageKey),
+                    });
+                }
+                entries.sort((a, b) => a.key.localeCompare(b.key));
+                return entries;
+            }
+
+            function deckModuleStorageUsageBytes(entries, replacingStorageKey, nextValue) {
+                let total = 0;
+                (entries || []).forEach((entry) => {
+                    if (!entry || entry.storageKey === replacingStorageKey) return;
+                    total += deckModuleStorageByteLength(entry.storageKey);
+                    total += deckModuleStorageByteLength(entry.value || '');
+                });
+                if (replacingStorageKey) {
+                    total += deckModuleStorageByteLength(replacingStorageKey);
+                    total += deckModuleStorageByteLength(nextValue || '');
+                }
+                return total;
+            }
+
+            function deckModuleStorageInfo(session, rawScope) {
+                const scope = deckModuleStorageScope(rawScope);
+                const entries = deckModuleStorageScopeEntries(session, scope);
+                return {
+                    scope,
+                    key_count: entries.length,
+                    max_keys: CANOPY_MODULE_STORAGE_MAX_KEYS_PER_SCOPE,
+                    bytes_used: deckModuleStorageUsageBytes(entries, '', ''),
+                    max_bytes: CANOPY_MODULE_STORAGE_MAX_SCOPE_BYTES,
+                    max_value_bytes: CANOPY_MODULE_STORAGE_MAX_VALUE_BYTES,
+                };
+            }
+
+            function deckModuleStorageGet(session, payloadKey, rawScope) {
+                const scope = deckModuleStorageScope(rawScope);
+                const storageKey = deckModuleSessionStorageKey(session, payloadKey, scope);
+                if (!storageKey) throw new Error('Invalid storage key');
+                let value = window.localStorage.getItem(storageKey);
+                let migrated = false;
+                if (value === null && scope === 'source') {
+                    const legacyKey = deckModuleLegacyStorageKey(session, payloadKey);
+                    if (legacyKey) {
+                        const legacyValue = window.localStorage.getItem(legacyKey);
+                        if (legacyValue !== null) {
+                            value = legacyValue;
+                            try {
+                                window.localStorage.setItem(storageKey, legacyValue);
+                                migrated = true;
+                            } catch (_) {
+                                migrated = false;
+                            }
+                        }
+                    }
+                }
+                return {
+                    key: normalizeDeckModuleStorageKey(payloadKey),
+                    scope,
+                    value,
+                    found: value !== null,
+                    migrated,
+                };
+            }
+
+            function deckModuleStorageSet(session, payloadKey, rawValue, rawScope) {
+                const scope = deckModuleStorageScope(rawScope);
+                const storageKey = deckModuleSessionStorageKey(session, payloadKey, scope);
+                if (!storageKey) throw new Error('Invalid storage key');
+                const value = normalizeDeckModuleStorageValue(rawValue);
+                const entries = deckModuleStorageScopeEntries(session, scope);
+                const exists = entries.some((entry) => entry.storageKey === storageKey);
+                if (!exists && entries.length >= CANOPY_MODULE_STORAGE_MAX_KEYS_PER_SCOPE) {
+                    throw new Error(`Local module storage key limit reached (${CANOPY_MODULE_STORAGE_MAX_KEYS_PER_SCOPE})`);
+                }
+                const nextBytes = deckModuleStorageUsageBytes(entries, storageKey, value);
+                if (nextBytes > CANOPY_MODULE_STORAGE_MAX_SCOPE_BYTES) {
+                    throw new Error(`Local module storage quota exceeded (${CANOPY_MODULE_STORAGE_MAX_SCOPE_BYTES} bytes per scope)`);
+                }
+                window.localStorage.setItem(storageKey, value);
+                return {
+                    key: normalizeDeckModuleStorageKey(payloadKey),
+                    scope,
+                    stored: true,
+                    bytes_used: nextBytes,
+                    max_bytes: CANOPY_MODULE_STORAGE_MAX_SCOPE_BYTES,
+                };
+            }
+
+            function deckModuleStorageRemove(session, payloadKey, rawScope) {
+                const scope = deckModuleStorageScope(rawScope);
+                const storageKey = deckModuleSessionStorageKey(session, payloadKey, scope);
+                if (!storageKey) throw new Error('Invalid storage key');
+                const existed = window.localStorage.getItem(storageKey) !== null;
+                window.localStorage.removeItem(storageKey);
+                return {
+                    key: normalizeDeckModuleStorageKey(payloadKey),
+                    scope,
+                    removed: existed,
+                };
+            }
+
+            function deckModuleStorageKeys(session, rawScope) {
+                const scope = deckModuleStorageScope(rawScope);
+                const entries = deckModuleStorageScopeEntries(session, scope);
+                return {
+                    scope,
+                    keys: entries.map((entry) => entry.key).slice(0, CANOPY_MODULE_STORAGE_MAX_KEYS_PER_SCOPE),
+                };
+            }
+
+            function deckModuleStorageClear(session, rawScope) {
+                const scope = deckModuleStorageScope(rawScope);
+                const entries = deckModuleStorageScopeEntries(session, scope);
+                entries.forEach((entry) => window.localStorage.removeItem(entry.storageKey));
+                return {
+                    scope,
+                    cleared: entries.length,
+                };
             }
 
             function buildDeckModuleSourceSnapshot(sourceEl) {
@@ -8195,10 +8438,51 @@
     }
   });
 
+  function storagePayload(key, options) {
+    const payload = Object.assign({}, options || {});
+    payload.key = key;
+    return payload;
+  }
+
+  const storageApi = Object.freeze({
+    get(key, options) {
+      return request('module.storage.get', storagePayload(key, options)).then((result) => result ? result.value : null);
+    },
+    set(key, value, options) {
+      const payload = storagePayload(key, options);
+      payload.value = value;
+      return request('module.storage.set', payload);
+    },
+    remove(key, options) {
+      return request('module.storage.remove', storagePayload(key, options));
+    },
+    keys(options) {
+      return request('module.storage.keys', options || {}).then((result) => result && Array.isArray(result.keys) ? result.keys : []);
+    },
+    info(options) {
+      return request('module.storage.info', options || {});
+    },
+    clear(options) {
+      const payload = Object.assign({}, options || {});
+      payload.confirm = true;
+      return request('module.storage.clear', payload);
+    },
+    getJson(key, fallbackValue, options) {
+      return this.get(key, options).then((value) => {
+        if (value == null || value === '') return fallbackValue;
+        try { return JSON.parse(value); } catch (_) { return fallbackValue; }
+      });
+    },
+    setJson(key, value, options) {
+      return this.set(key, JSON.stringify(value), options);
+    }
+  });
+
   window.CanopyModule = Object.freeze({
     version: 1,
     sessionId,
     capabilities: grantedCapabilities.slice(),
+    storage: storageApi,
     request(method, payload) {
       return request(method, payload);
     },
@@ -8343,27 +8627,61 @@
                         return;
                     }
                     if (method === 'module.storage.get') {
-                        if (!deckModuleHasCapability(manifest, 'module.storage.local')) {
-                            respond(false, null, 'module.storage.local not granted');
+                        const capability = deckModuleStorageCapabilityForScope(params.scope);
+                        if (!deckModuleHasCapability(manifest, capability)) {
+                            respond(false, null, `${capability} not granted`);
                             return;
                         }
-                        const storageKey = deckModuleSessionStorageKey(session, params.key);
-                        respond(true, { value: storageKey ? window.localStorage.getItem(storageKey) : null }, '');
+                        respond(true, deckModuleStorageGet(session, params.key, params.scope), '');
                         return;
                     }
                     if (method === 'module.storage.set') {
-                        if (!deckModuleHasCapability(manifest, 'module.storage.local')) {
-                            respond(false, null, 'module.storage.local not granted');
+                        const capability = deckModuleStorageCapabilityForScope(params.scope);
+                        if (!deckModuleHasCapability(manifest, capability)) {
+                            respond(false, null, `${capability} not granted`);
                             return;
                         }
-                        const storageKey = deckModuleSessionStorageKey(session, params.key);
-                        if (!storageKey) {
-                            respond(false, null, 'Invalid storage key');
+                        respond(true, deckModuleStorageSet(session, params.key, params.value, params.scope), '');
+                        return;
+                    }
+                    if (method === 'module.storage.remove') {
+                        const capability = deckModuleStorageCapabilityForScope(params.scope);
+                        if (!deckModuleHasCapability(manifest, capability)) {
+                            respond(false, null, `${capability} not granted`);
                             return;
                         }
-                        const value = normalizeDeckWidgetText(params.value, 4000);
-                        window.localStorage.setItem(storageKey, value);
-                        respond(true, { stored: true }, '');
+                        respond(true, deckModuleStorageRemove(session, params.key, params.scope), '');
+                        return;
+                    }
+                    if (method === 'module.storage.keys') {
+                        const capability = deckModuleStorageCapabilityForScope(params.scope);
+                        if (!deckModuleHasCapability(manifest, capability)) {
+                            respond(false, null, `${capability} not granted`);
+                            return;
+                        }
+                        respond(true, deckModuleStorageKeys(session, params.scope), '');
+                        return;
+                    }
+                    if (method === 'module.storage.info') {
+                        const capability = deckModuleStorageCapabilityForScope(params.scope);
+                        if (!deckModuleHasCapability(manifest, capability)) {
+                            respond(false, null, `${capability} not granted`);
+                            return;
+                        }
+                        respond(true, deckModuleStorageInfo(session, params.scope), '');
+                        return;
+                    }
+                    if (method === 'module.storage.clear') {
+                        const capability = deckModuleStorageCapabilityForScope(params.scope);
+                        if (!deckModuleHasCapability(manifest, capability)) {
+                            respond(false, null, `${capability} not granted`);
+                            return;
+                        }
+                        if (params.confirm !== true) {
+                            respond(false, null, 'module.storage.clear requires confirm: true');
+                            return;
+                        }
+                        respond(true, deckModuleStorageClear(session, params.scope), '');
                         return;
                     }
                     respond(false, null, `Unsupported module method: ${method}`);

@@ -179,7 +179,7 @@ Server / sanitizer notes:
 - **`sanitizeDeckModuleBundleUrl`** allows percent-encoded **`/files/<id>`** segments on the current origin; **`normalizeDeckModuleRuntime`** must not use **`normalizeDeckWidgetText`** on opaque **`bundle_file_id`** (use trim + length cap only).
 - Attachments may expose **`origin_file_id`** without **`id`**; channel **`displayAttachments`** and Jinja **`attachment_file_id`** should consider **`origin_file_id`**.
 
-Reference fixture for manual testing: use a self-contained `.canopy-module.html` bundle created specifically for your review or test flow rather than a shipped local showcase module.
+Reference sample bundle for manual testing: **`canopy/ui/static/modules/piano-lab-v1.canopy-module.html`**.
 
 **Mixed source (e.g. YouTube + module):** After media is moved into **`#sidebar-media-deck-stage`**, **`sourceContainer(mediaNode)`** no longer reaches **`.message-item`**. The deck keeps **`state.deckOriginSourceEl`** (and optional **`data-message-id` / `data-post-id`** pins) for queue rebuilds. **`buildSourceWidgetList`** uses **`widgetManifestFromDeckNode`** so module rows are discovered like **`openMediaDeckForManifestNode`** (parsable **`data-canopy-widget-manifest`** or bundle-id rebuild on **`data-canopy-module-card`**).
 
@@ -266,6 +266,19 @@ Default: **no arbitrary fetch**.
 
 If a module needs data, it asks the broker.
 
+### Local state rule
+Default: **no ambient browser storage**.
+
+The module iframe remains sandboxed without `allow-same-origin`, so direct access to `localStorage`, IndexedDB, cookies, or the Canopy DOM is not part of the contract. Modules that need local save state must ask the host through the brokered `module.storage.local` capability.
+
+This is the intentional security boundary:
+
+- the module can keep local progress, preferences, drafts, game state, or operator scratch state
+- the module cannot read arbitrary Canopy browser storage
+- state is local to the current browser/node and is not mesh-synced
+- state is scoped by meshspace, local user, module bundle/manifest, and either source item or module-wide scope
+- state has small per-scope quotas and is not a database replacement
+
 ---
 
 ## Capability Model
@@ -283,6 +296,7 @@ Modules do not receive raw power. They receive declared, narrow capabilities.
 - `station.telemetry.read`
 - `clipboard.write`
 - `module.storage.local`
+- `module.storage.module`
 
 ### Not in v1
 - arbitrary outbound network access
@@ -311,8 +325,8 @@ Host policy decides:
 {
   "version": 1,
   "module_type": "lesson_surface",
-  "key": "lesson-surface:bach-prelude-c",
-  "title": "Lesson Surface: Bach Prelude in C",
+  "key": "piano-lab:bach-prelude-c",
+  "title": "Piano Lab: Bach Prelude in C",
   "summary": "Interactive lesson surface bound to this source.",
   "entry_mode": "deck",
   "station_surface": {
@@ -381,8 +395,53 @@ Modules communicate only through a brokered message API.
 - `deck.media.play`
 - `deck.media.pause`
 - `clipboard.write`
+- `module.storage.get`
+- `module.storage.set`
+- `module.storage.remove`
+- `module.storage.keys`
+- `module.storage.info`
+- `module.storage.clear`
 - `station.context.read`
 - `station.stream.openWorkspace`
+
+### Local module storage API
+
+If `window.CanopyModule.capabilities` includes `module.storage.local`, the runtime exposes brokered local storage for the default `source` scope:
+
+```js
+await window.CanopyModule.storage.set('progress', '12');
+const progress = await window.CanopyModule.storage.get('progress');
+await window.CanopyModule.storage.setJson('prefs', { tempo: 84 });
+const prefs = await window.CanopyModule.storage.getJson('prefs', {});
+const keys = await window.CanopyModule.storage.keys();
+const info = await window.CanopyModule.storage.info();
+await window.CanopyModule.storage.remove('progress');
+```
+
+The same methods remain available through `perform()` for low-level callers:
+
+```js
+await window.CanopyModule.perform('module.storage.set', {
+  key: 'progress',
+  value: '12',
+  scope: 'source'
+});
+```
+
+Scopes:
+
+- `source` is the default. State follows the current source item, such as one post/message module card, and uses the `module.storage.local` capability.
+- `module` is local to the same user/mesh/module bundle across source items and requires the separate `module.storage.module` capability.
+
+Storage limits in the browser runtime:
+
+- key names are ASCII identifiers using letters, numbers, `.`, `_`, `:`, and `-`
+- key names are capped at 128 UTF-8 bytes
+- values are strings capped at 32 KB
+- each scope is capped at 80 keys and 128 KB total
+- `clear()` requires an explicit broker call and only clears the current module storage scope
+
+This state is deliberately local-only. A module that needs shared state should publish an explicit Canopy message/post/update through a future audited capability, not hide shared application state in local storage.
 
 ---
 
@@ -441,13 +500,14 @@ Before a bundle is runnable:
 - max bundle size: 500 KB compressed-equivalent target, 1 MB absolute cap
 - max CPU wall time before warning: browser-side watchdog
 - max persistent local module storage: small per-module quota
+- local module storage should remain per-user/per-mesh/per-module scoped and should not be used for secrets, keys, or mesh-visible records
 
 ---
 
 ## First Implementations
 
 ### First public wow demo
-`Guided lesson module`
+`Piano Lab Module`
 
 It should include:
 - synced lesson media reference
@@ -486,12 +546,12 @@ This is the right serious embodiment because it proves Canopy is not just a medi
 - broker skeleton
 - deck open/render path
 
-### Phase B: safe view + lesson-style demo
+### Phase B: safe view + lesson demo
 - `source.read`
 - `deck.media.observe`
 - `deck.media.control`
 - `clipboard.write`
-- one polished lesson-oriented module
+- `Piano Lab Module`
 
 ### Phase C: bounded write actions
 - source annotations write
@@ -528,6 +588,6 @@ Build `Canopy Module Runtime v1` next, but keep the first implementation narrow:
 - single-file HTML bundles
 - brokered host API only
 - no arbitrary fetch
-- one polished lesson-oriented module as the proof
+- one polished `Piano Lab Module` as the proof
 
 That is enough to move Canopy into a new category without losing architectural discipline.

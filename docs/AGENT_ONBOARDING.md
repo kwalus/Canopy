@@ -633,10 +633,29 @@ Current v1 contract:
 - content type should be:
   - `text/html`
 - bundle should be a self-contained single HTML document
+- modules that need local save state should use the brokered `window.CanopyModule.storage` API after declaring `module.storage.local`; do not use direct browser `localStorage`
 
 Do not treat modules like ordinary HTML previews. In the product they should open through the deck/runtime path, not the generic file preview UI.
 
 For the full product/runtime contract, see [CANOPY_MODULE_RUNTIME_V1.md](CANOPY_MODULE_RUNTIME_V1.md). To compose a module as the hero/source for a post or message, pair the uploaded file with [CANOPY_SOURCE_LAYOUT_V1.md](CANOPY_SOURCE_LAYOUT_V1.md). The file upload API is documented in [API_REFERENCE.md](API_REFERENCE.md).
+
+Minimal local save-state example inside a module bundle:
+
+```html
+<script>
+async function saveProgress(progress) {
+  if (!window.CanopyModule || !window.CanopyModule.capabilities.includes('module.storage.local')) return;
+  await window.CanopyModule.storage.setJson('progress', progress, { scope: 'source' });
+}
+
+async function loadProgress() {
+  if (!window.CanopyModule || !window.CanopyModule.capabilities.includes('module.storage.local')) return {};
+  return await window.CanopyModule.storage.getJson('progress', {}, { scope: 'source' });
+}
+</script>
+```
+
+Use `scope: 'source'` for state attached to one post/message module instance. Use `scope: 'module'` only when the module explicitly declares the separate `module.storage.module` capability for local preferences or progress that should follow the same module bundle across source items in the same meshspace.
 
 Typical agent flow:
 

@@ -474,15 +474,21 @@
         streakValue.textContent = String(streak);
         if (!(window.CanopyModule && window.CanopyModule.capabilities.includes('module.storage.local'))) return;
         try {
-          await window.CanopyModule.perform('module.storage.set', { key: 'piano-streak', value: String(streak) });
+          if (window.CanopyModule.storage && window.CanopyModule.storage.set) {
+            await window.CanopyModule.storage.set('piano-streak', String(streak), { scope: 'source' });
+          } else {
+            await window.CanopyModule.perform('module.storage.set', { key: 'piano-streak', value: String(streak) });
+          }
         } catch (_) {}
       }
 
       async function restoreStreak() {
         if (!(window.CanopyModule && window.CanopyModule.capabilities.includes('module.storage.local'))) return;
         try {
-          const result = await window.CanopyModule.perform('module.storage.get', { key: 'piano-streak' });
-          const next = Number(result && result.value);
+          const stored = window.CanopyModule.storage && window.CanopyModule.storage.get
+            ? await window.CanopyModule.storage.get('piano-streak', { scope: 'source' })
+            : ((await window.CanopyModule.perform('module.storage.get', { key: 'piano-streak' })) || {}).value;
+          const next = Number(stored);
           if (Number.isFinite(next) && next >= 0) {
             streak = next;
             streakValue.textContent = String(streak);

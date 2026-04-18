@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.33] - 2026-04-18
+
+### Changed
+- **Canopy Modules can now keep safer brokered local save state without breaking the iframe sandbox** - modules still run in a sandboxed iframe with no direct browser storage access, but the host now exposes scoped local save-state helpers through the existing broker boundary so modules can keep local progress, drafts, and preferences.
+- **Module-wide persistence now requires an explicit extra capability instead of riding on the default local-storage grant** - source-scoped state remains available under `module.storage.local`, while cross-source module-wide state now requires a separate `module.storage.module` capability so unknown modules do not automatically receive the broader persistence boundary.
+
 ## [0.6.32] - 2026-04-17
 
 ### Changed
