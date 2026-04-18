@@ -49,6 +49,19 @@ def _make_mock_p2p_manager(
 
     conn_mgr = MagicMock()
     conn_mgr.get_connection.return_value = None
+    conn_mgr.get_transport_security_status.return_value = {
+        'mesh_scheme': 'ws',
+        'tls_enabled': False,
+        'transport_label': 'Plain WebSocket (ws)',
+        'listener_endpoint': 'ws://0.0.0.0:7771',
+        'tls_cert_mode': 'disabled',
+        'client_verification_mode': 'permissive',
+        'advertised_endpoints': [],
+        'advertised_secure_count': 0,
+        'advertised_plain_count': 0,
+        'explicit_wss_downgrade_allowed': False,
+        'warnings': ['Invite currently advertises only plain ws:// endpoints.'],
+    }
 
     p2p = MagicMock()
     p2p.identity_manager = im
@@ -136,6 +149,18 @@ class TestConnectionDiagnosticsEndpoint(unittest.TestCase):
         self.assertEqual(local.get('mesh_port'), 7771)
         self.assertEqual(local.get('relay_policy'), 'broker_only')
 
+    def test_local_section_contains_transport_security_status(self):
+        """local section exposes operator-visible ws/wss transport status."""
+        self._authenticate()
+        with patch('canopy.network.invite.generate_invite', side_effect=Exception('no-op')):
+            response = self.client.get('/ajax/connection_diagnostics')
+        data = response.get_json()
+        security = (data.get('local', {}) or {}).get('transport_security') or {}
+        self.assertEqual(security.get('mesh_scheme'), 'ws')
+        self.assertEqual(security.get('tls_cert_mode'), 'disabled')
+        self.assertEqual(security.get('client_verification_mode'), 'permissive')
+        self.assertFalse(security.get('explicit_wss_downgrade_allowed'))
+
     def test_direct_peer_is_reported_as_direct(self):
         """A peer not in active_relays is labelled as a direct connection."""
         self.p2p_manager.get_connected_peers.return_value = ['peer-abc']
@@ -149,6 +174,35 @@ class TestConnectionDiagnosticsEndpoint(unittest.TestCase):
         self.assertEqual(peers[0]['peer_id'], 'peer-abc')
         self.assertEqual(peers[0]['connection_type'], 'direct')
         self.assertIsNone(peers[0]['relay_via'])
+
+    def test_direct_peer_reports_active_transport_separately_from_known_endpoints(self):
+        """Diagnostics should expose the live ws/wss path separately from advertised candidates."""
+        self.p2p_manager.get_connected_peers.return_value = ['peer-abc']
+        self.p2p_manager.get_peer_endpoint_diagnostics.return_value = [
+            {
+                'endpoint': 'wss://vps.example.com:443',
+                'sources': ['active'],
+                'currently_connected': True,
+                'attempt_count': 1,
+                'success_count': 1,
+            },
+            {
+                'endpoint': 'ws://vps.example.com:443',
+                'sources': ['stored'],
+                'currently_connected': False,
+                'attempt_count': 0,
+                'success_count': 0,
+            },
+        ]
+        self._authenticate()
+        with patch('canopy.network.invite.generate_invite', side_effect=Exception('no-op')):
+            response = self.client.get('/ajax/connection_diagnostics')
+        data = response.get_json()
+        peer = data.get('peers', [])[0]
+        self.assertEqual(peer.get('active_endpoint'), 'wss://vps.example.com:443')
+        self.assertEqual(peer.get('active_transport'), 'wss')
+        self.assertTrue(peer.get('active_transport_secure'))
+        self.assertIn('ws://vps.example.com:443', peer.get('endpoints', []))
 
     def test_relayed_peer_is_reported_as_relayed(self):
         """A peer in active_relays is labelled as a relayed connection."""

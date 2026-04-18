@@ -209,7 +209,38 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('id="externalEndpoint"', connect_template)
         self.assertIn('wss://example.ngrok-free.app or ws://0.tcp.ngrok.io:12345', connect_template)
         self.assertIn('external_endpoint=', connect_template)
+        self.assertIn('id="allowPlainFallback"', connect_template)
+        self.assertIn('allow_plain_fallback=true', connect_template)
         self.assertIn('Regenerated with external endpoint!', connect_template)
+        self.assertIn('data.transport_security', connect_template)
+        self.assertIn("renderEndpointBadges('invite-endpoints-list', data.endpoints)", connect_template)
+
+    def test_connect_page_surfaces_transport_security_status(self) -> None:
+        connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
+        self.assertIn('Transport security', connect_template)
+        self.assertIn('transport-security-card', connect_template)
+        self.assertIn('transport-security-title', connect_template)
+        self.assertIn('Outbound wss verification', connect_template)
+        self.assertIn('Invite mode', connect_template)
+        self.assertIn('Recommended path', connect_template)
+        self.assertIn('Explicit <code>wss://</code> endpoints will not silently downgrade', connect_template)
+        self.assertIn('function updateTransportSecurityPanel(status)', connect_template)
+        self.assertIn('function endpointBadgeHtml(endpoint)', connect_template)
+        self.assertIn('secure_transport_failed', connect_template)
+        self.assertIn('data-peer-active-transport-badge', connect_template)
+        self.assertIn('Active transport:', connect_template)
+        self.assertIn('This invite mixes wss:// and ws:// endpoints', connect_template)
+
+    def test_admin_page_exposes_transport_security_controls(self) -> None:
+        admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')
+        self.assertIn('Transport Security', admin_template)
+        self.assertIn('transportSecurityAdminCard', admin_template)
+        self.assertIn('Enable self-signed TLS', admin_template)
+        self.assertIn('Use certificate files', admin_template)
+        self.assertIn('Advertise external wss://', admin_template)
+        self.assertIn('/ajax/admin/transport-security/self-signed', admin_template)
+        self.assertIn('/ajax/admin/transport-security/external', admin_template)
+        self.assertIn('function renderTransportSecurityAdmin', admin_template)
 
     def test_connect_page_previews_invites_before_importing(self) -> None:
         connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
@@ -257,6 +288,8 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("code === 'mesh_identity_admin_required'", connect_template)
         self.assertIn("code === 'cross_mesh_confirmation_required'", connect_template)
         self.assertIn("code === 'cross_mesh_reconnect_confirmation_required'", connect_template)
+        self.assertIn("code === 'introduced_cross_mesh_confirmation_required'", connect_template)
+        self.assertIn("code === 'secure_transport_failed'", connect_template)
         self.assertIn('Instance admin permission is required to connect to a peer from a different meshspace.', connect_template)
 
     def test_connect_page_mesh_badge_distinguishes_no_hint_from_mismatch(self) -> None:
@@ -271,6 +304,15 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('isCrossMeshBlocked', connect_template)
         self.assertIn('Admin required', connect_template)
         self.assertIn('const blocked = Boolean(', connect_template)
+
+    def test_connect_page_separates_remote_meshspace_introductions(self) -> None:
+        connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
+        self.assertIn('Remote Meshspace Candidates', connect_template)
+        self.assertIn('introduced_meshspace_candidates', connect_template)
+        self.assertIn('Explicit Connect', connect_template)
+        self.assertIn('introduced_cross_mesh_confirmation_required', connect_template)
+        self.assertIn('payload.allow_cross_mesh = true', connect_template)
+        self.assertIn('explicit_meshspace_connect', connect_template)
 
     def test_feed_video_surfaces_preserve_actual_video_mime_type(self) -> None:
         feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
@@ -324,6 +366,9 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('canopy.attention.seenThrough.', main_js)
         self.assertIn('Reset to inbox-only default', main_js)
         self.assertIn('New accounts show inbox items only. Click a filter chip to customise.', main_js)
+        self.assertIn("btn.addEventListener('click', (event) => {", main_js)
+        self.assertIn("filterResetBtn.addEventListener('click', (event) => {", main_js)
+        self.assertGreaterEqual(main_js.count('event.stopPropagation();'), 2)
         self.assertIn('id="notificationFilterReset">Reset</button>', base_template)
         self.assertIn('New accounts start with inbox items only in the bell until you customize the filters.', base_template)
 
@@ -724,10 +769,14 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('id="sidebar-peers-toggle"', base_template)
         self.assertIn('id="sidebar-peers-expand-btn"', base_template)
         self.assertIn('id="sidebar-peers-open-modal"', base_template)
+        self.assertIn('href="{{ url_for(\'ui.trust_management\') }}#trust-peer-{{ peer_id|urlencode }}"', base_template)
+        self.assertIn('href="{{ url_for(\'ui.connect_page\') }}#connected-peers"', base_template)
         self.assertIn('id="sidebar-media-mini-slot-top"', base_template)
         self.assertIn('id="sidebar-media-mini-slot-bottom"', base_template)
         self.assertIn('id="sidebar-media-mini-pin"', base_template)
         self.assertIn("const SIDEBAR_CARD_PEEK_LIMIT = 5;", main_js)
+        self.assertIn("function sidebarPeerTrustHref(peerId)", main_js)
+        self.assertIn("peerEl.href = sidebarPeerTrustHref(peerId);", main_js)
         self.assertIn("function toggleSidebarCardCollapsed(kind)", main_js)
         self.assertIn("function toggleSidebarCardExpansion(kind, totalCount)", main_js)
         self.assertIn("function updateSidebarCardChrome(kind, totalCount)", main_js)

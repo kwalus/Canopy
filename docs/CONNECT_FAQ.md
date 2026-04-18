@@ -26,7 +26,7 @@ It is intentionally action-first. The important value is whether you can connect
 What it shows:
 
 - **Peer ID**: your local cryptographic identity.
-- **Reachable at**: one or more `ws://host:port` endpoint candidates included in your invite.
+- **Reachable at**: one or more `ws://host:port` or `wss://host:port` endpoint candidates included in your invite.
 - **Invite code**: compact `canopy:...` payload containing identity + endpoint list.
 - **Peer-facing identity hints**: the remote side will see the peer name/avatar/node hint built from **Settings -> Device Profile** plus the active mesh hint.
 
@@ -34,6 +34,7 @@ Buttons/actions:
 
 - **Copy**: copies the full invite code.
 - **Regenerate** (with public IP/hostname and optional port): regenerates invite with a public endpoint prepended.
+- If Admin -> Transport Security declares local TLS or an external TLS terminator, generated invites can advertise the matching `wss://` path instead of plain `ws://`.
 
 Why this makes sense:
 
@@ -209,6 +210,36 @@ These are usually local/private addresses, not automatically your public interne
 - `Reachable at` addresses shown by default are local candidates.
 - If peers are outside your LAN, use **Regenerate** with your public IP/hostname (and forwarded port).
 - Regenerated invite includes the public endpoint plus local fallbacks.
+
+### How do I know whether my invite is using `wss://`?
+
+Open **Connect -> Your Invite Code -> Transport security**.
+
+That panel shows:
+
+- whether the local mesh listener is `Secure WebSocket (wss)` or `Plain WebSocket (ws)`,
+- which listener endpoint is active,
+- whether the TLS certificate is disabled, self-signed, or operator-provided,
+- whether outbound `wss://` verification is permissive or verified,
+- how many invite endpoints are secure vs plain.
+
+The `Reachable at` list also labels each advertised endpoint. If the endpoint shown to your peer starts with `wss://`, the invite is telling their node to connect with TLS-wrapped WebSocket transport. The panel now also shows the recommended endpoint and invite mode: secure public, mixed secure/plain, plain public, or LAN-only.
+
+### Why do I still see both `wss://` and `ws://` endpoints?
+
+For an explicitly generated public `wss://...` invite, Canopy suppresses same-host public `ws://...` fallback by default. LAN/private `ws://...` fallbacks may still appear for same-network convenience, and a plain public fallback can be intentionally enabled with the compatibility option. If a mixed invite is shown, check the connected peer card or diagnostics for **Active transport**; the live session is only WSS if the active endpoint is `wss://...`.
+
+### Does `wss://` replace Canopy's peer verification?
+
+No. `wss://` protects the WebSocket transport with TLS. Canopy still verifies the remote peer identity using the public keys in the invite and its application-layer handshake. Treat `wss://` as the transport-security layer, not the peer-trust decision.
+
+### Can an explicit `wss://` invite fall back to `ws://`?
+
+No. When an invite or direct action explicitly chooses `wss://`, Canopy does not silently retry the same endpoint as plain `ws://` if TLS fails. This is intentional so operators can rely on the meaning of a secure endpoint. Fix the VPS, reverse proxy, tunnel, certificate, or endpoint instead.
+
+### Why does the UI say certificate verification is permissive?
+
+Many current Canopy meshes use self-signed transport certificates, so the default outbound `wss://` client mode accepts those certificates while Canopy verifies peer identity separately at the application layer. For stricter public-internet deployments, set `CANOPY_REQUIRE_VERIFIED_WSS=true` and use an externally trusted certificate or TLS-terminating proxy. In verified mode, failed `wss://` certificate/hostname checks are not downgraded to plain `ws://`.
 
 ### Why do I get an "API key required" error in web UI?
 

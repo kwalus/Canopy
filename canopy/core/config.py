@@ -27,6 +27,159 @@ from .meshspaces import (
 
 logger = logging.getLogger('canopy.config')
 
+TRANSPORT_SECURITY_CONFIG_FILENAME = 'transport_security.json'
+TRANSPORT_SECURITY_MODES = {
+    'disabled',
+    'self_signed',
+    'provided',
+    'external_terminator',
+}
+
+
+def _config_data_dir(config: 'Config') -> Path:
+    raw_data_dir = str(getattr(getattr(config, 'storage', None), 'data_dir', '') or '').strip()
+    if raw_data_dir:
+        return Path(raw_data_dir).expanduser()
+    raw_db_path = str(getattr(getattr(config, 'storage', None), 'database_path', '') or '').strip()
+    if raw_db_path:
+        return Path(raw_db_path).expanduser().parent
+    return Path(__file__).resolve().parents[2] / 'data'
+
+
+def transport_security_config_path(config: 'Config') -> Path:
+    """Return the node-owned persistent transport-security settings path."""
+    path = _config_data_dir(config) / TRANSPORT_SECURITY_CONFIG_FILENAME
+    try:
+        config.network.transport_security_config_path = str(path)
+    except Exception:
+        pass
+    return path
+
+
+def _as_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    text = str(value).strip().lower()
+    if not text:
+        return default
+    return text in {'1', 'true', 'yes', 'on'}
+
+
+def normalize_transport_security_settings(settings: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Normalize persisted/admin transport settings without validating reachability."""
+    raw = dict(settings or {})
+    external_endpoint = str(raw.get('external_tls_endpoint') or '').strip()
+    cert_path = str(raw.get('tls_cert_path') or '').strip()
+    key_path = str(raw.get('tls_key_path') or '').strip()
+    mode = str(raw.get('mode') or raw.get('transport_security_mode') or '').strip().lower()
+    if mode not in TRANSPORT_SECURITY_MODES:
+        if external_endpoint:
+            mode = 'external_terminator'
+        elif _as_bool(raw.get('enable_tls'), False):
+            mode = 'provided' if cert_path and key_path else 'self_signed'
+        else:
+            mode = 'disabled'
+
+    enable_tls = _as_bool(raw.get('enable_tls'), mode in {'self_signed', 'provided'})
+    if mode == 'external_terminator':
+        enable_tls = False
+    elif mode == 'disabled':
+        enable_tls = False
+
+    return {
+        'mode': mode,
+        'enable_tls': enable_tls,
+        'tls_cert_path': cert_path,
+        'tls_key_path': key_path,
+        'require_verified_wss': _as_bool(raw.get('require_verified_wss'), False),
+        'external_tls_endpoint': external_endpoint if mode == 'external_terminator' else '',
+        'updated_at': str(raw.get('updated_at') or '').strip(),
+    }
+
+
+def load_transport_security_settings(config: 'Config') -> Dict[str, Any]:
+    """Load persisted transport-security settings for this device/meshspace."""
+    path = transport_security_config_path(config)
+    try:
+        if not path.exists():
+            return {}
+        data = json.loads(path.read_text(encoding='utf-8'))
+        if not isinstance(data, dict):
+            return {}
+        return normalize_transport_security_settings(data)
+    except Exception as exc:
+        logger.warning("Could not load transport security settings from %s: %s", path, exc)
+        return {}
+
+
+def save_transport_security_settings(config: 'Config', settings: Dict[str, Any]) -> Path:
+    """Persist transport-security settings into the active node/meshspace data dir."""
+    normalized = normalize_transport_security_settings(settings)
+    path = transport_security_config_path(config)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(normalized, indent=2, sort_keys=True), encoding='utf-8')
+    try:
+        os.chmod(path, 0o600)
+    except Exception:
+        pass
+    return path
+
+
+def apply_transport_security_settings(
+    config: 'Config',
+    settings: Dict[str, Any],
+    *,
+    env_overrides: Optional[Dict[str, bool]] = None,
+) -> Dict[str, Any]:
+    """Apply normalized transport settings to a Config object, respecting env overrides."""
+    normalized = normalize_transport_security_settings(settings)
+    overrides = env_overrides or {}
+    network = config.network
+
+    if not overrides.get('transport_security_mode'):
+        network.transport_security_mode = normalized['mode']
+    if not overrides.get('enable_tls'):
+        network.enable_tls = bool(normalized['enable_tls'])
+    if not overrides.get('require_verified_wss'):
+        network.require_verified_wss = bool(normalized['require_verified_wss'])
+
+    mode = normalized['mode']
+    if mode in {'self_signed', 'provided'}:
+        if not overrides.get('tls_cert_path') and normalized['tls_cert_path']:
+            network.tls_cert_path = normalized['tls_cert_path']
+        if not overrides.get('tls_key_path') and normalized['tls_key_path']:
+            network.tls_key_path = normalized['tls_key_path']
+        if not overrides.get('external_tls_endpoint'):
+            network.external_tls_endpoint = ''
+    elif mode == 'external_terminator':
+        if not overrides.get('external_tls_endpoint'):
+            network.external_tls_endpoint = normalized['external_tls_endpoint']
+        if not overrides.get('tls_cert_path'):
+            network.tls_cert_path = ''
+        if not overrides.get('tls_key_path'):
+            network.tls_key_path = ''
+    elif mode == 'disabled':
+        if not overrides.get('external_tls_endpoint'):
+            network.external_tls_endpoint = ''
+
+    network.transport_security_config_path = str(transport_security_config_path(config))
+    return normalized
+
+
+def apply_persisted_transport_security_settings(
+    config: 'Config',
+    *,
+    env_overrides: Optional[Dict[str, bool]] = None,
+) -> Dict[str, Any]:
+    """Apply node-owned persisted transport settings after storage paths are known."""
+    settings = load_transport_security_settings(config)
+    if settings:
+        return apply_transport_security_settings(config, settings, env_overrides=env_overrides)
+    config.network.transport_security_config_path = str(transport_security_config_path(config))
+    return {}
+
 
 def _resolve_meshspace_registry_root(config: 'Config', data_root: str) -> str:
     """Choose the registry root for this runtime."""
@@ -52,6 +205,10 @@ class NetworkConfig:
     enable_tls: bool = False  # Use wss:// for P2P connections
     tls_cert_path: str = ""  # Path to TLS cert (auto-generated if empty)
     tls_key_path: str = ""   # Path to TLS key (auto-generated if empty)
+    require_verified_wss: bool = False  # Verify outbound wss:// certs/hostnames
+    external_tls_endpoint: str = ""  # Public wss:// endpoint when TLS terminates at a proxy/tunnel
+    transport_security_mode: str = ""  # disabled, self_signed, provided, external_terminator
+    transport_security_config_path: str = ""  # Node-owned persisted settings file
 
 
 @dataclass
@@ -336,6 +493,29 @@ class Config:
         if relay := os.getenv('CANOPY_RELAY_POLICY'):
             if relay in ('off', 'broker_only', 'full_relay'):
                 config.network.relay_policy = relay
+        network_env_overrides = {
+            'enable_tls': os.getenv('CANOPY_ENABLE_TLS') is not None,
+            'tls_cert_path': os.getenv('CANOPY_TLS_CERT_PATH') is not None,
+            'tls_key_path': os.getenv('CANOPY_TLS_KEY_PATH') is not None,
+            'require_verified_wss': os.getenv('CANOPY_REQUIRE_VERIFIED_WSS') is not None,
+            'external_tls_endpoint': os.getenv('CANOPY_EXTERNAL_TLS_ENDPOINT') is not None,
+            'transport_security_mode': os.getenv('CANOPY_TRANSPORT_SECURITY_MODE') is not None,
+        }
+        config.network.enable_tls = _env_bool('CANOPY_ENABLE_TLS', config.network.enable_tls)
+        if tls_cert_path := os.getenv('CANOPY_TLS_CERT_PATH'):
+            config.network.tls_cert_path = tls_cert_path
+        if tls_key_path := os.getenv('CANOPY_TLS_KEY_PATH'):
+            config.network.tls_key_path = tls_key_path
+        config.network.require_verified_wss = _env_bool(
+            'CANOPY_REQUIRE_VERIFIED_WSS',
+            config.network.require_verified_wss,
+        )
+        if external_tls_endpoint := os.getenv('CANOPY_EXTERNAL_TLS_ENDPOINT'):
+            config.network.external_tls_endpoint = external_tls_endpoint.strip()
+        if transport_mode := os.getenv('CANOPY_TRANSPORT_SECURITY_MODE'):
+            clean_mode = transport_mode.strip().lower()
+            if clean_mode in TRANSPORT_SECURITY_MODES:
+                config.network.transport_security_mode = clean_mode
 
         # Store device info on config for display. The peer identity remains mesh-local
         # because it lives under config.storage.data_dir, but the machine device label is
@@ -391,6 +571,11 @@ class Config:
         if secret_key := os.getenv('CANOPY_SECRET_KEY'):
             config.secret_key = secret_key
 
+        apply_persisted_transport_security_settings(
+            config,
+            env_overrides=network_env_overrides,
+        )
+
         return config
     
     def to_dict(self) -> Dict[str, Any]:
@@ -409,6 +594,14 @@ class Config:
                 'discovery_port': self.network.discovery_port,
                 'max_peers': self.network.max_peers,
                 'connection_timeout': self.network.connection_timeout,
+                'relay_policy': self.network.relay_policy,
+                'enable_tls': self.network.enable_tls,
+                'tls_cert_path': self.network.tls_cert_path,
+                'tls_key_path': self.network.tls_key_path,
+                'require_verified_wss': self.network.require_verified_wss,
+                'external_tls_endpoint': self.network.external_tls_endpoint,
+                'transport_security_mode': self.network.transport_security_mode,
+                'transport_security_config_path': self.network.transport_security_config_path,
             },
             'security': {
                 'encryption_algorithm': self.security.encryption_algorithm,

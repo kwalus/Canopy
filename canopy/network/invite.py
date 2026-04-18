@@ -83,6 +83,39 @@ def canonicalize_invite_endpoint(endpoint: str) -> Optional[str]:
     return f'{scheme}://{_format_endpoint_host(host)}:{port}'
 
 
+def _endpoint_host_key(endpoint: str) -> str:
+    parsed = parse_invite_endpoint(endpoint)
+    if not parsed:
+        return ''
+    host, _, _ = parsed
+    return str(host or '').strip().lower()
+
+
+def _is_lan_endpoint(endpoint: str) -> bool:
+    parsed = parse_invite_endpoint(endpoint)
+    if not parsed:
+        return False
+    host, _, _ = parsed
+    text = str(host or '').strip().lower()
+    if not text:
+        return False
+    if text == 'localhost' or text.endswith('.local'):
+        return True
+    try:
+        import ipaddress
+
+        ip = ipaddress.ip_address(text)
+        return bool(ip.is_private or ip.is_link_local or ip.is_loopback)
+    except ValueError:
+        return False
+
+
+def _is_same_host(endpoint_a: str, endpoint_b: str) -> bool:
+    a = _endpoint_host_key(endpoint_a)
+    b = _endpoint_host_key(endpoint_b)
+    return bool(a and b and a == b)
+
+
 def _sanitize_invite_endpoints(endpoints: List[str]) -> List[str]:
     """Keep only canonical, dialable invite endpoints in stable order."""
     out: List[str] = []
@@ -94,6 +127,63 @@ def _sanitize_invite_endpoints(endpoints: List[str]) -> List[str]:
         seen.add(canon)
         out.append(canon)
     return out
+
+
+def classify_invite_endpoints(endpoints: List[str]) -> Dict[str, Any]:
+    """Classify invite endpoints for operator UX without changing invite format."""
+    sanitized = _sanitize_invite_endpoints(endpoints or [])
+    public_secure: List[str] = []
+    public_plain: List[str] = []
+    lan_endpoints: List[str] = []
+
+    for endpoint in sanitized:
+        parsed = parse_invite_endpoint(endpoint)
+        if not parsed:
+            continue
+        _, _, scheme = parsed
+        if _is_lan_endpoint(endpoint):
+            lan_endpoints.append(endpoint)
+        elif scheme == 'wss':
+            public_secure.append(endpoint)
+        else:
+            public_plain.append(endpoint)
+
+    recommended = next((ep for ep in sanitized if ep.lower().startswith('wss://')), sanitized[0] if sanitized else '')
+    recommended_transport = ''
+    parsed_recommended = parse_invite_endpoint(recommended) if recommended else None
+    if parsed_recommended:
+        recommended_transport = parsed_recommended[2]
+
+    if public_secure and public_plain:
+        policy = 'mixed_public_secure_plain'
+        policy_label = 'Mixed secure/plain public invite'
+    elif public_secure:
+        policy = 'secure_public'
+        policy_label = 'Secure public invite'
+    elif public_plain:
+        policy = 'plain_public'
+        policy_label = 'Plain public invite'
+    elif any(ep.lower().startswith('wss://') for ep in lan_endpoints):
+        policy = 'secure_lan'
+        policy_label = 'Secure LAN invite'
+    elif lan_endpoints:
+        policy = 'lan_only'
+        policy_label = 'LAN-only invite'
+    else:
+        policy = 'no_direct_endpoints'
+        policy_label = 'No direct endpoints'
+
+    return {
+        'recommended_endpoint': recommended,
+        'recommended_transport': recommended_transport,
+        'public_secure_endpoints': public_secure,
+        'public_plain_endpoints': public_plain,
+        'lan_endpoints': lan_endpoints,
+        'has_public_plain_fallback': bool(public_secure and public_plain),
+        'has_lan_fallback': bool(lan_endpoints),
+        'invite_policy': policy,
+        'invite_policy_label': policy_label,
+    }
 
 
 def meshspace_fingerprint(meshspace_id: Optional[str], mesh_name: Optional[str] = None) -> str:
@@ -247,6 +337,8 @@ def generate_invite(identity_manager: Any, mesh_port: int,
                     public_host: Optional[str] = None,
                     public_port: Optional[int] = None,
                     external_endpoint: Optional[str] = None,
+                    allow_plain_fallback: bool = False,
+                    endpoint_scheme: str = 'ws',
                     mesh_name: Optional[str] = None,
                     meshspace_id: Optional[str] = None,
                     meshspace_id_aliases: Optional[List[str]] = None,
@@ -266,6 +358,8 @@ def generate_invite(identity_manager: Any, mesh_port: int,
         public_host: Optional public/external IP or hostname
         public_port: Optional public port (if port-forwarded)
         external_endpoint: Optional full ws:// or wss:// endpoint
+        allow_plain_fallback: If true, explicit WSS invites may also advertise same-host plain WS candidates
+        endpoint_scheme: Scheme for Canopy-owned listener endpoints (ws or wss)
         mesh_name: Optional human-facing mesh label for preview UX
         meshspace_id: Optional stable meshspace identifier for preview UX
         meshspace_id_aliases: Optional legacy/current alias IDs for transition-aware preview UX
@@ -288,6 +382,10 @@ def generate_invite(identity_manager: Any, mesh_port: int,
     xpk = base58.b58encode(local.x25519_public_key).decode()
 
     endpoints: List[str] = []
+    explicit_wss_endpoint = ''
+    listener_scheme = str(endpoint_scheme or 'ws').strip().lower()
+    if listener_scheme not in {'ws', 'wss'}:
+        listener_scheme = 'ws'
 
     # Explicit external endpoint first (e.g. ngrok or another tunnel)
     if external_endpoint:
@@ -295,15 +393,22 @@ def generate_invite(identity_manager: Any, mesh_port: int,
         if not canon:
             raise ValueError("Invalid external mesh endpoint")
         endpoints.append(canon)
+        parsed_external = parse_invite_endpoint(canon)
+        if parsed_external and parsed_external[2] == 'wss':
+            explicit_wss_endpoint = canon
 
     # Public / port-forwarded endpoint next
     if public_host:
         port = public_port or mesh_port
-        endpoints.append(f"ws://{_format_endpoint_host(public_host)}:{port}")
+        public_endpoint = f"{listener_scheme}://{_format_endpoint_host(public_host)}:{port}"
+        if not (explicit_wss_endpoint and not allow_plain_fallback and _is_same_host(public_endpoint, explicit_wss_endpoint)):
+            endpoints.append(public_endpoint)
 
     # LAN endpoints
     for ip in get_local_ips():
-        ep = f"ws://{ip}:{mesh_port}"
+        ep = f"{listener_scheme}://{ip}:{mesh_port}"
+        if explicit_wss_endpoint and not allow_plain_fallback and _is_same_host(ep, explicit_wss_endpoint):
+            continue
         if ep not in endpoints:
             endpoints.append(ep)
 

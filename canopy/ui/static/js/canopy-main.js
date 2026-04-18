@@ -550,15 +550,26 @@
             return window.canopyPeerDisplayName ? window.canopyPeerDisplayName(peerId) : (peerId || '').slice(0, 12);
         }
 
+        function sidebarPeerTrustHref(peerId) {
+            const routes = (window.CANOPY_VARS && window.CANOPY_VARS.urls) || {};
+            const base = routes.trustNetwork || '/trust';
+            const cleanPeerId = String(peerId || '').trim();
+            if (!cleanPeerId) return base;
+            return `${base}#trust-peer-${encodeURIComponent(cleanPeerId)}`;
+        }
+
         function createSidebarPeerElement(peerRecord) {
             const peerId = (peerRecord && peerRecord.peerId) ? peerRecord.peerId : peerRecord;
             const displayName = (peerRecord && peerRecord.displayName)
                 ? peerRecord.displayName
                 : (sidebarPeerDisplayName(peerId) || (peerId || '').slice(0, 12));
             const trustMeta = canopyPeerTrustMeta(peerId);
-            const peerEl = document.createElement('div');
+            const peerEl = document.createElement('a');
             peerEl.className = 'sidebar-peer';
             peerEl.setAttribute('data-peer-id', peerId);
+            peerEl.href = sidebarPeerTrustHref(peerId);
+            peerEl.title = `Open ${displayName} in Trust Network`;
+            peerEl.setAttribute('aria-label', `Open ${displayName} in Trust Network`);
 
             const avatarWrap = document.createElement('div');
             avatarWrap.className = 'sidebar-peer-avatar';
@@ -5570,7 +5581,9 @@
                     btn.setAttribute('data-filter-key', def.key);
                     btn.setAttribute('aria-pressed', filters[def.key] !== false ? 'true' : 'false');
                     btn.innerHTML = `<i class="bi ${def.icon}"></i><span>${def.label}</span>`;
-                    btn.addEventListener('click', () => {
+                    btn.addEventListener('click', (event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
                         const next = normalizeCanopyAttentionFilters(canopySidebarAttentionState.filters);
                         next[def.key] = !(next[def.key] !== false);
                         saveCanopyAttentionFilters(next);
@@ -5725,7 +5738,9 @@
             }
 
             if (filterResetBtn) {
-                filterResetBtn.addEventListener('click', () => {
+                filterResetBtn.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
                     saveCanopyAttentionFilters(null);
                     renderFilterBar();
                     if (window.renderCanopyAttentionBell) {

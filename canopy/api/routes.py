@@ -239,6 +239,69 @@ def _current_local_peer_hint_payload(
     )
 
 
+def _transport_security_status(
+    p2p_manager: Any,
+    advertised_endpoints: Optional[list[str]] = None,
+) -> dict[str, Any]:
+    """Return API-safe transport security diagnostics for invite responses."""
+    from ..network.invite import classify_invite_endpoints
+
+    endpoints = [
+        str(endpoint or '').strip()
+        for endpoint in (advertised_endpoints or [])
+        if str(endpoint or '').strip()
+    ]
+    classification = classify_invite_endpoints(endpoints)
+    conn_mgr = getattr(p2p_manager, 'connection_manager', None) if p2p_manager else None
+    if conn_mgr and hasattr(conn_mgr, 'get_transport_security_status'):
+        try:
+            status = dict(conn_mgr.get_transport_security_status(advertised_endpoints=endpoints) or {})
+            status.update(classification)
+            decorator = getattr(p2p_manager, '_decorate_transport_security_status', None) if p2p_manager else None
+            if callable(decorator) and getattr(decorator, '__self__', None) is p2p_manager:
+                status = dict(decorator(status) or status)
+            return status
+        except Exception:
+            logger.debug("Could not load connection-manager transport security status", exc_info=True)
+    if p2p_manager and hasattr(p2p_manager, 'get_transport_security_status'):
+        try:
+            status = dict(p2p_manager.get_transport_security_status() or {})
+            if endpoints:
+                status['advertised_endpoints'] = endpoints
+                status['advertised_secure_count'] = sum(1 for ep in endpoints if ep.lower().startswith('wss://'))
+                status['advertised_plain_count'] = sum(1 for ep in endpoints if ep.lower().startswith('ws://'))
+            status.update(classification)
+            return status
+        except Exception:
+            logger.debug("Could not load P2P transport security status", exc_info=True)
+    secure_count = sum(1 for ep in endpoints if ep.lower().startswith('wss://'))
+    plain_count = sum(1 for ep in endpoints if ep.lower().startswith('ws://'))
+    return {
+        'mesh_scheme': 'ws',
+        'tls_enabled': False,
+        'transport_label': 'Plain WebSocket (ws)',
+        'listener_endpoint': '',
+        'tls_cert_mode': 'disabled',
+        'tls_cert_path_present': False,
+        'tls_key_path_present': False,
+        'client_verification_mode': 'permissive',
+        'advertised_endpoints': endpoints,
+        'advertised_secure_count': secure_count,
+        'advertised_plain_count': plain_count,
+        'explicit_wss_downgrade_allowed': False,
+        'warnings': ['P2P transport security status is unavailable.'],
+        **classification,
+    }
+
+
+def _live_invite_endpoint_scheme(config: Any, p2p_manager: Any) -> str:
+    """Return the current listener scheme for truthful invite generation."""
+    conn_mgr = getattr(p2p_manager, 'connection_manager', None) if p2p_manager else None
+    if conn_mgr is not None:
+        return 'wss' if bool(getattr(conn_mgr, 'enable_tls', False)) else 'ws'
+    return 'wss' if bool(getattr(getattr(config, 'network', None), 'enable_tls', False)) else 'ws'
+
+
 def _public_mesh_identity_payload() -> dict[str, Any]:
     """Return a shell-safe public identity payload for invite preview enrichment."""
     from ..core.device import get_device_label, get_device_profile
@@ -3172,11 +3235,22 @@ def create_api_blueprint() -> Blueprint:
             connected_peer_details = []
             for peer_id in connected_peers:
                 ver = peer_versions.get(peer_id, {}) if isinstance(peer_versions, dict) else {}
+                active_transport = {}
+                get_active_transport = getattr(p2p_manager, 'get_peer_active_transport', None)
+                if callable(get_active_transport):
+                    try:
+                        active_transport = dict(get_active_transport(peer_id) or {})
+                    except Exception:
+                        active_transport = {}
                 connected_peer_details.append({
                     'peer_id': peer_id,
                     'canopy_version': ver.get('canopy_version'),
                     'protocol_version': ver.get('protocol_version'),
                     'compatible_protocol': ver.get('compatible_protocol'),
+                    'active_endpoint': active_transport.get('active_endpoint', ''),
+                    'active_transport': active_transport.get('active_transport', ''),
+                    'active_transport_label': active_transport.get('active_transport_label', ''),
+                    'active_transport_secure': bool(active_transport.get('active_transport_secure')),
                 })
             
             return jsonify({
@@ -3206,7 +3280,11 @@ def create_api_blueprint() -> Blueprint:
             public_host = request.args.get('public_host')
             public_port = request.args.get('public_port', type=int)
             external_endpoint = request.args.get('external_endpoint', type=str)
+            allow_plain_fallback = _as_bool(request.args.get('allow_plain_fallback'))
             mesh_port = config.network.mesh_port if config else 7771
+            configured_external_endpoint = str(getattr(getattr(config, 'network', None), 'external_tls_endpoint', '') or '').strip()
+            effective_external_endpoint = str(external_endpoint or configured_external_endpoint or '').strip() or None
+            endpoint_scheme = _live_invite_endpoint_scheme(config, p2p_manager)
             mesh_hint = _current_runtime_mesh_hint_payload()
             mesh_name = str(mesh_hint.get('meshspace_name') or '').strip()
             meshspace_id = str(mesh_hint.get('meshspace_id') or '').strip()
@@ -3232,7 +3310,9 @@ def create_api_blueprint() -> Blueprint:
                 mesh_port,
                 public_host=public_host,
                 public_port=public_port,
-                external_endpoint=external_endpoint,
+                external_endpoint=effective_external_endpoint,
+                allow_plain_fallback=allow_plain_fallback,
+                endpoint_scheme=endpoint_scheme,
                 mesh_name=mesh_name or None,
                 meshspace_id=meshspace_id or None,
                 meshspace_id_aliases=list(mesh_hint.get('meshspace_id_aliases') or []) or None,
@@ -3242,10 +3322,30 @@ def create_api_blueprint() -> Blueprint:
                 peer_icon=peer_icon or None,
                 generated_at=datetime.now(timezone.utc).isoformat(),
             )
+            transport_security = _transport_security_status(
+                p2p_manager,
+                list(invite.endpoints or []),
+            )
+            remember_operator = getattr(p2p_manager, 'remember_operator_advertised_endpoint', None)
+            if callable(remember_operator):
+                try:
+                    remember_operator(
+                        external_endpoint=effective_external_endpoint,
+                        public_host=public_host,
+                        public_port=public_port,
+                        allow_plain_fallback=allow_plain_fallback,
+                    )
+                except Exception:
+                    logger.debug("Could not remember operator advertised endpoint", exc_info=True)
             return jsonify({
                 'invite_code': invite.encode(),
                 'peer_id': invite.peer_id,
                 'endpoints': invite.endpoints,
+                'transport_security': transport_security,
+                'recommended_endpoint': transport_security.get('recommended_endpoint'),
+                'recommended_transport': transport_security.get('recommended_transport'),
+                'invite_policy': transport_security.get('invite_policy'),
+                'invite_policy_label': transport_security.get('invite_policy_label'),
                 'meshspace_id': invite.meshspace_id,
                 'meshspace_name': invite.mesh_name,
                 'meshspace_fingerprint': invite.meshspace_fingerprint,
@@ -3402,6 +3502,7 @@ def create_api_blueprint() -> Blueprint:
 
             # Attempt to connect to each endpoint
             connected = False
+            endpoint_failures: list[dict[str, Any]] = []
             if p2p_manager.connection_manager:
                 for ep in list(getattr(invite, 'endpoints', []) or []):
                     try:
@@ -3433,7 +3534,11 @@ def create_api_blueprint() -> Blueprint:
                                 )
                             else:
                                 connect_coro = p2p_manager.connection_manager.connect_to_peer(
-                                    invite.peer_id, host, port, scheme=scheme
+                                    invite.peer_id,
+                                    host,
+                                    port,
+                                    scheme=scheme,
+                                    scheme_explicit=str(ep or '').strip().lower().startswith('wss://'),
                                 )
                             future = asyncio.run_coroutine_threadsafe(
                                 connect_coro,
@@ -3482,17 +3587,41 @@ def create_api_blueprint() -> Blueprint:
                                 except Exception as sync_err:
                                     logger.warning(f"Post-connect sync failed for {invite.peer_id}: {sync_err}")
                             break
+                        failure = None
+                        if hasattr(p2p_manager.connection_manager, 'get_last_connect_failure'):
+                            try:
+                                failure = p2p_manager.connection_manager.get_last_connect_failure(
+                                    invite.peer_id,
+                                    host,
+                                    port,
+                                )
+                            except Exception:
+                                failure = None
+                        if isinstance(failure, dict) and failure:
+                            endpoint_failures.append({
+                                'endpoint': ep,
+                                'reason': failure.get('reason'),
+                                'detail': failure.get('detail'),
+                            })
                     except Exception as ce:
                         logger.warning(f"Connection to {ep} failed: {ce}")
                         continue
 
             if not connected:
                 result['status'] = 'imported_not_connected'
+                if endpoint_failures:
+                    result['endpoint_failures'] = endpoint_failures[:5]
                 if not list(result.get('endpoints') or []):
                     result['diagnostic_code'] = 'invite_has_no_usable_endpoints'
                     result['message'] = (
                         'Peer registered, but the invite did not contain any usable direct endpoints. '
                         'Ask the remote peer to regenerate the invite with a public or tunnel endpoint.'
+                    )
+                elif any(item.get('reason') == 'wss_downgrade_blocked' for item in endpoint_failures):
+                    result['diagnostic_code'] = 'secure_transport_failed'
+                    result['message'] = (
+                        'Peer registered, but an explicit wss:// endpoint failed TLS connection and Canopy refused to downgrade it to plain ws://. '
+                        'Confirm that the remote VPS, tunnel, or reverse proxy is actually accepting secure WebSocket traffic at the advertised endpoint.'
                     )
                 else:
                     result['diagnostic_code'] = 'direct_connect_failed'
@@ -3564,7 +3693,7 @@ def create_api_blueprint() -> Blueprint:
     def connect_introduced_peer():
         """Connect to a peer that was introduced by a contact."""
         import asyncio
-        *_, p2p_manager = _get_app_components_any(current_app)
+        db_manager, *_, p2p_manager = _get_app_components_any(current_app)
         if not p2p_manager or not p2p_manager.connection_manager:
             return jsonify({'error': 'P2P not running'}), 500
 
@@ -3577,11 +3706,48 @@ def create_api_blueprint() -> Blueprint:
             or data.get('force_failover')
             or data.get('skip_direct')
         )
+        allow_cross_mesh = _as_bool(
+            data.get('allow_cross_mesh')
+            or data.get('explicit_meshspace_connect')
+        )
 
         # Look up introduced peer info
         intro = p2p_manager._introduced_peers.get(peer_id)
         if not intro:
             return jsonify({'error': 'Peer not found in introduced list'}), 404
+
+        meshspace_status = {}
+        get_intro_mesh_status = getattr(p2p_manager, 'get_introduced_peer_meshspace_status', None)
+        if callable(get_intro_mesh_status):
+            try:
+                meshspace_status = dict(get_intro_mesh_status(peer_id) or {})
+            except Exception:
+                meshspace_status = {}
+        if meshspace_status.get('requires_explicit_meshspace_connect') and not allow_cross_mesh:
+            return jsonify({
+                'status': 'confirmation_required',
+                'error': 'Remote meshspace candidate requires explicit confirmation',
+                'diagnostic_code': 'introduced_cross_mesh_confirmation_required',
+                'message': (
+                    'This introduced peer advertises a different meshspace. '
+                    'Use the explicit remote-meshspace action only if the bridge is intentional.'
+                ),
+                'cross_mesh': meshspace_status,
+            }), 409
+        if allow_cross_mesh and not _request_is_instance_admin(db_manager):
+            return jsonify({
+                'error': 'Instance admin required',
+                'diagnostic_code': 'cross_mesh_admin_required',
+                'message': (
+                    'Only the instance admin can approve an introduced cross-mesh connection from this workspace.'
+                ),
+                'cross_mesh': meshspace_status,
+            }), 403
+        if allow_cross_mesh and hasattr(p2p_manager, 'mark_peer_cross_mesh_allowed'):
+            try:
+                p2p_manager.mark_peer_cross_mesh_allowed(peer_id, True)
+            except Exception:
+                logger.debug("Could not mark introduced peer as cross-mesh allowed", exc_info=True)
 
         ev_loop = p2p_manager._event_loop
         if not ev_loop or ev_loop.is_closed():
@@ -3671,10 +3837,20 @@ def create_api_blueprint() -> Blueprint:
                     host, port, scheme = parsed
                     connect_to_endpoint = getattr(type(p2p_manager), '_connect_to_endpoint', None)
                     if callable(connect_to_endpoint):
-                        connect_coro = connect_to_endpoint(p2p_manager, peer_id, ep)
+                        connect_coro = connect_to_endpoint(
+                            p2p_manager,
+                            peer_id,
+                            ep,
+                            allow_cross_mesh=allow_cross_mesh,
+                        )
                     else:
                         connect_coro = p2p_manager.connection_manager.connect_to_peer(
-                            peer_id, host, port, scheme=scheme)
+                            peer_id,
+                            host,
+                            port,
+                            scheme=scheme,
+                            scheme_explicit=str(ep or '').strip().lower().startswith('wss://'),
+                        )
                     future = asyncio.run_coroutine_threadsafe(
                         connect_coro,
                         ev_loop
@@ -3759,6 +3935,7 @@ def create_api_blueprint() -> Blueprint:
                     broker_sent = p2p_manager.send_broker_request(
                         target_peer_id=peer_id,
                         via_peer_id=broker_peer,
+                        allow_cross_mesh=allow_cross_mesh,
                     )
                 except Exception as be:
                     logger.warning(f"Broker request via {broker_peer} failed: {be}")
@@ -3987,7 +4164,12 @@ def create_api_blueprint() -> Blueprint:
                     )
                 else:
                     connect_coro = p2p_manager.connection_manager.connect_to_peer(
-                        peer_id, host, port, scheme=scheme)
+                        peer_id,
+                        host,
+                        port,
+                        scheme=scheme,
+                        scheme_explicit=str(ep or '').strip().lower().startswith('wss://'),
+                    )
                 future = asyncio.run_coroutine_threadsafe(
                     connect_coro,
                     ev_loop
@@ -4229,7 +4411,12 @@ def create_api_blueprint() -> Blueprint:
                     connect_coro = connect_to_endpoint(p2p_manager, peer_id, ep)
                 else:
                     connect_coro = p2p_manager.connection_manager.connect_to_peer(
-                        peer_id, host, port, scheme=scheme)
+                        peer_id,
+                        host,
+                        port,
+                        scheme=scheme,
+                        scheme_explicit=str(ep or '').strip().lower().startswith('wss://'),
+                    )
                 future = _asyncio.run_coroutine_threadsafe(
                     connect_coro,
                     ev_loop,

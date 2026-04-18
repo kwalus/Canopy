@@ -79,6 +79,12 @@ _MESHSPACE_RUNTIME_ENV_KEYS = {
     "CANOPY_MESHSPACE_ROOT",
     "CANOPY_MESHSPACE_SUPERVISED",
     "CANOPY_MESHSPACE_NETWORK_QUARANTINED",
+    "CANOPY_ENABLE_TLS",
+    "CANOPY_TLS_CERT_PATH",
+    "CANOPY_TLS_KEY_PATH",
+    "CANOPY_REQUIRE_VERIFIED_WSS",
+    "CANOPY_EXTERNAL_TLS_ENDPOINT",
+    "CANOPY_TRANSPORT_SECURITY_MODE",
 }
 
 
@@ -405,7 +411,23 @@ def build_runtime_environment_from_config(config: Any) -> Dict[str, str]:
         "CANOPY_PORT": str(int(getattr(config.network, "port", 0) or 0)),
         "CANOPY_MESH_PORT": str(int(getattr(config.network, "mesh_port", 0) or 0)),
         "CANOPY_DISCOVERY_PORT": str(int(getattr(config.network, "discovery_port", 0) or 0)),
+        "CANOPY_ENABLE_TLS": "true" if bool(getattr(config.network, "enable_tls", False)) else "false",
+        "CANOPY_REQUIRE_VERIFIED_WSS": "true"
+        if bool(getattr(config.network, "require_verified_wss", False))
+        else "false",
     }
+    tls_cert_path = str(getattr(config.network, "tls_cert_path", "") or "").strip()
+    tls_key_path = str(getattr(config.network, "tls_key_path", "") or "").strip()
+    external_tls_endpoint = str(getattr(config.network, "external_tls_endpoint", "") or "").strip()
+    transport_mode = str(getattr(config.network, "transport_security_mode", "") or "").strip()
+    if tls_cert_path:
+        env_map["CANOPY_TLS_CERT_PATH"] = tls_cert_path
+    if tls_key_path:
+        env_map["CANOPY_TLS_KEY_PATH"] = tls_key_path
+    if external_tls_endpoint:
+        env_map["CANOPY_EXTERNAL_TLS_ENDPOINT"] = external_tls_endpoint
+    if transport_mode:
+        env_map["CANOPY_TRANSPORT_SECURITY_MODE"] = transport_mode
     if mesh_cfg and str(getattr(mesh_cfg, "meshspace_id", "") or "").strip():
         env_map.update(
             {
@@ -1633,7 +1655,7 @@ class MeshspaceRegistryManager:
         record = self.get_meshspace(meshspace_id)
         if not record:
             return None
-        return {
+        env = {
             "CANOPY_MESHSPACE_ID": str(record["meshspace_id"]),
             "CANOPY_MESHSPACE_NAME": str(record["name"]),
             "CANOPY_MESHSPACE_ROOT": str(record["data_dir"]),
@@ -1643,6 +1665,18 @@ class MeshspaceRegistryManager:
             "CANOPY_MESH_PORT": str(record["mesh_port"]),
             "CANOPY_DISCOVERY_PORT": str(record["discovery_port"]),
         }
+        for key in (
+            "CANOPY_ENABLE_TLS",
+            "CANOPY_TLS_CERT_PATH",
+            "CANOPY_TLS_KEY_PATH",
+            "CANOPY_REQUIRE_VERIFIED_WSS",
+            "CANOPY_EXTERNAL_TLS_ENDPOINT",
+            "CANOPY_TRANSPORT_SECURITY_MODE",
+        ):
+            value = str(os.environ.get(key) or "").strip()
+            if value:
+                env[key] = value
+        return env
 
     def _spawn_meshspace_process(self, meshspace_id: str) -> Dict[str, Any]:
         record = self.get_meshspace(meshspace_id)
