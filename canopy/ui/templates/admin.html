@@ -1070,7 +1070,7 @@
             </div>
             <div class="transport-kpi">
                 <div class="transport-kpi-label">Verification</div>
-                <div class="transport-kpi-value" id="transportVerifyValue">{{ ts.get('client_verification_mode') or 'permissive' }}</div>
+                <div class="transport-kpi-value" id="transportVerifyValue">{{ ts.get('verification_display') or ts.get('client_verification_mode') or 'permissive' }}</div>
             </div>
             <div class="transport-kpi">
                 <div class="transport-kpi-label">Recommended</div>
@@ -1125,8 +1125,8 @@
             </div>
             <div class="d-flex flex-wrap gap-2">
                 <div class="form-check form-switch d-flex align-items-center gap-1 me-2">
-                    <input class="form-check-input" type="checkbox" role="switch" id="transportRequireVerifiedWss" {% if ts.get('client_verification_mode') == 'verified' %}checked{% endif %}>
-                    <label class="form-check-label small" for="transportRequireVerifiedWss">Verify outbound wss certs</label>
+                    <input class="form-check-input" type="checkbox" role="switch" id="transportRequireVerifiedWss" {% if (ts.get('configured_client_verification_mode') or ts.get('client_verification_mode')) == 'verified' %}checked{% endif %}>
+                    <label class="form-check-label small" for="transportRequireVerifiedWss">Verify outbound wss certs (applies on restart)</label>
                 </div>
                 <button type="button" class="btn btn-outline-secondary btn-sm" id="transportRefreshBtn">Refresh</button>
                 <button type="button" class="btn btn-outline-danger btn-sm" id="transportDisableBtn">Disable</button>
@@ -3360,7 +3360,7 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
         if (!card || !status) return;
         setTransportText('transportListenerValue', status.listener_endpoint || '-');
         setTransportText('transportModeValue', status.mode_label || status.transport_security_mode_label || 'Disabled');
-        setTransportText('transportVerifyValue', status.client_verification_mode || 'permissive');
+        setTransportText('transportVerifyValue', status.verification_display || status.client_verification_mode || 'permissive');
         setTransportText('transportRecommendedValue', status.recommended_endpoint || '-');
         setTransportText('transportConfigPath', status.config_path || '-');
         setTransportText('transportReadinessTitle', status.invite_readiness_label || 'Transport status unavailable');
@@ -3401,7 +3401,7 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
         }
         const verifyInput = document.getElementById('transportRequireVerifiedWss');
         if (verifyInput) {
-            verifyInput.checked = (status.client_verification_mode || '').toLowerCase() === 'verified';
+            verifyInput.checked = ((status.configured_client_verification_mode || status.client_verification_mode || '').toLowerCase() === 'verified');
         }
 
         const restartBtn = document.getElementById('transportRestartBtn');

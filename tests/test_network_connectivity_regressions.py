@@ -883,19 +883,22 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
             ed25519_public_key=b'\x01' * 32,
             x25519_public_key=b'\x02' * 32,
         )
-        manager._record_connection_event = lambda *args, **kwargs: None  # type: ignore[assignment]
+        manager._record_connection_event = MagicMock()
         manager._get_local_advertised_endpoints = lambda: ['wss://demo.example.com:443']  # type: ignore[assignment]
 
         future = MagicMock()
         future.result.return_value = True
 
         with patch('asyncio.run_coroutine_threadsafe', return_value=future):
-            sent = manager.send_broker_request('peer-target', 'broker-a')
+            sent = manager.send_broker_request('peer-target', 'broker-a', allow_cross_mesh=True)
 
         self.assertTrue(sent)
         self.assertEqual(
             manager.message_router.send_broker_request.call_args.kwargs['requester_endpoints'],
             ['wss://demo.example.com:443'],
+        )
+        self.assertTrue(
+            manager.message_router.send_broker_request.call_args.kwargs['allow_cross_mesh']
         )
 
     def test_operator_wss_endpoint_is_reused_for_handshake_advertisements(self) -> None:

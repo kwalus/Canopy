@@ -3837,7 +3837,12 @@ def create_api_blueprint() -> Blueprint:
                     host, port, scheme = parsed
                     connect_to_endpoint = getattr(type(p2p_manager), '_connect_to_endpoint', None)
                     if callable(connect_to_endpoint):
-                        connect_coro = connect_to_endpoint(p2p_manager, peer_id, ep)
+                        connect_coro = connect_to_endpoint(
+                            p2p_manager,
+                            peer_id,
+                            ep,
+                            allow_cross_mesh=allow_cross_mesh,
+                        )
                     else:
                         connect_coro = p2p_manager.connection_manager.connect_to_peer(
                             peer_id,
@@ -3930,6 +3935,7 @@ def create_api_blueprint() -> Blueprint:
                     broker_sent = p2p_manager.send_broker_request(
                         target_peer_id=peer_id,
                         via_peer_id=broker_peer,
+                        allow_cross_mesh=allow_cross_mesh,
                     )
                 except Exception as be:
                     logger.warning(f"Broker request via {broker_peer} failed: {be}")

@@ -263,6 +263,35 @@ class TestConnectIntroducedBrokerFallback(unittest.TestCase):
         self.assertEqual(payload.get('attempted_brokers'), ['broker-a'])
         run_coro.assert_not_called()
 
+    def test_connect_introduced_force_broker_preserves_explicit_cross_mesh_intent(self) -> None:
+        peer_id = 'peer-target'
+        self.db_manager.get_instance_owner_user_id.return_value = 'test-user'
+        self.p2p_manager._introduced_peers[peer_id] = {
+            'peer_id': peer_id,
+            'endpoints': ['ws://203.0.113.10:7771'],
+            'introduced_via': ['broker-a'],
+        }
+        self.p2p_manager.get_introduced_peer_meshspace_status.return_value = {
+            'requires_explicit_meshspace_connect': True,
+            'remote_meshspace_label': 'Private Mesh',
+        }
+        self.p2p_manager.get_connected_peers.return_value = ['broker-a']
+        self.p2p_manager.send_broker_request.return_value = True
+
+        with patch('asyncio.run_coroutine_threadsafe') as run_coro:
+            response = self._post_connect_introduced(
+                peer_id,
+                extra_payload={'force_broker': True, 'allow_cross_mesh': True},
+            )
+
+        self.assertEqual(response.status_code, 202)
+        payload = response.get_json() or {}
+        self.assertEqual(payload.get('status'), 'brokering')
+        self.assertTrue(payload.get('forced_failover'))
+        self.assertEqual(payload.get('attempted_brokers'), ['broker-a'])
+        self.assertTrue(self.p2p_manager.send_broker_request.call_args.kwargs.get('allow_cross_mesh'))
+        run_coro.assert_not_called()
+
     def test_connect_introduced_prefers_public_endpoint_over_stale_lan_history(self) -> None:
         peer_id = 'peer-target'
         self.p2p_manager._introduced_peers[peer_id] = {

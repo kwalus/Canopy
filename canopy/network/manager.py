@@ -3580,7 +3580,8 @@ class P2PNetworkManager:
     def _on_broker_request(self, target_peer: str,
                            requester_endpoints: list,
                            requester_keys: dict,
-                           from_peer: str) -> None:
+                           from_peer: str,
+                           allow_cross_mesh: bool = False) -> None:
         """Handle a BROKER_REQUEST: peer asks us to help it connect to target_peer.
 
         If we are connected to target_peer, forward a BROKER_INTRO with
@@ -3622,6 +3623,7 @@ class P2PNetworkManager:
                     requester_peer_id=from_peer,
                     requester_endpoints=requester_endpoints,
                     requester_keys=requester_keys,
+                    allow_cross_mesh=allow_cross_mesh,
                 ),
                 self._event_loop
             )
@@ -3635,7 +3637,8 @@ class P2PNetworkManager:
     def _on_broker_intro(self, requester_peer_id: str,
                          requester_endpoints: list,
                          requester_keys: dict,
-                         from_peer: str) -> None:
+                         from_peer: str,
+                         allow_cross_mesh: bool = False) -> None:
         """Handle a BROKER_INTRO: an intermediary tells us a peer wants to connect.
 
         Attempt to connect directly to the requester using the provided endpoints.
@@ -3662,13 +3665,18 @@ class P2PNetworkManager:
         if self._event_loop and not self._event_loop.is_closed():
             asyncio.run_coroutine_threadsafe(
                 self._attempt_brokered_connection(
-                    requester_peer_id, requester_endpoints, broker_peer=from_peer),
+                    requester_peer_id,
+                    requester_endpoints,
+                    broker_peer=from_peer,
+                    allow_cross_mesh=allow_cross_mesh,
+                ),
                 self._event_loop
             )
 
     async def _attempt_brokered_connection(self, peer_id: str,
                                             endpoints: list,
-                                            broker_peer: Optional[str] = None) -> None:
+                                            broker_peer: Optional[str] = None,
+                                            allow_cross_mesh: bool = False) -> None:
         """Try each endpoint to establish a direct connection.
         
         Args:
@@ -3686,7 +3694,11 @@ class P2PNetworkManager:
         for ep in endpoints:
             try:
                 logger.info(f"Brokered connect attempt to {peer_id} via {ep}")
-                await self._connect_to_endpoint(peer_id, ep)
+                await self._connect_to_endpoint(
+                    peer_id,
+                    ep,
+                    allow_cross_mesh=allow_cross_mesh,
+                )
                 if self.connection_manager.is_connected(peer_id):
                     logger.info(f"Brokered connection to {peer_id} succeeded!")
                     # Remove any relay route since we now have a direct connection
@@ -3806,7 +3818,8 @@ class P2PNetworkManager:
         asyncio.run_coroutine_threadsafe(_send_offers(), self._event_loop)
 
     def send_broker_request(self, target_peer_id: str,
-                            via_peer_id: str) -> bool:
+                            via_peer_id: str,
+                            allow_cross_mesh: bool = False) -> bool:
         """Public method: ask via_peer to broker a connection to target_peer.
 
         Called from the API layer when a direct connection attempt fails.
@@ -3844,6 +3857,7 @@ class P2PNetworkManager:
                 target_peer=target_peer_id,
                 requester_endpoints=requester_endpoints,
                 requester_keys=requester_keys,
+                allow_cross_mesh=allow_cross_mesh,
             ),
             self._event_loop
         )

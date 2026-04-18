@@ -272,6 +272,32 @@ class TestConnectToEndpointPostHandshakeCrossMeshGuard(unittest.IsolatedAsyncioT
         self.assertTrue(result)
         manager.connection_manager.disconnect_peer.assert_not_called()
 
+    async def test_brokered_connection_preserves_explicit_cross_mesh_flag(self):
+        manager = self._make_manager_no_prior_hint()
+        manager.connection_manager.is_connected = MagicMock(side_effect=[False, False, True])
+        manager._connect_to_endpoint = AsyncMock(return_value=True)
+        manager.message_router.remove_route = MagicMock()
+        manager._active_relays = {FOREIGN_PEER_ID: RELAY_PEER_ID}
+        manager._run_post_connect_sync = AsyncMock()
+
+        await manager._attempt_brokered_connection(
+            FOREIGN_PEER_ID,
+            ['ws://10.0.0.7:7771', 'ws://10.0.0.8:7771'],
+            broker_peer=RELAY_PEER_ID,
+            allow_cross_mesh=True,
+        )
+
+        self.assertGreaterEqual(manager._connect_to_endpoint.await_count, 1)
+        first_call = manager._connect_to_endpoint.await_args_list[0]
+        self.assertEqual(
+            first_call.args,
+            (FOREIGN_PEER_ID, 'ws://10.0.0.7:7771'),
+        )
+        self.assertTrue(first_call.kwargs.get('allow_cross_mesh'))
+        manager.message_router.remove_route.assert_called_once_with(FOREIGN_PEER_ID)
+        self.assertNotIn(FOREIGN_PEER_ID, manager._active_relays)
+        manager._run_post_connect_sync.assert_awaited_once_with(FOREIGN_PEER_ID)
+
 
 class TestRelayOfferCrossMeshGuard(unittest.TestCase):
     def _make_manager_with_cross_mesh_hint(self) -> P2PNetworkManager:

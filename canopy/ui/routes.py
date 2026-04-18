@@ -8451,6 +8451,12 @@ def create_ui_blueprint() -> Blueprint:
         conn_mgr = getattr(p2p_manager, 'connection_manager', None) if p2p_manager else None
         configured_tls = bool(getattr(network, 'enable_tls', False))
         live_tls = bool(status.get('tls_enabled'))
+        configured_verification_mode = (
+            'verified' if bool(getattr(network, 'require_verified_wss', False)) else 'permissive'
+        )
+        live_verification_mode = str(
+            status.get('client_verification_mode') or configured_verification_mode or 'permissive'
+        ).strip().lower() or 'permissive'
         restart_required = configured_tls != live_tls
         configured_cert = str(getattr(network, 'tls_cert_path', '') or '').strip()
         configured_key = str(getattr(network, 'tls_key_path', '') or '').strip()
@@ -8461,6 +8467,8 @@ def create_ui_blueprint() -> Blueprint:
                 restart_required = True
             if configured_key and live_key and Path(configured_key).expanduser() != Path(live_key).expanduser():
                 restart_required = True
+        if configured_verification_mode != live_verification_mode:
+            restart_required = True
         external_endpoint = str(
             getattr(network, 'external_tls_endpoint', '')
             or settings.get('external_tls_endpoint')
@@ -8469,6 +8477,20 @@ def create_ui_blueprint() -> Blueprint:
         ).strip()
         external_declared = bool(mode == 'external_terminator' and external_endpoint.lower().startswith('wss://'))
         secure_invite_ready = (not restart_required) and (bool(live_tls) or external_declared)
+        warnings = [
+            str(item).strip()
+            for item in (status.get('warnings') or [])
+            if str(item).strip()
+        ]
+        if configured_verification_mode != live_verification_mode:
+            warnings.append(
+                'Outbound certificate verification mode has changed and will apply after restart.'
+            )
+        verification_display = live_verification_mode
+        if configured_verification_mode != live_verification_mode:
+            verification_display = (
+                f"{live_verification_mode} (restart pending: {configured_verification_mode} configured)"
+            )
         if restart_required:
             readiness_label = 'Restart required'
             readiness_detail = 'Transport settings are saved, but the running mesh listener has not restarted into the requested mode yet.'
@@ -8499,6 +8521,9 @@ def create_ui_blueprint() -> Blueprint:
             'configured_tls_enabled': configured_tls,
             'configured_tls_cert_path': configured_cert,
             'configured_tls_key_path': configured_key,
+            'configured_client_verification_mode': configured_verification_mode,
+            'live_client_verification_mode': live_verification_mode,
+            'verification_display': verification_display,
             'external_tls_endpoint': external_endpoint,
             'external_tls_terminator_declared': external_declared,
             'secure_invite_ready': secure_invite_ready,
@@ -8506,6 +8531,7 @@ def create_ui_blueprint() -> Blueprint:
             'invite_readiness_detail': readiness_detail,
             'restart_required': restart_required,
             'restart_url': restart_url,
+            'warnings': warnings,
         })
         return status
 
