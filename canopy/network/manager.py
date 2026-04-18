@@ -302,6 +302,155 @@ class P2PNetworkManager:
             'meshspace_avatar_mime': str(getattr(mesh_cfg, 'avatar_preview_mime', 'image/png') or 'image/png').strip() or 'image/png',
         }
 
+    @classmethod
+    def _extract_peer_meshspace_hint(cls, peer_meta: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Normalize meshspace metadata carried by invites, handshakes, or introductions."""
+        if not isinstance(peer_meta, dict):
+            return {}
+        merged: Dict[str, Any] = {}
+        for nested_key in ('meshspace_hint', 'meshspace'):
+            nested = peer_meta.get(nested_key)
+            if isinstance(nested, dict):
+                for key, value in nested.items():
+                    if value is not None and value != '':
+                        merged[key] = value
+        for key, value in peer_meta.items():
+            if key in {'meshspace_hint', 'meshspace'}:
+                continue
+            if value is not None and value != '':
+                merged[key] = value
+        key_map = {
+            'meshspace_id': ('meshspace_id', 'mid', 'mesh_id'),
+            'meshspace_id_aliases': ('meshspace_id_aliases', 'mesh_id_aliases', 'mids'),
+            'meshspace_name': ('meshspace_name', 'mesh_name', 'mn'),
+            'meshspace_fingerprint': ('meshspace_fingerprint', 'mesh_fingerprint', 'mf'),
+            'meshspace_avatar_b64': ('meshspace_avatar_b64',),
+            'meshspace_avatar_mime': ('meshspace_avatar_mime',),
+            'cross_mesh_allowed': ('cross_mesh_allowed',),
+            'mesh_relationship': ('mesh_relationship',),
+        }
+        hint: Dict[str, Any] = {}
+        for target, keys in key_map.items():
+            for key in keys:
+                if key not in merged:
+                    continue
+                value = merged.get(key)
+                if value is None or value == '':
+                    continue
+                hint[target] = value
+                break
+        meshspace_id = str(hint.get('meshspace_id') or '').strip()
+        aliases = cls._normalize_meshspace_id_aliases(
+            hint.get('meshspace_id_aliases'),
+            current_id=meshspace_id,
+        )
+        normalized: Dict[str, Any] = {}
+        if meshspace_id:
+            normalized['meshspace_id'] = meshspace_id
+        if aliases:
+            normalized['meshspace_id_aliases'] = aliases
+        for key in ('meshspace_name', 'meshspace_fingerprint', 'meshspace_avatar_mime', 'mesh_relationship'):
+            value = str(hint.get(key) or '').strip()
+            if value:
+                normalized[key] = value
+        avatar_b64 = str(hint.get('meshspace_avatar_b64') or '').strip()
+        if avatar_b64 and len(avatar_b64) <= 24000:
+            normalized['meshspace_avatar_b64'] = avatar_b64
+        if 'cross_mesh_allowed' in hint:
+            normalized['cross_mesh_allowed'] = bool(hint.get('cross_mesh_allowed'))
+        return normalized
+
+    def _peer_meshspace_hint_for_announcement(self, peer_id: str) -> Dict[str, Any]:
+        """Return compact meshspace metadata safe to include in peer introductions."""
+        identity_manager = getattr(self, 'identity_manager', None)
+        getter = getattr(identity_manager, 'get_peer_meshspace_hint', None)
+        hint: Dict[str, Any] = {}
+        if callable(getter):
+            try:
+                hint = dict(getter(peer_id) or {})
+            except Exception:
+                hint = {}
+        elif identity_manager is not None:
+            hint = dict(getattr(identity_manager, 'peer_meshspace_hints', {}).get(peer_id, {}) or {})
+        normalized = self._extract_peer_meshspace_hint(hint)
+        if not normalized:
+            return {}
+        # Keep introductions lightweight; text identity is enough to prevent accidental bridging.
+        return {
+            key: value
+            for key, value in normalized.items()
+            if key not in {'meshspace_avatar_b64', 'meshspace_avatar_mime'}
+        }
+
+    def _introduced_peer_meshspace_status(
+        self,
+        peer_id: str,
+        record: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Classify introduced peers so cross-mesh candidates cannot look routine."""
+        identity_manager = getattr(self, 'identity_manager', None)
+        persisted_hint: Dict[str, Any] = {}
+        getter = getattr(identity_manager, 'get_peer_meshspace_hint', None)
+        if callable(getter):
+            try:
+                persisted_hint = dict(getter(peer_id) or {})
+            except Exception:
+                persisted_hint = {}
+        elif identity_manager is not None:
+            persisted_hint = dict(getattr(identity_manager, 'peer_meshspace_hints', {}).get(peer_id, {}) or {})
+
+        hint = self._extract_peer_meshspace_hint(persisted_hint)
+        record_hint = self._extract_peer_meshspace_hint(record)
+        if record_hint:
+            hint.update(record_hint)
+
+        local = self._local_meshspace_identity()
+        local_ids = self._meshspace_hint_ids(local)
+        remote_ids = self._meshspace_hint_ids(hint)
+        local_fingerprint = str(local.get('meshspace_fingerprint') or '').strip()
+        remote_fingerprint = str(hint.get('meshspace_fingerprint') or '').strip()
+        mismatch = False
+        if self._meshspace_boundary_enabled():
+            if local_ids and remote_ids:
+                mismatch = not bool(local_ids.intersection(remote_ids))
+            elif local_fingerprint and remote_fingerprint:
+                mismatch = remote_fingerprint != local_fingerprint
+
+        if mismatch:
+            relationship = 'cross_mesh_candidate'
+        elif remote_ids or remote_fingerprint:
+            relationship = 'same_mesh_candidate'
+        else:
+            relationship = 'unknown'
+
+        remote_label = (
+            str(hint.get('meshspace_name') or '').strip()
+            or str(hint.get('meshspace_id') or '').strip()
+            or 'another meshspace'
+        )
+        return {
+            'meshspace_hint': hint,
+            'meshspace_relationship': relationship,
+            'meshspace_mismatch': bool(mismatch),
+            'requires_explicit_meshspace_connect': bool(mismatch),
+            'local_meshspace_id': str(local.get('meshspace_id') or '').strip(),
+            'local_meshspace_name': str(local.get('meshspace_name') or '').strip(),
+            'remote_meshspace_id': str(hint.get('meshspace_id') or '').strip(),
+            'remote_meshspace_name': str(hint.get('meshspace_name') or '').strip(),
+            'remote_meshspace_fingerprint': str(hint.get('meshspace_fingerprint') or '').strip(),
+            'remote_meshspace_label': remote_label,
+        }
+
+    def get_introduced_peer_meshspace_status(self, peer_id: str) -> Dict[str, Any]:
+        """Return meshspace review status for an introduced peer."""
+        clean_peer_id = str(peer_id or '').strip()
+        record = {}
+        if clean_peer_id and hasattr(self, '_introduced_peers'):
+            candidate = self._introduced_peers.get(clean_peer_id)
+            if isinstance(candidate, dict):
+                record = candidate
+        return self._introduced_peer_meshspace_status(clean_peer_id, record)
+
     def _record_peer_meshspace_hint(
         self,
         peer_id: str,
@@ -3059,7 +3208,7 @@ class P2PNetworkManager:
                     else self.identity_manager.peer_display_names.get(pid, pid[:8])
                 )
                 display_name = self._sanitize_public_peer_label(display_name)
-                introduced.append({
+                peer_payload = {
                     'peer_id': pid,
                     'display_name': display_name,
                     'peer_label': display_name,
@@ -3071,7 +3220,12 @@ class P2PNetworkManager:
                         list((getattr(self.connection_manager.get_connection(pid), 'capabilities', None) or {}).keys())
                     ),
                     'device_profile': device_profile,
-                })
+                }
+                meshspace_hint = self._peer_meshspace_hint_for_announcement(pid)
+                if meshspace_hint:
+                    peer_payload['meshspace_hint'] = meshspace_hint
+                    peer_payload.update(meshspace_hint)
+                introduced.append(peer_payload)
             if introduced:
                 logger.debug(f"Announcing {len(introduced)} peers to {peer_id}")
                 await self.message_router.send_peer_announcement(peer_id, introduced)
@@ -3109,7 +3263,7 @@ class P2PNetworkManager:
                 else self.identity_manager.peer_display_names.get(new_peer_id, new_peer_id[:8])
             )
             display_name = self._sanitize_public_peer_label(display_name)
-            new_peer_info = [{
+            peer_payload = {
                 'peer_id': new_peer_id,
                 'display_name': display_name,
                 'peer_label': display_name,
@@ -3121,7 +3275,12 @@ class P2PNetworkManager:
                     list((getattr(self.connection_manager.get_connection(new_peer_id), 'capabilities', None) or {}).keys())
                 ),
                 'device_profile': device_profile,
-            }]
+            }
+            meshspace_hint = self._peer_meshspace_hint_for_announcement(new_peer_id)
+            if meshspace_hint:
+                peer_payload['meshspace_hint'] = meshspace_hint
+                peer_payload.update(meshspace_hint)
+            new_peer_info = [peer_payload]
 
             connected = self.connection_manager.get_connected_peers()
             local_id = self.local_identity.peer_id if self.local_identity else ''
@@ -3179,6 +3338,10 @@ class P2PNetworkManager:
             )
             if public_hint.get('display_name') and not cleaned.get('display_name'):
                 cleaned['display_name'] = public_hint['display_name']
+            meshspace_hint = self._extract_peer_meshspace_hint(cleaned)
+            if meshspace_hint:
+                cleaned['meshspace_hint'] = meshspace_hint
+                self._record_peer_meshspace_hint(pid, meshspace_hint, source='announcement')
             cleaned['endpoints'] = endpoints
             cleaned['introduced_by'] = from_peer
             cleaned['capabilities'] = self._normalize_capability_items(cleaned.get('capabilities'))
@@ -3276,12 +3439,16 @@ class P2PNetworkManager:
                 connect_strategy = 'broker_only' if broker_candidates else 'unreachable'
 
             row = dict(record)
+            meshspace_status = self._introduced_peer_meshspace_status(peer_id, record)
+            if meshspace_status.get('requires_explicit_meshspace_connect'):
+                connect_strategy = 'explicit_meshspace_required'
             row['peer_id'] = peer_id
             row['endpoints'] = merged_endpoints
             row['endpoint_count'] = len(merged_endpoints)
             row['endpoint_sources'] = endpoint_sources or ['none']
             row['connect_strategy'] = connect_strategy
             row['broker_candidates'] = broker_candidates
+            row.update(meshspace_status)
             rows.append(row)
         return rows
 

@@ -8739,12 +8739,20 @@ def create_ui_blueprint() -> Blueprint:
                         peer_active_transports[pid] = {}
 
             # Peers introduced by contacts
-            introduced_peers = p2p_manager.get_introduced_peers() if p2p_manager else []
+            introduced_peer_rows = p2p_manager.get_introduced_peers() if p2p_manager else []
             if p2p_manager and hasattr(p2p_manager, 'get_peer_public_identity'):
-                for entry in introduced_peers:
+                for entry in introduced_peer_rows:
                     pid = entry.get('peer_id') if isinstance(entry, dict) else None
                     if pid:
                         entry['public_identity'] = p2p_manager.get_peer_public_identity(pid)
+            introduced_meshspace_candidates = [
+                entry for entry in introduced_peer_rows
+                if isinstance(entry, dict) and entry.get('requires_explicit_meshspace_connect')
+            ]
+            introduced_peers = [
+                entry for entry in introduced_peer_rows
+                if not (isinstance(entry, dict) and entry.get('requires_explicit_meshspace_connect'))
+            ]
 
             # Relay status
             relay_status = p2p_manager.get_relay_status() if p2p_manager else {}
@@ -8843,7 +8851,7 @@ def create_ui_blueprint() -> Blueprint:
             if trust_manager:
                 all_peer_ids = set(connected_peers)
                 all_peer_ids.update(p.get('peer_id', '') for p in known_peers)
-                all_peer_ids.update(p.get('peer_id', '') for p in introduced_peers)
+                all_peer_ids.update(p.get('peer_id', '') for p in introduced_peer_rows)
                 for pid in all_peer_ids:
                     if pid:
                         trust_scores[pid] = trust_manager.get_trust_score(pid)
@@ -8863,7 +8871,7 @@ def create_ui_blueprint() -> Blueprint:
                     continue
                 label = peer.get('display_name') or peer_labels.get(pid) or pid
                 peer_labels[pid] = label
-            for peer in introduced_peers:
+            for peer in introduced_peer_rows:
                 pid = peer.get('peer_id')
                 if not pid:
                     continue
@@ -8878,7 +8886,7 @@ def create_ui_blueprint() -> Blueprint:
                     peer_labels[dest] = dest
                 if relay and relay not in peer_labels:
                     peer_labels[relay] = relay
-            for peer in introduced_peers:
+            for peer in introduced_peer_rows:
                 introducer = peer.get('introduced_by') if isinstance(peer, dict) else None
                 if introducer and introducer not in peer_labels:
                     peer_labels[introducer] = introducer
@@ -8921,6 +8929,7 @@ def create_ui_blueprint() -> Blueprint:
                                  peer_active_transports=peer_active_transports,
                                  discovered_peers=discovered_peers,
                                  introduced_peers=introduced_peers,
+                                 introduced_meshspace_candidates=introduced_meshspace_candidates,
                                  known_peers=known_peers,
                                  relay_status=relay_status,
                                  peer_device_profiles=peer_device_profiles,

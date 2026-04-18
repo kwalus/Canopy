@@ -288,6 +288,7 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("code === 'mesh_identity_admin_required'", connect_template)
         self.assertIn("code === 'cross_mesh_confirmation_required'", connect_template)
         self.assertIn("code === 'cross_mesh_reconnect_confirmation_required'", connect_template)
+        self.assertIn("code === 'introduced_cross_mesh_confirmation_required'", connect_template)
         self.assertIn("code === 'secure_transport_failed'", connect_template)
         self.assertIn('Instance admin permission is required to connect to a peer from a different meshspace.', connect_template)
 
@@ -303,6 +304,15 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('isCrossMeshBlocked', connect_template)
         self.assertIn('Admin required', connect_template)
         self.assertIn('const blocked = Boolean(', connect_template)
+
+    def test_connect_page_separates_remote_meshspace_introductions(self) -> None:
+        connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
+        self.assertIn('Remote Meshspace Candidates', connect_template)
+        self.assertIn('introduced_meshspace_candidates', connect_template)
+        self.assertIn('Explicit Connect', connect_template)
+        self.assertIn('introduced_cross_mesh_confirmation_required', connect_template)
+        self.assertIn('payload.allow_cross_mesh = true', connect_template)
+        self.assertIn('explicit_meshspace_connect', connect_template)
 
     def test_feed_video_surfaces_preserve_actual_video_mime_type(self) -> None:
         feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')

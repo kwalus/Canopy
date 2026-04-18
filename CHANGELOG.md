@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.32] - 2026-04-17
+
+### Changed
+- **Introduced peers from other meshspaces now require an explicit Connect-page review step instead of blending into routine contact introductions** - introduced cross-mesh peers are separated into a dedicated remote-meshspace section, blocked from the quick-connect path unless the operator explicitly confirms the bridge, and require instance-admin approval before the connection can proceed.
+
 ## [0.6.31] - 2026-04-17
 
 ### Changed

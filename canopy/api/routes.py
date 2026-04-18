@@ -3693,7 +3693,7 @@ def create_api_blueprint() -> Blueprint:
     def connect_introduced_peer():
         """Connect to a peer that was introduced by a contact."""
         import asyncio
-        *_, p2p_manager = _get_app_components_any(current_app)
+        db_manager, *_, p2p_manager = _get_app_components_any(current_app)
         if not p2p_manager or not p2p_manager.connection_manager:
             return jsonify({'error': 'P2P not running'}), 500
 
@@ -3706,11 +3706,48 @@ def create_api_blueprint() -> Blueprint:
             or data.get('force_failover')
             or data.get('skip_direct')
         )
+        allow_cross_mesh = _as_bool(
+            data.get('allow_cross_mesh')
+            or data.get('explicit_meshspace_connect')
+        )
 
         # Look up introduced peer info
         intro = p2p_manager._introduced_peers.get(peer_id)
         if not intro:
             return jsonify({'error': 'Peer not found in introduced list'}), 404
+
+        meshspace_status = {}
+        get_intro_mesh_status = getattr(p2p_manager, 'get_introduced_peer_meshspace_status', None)
+        if callable(get_intro_mesh_status):
+            try:
+                meshspace_status = dict(get_intro_mesh_status(peer_id) or {})
+            except Exception:
+                meshspace_status = {}
+        if meshspace_status.get('requires_explicit_meshspace_connect') and not allow_cross_mesh:
+            return jsonify({
+                'status': 'confirmation_required',
+                'error': 'Remote meshspace candidate requires explicit confirmation',
+                'diagnostic_code': 'introduced_cross_mesh_confirmation_required',
+                'message': (
+                    'This introduced peer advertises a different meshspace. '
+                    'Use the explicit remote-meshspace action only if the bridge is intentional.'
+                ),
+                'cross_mesh': meshspace_status,
+            }), 409
+        if allow_cross_mesh and not _request_is_instance_admin(db_manager):
+            return jsonify({
+                'error': 'Instance admin required',
+                'diagnostic_code': 'cross_mesh_admin_required',
+                'message': (
+                    'Only the instance admin can approve an introduced cross-mesh connection from this workspace.'
+                ),
+                'cross_mesh': meshspace_status,
+            }), 403
+        if allow_cross_mesh and hasattr(p2p_manager, 'mark_peer_cross_mesh_allowed'):
+            try:
+                p2p_manager.mark_peer_cross_mesh_allowed(peer_id, True)
+            except Exception:
+                logger.debug("Could not mark introduced peer as cross-mesh allowed", exc_info=True)
 
         ev_loop = p2p_manager._event_loop
         if not ev_loop or ev_loop.is_closed():

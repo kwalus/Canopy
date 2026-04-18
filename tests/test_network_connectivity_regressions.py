@@ -824,6 +824,55 @@ class TestNetworkConnectivityRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(introduced[0]['connect_strategy'], 'unreachable')
         self.assertEqual(introduced[0]['broker_candidates'], [])
 
+    def test_get_introduced_peers_requires_explicit_review_for_cross_mesh_candidate(self) -> None:
+        manager = self._build_manager()
+        manager._introduced_peers = {
+            'peer-remote': {
+                'peer_id': 'peer-remote',
+                'introduced_by': 'broker-a',
+                'endpoints': ['ws://198.51.100.12:7771'],
+                'meshspace_hint': {
+                    'meshspace_id': 'business-mesh',
+                    'meshspace_name': 'Business Mesh',
+                },
+            }
+        }
+        manager.get_connected_peers = lambda: ['broker-a']
+        manager.get_peer_id = lambda: 'local-peer'
+
+        introduced = manager.get_introduced_peers()
+
+        self.assertEqual(len(introduced), 1)
+        self.assertEqual(introduced[0]['connect_strategy'], 'explicit_meshspace_required')
+        self.assertTrue(introduced[0]['requires_explicit_meshspace_connect'])
+        self.assertEqual(introduced[0]['meshspace_relationship'], 'cross_mesh_candidate')
+        self.assertEqual(introduced[0]['remote_meshspace_label'], 'Business Mesh')
+
+    def test_store_introduced_peers_persists_announced_meshspace_hint(self) -> None:
+        manager = self._build_manager()
+        manager.store_introduced_peers(
+            [
+                {
+                    'peer_id': 'peer-remote',
+                    'display_name': 'Remote Business Node',
+                    'endpoints': ['ws://198.51.100.12:7771'],
+                    'ed25519_public_key': '',
+                    'x25519_public_key': '',
+                    'meshspace_id': 'business-mesh',
+                    'meshspace_name': 'Business Mesh',
+                }
+            ],
+            'broker-a',
+        )
+
+        introduced = manager.get_introduced_peers()
+
+        self.assertEqual(introduced[0]['remote_meshspace_id'], 'business-mesh')
+        self.assertEqual(
+            manager.identity_manager.get_peer_meshspace_hint('peer-remote').get('meshspace_id'),
+            'business-mesh',
+        )
+
     def test_send_broker_request_prefers_advertised_endpoints(self) -> None:
         manager = self._build_manager()
         manager._running = True

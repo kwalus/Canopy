@@ -157,6 +157,22 @@
         color: var(--canopy-text-secondary);
         font-size: 0.8rem;
     }
+    .remote-meshspace-review {
+        border: 1px solid rgba(245, 158, 11, 0.34);
+        background:
+            radial-gradient(circle at top left, rgba(245, 158, 11, 0.12), transparent 34%),
+            color-mix(in srgb, var(--canopy-bg-secondary) 88%, transparent);
+    }
+    .remote-meshspace-pill {
+        border: 1px solid rgba(245, 158, 11, 0.38);
+        color: #fbbf24;
+        background: rgba(245, 158, 11, 0.1);
+        border-radius: 999px;
+        font-size: 0.68rem;
+        padding: 0.18rem 0.5rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
     .transport-security-card {
         border: 1px solid color-mix(in srgb, var(--canopy-border) 82%, transparent);
         border-radius: 14px;
@@ -913,6 +929,103 @@
     </div>
 </div>
 
+<!-- Remote meshspace candidates introduced by connected peers -->
+{% if introduced_meshspace_candidates %}
+<div class="row">
+    <div class="col-12 mb-4">
+        <div class="card remote-meshspace-review">
+            <div class="card-header">
+                <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+                    <div>
+                        <h5 class="mb-1"><i class="bi bi-signpost-split"></i> Remote Meshspace Candidates</h5>
+                        <div class="text-muted small">These peers were introduced through contacts but advertise a different meshspace. They are separated from routine peer introductions to prevent accidental mesh bridging.</div>
+                    </div>
+                    <span class="remote-meshspace-pill">Explicit review</span>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive connect-scroll-table">
+                    <table class="table table-sm" style="color:var(--canopy-text-primary);">
+                        <thead>
+                            <tr>
+                                <th>Peer</th>
+                                <th>Remote meshspace</th>
+                                <th>Introduced by</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for peer in introduced_meshspace_candidates %}
+                            {% set idev = peer_device_profiles.get(peer.peer_id) if peer_device_profiles else None %}
+                            {% set ibydev = peer_device_profiles.get(peer.introduced_by) if peer_device_profiles else None %}
+                            {% set pub = peer.public_identity if peer.public_identity else None %}
+                            {% set bypub = peer_public_identities.get(peer.introduced_by) if peer_public_identities else {} %}
+                            <tr>
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        {% if idev and idev.avatar_b64 and idev.avatar_mime %}
+                                        <img src="data:{{ idev.avatar_mime }};base64,{{ idev.avatar_b64 }}"
+                                             alt="" style="width:24px; height:24px; border-radius:50%; margin-right:6px; object-fit:cover;">
+                                        {% elif pub and pub.avatar_initials %}
+                                        <div class="peer-preview-avatar" style="background:{{ pub.avatar_color or '#334155' }};">{{ pub.avatar_initials }}</div>
+                                        {% endif %}
+                                        <div>
+                                            {% if idev and idev.display_name %}
+                                            <strong>{{ idev.display_name }}</strong>
+                                            {% elif peer.display_name %}
+                                            <strong>{{ peer.display_name }}</strong>
+                                            {% elif pub and pub.node_name %}
+                                            <strong>{{ pub.node_name }}</strong>
+                                            {% else %}
+                                            <code>{{ peer.peer_id[:12] }}...</code>
+                                            {% endif %}
+                                            <small class="text-muted d-block" style="font-size:0.75rem;">{{ peer.peer_id[:12] }}...</small>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <div><strong>{{ peer.remote_meshspace_label or 'Another meshspace' }}</strong></div>
+                                    {% if peer.remote_meshspace_id %}
+                                    <code class="small">{{ peer.remote_meshspace_id }}</code>
+                                    {% endif %}
+                                    {% if peer.remote_meshspace_fingerprint %}
+                                    <div class="text-muted small">Fingerprint {{ peer.remote_meshspace_fingerprint }}</div>
+                                    {% endif %}
+                                    <div class="text-warning small mt-1">Connect only if this bridge is intentional.</div>
+                                </td>
+                                <td>
+                                    {% if ibydev and ibydev.display_name %}
+                                    <strong>{{ ibydev.display_name }}</strong>
+                                    {% elif bypub and bypub.node_name %}
+                                    <strong>{{ bypub.node_name }}</strong>
+                                    {% else %}
+                                    <code>{{ peer.introduced_by[:12] }}...</code>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if is_admin %}
+                                    <button class="btn btn-sm btn-outline-warning"
+                                            data-remote-mesh="{{ peer.remote_meshspace_label or 'another meshspace' }}"
+                                            onclick="connectToIntroduced('{{ peer.peer_id }}', this, {allowCrossMesh: true})">
+                                        <i class="bi bi-shield-exclamation"></i> Explicit Connect
+                                    </button>
+                                    {% else %}
+                                    <button class="btn btn-sm btn-outline-secondary" disabled title="Instance admin approval is required for remote meshspace candidates.">
+                                        <i class="bi bi-lock"></i> Admin required
+                                    </button>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <!-- Peers via Contacts (introduced by connected peers) -->
 {% if introduced_peers %}
 <div class="row">
@@ -1535,6 +1648,9 @@ function buildConnectErrorMessage(err) {
     if (code === 'cross_mesh_reconnect_confirmation_required') {
         return 'This peer is from a different meshspace. Reload the page to review the current mesh warning and confirm explicitly.';
     }
+    if (code === 'introduced_cross_mesh_confirmation_required') {
+        return 'This introduced peer advertises a different meshspace. Use the remote-meshspace section and confirm only if the bridge is intentional.';
+    }
     if (code === 'secure_transport_failed') {
         return 'The explicit wss:// endpoint failed TLS connection and Canopy refused to downgrade it to plain ws://. Verify the VPS, tunnel, or reverse proxy is serving secure WebSocket traffic.';
     }
@@ -2005,14 +2121,28 @@ function importInvite() {
     return connectPreviewedInvite();
 }
 
-function connectToIntroduced(peerId, buttonEl) {
+function connectToIntroduced(peerId, buttonEl, options = {}) {
     const btn = buttonEl || (typeof event !== 'undefined' ? event.target.closest('button') : null);
     if (!btn) return;
+    const allowCrossMesh = Boolean(options && options.allowCrossMesh);
+    if (allowCrossMesh) {
+        const remoteMesh = btn.dataset.remoteMesh || 'another meshspace';
+        const ok = confirm(
+            'Connect to a peer that advertises "' + remoteMesh + '" from this meshspace? ' +
+            'This can intentionally bridge meshes. Continue only if you mean to create that connection.'
+        );
+        if (!ok) return;
+    }
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Connecting...';
+    const payload = {peer_id: peerId};
+    if (allowCrossMesh) {
+        payload.allow_cross_mesh = true;
+        payload.explicit_meshspace_connect = true;
+    }
     apiJsonFetch('/api/v1/p2p/connect_introduced', {
         method: 'POST',
-        body: JSON.stringify({peer_id: peerId})
+        body: JSON.stringify(payload)
     })
     .then((data) => {
         if (data.status === 'connected') {
@@ -2023,7 +2153,7 @@ function connectToIntroduced(peerId, buttonEl) {
             btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Brokering...';
             btn.title = data.message || 'Waiting for broker to arrange connection';
             // Poll for connection after a delay
-            setTimeout(() => checkBrokeredConnection(peerId, btn), 8000);
+            setTimeout(() => checkBrokeredConnection(peerId, btn, 1, {allowCrossMesh}), 8000);
         } else {
             alert(data.error || data.message || 'Could not connect');
             btn.disabled = false;
@@ -2037,7 +2167,7 @@ function connectToIntroduced(peerId, buttonEl) {
     });
 }
 
-function checkBrokeredConnection(peerId, btn, attempt) {
+function checkBrokeredConnection(peerId, btn, attempt, options = {}) {
     attempt = attempt || 1;
     const maxAttempts = 12;
     const pollInterval = 5000; // 5s between polls
@@ -2064,7 +2194,7 @@ function checkBrokeredConnection(peerId, btn, attempt) {
                     btn.disabled = false;
                 } else if (attempt < maxAttempts) {
                     // Keep polling
-                    setTimeout(() => checkBrokeredConnection(peerId, btn, attempt + 1), pollInterval);
+                    setTimeout(() => checkBrokeredConnection(peerId, btn, attempt + 1, options), pollInterval);
                 } else {
                     // Exhausted retries
                     const relayPolicy = relay && relay.relay_policy ? relay.relay_policy : '';
@@ -2076,12 +2206,12 @@ function checkBrokeredConnection(peerId, btn, attempt) {
                     btn.disabled = false;
                     btn.title = 'Broker could not arrange a direct or relay connection.' +
                         (relayPolicy ? (' Relay policy: ' + relayPolicy + '.') : '') + policyHint;
-                    btn.onclick = function() { connectToIntroduced(peerId, btn); };
+                    btn.onclick = function() { connectToIntroduced(peerId, btn, options); };
                 }
             })
             .catch((err) => {
                 if (attempt < maxAttempts) {
-                    setTimeout(() => checkBrokeredConnection(peerId, btn, attempt + 1), pollInterval);
+                    setTimeout(() => checkBrokeredConnection(peerId, btn, attempt + 1, options), pollInterval);
                 } else {
                     const msg = buildConnectErrorMessage(err);
                     btn.className = 'btn btn-sm btn-outline-secondary';
@@ -2093,7 +2223,7 @@ function checkBrokeredConnection(peerId, btn, attempt) {
     })
     .catch((err) => {
         if (attempt < maxAttempts) {
-            setTimeout(() => checkBrokeredConnection(peerId, btn, attempt + 1), pollInterval);
+            setTimeout(() => checkBrokeredConnection(peerId, btn, attempt + 1, options), pollInterval);
         } else {
             const msg = buildConnectErrorMessage(err);
             btn.disabled = false;
