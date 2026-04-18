@@ -133,6 +133,10 @@ class P2PNetworkManager:
         self._activity_events: Deque[Dict[str, Any]] = deque(maxlen=200)
         self._endpoint_health_lock = threading.Lock()
         self._endpoint_health: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        self._operator_external_endpoint: Optional[str] = None
+        self._operator_public_host: Optional[str] = None
+        self._operator_public_port: Optional[int] = None
+        self._operator_allow_plain_fallback: bool = False
         
         # Callback that returns list of public channels for sync
         self.get_public_channels_for_sync: Optional[Callable] = None
@@ -297,6 +301,155 @@ class P2PNetworkManager:
             'meshspace_avatar_b64': str(getattr(mesh_cfg, 'avatar_preview_b64', '') or '').strip(),
             'meshspace_avatar_mime': str(getattr(mesh_cfg, 'avatar_preview_mime', 'image/png') or 'image/png').strip() or 'image/png',
         }
+
+    @classmethod
+    def _extract_peer_meshspace_hint(cls, peer_meta: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Normalize meshspace metadata carried by invites, handshakes, or introductions."""
+        if not isinstance(peer_meta, dict):
+            return {}
+        merged: Dict[str, Any] = {}
+        for nested_key in ('meshspace_hint', 'meshspace'):
+            nested = peer_meta.get(nested_key)
+            if isinstance(nested, dict):
+                for key, value in nested.items():
+                    if value is not None and value != '':
+                        merged[key] = value
+        for key, value in peer_meta.items():
+            if key in {'meshspace_hint', 'meshspace'}:
+                continue
+            if value is not None and value != '':
+                merged[key] = value
+        key_map = {
+            'meshspace_id': ('meshspace_id', 'mid', 'mesh_id'),
+            'meshspace_id_aliases': ('meshspace_id_aliases', 'mesh_id_aliases', 'mids'),
+            'meshspace_name': ('meshspace_name', 'mesh_name', 'mn'),
+            'meshspace_fingerprint': ('meshspace_fingerprint', 'mesh_fingerprint', 'mf'),
+            'meshspace_avatar_b64': ('meshspace_avatar_b64',),
+            'meshspace_avatar_mime': ('meshspace_avatar_mime',),
+            'cross_mesh_allowed': ('cross_mesh_allowed',),
+            'mesh_relationship': ('mesh_relationship',),
+        }
+        hint: Dict[str, Any] = {}
+        for target, keys in key_map.items():
+            for key in keys:
+                if key not in merged:
+                    continue
+                value = merged.get(key)
+                if value is None or value == '':
+                    continue
+                hint[target] = value
+                break
+        meshspace_id = str(hint.get('meshspace_id') or '').strip()
+        aliases = cls._normalize_meshspace_id_aliases(
+            hint.get('meshspace_id_aliases'),
+            current_id=meshspace_id,
+        )
+        normalized: Dict[str, Any] = {}
+        if meshspace_id:
+            normalized['meshspace_id'] = meshspace_id
+        if aliases:
+            normalized['meshspace_id_aliases'] = aliases
+        for key in ('meshspace_name', 'meshspace_fingerprint', 'meshspace_avatar_mime', 'mesh_relationship'):
+            value = str(hint.get(key) or '').strip()
+            if value:
+                normalized[key] = value
+        avatar_b64 = str(hint.get('meshspace_avatar_b64') or '').strip()
+        if avatar_b64 and len(avatar_b64) <= 24000:
+            normalized['meshspace_avatar_b64'] = avatar_b64
+        if 'cross_mesh_allowed' in hint:
+            normalized['cross_mesh_allowed'] = bool(hint.get('cross_mesh_allowed'))
+        return normalized
+
+    def _peer_meshspace_hint_for_announcement(self, peer_id: str) -> Dict[str, Any]:
+        """Return compact meshspace metadata safe to include in peer introductions."""
+        identity_manager = getattr(self, 'identity_manager', None)
+        getter = getattr(identity_manager, 'get_peer_meshspace_hint', None)
+        hint: Dict[str, Any] = {}
+        if callable(getter):
+            try:
+                hint = dict(getter(peer_id) or {})
+            except Exception:
+                hint = {}
+        elif identity_manager is not None:
+            hint = dict(getattr(identity_manager, 'peer_meshspace_hints', {}).get(peer_id, {}) or {})
+        normalized = self._extract_peer_meshspace_hint(hint)
+        if not normalized:
+            return {}
+        # Keep introductions lightweight; text identity is enough to prevent accidental bridging.
+        return {
+            key: value
+            for key, value in normalized.items()
+            if key not in {'meshspace_avatar_b64', 'meshspace_avatar_mime'}
+        }
+
+    def _introduced_peer_meshspace_status(
+        self,
+        peer_id: str,
+        record: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Classify introduced peers so cross-mesh candidates cannot look routine."""
+        identity_manager = getattr(self, 'identity_manager', None)
+        persisted_hint: Dict[str, Any] = {}
+        getter = getattr(identity_manager, 'get_peer_meshspace_hint', None)
+        if callable(getter):
+            try:
+                persisted_hint = dict(getter(peer_id) or {})
+            except Exception:
+                persisted_hint = {}
+        elif identity_manager is not None:
+            persisted_hint = dict(getattr(identity_manager, 'peer_meshspace_hints', {}).get(peer_id, {}) or {})
+
+        hint = self._extract_peer_meshspace_hint(persisted_hint)
+        record_hint = self._extract_peer_meshspace_hint(record)
+        if record_hint:
+            hint.update(record_hint)
+
+        local = self._local_meshspace_identity()
+        local_ids = self._meshspace_hint_ids(local)
+        remote_ids = self._meshspace_hint_ids(hint)
+        local_fingerprint = str(local.get('meshspace_fingerprint') or '').strip()
+        remote_fingerprint = str(hint.get('meshspace_fingerprint') or '').strip()
+        mismatch = False
+        if self._meshspace_boundary_enabled():
+            if local_ids and remote_ids:
+                mismatch = not bool(local_ids.intersection(remote_ids))
+            elif local_fingerprint and remote_fingerprint:
+                mismatch = remote_fingerprint != local_fingerprint
+
+        if mismatch:
+            relationship = 'cross_mesh_candidate'
+        elif remote_ids or remote_fingerprint:
+            relationship = 'same_mesh_candidate'
+        else:
+            relationship = 'unknown'
+
+        remote_label = (
+            str(hint.get('meshspace_name') or '').strip()
+            or str(hint.get('meshspace_id') or '').strip()
+            or 'another meshspace'
+        )
+        return {
+            'meshspace_hint': hint,
+            'meshspace_relationship': relationship,
+            'meshspace_mismatch': bool(mismatch),
+            'requires_explicit_meshspace_connect': bool(mismatch),
+            'local_meshspace_id': str(local.get('meshspace_id') or '').strip(),
+            'local_meshspace_name': str(local.get('meshspace_name') or '').strip(),
+            'remote_meshspace_id': str(hint.get('meshspace_id') or '').strip(),
+            'remote_meshspace_name': str(hint.get('meshspace_name') or '').strip(),
+            'remote_meshspace_fingerprint': str(hint.get('meshspace_fingerprint') or '').strip(),
+            'remote_meshspace_label': remote_label,
+        }
+
+    def get_introduced_peer_meshspace_status(self, peer_id: str) -> Dict[str, Any]:
+        """Return meshspace review status for an introduced peer."""
+        clean_peer_id = str(peer_id or '').strip()
+        record = {}
+        if clean_peer_id and hasattr(self, '_introduced_peers'):
+            candidate = self._introduced_peers.get(clean_peer_id)
+            if isinstance(candidate, dict):
+                record = candidate
+        return self._introduced_peer_meshspace_status(clean_peer_id, record)
 
     def _record_peer_meshspace_hint(
         self,
@@ -1459,6 +1612,7 @@ class P2PNetworkManager:
                 meshspace_avatar_mime=local_meshspace.get('meshspace_avatar_mime', 'image/png'),
                 peer_label=local_peer_hint.get('peer_label', ''),
                 instance_label=local_peer_hint.get('instance_label', ''),
+                require_verified_wss=bool(getattr(network_config, 'require_verified_wss', False)),
                 reject_protocol_mismatch=bool(
                     os.getenv('CANOPY_REJECT_PROTOCOL_MISMATCH', '').strip().lower() in ('1', 'true', 'yes', 'on')
                 ),
@@ -1788,12 +1942,69 @@ class P2PNetworkManager:
             mesh_port = int(getattr(self.config.network, 'mesh_port', 0) or 0)
             if mesh_port <= 0:
                 return []
-            invite = generate_invite(self.identity_manager, mesh_port)
+            network_config = getattr(self.config, 'network', None)
+            external_endpoint = (
+                self._operator_external_endpoint
+                or str(getattr(network_config, 'external_tls_endpoint', '') or '').strip()
+                or None
+            )
+            # Advertise the transport the listener is using right now, not just
+            # the next persisted mode. Admin transport changes require restart,
+            # so invite/handshake truth must follow the live connection manager
+            # until that restart actually happens.
+            conn_mgr = getattr(self, 'connection_manager', None)
+            if conn_mgr is not None:
+                endpoint_scheme = 'wss' if bool(getattr(conn_mgr, 'enable_tls', False)) else 'ws'
+            else:
+                endpoint_scheme = 'wss' if bool(getattr(network_config, 'enable_tls', False)) else 'ws'
+            invite = generate_invite(
+                self.identity_manager,
+                mesh_port,
+                public_host=self._operator_public_host,
+                public_port=self._operator_public_port,
+                external_endpoint=external_endpoint,
+                allow_plain_fallback=self._operator_allow_plain_fallback,
+                endpoint_scheme=endpoint_scheme,
+            )
             local_peer_id = self.local_identity.peer_id if self.local_identity else ''
             return self._sanitize_endpoints(local_peer_id, list(invite.endpoints or []))
         except Exception as exc:
             logger.debug("Could not compute local advertised endpoints: %s", exc)
             return []
+
+    def remember_operator_advertised_endpoint(
+        self,
+        *,
+        external_endpoint: Optional[str] = None,
+        public_host: Optional[str] = None,
+        public_port: Optional[int] = None,
+        allow_plain_fallback: bool = False,
+    ) -> None:
+        """Remember the operator's current public invite endpoint for handshakes."""
+        from .invite import canonicalize_invite_endpoint
+
+        clean_external = str(external_endpoint or '').strip()
+        if clean_external:
+            canon = canonicalize_invite_endpoint(clean_external)
+            if canon:
+                self._operator_external_endpoint = canon
+                self._operator_public_host = None
+                self._operator_public_port = None
+                self._operator_allow_plain_fallback = bool(allow_plain_fallback)
+                return
+
+        clean_host = str(public_host or '').strip()
+        if clean_host:
+            self._operator_external_endpoint = None
+            self._operator_public_host = clean_host
+            self._operator_public_port = int(public_port) if public_port else None
+            self._operator_allow_plain_fallback = bool(allow_plain_fallback)
+            return
+
+        self._operator_external_endpoint = None
+        self._operator_public_host = None
+        self._operator_public_port = None
+        self._operator_allow_plain_fallback = False
 
     @staticmethod
     def _merge_endpoint_lists(*endpoint_groups: list[str]) -> list[str]:
@@ -2103,9 +2314,9 @@ class P2PNetworkManager:
                 logger.debug(f"Reconnect: skipping unusable endpoint {endpoint} for {peer_id}")
                 return False
         if scheme == 'wss' and not self.connection_manager.enable_tls:
-            logger.warning(
-                f"Reconnect: endpoint {endpoint} requires TLS, but TLS is disabled; "
-                f"connection may fail."
+            logger.debug(
+                "Reconnect: attempting outbound wss:// endpoint while the local listener is plain ws://; "
+                "this is expected for tunnels or reverse proxies."
             )
         endpoint_sources: list[str] = []
         stored = set(
@@ -2125,7 +2336,15 @@ class P2PNetworkManager:
             detail='Attempting connection',
             endpoint=canon or endpoint,
         )
-        ok = await self.connection_manager.connect_to_peer(peer_id, host, port, scheme=scheme)
+        endpoint_text = str(endpoint or '').strip().lower()
+        scheme_explicit = endpoint_text.startswith('wss://')
+        ok = await self.connection_manager.connect_to_peer(
+            peer_id,
+            host,
+            port,
+            scheme=scheme,
+            scheme_explicit=scheme_explicit,
+        )
         if ok and canon:
             get_connection = getattr(self.connection_manager, 'get_connection', None)
             conn = get_connection(peer_id) if callable(get_connection) else None
@@ -2989,7 +3208,7 @@ class P2PNetworkManager:
                     else self.identity_manager.peer_display_names.get(pid, pid[:8])
                 )
                 display_name = self._sanitize_public_peer_label(display_name)
-                introduced.append({
+                peer_payload = {
                     'peer_id': pid,
                     'display_name': display_name,
                     'peer_label': display_name,
@@ -3001,7 +3220,12 @@ class P2PNetworkManager:
                         list((getattr(self.connection_manager.get_connection(pid), 'capabilities', None) or {}).keys())
                     ),
                     'device_profile': device_profile,
-                })
+                }
+                meshspace_hint = self._peer_meshspace_hint_for_announcement(pid)
+                if meshspace_hint:
+                    peer_payload['meshspace_hint'] = meshspace_hint
+                    peer_payload.update(meshspace_hint)
+                introduced.append(peer_payload)
             if introduced:
                 logger.debug(f"Announcing {len(introduced)} peers to {peer_id}")
                 await self.message_router.send_peer_announcement(peer_id, introduced)
@@ -3039,7 +3263,7 @@ class P2PNetworkManager:
                 else self.identity_manager.peer_display_names.get(new_peer_id, new_peer_id[:8])
             )
             display_name = self._sanitize_public_peer_label(display_name)
-            new_peer_info = [{
+            peer_payload = {
                 'peer_id': new_peer_id,
                 'display_name': display_name,
                 'peer_label': display_name,
@@ -3051,7 +3275,12 @@ class P2PNetworkManager:
                     list((getattr(self.connection_manager.get_connection(new_peer_id), 'capabilities', None) or {}).keys())
                 ),
                 'device_profile': device_profile,
-            }]
+            }
+            meshspace_hint = self._peer_meshspace_hint_for_announcement(new_peer_id)
+            if meshspace_hint:
+                peer_payload['meshspace_hint'] = meshspace_hint
+                peer_payload.update(meshspace_hint)
+            new_peer_info = [peer_payload]
 
             connected = self.connection_manager.get_connected_peers()
             local_id = self.local_identity.peer_id if self.local_identity else ''
@@ -3109,6 +3338,10 @@ class P2PNetworkManager:
             )
             if public_hint.get('display_name') and not cleaned.get('display_name'):
                 cleaned['display_name'] = public_hint['display_name']
+            meshspace_hint = self._extract_peer_meshspace_hint(cleaned)
+            if meshspace_hint:
+                cleaned['meshspace_hint'] = meshspace_hint
+                self._record_peer_meshspace_hint(pid, meshspace_hint, source='announcement')
             cleaned['endpoints'] = endpoints
             cleaned['introduced_by'] = from_peer
             cleaned['capabilities'] = self._normalize_capability_items(cleaned.get('capabilities'))
@@ -3206,12 +3439,16 @@ class P2PNetworkManager:
                 connect_strategy = 'broker_only' if broker_candidates else 'unreachable'
 
             row = dict(record)
+            meshspace_status = self._introduced_peer_meshspace_status(peer_id, record)
+            if meshspace_status.get('requires_explicit_meshspace_connect'):
+                connect_strategy = 'explicit_meshspace_required'
             row['peer_id'] = peer_id
             row['endpoints'] = merged_endpoints
             row['endpoint_count'] = len(merged_endpoints)
             row['endpoint_sources'] = endpoint_sources or ['none']
             row['connect_strategy'] = connect_strategy
             row['broker_candidates'] = broker_candidates
+            row.update(meshspace_status)
             rows.append(row)
         return rows
 
@@ -3343,7 +3580,8 @@ class P2PNetworkManager:
     def _on_broker_request(self, target_peer: str,
                            requester_endpoints: list,
                            requester_keys: dict,
-                           from_peer: str) -> None:
+                           from_peer: str,
+                           allow_cross_mesh: bool = False) -> None:
         """Handle a BROKER_REQUEST: peer asks us to help it connect to target_peer.
 
         If we are connected to target_peer, forward a BROKER_INTRO with
@@ -3385,6 +3623,7 @@ class P2PNetworkManager:
                     requester_peer_id=from_peer,
                     requester_endpoints=requester_endpoints,
                     requester_keys=requester_keys,
+                    allow_cross_mesh=allow_cross_mesh,
                 ),
                 self._event_loop
             )
@@ -3398,7 +3637,8 @@ class P2PNetworkManager:
     def _on_broker_intro(self, requester_peer_id: str,
                          requester_endpoints: list,
                          requester_keys: dict,
-                         from_peer: str) -> None:
+                         from_peer: str,
+                         allow_cross_mesh: bool = False) -> None:
         """Handle a BROKER_INTRO: an intermediary tells us a peer wants to connect.
 
         Attempt to connect directly to the requester using the provided endpoints.
@@ -3425,13 +3665,18 @@ class P2PNetworkManager:
         if self._event_loop and not self._event_loop.is_closed():
             asyncio.run_coroutine_threadsafe(
                 self._attempt_brokered_connection(
-                    requester_peer_id, requester_endpoints, broker_peer=from_peer),
+                    requester_peer_id,
+                    requester_endpoints,
+                    broker_peer=from_peer,
+                    allow_cross_mesh=allow_cross_mesh,
+                ),
                 self._event_loop
             )
 
     async def _attempt_brokered_connection(self, peer_id: str,
                                             endpoints: list,
-                                            broker_peer: Optional[str] = None) -> None:
+                                            broker_peer: Optional[str] = None,
+                                            allow_cross_mesh: bool = False) -> None:
         """Try each endpoint to establish a direct connection.
         
         Args:
@@ -3449,7 +3694,11 @@ class P2PNetworkManager:
         for ep in endpoints:
             try:
                 logger.info(f"Brokered connect attempt to {peer_id} via {ep}")
-                await self._connect_to_endpoint(peer_id, ep)
+                await self._connect_to_endpoint(
+                    peer_id,
+                    ep,
+                    allow_cross_mesh=allow_cross_mesh,
+                )
                 if self.connection_manager.is_connected(peer_id):
                     logger.info(f"Brokered connection to {peer_id} succeeded!")
                     # Remove any relay route since we now have a direct connection
@@ -3569,7 +3818,8 @@ class P2PNetworkManager:
         asyncio.run_coroutine_threadsafe(_send_offers(), self._event_loop)
 
     def send_broker_request(self, target_peer_id: str,
-                            via_peer_id: str) -> bool:
+                            via_peer_id: str,
+                            allow_cross_mesh: bool = False) -> bool:
         """Public method: ask via_peer to broker a connection to target_peer.
 
         Called from the API layer when a direct connection attempt fails.
@@ -3607,6 +3857,7 @@ class P2PNetworkManager:
                 target_peer=target_peer_id,
                 requester_endpoints=requester_endpoints,
                 requester_keys=requester_keys,
+                allow_cross_mesh=allow_cross_mesh,
             ),
             self._event_loop
         )
@@ -5988,6 +6239,24 @@ class P2PNetworkManager:
             return []
         return self.connection_manager.get_connected_peers()
 
+    def get_peer_active_transport(self, peer_id: str) -> Dict[str, Any]:
+        """Return the active direct endpoint and transport scheme for a peer."""
+        active_endpoint = self._current_connection_endpoint(peer_id) or ''
+        parsed = self._parse_endpoint(active_endpoint) if active_endpoint else None
+        scheme = parsed[2] if parsed else ''
+        if scheme == 'wss':
+            label = 'Secure WebSocket (wss)'
+        elif scheme == 'ws':
+            label = 'Plain WebSocket (ws)'
+        else:
+            label = 'Unknown'
+        return {
+            'active_endpoint': active_endpoint,
+            'active_transport': scheme,
+            'active_transport_label': label,
+            'active_transport_secure': scheme == 'wss',
+        }
+
     def get_peer_versions(self) -> Dict[str, Dict[str, Any]]:
         """Return cached per-peer version/protocol metadata."""
         # Refresh cache opportunistically from current live connections.
@@ -6020,6 +6289,99 @@ class P2PNetworkManager:
         if self.connection_manager and getattr(self.connection_manager, 'enable_tls', False):
             return 'wss'
         return 'ws'
+
+    def get_transport_security_status(self) -> Dict[str, Any]:
+        """Return operator-facing WebSocket/TLS status for UI diagnostics."""
+        from .invite import classify_invite_endpoints
+
+        advertised = self._get_local_advertised_endpoints()
+        classification = classify_invite_endpoints(advertised)
+        conn_mgr = self.connection_manager
+        if conn_mgr and hasattr(conn_mgr, 'get_transport_security_status'):
+            try:
+                status = dict(conn_mgr.get_transport_security_status(advertised_endpoints=advertised) or {})
+                status.update(classification)
+                return self._decorate_transport_security_status(status)
+            except Exception:
+                logger.debug("Could not get transport security status from connection manager", exc_info=True)
+        scheme = self.ws_scheme
+        secure_count = sum(1 for endpoint in advertised if str(endpoint).lower().startswith('wss://'))
+        plain_count = sum(1 for endpoint in advertised if str(endpoint).lower().startswith('ws://'))
+        warnings = []
+        if plain_count and not secure_count:
+            warnings.append('Invite currently advertises only plain ws:// endpoints.')
+        if classification.get('has_public_plain_fallback'):
+            warnings.append('This invite still advertises a plain public ws:// fallback. Remote peers may connect insecurely unless you remove plain fallback.')
+        status = {
+            'mesh_scheme': scheme,
+            'tls_enabled': scheme == 'wss',
+            'transport_label': 'Secure WebSocket (wss)' if scheme == 'wss' else 'Plain WebSocket (ws)',
+            'listener_endpoint': f"{scheme}://0.0.0.0:{getattr(self.config.network, 'mesh_port', 7771)}",
+            'tls_cert_mode': 'unknown' if scheme == 'wss' else 'disabled',
+            'tls_cert_path_present': False,
+            'tls_key_path_present': False,
+            'client_verification_mode': (
+                'verified'
+                if bool(getattr(self.config.network, 'require_verified_wss', False))
+                else 'permissive'
+            ),
+            'advertised_endpoints': advertised,
+            'advertised_secure_count': secure_count,
+            'advertised_plain_count': plain_count,
+            'explicit_wss_downgrade_allowed': False,
+            'warnings': warnings,
+            **classification,
+        }
+        return self._decorate_transport_security_status(status)
+
+    def _decorate_transport_security_status(self, status: Dict[str, Any]) -> Dict[str, Any]:
+        """Add config-backed transport mode/readiness details for admin/operator UX."""
+        network_config = getattr(self.config, 'network', None)
+        configured_tls = bool(getattr(network_config, 'enable_tls', False))
+        external_endpoint = str(getattr(network_config, 'external_tls_endpoint', '') or '').strip()
+        mode = str(getattr(network_config, 'transport_security_mode', '') or '').strip().lower()
+        tls_cert_path = str(getattr(network_config, 'tls_cert_path', '') or '').strip()
+        tls_key_path = str(getattr(network_config, 'tls_key_path', '') or '').strip()
+        if mode not in {'disabled', 'self_signed', 'provided', 'external_terminator'}:
+            if external_endpoint:
+                mode = 'external_terminator'
+            elif configured_tls:
+                live_mode = str(status.get('tls_cert_mode') or '').strip().lower()
+                mode = live_mode if live_mode in {'self_signed', 'provided'} else ('provided' if tls_cert_path and tls_key_path else 'self_signed')
+            else:
+                mode = 'disabled'
+        labels = {
+            'disabled': 'Disabled',
+            'self_signed': 'Self-signed local TLS',
+            'provided': 'Provided certificate',
+            'external_terminator': 'External TLS terminator',
+        }
+        external_declared = bool(mode == 'external_terminator' and external_endpoint.lower().startswith('wss://'))
+        warnings = [
+            str(item)
+            for item in (status.get('warnings') or [])
+            if str(item or '').strip()
+        ]
+        if external_declared:
+            warnings = [
+                item for item in warnings
+                if not item.startswith('Canopy cannot verify external TLS termination')
+            ]
+            if not bool(status.get('tls_enabled')):
+                warnings.append(
+                    'External TLS terminator mode is declared; Canopy advertises the public wss:// endpoint while the local mesh listener remains ws:// behind the proxy.'
+                )
+        secure_invite_ready = bool(status.get('tls_enabled')) or external_declared
+        status.update({
+            'configured_tls_enabled': configured_tls,
+            'external_tls_endpoint': external_endpoint,
+            'external_tls_terminator_declared': external_declared,
+            'transport_security_mode': mode,
+            'transport_security_mode_label': labels.get(mode, 'Disabled'),
+            'secure_invite_ready': secure_invite_ready,
+            'warnings': warnings,
+        })
+        return status
 
     def get_peer_id(self) -> Optional[str]:
         """Get local peer ID."""

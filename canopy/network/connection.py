@@ -130,16 +130,21 @@ def create_server_ssl_context(cert_path: Path, key_path: Path) -> Optional[ssl.S
         return None
 
 
-def create_client_ssl_context() -> ssl.SSLContext:
-    """Create a permissive SSL context for connecting to peers.
+def create_client_ssl_context(*, verify_certificates: bool = False) -> ssl.SSLContext:
+    """Create an SSL context for connecting to peers.
 
-    Self-signed certs are expected in a mesh network, so we disable
-    hostname and certificate verification.  E2E encryption
-    (ChaCha20-Poly1305) protects the content independently.
+    The default remains permissive because many Canopy mesh peers use
+    self-signed transport certificates.  E2E encryption and peer-key
+    verification protect content independently from the transport TLS layer.
     """
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
+    if verify_certificates:
+        ctx.load_default_certs()
+        ctx.check_hostname = True
+        ctx.verify_mode = ssl.CERT_REQUIRED
+    else:
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
     return ctx
 
 
@@ -226,6 +231,7 @@ class ConnectionManager:
                  meshspace_avatar_mime: str = "",
                  peer_label: str = "",
                  instance_label: str = "",
+                 require_verified_wss: bool = False,
                  reject_protocol_mismatch: bool = False):
         """
         Initialize connection manager.
@@ -259,22 +265,31 @@ class ConnectionManager:
         self.local_meshspace_avatar_mime = str(meshspace_avatar_mime or 'image/png').strip() or 'image/png'
         self.local_peer_label = self._sanitize_public_label(peer_label)
         self.local_instance_label = self._sanitize_public_label(instance_label)
+        self.require_verified_wss = bool(require_verified_wss)
+        self.client_verification_mode = 'verified' if self.require_verified_wss else 'permissive'
         self.reject_protocol_mismatch = bool(reject_protocol_mismatch)
         
         # TLS configuration
         self.enable_tls = enable_tls
         self._server_ssl: Optional[ssl.SSLContext] = None
-        self._client_ssl: Optional[ssl.SSLContext] = None
+        self._client_ssl: Optional[ssl.SSLContext] = create_client_ssl_context(
+            verify_certificates=self.require_verified_wss
+        )
+        self.tls_cert_path = str(tls_cert_path or 'data/tls/canopy.crt')
+        self.tls_key_path = str(tls_key_path or 'data/tls/canopy.key')
+        self.tls_cert_mode = 'disabled'
         if enable_tls:
-            cert_p = Path(tls_cert_path) if tls_cert_path else Path('data/tls/canopy.crt')
-            key_p = Path(tls_key_path) if tls_key_path else Path('data/tls/canopy.key')
+            cert_p = Path(self.tls_cert_path)
+            key_p = Path(self.tls_key_path)
+            had_operator_cert = bool(tls_cert_path and tls_key_path and cert_p.exists() and key_p.exists())
             self._server_ssl = create_server_ssl_context(cert_p, key_p)
-            self._client_ssl = create_client_ssl_context()
             if self._server_ssl:
+                self.tls_cert_mode = 'provided' if had_operator_cert else 'self_signed'
                 logger.info("TLS enabled for P2P connections (wss://)")
             else:
                 logger.warning("TLS requested but cert setup failed — falling back to ws://")
                 self.enable_tls = False
+                self.tls_cert_mode = 'disabled'
         
         # Connection tracking
         self.connections: Dict[str, PeerConnection] = {}
@@ -301,6 +316,57 @@ class ConnectionManager:
         tls_tag = ' (TLS)' if self.enable_tls else ''
         logger.info(f"Initialized ConnectionManager for {local_peer_id} "
                      f"on {host}:{port}{tls_tag}")
+
+    def get_transport_security_status(
+        self,
+        advertised_endpoints: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Return operator-facing TLS/WebSocket transport status."""
+        from .invite import classify_invite_endpoints
+
+        tls_active = bool(self.enable_tls and self._server_ssl)
+        scheme = 'wss' if tls_active else 'ws'
+        cert_path = Path(self.tls_cert_path)
+        key_path = Path(self.tls_key_path)
+        endpoints = [
+            str(endpoint or '').strip()
+            for endpoint in (advertised_endpoints or [])
+            if str(endpoint or '').strip()
+        ]
+        classification = classify_invite_endpoints(endpoints)
+        secure_count = sum(1 for endpoint in endpoints if endpoint.lower().startswith('wss://'))
+        plain_count = sum(1 for endpoint in endpoints if endpoint.lower().startswith('ws://'))
+        warnings: List[str] = []
+        if not tls_active:
+            warnings.append('Local mesh listener is plain ws:// unless a tunnel or reverse proxy terminates TLS.')
+        if classification.get('has_public_plain_fallback'):
+            warnings.append('This invite still advertises a plain public ws:// fallback. Remote peers may connect insecurely unless you remove plain fallback.')
+        if endpoints and plain_count and secure_count:
+            warnings.append('Invite advertises both secure and plain endpoints; remote peers may use either candidate.')
+        elif endpoints and plain_count and not secure_count:
+            warnings.append('Invite currently advertises only plain ws:// endpoints.')
+        if not tls_active and classification.get('public_secure_endpoints'):
+            warnings.append('Canopy cannot verify external TLS termination from this local plain ws:// listener alone.')
+        if tls_active and self.tls_cert_mode == 'self_signed':
+            warnings.append('Local TLS certificate is self-signed; public VPS deployments should prefer a trusted cert or TLS reverse proxy.')
+        if self.client_verification_mode == 'permissive':
+            warnings.append('Outbound wss:// certificate verification is permissive in this build; Canopy still verifies peer identity at the application layer.')
+        return {
+            'mesh_scheme': scheme,
+            'tls_enabled': tls_active,
+            'transport_label': 'Secure WebSocket (wss)' if tls_active else 'Plain WebSocket (ws)',
+            'listener_endpoint': f"{scheme}://{self._format_endpoint_host(self.host)}:{self.port}",
+            'tls_cert_mode': self.tls_cert_mode if tls_active else 'disabled',
+            'tls_cert_path_present': cert_path.exists(),
+            'tls_key_path_present': key_path.exists(),
+            'client_verification_mode': self.client_verification_mode,
+            'advertised_endpoints': endpoints,
+            'advertised_secure_count': secure_count,
+            'advertised_plain_count': plain_count,
+            'explicit_wss_downgrade_allowed': False,
+            'warnings': warnings,
+            **classification,
+        }
 
     @staticmethod
     def _format_endpoint_host(host: str) -> str:
@@ -655,7 +721,15 @@ class ConnectionManager:
         
         logger.info("ConnectionManager stopped")
     
-    async def connect_to_peer(self, peer_id: str, address: str, port: int, scheme: Optional[str] = None) -> bool:
+    async def connect_to_peer(
+        self,
+        peer_id: str,
+        address: str,
+        port: int,
+        scheme: Optional[str] = None,
+        *,
+        scheme_explicit: bool = False,
+    ) -> bool:
         """
         Establish outbound connection to a peer.
         
@@ -664,6 +738,7 @@ class ConnectionManager:
             address: Peer's IP address
             port: Peer's port
             scheme: Optional explicit transport scheme ('ws' or 'wss')
+            scheme_explicit: True when the operator/invite explicitly chose the scheme.
             
         Returns:
             True if connection successful
@@ -731,6 +806,25 @@ class ConnectionManager:
                 websocket = await websockets.connect(uri, **connect_kwargs)
             except Exception as tls_err:
                 if connect_scheme == 'wss':
+                    if scheme_explicit or self.require_verified_wss:
+                        downgrade_scope = 'Explicit' if scheme_explicit else 'Verified'
+                        detail = (
+                            f"{downgrade_scope} wss:// endpoint failed; refusing unsafe ws:// downgrade "
+                            f"for {address}:{port}: {type(tls_err).__name__}: {tls_err}"
+                        )
+                        logger.warning(detail)
+                        connection.state = ConnectionState.FAILED
+                        connection.failure_reason = 'wss_downgrade_blocked'
+                        connection.failure_detail = detail
+                        self._record_connect_failure(
+                            peer_id,
+                            address,
+                            port,
+                            'wss_downgrade_blocked',
+                            detail,
+                        )
+                        await self._disconnect_connection(connection, notify=False)
+                        return False
                     # Fall back to plain ws:// if wss failed
                     logger.debug(
                         f"wss:// failed to {address}:{port}, falling back to ws:// ({tls_err})"

@@ -1450,6 +1450,7 @@ class MessageRouter:
                     requester_endpoints=meta.get('requester_endpoints', []),
                     requester_keys=meta.get('requester_keys', {}),
                     from_peer=message.from_peer,
+                    allow_cross_mesh=bool(meta.get('allow_cross_mesh')),
                 )
             except Exception as e:
                 logger.error(f"Error handling broker request: {e}", exc_info=True)
@@ -1462,6 +1463,7 @@ class MessageRouter:
                     requester_endpoints=meta.get('requester_endpoints', []),
                     requester_keys=meta.get('requester_keys', {}),
                     from_peer=message.from_peer,
+                    allow_cross_mesh=bool(meta.get('allow_cross_mesh')),
                 )
             except Exception as e:
                 logger.error(f"Error handling broker intro: {e}", exc_info=True)
@@ -2251,7 +2253,8 @@ class MessageRouter:
 
     async def send_broker_request(self, to_peer: str, target_peer: str,
                                    requester_endpoints: List[str],
-                                   requester_keys: Dict[str, str]) -> bool:
+                                  requester_keys: Dict[str, str],
+                                  allow_cross_mesh: bool = False) -> bool:
         """Ask a connected peer to broker a connection to target_peer."""
         payload = {
             'content': '',
@@ -2260,6 +2263,7 @@ class MessageRouter:
                 'target_peer': target_peer,
                 'requester_endpoints': requester_endpoints,
                 'requester_keys': requester_keys,
+                'allow_cross_mesh': bool(allow_cross_mesh),
             }
         }
         message = self.create_message(MessageType.BROKER_REQUEST, to_peer, payload, ttl=2)
@@ -2269,7 +2273,8 @@ class MessageRouter:
     async def send_broker_intro(self, to_peer: str,
                                  requester_peer_id: str,
                                  requester_endpoints: List[str],
-                                 requester_keys: Dict[str, str]) -> bool:
+                                 requester_keys: Dict[str, str],
+                                 allow_cross_mesh: bool = False) -> bool:
         """Forward a broker introduction to the target peer."""
         payload = {
             'content': '',
@@ -2278,6 +2283,7 @@ class MessageRouter:
                 'requester_peer_id': requester_peer_id,
                 'requester_endpoints': requester_endpoints,
                 'requester_keys': requester_keys,
+                'allow_cross_mesh': bool(allow_cross_mesh),
             }
         }
         message = self.create_message(MessageType.BROKER_INTRO, to_peer, payload, ttl=2)

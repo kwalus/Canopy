@@ -21,6 +21,7 @@ import socket
 import signal
 import ipaddress
 import sqlite3
+import ssl
 import tempfile
 import html as html_lib
 import threading
@@ -267,6 +268,69 @@ def _current_invite_peer_label(
         except Exception:
             pass
     return str(fallback_device_label or '').strip()
+
+
+def _transport_security_status(
+    p2p_manager: Any,
+    advertised_endpoints: Optional[list[str]] = None,
+) -> dict[str, Any]:
+    """Return UI-safe transport security diagnostics for the active mesh listener."""
+    from ..network.invite import classify_invite_endpoints
+
+    endpoints = [
+        str(endpoint or '').strip()
+        for endpoint in (advertised_endpoints or [])
+        if str(endpoint or '').strip()
+    ]
+    classification = classify_invite_endpoints(endpoints)
+    conn_mgr = getattr(p2p_manager, 'connection_manager', None) if p2p_manager else None
+    if conn_mgr and hasattr(conn_mgr, 'get_transport_security_status'):
+        try:
+            status = dict(conn_mgr.get_transport_security_status(advertised_endpoints=endpoints) or {})
+            status.update(classification)
+            decorator = getattr(p2p_manager, '_decorate_transport_security_status', None) if p2p_manager else None
+            if callable(decorator) and getattr(decorator, '__self__', None) is p2p_manager:
+                status = dict(decorator(status) or status)
+            return status
+        except Exception:
+            logger.debug("Could not load connection-manager transport security status", exc_info=True)
+    if p2p_manager and hasattr(p2p_manager, 'get_transport_security_status'):
+        try:
+            status = dict(p2p_manager.get_transport_security_status() or {})
+            if endpoints:
+                status['advertised_endpoints'] = endpoints
+                status['advertised_secure_count'] = sum(1 for ep in endpoints if ep.lower().startswith('wss://'))
+                status['advertised_plain_count'] = sum(1 for ep in endpoints if ep.lower().startswith('ws://'))
+            status.update(classification)
+            return status
+        except Exception:
+            logger.debug("Could not load P2P transport security status", exc_info=True)
+    secure_count = sum(1 for ep in endpoints if ep.lower().startswith('wss://'))
+    plain_count = sum(1 for ep in endpoints if ep.lower().startswith('ws://'))
+    return {
+        'mesh_scheme': 'ws',
+        'tls_enabled': False,
+        'transport_label': 'Plain WebSocket (ws)',
+        'listener_endpoint': '',
+        'tls_cert_mode': 'disabled',
+        'tls_cert_path_present': False,
+        'tls_key_path_present': False,
+        'client_verification_mode': 'permissive',
+        'advertised_endpoints': endpoints,
+        'advertised_secure_count': secure_count,
+        'advertised_plain_count': plain_count,
+        'explicit_wss_downgrade_allowed': False,
+        'warnings': ['P2P transport security status is unavailable.'],
+        **classification,
+    }
+
+
+def _live_invite_endpoint_scheme(config: Any, p2p_manager: Any) -> str:
+    """Return the current listener scheme for truthful invite generation."""
+    conn_mgr = getattr(p2p_manager, 'connection_manager', None) if p2p_manager else None
+    if conn_mgr is not None:
+        return 'wss' if bool(getattr(conn_mgr, 'enable_tls', False)) else 'ws'
+    return 'wss' if bool(getattr(getattr(config, 'network', None), 'enable_tls', False)) else 'ws'
 
 
 def _current_meshspace_default_agent_permissions() -> list[str]:
@@ -5995,7 +6059,11 @@ def create_ui_blueprint() -> Blueprint:
                             connect_coro = connect_to_endpoint(p2p_manager, peer_id, ep)
                         else:
                             connect_coro = connection_manager.connect_to_peer(
-                                peer_id, host, port, scheme=scheme
+                                peer_id,
+                                host,
+                                port,
+                                scheme=scheme,
+                                scheme_explicit=str(ep or '').strip().lower().startswith('wss://'),
                             )
                         future = asyncio.run_coroutine_threadsafe(
                             connect_coro,
@@ -8334,13 +8402,180 @@ def create_ui_blueprint() -> Blueprint:
         return redirect(url_for('ui.admin_page'))
 
     # Admin — user/agent management (instance owner only)
+    def _validate_tls_cert_chain(cert_path: str, key_path: str) -> None:
+        cert = Path(str(cert_path or '').strip()).expanduser()
+        key = Path(str(key_path or '').strip()).expanduser()
+        if not cert.exists() or not cert.is_file():
+            raise ValueError('Certificate file not found')
+        if not key.exists() or not key.is_file():
+            raise ValueError('Private key file not found')
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        try:
+            ctx.load_cert_chain(str(cert), str(key))
+        except Exception as exc:
+            raise ValueError(f'Certificate and key could not be loaded: {exc}') from exc
+
+    def _transport_security_admin_status(config: Any, p2p_manager: Any) -> dict[str, Any]:
+        from ..core.config import load_transport_security_settings, transport_security_config_path
+
+        settings = load_transport_security_settings(config) if config else {}
+        if p2p_manager and hasattr(p2p_manager, 'get_transport_security_status'):
+            try:
+                status = dict(p2p_manager.get_transport_security_status() or {})
+            except Exception:
+                status = _transport_security_status(p2p_manager, [])
+        else:
+            status = _transport_security_status(p2p_manager, [])
+
+        network = getattr(config, 'network', None)
+        mode = str(
+            status.get('transport_security_mode')
+            or getattr(network, 'transport_security_mode', '')
+            or settings.get('mode')
+            or ''
+        ).strip().lower()
+        if mode not in {'disabled', 'self_signed', 'provided', 'external_terminator'}:
+            if str(getattr(network, 'external_tls_endpoint', '') or '').strip():
+                mode = 'external_terminator'
+            elif bool(getattr(network, 'enable_tls', False)):
+                live_mode = str(status.get('tls_cert_mode') or '').strip().lower()
+                mode = live_mode if live_mode in {'self_signed', 'provided'} else 'provided'
+            else:
+                mode = 'disabled'
+        labels = {
+            'disabled': 'Disabled',
+            'self_signed': 'Self-signed local TLS',
+            'provided': 'Provided certificate',
+            'external_terminator': 'External TLS terminator',
+        }
+        conn_mgr = getattr(p2p_manager, 'connection_manager', None) if p2p_manager else None
+        configured_tls = bool(getattr(network, 'enable_tls', False))
+        live_tls = bool(status.get('tls_enabled'))
+        configured_verification_mode = (
+            'verified' if bool(getattr(network, 'require_verified_wss', False)) else 'permissive'
+        )
+        live_verification_mode = str(
+            status.get('client_verification_mode') or configured_verification_mode or 'permissive'
+        ).strip().lower() or 'permissive'
+        restart_required = configured_tls != live_tls
+        configured_cert = str(getattr(network, 'tls_cert_path', '') or '').strip()
+        configured_key = str(getattr(network, 'tls_key_path', '') or '').strip()
+        if configured_tls and conn_mgr:
+            live_cert = str(getattr(conn_mgr, 'tls_cert_path', '') or '').strip()
+            live_key = str(getattr(conn_mgr, 'tls_key_path', '') or '').strip()
+            if configured_cert and live_cert and Path(configured_cert).expanduser() != Path(live_cert).expanduser():
+                restart_required = True
+            if configured_key and live_key and Path(configured_key).expanduser() != Path(live_key).expanduser():
+                restart_required = True
+        if configured_verification_mode != live_verification_mode:
+            restart_required = True
+        external_endpoint = str(
+            getattr(network, 'external_tls_endpoint', '')
+            or settings.get('external_tls_endpoint')
+            or status.get('external_tls_endpoint')
+            or ''
+        ).strip()
+        external_declared = bool(mode == 'external_terminator' and external_endpoint.lower().startswith('wss://'))
+        secure_invite_ready = (not restart_required) and (bool(live_tls) or external_declared)
+        warnings = [
+            str(item).strip()
+            for item in (status.get('warnings') or [])
+            if str(item).strip()
+        ]
+        if configured_verification_mode != live_verification_mode:
+            warnings.append(
+                'Outbound certificate verification mode has changed and will apply after restart.'
+            )
+        verification_display = live_verification_mode
+        if configured_verification_mode != live_verification_mode:
+            verification_display = (
+                f"{live_verification_mode} (restart pending: {configured_verification_mode} configured)"
+            )
+        if restart_required:
+            readiness_label = 'Restart required'
+            readiness_detail = 'Transport settings are saved, but the running mesh listener has not restarted into the requested mode yet.'
+        elif secure_invite_ready and live_tls:
+            readiness_label = 'Ready: local listener is wss://'
+            readiness_detail = 'Generated invites can advertise secure Canopy-owned listener endpoints.'
+        elif secure_invite_ready and external_declared:
+            readiness_label = 'Ready: external TLS terminator declared'
+            readiness_detail = 'Generated invites can advertise the configured public wss:// proxy endpoint.'
+        else:
+            readiness_label = 'Not ready for secure public invites'
+            readiness_detail = 'Use local TLS or declare an external TLS terminator before advertising public wss://.'
+
+        restart_url = ''
+        current_meshspace_id = str(getattr(getattr(config, 'meshspace', None), 'meshspace_id', '') or '').strip()
+        if current_meshspace_id:
+            try:
+                restart_url = url_for('ui.meshspace_restart', meshspace_id=current_meshspace_id)
+            except Exception:
+                restart_url = ''
+
+        status.update({
+            'success': True,
+            'mode': mode,
+            'mode_label': labels.get(mode, 'Disabled'),
+            'settings': settings,
+            'config_path': str(transport_security_config_path(config)) if config else '',
+            'configured_tls_enabled': configured_tls,
+            'configured_tls_cert_path': configured_cert,
+            'configured_tls_key_path': configured_key,
+            'configured_client_verification_mode': configured_verification_mode,
+            'live_client_verification_mode': live_verification_mode,
+            'verification_display': verification_display,
+            'external_tls_endpoint': external_endpoint,
+            'external_tls_terminator_declared': external_declared,
+            'secure_invite_ready': secure_invite_ready,
+            'invite_readiness_label': readiness_label,
+            'invite_readiness_detail': readiness_detail,
+            'restart_required': restart_required,
+            'restart_url': restart_url,
+            'warnings': warnings,
+        })
+        return status
+
+    def _persist_transport_security_settings(settings: dict[str, Any]) -> dict[str, Any]:
+        from ..core.config import apply_transport_security_settings, save_transport_security_settings
+
+        config = current_app.config.get('CANOPY_CONFIG')
+        if not config:
+            raise RuntimeError('Canopy config is unavailable')
+        path = save_transport_security_settings(config, settings)
+        normalized = apply_transport_security_settings(config, settings, env_overrides={})
+        p2p_manager = current_app.config.get('P2P_MANAGER')
+        remember_operator = getattr(p2p_manager, 'remember_operator_advertised_endpoint', None) if p2p_manager else None
+        if callable(remember_operator):
+            try:
+                if normalized.get('mode') == 'external_terminator':
+                    remember_operator(external_endpoint=normalized.get('external_tls_endpoint'))
+                else:
+                    remember_operator()
+            except Exception:
+                logger.debug("Could not update live advertised transport endpoint", exc_info=True)
+        return {
+            'settings': normalized,
+            'config_path': str(path),
+            'status': _transport_security_admin_status(config, p2p_manager),
+        }
+
+    def _transport_payload_bool(value: Any, default: bool = False) -> bool:
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return default
+        text = str(value).strip().lower()
+        if not text:
+            return default
+        return text in {'1', 'true', 'yes', 'on'}
+
     @ui.route('/admin')
     @require_login
     @require_admin
     def admin_page():
         """Admin page: pending agent approvals, all users, approve/suspend/delete."""
         try:
-            db_manager, api_key_manager, _, _, _, _, _, _, _, config, _ = _get_app_components_any(current_app)
+            db_manager, api_key_manager, _, _, _, _, _, _, _, config, p2p_manager = _get_app_components_any(current_app)
             from .. import __version__ as canopy_version
             users = db_manager.get_all_users_for_admin()
             _annotate_user_presence(users, db_manager)
@@ -8427,6 +8662,7 @@ def create_ui_blueprint() -> Blueprint:
             all_permissions = [p.value for p in api_key_manager.get_all_permissions()]
             current_meshspace = _current_meshspace_record()
             default_permissions = _current_meshspace_default_agent_permissions()
+            transport_security_admin = _transport_security_admin_status(config, p2p_manager)
 
             return render_template('admin.html',
                                  users=users,
@@ -8447,6 +8683,7 @@ def create_ui_blueprint() -> Blueprint:
                                  workspace_users=workspace_users,
                                  remote_shadow_duplicate_groups=remote_shadow_duplicate_groups,
                                  cross_peer_same_name_groups=cross_peer_same_name_groups,
+                                 transport_security_admin=transport_security_admin,
                                  directive_presets=_agent_directive_presets_payload(),
                                  directive_max_length=MAX_AGENT_DIRECTIVES_LENGTH,
                                  user_id=get_current_user())
@@ -8495,9 +8732,13 @@ def create_ui_blueprint() -> Blueprint:
 
             if p2p_manager and p2p_manager.identity_manager.local_identity:
                 mesh_port = config.network.mesh_port if config else 7771
+                configured_external_endpoint = str(getattr(getattr(config, 'network', None), 'external_tls_endpoint', '') or '').strip()
+                endpoint_scheme = _live_invite_endpoint_scheme(config, p2p_manager)
                 invite = generate_invite(
                     p2p_manager.identity_manager,
                     mesh_port,
+                    external_endpoint=configured_external_endpoint or None,
+                    endpoint_scheme=endpoint_scheme,
                     mesh_name=current_mesh_name,
                     meshspace_id=current_meshspace_id or None,
                     meshspace_id_aliases=list(current_mesh_hint.get('meshspace_id_aliases') or []) or None,
@@ -8509,18 +8750,35 @@ def create_ui_blueprint() -> Blueprint:
                 invite_code = invite.encode()
                 peer_id = invite.peer_id
                 endpoints = invite.endpoints
+            transport_security = _transport_security_status(p2p_manager, list(endpoints or []))
 
             # Connected / discovered peers
             connected_peers = p2p_manager.get_connected_peers() if p2p_manager else []
             discovered_peers = p2p_manager.get_discovered_peers() if p2p_manager else []
+            peer_active_transports: dict[str, dict[str, Any]] = {}
+            get_active_transport = getattr(p2p_manager, 'get_peer_active_transport', None) if p2p_manager else None
+            if callable(get_active_transport):
+                for pid in connected_peers:
+                    try:
+                        peer_active_transports[pid] = dict(get_active_transport(pid) or {})
+                    except Exception:
+                        peer_active_transports[pid] = {}
 
             # Peers introduced by contacts
-            introduced_peers = p2p_manager.get_introduced_peers() if p2p_manager else []
+            introduced_peer_rows = p2p_manager.get_introduced_peers() if p2p_manager else []
             if p2p_manager and hasattr(p2p_manager, 'get_peer_public_identity'):
-                for entry in introduced_peers:
+                for entry in introduced_peer_rows:
                     pid = entry.get('peer_id') if isinstance(entry, dict) else None
                     if pid:
                         entry['public_identity'] = p2p_manager.get_peer_public_identity(pid)
+            introduced_meshspace_candidates = [
+                entry for entry in introduced_peer_rows
+                if isinstance(entry, dict) and entry.get('requires_explicit_meshspace_connect')
+            ]
+            introduced_peers = [
+                entry for entry in introduced_peer_rows
+                if not (isinstance(entry, dict) and entry.get('requires_explicit_meshspace_connect'))
+            ]
 
             # Relay status
             relay_status = p2p_manager.get_relay_status() if p2p_manager else {}
@@ -8566,6 +8824,7 @@ def create_ui_blueprint() -> Blueprint:
                         connection_type = 'direct'
                     elif pid in relayed_set:
                         connection_type = 'relayed'
+                    active_transport = peer_active_transports.get(pid, {}) if pid in connected_set else {}
                     public_identity = {}
                     if hasattr(p2p_manager, 'get_peer_public_identity'):
                         try:
@@ -8587,6 +8846,10 @@ def create_ui_blueprint() -> Blueprint:
                         'connected': connection_type in {'direct', 'relayed'},
                         'connection_type': connection_type,
                         'relay_via': active_relays.get(pid),
+                        'active_endpoint': str(active_transport.get('active_endpoint') or ''),
+                        'active_transport': str(active_transport.get('active_transport') or ''),
+                        'active_transport_label': str(active_transport.get('active_transport_label') or ''),
+                        'active_transport_secure': bool(active_transport.get('active_transport_secure')),
                     })
 
             # Device profiles for peer identification
@@ -8614,7 +8877,7 @@ def create_ui_blueprint() -> Blueprint:
             if trust_manager:
                 all_peer_ids = set(connected_peers)
                 all_peer_ids.update(p.get('peer_id', '') for p in known_peers)
-                all_peer_ids.update(p.get('peer_id', '') for p in introduced_peers)
+                all_peer_ids.update(p.get('peer_id', '') for p in introduced_peer_rows)
                 for pid in all_peer_ids:
                     if pid:
                         trust_scores[pid] = trust_manager.get_trust_score(pid)
@@ -8634,7 +8897,7 @@ def create_ui_blueprint() -> Blueprint:
                     continue
                 label = peer.get('display_name') or peer_labels.get(pid) or pid
                 peer_labels[pid] = label
-            for peer in introduced_peers:
+            for peer in introduced_peer_rows:
                 pid = peer.get('peer_id')
                 if not pid:
                     continue
@@ -8649,7 +8912,7 @@ def create_ui_blueprint() -> Blueprint:
                     peer_labels[dest] = dest
                 if relay and relay not in peer_labels:
                     peer_labels[relay] = relay
-            for peer in introduced_peers:
+            for peer in introduced_peer_rows:
                 introducer = peer.get('introduced_by') if isinstance(peer, dict) else None
                 if introducer and introducer not in peer_labels:
                     peer_labels[introducer] = introducer
@@ -8677,6 +8940,7 @@ def create_ui_blueprint() -> Blueprint:
                                  invite_code=invite_code,
                                  peer_id=peer_id,
                                  endpoints=endpoints,
+                                 transport_security=transport_security,
                                  local_ips=local_ips,
                                  current_mesh_name=current_mesh_name,
                                  current_meshspace_id=current_meshspace_id,
@@ -8688,8 +8952,10 @@ def create_ui_blueprint() -> Blueprint:
                                  current_instance_label=current_instance_label,
                                  mesh_port=config.network.mesh_port if config else 7771,
                                  connected_peers=connected_peers,
+                                 peer_active_transports=peer_active_transports,
                                  discovered_peers=discovered_peers,
                                  introduced_peers=introduced_peers,
+                                 introduced_meshspace_candidates=introduced_meshspace_candidates,
                                  known_peers=known_peers,
                                  relay_status=relay_status,
                                  peer_device_profiles=peer_device_profiles,
@@ -9602,6 +9868,185 @@ def create_ui_blueprint() -> Blueprint:
         except Exception as e:
             logger.error(f"Admin list users error: {e}")
             return jsonify({'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/admin/transport-security/status', methods=['GET'])
+    @require_login
+    @require_admin
+    def ajax_admin_transport_security_status():
+        """Return admin-facing transport-security setup and invite-readiness status."""
+        try:
+            _, _, _, _, _, _, _, _, _, config, p2p_manager = _get_app_components_any(current_app)
+            return jsonify(_transport_security_admin_status(config, p2p_manager))
+        except Exception as exc:
+            logger.error("Admin transport security status error: %s", exc, exc_info=True)
+            return jsonify({'success': False, 'error': 'Transport security status unavailable'}), 500
+
+    @ui.route('/ajax/admin/transport-security/self-signed', methods=['POST'])
+    @require_login
+    @require_admin
+    def ajax_admin_transport_security_self_signed():
+        """Generate and persist node-owned self-signed local TLS settings."""
+        try:
+            _, _, _, _, _, _, _, _, _, config, _ = _get_app_components_any(current_app)
+            data = request.get_json(silent=True) or {}
+            tls_dir = Path(str(getattr(getattr(config, 'storage', None), 'data_dir', '') or '')).expanduser() / 'tls'
+            cert_path = tls_dir / 'canopy-selfsigned.crt'
+            key_path = tls_dir / 'canopy-selfsigned.key'
+            from ..network.connection import create_server_ssl_context
+
+            if not create_server_ssl_context(cert_path, key_path):
+                return jsonify({'success': False, 'error': 'Could not generate or load self-signed TLS certificate'}), 500
+            result = _persist_transport_security_settings({
+                'mode': 'self_signed',
+                'enable_tls': True,
+                'tls_cert_path': str(cert_path),
+                'tls_key_path': str(key_path),
+                'require_verified_wss': _transport_payload_bool(data.get('require_verified_wss'), False),
+                'external_tls_endpoint': '',
+                'updated_at': datetime.now(timezone.utc).isoformat(),
+            })
+            return jsonify({
+                'success': True,
+                'message': 'Self-signed TLS settings saved. Restart this meshspace to activate wss://.',
+                **result,
+            })
+        except Exception as exc:
+            logger.error("Admin self-signed TLS setup error: %s", exc, exc_info=True)
+            return jsonify({'success': False, 'error': 'Self-signed TLS setup failed'}), 500
+
+    @ui.route('/ajax/admin/transport-security/certificate', methods=['POST'])
+    @require_login
+    @require_admin
+    def ajax_admin_transport_security_certificate():
+        """Persist provided certificate/key paths after validating they load."""
+        try:
+            data = request.get_json(silent=True) or {}
+            cert_path = str(data.get('cert_path') or '').strip()
+            key_path = str(data.get('key_path') or '').strip()
+            if not cert_path or not key_path:
+                return jsonify({'success': False, 'error': 'cert_path and key_path are required'}), 400
+            _validate_tls_cert_chain(cert_path, key_path)
+            result = _persist_transport_security_settings({
+                'mode': 'provided',
+                'enable_tls': True,
+                'tls_cert_path': str(Path(cert_path).expanduser()),
+                'tls_key_path': str(Path(key_path).expanduser()),
+                'require_verified_wss': _transport_payload_bool(data.get('require_verified_wss'), False),
+                'external_tls_endpoint': '',
+                'updated_at': datetime.now(timezone.utc).isoformat(),
+            })
+            return jsonify({
+                'success': True,
+                'message': 'Certificate settings saved. Restart this meshspace to activate wss://.',
+                **result,
+            })
+        except ValueError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
+        except Exception as exc:
+            logger.error("Admin provided TLS setup error: %s", exc, exc_info=True)
+            return jsonify({'success': False, 'error': 'Certificate setup failed'}), 500
+
+    @ui.route('/ajax/admin/transport-security/external', methods=['POST'])
+    @require_login
+    @require_admin
+    def ajax_admin_transport_security_external():
+        """Persist external TLS terminator mode for public wss:// advertising."""
+        try:
+            data = request.get_json(silent=True) or {}
+            raw_endpoint = str(data.get('external_tls_endpoint') or '').strip()
+            from ..network.invite import canonicalize_invite_endpoint, parse_invite_endpoint
+
+            endpoint = canonicalize_invite_endpoint(raw_endpoint)
+            parsed = parse_invite_endpoint(endpoint) if endpoint else None
+            if not parsed or parsed[2] != 'wss':
+                return jsonify({'success': False, 'error': 'External TLS endpoint must be a valid wss:// host:port endpoint'}), 400
+            result = _persist_transport_security_settings({
+                'mode': 'external_terminator',
+                'enable_tls': False,
+                'tls_cert_path': '',
+                'tls_key_path': '',
+                'require_verified_wss': _transport_payload_bool(data.get('require_verified_wss'), False),
+                'external_tls_endpoint': endpoint,
+                'updated_at': datetime.now(timezone.utc).isoformat(),
+            })
+            return jsonify({
+                'success': True,
+                'message': 'External TLS terminator saved. New invites will advertise the configured wss:// endpoint.',
+                **result,
+            })
+        except Exception as exc:
+            logger.error("Admin external TLS setup error: %s", exc, exc_info=True)
+            return jsonify({'success': False, 'error': 'External TLS terminator setup failed'}), 500
+
+    @ui.route('/ajax/admin/transport-security/disable', methods=['POST'])
+    @require_login
+    @require_admin
+    def ajax_admin_transport_security_disable():
+        """Disable local TLS/external terminator settings for this meshspace."""
+        try:
+            result = _persist_transport_security_settings({
+                'mode': 'disabled',
+                'enable_tls': False,
+                'tls_cert_path': '',
+                'tls_key_path': '',
+                'require_verified_wss': False,
+                'external_tls_endpoint': '',
+                'updated_at': datetime.now(timezone.utc).isoformat(),
+            })
+            return jsonify({
+                'success': True,
+                'message': 'Transport security disabled. Restart if the current listener is still wss://.',
+                **result,
+            })
+        except Exception as exc:
+            logger.error("Admin transport disable error: %s", exc, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not disable transport security'}), 500
+
+    @ui.route('/ajax/admin/transport-security/restart', methods=['POST'])
+    @require_login
+    @require_admin
+    def ajax_admin_transport_security_restart():
+        """Restart the current meshspace runtime after transport settings change."""
+        try:
+            config = current_app.config.get('CANOPY_CONFIG')
+            if not config:
+                return jsonify({'success': False, 'error': 'Canopy config unavailable'}), 503
+            env_map = build_runtime_environment_from_config(config)
+            schedule_self_restart(
+                env_map,
+                cwd=str(Path(__file__).resolve().parents[2]),
+                parent_pid=os.getpid(),
+                delay_seconds=0.9,
+            )
+            manager = _get_meshspace_registry_manager()
+            current_mid = str(getattr(getattr(config, 'meshspace', None), 'meshspace_id', '') or '').strip()
+            if manager and current_mid:
+                peer_id = ''
+                p2p_manager = current_app.config.get('P2P_MANAGER')
+                if p2p_manager:
+                    try:
+                        peer_id = str(p2p_manager.get_peer_id() or '').strip()
+                    except Exception:
+                        peer_id = ''
+                updated = manager.update_runtime_state(current_mid, 'starting', peer_id=peer_id)
+                if updated:
+                    current_app.config['MESHSPACE_RECORD'] = dict(updated)
+
+            def _terminate_current_runtime() -> None:
+                time.sleep(0.45)
+                try:
+                    os.kill(os.getpid(), signal.SIGTERM)
+                except Exception:
+                    logger.warning("Failed to terminate current meshspace process during transport restart", exc_info=True)
+
+            threading.Thread(target=_terminate_current_runtime, daemon=True).start()
+            return jsonify({
+                'success': True,
+                'message': 'Restart scheduled. This page will reconnect after the meshspace comes back up.',
+            })
+        except Exception as exc:
+            logger.error("Admin transport restart error: %s", exc, exc_info=True)
+            return jsonify({'success': False, 'error': 'Restart failed'}), 500
 
     @ui.route('/ajax/admin/users/<user_id>/repair-shadow-duplicates', methods=['POST'])
     @require_login
@@ -20387,6 +20832,30 @@ def create_ui_blueprint() -> Blueprint:
                     except Exception:
                         reconnect_scheduled = True
                 discovered_entry = discovered_by_peer.get(peer_id, {})
+                active_endpoint = next(
+                    (
+                        str(item.get('endpoint') or '').strip()
+                        for item in endpoint_details
+                        if item.get('currently_connected') and str(item.get('endpoint') or '').strip()
+                    ),
+                    '',
+                )
+                if not active_endpoint and conn is not None:
+                    active_endpoint = str(getattr(conn, 'endpoint_uri', '') or '').strip()
+                active_transport = ''
+                if active_endpoint:
+                    try:
+                        from ..network.invite import parse_invite_endpoint
+
+                        parsed_active = parse_invite_endpoint(active_endpoint)
+                        if parsed_active:
+                            active_transport = parsed_active[2]
+                    except Exception:
+                        active_transport = ''
+                active_transport_label = {
+                    'wss': 'Secure WebSocket (wss)',
+                    'ws': 'Plain WebSocket (ws)',
+                }.get(active_transport, 'Relayed' if is_relayed else 'Unknown')
                 peers.append({
                     'peer_id': peer_id,
                     'display_name': im.peer_display_names.get(peer_id, ''),
@@ -20396,6 +20865,10 @@ def create_ui_blueprint() -> Blueprint:
                     'latency_ms': latency_ms,
                     'connected_at': conn.connected_at if conn else None,
                     'last_activity': conn.last_activity if conn else None,
+                    'active_endpoint': active_endpoint,
+                    'active_transport': active_transport,
+                    'active_transport_label': active_transport_label,
+                    'active_transport_secure': active_transport == 'wss',
                     'endpoints': [item.get('endpoint') for item in endpoint_details if item.get('endpoint')],
                     'endpoint_details': endpoint_details,
                     'discovered': bool(discovered_entry),
@@ -20424,10 +20897,18 @@ def create_ui_blueprint() -> Blueprint:
             relay_status = p2p_manager.get_relay_status() if p2p_manager else {}
             local_endpoints: list[str] = []
             try:
-                invite = generate_invite(im, mesh_port)
+                configured_external_endpoint = str(getattr(getattr(config, 'network', None), 'external_tls_endpoint', '') or '').strip()
+                endpoint_scheme = _live_invite_endpoint_scheme(config, p2p_manager)
+                invite = generate_invite(
+                    im,
+                    mesh_port,
+                    external_endpoint=configured_external_endpoint or None,
+                    endpoint_scheme=endpoint_scheme,
+                )
                 local_endpoints = list(invite.endpoints)
             except Exception:
                 pass
+            transport_security = _transport_security_status(p2p_manager, local_endpoints)
 
             return jsonify({
                 'success': True,
@@ -20437,6 +20918,7 @@ def create_ui_blueprint() -> Blueprint:
                     'mesh_port': mesh_port,
                     'endpoints': local_endpoints,
                     'relay_policy': relay_status.get('relay_policy', 'broker_only'),
+                    'transport_security': transport_security,
                 },
             })
         except Exception as e:

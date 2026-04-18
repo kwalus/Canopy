@@ -8,6 +8,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.32] - 2026-04-17
+
+### Changed
+- **Introduced peers from other meshspaces now require an explicit Connect-page review step instead of blending into routine contact introductions** - introduced cross-mesh peers are separated into a dedicated remote-meshspace section, blocked from the quick-connect path unless the operator explicitly confirms the bridge, and require instance-admin approval before the connection can proceed.
+
+## [0.6.31] - 2026-04-17
+
+### Changed
+- **Sidebar connected peers now deep-link into the right review surfaces instead of behaving like inert labels** - clicking an individual connected peer in the left rail now opens the matching Trust Network card, the header peer-count link now jumps to the Connected Peers section on Connect, and both destinations add target highlighting so operators land on the right peer state immediately.
+- **Notification bell filters now support multi-toggle adjustment without collapsing the menu after every click** - Mentions, Inbox, DMs, Channels, Feed, and Reset now keep the dropdown open while the user refines filters, without changing normal notification-item navigation or clear behavior.
+
+## [0.6.30] - 2026-04-16
+
+### Changed
+- **Admins can now configure secure mesh transport from the UI instead of hand-editing shell environment** - the Admin page adds a Transport Security panel for self-signed local TLS, provided certificate paths, external TLS terminator declaration, restart-required state, and secure-invite readiness so VPS and tunnel setup is much easier to understand and operate.
+- **Generated invites and handshake advertisements now stay honest while transport changes are pending restart** - saving a future TLS mode no longer causes Canopy to advertise `wss://` listener endpoints before the running mesh listener has actually restarted into secure mode, and stale external endpoint intent is cleared when operators switch back to non-external modes.
+
+## [0.6.29] - 2026-04-16
+
+### Changed
+- **Explicit public WSS invites now stay clearer from generation through live transport state** - public `wss://` invites no longer co-advertise same-host plain `ws://` fallback unless the operator explicitly opts in, active peer rows/diagnostics now distinguish the current live transport from other known endpoints, and operator-selected public endpoint intent no longer lingers after invite generation returns to the default/local path.
+
+## [0.6.28] - 2026-04-16
+
+### Changed
+- **WSS invite handling is now safer and clearer for VPS/public operators** - explicit `wss://` peer endpoints no longer silently downgrade to `ws://` when TLS fails, Connect now shows transport-security posture and secure-vs-plain advertised endpoint counts, and the docs explain how Canopy currently handles TLS, reverse proxies, self-signed certificates, and strict verified-WSS mode.
+
 ## [0.6.27] - 2026-04-13
 
 ### Changed
