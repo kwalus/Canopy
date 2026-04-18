@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.34] - 2026-04-18
+
+### Changed
+- **Known offline DM recipients now use targeted encrypted queueing instead of falling back to fragile live-only broadcast behavior** - when a DM recipient maps to a known origin peer, Canopy now routes the DM toward that peer directly so unreachable deliveries land in the existing pending-message queue and flush after reconnect, rather than disappearing when no live peer can receive a broadcast at send time.
+- **DM security badges now stay on the E2E path across restart/reconnect gaps when the peer identity is already known** - a known peer with an X25519 identity key is now treated as encryptable even before live `dm_e2e_v1` capability metadata has refreshed, so the sender sees a queued E2E state instead of a misleading legacy/plaintext classification after restart.
+
 ## [0.6.33] - 2026-04-18
 
 ### Changed

@@ -151,6 +151,8 @@ class IdentityManager:
         self.peer_endpoints: Dict[str, list] = {}
         # Display names for known peers (peer_id -> display_name)
         self.peer_display_names: Dict[str, str] = {}
+        # Advertised feature support learned from live handshakes/introductions.
+        self.peer_capabilities: Dict[str, list] = {}
         # Meshspace hints learned from invites/handshakes (peer_id -> metadata).
         # These hints are not cryptographic authorization; they are safety rails
         # for preventing silent reconnects across visibly different meshspaces.
@@ -280,6 +282,9 @@ class IdentityManager:
                 entry = identity.to_dict(include_private=False)
                 entry['endpoints'] = self.peer_endpoints.get(pid, [])
                 entry['display_name'] = self.peer_display_names.get(pid, '')
+                capabilities = self.peer_capabilities.get(pid, [])
+                if capabilities:
+                    entry['capabilities'] = list(capabilities)
                 hint = self.peer_meshspace_hints.get(pid)
                 if isinstance(hint, dict) and hint:
                     entry['meshspace_hint'] = hint
@@ -315,6 +320,13 @@ class IdentityManager:
                         self.peer_endpoints[identity.peer_id] = entry['endpoints']
                     if entry.get('display_name'):
                         self.peer_display_names[identity.peer_id] = entry['display_name']
+                    capabilities = []
+                    for raw_capability in entry.get('capabilities') or []:
+                        capability = str(raw_capability or '').strip()
+                        if capability and capability not in capabilities:
+                            capabilities.append(capability)
+                    if capabilities:
+                        self.peer_capabilities[identity.peer_id] = capabilities
                     hint = entry.get('meshspace_hint')
                     if isinstance(hint, dict):
                         cleaned = self._normalize_meshspace_hint(hint)
@@ -340,6 +352,24 @@ class IdentityManager:
             self.peer_display_names[identity.peer_id] = display_name
         self._save_known_peers()
         logger.debug(f"Added known peer: {identity.peer_id}")
+
+    def record_peer_capabilities(self, peer_id: str, capabilities: Any) -> bool:
+        """Persist non-sensitive capability hints learned from a peer."""
+        clean_peer_id = str(peer_id or '').strip()
+        if not clean_peer_id:
+            return False
+        normalized: list[str] = []
+        for raw_capability in capabilities or []:
+            capability = str(raw_capability or '').strip()
+            if capability and capability not in normalized:
+                normalized.append(capability)
+        if not normalized:
+            return False
+        if self.peer_capabilities.get(clean_peer_id) == normalized:
+            return False
+        self.peer_capabilities[clean_peer_id] = normalized
+        self._save_known_peers()
+        return True
 
     @staticmethod
     def _normalize_meshspace_hint(raw: Dict[str, Any]) -> Dict[str, Any]:

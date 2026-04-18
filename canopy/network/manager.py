@@ -866,6 +866,16 @@ class P2PNetworkManager:
         }:
             return True
 
+        identity_caps = (
+            getattr(getattr(self, 'identity_manager', None), 'peer_capabilities', {}) or {}
+        ).get(peer_id, [])
+        if capability in {
+            str(item).strip()
+            for item in (identity_caps or [])
+            if str(item).strip()
+        }:
+            return True
+
         try:
             if self.discovery:
                 discovered = self.discovery.get_discovered_peers()
@@ -883,6 +893,36 @@ class P2PNetworkManager:
         except Exception:
             pass
         return False
+
+    def _get_known_peer_identity(self, peer_id: str) -> Optional[PeerIdentity]:
+        clean_peer_id = str(peer_id or '').strip()
+        identity_manager = getattr(self, 'identity_manager', None)
+        if not clean_peer_id or not identity_manager:
+            return None
+        try:
+            peer_identity = identity_manager.get_peer(clean_peer_id)
+        except Exception:
+            return None
+        return peer_identity if peer_identity else None
+
+    def _dm_e2e_peer_status(self, peer_id: str) -> Tuple[bool, bool]:
+        """
+        Return (can_encrypt, confirmed_capability) for a DM target peer.
+
+        Capability advertisements are transient during restart/reconnect. A
+        known peer identity with an X25519 public key is enough to prepare an
+        encrypted DM bundle and queue it until the peer reappears; a live or
+        persisted capability only upgrades the status from queued to confirmed.
+        """
+        peer_identity = self._get_known_peer_identity(peer_id)
+        if not peer_identity or not getattr(peer_identity, 'x25519_public_key', None):
+            return False, False
+        confirmed = False
+        try:
+            confirmed = bool(self.peer_supports_capability(peer_id, DM_E2E_CAPABILITY))
+        except Exception:
+            confirmed = False
+        return True, confirmed
 
     def _build_p2p_attachment_entry(
         self,
@@ -1315,6 +1355,7 @@ class P2PNetworkManager:
         local_recipient_ids: list[str] = []
         remote_peer_ids: list[str] = []
         encrypted_peer_ids: list[str] = []
+        queued_peer_ids: list[str] = []
         legacy_peer_ids: list[str] = []
         unknown_peer_ids: list[str] = []
 
@@ -1334,10 +1375,12 @@ class P2PNetworkManager:
 
             if target_peer_id not in remote_peer_ids:
                 remote_peer_ids.append(target_peer_id)
-            peer_identity = self.identity_manager.get_peer(target_peer_id)
-            if peer_identity and self.peer_supports_capability(target_peer_id, DM_E2E_CAPABILITY):
+            can_encrypt, confirmed_e2e = self._dm_e2e_peer_status(target_peer_id)
+            if can_encrypt:
                 if target_peer_id not in encrypted_peer_ids:
                     encrypted_peer_ids.append(target_peer_id)
+                if not confirmed_e2e and target_peer_id not in queued_peer_ids:
+                    queued_peer_ids.append(target_peer_id)
             else:
                 if target_peer_id not in legacy_peer_ids:
                     legacy_peer_ids.append(target_peer_id)
@@ -1354,15 +1397,17 @@ class P2PNetworkManager:
                 'local_recipient_ids': local_recipient_ids,
                 'remote_peer_ids': [],
                 'encrypted_peer_ids': [],
+                'queued_peer_ids': [],
                 'legacy_peer_ids': [],
                 'unknown_peer_ids': [],
             }
 
         if remote_peer_ids and not legacy_peer_ids and not unknown_peer_ids:
-            return {
+            queued_delivery = bool(queued_peer_ids)
+            summary = {
                 'mode': 'peer_e2e_v1',
-                'state': 'encrypted',
-                'label': 'E2E over mesh',
+                'state': 'queued' if queued_delivery else 'encrypted',
+                'label': 'Queued E2E over mesh' if queued_delivery else 'E2E over mesh',
                 'e2e': True,
                 'relay_confidential': True,
                 'local_only': False,
@@ -1370,9 +1415,16 @@ class P2PNetworkManager:
                 'local_recipient_ids': local_recipient_ids,
                 'remote_peer_ids': remote_peer_ids,
                 'encrypted_peer_ids': encrypted_peer_ids,
+                'queued_peer_ids': queued_peer_ids,
                 'legacy_peer_ids': [],
                 'unknown_peer_ids': [],
             }
+            if queued_delivery:
+                summary['warning'] = (
+                    'Recipient peer is known but not currently connected; '
+                    'encrypted delivery will queue until reconnect'
+                )
+            return summary
 
         if remote_peer_ids and (encrypted_peer_ids or local_recipient_ids):
             return {
@@ -1386,6 +1438,7 @@ class P2PNetworkManager:
                 'local_recipient_ids': local_recipient_ids,
                 'remote_peer_ids': remote_peer_ids,
                 'encrypted_peer_ids': encrypted_peer_ids,
+                'queued_peer_ids': queued_peer_ids,
                 'legacy_peer_ids': legacy_peer_ids,
                 'unknown_peer_ids': unknown_peer_ids,
                 'warning': 'Some recipients require legacy/plaintext mesh delivery',
@@ -1402,6 +1455,7 @@ class P2PNetworkManager:
             'local_recipient_ids': local_recipient_ids,
             'remote_peer_ids': remote_peer_ids,
             'encrypted_peer_ids': encrypted_peer_ids,
+            'queued_peer_ids': queued_peer_ids,
             'legacy_peer_ids': legacy_peer_ids,
             'unknown_peer_ids': unknown_peer_ids,
             'warning': 'Recipient peer does not advertise DM E2E support',
@@ -2712,6 +2766,12 @@ class P2PNetworkManager:
             'meshspace_fingerprint': str(getattr(conn, 'meshspace_fingerprint', '') or ''),
         }
         self.peer_versions[peer_id] = entry
+        try:
+            recorder = getattr(self.identity_manager, 'record_peer_capabilities', None)
+            if callable(recorder):
+                recorder(peer_id, entry.get('capabilities') or [])
+        except Exception:
+            logger.debug("Could not persist capabilities for peer %s", peer_id, exc_info=True)
 
         if protocol_version != self.local_protocol_version:
             logger.warning(
@@ -3345,6 +3405,12 @@ class P2PNetworkManager:
             cleaned['endpoints'] = endpoints
             cleaned['introduced_by'] = from_peer
             cleaned['capabilities'] = self._normalize_capability_items(cleaned.get('capabilities'))
+            try:
+                recorder = getattr(self.identity_manager, 'record_peer_capabilities', None)
+                if callable(recorder):
+                    recorder(pid, cleaned.get('capabilities') or [])
+            except Exception:
+                logger.debug("Could not persist introduced capabilities for %s", pid, exc_info=True)
 
             # Track all known introducers for more reliable broker fallback.
             introduced_via: list[str] = []
@@ -4714,14 +4780,13 @@ class P2PNetworkManager:
         should_encrypt = False
         peer_identity = None
         if target_peer_id:
-            peer_identity = self.identity_manager.get_peer(target_peer_id)
-            should_encrypt = bool(
-                peer_identity
-                and self.peer_supports_capability(target_peer_id, DM_E2E_CAPABILITY)
-            )
+            peer_identity = self._get_known_peer_identity(target_peer_id)
+            can_encrypt, _confirmed_e2e = self._dm_e2e_peer_status(target_peer_id)
+            should_encrypt = bool(peer_identity and can_encrypt)
 
         outbound_content = content
         outbound_metadata = dict(user_metadata)
+        e2e_prepare_failed = False
         if should_encrypt and peer_identity:
             try:
                 outbound_content, outbound_metadata, security_summary = encrypt_dm_transport_bundle(
@@ -4738,10 +4803,21 @@ class P2PNetworkManager:
                     enc_err,
                 )
                 should_encrypt = False
+                e2e_prepare_failed = True
 
         if not should_encrypt:
             outbound_metadata = dict(user_metadata)
-            outbound_metadata['security'] = dict(security_summary)
+            fallback_security = dict(security_summary)
+            if e2e_prepare_failed:
+                fallback_security.update({
+                    'mode': 'legacy_plaintext',
+                    'state': 'plaintext',
+                    'label': 'Legacy relay/plaintext',
+                    'e2e': False,
+                    'relay_confidential': False,
+                    'warning': 'E2E preparation failed; sent using legacy mesh delivery',
+                })
+            outbound_metadata['security'] = fallback_security
             if target_peer_id:
                 outbound_metadata['security']['target_peer_id'] = target_peer_id
 
@@ -4762,8 +4838,16 @@ class P2PNetworkManager:
             logger.debug(f"Final DM attachment budget pass failed: {e}")
 
         meta['metadata'] = outbound_metadata
+        if target_peer_id:
+            meta['target_peer_id'] = target_peer_id
+        targeted_sender = getattr(self.message_router, 'send_dm_to_peer', None)
+        route_coro = (
+            targeted_sender(target_peer_id, outbound_content, meta)
+            if target_peer_id and callable(targeted_sender)
+            else self.message_router.send_dm_broadcast(outbound_content, meta)
+        )
         future = asyncio.run_coroutine_threadsafe(
-            self.message_router.send_dm_broadcast(outbound_content, meta),
+            route_coro,
             self._event_loop
         )
 
@@ -4773,7 +4857,16 @@ class P2PNetworkManager:
             try:
                 result = bool(f.result())
                 if result:
-                    logger.info(f"Broadcast DM {message_id} from {sender_id} to {recipient_id}")
+                    route_label = 'Routed targeted' if target_peer_id else 'Broadcast'
+                    logger.info(f"{route_label} DM {message_id} from {sender_id} to {recipient_id}")
+                elif target_peer_id:
+                    logger.info(
+                        "Queued targeted DM %s from %s to %s pending reconnect to peer %s",
+                        message_id,
+                        sender_id,
+                        recipient_id,
+                        target_peer_id,
+                    )
                 else:
                     logger.warning(
                         "DM broadcast %s from %s to %s completed without a live peer delivery",
@@ -4793,7 +4886,17 @@ class P2PNetworkManager:
             timeout = 60.0 if attachment_count else 5.0
             result = bool(future.result(timeout=timeout))
             if result:
-                logger.info(f"Broadcast DM {message_id} from {sender_id} to {recipient_id}")
+                route_label = 'Routed targeted' if target_peer_id else 'Broadcast'
+                logger.info(f"{route_label} DM {message_id} from {sender_id} to {recipient_id}")
+            elif target_peer_id:
+                logger.info(
+                    "Queued targeted DM %s from %s to %s pending reconnect to peer %s",
+                    message_id,
+                    sender_id,
+                    recipient_id,
+                    target_peer_id,
+                )
+                return True
             return result
         except Exception as e:
             logger.error(f"Error broadcasting DM: {e}", exc_info=True)

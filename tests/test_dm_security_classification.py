@@ -64,6 +64,24 @@ class _FakeIdentityManager:
         return None
 
 
+class _PeerIdentity:
+    def __init__(self, peer_id):
+        self.peer_id = peer_id
+        self.x25519_public_key = b'1' * 32
+
+
+class _KnownIdentityManager:
+    peer_capabilities = {}
+
+    def __init__(self, peer_identity):
+        self._peer_identity = peer_identity
+
+    def get_peer(self, peer_id):
+        if self._peer_identity and peer_id == self._peer_identity.peer_id:
+            return self._peer_identity
+        return None
+
+
 class _FakeP2PView:
     def get_peer_id(self) -> str:
         return 'peer-local'
@@ -169,6 +187,21 @@ class TestDmSecurityClassification(unittest.TestCase):
         self.assertFalse(summary.get('local_only'))
         self.assertIn('local-user', summary.get('local_recipient_ids') or [])
         self.assertIn('remote-human', summary.get('unknown_peer_ids') or [])
+
+    def test_known_remote_identity_stays_e2e_queued_before_capability_refresh(self) -> None:
+        manager = P2PNetworkManager.__new__(P2PNetworkManager)
+        manager.db = self.db
+        manager.local_identity = type('LocalIdentity', (), {'peer_id': 'peer-local'})()
+        manager.identity_manager = _KnownIdentityManager(_PeerIdentity('peer-remote'))
+        manager.peer_supports_capability = lambda peer_id, capability: False
+
+        summary = manager.describe_direct_message_security(['remote-shadow'])
+
+        self.assertEqual(summary.get('mode'), 'peer_e2e_v1')
+        self.assertEqual(summary.get('state'), 'queued')
+        self.assertIn('peer-remote', summary.get('encrypted_peer_ids') or [])
+        self.assertIn('peer-remote', summary.get('queued_peer_ids') or [])
+        self.assertNotIn('peer-remote', summary.get('legacy_peer_ids') or [])
 
     def test_broadcast_still_runs_for_ambiguous_remote_user(self) -> None:
         manager = P2PNetworkManager.__new__(P2PNetworkManager)

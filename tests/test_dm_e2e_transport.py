@@ -34,10 +34,20 @@ from canopy.network.manager import P2PNetworkManager
 class _FakeRouter:
     def __init__(self):
         self.calls = []
+        self.targeted_result = True
 
     async def send_dm_broadcast(self, content, metadata):
-        self.calls.append({'content': content, 'metadata': metadata})
+        self.calls.append({'method': 'broadcast', 'content': content, 'metadata': metadata})
         return True
+
+    async def send_dm_to_peer(self, to_peer, content, metadata):
+        self.calls.append({
+            'method': 'targeted',
+            'to_peer': to_peer,
+            'content': content,
+            'metadata': metadata,
+        })
+        return self.targeted_result
 
 
 class _FakeFuture:
@@ -193,6 +203,60 @@ class TestDmE2ETransport(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(len(manager.message_router.calls), 1)
         call = manager.message_router.calls[0]
+        self.assertEqual(call['method'], 'targeted')
+        self.assertEqual(call['to_peer'], 'peer-remote')
+        self.assertEqual(call['content'], '')
+        self.assertIn(DM_CRYPTO_METADATA_KEY, call['metadata'].get('metadata', {}))
+        self.assertEqual(call['metadata']['metadata']['security']['mode'], 'peer_e2e_v1')
+
+    def test_broadcast_direct_message_targets_known_peer_even_before_reconnect_capability_refresh(self):
+        recipient_private = X25519PrivateKey.generate()
+        recipient_public = recipient_private.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw,
+        )
+        recipient_peer = _PeerIdentity('peer-remote', recipient_public)
+
+        manager = P2PNetworkManager.__new__(P2PNetworkManager)
+        manager._running = True
+        manager._event_loop = object()
+        manager.message_router = _FakeRouter()
+        manager.message_router.targeted_result = False
+        manager.db = _FakeDb({
+            'id': 'user-remote',
+            'username': 'peer-remote-user',
+            'origin_peer': 'peer-remote',
+        })
+        manager.local_identity = type('LocalIdentity', (), {'peer_id': 'peer-local'})()
+        manager.identity_manager = _FakeIdentityManager(recipient_peer)
+        manager.connection_manager = None
+        manager.discovery = None
+        manager.peer_versions = {}
+        manager._introduced_peers = {}
+        manager.peer_supports_capability = lambda peer_id, capability: False
+
+        def _run_coroutine(coro, _loop):
+            loop = asyncio.new_event_loop()
+            try:
+                return _FakeFuture(loop.run_until_complete(coro))
+            finally:
+                loop.close()
+
+        with patch('canopy.network.manager.asyncio.run_coroutine_threadsafe', side_effect=_run_coroutine):
+            ok = manager.broadcast_direct_message(
+                sender_id='user-local',
+                recipient_id='user-remote',
+                content='queued encrypted secret',
+                message_id='DM-e2e-queued',
+                timestamp='2026-04-18T12:00:00+00:00',
+                metadata={},
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(len(manager.message_router.calls), 1)
+        call = manager.message_router.calls[0]
+        self.assertEqual(call['method'], 'targeted')
+        self.assertEqual(call['to_peer'], 'peer-remote')
         self.assertEqual(call['content'], '')
         self.assertIn(DM_CRYPTO_METADATA_KEY, call['metadata'].get('metadata', {}))
         self.assertEqual(call['metadata']['metadata']['security']['mode'], 'peer_e2e_v1')

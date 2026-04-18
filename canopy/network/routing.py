@@ -801,9 +801,15 @@ class MessageRouter:
                 {'type': 'p2p_message', 'message': message.to_dict()}
             ))
 
-        # Hybrid targeted relay fallback: flood only selected control-plane
-        # messages through the mesh so indirect peers can still receive them.
-        if message.type in self._TARGETED_MESH_RELAY_TYPES and message.ttl > 0:
+        # Hybrid targeted relay fallback: flood only selected targeted
+        # traffic through the mesh so indirect peers can still receive it.
+        # DMs are included here only after they have a concrete to_peer; this
+        # keeps relay behavior precise and still allows offline queueing.
+        mesh_relay_supported = (
+            message.type in self._TARGETED_MESH_RELAY_TYPES
+            or message.type == MessageType.DIRECT_MESSAGE
+        )
+        if mesh_relay_supported and message.ttl > 0:
             relayed = await self._relay_targeted_via_mesh(
                 message=message,
                 exclude_peers={via_peer, target_peer},
@@ -1577,6 +1583,29 @@ class MessageRouter:
                                       ttl=self._CONTENT_TTL)
         self.sign_message(message)
         return await self._route_broadcast(message)
+
+    async def send_dm_to_peer(self, to_peer: str, content: str, metadata: Dict) -> bool:
+        """
+        Send a direct message toward a specific recipient peer.
+
+        The DM payload may already contain application-layer E2E metadata. This
+        method intentionally does not apply the older router-level encryption,
+        so relays can forward the targeted envelope and the recipient can unwrap
+        the DM bundle consistently with broadcast-era messages.
+        """
+        target_peer = str(to_peer or '').strip()
+        if not target_peer:
+            return await self.send_dm_broadcast(content, metadata)
+
+        payload = {
+            'content': content,
+            'metadata': metadata or {}
+        }
+
+        message = self.create_message(MessageType.DIRECT_MESSAGE, target_peer, payload,
+                                      ttl=self._CONTENT_TTL)
+        self.sign_message(message)
+        return await self.route_message(message)
 
     async def send_channel_announce(self, channel_id: str, name: str,
                                      channel_type: str, description: str,
