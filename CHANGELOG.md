@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.35] - 2026-04-19
+
+### Changed
+- **Canopy Modules can now request reviewed WebGL rendering without weakening the default sandbox boundary** - modules may declare `module.render.webgl`, the deck now pauses on a session-scoped approval panel before launch, and approved sessions expose WebGL while keeping the runtime on `sandbox="allow-scripts"` with `connect-src 'none'` and no raw same-origin/API/network expansion.
+- **Unapproved modules now get deterministic no-WebGL behavior instead of inheriting browser GPU availability implicitly** - the injected module runtime guards `webgl`, `webgl2`, and `experimental-webgl` context creation unless the reviewed capability is granted, while 2D canvas and the existing brokered module APIs continue to behave normally.
+
 ## [0.6.34] - 2026-04-18
 
 ### Changed

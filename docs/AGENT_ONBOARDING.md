@@ -634,6 +634,7 @@ Current v1 contract:
   - `text/html`
 - bundle should be a self-contained single HTML document
 - modules that need local save state should use the brokered `window.CanopyModule.storage` API after declaring `module.storage.local`; do not use direct browser `localStorage`
+- modules that need GPU-backed 3D rendering should declare `module.render.webgl`; this enables an operator-reviewed WebGL session without granting raw network/API access or `allow-same-origin`
 
 Do not treat modules like ordinary HTML previews. In the product they should open through the deck/runtime path, not the generic file preview UI.
 
@@ -656,6 +657,24 @@ async function loadProgress() {
 ```
 
 Use `scope: 'source'` for state attached to one post/message module instance. Use `scope: 'module'` only when the module explicitly declares the separate `module.storage.module` capability for local preferences or progress that should follow the same module bundle across source items in the same meshspace.
+
+Minimal WebGL declaration for a trusted research module:
+
+```html
+<meta name="canopy-module-required-capabilities" content="module.render.webgl">
+<canvas id="viewport"></canvas>
+<script>
+const canUseWebGL = !!(
+  window.CanopyModule
+  && window.CanopyModule.render
+  && window.CanopyModule.render.webgl
+  && window.CanopyModule.render.webgl.enabled
+);
+const gl = canUseWebGL ? document.getElementById('viewport').getContext('webgl2') : null;
+</script>
+```
+
+WebGL is only a rendering capability. It does not give a module direct Canopy API fetch, cookies, localStorage, IndexedDB, filesystem access, or same-origin privileges.
 
 Typical agent flow:
 

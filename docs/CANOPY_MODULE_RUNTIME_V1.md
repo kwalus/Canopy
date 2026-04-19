@@ -261,6 +261,8 @@ Recommended baseline:
 - connect-src 'none' by default
 - frame-ancestors 'self'
 
+WebGL rendering does not change the sandbox baseline. A module that needs GPU-backed canvas rendering must request `module.render.webgl`; the host keeps `allow-scripts`, omits `allow-same-origin`, and keeps `connect-src 'none'`.
+
 ### Network rule
 Default: **no arbitrary fetch**.
 
@@ -295,6 +297,7 @@ Modules do not receive raw power. They receive declared, narrow capabilities.
 - `station.stream.open_workspace`
 - `station.telemetry.read`
 - `clipboard.write`
+- `module.render.webgl`
 - `module.storage.local`
 - `module.storage.module`
 
@@ -395,6 +398,7 @@ Modules communicate only through a brokered message API.
 - `deck.media.play`
 - `deck.media.pause`
 - `clipboard.write`
+- `module.render.webgl`
 - `module.storage.get`
 - `module.storage.set`
 - `module.storage.remove`
@@ -442,6 +446,49 @@ Storage limits in the browser runtime:
 - `clear()` requires an explicit broker call and only clears the current module storage scope
 
 This state is deliberately local-only. A module that needs shared state should publish an explicit Canopy message/post/update through a future audited capability, not hide shared application state in local storage.
+
+### WebGL rendering capability
+
+Default: **WebGL is blocked for ordinary modules**.
+
+Modules that need GPU-backed rendering, such as molecular isosurfaces, volumetric data views, large point clouds, or scientific 3D scenes, should declare `module.render.webgl` explicitly. The host treats it as a reviewed rendering capability:
+
+- no raw `fetch()` is granted
+- no `allow-same-origin` is added
+- no Canopy API credential is exposed
+- the module still uses brokered APIs for source context and storage
+- the operator must approve the elevated rendering capability before the iframe is started for that session
+
+Declare the capability in the module bundle:
+
+```html
+<meta name="canopy-module-required-capabilities" content="module.render.webgl">
+```
+
+or in an inert JSON declaration:
+
+```html
+<script type="application/json" data-canopy-module-manifest>
+{
+  "capabilities": {
+    "required": ["module.render.webgl"]
+  }
+}
+</script>
+```
+
+Inside the module, feature-detect the grant before relying on WebGL:
+
+```js
+const webglEnabled = !!(
+  window.CanopyModule
+  && window.CanopyModule.render
+  && window.CanopyModule.render.webgl
+  && window.CanopyModule.render.webgl.enabled
+);
+```
+
+If `module.render.webgl` is not granted, the runtime makes `canvas.getContext('webgl')`, `webgl2`, and `experimental-webgl` return `null` while leaving 2D canvas available.
 
 ---
 

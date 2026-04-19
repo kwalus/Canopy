@@ -1735,8 +1735,12 @@
             'deck.close',
             'deck.media.observe',
             'clipboard.write',
+            'module.render.webgl',
             'module.storage.local',
             'module.storage.module',
+        ]);
+        const CANOPY_MODULE_REVIEWED_CAPABILITIES = new Set([
+            'module.render.webgl',
         ]);
         const CANOPY_MODULE_STORAGE_PREFIX = 'canopy-module:v2';
         const CANOPY_MODULE_STORAGE_MAX_KEY_BYTES = 128;
@@ -1822,6 +1826,64 @@
                 .map((value) => normalizeDeckWidgetText(value, 48).toLowerCase())
                 .filter((value, index, list) => value && CANOPY_MODULE_CAPABILITIES.has(value) && list.indexOf(value) === index)
                 .slice(0, 8);
+        }
+
+        function splitDeckModuleCapabilityText(value) {
+            return String(value == null ? '' : value)
+                .split(/[\s,;]+/)
+                .map((part) => part.trim())
+                .filter(Boolean);
+        }
+
+        function mergeDeckModuleCapabilityLists(...lists) {
+            const combined = [];
+            lists.forEach((list) => {
+                if (Array.isArray(list)) {
+                    combined.push(...list);
+                }
+            });
+            return normalizeDeckModuleCapabilityList(combined);
+        }
+
+        function extractDeckModuleCapabilityDeclarations(bundleHtml) {
+            const out = { required: [], optional: [] };
+            const rawHtml = String(bundleHtml || '');
+            if (!rawHtml || typeof DOMParser === 'undefined') return out;
+            const addRequired = (values) => {
+                out.required = mergeDeckModuleCapabilityLists(out.required, values);
+            };
+            const addOptional = (values) => {
+                out.optional = mergeDeckModuleCapabilityLists(out.optional, values);
+            };
+            try {
+                const doc = new DOMParser().parseFromString(rawHtml, 'text/html');
+                doc.querySelectorAll('meta[name="canopy-module-required-capabilities"]').forEach((meta) => {
+                    addRequired(splitDeckModuleCapabilityText(meta.getAttribute('content') || ''));
+                });
+                doc.querySelectorAll('meta[name="canopy-module-capabilities"], meta[name="canopy-module-optional-capabilities"]').forEach((meta) => {
+                    addOptional(splitDeckModuleCapabilityText(meta.getAttribute('content') || ''));
+                });
+                doc.querySelectorAll('script[type="application/json"][data-canopy-module-manifest]').forEach((script) => {
+                    let parsed = null;
+                    try {
+                        parsed = JSON.parse(script.textContent || '{}');
+                    } catch (_) {
+                        parsed = null;
+                    }
+                    if (!parsed || typeof parsed !== 'object') return;
+                    const caps = parsed.capabilities && typeof parsed.capabilities === 'object'
+                        ? parsed.capabilities
+                        : {};
+                    addRequired(caps.required || parsed.required_capabilities || []);
+                    addOptional(caps.optional || parsed.optional_capabilities || []);
+                    if (Array.isArray(parsed.capabilities)) {
+                        addOptional(parsed.capabilities);
+                    }
+                });
+            } catch (_) {
+                return out;
+            }
+            return out;
         }
 
         function sanitizeDeckModuleBundleUrl(rawUrl) {
@@ -5949,6 +6011,7 @@
                 moduleBundleCache: new Map(),
                 moduleSessions: new Map(),
                 moduleSessionCounter: 0,
+                moduleCapabilityApprovals: new Set(),
                 deckQueueCollapsed: false,
                 deckDetailCollapsed: false,
                 deckLayoutMode: 'default',
@@ -8026,7 +8089,7 @@
                 state.deckLayoutLastQueueCount = -1;
             }
 
-            function getGrantedDeckModuleCapabilities(manifest) {
+            function getRequestedDeckModuleCapabilities(manifest) {
                 const runtime = manifest && manifest.module_runtime && typeof manifest.module_runtime === 'object'
                     ? manifest.module_runtime
                     : {};
@@ -8036,11 +8099,76 @@
                 const optional = Array.isArray(runtime.capabilities && runtime.capabilities.optional)
                     ? runtime.capabilities.optional
                     : [];
-                return Array.from(new Set(required.concat(optional)));
+                return normalizeDeckModuleCapabilityList(required.concat(optional));
+            }
+
+            function deckModuleCapabilityApprovalKey(manifest, capability) {
+                const runtime = manifest && manifest.module_runtime && typeof manifest.module_runtime === 'object'
+                    ? manifest.module_runtime
+                    : {};
+                const moduleId = String(runtime.bundle_file_id || runtime.bundle_url || (manifest && manifest.key) || 'module').trim();
+                const cap = String(capability || '').trim().toLowerCase();
+                return moduleId && cap ? `${moduleId}:${cap}` : '';
+            }
+
+            function deckModuleCapabilityApproved(manifest, capability) {
+                const cap = String(capability || '').trim().toLowerCase();
+                if (!CANOPY_MODULE_REVIEWED_CAPABILITIES.has(cap)) return true;
+                const key = deckModuleCapabilityApprovalKey(manifest, cap);
+                return !!(key && state.moduleCapabilityApprovals.has(key));
+            }
+
+            function approveDeckModuleCapability(manifest, capability) {
+                const key = deckModuleCapabilityApprovalKey(manifest, capability);
+                if (key) state.moduleCapabilityApprovals.add(key);
+            }
+
+            function getGrantedDeckModuleCapabilities(manifest) {
+                return getRequestedDeckModuleCapabilities(manifest).filter((capability) => (
+                    deckModuleCapabilityApproved(manifest, capability)
+                ));
+            }
+
+            function getPendingDeckModuleCapabilities(manifest) {
+                return getRequestedDeckModuleCapabilities(manifest).filter((capability) => (
+                    CANOPY_MODULE_REVIEWED_CAPABILITIES.has(capability)
+                    && !deckModuleCapabilityApproved(manifest, capability)
+                ));
             }
 
             function deckModuleHasCapability(manifest, capability) {
                 return getGrantedDeckModuleCapabilities(manifest).includes(String(capability || '').trim().toLowerCase());
+            }
+
+            function humanizeDeckModuleCapability(capability) {
+                const cap = String(capability || '').trim().toLowerCase();
+                if (cap === 'module.render.webgl') return 'WebGL rendering';
+                if (cap === 'module.storage.local') return 'Local source storage';
+                if (cap === 'module.storage.module') return 'Local module storage';
+                if (cap === 'source.read') return 'Source read';
+                if (cap === 'source.snapshot') return 'Source snapshot';
+                if (cap === 'deck.return') return 'Deck return';
+                if (cap === 'deck.close') return 'Deck close';
+                if (cap === 'deck.media.observe') return 'Media observe';
+                if (cap === 'clipboard.write') return 'Clipboard write';
+                return cap;
+            }
+
+            function applyDeckModuleBundleDeclarations(item, bundleHtml) {
+                if (!item || !item.manifest || !item.manifest.module_runtime) return item;
+                const declarations = extractDeckModuleCapabilityDeclarations(bundleHtml);
+                if (!declarations.required.length && !declarations.optional.length) return item;
+                const manifest = item.manifest;
+                const runtime = Object.assign({}, manifest.module_runtime);
+                const caps = runtime.capabilities && typeof runtime.capabilities === 'object'
+                    ? runtime.capabilities
+                    : {};
+                runtime.capabilities = {
+                    required: mergeDeckModuleCapabilityLists(caps.required, declarations.required),
+                    optional: mergeDeckModuleCapabilityLists(caps.optional, declarations.optional),
+                };
+                item.manifest = Object.assign({}, manifest, { module_runtime: runtime });
+                return item;
             }
 
             function serializeDeckModuleInlineJson(value) {
@@ -8396,9 +8524,52 @@
 (function () {
   const sessionId = ${serializeDeckModuleInlineJson(sessionId)};
   const grantedCapabilities = ${serializeDeckModuleInlineJson(capabilities)};
+  const webglGranted = grantedCapabilities.indexOf('module.render.webgl') !== -1;
   const pending = new Map();
   const listeners = new Set();
   let counter = 0;
+
+  function isWebGLContextType(type) {
+    const t = String(type || '').trim().toLowerCase();
+    return t === 'webgl' || t === 'webgl2' || t === 'experimental-webgl';
+  }
+
+  function installWebGLCapabilityGuard() {
+    if (webglGranted) return;
+    const block = function getContextGuard(original) {
+      return function guardedGetContext(type) {
+        if (isWebGLContextType(type)) {
+          try {
+            window.dispatchEvent(new CustomEvent('canopy-module-webgl-denied', { detail: { capability: 'module.render.webgl' } }));
+          } catch (_) {}
+          return null;
+        }
+        return original.apply(this, arguments);
+      };
+    };
+    try {
+      if (window.HTMLCanvasElement && HTMLCanvasElement.prototype && HTMLCanvasElement.prototype.getContext) {
+        const originalCanvasGetContext = HTMLCanvasElement.prototype.getContext;
+        Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+          configurable: false,
+          writable: false,
+          value: block(originalCanvasGetContext)
+        });
+      }
+    } catch (_) {}
+    try {
+      if (window.OffscreenCanvas && OffscreenCanvas.prototype && OffscreenCanvas.prototype.getContext) {
+        const originalOffscreenGetContext = OffscreenCanvas.prototype.getContext;
+        Object.defineProperty(OffscreenCanvas.prototype, 'getContext', {
+          configurable: false,
+          writable: false,
+          value: block(originalOffscreenGetContext)
+        });
+      }
+    } catch (_) {}
+  }
+
+  installWebGLCapabilityGuard();
 
   function emit(type, payload) {
     parent.postMessage({ canopyModule: true, sessionId, type, payload: payload || {} }, '*');
@@ -8482,6 +8653,9 @@
     version: 1,
     sessionId,
     capabilities: grantedCapabilities.slice(),
+    render: Object.freeze({
+      webgl: Object.freeze({ enabled: webglGranted, capability: 'module.render.webgl' })
+    }),
     storage: storageApi,
     request(method, payload) {
       return request(method, payload);
@@ -8740,7 +8914,9 @@
                 if (!item || !item.manifest) return '';
                 const m = item.manifest;
                 if (m.render_mode === 'module_runtime' && m.module_runtime) {
-                    return `module:${String(m.module_runtime.bundle_url || '')}:${String(m.key || '')}`;
+                    const requested = getRequestedDeckModuleCapabilities(m).join(',');
+                    const granted = getGrantedDeckModuleCapabilities(m).join(',');
+                    return `module:${String(m.module_runtime.bundle_url || '')}:${String(m.key || '')}:${requested}:${granted}`;
                 }
                 if (m.render_mode === 'iframe' && m.embed_url) {
                     return `iframe:${String(m.embed_url)}`;
@@ -8882,11 +9058,24 @@
                 if (deckWidgetDetails) {
                     const detailEntries = Array.isArray(manifest.details) ? [...manifest.details] : [];
                     if (manifest.render_mode === 'module_runtime' && manifest.module_runtime) {
+                        const requestedCaps = getRequestedDeckModuleCapabilities(manifest);
                         const caps = getGrantedDeckModuleCapabilities(manifest);
+                        const pendingCaps = getPendingDeckModuleCapabilities(manifest);
+                        if (pendingCaps.length) {
+                            detailEntries.unshift({
+                                label: 'Review needed',
+                                value: pendingCaps.map(humanizeDeckModuleCapability).join(', '),
+                            });
+                        }
                         if (caps.length) {
                             detailEntries.unshift({
                                 label: 'Capabilities',
                                 value: caps.join(', '),
+                            });
+                        } else if (requestedCaps.length) {
+                            detailEntries.unshift({
+                                label: 'Capabilities',
+                                value: 'None granted yet',
                             });
                         }
                         detailEntries.push({
@@ -8924,6 +9113,34 @@
                 }
             }
 
+            function renderDeckModuleCapabilityApprovalPanel(host, item, pendingCapabilities) {
+                const manifest = item && item.manifest ? item.manifest : {};
+                const readableCaps = (pendingCapabilities || []).map(humanizeDeckModuleCapability).join(', ');
+                host.innerHTML = `
+                    <div class="sidebar-media-deck-widget-panel sidebar-media-deck-module-panel">
+                        <div class="sidebar-media-deck-widget-panel-title">Rendering capability review required</div>
+                        <div class="sidebar-media-deck-widget-panel-copy">
+                            This module requests ${escapeEmbedHtml(readableCaps || 'an elevated rendering capability')}. WebGL remains disabled by default and does not grant network, storage, API, or same-origin access.
+                        </div>
+                        <div class="sidebar-media-deck-widget-actions mt-3">
+                            <button type="button" class="sidebar-media-deck-btn" data-canopy-approve-webgl="1">
+                                <i class="bi bi-gpu-card"></i><span>Enable WebGL this session</span>
+                            </button>
+                        </div>
+                    </div>
+                `;
+                const approveBtn = host.querySelector('[data-canopy-approve-webgl="1"]');
+                if (approveBtn) {
+                    approveBtn.addEventListener('click', () => {
+                        (pendingCapabilities || []).forEach((capability) => {
+                            approveDeckModuleCapability(manifest, capability);
+                        });
+                        renderDeckWidgetSummary(item);
+                        renderDeckWidgetStage(item);
+                    });
+                }
+            }
+
             function renderDeckWidgetStage(item) {
                 if (!deckStage || !item || !item.manifest) return;
                 const manifest = item.manifest;
@@ -8953,24 +9170,33 @@
                     deckStage.appendChild(host);
                     fetchDeckModuleBundle(manifest.module_runtime).then((bundleHtml) => {
                         if (!host.isConnected || host.dataset.canopyDeckWidgetSig !== nextSig) return;
+                        const moduleItem = applyDeckModuleBundleDeclarations(item, bundleHtml);
+                        const moduleManifest = moduleItem && moduleItem.manifest ? moduleItem.manifest : manifest;
+                        const pendingCapabilities = getPendingDeckModuleCapabilities(moduleManifest);
+                        if (pendingCapabilities.length) {
+                            renderDeckWidgetSummary(moduleItem);
+                            renderDeckModuleCapabilityApprovalPanel(host, moduleItem, pendingCapabilities);
+                            return;
+                        }
                         state.moduleSessionCounter += 1;
                         const sessionId = `canopy-module-session-${state.moduleSessionCounter}`;
                         const iframe = document.createElement('iframe');
                         iframe.className = 'sidebar-media-deck-widget-frame sidebar-media-deck-module-frame';
-                        iframe.title = manifest.title || 'Canopy Module';
+                        iframe.title = moduleManifest.title || 'Canopy Module';
                         iframe.loading = 'lazy';
                         iframe.setAttribute('sandbox', 'allow-scripts');
                         iframe.setAttribute('data-canopy-module-session-id', sessionId);
                         iframe.srcdoc = injectDeckModuleRuntime(
                             bundleHtml,
-                            buildDeckModuleBootstrapScript(sessionId, item),
-                            manifest
+                            buildDeckModuleBootstrapScript(sessionId, moduleItem),
+                            moduleManifest
                         );
                         state.moduleSessions.set(sessionId, {
                             id: sessionId,
-                            item,
+                            item: moduleItem,
                             frame: iframe,
                         });
+                        renderDeckWidgetSummary(moduleItem);
                         host.innerHTML = '';
                         host.appendChild(iframe);
                     }).catch((error) => {

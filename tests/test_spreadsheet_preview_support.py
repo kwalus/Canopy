@@ -147,6 +147,28 @@ class TestSpreadsheetPreviewSupport(unittest.TestCase):
         self.assertTrue(is_valid, error)
         self.assertEqual(validated_type, 'text/html')
 
+    def test_validate_file_upload_accepts_canopy_module_webgl_declaration(self):
+        module_bytes = b"""<!doctype html>
+<html><head>
+  <meta charset="utf-8">
+  <meta name="canopy-module-required-capabilities" content="module.render.webgl">
+</head><body>
+  <canvas id="viz"></canvas>
+  <script>
+    const gl = document.getElementById('viz').getContext('webgl2')
+      || document.getElementById('viz').getContext('webgl');
+    window.webglReady = !!gl;
+  </script>
+</body></html>
+"""
+        is_valid, error, validated_type = validate_file_upload(
+            module_bytes,
+            'text/html',
+            'isosurface.canopy-module.html',
+        )
+        self.assertTrue(is_valid, error)
+        self.assertEqual(validated_type, 'text/html')
+
     def test_validate_file_upload_rejects_canopy_module_with_external_script(self):
         module_bytes = b"""<!doctype html>
 <html><head><meta charset="utf-8"></head><body>
