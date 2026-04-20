@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.37] - 2026-04-20
+
+### Changed
+- **Canopy Modules can now request reviewed read-only access to source-bound attachments without enabling raw CORS or same-origin sandboxing** - modules may declare `source.attachments.read`, the deck pauses on a session-scoped approval panel before launch, and the host returns capped text, JSON, base64, or data-URL payloads for files already bound to the current source through the existing broker boundary instead of exposing raw `fetch()` or generic API/file access.
+- **Source attachment reads stay narrow and source-scoped instead of becoming a generic file reader** - the runtime only resolves same-origin `/files/<id>` URLs already present on the current source card, blocks HTML/JS/CSS/SVG/WASM-style attachment types, and keeps conservative size caps so module-labs data access can move forward without weakening `sandbox="allow-scripts"` or the injected `connect-src 'none'` CSP.
+
 ## [0.6.36] - 2026-04-20
 
 ### Changed

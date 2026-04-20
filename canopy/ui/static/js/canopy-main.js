@@ -1730,6 +1730,7 @@
         const CANOPY_MODULE_BUNDLE_FORMATS = new Set(['single_html']);
         const CANOPY_MODULE_CAPABILITIES = new Set([
             'source.read',
+            'source.attachments.read',
             'source.snapshot',
             'deck.return',
             'deck.close',
@@ -1741,7 +1742,15 @@
         ]);
         const CANOPY_MODULE_REVIEWED_CAPABILITIES = new Set([
             'module.render.webgl',
+            'source.attachments.read',
         ]);
+        const CANOPY_MODULE_ATTACHMENT_MAX_LIST = 32;
+        const CANOPY_MODULE_ATTACHMENT_MAX_TEXT_BYTES = 1024 * 1024;
+        const CANOPY_MODULE_ATTACHMENT_MAX_BINARY_BYTES = 4 * 1024 * 1024;
+        const CANOPY_MODULE_ATTACHMENT_DENIED_EXTENSIONS = new Set(['.canopy-module.html', '.canopy-module.htm', '.html', '.htm', '.js', '.mjs', '.cjs', '.css', '.svg', '.wasm']);
+        const CANOPY_MODULE_ATTACHMENT_DENIED_MIME_TYPES = new Set(['text/html', 'application/xhtml+xml', 'text/javascript', 'application/javascript', 'application/ecmascript', 'text/css', 'image/svg+xml', 'application/wasm', 'application/wasm-module']);
+        const CANOPY_MODULE_ATTACHMENT_TEXT_EXTENSIONS = new Set(['.txt', '.text', '.md', '.markdown', '.csv', '.tsv', '.json', '.jsonl', '.ndjson', '.yaml', '.yml', '.xml', '.log', '.ini', '.cfg', '.toml', '.tex', '.cube', '.cub', '.xyz', '.pdb', '.ent', '.cif', '.mmcif', '.sdf', '.mol', '.mol2', '.dx', '.grd', '.vtk', '.obj', '.ply']);
+        const CANOPY_MODULE_ATTACHMENT_BINARY_EXTENSIONS = new Set(['.bin', '.dat', '.npy', '.npz', '.h5', '.hdf5', '.stl', '.glb', '.gltf', '.vtu', '.vtp']);
         const CANOPY_MODULE_STORAGE_PREFIX = 'canopy-module:v2';
         const CANOPY_MODULE_STORAGE_MAX_KEY_BYTES = 128;
         const CANOPY_MODULE_STORAGE_MAX_VALUE_BYTES = 32 * 1024;
@@ -8143,6 +8152,7 @@
             function humanizeDeckModuleCapability(capability) {
                 const cap = String(capability || '').trim().toLowerCase();
                 if (cap === 'module.render.webgl') return 'WebGL rendering';
+                if (cap === 'source.attachments.read') return 'Source attachment data';
                 if (cap === 'module.storage.local') return 'Local source storage';
                 if (cap === 'module.storage.module') return 'Local module storage';
                 if (cap === 'source.read') return 'Source read';
@@ -8422,7 +8432,297 @@
                 };
             }
 
-            function buildDeckModuleSourceSnapshot(sourceEl) {
+            function normalizeDeckModuleAttachmentId(value) {
+                const raw = String(value == null ? '' : value).trim();
+                if (!raw || raw.length > 180) return '';
+                if (raw.includes('/') || raw.includes('\\') || /[\x00-\x1f\x7f]/.test(raw)) return '';
+                return raw;
+            }
+
+            function deckModuleAttachmentIdFromSourceRef(rawRef) {
+                const ref = String(rawRef || '').trim();
+                if (!ref.toLowerCase().startsWith('attachment:')) return '';
+                return normalizeDeckModuleAttachmentId(ref.slice('attachment:'.length));
+            }
+
+            function deckModuleAttachmentIdFromFileUrl(rawUrl) {
+                try {
+                    const url = new URL(String(rawUrl || ''), window.location.origin);
+                    if (String(url.origin || '') !== String(window.location.origin || '')) return '';
+                    const match = String(url.pathname || '').match(/^\/files\/([^/?#]+)(?:\/thumb)?$/);
+                    if (!match) return '';
+                    return normalizeDeckModuleAttachmentId(decodeURIComponent(match[1]));
+                } catch (_) {
+                    return '';
+                }
+            }
+
+            function sanitizeDeckModuleAttachmentFetchUrl(rawUrl, expectedId) {
+                const expected = normalizeDeckModuleAttachmentId(expectedId);
+                if (!expected) return '';
+                try {
+                    const url = new URL(String(rawUrl || ''), window.location.origin);
+                    if (String(url.origin || '') !== String(window.location.origin || '')) return '';
+                    const match = String(url.pathname || '').match(/^\/files\/([^/?#]+)(?:\/thumb)?$/);
+                    if (!match) return '';
+                    const found = normalizeDeckModuleAttachmentId(decodeURIComponent(match[1]));
+                    if (found !== expected) return '';
+                    return `/files/${encodeURIComponent(expected)}`;
+                } catch (_) {
+                    return '';
+                }
+            }
+
+            function deckModuleAttachmentExtension(nameOrId) {
+                const lower = String(nameOrId || '').trim().toLowerCase();
+                const canopyMatch = lower.match(/\.canopy-module\.html?$/);
+                if (canopyMatch) return canopyMatch[0];
+                const dot = lower.lastIndexOf('.');
+                if (dot < 0 || dot === lower.length - 1) return '';
+                return lower.slice(dot);
+            }
+
+            function deckModuleAttachmentNameFromNode(node, fallbackId) {
+                if (!node) return fallbackId || 'attachment';
+                const explicit =
+                    node.getAttribute('data-canopy-module-bundle-name')
+                    || node.getAttribute('download')
+                    || '';
+                if (explicit) return normalizeDeckWidgetText(explicit, 180) || fallbackId || 'attachment';
+                const link = node.matches && node.matches('a[download], a[href*="/files/"]')
+                    ? node
+                    : node.querySelector && node.querySelector('a[download], a[href*="/files/"]');
+                if (link) {
+                    const dl = link.getAttribute('download') || '';
+                    if (dl) return normalizeDeckWidgetText(dl, 180) || fallbackId || 'attachment';
+                }
+                const labelNode = node.querySelector && node.querySelector('strong, .fw-semibold, .dm-attachment-meta span');
+                const label = normalizeDeckWidgetText((labelNode && labelNode.textContent) || '', 180);
+                return label || fallbackId || 'attachment';
+            }
+
+            function deckModuleAttachmentTypeFromNode(node) {
+                if (!node) return '';
+                const media = node.matches && node.matches('img, audio, video, source')
+                    ? node
+                    : node.querySelector && node.querySelector('source[type], audio source[type], video source[type], img');
+                if (media) {
+                    const typed = normalizeDeckWidgetText(media.getAttribute('type') || '', 96).toLowerCase();
+                    if (typed) return typed;
+                    const tag = String(media.tagName || '').toLowerCase();
+                    if (tag === 'img') return 'image/*';
+                    if (tag === 'audio') return 'audio/*';
+                    if (tag === 'video') return 'video/*';
+                }
+                return '';
+            }
+
+            function deckModuleExplicitAttachmentUrlFromNode(node, attachmentId) {
+                if (!node) return '';
+                const candidates = [];
+                if (node.matches && node.matches('a[href], img[src], source[src]')) {
+                    candidates.push(node);
+                }
+                if (node.querySelectorAll) {
+                    node.querySelectorAll('a[href], img[src], source[src]').forEach((candidate) => {
+                        candidates.push(candidate);
+                    });
+                }
+                for (const candidate of candidates) {
+                    const raw = candidate.getAttribute('href') || candidate.getAttribute('src') || '';
+                    const sanitized = sanitizeDeckModuleAttachmentFetchUrl(raw, attachmentId);
+                    if (sanitized) return sanitized;
+                }
+                const onclickNodes = [];
+                if (node.matches && node.matches('[onclick]')) onclickNodes.push(node);
+                if (node.querySelectorAll) {
+                    node.querySelectorAll('[onclick]').forEach((candidate) => onclickNodes.push(candidate));
+                }
+                for (const candidate of onclickNodes) {
+                    const onclick = String(candidate.getAttribute('onclick') || '');
+                    const match = onclick.match(/(^|[^A-Za-z0-9_])\/files\/([^'"`)#?\s]+)/);
+                    if (!match) continue;
+                    const sanitized = sanitizeDeckModuleAttachmentFetchUrl(`/files/${match[2]}`, attachmentId);
+                    if (sanitized) return sanitized;
+                }
+                return '';
+            }
+
+            function deckModuleSourceAttachmentEntries(sourceEl) {
+                if (!sourceEl || !sourceEl.querySelectorAll) return [];
+                const nodes = [];
+                if (sourceEl.matches && sourceEl.matches('[data-canopy-source-ref^="attachment:"]')) {
+                    nodes.push(sourceEl);
+                }
+                sourceEl.querySelectorAll('[data-canopy-source-ref^="attachment:"]').forEach((node) => {
+                    nodes.push(node);
+                });
+                const byId = new Map();
+                nodes.forEach((node) => {
+                    const attachmentId = deckModuleAttachmentIdFromSourceRef(node.getAttribute('data-canopy-source-ref') || '');
+                    if (!attachmentId || byId.has(attachmentId)) return;
+                    const name = deckModuleAttachmentNameFromNode(node, attachmentId);
+                    const explicitUrl = deckModuleExplicitAttachmentUrlFromNode(node, attachmentId);
+                    byId.set(attachmentId, {
+                        attachment_id: attachmentId,
+                        id: attachmentId,
+                        name,
+                        type: deckModuleAttachmentTypeFromNode(node),
+                        extension: deckModuleAttachmentExtension(name || attachmentId),
+                        available: !!explicitUrl,
+                        fetch_url: explicitUrl,
+                    });
+                });
+                return Array.from(byId.values()).slice(0, CANOPY_MODULE_ATTACHMENT_MAX_LIST);
+            }
+
+            function deckModuleSourceAttachmentListForModule(sourceEl) {
+                return deckModuleSourceAttachmentEntries(sourceEl).map((entry) => ({
+                    attachment_id: entry.attachment_id,
+                    id: entry.id,
+                    name: entry.name,
+                    type: entry.type,
+                    extension: entry.extension,
+                    available: !!entry.available,
+                    max_text_bytes: CANOPY_MODULE_ATTACHMENT_MAX_TEXT_BYTES,
+                    max_binary_bytes: CANOPY_MODULE_ATTACHMENT_MAX_BINARY_BYTES,
+                }));
+            }
+
+            function deckModuleAttachmentPolicy(entry, mode) {
+                const readMode = String(mode || 'text').trim().toLowerCase();
+                const name = String((entry && entry.name) || '').trim();
+                const attachmentId = String((entry && entry.attachment_id) || '').trim();
+                const mime = String((entry && entry.type) || '').trim().toLowerCase();
+                const extension = deckModuleAttachmentExtension(name || attachmentId);
+                if (CANOPY_MODULE_ATTACHMENT_DENIED_EXTENSIONS.has(extension)) {
+                    return { ok: false, reason: 'Attachment type is not readable by modules' };
+                }
+                if (CANOPY_MODULE_ATTACHMENT_DENIED_MIME_TYPES.has(mime)) {
+                    return { ok: false, reason: 'Attachment MIME type is not readable by modules' };
+                }
+                const textLike =
+                    mime.startsWith('text/')
+                    || mime === 'application/json'
+                    || mime === 'application/geo+json'
+                    || mime === 'application/x-ndjson'
+                    || mime === 'application/xml'
+                    || mime === 'application/x-yaml'
+                    || mime === 'application/yaml'
+                    || CANOPY_MODULE_ATTACHMENT_TEXT_EXTENSIONS.has(extension);
+                const binaryLike =
+                    textLike
+                    || mime === 'application/octet-stream'
+                    || mime.startsWith('model/')
+                    || CANOPY_MODULE_ATTACHMENT_BINARY_EXTENSIONS.has(extension);
+                if ((readMode === 'text' || readMode === 'json') && !textLike) {
+                    return { ok: false, reason: 'Attachment is not an allowed text or structured data type' };
+                }
+                if ((readMode === 'base64' || readMode === 'data_url') && !binaryLike) {
+                    return { ok: false, reason: 'Attachment is not an allowed module data type' };
+                }
+                return { ok: true, mode: readMode, text_like: textLike };
+            }
+
+            function deckModuleArrayBufferToBase64(buffer) {
+                const bytes = new Uint8Array(buffer || new ArrayBuffer(0));
+                let binary = '';
+                const chunkSize = 0x8000;
+                for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+                    binary += String.fromCharCode.apply(null, bytes.subarray(offset, offset + chunkSize));
+                }
+                return btoa(binary);
+            }
+
+            async function readDeckModuleSourceAttachment(session, params) {
+                if (!session || !session.item) throw new Error('Module session unavailable');
+                const sourceEl = firstConnectedDeckAnchor(
+                    deckItemSourceEl(session.item),
+                    state.deckOriginSourceEl,
+                    state.deckSourceEl
+                );
+                const attachmentId = normalizeDeckModuleAttachmentId(
+                    params.attachment_id || params.attachmentId || params.id || params.file_id || params.fileId
+                );
+                if (!attachmentId) throw new Error('Attachment id is required');
+                const entry = deckModuleSourceAttachmentEntries(sourceEl).find((candidate) => candidate.attachment_id === attachmentId);
+                if (!entry) throw new Error('Attachment is not bound to this source');
+                if (!entry.fetch_url) throw new Error('Attachment is not available on this device yet');
+                const mode = String(params.mode || 'text').trim().toLowerCase() || 'text';
+                if (!['text', 'json', 'base64', 'data_url'].includes(mode)) {
+                    throw new Error('Unsupported attachment read mode');
+                }
+                const policy = deckModuleAttachmentPolicy(entry, mode);
+                if (!policy.ok) throw new Error(policy.reason || 'Attachment cannot be read by this module');
+                const response = await fetch(entry.fetch_url, {
+                    credentials: 'same-origin',
+                    headers: { 'Accept': mode === 'json' ? 'application/json, text/plain;q=0.9' : '*/*' },
+                });
+                if (!response.ok) {
+                    throw new Error(response.status === 404 ? 'Attachment is not available on this device yet' : `Attachment read failed (${response.status})`);
+                }
+                const contentLength = Number(response.headers.get('Content-Length') || '0') || 0;
+                const contentType = String(response.headers.get('Content-Type') || entry.type || 'application/octet-stream').split(';')[0].trim().toLowerCase() || 'application/octet-stream';
+                if (CANOPY_MODULE_ATTACHMENT_DENIED_MIME_TYPES.has(contentType)) {
+                    throw new Error('Attachment MIME type is not readable by modules');
+                }
+                if (mode === 'text' || mode === 'json') {
+                    if (contentLength > CANOPY_MODULE_ATTACHMENT_MAX_TEXT_BYTES) {
+                        throw new Error(`Attachment exceeds text read limit (${CANOPY_MODULE_ATTACHMENT_MAX_TEXT_BYTES} bytes)`);
+                    }
+                    const text = await response.text();
+                    if (deckModuleStorageByteLength(text) > CANOPY_MODULE_ATTACHMENT_MAX_TEXT_BYTES) {
+                        throw new Error(`Attachment exceeds text read limit (${CANOPY_MODULE_ATTACHMENT_MAX_TEXT_BYTES} bytes)`);
+                    }
+                    if (mode === 'json') {
+                        let jsonValue;
+                        try {
+                            jsonValue = JSON.parse(text);
+                        } catch (_) {
+                            throw new Error('Attachment is not valid JSON');
+                        }
+                        return {
+                            attachment_id: attachmentId,
+                            name: entry.name,
+                            type: contentType,
+                            mode: 'json',
+                            bytes: deckModuleStorageByteLength(text),
+                            json: jsonValue,
+                        };
+                    }
+                    return {
+                        attachment_id: attachmentId,
+                        name: entry.name,
+                        type: contentType,
+                        mode: 'text',
+                        bytes: deckModuleStorageByteLength(text),
+                        text,
+                    };
+                }
+                if (contentLength > CANOPY_MODULE_ATTACHMENT_MAX_BINARY_BYTES) {
+                    throw new Error(`Attachment exceeds binary read limit (${CANOPY_MODULE_ATTACHMENT_MAX_BINARY_BYTES} bytes)`);
+                }
+                const buffer = await response.arrayBuffer();
+                if (buffer.byteLength > CANOPY_MODULE_ATTACHMENT_MAX_BINARY_BYTES) {
+                    throw new Error(`Attachment exceeds binary read limit (${CANOPY_MODULE_ATTACHMENT_MAX_BINARY_BYTES} bytes)`);
+                }
+                const base64 = deckModuleArrayBufferToBase64(buffer);
+                const result = {
+                    attachment_id: attachmentId,
+                    name: entry.name,
+                    type: contentType,
+                    mode,
+                    bytes: buffer.byteLength,
+                    base64,
+                };
+                if (mode === 'data_url') {
+                    result.data_url = `data:${contentType || 'application/octet-stream'};base64,${base64}`;
+                }
+                return result;
+            }
+
+            function buildDeckModuleSourceSnapshot(sourceEl, options = {}) {
+                const includeAttachments = options.includeAttachments === true;
                 if (!sourceEl) {
                     return {
                         kind: 'source',
@@ -8430,6 +8730,7 @@
                         subtitle: 'Canopy source',
                         text: '',
                         deck_items: [],
+                        attachments: [],
                     };
                 }
                 const contentNode =
@@ -8450,6 +8751,7 @@
                     subtitle: sourceSubtitle(sourceEl),
                     text,
                     deck_items: deckItems,
+                    attachments: includeAttachments ? deckModuleSourceAttachmentListForModule(sourceEl) : [],
                 };
             }
 
@@ -8478,7 +8780,12 @@
                     station_surface: manifest ? (manifest.station_surface || null) : null,
                     source_binding: manifest ? (manifest.source_binding || null) : null,
                     capabilities: getGrantedDeckModuleCapabilities(manifest),
-                    source: buildDeckModuleSourceSnapshot(sourceEl),
+                    source: buildDeckModuleSourceSnapshot(sourceEl, {
+                        includeAttachments: !!(
+                            manifest
+                            && (deckModuleHasCapability(manifest, 'source.read') || deckModuleHasCapability(manifest, 'source.attachments.read'))
+                        ),
+                    }),
                     media: buildDeckModuleMediaSnapshot(),
                 };
             }
@@ -8649,10 +8956,36 @@
     }
   });
 
+  const attachmentsApi = Object.freeze({
+    list() {
+      return request('source.attachments.list', {});
+    },
+    read(attachmentId, options) {
+      const payload = Object.assign({}, options || {});
+      payload.attachment_id = attachmentId;
+      return request('source.attachments.read', payload);
+    },
+    readText(attachmentId, options) {
+      return this.read(attachmentId, Object.assign({}, options || {}, { mode: 'text' })).then((result) => result ? result.text : '');
+    },
+    readJson(attachmentId, options) {
+      return this.read(attachmentId, Object.assign({}, options || {}, { mode: 'json' })).then((result) => result ? result.json : null);
+    },
+    readBase64(attachmentId, options) {
+      return this.read(attachmentId, Object.assign({}, options || {}, { mode: 'base64' }));
+    },
+    readDataUrl(attachmentId, options) {
+      return this.read(attachmentId, Object.assign({}, options || {}, { mode: 'data_url' })).then((result) => result ? result.data_url : '');
+    }
+  });
+
   window.CanopyModule = Object.freeze({
     version: 1,
     sessionId,
     capabilities: grantedCapabilities.slice(),
+    source: Object.freeze({
+      attachments: attachmentsApi
+    }),
     render: Object.freeze({
       webgl: Object.freeze({ enabled: webglGranted, capability: 'module.render.webgl' })
     }),
@@ -8758,6 +9091,29 @@
                             return;
                         }
                         respond(true, buildDeckModuleContext(session.item).source, '');
+                        return;
+                    }
+                    if (method === 'source.attachments.list') {
+                        if (!deckModuleHasCapability(manifest, 'source.read') && !deckModuleHasCapability(manifest, 'source.attachments.read')) {
+                            respond(false, null, 'source attachment access not granted');
+                            return;
+                        }
+                        const sourceEl = firstConnectedDeckAnchor(
+                            deckItemSourceEl(session.item),
+                            state.deckOriginSourceEl,
+                            state.deckSourceEl
+                        );
+                        respond(true, {
+                            attachments: deckModuleSourceAttachmentListForModule(sourceEl),
+                        }, '');
+                        return;
+                    }
+                    if (method === 'source.attachments.read' || method === 'source.attachment.read') {
+                        if (!deckModuleHasCapability(manifest, 'source.attachments.read')) {
+                            respond(false, null, 'source.attachments.read not granted');
+                            return;
+                        }
+                        respond(true, await readDeckModuleSourceAttachment(session, params), '');
                         return;
                     }
                     if (method === 'deck.media.get_state') {
@@ -9115,24 +9471,37 @@
 
             function renderDeckModuleCapabilityApprovalPanel(host, item, pendingCapabilities) {
                 const manifest = item && item.manifest ? item.manifest : {};
-                const readableCaps = (pendingCapabilities || []).map(humanizeDeckModuleCapability).join(', ');
+                const pending = Array.isArray(pendingCapabilities) ? pendingCapabilities : [];
+                const readableCaps = pending.map(humanizeDeckModuleCapability).join(', ');
+                const hasWebGL = pending.includes('module.render.webgl');
+                const hasAttachmentRead = pending.includes('source.attachments.read');
+                const title = hasAttachmentRead && !hasWebGL
+                    ? 'Source data review required'
+                    : (hasWebGL && !hasAttachmentRead ? 'Rendering capability review required' : 'Module capability review required');
+                const copy = hasAttachmentRead
+                    ? 'This module requests read-only access to attachments already bound to this source. The host validates the attachment id and returns capped text, JSON, or base64 data through the broker without granting raw network, API, storage, or same-origin access.'
+                    : 'This module requests an elevated rendering capability. WebGL remains disabled by default and does not grant network, storage, API, or same-origin access.';
+                const icon = hasAttachmentRead ? 'bi-file-earmark-arrow-down' : 'bi-gpu-card';
+                const label = hasAttachmentRead && !hasWebGL
+                    ? 'Allow source data this session'
+                    : (hasWebGL && !hasAttachmentRead ? 'Enable WebGL this session' : 'Allow capabilities this session');
                 host.innerHTML = `
                     <div class="sidebar-media-deck-widget-panel sidebar-media-deck-module-panel">
-                        <div class="sidebar-media-deck-widget-panel-title">Rendering capability review required</div>
+                        <div class="sidebar-media-deck-widget-panel-title">${escapeEmbedHtml(title)}</div>
                         <div class="sidebar-media-deck-widget-panel-copy">
-                            This module requests ${escapeEmbedHtml(readableCaps || 'an elevated rendering capability')}. WebGL remains disabled by default and does not grant network, storage, API, or same-origin access.
+                            This module requests ${escapeEmbedHtml(readableCaps || 'an elevated capability')}. ${escapeEmbedHtml(copy)}
                         </div>
                         <div class="sidebar-media-deck-widget-actions mt-3">
-                            <button type="button" class="sidebar-media-deck-btn" data-canopy-approve-webgl="1">
-                                <i class="bi bi-gpu-card"></i><span>Enable WebGL this session</span>
+                            <button type="button" class="sidebar-media-deck-btn" data-canopy-approve-capability="1">
+                                <i class="bi ${escapeEmbedAttr(icon)}"></i><span>${escapeEmbedHtml(label)}</span>
                             </button>
                         </div>
                     </div>
                 `;
-                const approveBtn = host.querySelector('[data-canopy-approve-webgl="1"]');
+                const approveBtn = host.querySelector('[data-canopy-approve-capability="1"]');
                 if (approveBtn) {
                     approveBtn.addEventListener('click', () => {
-                        (pendingCapabilities || []).forEach((capability) => {
+                        pending.forEach((capability) => {
                             approveDeckModuleCapability(manifest, capability);
                         });
                         renderDeckWidgetSummary(item);

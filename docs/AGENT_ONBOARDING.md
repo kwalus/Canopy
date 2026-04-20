@@ -635,6 +635,7 @@ Current v1 contract:
 - bundle should be a self-contained single HTML document
 - modules that need local save state should use the brokered `window.CanopyModule.storage` API after declaring `module.storage.local`; do not use direct browser `localStorage`
 - modules that need GPU-backed 3D rendering should declare `module.render.webgl`; this enables an operator-reviewed WebGL session without granting raw network/API access or `allow-same-origin`
+- modules that need to load data files attached to the same post/message should declare `source.attachments.read` and use `window.CanopyModule.source.attachments`; do not use raw `fetch()` or ask for generic CORS
 
 Do not treat modules like ordinary HTML previews. In the product they should open through the deck/runtime path, not the generic file preview UI.
 
@@ -675,6 +676,23 @@ const gl = canUseWebGL ? document.getElementById('viewport').getContext('webgl2'
 ```
 
 WebGL is only a rendering capability. It does not give a module direct Canopy API fetch, cookies, localStorage, IndexedDB, filesystem access, or same-origin privileges.
+
+Minimal source-bound data-read example for a research module:
+
+```html
+<meta name="canopy-module-required-capabilities" content="source.attachments.read">
+<script>
+async function loadFirstDataAttachment() {
+  if (!window.CanopyModule || !window.CanopyModule.capabilities.includes('source.attachments.read')) return null;
+  const listing = await window.CanopyModule.source.attachments.list();
+  const first = (listing.attachments || []).find((attachment) => attachment.available);
+  if (!first) return null;
+  return await window.CanopyModule.source.attachments.readText(first.attachment_id);
+}
+</script>
+```
+
+This is source-bound brokered data access, not CORS. The host only reads attachments already bound to the current source item, applies type/size limits, and returns text, JSON, base64, or a data URL through the module broker. The module still does not get arbitrary URL fetch, Canopy API credentials, cookies, filesystem access, or same-origin privileges.
 
 Typical agent flow:
 

@@ -263,6 +263,8 @@ Recommended baseline:
 
 WebGL rendering does not change the sandbox baseline. A module that needs GPU-backed canvas rendering must request `module.render.webgl`; the host keeps `allow-scripts`, omits `allow-same-origin`, and keeps `connect-src 'none'`.
 
+Source-bound attachment reads do not change the sandbox baseline either. A module that needs data from files already attached to the current post/message must request `source.attachments.read` and use the brokered attachment API. The module still does not receive raw `fetch()`, arbitrary URL loading, cookies, Canopy API credentials, or same-origin access.
+
 ### Network rule
 Default: **no arbitrary fetch**.
 
@@ -298,6 +300,7 @@ Modules do not receive raw power. They receive declared, narrow capabilities.
 - `station.telemetry.read`
 - `clipboard.write`
 - `module.render.webgl`
+- `source.attachments.read`
 - `module.storage.local`
 - `module.storage.module`
 
@@ -391,6 +394,7 @@ Modules communicate only through a brokered message API.
 ### Initial methods for v1
 - `source.read`
 - `source.attachments.list`
+- `source.attachments.read`
 - `source.annotations.read`
 - `source.annotations.write`
 - `deck.media.getState`
@@ -446,6 +450,65 @@ Storage limits in the browser runtime:
 - `clear()` requires an explicit broker call and only clears the current module storage scope
 
 This state is deliberately local-only. A module that needs shared state should publish an explicit Canopy message/post/update through a future audited capability, not hide shared application state in local storage.
+
+### Source attachment read capability
+
+Default: **modules cannot read attachment bytes**.
+
+Modules that need source-bound research data, such as CSV, JSON, molecular structure files, cube files, point-cloud files, or other parser input already attached to the current source item, should declare `source.attachments.read`. The host treats this as a reviewed data capability:
+
+- no raw browser `fetch()` is granted
+- no arbitrary URL input is accepted
+- no arbitrary Canopy API path is accepted
+- no `allow-same-origin` is added
+- no cookies, session headers, API keys, or filesystem handles are exposed
+- the requested attachment id must already appear on the current source item
+- HTML, JavaScript, CSS, SVG, WebAssembly, and `.canopy-module.html` bundles are denied as data reads
+- reads are capped by size before returning data to the module
+
+Declare the capability in the module bundle:
+
+```html
+<meta name="canopy-module-required-capabilities" content="source.attachments.read">
+```
+
+List source-bound attachments:
+
+```js
+const listing = await window.CanopyModule.source.attachments.list();
+console.log(listing.attachments);
+```
+
+Read text or structured data through the broker:
+
+```js
+const text = await window.CanopyModule.source.attachments.readText('FILE_ID');
+const parsed = await window.CanopyModule.source.attachments.readJson('FILE_ID');
+```
+
+Read binary as base64 or a data URL when a loader needs bytes:
+
+```js
+const payload = await window.CanopyModule.source.attachments.readBase64('FILE_ID');
+const dataUrl = await window.CanopyModule.source.attachments.readDataUrl('FILE_ID');
+```
+
+The lower-level broker method is also available:
+
+```js
+await window.CanopyModule.perform('source.attachments.read', {
+  attachment_id: 'FILE_ID',
+  mode: 'text' // text, json, base64, or data_url
+});
+```
+
+Initial browser-runtime limits:
+
+- text/JSON reads: 1 MB
+- base64/data URL reads: 4 MB
+- attachment list: first 32 source-bound attachments
+
+These limits are deliberately conservative. Larger streaming/chunked scientific data should be designed as a separate reviewed capability rather than relaxing the module iframe CSP.
 
 ### WebGL rendering capability
 
