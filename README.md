@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.6.37-blue" alt="Version 0.6.37">
+  <img src="https://img.shields.io/badge/version-0.6.38-blue" alt="Version 0.6.38">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -110,6 +110,7 @@ Recent end-user improvements reflected in the app and docs:
 - **Canopy Modules can now request reviewed WebGL rendering without opening the broader sandbox boundary** — modules can declare `module.render.webgl`, operators approve it per session in the deck, and the runtime keeps `allow-scripts`, `connect-src 'none'`, and no `allow-same-origin` or raw API/network access while still letting trusted research or visualization modules use GPU-backed canvas rendering.
 - **Relayed large attachments in private channels now download when the source is reachable through the mesh, not only on direct links** — metadata-only `remote_large` attachments no longer get stuck behind a false `source peer offline` branch just because the sender is behind a VPS or other accepted relay route, so both manual download and automatic retry can issue the large-attachment request across the learned relay path.
 - **Canopy Modules can now request reviewed read-only access to source-bound attachments without opening raw browser network access** — modules may declare `source.attachments.read`, the operator approves it per session, and the host returns capped text, JSON, base64, or data URLs for files already attached to the current source while keeping `sandbox="allow-scripts"`, `connect-src 'none'`, and no `allow-same-origin` or generic CORS/API expansion.
+- **Canopy Modules can now request reviewed WebAssembly execution without turning on JavaScript eval or raw network access** — modules may declare `module.render.wasm`, the operator approves it per session, and the runtime adds the narrow CSP token `wasm-unsafe-eval` only for that approved module session so broker-loaded WASM runtimes like Doom can instantiate inside the sandbox while `connect-src 'none'`, `sandbox="allow-scripts"`, and no `allow-same-origin` remain intact.
 - **Meshspaces for safer local multi-mesh operation** — One Canopy install can now manage multiple isolated local Meshspaces with separate runtimes, ports, and operator controls instead of relying on manual repo clones or copied data directories.
 - **Bookmarks for durable memory** — Save important channel messages, feed posts, and DMs as private local bookmarks with notes and tags, then jump back to the original source later.
 - **Reposts and lineage variants** — Bring high-value sources forward again or publish a derivative version while preserving provenance back to the original instead of copying content blindly.

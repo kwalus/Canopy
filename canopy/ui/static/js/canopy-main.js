@@ -1737,18 +1737,20 @@
             'deck.media.observe',
             'clipboard.write',
             'module.render.webgl',
+            'module.render.wasm',
             'module.storage.local',
             'module.storage.module',
         ]);
         const CANOPY_MODULE_REVIEWED_CAPABILITIES = new Set([
             'module.render.webgl',
+            'module.render.wasm',
             'source.attachments.read',
         ]);
         const CANOPY_MODULE_ATTACHMENT_MAX_LIST = 32;
         const CANOPY_MODULE_ATTACHMENT_MAX_TEXT_BYTES = 1024 * 1024;
         const CANOPY_MODULE_ATTACHMENT_MAX_BINARY_BYTES = 4 * 1024 * 1024;
-        const CANOPY_MODULE_ATTACHMENT_DENIED_EXTENSIONS = new Set(['.canopy-module.html', '.canopy-module.htm', '.html', '.htm', '.js', '.mjs', '.cjs', '.css', '.svg', '.wasm']);
-        const CANOPY_MODULE_ATTACHMENT_DENIED_MIME_TYPES = new Set(['text/html', 'application/xhtml+xml', 'text/javascript', 'application/javascript', 'application/ecmascript', 'text/css', 'image/svg+xml', 'application/wasm', 'application/wasm-module']);
+        const CANOPY_MODULE_ATTACHMENT_DENIED_EXTENSIONS = new Set(['.canopy-module.html', '.canopy-module.htm', '.html', '.htm', '.js', '.mjs', '.cjs', '.css', '.svg']);
+        const CANOPY_MODULE_ATTACHMENT_DENIED_MIME_TYPES = new Set(['text/html', 'application/xhtml+xml', 'text/javascript', 'application/javascript', 'application/ecmascript', 'text/css', 'image/svg+xml']);
         const CANOPY_MODULE_ATTACHMENT_TEXT_EXTENSIONS = new Set(['.txt', '.text', '.md', '.markdown', '.csv', '.tsv', '.json', '.jsonl', '.ndjson', '.yaml', '.yml', '.xml', '.log', '.ini', '.cfg', '.toml', '.tex', '.cube', '.cub', '.xyz', '.pdb', '.ent', '.cif', '.mmcif', '.sdf', '.mol', '.mol2', '.dx', '.grd', '.vtk', '.obj', '.ply']);
         const CANOPY_MODULE_ATTACHMENT_BINARY_EXTENSIONS = new Set(['.bin', '.dat', '.npy', '.npz', '.h5', '.hdf5', '.stl', '.glb', '.gltf', '.vtu', '.vtp']);
         const CANOPY_MODULE_STORAGE_PREFIX = 'canopy-module:v2';
@@ -8152,6 +8154,7 @@
             function humanizeDeckModuleCapability(capability) {
                 const cap = String(capability || '').trim().toLowerCase();
                 if (cap === 'module.render.webgl') return 'WebGL rendering';
+                if (cap === 'module.render.wasm') return 'WebAssembly execution';
                 if (cap === 'source.attachments.read') return 'Source attachment data';
                 if (cap === 'module.storage.local') return 'Local source storage';
                 if (cap === 'module.storage.module') return 'Local module storage';
@@ -8517,6 +8520,50 @@
                 return '';
             }
 
+            function deckModuleSourceIdFromElement(sourceEl, attrName) {
+                if (!sourceEl || !sourceEl.getAttribute) return '';
+                return String(sourceEl.getAttribute(attrName) || '').trim();
+            }
+
+            function deckModuleSourceMatchesSession(session, sourceEl) {
+                if (!session || !sourceEl || !sourceEl.getAttribute) return false;
+                const messageId = String(session.source_message_id || '').trim();
+                const postId = String(session.source_post_id || '').trim();
+                if (!messageId && !postId) return false;
+                const sourceMessageId = deckModuleSourceIdFromElement(sourceEl, 'data-message-id');
+                const sourcePostId = deckModuleSourceIdFromElement(sourceEl, 'data-post-id');
+                if (messageId && sourceMessageId && messageId === sourceMessageId) return true;
+                if (postId && sourcePostId && postId === sourcePostId) return true;
+                return false;
+            }
+
+            function deckModuleSessionSourceEl(session) {
+                const itemSource = session && session.item ? deckItemSourceEl(session.item) : null;
+                if (itemSource && itemSource.isConnected && deckModuleSourceMatchesSession(session, itemSource)) {
+                    return itemSource;
+                }
+                const messageId = String(session && session.source_message_id || '').trim();
+                const postId = String(session && session.source_post_id || '').trim();
+                const selectorEscape = (value) => (
+                    window.CSS && typeof window.CSS.escape === 'function'
+                        ? window.CSS.escape(value)
+                        : String(value || '').replace(/["\\]/g, '\\$&')
+                );
+                if (messageId && typeof document.querySelector === 'function') {
+                    const row = document.querySelector(`.message-item[data-message-id="${selectorEscape(messageId)}"]`);
+                    if (row && row.isConnected) return row;
+                }
+                if (postId && typeof document.querySelector === 'function') {
+                    const card = document.querySelector(`.post-card[data-post-id="${selectorEscape(postId)}"]`);
+                    if (card && card.isConnected) return card;
+                }
+                return firstConnectedDeckAnchor(
+                    itemSource,
+                    state.deckOriginSourceEl,
+                    state.deckSourceEl
+                );
+            }
+
             function deckModuleExplicitAttachmentUrlFromNode(node, attachmentId) {
                 if (!node) return '';
                 const candidates = [];
@@ -8589,7 +8636,7 @@
                 }));
             }
 
-            function deckModuleAttachmentPolicy(entry, mode) {
+            function deckModuleAttachmentPolicy(entry, mode, manifest) {
                 const readMode = String(mode || 'text').trim().toLowerCase();
                 const name = String((entry && entry.name) || '').trim();
                 const attachmentId = String((entry && entry.attachment_id) || '').trim();
@@ -8600,6 +8647,16 @@
                 }
                 if (CANOPY_MODULE_ATTACHMENT_DENIED_MIME_TYPES.has(mime)) {
                     return { ok: false, reason: 'Attachment MIME type is not readable by modules' };
+                }
+                const wasmLike = extension === '.wasm' || mime === 'application/wasm' || mime === 'application/wasm-module';
+                if (wasmLike) {
+                    if (!deckModuleHasCapability(manifest, 'module.render.wasm')) {
+                        return { ok: false, reason: 'module.render.wasm not granted for WebAssembly data' };
+                    }
+                    if (readMode !== 'base64' && readMode !== 'data_url') {
+                        return { ok: false, reason: 'WebAssembly data must be read as base64 or data_url' };
+                    }
+                    return { ok: true, mode: readMode, text_like: false, wasm_like: true };
                 }
                 const textLike =
                     mime.startsWith('text/')
@@ -8636,11 +8693,7 @@
 
             async function readDeckModuleSourceAttachment(session, params) {
                 if (!session || !session.item) throw new Error('Module session unavailable');
-                const sourceEl = firstConnectedDeckAnchor(
-                    deckItemSourceEl(session.item),
-                    state.deckOriginSourceEl,
-                    state.deckSourceEl
-                );
+                const sourceEl = deckModuleSessionSourceEl(session);
                 const attachmentId = normalizeDeckModuleAttachmentId(
                     params.attachment_id || params.attachmentId || params.id || params.file_id || params.fileId
                 );
@@ -8652,10 +8705,12 @@
                 if (!['text', 'json', 'base64', 'data_url'].includes(mode)) {
                     throw new Error('Unsupported attachment read mode');
                 }
-                const policy = deckModuleAttachmentPolicy(entry, mode);
+                const manifest = session && session.item ? session.item.manifest : null;
+                const policy = deckModuleAttachmentPolicy(entry, mode, manifest);
                 if (!policy.ok) throw new Error(policy.reason || 'Attachment cannot be read by this module');
                 const response = await fetch(entry.fetch_url, {
                     credentials: 'same-origin',
+                    redirect: 'error',
                     headers: { 'Accept': mode === 'json' ? 'application/json, text/plain;q=0.9' : '*/*' },
                 });
                 if (!response.ok) {
@@ -8665,6 +8720,15 @@
                 const contentType = String(response.headers.get('Content-Type') || entry.type || 'application/octet-stream').split(';')[0].trim().toLowerCase() || 'application/octet-stream';
                 if (CANOPY_MODULE_ATTACHMENT_DENIED_MIME_TYPES.has(contentType)) {
                     throw new Error('Attachment MIME type is not readable by modules');
+                }
+                const responseWasmLike = contentType === 'application/wasm' || contentType === 'application/wasm-module';
+                if (responseWasmLike) {
+                    if (!deckModuleHasCapability(manifest, 'module.render.wasm')) {
+                        throw new Error('module.render.wasm not granted for WebAssembly data');
+                    }
+                    if (mode !== 'base64' && mode !== 'data_url') {
+                        throw new Error('WebAssembly data must be read as base64 or data_url');
+                    }
                 }
                 if (mode === 'text' || mode === 'json') {
                     if (contentLength > CANOPY_MODULE_ATTACHMENT_MAX_TEXT_BYTES) {
@@ -8790,6 +8854,28 @@
                 };
             }
 
+            function buildDeckModuleContextForSession(session) {
+                const item = session && session.item ? session.item : null;
+                const manifest = item && item.manifest ? item.manifest : null;
+                const sourceEl = deckModuleSessionSourceEl(session);
+                return {
+                    session_id: session ? session.id : '',
+                    title: item ? (item.title || '') : '',
+                    subtitle: manifest ? (manifest.subtitle || '') : '',
+                    provider_label: manifest ? (manifest.provider_label || '') : '',
+                    station_surface: manifest ? (manifest.station_surface || null) : null,
+                    source_binding: manifest ? (manifest.source_binding || null) : null,
+                    capabilities: getGrantedDeckModuleCapabilities(manifest),
+                    source: buildDeckModuleSourceSnapshot(sourceEl, {
+                        includeAttachments: !!(
+                            manifest
+                            && (deckModuleHasCapability(manifest, 'source.read') || deckModuleHasCapability(manifest, 'source.attachments.read'))
+                        ),
+                    }),
+                    media: buildDeckModuleMediaSnapshot(),
+                };
+            }
+
             function moduleRuntimeCacheKey(runtime) {
                 if (!runtime) return '';
                 return `${runtime.bundle_url || ''}:${runtime.bundle_file_id || ''}:${runtime.format || ''}`;
@@ -8832,6 +8918,7 @@
   const sessionId = ${serializeDeckModuleInlineJson(sessionId)};
   const grantedCapabilities = ${serializeDeckModuleInlineJson(capabilities)};
   const webglGranted = grantedCapabilities.indexOf('module.render.webgl') !== -1;
+  const wasmGranted = grantedCapabilities.indexOf('module.render.wasm') !== -1;
   const pending = new Map();
   const listeners = new Set();
   let counter = 0;
@@ -8876,7 +8963,50 @@
     } catch (_) {}
   }
 
+  function installWasmCapabilityGuard() {
+    if (wasmGranted) return;
+    try {
+      if (!window.WebAssembly) return;
+      const denied = function wasmDeniedError() {
+        try {
+          return new WebAssembly.CompileError('module.render.wasm not granted');
+        } catch (_) {
+          return new Error('module.render.wasm not granted');
+        }
+      };
+      const reject = function deniedWasmPromise() {
+        try {
+          window.dispatchEvent(new CustomEvent('canopy-module-wasm-denied', { detail: { capability: 'module.render.wasm' } }));
+        } catch (_) {}
+        return Promise.reject(denied());
+      };
+      ['compile', 'instantiate', 'compileStreaming', 'instantiateStreaming'].forEach((name) => {
+        try {
+          if (typeof WebAssembly[name] === 'function') {
+            Object.defineProperty(WebAssembly, name, {
+              configurable: false,
+              writable: false,
+              value: reject
+            });
+          }
+        } catch (_) {}
+      });
+      try {
+        if (typeof WebAssembly.Module === 'function') {
+          Object.defineProperty(WebAssembly, 'Module', {
+            configurable: false,
+            writable: false,
+            value: function DeniedWebAssemblyModule() {
+              throw denied();
+            }
+          });
+        }
+      } catch (_) {}
+    } catch (_) {}
+  }
+
   installWebGLCapabilityGuard();
+  installWasmCapabilityGuard();
 
   function emit(type, payload) {
     parent.postMessage({ canopyModule: true, sessionId, type, payload: payload || {} }, '*');
@@ -8987,7 +9117,8 @@
       attachments: attachmentsApi
     }),
     render: Object.freeze({
-      webgl: Object.freeze({ enabled: webglGranted, capability: 'module.render.webgl' })
+      webgl: Object.freeze({ enabled: webglGranted, capability: 'module.render.webgl' }),
+      wasm: Object.freeze({ enabled: wasmGranted, capability: 'module.render.wasm' })
     }),
     storage: storageApi,
     request(method, payload) {
@@ -9015,7 +9146,10 @@
 
             function injectDeckModuleRuntime(bundleHtml, bootstrapJs, manifest) {
                 const shellTitle = escapeEmbedHtml((manifest && manifest.title) || 'Canopy Module');
-                const csp = "default-src 'none'; img-src data: blob:; media-src data: blob:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; font-src data:; frame-src 'none'; worker-src 'none'; child-src 'none'; form-action 'none'; base-uri 'none';";
+                const scriptSrc = deckModuleHasCapability(manifest, 'module.render.wasm')
+                    ? "'unsafe-inline' 'wasm-unsafe-eval'"
+                    : "'unsafe-inline'";
+                const csp = `default-src 'none'; img-src data: blob:; media-src data: blob:; style-src 'unsafe-inline'; script-src ${scriptSrc}; connect-src 'none'; font-src data:; frame-src 'none'; worker-src 'none'; child-src 'none'; form-action 'none'; base-uri 'none';`;
                 const bootstrapTag = `<script>${bootstrapJs.replace(/<\/script/gi, '<\\\\/script')}<\/script>`;
                 /* Let module UIs use height:100% / flex-fill inside the deck iframe (avoids a short document box). */
                 const moduleShellBaseStyle =
@@ -9060,7 +9194,7 @@
             }
 
             function postDeckModuleContext(session) {
-                postDeckModuleSessionMessage(session, 'context', buildDeckModuleContext(session.item));
+                postDeckModuleSessionMessage(session, 'context', buildDeckModuleContextForSession(session));
             }
 
             async function respondDeckModuleRequest(session, payload) {
@@ -9082,7 +9216,7 @@
                 }
                 try {
                     if (method === 'context.get') {
-                        respond(true, buildDeckModuleContext(session.item), '');
+                        respond(true, buildDeckModuleContextForSession(session), '');
                         return;
                     }
                     if (method === 'source.snapshot') {
@@ -9090,7 +9224,7 @@
                             respond(false, null, 'source.snapshot not granted');
                             return;
                         }
-                        respond(true, buildDeckModuleContext(session.item).source, '');
+                        respond(true, buildDeckModuleContextForSession(session).source, '');
                         return;
                     }
                     if (method === 'source.attachments.list') {
@@ -9098,11 +9232,7 @@
                             respond(false, null, 'source attachment access not granted');
                             return;
                         }
-                        const sourceEl = firstConnectedDeckAnchor(
-                            deckItemSourceEl(session.item),
-                            state.deckOriginSourceEl,
-                            state.deckSourceEl
-                        );
+                        const sourceEl = deckModuleSessionSourceEl(session);
                         respond(true, {
                             attachments: deckModuleSourceAttachmentListForModule(sourceEl),
                         }, '');
@@ -9474,17 +9604,28 @@
                 const pending = Array.isArray(pendingCapabilities) ? pendingCapabilities : [];
                 const readableCaps = pending.map(humanizeDeckModuleCapability).join(', ');
                 const hasWebGL = pending.includes('module.render.webgl');
+                const hasWasm = pending.includes('module.render.wasm');
                 const hasAttachmentRead = pending.includes('source.attachments.read');
-                const title = hasAttachmentRead && !hasWebGL
+                const visualOnly = (hasWebGL || hasWasm) && !hasAttachmentRead;
+                const title = hasAttachmentRead && !hasWebGL && !hasWasm
                     ? 'Source data review required'
-                    : (hasWebGL && !hasAttachmentRead ? 'Rendering capability review required' : 'Module capability review required');
-                const copy = hasAttachmentRead
-                    ? 'This module requests read-only access to attachments already bound to this source. The host validates the attachment id and returns capped text, JSON, or base64 data through the broker without granting raw network, API, storage, or same-origin access.'
-                    : 'This module requests an elevated rendering capability. WebGL remains disabled by default and does not grant network, storage, API, or same-origin access.';
-                const icon = hasAttachmentRead ? 'bi-file-earmark-arrow-down' : 'bi-gpu-card';
-                const label = hasAttachmentRead && !hasWebGL
+                    : (visualOnly ? 'Rendering capability review required' : 'Module capability review required');
+                const copyParts = [];
+                if (hasAttachmentRead) {
+                    copyParts.push('Source data access is read-only and limited to attachments already bound to this source. The host validates the attachment id and returns capped text, JSON, or base64 data through the broker.');
+                }
+                if (hasWebGL) {
+                    copyParts.push('WebGL enables GPU-backed canvas rendering inside the sandbox.');
+                }
+                if (hasWasm) {
+                    copyParts.push('WebAssembly enables browser WASM compilation and instantiation through the narrow CSP token wasm-unsafe-eval; it does not grant JavaScript eval().');
+                }
+                copyParts.push('No raw network, API, storage, credentials, or same-origin access is granted.');
+                const copy = copyParts.join(' ');
+                const icon = hasAttachmentRead ? 'bi-file-earmark-arrow-down' : (hasWasm ? 'bi-cpu' : 'bi-gpu-card');
+                const label = hasAttachmentRead && !hasWebGL && !hasWasm
                     ? 'Allow source data this session'
-                    : (hasWebGL && !hasAttachmentRead ? 'Enable WebGL this session' : 'Allow capabilities this session');
+                    : (hasWebGL && !hasAttachmentRead && !hasWasm ? 'Enable WebGL this session' : (hasWasm && !hasAttachmentRead && !hasWebGL ? 'Enable WASM this session' : 'Allow capabilities this session'));
                 host.innerHTML = `
                     <div class="sidebar-media-deck-widget-panel sidebar-media-deck-module-panel">
                         <div class="sidebar-media-deck-widget-panel-title">${escapeEmbedHtml(title)}</div>
@@ -9564,6 +9705,8 @@
                             id: sessionId,
                             item: moduleItem,
                             frame: iframe,
+                            source_message_id: deckModuleSourceIdFromElement(moduleItem && moduleItem.sourceEl ? moduleItem.sourceEl : null, 'data-message-id'),
+                            source_post_id: deckModuleSourceIdFromElement(moduleItem && moduleItem.sourceEl ? moduleItem.sourceEl : null, 'data-post-id'),
                         });
                         renderDeckWidgetSummary(moduleItem);
                         host.innerHTML = '';

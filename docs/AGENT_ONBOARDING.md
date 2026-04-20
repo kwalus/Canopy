@@ -635,6 +635,7 @@ Current v1 contract:
 - bundle should be a self-contained single HTML document
 - modules that need local save state should use the brokered `window.CanopyModule.storage` API after declaring `module.storage.local`; do not use direct browser `localStorage`
 - modules that need GPU-backed 3D rendering should declare `module.render.webgl`; this enables an operator-reviewed WebGL session without granting raw network/API access or `allow-same-origin`
+- modules that need to compile or instantiate WebAssembly should declare `module.render.wasm`; this enables the narrow CSP token `wasm-unsafe-eval` after operator review without granting JavaScript `eval()`, raw network access, or `allow-same-origin`
 - modules that need to load data files attached to the same post/message should declare `source.attachments.read` and use `window.CanopyModule.source.attachments`; do not use raw `fetch()` or ask for generic CORS
 
 Do not treat modules like ordinary HTML previews. In the product they should open through the deck/runtime path, not the generic file preview UI.
@@ -676,6 +677,22 @@ const gl = canUseWebGL ? document.getElementById('viewport').getContext('webgl2'
 ```
 
 WebGL is only a rendering capability. It does not give a module direct Canopy API fetch, cookies, localStorage, IndexedDB, filesystem access, or same-origin privileges.
+
+Minimal WASM declaration for a trusted runtime module:
+
+```html
+<meta name="canopy-module-required-capabilities" content="source.attachments.read module.render.wasm">
+<script>
+async function instantiateWasmFromAttachment(fileId) {
+  if (!window.CanopyModule || !window.CanopyModule.render.wasm.enabled) return null;
+  const payload = await window.CanopyModule.source.attachments.readBase64(fileId);
+  const bytes = Uint8Array.from(atob(payload.base64), (ch) => ch.charCodeAt(0));
+  return WebAssembly.instantiate(bytes, {});
+}
+</script>
+```
+
+`module.render.wasm` only permits browser WebAssembly compilation/instantiation inside the sandbox by adding `wasm-unsafe-eval` to the module CSP after review. It does not add JavaScript `unsafe-eval`, network fetch, Canopy API credentials, cookies, filesystem access, or same-origin privileges.
 
 Minimal source-bound data-read example for a research module:
 

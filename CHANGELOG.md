@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.38] - 2026-04-20
+
+### Changed
+- **Canopy Modules can now request reviewed WebAssembly execution without enabling JavaScript `unsafe-eval`, raw fetch, or same-origin sandboxing** - modules may declare `module.render.wasm`, the deck pauses on the reviewed-capability panel before launch, and approved sessions add only the narrow CSP token `'wasm-unsafe-eval'` so broker-loaded WASM runtimes can compile and instantiate inside the existing `sandbox="allow-scripts"` boundary while `connect-src 'none'` remains unchanged.
+- **WASM attachment reads stay coupled to the brokered source-data boundary instead of broadening ordinary file reads** - `.wasm` payloads are still inaccessible as normal text/JSON module data, but approved `module.render.wasm` modules can read source-bound WASM files through `source.attachments.read` binary modes, with the runtime re-checking the final response MIME type and the local hardening now pinning reads to the session source plus `redirect: 'error'` so attachment fetches do not drift into broader same-origin access.
+
 ## [0.6.37] - 2026-04-20
 
 ### Changed

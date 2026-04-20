@@ -263,6 +263,8 @@ Recommended baseline:
 
 WebGL rendering does not change the sandbox baseline. A module that needs GPU-backed canvas rendering must request `module.render.webgl`; the host keeps `allow-scripts`, omits `allow-same-origin`, and keeps `connect-src 'none'`.
 
+WebAssembly execution is also reviewed. A module that needs to compile or instantiate WASM buffers must request `module.render.wasm`; only after approval does the host add the narrow CSP token `'wasm-unsafe-eval'` to `script-src`. This token permits browser WebAssembly compilation/instantiation and does not grant JavaScript `eval()`, raw network access, or same-origin access.
+
 Source-bound attachment reads do not change the sandbox baseline either. A module that needs data from files already attached to the current post/message must request `source.attachments.read` and use the brokered attachment API. The module still does not receive raw `fetch()`, arbitrary URL loading, cookies, Canopy API credentials, or same-origin access.
 
 ### Network rule
@@ -300,6 +302,7 @@ Modules do not receive raw power. They receive declared, narrow capabilities.
 - `station.telemetry.read`
 - `clipboard.write`
 - `module.render.webgl`
+- `module.render.wasm`
 - `source.attachments.read`
 - `module.storage.local`
 - `module.storage.module`
@@ -403,6 +406,7 @@ Modules communicate only through a brokered message API.
 - `deck.media.pause`
 - `clipboard.write`
 - `module.render.webgl`
+- `module.render.wasm`
 - `module.storage.get`
 - `module.storage.set`
 - `module.storage.remove`
@@ -463,7 +467,8 @@ Modules that need source-bound research data, such as CSV, JSON, molecular struc
 - no `allow-same-origin` is added
 - no cookies, session headers, API keys, or filesystem handles are exposed
 - the requested attachment id must already appear on the current source item
-- HTML, JavaScript, CSS, SVG, WebAssembly, and `.canopy-module.html` bundles are denied as data reads
+- HTML, JavaScript, CSS, SVG, and `.canopy-module.html` bundles are denied as data reads
+- `.wasm` / `application/wasm` data is readable only when `module.render.wasm` is also granted, and only through binary read modes
 - reads are capped by size before returning data to the module
 
 Declare the capability in the module bundle:
@@ -552,6 +557,62 @@ const webglEnabled = !!(
 ```
 
 If `module.render.webgl` is not granted, the runtime makes `canvas.getContext('webgl')`, `webgl2`, and `experimental-webgl` return `null` while leaving 2D canvas available.
+
+### WebAssembly execution capability
+
+Default: **WebAssembly compilation and instantiation are blocked for ordinary modules** by the module iframe CSP.
+
+Modules that need a local WASM engine, emulator, scientific compute kernel, decompressor, parser, or game/runtime core should declare `module.render.wasm` explicitly. The host treats it as a reviewed execution/rendering capability:
+
+- no raw `fetch()` is granted
+- no `allow-same-origin` is added
+- no Canopy API credential is exposed
+- no JavaScript `eval()` permission is granted
+- `connect-src` remains `none`
+- the operator must approve the WASM capability before the iframe is started for that session
+
+Declare the capability in the module bundle:
+
+```html
+<meta name="canopy-module-required-capabilities" content="module.render.wasm">
+```
+
+For modules that load WASM bytes from source attachments, request both source data and WASM:
+
+```html
+<meta name="canopy-module-required-capabilities" content="source.attachments.read module.render.wasm">
+```
+
+Inside the module, feature-detect the grant before compiling:
+
+```js
+const wasmEnabled = !!(
+  window.CanopyModule
+  && window.CanopyModule.render
+  && window.CanopyModule.render.wasm
+  && window.CanopyModule.render.wasm.enabled
+);
+
+if (wasmEnabled) {
+  const payload = await window.CanopyModule.source.attachments.readBase64('WASM_CHUNK_OR_FILE_ID');
+  const bytes = Uint8Array.from(atob(payload.base64), (ch) => ch.charCodeAt(0));
+  const instance = await WebAssembly.instantiate(bytes, {});
+}
+```
+
+When `module.render.wasm` is granted, the injected CSP changes from:
+
+```text
+script-src 'unsafe-inline'
+```
+
+to:
+
+```text
+script-src 'unsafe-inline' 'wasm-unsafe-eval'
+```
+
+The runtime does **not** add `'unsafe-eval'`. If `module.render.wasm` is not granted, the bootstrap also guards `WebAssembly.compile`, `WebAssembly.instantiate`, `WebAssembly.compileStreaming`, `WebAssembly.instantiateStreaming`, and `WebAssembly.Module` so modules get an explicit `module.render.wasm not granted` failure rather than an ambiguous browser CSP error.
 
 ---
 
