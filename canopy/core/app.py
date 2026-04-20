@@ -698,9 +698,24 @@ def create_app(config: Optional[Config] = None) -> Flask:
             origin_file_id = get_attachment_origin_file_id(attachment)
             if not source_peer_id or not origin_file_id or not p2p_manager:
                 return False
-            if not p2p_manager.peer_supports_capability(source_peer_id, LARGE_ATTACHMENT_CAPABILITY):
+
+            direct_connected = bool(
+                p2p_manager.connection_manager
+                and p2p_manager.connection_manager.is_connected(source_peer_id)
+            )
+            route_available = False
+            route_check = getattr(p2p_manager, 'can_route_to_peer', None)
+            if callable(route_check):
+                try:
+                    route_available = route_check(source_peer_id) is True
+                except Exception:
+                    route_available = False
+            if not (direct_connected or route_available):
                 return False
-            if not p2p_manager.connection_manager or not p2p_manager.connection_manager.is_connected(source_peer_id):
+            # A relayed remote-large reference is itself evidence that the source
+            # speaks the attachment protocol. Only reject on a live direct link
+            # where the peer explicitly lacks the advertised capability.
+            if direct_connected and not p2p_manager.peer_supports_capability(source_peer_id, LARGE_ATTACHMENT_CAPABILITY):
                 return False
 
             download_mode = get_large_attachment_download_mode(db_manager)
@@ -1102,7 +1117,11 @@ def create_app(config: Optional[Config] = None) -> Flask:
             download_mode = get_large_attachment_download_mode(db_manager)
             if download_mode == LARGE_ATTACHMENT_DOWNLOAD_PAUSED:
                 return
-            if p2p_manager.connection_manager and p2p_manager.connection_manager.is_connected(peer_id):
+            direct_connected = bool(
+                p2p_manager.connection_manager
+                and p2p_manager.connection_manager.is_connected(peer_id)
+            )
+            if direct_connected:
                 if not p2p_manager.peer_supports_capability(peer_id, LARGE_ATTACHMENT_CAPABILITY):
                     for transfer in file_manager.list_pending_remote_attachment_transfers(
                         origin_peer_id=peer_id,

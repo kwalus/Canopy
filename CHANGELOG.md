@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.36] - 2026-04-20
+
+### Changed
+- **Large metadata-only attachments can now be requested across accepted relay routes instead of being treated as offline-only downloads** - private-channel `remote_large` attachments no longer stop at the `source peer offline` branch when the sender is reachable through a learned targeted relay path, so manual download and automatic retry can issue `large_attachment_request` traffic through the VPS/relay topology already used for targeted messaging.
+- **Attachment download reachability now distinguishes true relay reachability from generic mesh presence** - Canopy only treats a peer as routeable when it is directly connected, has a connected routing-table next hop, or has an active accepted relay peer, which keeps the fix narrow and avoids claiming arbitrary offline peers are reachable just because the broader mesh is up.
+
 ## [0.6.35] - 2026-04-19
 
 ### Changed

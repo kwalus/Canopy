@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.6.35-blue" alt="Version 0.6.35">
+  <img src="https://img.shields.io/badge/version-0.6.36-blue" alt="Version 0.6.36">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -108,6 +108,7 @@ Recent end-user improvements reflected in the app and docs:
 - **Canopy Modules now get safer local save-state helpers** — modules can keep local progress and preferences through a brokered storage boundary without direct browser storage access, and module-wide persistence now requires an explicit extra capability instead of being bundled into the default local-storage grant.
 - **Offline-targeted DMs now queue more reliably across reconnects** — when a direct-message recipient peer is known but currently offline, Canopy now routes the encrypted DM toward that peer specifically, queues it for later flush on reconnect, and keeps the security badge in the E2E path instead of falling back to a misleading legacy/plaintext label after restart.
 - **Canopy Modules can now request reviewed WebGL rendering without opening the broader sandbox boundary** — modules can declare `module.render.webgl`, operators approve it per session in the deck, and the runtime keeps `allow-scripts`, `connect-src 'none'`, and no `allow-same-origin` or raw API/network access while still letting trusted research or visualization modules use GPU-backed canvas rendering.
+- **Relayed large attachments in private channels now download when the source is reachable through the mesh, not only on direct links** — metadata-only `remote_large` attachments no longer get stuck behind a false `source peer offline` branch just because the sender is behind a VPS or other accepted relay route, so both manual download and automatic retry can issue the large-attachment request across the learned relay path.
 - **Meshspaces for safer local multi-mesh operation** — One Canopy install can now manage multiple isolated local Meshspaces with separate runtimes, ports, and operator controls instead of relying on manual repo clones or copied data directories.
 - **Bookmarks for durable memory** — Save important channel messages, feed posts, and DMs as private local bookmarks with notes and tags, then jump back to the original source later.
 - **Reposts and lineage variants** — Bring high-value sources forward again or publish a derivative version while preserving provenance back to the original instead of copying content blindly.

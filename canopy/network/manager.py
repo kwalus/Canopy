@@ -894,6 +894,35 @@ class P2PNetworkManager:
             pass
         return False
 
+    def can_route_to_peer(self, peer_id: str) -> bool:
+        """Return True when targeted messages can reach a peer directly or via an accepted relay."""
+        clean_peer_id = str(peer_id or '').strip()
+        if not clean_peer_id or not self.connection_manager:
+            return False
+        try:
+            if self.connection_manager.is_connected(clean_peer_id):
+                return True
+        except Exception:
+            pass
+
+        next_hop = ''
+        try:
+            if self.message_router:
+                next_hop = str(self.message_router.routing_table.get(clean_peer_id) or '').strip()
+        except Exception:
+            next_hop = ''
+        if not next_hop:
+            try:
+                next_hop = str(self._active_relays.get(clean_peer_id) or '').strip()
+            except Exception:
+                next_hop = ''
+        if not next_hop or next_hop == clean_peer_id:
+            return False
+        try:
+            return bool(self.connection_manager.is_connected(next_hop))
+        except Exception:
+            return False
+
     def _get_known_peer_identity(self, peer_id: str) -> Optional[PeerIdentity]:
         clean_peer_id = str(peer_id or '').strip()
         identity_manager = getattr(self, 'identity_manager', None)

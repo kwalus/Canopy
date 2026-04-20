@@ -22,6 +22,7 @@ if 'zeroconf' not in sys.modules:
     sys.modules['zeroconf'] = zeroconf_stub
 
 from canopy.network.routing import MessageRouter, MessageType, P2PMessage
+from canopy.network.manager import P2PNetworkManager
 
 
 class _DummyIdentityManager:
@@ -184,6 +185,30 @@ class TestTargetedMeshRelayRouting(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(sent)
         self.assertEqual(len(conn.sent), 0)
+
+
+class TestTargetedPeerReachability(unittest.TestCase):
+    def test_manager_reports_peer_reachable_via_routing_table_relay(self):
+        conn = _DummyConnectionManager(["peer-relay"])
+        router = MessageRouter("peer-local", _DummyIdentityManager(), conn)
+        router.update_routing_table("peer-target", "peer-relay")
+        manager = object.__new__(P2PNetworkManager)
+        manager.connection_manager = conn
+        manager.message_router = router
+        manager._active_relays = {}
+
+        self.assertTrue(manager.can_route_to_peer("peer-target"))
+
+    def test_manager_reports_peer_unreachable_when_relay_is_not_connected(self):
+        conn = _DummyConnectionManager([])
+        router = MessageRouter("peer-local", _DummyIdentityManager(), conn)
+        router.update_routing_table("peer-target", "peer-relay")
+        manager = object.__new__(P2PNetworkManager)
+        manager.connection_manager = conn
+        manager.message_router = router
+        manager._active_relays = {"peer-target": "peer-relay"}
+
+        self.assertFalse(manager.can_route_to_peer("peer-target"))
 
 
 if __name__ == "__main__":

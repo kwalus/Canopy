@@ -424,6 +424,123 @@ class TestLargeAttachmentStoreSupport(unittest.TestCase):
             self.assertFalse(file_manager.upserts)
             p2p_manager.send_large_attachment_request.assert_not_called()
 
+    def test_manual_download_route_queues_when_source_peer_offline(self) -> None:
+        self.db.set_system_state('large_attachment_download_mode', 'manual')
+        file_manager = _RouteFileManager()
+        p2p_manager = MagicMock()
+        p2p_manager.connection_manager.is_connected.return_value = False
+
+        config = MagicMock()
+        config.to_dict.return_value = {'network': {}, 'storage': {}, 'security': {}, 'ui': {}, 'debug': False}
+        components = (
+            self.db,
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            file_manager,
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            config,
+            p2p_manager,
+        )
+
+        app = Flask(__name__)
+        app.config['TESTING'] = True
+        app.secret_key = 'queued-policy-secret'
+        with patch('canopy.ui.routes.get_app_components', return_value=components):
+            app.register_blueprint(create_ui_blueprint())
+            client = app.test_client()
+            csrf_token = 'queued-csrf-token'
+            with client.session_transaction() as sess:
+                sess['authenticated'] = True
+                sess['user_id'] = 'user-local'
+                sess['_csrf_token'] = csrf_token
+
+            response = client.post(
+                '/ajax/files/request-remote-download',
+                json={
+                    'attachment': {
+                        'origin_file_id': 'Forigin-offline',
+                        'source_peer_id': 'peer-remote',
+                        'name': 'big.zip',
+                        'type': 'application/zip',
+                        'size': 123,
+                        'large_attachment': True,
+                        'storage_mode': 'remote_large',
+                    }
+                },
+                headers={'X-CSRFToken': csrf_token},
+            )
+            self.assertEqual(response.status_code, 202)
+            payload = response.get_json() or {}
+            self.assertTrue(payload.get('success'))
+            self.assertTrue(payload.get('queued'))
+            self.assertIn('queued', (payload.get('message') or '').lower())
+            self.assertTrue(file_manager.upserts)
+            p2p_manager.send_large_attachment_request.assert_not_called()
+
+    def test_manual_download_route_uses_relay_route_when_source_peer_not_direct(self) -> None:
+        self.db.set_system_state('large_attachment_download_mode', 'manual')
+        file_manager = _RouteFileManager()
+        p2p_manager = MagicMock()
+        p2p_manager.connection_manager.is_connected.return_value = False
+        p2p_manager.can_route_to_peer.return_value = True
+        p2p_manager.peer_supports_capability.return_value = False
+        p2p_manager.send_large_attachment_request.return_value = True
+
+        config = MagicMock()
+        config.to_dict.return_value = {'network': {}, 'storage': {}, 'security': {}, 'ui': {}, 'debug': False}
+        components = (
+            self.db,
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            file_manager,
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            config,
+            p2p_manager,
+        )
+
+        app = Flask(__name__)
+        app.config['TESTING'] = True
+        app.secret_key = 'relayed-large-attachment-secret'
+        with patch('canopy.ui.routes.get_app_components', return_value=components):
+            app.register_blueprint(create_ui_blueprint())
+            client = app.test_client()
+            csrf_token = 'relay-route-csrf-token'
+            with client.session_transaction() as sess:
+                sess['authenticated'] = True
+                sess['user_id'] = 'user-local'
+                sess['_csrf_token'] = csrf_token
+
+            response = client.post(
+                '/ajax/files/request-remote-download',
+                json={
+                    'attachment': {
+                        'origin_file_id': 'Forigin-relayed',
+                        'source_peer_id': 'peer-remote',
+                        'name': 'large-private-channel.bin',
+                        'type': 'application/octet-stream',
+                        'size': 783 * 1024,
+                        'large_attachment': True,
+                        'storage_mode': 'remote_large',
+                    }
+                },
+                headers={'X-CSRFToken': csrf_token},
+            )
+
+            self.assertEqual(response.status_code, 200)
+            payload = response.get_json() or {}
+            self.assertTrue(payload.get('success'))
+            self.assertFalse(payload.get('queued'))
+            self.assertTrue(file_manager.upserts)
+            p2p_manager.send_large_attachment_request.assert_called_once()
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -8309,6 +8309,13 @@ def create_ui_blueprint() -> Blueprint:
                 p2p_manager.connection_manager
                 and p2p_manager.connection_manager.is_connected(source_peer_id)
             )
+            route_available = False
+            route_check = getattr(p2p_manager, 'can_route_to_peer', None)
+            if callable(route_check):
+                try:
+                    route_available = route_check(source_peer_id) is True
+                except Exception:
+                    route_available = False
             if is_connected and not p2p_manager.peer_supports_capability(source_peer_id, LARGE_ATTACHMENT_CAPABILITY):
                 return jsonify({'success': False, 'error': 'Source peer does not support large attachment fetch'}), 409
 
@@ -8324,7 +8331,7 @@ def create_ui_blueprint() -> Blueprint:
                 last_request_id=request_id,
                 error=None,
             )
-            if not is_connected:
+            if not (is_connected or route_available):
                 return jsonify({
                     'success': True,
                     'queued': True,
