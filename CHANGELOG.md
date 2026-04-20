@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.39] - 2026-04-20
+
+### Changed
+- **Canopy Modules can now treat `.gz` / `.gzip` source attachments as allowed brokered binary data instead of forcing agents to pack compressed runtime bytes into text chunks** - the existing `source.attachments.read` capability now accepts gzip extensions and MIME types through binary modes only (`base64` / `data_url`), which gives Doom-style and other module-labs runtimes a cleaner packaging path without changing upload limits or opening raw `fetch()`.
+- **Compressed source attachment reads still stay inside the same narrow module boundary** - gzip support reuses the existing source-bound attachment validation, listing caps, and 4 MB binary read limit, while HTML/JS/CSS/SVG-style attachment families remain blocked, `module.render.wasm` remains separately reviewed for actual WASM execution, and the iframe keeps `sandbox="allow-scripts"` with `connect-src 'none'`.
+
 ## [0.6.38] - 2026-04-20
 
 ### Changed

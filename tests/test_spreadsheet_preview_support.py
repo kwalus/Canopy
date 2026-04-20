@@ -1,5 +1,6 @@
 """Regression tests for spreadsheet attachment validation and preview support."""
 
+import gzip
 import io
 import os
 import sys
@@ -212,6 +213,16 @@ class TestSpreadsheetPreviewSupport(unittest.TestCase):
         )
         self.assertTrue(is_valid, error)
         self.assertEqual(validated_type, 'text/html')
+
+    def test_validate_file_upload_accepts_gzip_runtime_asset_with_generic_metadata(self):
+        asset_bytes = gzip.compress(b'wasm-runtime-bytes')
+        is_valid, error, validated_type = validate_file_upload(
+            asset_bytes,
+            'application/octet-stream',
+            'doom-runtime.gz',
+        )
+        self.assertTrue(is_valid, error)
+        self.assertEqual(validated_type, 'application/gzip')
 
     def test_validate_file_upload_rejects_canopy_module_with_external_script(self):
         module_bytes = b"""<!doctype html>

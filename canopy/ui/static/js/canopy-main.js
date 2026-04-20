@@ -1752,7 +1752,8 @@
         const CANOPY_MODULE_ATTACHMENT_DENIED_EXTENSIONS = new Set(['.canopy-module.html', '.canopy-module.htm', '.html', '.htm', '.js', '.mjs', '.cjs', '.css', '.svg']);
         const CANOPY_MODULE_ATTACHMENT_DENIED_MIME_TYPES = new Set(['text/html', 'application/xhtml+xml', 'text/javascript', 'application/javascript', 'application/ecmascript', 'text/css', 'image/svg+xml']);
         const CANOPY_MODULE_ATTACHMENT_TEXT_EXTENSIONS = new Set(['.txt', '.text', '.md', '.markdown', '.csv', '.tsv', '.json', '.jsonl', '.ndjson', '.yaml', '.yml', '.xml', '.log', '.ini', '.cfg', '.toml', '.tex', '.cube', '.cub', '.xyz', '.pdb', '.ent', '.cif', '.mmcif', '.sdf', '.mol', '.mol2', '.dx', '.grd', '.vtk', '.obj', '.ply']);
-        const CANOPY_MODULE_ATTACHMENT_BINARY_EXTENSIONS = new Set(['.bin', '.dat', '.npy', '.npz', '.h5', '.hdf5', '.stl', '.glb', '.gltf', '.vtu', '.vtp']);
+        const CANOPY_MODULE_ATTACHMENT_BINARY_EXTENSIONS = new Set(['.bin', '.dat', '.npy', '.npz', '.h5', '.hdf5', '.stl', '.glb', '.gltf', '.vtu', '.vtp', '.gz', '.gzip']);
+        const CANOPY_MODULE_ATTACHMENT_BINARY_MIME_TYPES = new Set(['application/gzip', 'application/x-gzip']);
         const CANOPY_MODULE_STORAGE_PREFIX = 'canopy-module:v2';
         const CANOPY_MODULE_STORAGE_MAX_KEY_BYTES = 128;
         const CANOPY_MODULE_STORAGE_MAX_VALUE_BYTES = 32 * 1024;
@@ -8670,6 +8671,7 @@
                 const binaryLike =
                     textLike
                     || mime === 'application/octet-stream'
+                    || CANOPY_MODULE_ATTACHMENT_BINARY_MIME_TYPES.has(mime)
                     || mime.startsWith('model/')
                     || CANOPY_MODULE_ATTACHMENT_BINARY_EXTENSIONS.has(extension);
                 if ((readMode === 'text' || readMode === 'json') && !textLike) {

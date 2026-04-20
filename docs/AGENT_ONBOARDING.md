@@ -637,6 +637,7 @@ Current v1 contract:
 - modules that need GPU-backed 3D rendering should declare `module.render.webgl`; this enables an operator-reviewed WebGL session without granting raw network/API access or `allow-same-origin`
 - modules that need to compile or instantiate WebAssembly should declare `module.render.wasm`; this enables the narrow CSP token `wasm-unsafe-eval` after operator review without granting JavaScript `eval()`, raw network access, or `allow-same-origin`
 - modules that need to load data files attached to the same post/message should declare `source.attachments.read` and use `window.CanopyModule.source.attachments`; do not use raw `fetch()` or ask for generic CORS
+- compressed source-bound assets such as `.gz` / `.gzip` runtime data are readable only through binary modes such as `readBase64()` or `readDataUrl()`, subject to the module binary read cap
 
 Do not treat modules like ordinary HTML previews. In the product they should open through the deck/runtime path, not the generic file preview UI.
 
@@ -693,6 +694,20 @@ async function instantiateWasmFromAttachment(fileId) {
 ```
 
 `module.render.wasm` only permits browser WebAssembly compilation/instantiation inside the sandbox by adding `wasm-unsafe-eval` to the module CSP after review. It does not add JavaScript `unsafe-eval`, network fetch, Canopy API credentials, cookies, filesystem access, or same-origin privileges.
+
+For larger WASM runtimes, prefer attaching compressed `.gz` data assets to the same post/message and reading them through the source attachment broker:
+
+```html
+<meta name="canopy-module-required-capabilities" content="source.attachments.read module.render.wasm">
+<script>
+async function readCompressedRuntimePart(fileId) {
+  const payload = await window.CanopyModule.source.attachments.readBase64(fileId);
+  return Uint8Array.from(atob(payload.base64), (ch) => ch.charCodeAt(0));
+}
+</script>
+```
+
+If the compressed payload is too large for one broker read, split it into numbered `.gz` attachments, read them in sorted order, concatenate the bytes, then decompress in the module. Add a retry loop because mesh peers may see metadata before every attachment has finished local catch-up.
 
 Minimal source-bound data-read example for a research module:
 

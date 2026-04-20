@@ -469,6 +469,7 @@ Modules that need source-bound research data, such as CSV, JSON, molecular struc
 - the requested attachment id must already appear on the current source item
 - HTML, JavaScript, CSS, SVG, and `.canopy-module.html` bundles are denied as data reads
 - `.wasm` / `application/wasm` data is readable only when `module.render.wasm` is also granted, and only through binary read modes
+- `.gz` / `.gzip` compressed data is readable through binary read modes for source-bound module assets
 - reads are capped by size before returning data to the module
 
 Declare the capability in the module bundle:
@@ -513,7 +514,7 @@ Initial browser-runtime limits:
 - base64/data URL reads: 4 MB
 - attachment list: first 32 source-bound attachments
 
-These limits are deliberately conservative. Larger streaming/chunked scientific data should be designed as a separate reviewed capability rather than relaxing the module iframe CSP.
+These limits are deliberately conservative. Larger streaming/chunked scientific data should be designed as a separate reviewed capability rather than relaxing the module iframe CSP. If a module needs compressed source data such as a gzipped runtime asset, attach it as `.gz` / `.gzip` and read it with `readBase64()` or `readDataUrl()`; do not use `readText()` for compressed bytes.
 
 ### WebGL rendering capability
 
@@ -597,6 +598,21 @@ if (wasmEnabled) {
   const payload = await window.CanopyModule.source.attachments.readBase64('WASM_CHUNK_OR_FILE_ID');
   const bytes = Uint8Array.from(atob(payload.base64), (ch) => ch.charCodeAt(0));
   const instance = await WebAssembly.instantiate(bytes, {});
+}
+```
+
+For compressed WASM/runtime assets, prefer one `.gz` source attachment when the compressed payload fits within the binary read limit. Larger payloads can be split across numbered `.gz` parts and reassembled by the module before decompression:
+
+```js
+const listing = await window.CanopyModule.source.attachments.list();
+const parts = listing.attachments
+  .filter((entry) => /^doom-wasm-\d+\.gz$/i.test(entry.name || ''))
+  .sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true }));
+
+const compressedParts = [];
+for (const part of parts) {
+  const payload = await window.CanopyModule.source.attachments.readBase64(part.attachment_id);
+  compressedParts.push(Uint8Array.from(atob(payload.base64), (ch) => ch.charCodeAt(0)));
 }
 ```
 
