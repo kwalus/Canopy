@@ -13,6 +13,7 @@ import io
 import logging
 import re
 import zipfile
+from html.parser import HTMLParser
 from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -98,18 +99,62 @@ def is_canopy_module_filename(filename: str | None) -> bool:
 
 
 def _has_safe_inline_module_resource_urls(file_str: str) -> bool:
-    for attr_name in ('src', 'href', 'poster', 'action', 'formaction'):
-        quoted_pattern = re.compile(
-            rf"""\b{attr_name}\s*=\s*(['"])\s*(?!data:|blob:|#)[^'"]+\1""",
-            re.IGNORECASE,
-        )
-        bare_pattern = re.compile(
-            rf"""\b{attr_name}\s*=\s*(?!['"])(?!data:|blob:|#)[^\s>]+""",
-            re.IGNORECASE,
-        )
-        if quoted_pattern.search(file_str) or bare_pattern.search(file_str):
-            return False
-    return True
+    scanner = _CanopyModuleHTMLScanner()
+    scanner.feed(file_str)
+    scanner.close()
+    return scanner.unsafe_resource_attr is None
+
+
+class _CanopyModuleHTMLScanner(HTMLParser):
+    """Inspect actual HTML tag attributes without treating JS bodies as markup."""
+
+    _BLOCKED_TAGS = {'iframe', 'frame', 'frameset', 'object', 'embed', 'applet', 'base'}
+    _RESOURCE_ATTRS = {'src', 'href', 'poster', 'action', 'formaction'}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=False)
+        self.blocked_tag: Optional[str] = None
+        self.external_script_src = False
+        self.inline_event_attr: Optional[str] = None
+        self.runtime_csp_override = False
+        self.unsafe_resource_attr: Optional[tuple[str, str, str]] = None
+
+    @staticmethod
+    def _is_safe_inline_resource_url(value: str | None) -> bool:
+        normalized = str(value or '').strip().lower()
+        if not normalized:
+            return True
+        return normalized.startswith('data:') or normalized.startswith('blob:') or normalized.startswith('#')
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        self._inspect_tag(tag, attrs)
+
+    def handle_startendtag(self, tag: str, attrs) -> None:
+        self._inspect_tag(tag, attrs)
+
+    def _inspect_tag(self, tag: str, attrs) -> None:
+        tag_name = str(tag or '').strip().lower()
+        if not tag_name:
+            return
+        if self.blocked_tag is None and tag_name in self._BLOCKED_TAGS:
+            self.blocked_tag = tag_name
+        for attr_name, attr_value in attrs:
+            name = str(attr_name or '').strip().lower()
+            value = str(attr_value or '').strip()
+            if not name:
+                continue
+            if self.inline_event_attr is None and name.startswith('on'):
+                self.inline_event_attr = name
+            if tag_name == 'script' and name == 'src':
+                self.external_script_src = True
+            if tag_name == 'meta' and name == 'http-equiv' and value.lower() == 'content-security-policy':
+                self.runtime_csp_override = True
+            if (
+                self.unsafe_resource_attr is None
+                and name in self._RESOURCE_ATTRS
+                and not self._is_safe_inline_resource_url(value)
+            ):
+                self.unsafe_resource_attr = (tag_name, name, value)
 
 
 def _validate_canopy_module_bundle(file_data: bytes) -> tuple[bool, Optional[str]]:
@@ -131,25 +176,24 @@ def _validate_canopy_module_bundle(file_data: bytes) -> tuple[bool, Optional[str
 
     blocked_substrings = [
         'javascript:',
-        '<iframe',
-        '<frame',
-        '<frameset',
-        '<object',
-        '<embed',
-        '<applet',
-        '<base',
     ]
     for pattern in blocked_substrings:
         if pattern in lowered:
             return False, "Canopy Module bundle contains a blocked HTML feature"
 
-    if re.search(r'<script\b[^>]*\bsrc\s*=', lowered, re.IGNORECASE):
+    scanner = _CanopyModuleHTMLScanner()
+    scanner.feed(file_str)
+    scanner.close()
+
+    if scanner.blocked_tag:
+        return False, "Canopy Module bundle contains a blocked HTML feature"
+    if scanner.external_script_src:
         return False, "Canopy Module bundle cannot load external scripts"
-    if re.search(r'\son[a-z0-9_-]+\s*=', lowered, re.IGNORECASE):
+    if scanner.inline_event_attr:
         return False, "Canopy Module bundle cannot use inline event handler attributes"
-    if re.search(r'<meta\b[^>]*http-equiv\s*=\s*["\']?content-security-policy', lowered, re.IGNORECASE):
+    if scanner.runtime_csp_override:
         return False, "Canopy Module bundle cannot override the Canopy runtime CSP"
-    if not _has_safe_inline_module_resource_urls(file_str):
+    if scanner.unsafe_resource_attr is not None:
         return False, "Canopy Module bundle must be self-contained (data/blob/hash URLs only)"
 
     return True, None

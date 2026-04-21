@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.40] - 2026-04-20
+
+### Changed
+- **Canopy Module upload validation now inspects actual HTML start-tag attributes instead of regex-scanning JavaScript bodies for fake inline event handlers** - the module scanner moved to `html.parser.HTMLParser`, so Emscripten/DOSBox-style glue that uses normal JavaScript property assignments such as `worker.onmessage = ...` or `xhr.onload = ...` no longer trips the upload validator just because the source text contains `on...=` inside a `<script>` block.
+- **The module upload boundary itself stays intact while dropping the Emscripten false positive** - real inline HTML event handler attributes, external `<script src=...>` loads, CSP override meta tags, blocked embedded tags, and unsafe non-self-contained resource URLs are still rejected, so this cut narrows the scanner to the correct HTML-attribute boundary instead of broadening runtime script or network permissions.
+
 ## [0.6.39] - 2026-04-20
 
 ### Changed

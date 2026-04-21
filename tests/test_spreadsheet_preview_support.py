@@ -250,6 +250,26 @@ class TestSpreadsheetPreviewSupport(unittest.TestCase):
         self.assertFalse(is_valid)
         self.assertIn('inline event handler', str(error).lower())
 
+    def test_validate_file_upload_allows_js_event_property_assignments_inside_script(self):
+        module_bytes = b"""<!doctype html>
+<html><body><script>
+const worker = {};
+worker.onmessage = function () { return 'ok'; };
+const xhr = {};
+xhr.onload = function () { return 'ok'; };
+const img = new Image();
+img.src = blobUrl;
+</script></body></html>
+"""
+        is_valid, error, validated_type = validate_file_upload(
+            module_bytes,
+            'text/html',
+            'emscripten-loader.canopy-module.html',
+        )
+        self.assertTrue(is_valid, error)
+        self.assertIsNone(error)
+        self.assertEqual(validated_type, 'text/html')
+
     def test_validate_file_upload_rejects_canopy_module_with_external_image_source(self):
         module_bytes = b"""<!doctype html>
 <html><body><img src="https://example.com/demo.png"></body></html>
