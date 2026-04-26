@@ -411,7 +411,11 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('[data-theme="light"] {', base_template)
         self.assertIn('--canopy-bg-secondary: #ffffff;', base_template)
         self.assertIn('--canopy-navbar-bg: rgba(255, 255, 255, 0.92);', base_template)
+        self.assertIn('[data-theme="graphite"] {', base_template)
+        self.assertIn('--canopy-bg-primary: #1e1e1e;', base_template)
+        self.assertIn('--canopy-primary: #3794ff;', base_template)
         self.assertIn('html[data-theme="light"] {', base_template)
+        self.assertIn('html[data-theme="graphite"],', base_template)
         self.assertIn('color-scheme: light;', base_template)
 
     def test_theme_loader_preserves_auto_preference_and_updates_meta_color(self) -> None:
@@ -424,6 +428,16 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("document.documentElement.setAttribute('data-theme-preference', preference);", main_js)
         self.assertIn("updateCanopyThemeMetaColor(resolvedTheme);", main_js)
         self.assertIn("const profileTheme = (window.CANOPY_VARS && window.CANOPY_VARS.profileTheme) || 'dark';", main_js)
+        self.assertIn("graphite: '#252526',", main_js)
+
+    def test_profile_exposes_graphite_theme_and_sidebar_light_overrides(self) -> None:
+        base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+        profile_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'profile.html').read_text(encoding='utf-8')
+        self.assertIn('data-theme="graphite"', profile_template)
+        self.assertIn('Neutral VS Code-style dark interface', profile_template)
+        self.assertIn('[data-theme="light"] .sidebar-peers,', base_template)
+        self.assertIn('[data-theme="light"] .sidebar-dm-contact,', base_template)
+        self.assertIn('[data-theme="light"] .sidebar-media-mini', base_template)
 
     def test_demo_critical_templates_include_page_level_light_theme_polish(self) -> None:
         feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')

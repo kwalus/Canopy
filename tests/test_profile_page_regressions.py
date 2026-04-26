@@ -42,6 +42,9 @@ class _FakeDbManager:
     def get_user(self, user_id: str):
         return self._users.get(user_id)
 
+    def get_instance_owner_user_id(self) -> str:
+        return 'test-user'
+
 
 class TestProfilePageRegressions(unittest.TestCase):
     def setUp(self) -> None:
@@ -160,7 +163,7 @@ class TestProfilePageRegressions(unittest.TestCase):
 
         response = self.client.post(
             '/ajax/update_profile',
-            json={'display_name': 'A', 'bio': 'B', 'theme_preference': 'dark'},
+            json={'display_name': 'A', 'bio': 'B', 'theme_preference': 'graphite'},
             headers={'X-CSRFToken': csrf_token},
         )
 

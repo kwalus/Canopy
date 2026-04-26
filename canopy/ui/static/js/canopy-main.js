@@ -5566,6 +5566,7 @@
         // Theme Management
         const CANOPY_THEME_META_COLORS = Object.freeze({
             dark: '#0f0f1a',
+            graphite: '#252526',
             light: '#ffffff',
             eco: '#052e16',
             'liquid-glass': '#0f0f1a'

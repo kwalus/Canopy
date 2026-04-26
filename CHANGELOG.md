@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.42] - 2026-04-26
+
+### Changed
+- **Added a Graphite theme for a VS Code-style neutral dark presentation** - Profile now exposes `Graphite` as a saved theme preference with grey shell surfaces, blue accents, matching browser `theme-color`, and server-side profile validation so users can choose a less green dark mode without leaving the existing theme system.
+- **Light mode now cleans up the left-rail Connected, DM, and mini media widgets** - sidebar peer cards, DM contact rows, status dots, panel controls, trust pills, unread states, and the compact media player now use light surfaces and higher-contrast text/borders instead of carrying dark rgba leftovers into the white day theme.
+
 ## [0.6.41] - 2026-04-26
 
 ### Changed

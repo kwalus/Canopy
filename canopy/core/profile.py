@@ -200,7 +200,7 @@ class UserProfile:
     avatar_file_id: Optional[str] = None
     avatar_url: Optional[str] = None
     agent_directives: Optional[str] = None
-    theme_preference: str = "dark"  # dark, light, auto, liquid-glass
+    theme_preference: str = "dark"  # dark, graphite, light, auto, liquid-glass, eco
     notification_settings: Optional[Dict[str, Any]] = None
     privacy_settings: Optional[Dict[str, Any]] = None
     created_at: Optional[datetime] = None

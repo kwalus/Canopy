@@ -151,6 +151,11 @@
         background: linear-gradient(135deg, #0f0f1a 0%, #171728 100%);
         border: 1px solid rgba(34, 197, 94, 0.15);
     }
+
+    .theme-graphite .theme-preview {
+        background: linear-gradient(135deg, #1e1e1e 0%, #252526 52%, #2d2d30 100%);
+        border: 1px solid rgba(55, 148, 255, 0.28);
+    }
     
     .theme-light .theme-preview {
         background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
@@ -360,6 +365,12 @@
                                 <div class="theme-preview"></div>
                                 <strong>Dark</strong>
                                 <div class="text-muted small">Presentation-ready dark interface</div>
+                            </div>
+                            <div class="theme-option theme-graphite {{ 'active' if profile.theme_preference == 'graphite' else '' }}"
+                                 data-theme="graphite">
+                                <div class="theme-preview"></div>
+                                <strong>Graphite</strong>
+                                <div class="text-muted small">Neutral VS Code-style dark interface</div>
                             </div>
                             <div class="theme-option theme-light {{ 'active' if profile.theme_preference == 'light' else '' }}" 
                                  data-theme="light">
