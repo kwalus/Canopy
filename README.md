@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.6.40-blue" alt="Version 0.6.40">
+  <img src="https://img.shields.io/badge/version-0.6.41-blue" alt="Version 0.6.41">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -113,6 +113,7 @@ Recent end-user improvements reflected in the app and docs:
 - **Canopy Modules can now request reviewed WebAssembly execution without turning on JavaScript eval or raw network access** — modules may declare `module.render.wasm`, the operator approves it per session, and the runtime adds the narrow CSP token `wasm-unsafe-eval` only for that approved module session so broker-loaded WASM runtimes like Doom can instantiate inside the sandbox while `connect-src 'none'`, `sandbox="allow-scripts"`, and no `allow-same-origin` remain intact.
 - **Canopy Modules can now read source-bound gzip assets through the existing attachment broker instead of faking compressed payloads as text chunks** — `.gz` and `.gzip` files are now treated as allowed binary attachment data for `source.attachments.read`, so modules can use `readBase64()` or `readDataUrl()` for compressed runtime/data assets while the broker still keeps the same source binding, size caps, `connect-src 'none'`, and no same-origin/API expansion.
 - **Canopy’s module upload scanner now recognizes real HTML attributes instead of rejecting Emscripten-style JS property assignments as fake inline event handlers** — `.canopy-module.html` validation still blocks actual HTML `onclick=` attributes, external scripts, CSP overrides, and unsafe resource URLs, but `worker.onmessage = ...`, `xhr.onload = ...`, and similar assignments inside normal `<script>` bodies no longer get rejected before the module can even reach the deck runtime.
+- **Canopy’s shared shell and highest-visibility routes now have a cleaner wordmark and a real day/night presentation system** — the header uses the text-only Canopy wordmark, `auto` theme preference stays intact instead of being overwritten by the resolved theme, light mode now has explicit white-surface tokens, and Feed, Channels, Messages, Connect, and Trust received page-scoped polish for demo-ready light and dark presentation.
 - **Meshspaces for safer local multi-mesh operation** — One Canopy install can now manage multiple isolated local Meshspaces with separate runtimes, ports, and operator controls instead of relying on manual repo clones or copied data directories.
 - **Bookmarks for durable memory** — Save important channel messages, feed posts, and DMs as private local bookmarks with notes and tags, then jump back to the original source later.
 - **Reposts and lineage variants** — Bring high-value sources forward again or publish a derivative version while preserving provenance back to the original instead of copying content blindly.

@@ -359,13 +359,13 @@
                                  data-theme="dark">
                                 <div class="theme-preview"></div>
                                 <strong>Dark</strong>
-                                <div class="text-muted small">Perfect for night owls</div>
+                                <div class="text-muted small">Presentation-ready dark interface</div>
                             </div>
                             <div class="theme-option theme-light {{ 'active' if profile.theme_preference == 'light' else '' }}" 
                                  data-theme="light">
                                 <div class="theme-preview"></div>
                                 <strong>Light</strong>
-                                <div class="text-muted small">Classic and clean</div>
+                                <div class="text-muted small">Bright white day theme</div>
                             </div>
                             <div class="theme-option theme-auto {{ 'active' if profile.theme_preference == 'auto' else '' }}" 
                                  data-theme="auto">
@@ -377,13 +377,13 @@
                                  data-theme="liquid-glass">
                                 <div class="theme-preview liquid-glass-preview"></div>
                                 <strong>Liquid Glass</strong>
-                                <div class="text-muted small">Translucent & modern</div>
+                                <div class="text-muted small">Alternate translucent look</div>
                             </div>
                             <div class="theme-option theme-eco {{ 'active' if profile.theme_preference == 'eco' else '' }}" 
                                  data-theme="eco">
                                 <div class="theme-preview"></div>
                                 <strong>Eco</strong>
-                                <div class="text-muted small">Full forest canopy</div>
+                                <div class="text-muted small">Alternate forest look</div>
                             </div>
                         </div>
                     </div>
@@ -570,7 +570,12 @@ function setupThemeSelection() {
                 applyTheme(selectedTheme);
             } else {
                 // Fallback if base theme function not available
-                document.documentElement.setAttribute('data-theme', selectedTheme);
+                const resolvedTheme = selectedTheme === 'auto' && window.matchMedia
+                    ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+                    : selectedTheme;
+                document.documentElement.setAttribute('data-theme', resolvedTheme);
+                document.documentElement.setAttribute('data-theme-preference', selectedTheme);
+                document.documentElement.style.colorScheme = resolvedTheme === 'light' ? 'light' : 'dark';
                 localStorage.setItem('canopy-theme', selectedTheme);
             }
         });

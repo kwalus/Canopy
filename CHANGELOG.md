@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.41] - 2026-04-26
+
+### Changed
+- **The shared Canopy shell now uses the text-only wordmark and a proper light-theme token set for demo-ready day/night presentation** - the header brand switches from icon-plus-text to the new `canopy-wordmark.png` asset, light mode gets explicit white-surface colors, readable typography, softer borders, and a light browser `theme-color`, while shared navbar, sidebar, meshspace switcher, cards, dropdowns, modals, and button surfaces now derive from theme-aware shell tokens instead of dark-coded fills.
+- **Theme state now preserves the user's `auto` preference instead of persisting the resolved light/dark value after first load** - the frontend theme loader separates preference from resolved theme, sets `data-theme-preference` alongside `data-theme`, updates browser chrome color, listens for system theme changes when `auto` is active, and respects the server profile theme when local storage is empty to reduce wrong-theme first paint.
+- **Feed, Channels, Messages, Connect, and Trust now have page-scoped light/dark polish for the most visible demo routes** - composer/post cards, channel headers and selected states, DM panels and bubbles, invite/transport/review cards, and Trust hero/zones/peer cards now receive route-specific presentation cleanup so the main researcher-facing flows feel consistent across both day and dark themes.
+
 ## [0.6.40] - 2026-04-20
 
 ### Changed

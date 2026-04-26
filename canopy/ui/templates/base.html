@@ -130,8 +130,77 @@
             
             /* Gradients */
             --canopy-gradient-primary: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+            --canopy-gradient-primary-hover: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
             --canopy-gradient-secondary: linear-gradient(135deg, #06b6d4 0%, #22c55e 100%);
             --canopy-gradient-bg: linear-gradient(135deg, #0f0f1a 0%, #171728 100%);
+
+            /* Shared shell surfaces */
+            --canopy-navbar-bg: rgba(15, 15, 26, 0.95);
+            --canopy-navbar-shadow: 0 4px 32px rgba(0, 0, 0, 0.3);
+            --canopy-sidebar-bg: linear-gradient(180deg, #171728 0%, #0f0f1a 100%);
+            --canopy-sidebar-shadow: 4px 0 20px rgba(0, 0, 0, 0.2);
+            --canopy-surface-elevated: linear-gradient(145deg, rgba(9, 16, 31, 0.94), rgba(11, 18, 35, 0.9));
+            --canopy-surface-elevated-accent:
+                radial-gradient(circle at top left, rgba(16, 185, 129, 0.1), transparent 42%),
+                linear-gradient(145deg, rgba(9, 16, 31, 0.94), rgba(11, 18, 35, 0.9));
+            --canopy-surface-border-soft: rgba(94, 234, 212, 0.14);
+            --canopy-surface-border-strong: rgba(148, 163, 184, 0.16);
+            --canopy-surface-shadow-soft: 0 10px 24px rgba(0, 0, 0, 0.24);
+            --canopy-surface-shadow-strong: 0 24px 52px rgba(0, 0, 0, 0.34);
+            --canopy-chip-subtext: rgba(191, 219, 254, 0.78);
+            --canopy-chip-muted: rgba(148, 163, 184, 0.88);
+            --canopy-chip-rail-muted: rgba(226, 232, 240, 0.72);
+            --canopy-chip-caret: rgba(191, 219, 254, 0.82);
+            --canopy-theme-color: #0f0f1a;
+        }
+
+        [data-theme="light"] {
+            --canopy-primary: #15803d;
+            --canopy-primary-hover: #166534;
+            --canopy-secondary: #65a30d;
+            --canopy-secondary-hover: #4d7c0f;
+            --canopy-accent: #0891b2;
+            --canopy-accent-hover: #0e7490;
+
+            --canopy-success: #059669;
+            --canopy-warning: #d97706;
+            --canopy-danger: #dc2626;
+
+            --canopy-bg-primary: #f4f7fb;
+            --canopy-bg-secondary: #ffffff;
+            --canopy-bg-tertiary: #edf2f7;
+            --canopy-bg-card: #ffffff;
+            --canopy-bg-card-hover: #f8fbff;
+
+            --canopy-text-primary: #0f172a;
+            --canopy-text-secondary: #334155;
+            --canopy-text-muted: #64748b;
+
+            --canopy-border: #d9e2ec;
+            --canopy-border-light: #c5d2df;
+
+            --canopy-gradient-primary: linear-gradient(135deg, #22c55e 0%, #15803d 100%);
+            --canopy-gradient-primary-hover: linear-gradient(135deg, #15803d 0%, #166534 100%);
+            --canopy-gradient-secondary: linear-gradient(135deg, #14b8a6 0%, #16a34a 100%);
+            --canopy-gradient-bg: linear-gradient(180deg, #ffffff 0%, #f5f8fc 58%, #edf2f7 100%);
+
+            --canopy-navbar-bg: rgba(255, 255, 255, 0.92);
+            --canopy-navbar-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+            --canopy-sidebar-bg: linear-gradient(180deg, #ffffff 0%, #f4f7fb 100%);
+            --canopy-sidebar-shadow: 4px 0 24px rgba(15, 23, 42, 0.06);
+            --canopy-surface-elevated: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(246, 249, 252, 0.95));
+            --canopy-surface-elevated-accent:
+                radial-gradient(circle at top left, rgba(21, 128, 61, 0.09), transparent 42%),
+                linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(243, 247, 251, 0.96));
+            --canopy-surface-border-soft: rgba(148, 163, 184, 0.18);
+            --canopy-surface-border-strong: rgba(148, 163, 184, 0.2);
+            --canopy-surface-shadow-soft: 0 12px 30px rgba(15, 23, 42, 0.08);
+            --canopy-surface-shadow-strong: 0 20px 44px rgba(15, 23, 42, 0.12);
+            --canopy-chip-subtext: #64748b;
+            --canopy-chip-muted: #64748b;
+            --canopy-chip-rail-muted: #64748b;
+            --canopy-chip-caret: #64748b;
+            --canopy-theme-color: #ffffff;
         }
 
         /* Liquid Glass Theme */
@@ -213,6 +282,17 @@
                 radial-gradient(ellipse at 50% 50%, rgba(5, 46, 22, 0.8) 0%, transparent 80%),
                 linear-gradient(170deg, #052e16 0%, #022c22 40%, #0a3d1e 100%);
         }
+
+        html[data-theme="light"] {
+            color-scheme: light;
+        }
+
+        html:not([data-theme]),
+        html[data-theme="dark"],
+        html[data-theme="eco"],
+        html[data-theme="liquid-glass"] {
+            color-scheme: dark;
+        }
         
         body {
             background: var(--canopy-gradient-bg);
@@ -253,7 +333,6 @@
             font-weight: 700;
             color: var(--canopy-text-primary) !important;
             font-size: 1.5rem;
-            text-shadow: 0 0 20px rgba(34, 197, 94, 0.5);
             display: flex;
             align-items: center;
             gap: 0.5rem;
@@ -265,23 +344,24 @@
             display: inline-block;
         }
         .navbar-brand img.brand-logo {
-            height: 44px;
-            width: 44px;
+            height: 38px;
+            width: auto;
+            max-width: 100%;
             object-fit: contain;
-            filter: drop-shadow(0 0 8px rgba(34, 197, 94, 0.4));
+            display: block;
+            filter: drop-shadow(0 6px 14px rgba(34, 197, 94, 0.18));
         }
         @media (min-width: 1200px) {
             .navbar-brand img.brand-logo {
-                height: 52px;
-                width: 52px;
+                height: 42px;
             }
         }
         
         .navbar {
-            background: rgba(15, 15, 26, 0.95) !important;
+            background: var(--canopy-navbar-bg) !important;
             backdrop-filter: blur(20px);
             border-bottom: 1px solid var(--canopy-border);
-            box-shadow: 0 4px 32px rgba(0, 0, 0, 0.3);
+            box-shadow: var(--canopy-navbar-shadow);
             position: relative;
             z-index: 1030; /* Keep dropdowns above content; below modals */
         }
@@ -315,12 +395,10 @@
             max-width: 100%;
             padding: 0.28rem 0.42rem 0.28rem 0.34rem;
             border-radius: 999px;
-            border: 1px solid rgba(94, 234, 212, 0.14);
-            background:
-                radial-gradient(circle at top left, rgba(16, 185, 129, 0.1), transparent 42%),
-                linear-gradient(145deg, rgba(9, 16, 31, 0.94), rgba(11, 18, 35, 0.9));
+            border: 1px solid var(--canopy-surface-border-soft);
+            background: var(--canopy-surface-elevated-accent);
             color: var(--canopy-text-primary);
-            box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+            box-shadow: var(--canopy-surface-shadow-soft);
             backdrop-filter: blur(16px) saturate(140%);
         }
 
@@ -360,7 +438,7 @@
             justify-content: center;
             background:
                 radial-gradient(circle at 28% 24%, rgba(var(--mesh-accent-rgb), 0.42), transparent 48%),
-                linear-gradient(155deg, rgba(8, 15, 29, 0.96), rgba(15, 23, 42, 0.92));
+                var(--canopy-surface-elevated);
             color: #f8fafc;
             border: 1px solid rgba(255, 255, 255, 0.08);
             box-shadow:
@@ -437,7 +515,7 @@
         .meshspace-context-sub {
             font-size: 0.64rem;
             line-height: 1.1;
-            color: rgba(191, 219, 254, 0.78);
+            color: var(--canopy-chip-subtext);
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -485,7 +563,7 @@
         }
 
         .meshspace-current-caret {
-            color: rgba(191, 219, 254, 0.82);
+            color: var(--canopy-chip-caret);
             font-size: 0.72rem;
             line-height: 1;
             flex-shrink: 0;
@@ -500,9 +578,9 @@
             width: 42px;
             height: 42px;
             border-radius: 16px;
-            border: 1px solid rgba(148, 163, 184, 0.14);
-            background: rgba(8, 15, 29, 0.82);
-            box-shadow: 0 8px 18px rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--canopy-surface-border-soft);
+            background: var(--canopy-surface-elevated);
+            box-shadow: var(--canopy-surface-shadow-soft);
             text-decoration: none;
             transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
         }
@@ -551,9 +629,9 @@
             max-width: min(420px, calc(100vw - 24px));
             padding: 0.5rem;
             border-radius: 20px;
-            background: linear-gradient(180deg, rgba(7, 13, 26, 0.98), rgba(8, 15, 31, 0.96));
-            border: 1px solid rgba(148, 163, 184, 0.16);
-            box-shadow: 0 24px 52px rgba(0, 0, 0, 0.34);
+            background: var(--canopy-surface-elevated);
+            border: 1px solid var(--canopy-surface-border-strong);
+            box-shadow: var(--canopy-surface-shadow-strong);
             backdrop-filter: blur(16px) saturate(140%);
         }
 
@@ -562,7 +640,7 @@
             font-size: 0.64rem;
             text-transform: uppercase;
             letter-spacing: 0.14em;
-            color: rgba(148, 163, 184, 0.88);
+            color: var(--canopy-chip-muted);
         }
 
         .meshspace-switcher-item {
@@ -628,18 +706,18 @@
             gap: 0.3rem;
             padding: 0.18rem 0.44rem;
             border-radius: 999px;
-            background: rgba(255, 255, 255, 0.04);
-            border: 1px solid rgba(148, 163, 184, 0.12);
+            background: color-mix(in srgb, var(--canopy-bg-tertiary) 76%, transparent);
+            border: 1px solid color-mix(in srgb, var(--canopy-border) 82%, transparent);
             font-size: 0.62rem;
             font-weight: 700;
-            color: rgba(226, 232, 240, 0.88);
+            color: var(--canopy-text-secondary);
         }
 
         .meshspace-switcher-rail {
             display: flex;
             align-items: center;
             gap: 0.5rem;
-            color: rgba(226, 232, 240, 0.72);
+            color: var(--canopy-chip-rail-muted);
             font-size: 0.7rem;
             flex-shrink: 0;
         }
@@ -683,11 +761,11 @@
         }
         
         .sidebar {
-            background: linear-gradient(180deg, #171728 0%, #0f0f1a 100%);
+            background: var(--canopy-sidebar-bg);
             height: 100%;
             color: var(--canopy-text-primary);
             border-right: 1px solid var(--canopy-border);
-            box-shadow: 4px 0 20px rgba(0, 0, 0, 0.2);
+            box-shadow: var(--canopy-sidebar-shadow);
             position: relative;
             z-index: 50;
             overflow-x: hidden;
@@ -796,8 +874,8 @@
             margin: 8px 12px 8px;
             padding: 10px;
             border-radius: 14px;
-            background: rgba(15, 23, 42, 0.7);
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: color-mix(in srgb, var(--canopy-bg-card) 88%, transparent);
+            border: 1px solid color-mix(in srgb, var(--canopy-border) 76%, transparent);
             flex-shrink: 0;
         }
 
@@ -805,11 +883,9 @@
             margin: 8px 12px 8px;
             padding: 9px;
             border-radius: 16px;
-            background:
-                radial-gradient(circle at top left, rgba(34, 197, 94, 0.14), transparent 42%),
-                linear-gradient(145deg, rgba(10, 24, 40, 0.94), rgba(9, 18, 33, 0.92));
+            background: var(--canopy-surface-elevated-accent);
             border: 1px solid rgba(56, 189, 248, 0.18);
-            box-shadow: 0 14px 28px rgba(0, 0, 0, 0.24);
+            box-shadow: var(--canopy-surface-shadow-soft);
             backdrop-filter: blur(12px) saturate(135%);
         }
 
@@ -851,8 +927,8 @@
         .sidebar-panel-icon-btn,
         .sidebar-media-mini-pin,
         .sidebar-media-mini-expand {
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid color-mix(in srgb, var(--canopy-border) 82%, transparent);
+            background: color-mix(in srgb, var(--canopy-bg-card) 76%, transparent);
             color: var(--canopy-text-secondary);
             width: 28px;
             height: 28px;
@@ -901,8 +977,8 @@
         }
 
         .sidebar-panel-expand-btn {
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid color-mix(in srgb, var(--canopy-border) 82%, transparent);
+            background: color-mix(in srgb, var(--canopy-bg-card) 76%, transparent);
             color: var(--canopy-text-secondary);
             padding: 0.35rem 0.6rem;
             border-radius: 10px;
@@ -3730,14 +3806,7 @@
             }
 
             .navbar-brand img.brand-logo {
-                width: 34px;
                 height: 34px;
-            }
-
-            .navbar-brand .brand-text {
-                max-width: min(38vw, 132px);
-                overflow: hidden;
-                text-overflow: ellipsis;
             }
 
             #sidebar-toggle {
@@ -3791,7 +3860,6 @@
             }
 
             .navbar-brand img.brand-logo {
-                width: 30px;
                 height: 30px;
             }
 
@@ -3823,7 +3891,7 @@
         .card {
             background: var(--canopy-bg-card) !important;
             border: 1px solid var(--canopy-border) !important;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            box-shadow: var(--canopy-surface-shadow-soft);
             border-radius: 16px;
             margin-bottom: 24px;
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -3833,7 +3901,7 @@
         
         .card:hover {
             transform: translateY(-2px);
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            box-shadow: var(--canopy-surface-shadow-strong);
             border-color: var(--canopy-border-light);
         }
         
@@ -4526,6 +4594,45 @@
         [data-theme="eco"] .navbar-brand img.brand-logo {
             filter: drop-shadow(0 0 10px rgba(74, 222, 128, 0.5));
         }
+
+        /* ===== Light Theme Component Overrides ===== */
+        [data-theme="light"] .navbar-brand img.brand-logo {
+            filter: drop-shadow(0 6px 14px rgba(15, 23, 42, 0.12));
+        }
+
+        [data-theme="light"] .navbar-toggler-icon {
+            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='rgba%2815, 23, 42, 0.72%29' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e");
+        }
+
+        [data-theme="light"] .meshspace-crest {
+            background:
+                radial-gradient(circle at 28% 24%, rgba(var(--mesh-accent-rgb), 0.28), transparent 48%),
+                linear-gradient(155deg, rgba(255, 255, 255, 0.98), rgba(232, 239, 246, 0.96));
+            color: var(--canopy-text-primary);
+            border-color: rgba(148, 163, 184, 0.18);
+            box-shadow:
+                inset 0 1px 0 rgba(255, 255, 255, 0.72),
+                0 10px 20px rgba(15, 23, 42, 0.1);
+        }
+
+        [data-theme="light"] .meshspace-status-dot {
+            border-color: rgba(255, 255, 255, 0.95);
+        }
+
+        [data-theme="light"] .meshspace-switcher-item:hover,
+        [data-theme="light"] .meshspace-switcher-item:focus-visible {
+            background: rgba(21, 128, 61, 0.07);
+            border-color: rgba(21, 128, 61, 0.16);
+        }
+
+        [data-theme="light"] .meshspace-switcher-item.is-current {
+            background: rgba(21, 128, 61, 0.08);
+            border-color: rgba(21, 128, 61, 0.18);
+        }
+
+        [data-theme="light"] .meshspace-rail-orb.has-recent-activity::after {
+            border-color: rgba(21, 128, 61, 0.18);
+        }
         
         .btn-primary {
             background: var(--canopy-gradient-primary);
@@ -4540,7 +4647,7 @@
         .btn-primary:hover {
             transform: translateY(-2px);
             box-shadow: 0 8px 25px rgba(34, 197, 94, 0.4);
-            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+            background: var(--canopy-gradient-primary-hover);
         }
 
         /* Toned-down like button when active (btn-primary) */
@@ -5087,7 +5194,7 @@
         }
         
         .modal-backdrop {
-            background-color: rgba(15, 15, 35, 0.8);
+            background-color: rgba(15, 23, 42, 0.5);
         }
 
         .circle-modal-header {
@@ -5453,7 +5560,7 @@
             background: var(--canopy-bg-card);
             border: 1px solid var(--canopy-border);
             border-radius: 12px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            box-shadow: var(--canopy-surface-shadow-soft);
             backdrop-filter: blur(20px);
         }
         
@@ -5861,6 +5968,30 @@
         }
         
         .btn-outline-secondary:hover {
+            background: var(--canopy-bg-tertiary);
+            border-color: var(--canopy-border-light);
+            color: var(--canopy-text-primary);
+        }
+
+        .btn-light {
+            background: var(--canopy-bg-secondary);
+            border: 1px solid var(--canopy-border);
+            color: var(--canopy-text-primary);
+        }
+
+        .btn-light:hover {
+            background: var(--canopy-bg-tertiary);
+            border-color: var(--canopy-border-light);
+            color: var(--canopy-text-primary);
+        }
+
+        .btn-outline-light {
+            color: var(--canopy-text-primary);
+            border-color: var(--canopy-border-light);
+            background: transparent;
+        }
+
+        .btn-outline-light:hover {
             background: var(--canopy-bg-tertiary);
             border-color: var(--canopy-border-light);
             color: var(--canopy-text-primary);
@@ -7854,8 +7985,7 @@
         <nav class="navbar navbar-expand-lg navbar-dark">
             <div class="container-fluid">
                 <a class="navbar-brand" href="/" data-canopy-stop-active-media-nav="1">
-                    <img src="{{ url_for('static', filename='icons/canopy-logo.png') }}" alt="Canopy" class="brand-logo">
-                    <span class="brand-text">Canopy</span>
+                    <img src="{{ url_for('static', filename='icons/canopy-wordmark.png') }}" alt="Canopy" class="brand-logo">
                 </a>
                 
                 <!-- Sidebar Toggle Button -->

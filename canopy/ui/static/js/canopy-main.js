@@ -5564,32 +5564,72 @@
         });
         
         // Theme Management
-        function applyTheme(theme) {
-            document.documentElement.setAttribute('data-theme', theme);
-            localStorage.setItem('canopy-theme', theme);
+        const CANOPY_THEME_META_COLORS = Object.freeze({
+            dark: '#0f0f1a',
+            light: '#ffffff',
+            eco: '#052e16',
+            'liquid-glass': '#0f0f1a'
+        });
+        let canopyThemeMediaQueryBound = false;
 
+        function resolveCanopyThemePreference(theme) {
+            const preference = String(theme || 'dark').trim() || 'dark';
+            if (preference !== 'auto') return preference;
+            try {
+                return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            } catch (_) {
+                return 'dark';
+            }
+        }
+
+        function updateCanopyThemeMetaColor(resolvedTheme) {
+            const meta = document.querySelector('meta[name="theme-color"]');
+            if (meta) {
+                meta.setAttribute('content', CANOPY_THEME_META_COLORS[resolvedTheme] || CANOPY_THEME_META_COLORS.dark);
+            }
+        }
+
+        function bindAutoThemeListener() {
+            if (canopyThemeMediaQueryBound || !window.matchMedia) return;
+            const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+            const handleChange = () => {
+                const savedTheme = localStorage.getItem('canopy-theme');
+                const profileTheme = (window.CANOPY_VARS && window.CANOPY_VARS.profileTheme) || 'dark';
+                const activePreference = savedTheme || profileTheme || 'dark';
+                if (activePreference === 'auto') {
+                    applyTheme('auto', { persist: false });
+                }
+            };
+            if (typeof mediaQuery.addEventListener === 'function') {
+                mediaQuery.addEventListener('change', handleChange);
+            } else if (typeof mediaQuery.addListener === 'function') {
+                mediaQuery.addListener(handleChange);
+            }
+            canopyThemeMediaQueryBound = true;
+        }
+
+        function applyTheme(theme, options = {}) {
+            const preference = String(theme || 'dark').trim() || 'dark';
+            const resolvedTheme = resolveCanopyThemePreference(preference);
+            document.documentElement.setAttribute('data-theme', resolvedTheme);
+            document.documentElement.setAttribute('data-theme-preference', preference);
+            document.documentElement.style.colorScheme = resolvedTheme === 'light' ? 'light' : 'dark';
+            updateCanopyThemeMetaColor(resolvedTheme);
+            if (options.persist !== false) {
+                localStorage.setItem('canopy-theme', preference);
+            }
+            if (preference === 'auto') {
+                bindAutoThemeListener();
+            }
             document.documentElement.offsetHeight;
+            return resolvedTheme;
         }
 
         function loadSavedTheme() {
             // Try to get theme from profile first (server-side), then localStorage
             const profileTheme = (window.CANOPY_VARS && window.CANOPY_VARS.profileTheme) || 'dark';
             const savedTheme = localStorage.getItem('canopy-theme') || profileTheme || 'dark';
-            
-            // Handle auto theme - detect system preference
-            if (savedTheme === 'auto') {
-                const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-                applyTheme(systemPrefersDark ? 'dark' : 'light');
-                
-                // Watch for system theme changes
-                window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
-                    if (localStorage.getItem('canopy-theme') === 'auto') {
-                        applyTheme(e.matches ? 'dark' : 'light');
-                    }
-                });
-            } else {
-                applyTheme(savedTheme);
-            }
+            applyTheme(savedTheme, { persist: false });
         }
 
         // Load theme on page load
@@ -5599,10 +5639,13 @@
 
         // Apply theme immediately (before DOM content loaded)
         (function() {
-            const savedTheme = localStorage.getItem('canopy-theme') || 'dark';
-            if (savedTheme !== 'auto') {
-                document.documentElement.setAttribute('data-theme', savedTheme);
-            }
+            const profileTheme = (window.CANOPY_VARS && window.CANOPY_VARS.profileTheme) || 'dark';
+            const savedTheme = localStorage.getItem('canopy-theme') || profileTheme || 'dark';
+            const resolvedTheme = resolveCanopyThemePreference(savedTheme);
+            document.documentElement.setAttribute('data-theme', resolvedTheme);
+            document.documentElement.setAttribute('data-theme-preference', savedTheme);
+            document.documentElement.style.colorScheme = resolvedTheme === 'light' ? 'light' : 'dark';
+            updateCanopyThemeMetaColor(resolvedTheme);
         })();
 
         // Format timestamps immediately and then refresh relative labels.

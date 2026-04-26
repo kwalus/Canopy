@@ -403,6 +403,43 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('Default Theme', settings_template)
         self.assertIn('each user can override via Profile', settings_template)
 
+    def test_base_template_uses_wordmark_and_explicit_light_theme_tokens(self) -> None:
+        base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+        self.assertTrue((ROOT / 'canopy' / 'ui' / 'static' / 'icons' / 'canopy-wordmark.png').exists())
+        self.assertIn("icons/canopy-wordmark.png", base_template)
+        self.assertNotIn('<span class="brand-text">Canopy</span>', base_template)
+        self.assertIn('[data-theme="light"] {', base_template)
+        self.assertIn('--canopy-bg-secondary: #ffffff;', base_template)
+        self.assertIn('--canopy-navbar-bg: rgba(255, 255, 255, 0.92);', base_template)
+        self.assertIn('html[data-theme="light"] {', base_template)
+        self.assertIn('color-scheme: light;', base_template)
+
+    def test_theme_loader_preserves_auto_preference_and_updates_meta_color(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        self.assertIn('function resolveCanopyThemePreference(theme)', main_js)
+        self.assertIn("const preference = String(theme || 'dark').trim() || 'dark';", main_js)
+        self.assertIn("if (preference !== 'auto') return preference;", main_js)
+        self.assertIn("localStorage.setItem('canopy-theme', preference);", main_js)
+        self.assertIn("applyTheme(savedTheme, { persist: false });", main_js)
+        self.assertIn("document.documentElement.setAttribute('data-theme-preference', preference);", main_js)
+        self.assertIn("updateCanopyThemeMetaColor(resolvedTheme);", main_js)
+        self.assertIn("const profileTheme = (window.CANOPY_VARS && window.CANOPY_VARS.profileTheme) || 'dark';", main_js)
+
+    def test_demo_critical_templates_include_page_level_light_theme_polish(self) -> None:
+        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        messages_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
+        trust_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'trust.html').read_text(encoding='utf-8')
+        self.assertIn('<section class="feed-page">', feed_template)
+        self.assertIn('[data-theme="light"] .feed-page .post-card,', feed_template)
+        self.assertIn('[data-theme="light"] .messages-page {', messages_template)
+        self.assertIn('--dm-panel-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(245, 248, 255, 0.96));', messages_template)
+        self.assertIn('[data-theme="light"] .channel-item.active {', channels_template)
+        self.assertIn('[data-theme="light"] .channel-header {', channels_template)
+        self.assertIn('[data-theme="light"] .connect-page .card {', connect_template)
+        self.assertIn('[data-theme="light"] .trust-hero {', trust_template)
+
     def test_channel_reply_button_uses_dataset_helper(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         self.assertIn("function setReplyFromButton(button)", channels_template)
