@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.44] - 2026-04-26
+
+### Changed
+- **Channels now has stronger contrast in both light and Graphite/dark presentations** - channel sidebars, active rows, message cards, reply blocks, action buttons, composer chrome, and busy message canvases now use clearer theme-aware borders, shadows, and background separation for demo screenshots and day-to-day readability.
+- **The shared header wordmark now holds up better on dark chrome** - the brand asset uses theme-aware text and accent glow so the Canopy mark remains legible across the expanded theme palette.
+
 ## [0.6.43] - 2026-04-26
 
 ### Changed

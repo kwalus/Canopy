@@ -471,6 +471,13 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('[data-theme="outlook"] .messages-page,', messages_template)
         self.assertIn(':is([data-theme="outlook"], [data-theme="teams"]) .feed-page .post-card,', feed_template)
         self.assertIn(':is([data-theme="outlook"], [data-theme="teams"]) .channel-header {', channels_template)
+        self.assertIn('[data-theme="light"] .message-card {', channels_template)
+        self.assertIn('border: 1px solid #bdccdc;', channels_template)
+        self.assertIn('[data-theme="light"] #messages-container {', channels_template)
+        self.assertIn('[data-theme="light"] .message-actions .icon-action-btn,', channels_template)
+        self.assertIn(':is([data-theme="dark"], [data-theme="graphite"]) .message-card {', channels_template)
+        self.assertIn(':is([data-theme="dark"], [data-theme="graphite"]) #messages-container {', channels_template)
+        self.assertIn('[data-theme="dark"] .channel-item.active {', channels_template)
 
     def test_demo_critical_templates_include_page_level_light_theme_polish(self) -> None:
         feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')

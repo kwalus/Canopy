@@ -1838,6 +1838,94 @@
         box-shadow: -4px -4px 10px rgba(15, 23, 42, 0.06);
     }
 
+    [data-theme="light"] #channel-sidebar {
+        background: linear-gradient(180deg, #fbfdff 0%, #f3f7fc 100%) !important;
+        border-right-color: #cbd8e6 !important;
+        box-shadow: inset -1px 0 0 rgba(100, 116, 139, 0.12);
+    }
+
+    [data-theme="light"] #channel-main {
+        background: linear-gradient(180deg, #f1f6fb 0%, #eaf1f8 100%);
+    }
+
+    [data-theme="light"] #messages-container {
+        background:
+            radial-gradient(circle at top left, rgba(8, 145, 178, 0.06), transparent 38%),
+            linear-gradient(180deg, #f4f8fc 0%, #eaf1f8 100%);
+        border-top: 1px solid rgba(100, 116, 139, 0.14);
+    }
+
+    [data-theme="light"] .channel-list {
+        background: transparent;
+    }
+
+    [data-theme="light"] .channel-item {
+        color: #25364a;
+        border-color: transparent;
+    }
+
+    [data-theme="light"] .channel-item:hover,
+    [data-theme="light"] .channel-item.tools-menu-open {
+        background: #e8f1fb !important;
+        border-color: #c7d8eb;
+        color: #0f172a;
+    }
+
+    [data-theme="light"] .channel-header {
+        border-color: #b9cadc !important;
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.1);
+    }
+
+    [data-theme="light"] .message-card {
+        background: #ffffff;
+        border: 1px solid #bdccdc;
+        box-shadow: 0 10px 22px rgba(15, 23, 42, 0.1);
+    }
+
+    [data-theme="light"] .message-card.thread-reply {
+        background: #fbfdff;
+        border-left-color: #77a8d8;
+    }
+
+    [data-theme="light"] .message-item:hover {
+        background-color: #f8fbff;
+        box-shadow: 0 12px 26px rgba(15, 23, 42, 0.12);
+    }
+
+    [data-theme="light"] .thread-reply-context,
+    [data-theme="light"] #reply-context {
+        background: #e9f2fb;
+        border-color: #aac0d8;
+        color: #334155;
+    }
+
+    [data-theme="light"] .message-actions .icon-action-btn,
+    [data-theme="light"] .post-lineage-bar .btn.btn-sm,
+    [data-theme="light"] .post-repost-actions .btn.btn-sm {
+        background: #e7f4ee !important;
+        border-color: #7eb79a !important;
+        color: #17452a !important;
+        box-shadow: 0 1px 0 rgba(15, 23, 42, 0.08) !important;
+    }
+
+    [data-theme="light"] .message-actions .icon-action-btn:hover,
+    [data-theme="light"] .message-actions .icon-action-btn:focus-visible,
+    [data-theme="light"] .post-lineage-bar .btn.btn-sm:hover,
+    [data-theme="light"] .post-lineage-bar .btn.btn-sm:focus-visible,
+    [data-theme="light"] .post-repost-actions .btn.btn-sm:hover,
+    [data-theme="light"] .post-repost-actions .btn.btn-sm:focus-visible {
+        background: #d1eadc !important;
+        border-color: #3f8d62 !important;
+        color: #0f2f1d !important;
+        box-shadow: 0 0 0 2px rgba(21, 128, 61, 0.12) !important;
+    }
+
+    [data-theme="light"] .channel-composer-wrap {
+        background: #ffffff !important;
+        border-top-color: #bdccdc !important;
+        box-shadow: 0 -10px 24px rgba(15, 23, 42, 0.08);
+    }
+
     :is([data-theme="outlook"], [data-theme="teams"]) .post-repost-card,
     :is([data-theme="outlook"], [data-theme="teams"]) .post-variant-card,
     :is([data-theme="outlook"], [data-theme="teams"]) .mention-builder-panel,
@@ -1871,6 +1959,84 @@
         color: color-mix(in srgb, var(--canopy-primary) 76%, #111827);
         background: color-mix(in srgb, var(--canopy-primary) 12%, #ffffff);
         border-color: color-mix(in srgb, var(--canopy-primary) 24%, var(--canopy-border));
+    }
+
+    :is([data-theme="dark"], [data-theme="graphite"]) #channel-sidebar {
+        background:
+            radial-gradient(circle at top left, color-mix(in srgb, var(--canopy-primary) 10%, transparent), transparent 34%),
+            linear-gradient(180deg, color-mix(in srgb, var(--canopy-bg-secondary) 94%, #000 6%), color-mix(in srgb, var(--canopy-bg-primary) 96%, #000 4%)) !important;
+        border-right-color: color-mix(in srgb, var(--canopy-primary) 26%, var(--canopy-border)) !important;
+        box-shadow: inset -1px 0 0 color-mix(in srgb, var(--canopy-primary) 18%, transparent);
+    }
+
+    :is([data-theme="dark"], [data-theme="graphite"]) #channel-main {
+        background:
+            radial-gradient(circle at top right, color-mix(in srgb, var(--canopy-primary) 9%, transparent), transparent 38%),
+            linear-gradient(180deg, color-mix(in srgb, var(--canopy-bg-primary) 88%, #000 12%), color-mix(in srgb, var(--canopy-bg-primary) 72%, #000 28%));
+    }
+
+    :is([data-theme="dark"], [data-theme="graphite"]) #messages-container {
+        background:
+            radial-gradient(circle at top left, color-mix(in srgb, var(--canopy-primary) 10%, transparent), transparent 42%),
+            linear-gradient(180deg, color-mix(in srgb, var(--canopy-bg-primary) 82%, #000 18%), color-mix(in srgb, var(--canopy-bg-primary) 68%, #000 32%));
+        border-top: 1px solid color-mix(in srgb, var(--canopy-primary) 20%, var(--canopy-border));
+    }
+
+    :is([data-theme="dark"], [data-theme="graphite"]) .channel-item {
+        color: color-mix(in srgb, var(--canopy-text-secondary) 88%, var(--canopy-text-primary) 12%);
+        border-color: transparent;
+    }
+
+    :is([data-theme="dark"], [data-theme="graphite"]) .channel-item:hover,
+    :is([data-theme="dark"], [data-theme="graphite"]) .channel-item.tools-menu-open {
+        background: color-mix(in srgb, var(--canopy-primary) 12%, var(--canopy-bg-tertiary)) !important;
+        border-color: color-mix(in srgb, var(--canopy-primary) 28%, var(--canopy-border));
+        color: var(--canopy-text-primary);
+    }
+
+    :is([data-theme="dark"], [data-theme="graphite"]) .message-card {
+        background:
+            linear-gradient(180deg, color-mix(in srgb, var(--canopy-bg-card) 92%, #fff 8%), color-mix(in srgb, var(--canopy-bg-card) 78%, #000 22%));
+        border: 1px solid color-mix(in srgb, var(--canopy-primary) 22%, var(--canopy-border));
+        box-shadow: 0 14px 30px color-mix(in srgb, var(--canopy-shadow) 86%, transparent);
+    }
+
+    :is([data-theme="dark"], [data-theme="graphite"]) .message-card.thread-reply {
+        background: color-mix(in srgb, var(--canopy-bg-card) 86%, #000 14%);
+        border-left-color: color-mix(in srgb, var(--canopy-primary) 55%, var(--canopy-border));
+    }
+
+    :is([data-theme="dark"], [data-theme="graphite"]) .message-item:hover {
+        background-color: color-mix(in srgb, var(--canopy-primary) 8%, var(--canopy-bg-tertiary));
+        box-shadow: 0 16px 34px color-mix(in srgb, var(--canopy-shadow) 92%, transparent);
+    }
+
+    :is([data-theme="dark"], [data-theme="graphite"]) .thread-reply-context,
+    :is([data-theme="dark"], [data-theme="graphite"]) #reply-context {
+        background: color-mix(in srgb, var(--canopy-primary) 12%, var(--canopy-bg-tertiary));
+        border-color: color-mix(in srgb, var(--canopy-primary) 32%, var(--canopy-border));
+        color: var(--canopy-text-secondary);
+    }
+
+    :is([data-theme="dark"], [data-theme="graphite"]) .message-actions .icon-action-btn,
+    :is([data-theme="dark"], [data-theme="graphite"]) .post-lineage-bar .btn.btn-sm,
+    :is([data-theme="dark"], [data-theme="graphite"]) .post-repost-actions .btn.btn-sm {
+        background: color-mix(in srgb, var(--canopy-primary) 16%, var(--canopy-bg-card)) !important;
+        border-color: color-mix(in srgb, var(--canopy-primary) 34%, var(--canopy-border)) !important;
+        color: color-mix(in srgb, var(--canopy-text-primary) 90%, var(--canopy-primary) 10%) !important;
+        box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+    }
+
+    :is([data-theme="dark"], [data-theme="graphite"]) .message-actions .icon-action-btn:hover,
+    :is([data-theme="dark"], [data-theme="graphite"]) .message-actions .icon-action-btn:focus-visible,
+    :is([data-theme="dark"], [data-theme="graphite"]) .post-lineage-bar .btn.btn-sm:hover,
+    :is([data-theme="dark"], [data-theme="graphite"]) .post-lineage-bar .btn.btn-sm:focus-visible,
+    :is([data-theme="dark"], [data-theme="graphite"]) .post-repost-actions .btn.btn-sm:hover,
+    :is([data-theme="dark"], [data-theme="graphite"]) .post-repost-actions .btn.btn-sm:focus-visible {
+        background: color-mix(in srgb, var(--canopy-primary) 26%, var(--canopy-bg-tertiary)) !important;
+        border-color: color-mix(in srgb, var(--canopy-primary) 56%, var(--canopy-border)) !important;
+        color: var(--canopy-text-primary) !important;
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--canopy-primary) 16%, transparent) !important;
     }
 
     [data-theme="graphite"] .post-repost-shell--streamlined .post-repost-card,
@@ -4012,9 +4178,16 @@
 }
 
 [data-theme="light"] .channel-item.active {
-    background: linear-gradient(135deg, rgba(219, 234, 254, 0.98), rgba(220, 252, 231, 0.92)) !important;
-    border-color: rgba(96, 165, 250, 0.24);
-    box-shadow: 0 10px 20px rgba(15, 23, 42, 0.08);
+    background: linear-gradient(135deg, #d8eafa 0%, #d7f1e2 100%) !important;
+    border-color: #5ea0d5;
+    border-left: 3px solid #15803d;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+    color: #0f172a;
+}
+
+[data-theme="light"] .channel-item.active .text-muted,
+[data-theme="light"] .channel-item.active small {
+    color: #475569 !important;
 }
 
 :is([data-theme="outlook"], [data-theme="teams"]) .channel-item.active {
@@ -4025,12 +4198,22 @@
 
 [data-theme="graphite"] .channel-item.active {
     background: linear-gradient(135deg, rgba(55, 148, 255, 0.16), rgba(79, 193, 255, 0.08)) !important;
-    border-color: rgba(55, 148, 255, 0.3);
+    border-color: rgba(55, 148, 255, 0.46);
+    border-left: 3px solid #3794ff;
     box-shadow: 0 10px 20px rgba(0, 0, 0, 0.24);
 }
 
+[data-theme="dark"] .channel-item.active {
+    background: linear-gradient(135deg, color-mix(in srgb, var(--canopy-primary) 24%, var(--canopy-bg-card)), color-mix(in srgb, var(--canopy-primary-soft) 38%, var(--canopy-bg-card))) !important;
+    border-color: color-mix(in srgb, var(--canopy-primary) 52%, var(--canopy-border));
+    border-left: 3px solid var(--canopy-primary);
+    box-shadow: 0 12px 26px color-mix(in srgb, var(--canopy-shadow) 82%, transparent);
+}
+
 [data-theme="graphite"] .channel-item.active .channel-pin-btn,
-[data-theme="graphite"] .channel-item.active .channel-tools-toggle {
+[data-theme="graphite"] .channel-item.active .channel-tools-toggle,
+[data-theme="dark"] .channel-item.active .channel-pin-btn,
+[data-theme="dark"] .channel-item.active .channel-tools-toggle {
     color: rgba(204, 204, 204, 0.92);
 }
 
