@@ -156,6 +156,16 @@
         background: linear-gradient(135deg, #1e1e1e 0%, #252526 52%, #2d2d30 100%);
         border: 1px solid rgba(55, 148, 255, 0.28);
     }
+
+    .theme-outlook .theme-preview {
+        background: linear-gradient(135deg, #ffffff 0%, #eaf1fb 52%, #0078d4 100%);
+        border: 1px solid rgba(0, 120, 212, 0.28);
+    }
+
+    .theme-teams .theme-preview {
+        background: linear-gradient(135deg, #ffffff 0%, #ececf8 52%, #6264a7 100%);
+        border: 1px solid rgba(98, 100, 167, 0.28);
+    }
     
     .theme-light .theme-preview {
         background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
@@ -371,6 +381,18 @@
                                 <div class="theme-preview"></div>
                                 <strong>Graphite</strong>
                                 <div class="text-muted small">Neutral VS Code-style dark interface</div>
+                            </div>
+                            <div class="theme-option theme-outlook {{ 'active' if profile.theme_preference == 'outlook' else '' }}"
+                                 data-theme="outlook">
+                                <div class="theme-preview"></div>
+                                <strong>Outlook</strong>
+                                <div class="text-muted small">Microsoft mail-style blue workspace</div>
+                            </div>
+                            <div class="theme-option theme-teams {{ 'active' if profile.theme_preference == 'teams' else '' }}"
+                                 data-theme="teams">
+                                <div class="theme-preview"></div>
+                                <strong>Teams</strong>
+                                <div class="text-muted small">Microsoft collaboration-style indigo workspace</div>
                             </div>
                             <div class="theme-option theme-light {{ 'active' if profile.theme_preference == 'light' else '' }}" 
                                  data-theme="light">

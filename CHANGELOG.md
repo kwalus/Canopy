@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.43] - 2026-04-26
+
+### Changed
+- **Added Outlook and Teams themes to the profile appearance picker** - the shared theme system now includes Microsoft-inspired blue and indigo light-shell palettes with matching browser `theme-color`, sidebar/surface tokens, profile previews, and server-side validation so they behave like first-class saved preferences.
+- **Light-mode DM message boxes and adjacent controls now have clearer contrast** - message bubbles, reply previews, attachment borders, composer reply panels, and focus/hover states now use stronger borders, shadows, and theme-aware accents instead of nearly invisible white-on-white treatment.
+- **Graphite, Outlook, and Teams now receive page-level polish across the main demo routes** - Messages, Feed, Channels, Connect, and Trust have additional theme-scoped card, composer, channel header, active channel, repost/variant, invite/review, and trust-panel treatments so they do not fall back to old green/navy styling.
+
 ## [0.6.42] - 2026-04-26
 
 ### Changed

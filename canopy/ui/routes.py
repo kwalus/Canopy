@@ -10901,7 +10901,7 @@ def create_ui_blueprint() -> Blueprint:
 
             if 'theme_preference' in data:
                 theme_preference = (data.get('theme_preference') or 'dark').strip().lower()
-                if theme_preference not in ['dark', 'graphite', 'light', 'auto', 'liquid-glass', 'eco']:
+                if theme_preference not in ['dark', 'graphite', 'outlook', 'teams', 'light', 'auto', 'liquid-glass', 'eco']:
                     return jsonify({'error': 'Invalid theme_preference'}), 400
                 updates['theme_preference'] = theme_preference
 
@@ -20386,7 +20386,7 @@ def create_ui_blueprint() -> Blueprint:
             if len(bio) > 500:
                 return jsonify({'error': 'Bio too long (max 500 characters)'}), 400
             
-            if theme_preference not in ['dark', 'graphite', 'light', 'auto', 'liquid-glass', 'eco']:
+            if theme_preference not in ['dark', 'graphite', 'outlook', 'teams', 'light', 'auto', 'liquid-glass', 'eco']:
                 theme_preference = 'dark'
             
             # Update profile

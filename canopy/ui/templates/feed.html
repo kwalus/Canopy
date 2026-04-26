@@ -2694,6 +2694,105 @@
     border-color: rgba(148, 163, 184, 0.18);
 }
 
+:is([data-theme="outlook"], [data-theme="teams"]) .feed-page .post-card,
+:is([data-theme="outlook"], [data-theme="teams"]) #post-composer,
+:is([data-theme="outlook"], [data-theme="teams"]) .post-repost-card,
+:is([data-theme="outlook"], [data-theme="teams"]) .post-variant-card,
+:is([data-theme="outlook"], [data-theme="teams"]) .mention-builder-panel,
+:is([data-theme="outlook"], [data-theme="teams"]) .mention-builder-user,
+:is([data-theme="outlook"], [data-theme="teams"]) .inline-task-card {
+    border-color: color-mix(in srgb, var(--canopy-primary) 18%, var(--canopy-border));
+    background:
+        radial-gradient(circle at top right, color-mix(in srgb, var(--canopy-primary) 8%, transparent), transparent 44%),
+        var(--canopy-surface-elevated);
+    box-shadow: var(--canopy-surface-shadow-soft);
+}
+
+:is([data-theme="outlook"], [data-theme="teams"]) #post-composer .card-header,
+:is([data-theme="outlook"], [data-theme="teams"]) .feed-page .post-card .card-header {
+    background: color-mix(in srgb, var(--canopy-primary) 7%, #ffffff);
+    border-bottom-color: color-mix(in srgb, var(--canopy-primary) 18%, var(--canopy-border));
+}
+
+:is([data-theme="outlook"], [data-theme="teams"]) .feed-page .alert.alert-info,
+:is([data-theme="outlook"], [data-theme="teams"]) .mention-builder-user:hover,
+:is([data-theme="outlook"], [data-theme="teams"]) .mention-builder-user.is-selected {
+    background: color-mix(in srgb, var(--canopy-primary) 8%, #ffffff);
+    border-color: color-mix(in srgb, var(--canopy-primary) 22%, var(--canopy-border));
+}
+
+:is([data-theme="outlook"], [data-theme="teams"]) .mention-builder-chip {
+    color: color-mix(in srgb, var(--canopy-primary) 76%, #111827);
+    background: color-mix(in srgb, var(--canopy-primary) 12%, #ffffff);
+    border-color: color-mix(in srgb, var(--canopy-primary) 24%, var(--canopy-border));
+}
+
+[data-theme="graphite"] .feed-page .post-card,
+[data-theme="graphite"] #post-composer {
+    border-color: rgba(148, 163, 184, 0.18);
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.26);
+}
+
+[data-theme="graphite"] #post-composer .card-header,
+[data-theme="graphite"] .feed-page .post-card .card-header {
+    background: linear-gradient(180deg, rgba(45, 45, 48, 0.96), rgba(37, 37, 38, 0.94));
+    border-bottom-color: rgba(148, 163, 184, 0.16);
+}
+
+[data-theme="graphite"] .feed-page .alert.alert-info {
+    background: linear-gradient(180deg, rgba(55, 148, 255, 0.12), rgba(45, 45, 48, 0.94));
+    border-color: rgba(55, 148, 255, 0.24);
+    color: var(--canopy-text-primary);
+}
+
+[data-theme="graphite"] .post-repost-shell--streamlined .post-repost-card,
+[data-theme="graphite"] .post-repost-card.is-unavailable {
+    background: rgba(45, 45, 48, 0.92);
+    border-color: rgba(148, 163, 184, 0.18);
+}
+
+[data-theme="graphite"] .post-repost-card {
+    border-color: rgba(55, 148, 255, 0.2);
+    background:
+        linear-gradient(180deg, rgba(45, 45, 48, 0.96), rgba(37, 37, 38, 0.94)),
+        radial-gradient(circle at top right, rgba(55, 148, 255, 0.12), transparent 44%);
+}
+
+[data-theme="graphite"] .post-variant-card {
+    border-color: rgba(210, 153, 34, 0.24);
+    background:
+        linear-gradient(180deg, rgba(47, 43, 33, 0.96), rgba(37, 37, 38, 0.94)),
+        radial-gradient(circle at top right, rgba(210, 153, 34, 0.12), transparent 42%);
+}
+
+[data-theme="graphite"] .mention-builder-panel {
+    background:
+        radial-gradient(circle at top right, rgba(55, 148, 255, 0.12), transparent 55%),
+        linear-gradient(145deg, rgba(45, 45, 48, 0.96), rgba(37, 37, 38, 0.94));
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+}
+
+[data-theme="graphite"] .mention-builder-chip {
+    color: #cfe8ff;
+    background: rgba(55, 148, 255, 0.14);
+    border-color: rgba(55, 148, 255, 0.28);
+}
+
+[data-theme="graphite"] .mention-builder-chip button {
+    color: #8cc8ff;
+}
+
+[data-theme="graphite"] .mention-builder-user,
+[data-theme="graphite"] .inline-task-card {
+    background: rgba(45, 45, 48, 0.94);
+    border-color: rgba(148, 163, 184, 0.16);
+}
+
+[data-theme="graphite"] .mention-builder-user:hover,
+[data-theme="graphite"] .mention-builder-user.is-selected {
+    background: rgba(55, 148, 255, 0.12);
+}
+
 .composer-action-row {
     gap: 0.5rem;
 }

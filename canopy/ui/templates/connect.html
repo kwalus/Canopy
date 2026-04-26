@@ -503,6 +503,43 @@
         color: #a16207;
         background: rgba(245, 158, 11, 0.14);
     }
+
+    [data-theme="graphite"] .connect-page .card,
+    [data-theme="graphite"] .invite-preview-card,
+    [data-theme="graphite"] .transport-security-card,
+    [data-theme="graphite"] .remote-meshspace-review {
+        border-color: rgba(148, 163, 184, 0.18);
+        box-shadow: 0 14px 34px rgba(0, 0, 0, 0.24);
+    }
+
+    [data-theme="graphite"] .transport-security-card {
+        background:
+            radial-gradient(circle at top left, rgba(55, 148, 255, 0.1), transparent 34%),
+            rgba(45, 45, 48, 0.94);
+    }
+
+    [data-theme="graphite"] .invite-preview-card {
+        background:
+            radial-gradient(circle at top left, rgba(55, 148, 255, 0.1), transparent 34%),
+            rgba(45, 45, 48, 0.94);
+    }
+
+    [data-theme="graphite"] .invite-preview-card.invite-preview-warning,
+    [data-theme="graphite"] .remote-meshspace-review {
+        background:
+            radial-gradient(circle at top left, rgba(210, 153, 34, 0.12), transparent 34%),
+            rgba(45, 45, 48, 0.94);
+    }
+
+    [data-theme="graphite"] .invite-preview-peer-initials {
+        background: rgba(55, 148, 255, 0.16);
+        color: #cfe8ff;
+    }
+
+    [data-theme="graphite"] .remote-meshspace-pill {
+        color: #ffd166;
+        background: rgba(210, 153, 34, 0.14);
+    }
     @media (max-width: 767.98px) {
         .connect-page .card-header .d-flex {
             flex-wrap: wrap;

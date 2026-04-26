@@ -253,6 +253,106 @@
             --canopy-theme-color: #252526;
         }
 
+        /* Outlook Theme — Microsoft mail-inspired blue shell */
+        [data-theme="outlook"] {
+            --canopy-primary: #0078d4;
+            --canopy-primary-hover: #106ebe;
+            --canopy-secondary: #2b88d8;
+            --canopy-secondary-hover: #0078d4;
+            --canopy-accent: #00bcf2;
+            --canopy-accent-hover: #0099bc;
+
+            --canopy-success: #107c10;
+            --canopy-warning: #ffb900;
+            --canopy-danger: #d13438;
+
+            --canopy-bg-primary: #f3f6fb;
+            --canopy-bg-secondary: #ffffff;
+            --canopy-bg-tertiary: #eaf1fb;
+            --canopy-bg-card: #ffffff;
+            --canopy-bg-card-hover: #f5f9ff;
+
+            --canopy-text-primary: #1b1a19;
+            --canopy-text-secondary: #323130;
+            --canopy-text-muted: #605e5c;
+
+            --canopy-border: #c8d8ea;
+            --canopy-border-light: #a7c2df;
+
+            --canopy-gradient-primary: linear-gradient(135deg, #0078d4 0%, #106ebe 100%);
+            --canopy-gradient-primary-hover: linear-gradient(135deg, #106ebe 0%, #005a9e 100%);
+            --canopy-gradient-secondary: linear-gradient(135deg, #00bcf2 0%, #0078d4 100%);
+            --canopy-gradient-bg: linear-gradient(180deg, #ffffff 0%, #f3f6fb 58%, #eaf1fb 100%);
+
+            --canopy-navbar-bg: rgba(255, 255, 255, 0.94);
+            --canopy-navbar-shadow: 0 12px 28px rgba(0, 120, 212, 0.1);
+            --canopy-sidebar-bg: linear-gradient(180deg, #ffffff 0%, #eef5fc 100%);
+            --canopy-sidebar-shadow: 4px 0 24px rgba(0, 120, 212, 0.08);
+            --canopy-surface-elevated: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(242, 247, 253, 0.96));
+            --canopy-surface-elevated-accent:
+                radial-gradient(circle at top left, rgba(0, 120, 212, 0.1), transparent 42%),
+                linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(239, 246, 253, 0.96));
+            --canopy-surface-border-soft: rgba(0, 120, 212, 0.16);
+            --canopy-surface-border-strong: rgba(0, 120, 212, 0.22);
+            --canopy-surface-shadow-soft: 0 12px 30px rgba(0, 120, 212, 0.08);
+            --canopy-surface-shadow-strong: 0 20px 44px rgba(0, 120, 212, 0.14);
+            --canopy-chip-subtext: #605e5c;
+            --canopy-chip-muted: #605e5c;
+            --canopy-chip-rail-muted: #605e5c;
+            --canopy-chip-caret: #605e5c;
+            --canopy-theme-color: #0078d4;
+        }
+
+        /* Teams Theme — Microsoft collaboration-inspired indigo shell */
+        [data-theme="teams"] {
+            --canopy-primary: #6264a7;
+            --canopy-primary-hover: #4f5293;
+            --canopy-secondary: #8b8cc7;
+            --canopy-secondary-hover: #6264a7;
+            --canopy-accent: #7f85f5;
+            --canopy-accent-hover: #6264a7;
+
+            --canopy-success: #13a10e;
+            --canopy-warning: #ffaa44;
+            --canopy-danger: #d13438;
+
+            --canopy-bg-primary: #f5f5fb;
+            --canopy-bg-secondary: #ffffff;
+            --canopy-bg-tertiary: #ececf8;
+            --canopy-bg-card: #ffffff;
+            --canopy-bg-card-hover: #f7f7fd;
+
+            --canopy-text-primary: #242424;
+            --canopy-text-secondary: #424242;
+            --canopy-text-muted: #616161;
+
+            --canopy-border: #d7d7ee;
+            --canopy-border-light: #c1c2e2;
+
+            --canopy-gradient-primary: linear-gradient(135deg, #6264a7 0%, #4f5293 100%);
+            --canopy-gradient-primary-hover: linear-gradient(135deg, #4f5293 0%, #3d3f78 100%);
+            --canopy-gradient-secondary: linear-gradient(135deg, #8b8cc7 0%, #6264a7 100%);
+            --canopy-gradient-bg: linear-gradient(180deg, #ffffff 0%, #f5f5fb 58%, #ececf8 100%);
+
+            --canopy-navbar-bg: rgba(255, 255, 255, 0.94);
+            --canopy-navbar-shadow: 0 12px 28px rgba(98, 100, 167, 0.1);
+            --canopy-sidebar-bg: linear-gradient(180deg, #ffffff 0%, #f0f0fb 100%);
+            --canopy-sidebar-shadow: 4px 0 24px rgba(98, 100, 167, 0.08);
+            --canopy-surface-elevated: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(246, 246, 253, 0.96));
+            --canopy-surface-elevated-accent:
+                radial-gradient(circle at top left, rgba(98, 100, 167, 0.1), transparent 42%),
+                linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(243, 243, 252, 0.96));
+            --canopy-surface-border-soft: rgba(98, 100, 167, 0.16);
+            --canopy-surface-border-strong: rgba(98, 100, 167, 0.22);
+            --canopy-surface-shadow-soft: 0 12px 30px rgba(98, 100, 167, 0.08);
+            --canopy-surface-shadow-strong: 0 20px 44px rgba(98, 100, 167, 0.14);
+            --canopy-chip-subtext: #616161;
+            --canopy-chip-muted: #616161;
+            --canopy-chip-rail-muted: #616161;
+            --canopy-chip-caret: #616161;
+            --canopy-theme-color: #6264a7;
+        }
+
         /* Liquid Glass Theme */
         [data-theme="liquid-glass"] {
             /* Brand Colors — green-tinted glass */
@@ -333,7 +433,9 @@
                 linear-gradient(170deg, #052e16 0%, #022c22 40%, #0a3d1e 100%);
         }
 
-        html[data-theme="light"] {
+        html[data-theme="light"],
+        html[data-theme="outlook"],
+        html[data-theme="teams"] {
             color-scheme: light;
         }
 
@@ -3259,6 +3361,88 @@
             box-shadow: 0 0 0 1px rgba(8, 145, 178, 0.12), 0 12px 24px rgba(15, 23, 42, 0.08);
         }
 
+        [data-theme="outlook"] .sidebar-peers,
+        [data-theme="outlook"] .sidebar-dm-contacts,
+        [data-theme="outlook"] .sidebar-media-mini,
+        [data-theme="teams"] .sidebar-peers,
+        [data-theme="teams"] .sidebar-dm-contacts,
+        [data-theme="teams"] .sidebar-media-mini {
+            background: var(--canopy-surface-elevated-accent);
+            border-color: var(--canopy-surface-border-soft);
+            box-shadow: var(--canopy-surface-shadow-soft);
+        }
+
+        [data-theme="outlook"] .sidebar-panel-mode,
+        [data-theme="outlook"] .sidebar-peers-count,
+        [data-theme="outlook"] .trust-pill,
+        [data-theme="teams"] .sidebar-panel-mode,
+        [data-theme="teams"] .sidebar-peers-count,
+        [data-theme="teams"] .trust-pill {
+            background: color-mix(in srgb, var(--canopy-primary) 10%, #ffffff);
+            border-color: color-mix(in srgb, var(--canopy-primary) 18%, var(--canopy-border));
+            color: var(--canopy-text-secondary);
+        }
+
+        [data-theme="outlook"] .sidebar-panel-icon-btn,
+        [data-theme="outlook"] .sidebar-panel-expand-btn,
+        [data-theme="outlook"] .sidebar-media-mini-pin,
+        [data-theme="outlook"] .sidebar-media-mini-expand,
+        [data-theme="outlook"] .sidebar-media-mini-close,
+        [data-theme="outlook"] .sidebar-media-mini-btn,
+        [data-theme="teams"] .sidebar-panel-icon-btn,
+        [data-theme="teams"] .sidebar-panel-expand-btn,
+        [data-theme="teams"] .sidebar-media-mini-pin,
+        [data-theme="teams"] .sidebar-media-mini-expand,
+        [data-theme="teams"] .sidebar-media-mini-close,
+        [data-theme="teams"] .sidebar-media-mini-btn,
+        [data-theme="outlook"] .sidebar-dm-contact,
+        [data-theme="outlook"] .sidebar-peer,
+        [data-theme="teams"] .sidebar-dm-contact,
+        [data-theme="teams"] .sidebar-peer {
+            background: #ffffff;
+            border-color: var(--canopy-border);
+            color: var(--canopy-text-primary);
+        }
+
+        [data-theme="outlook"] .sidebar-panel-icon-btn:hover,
+        [data-theme="outlook"] .sidebar-panel-expand-btn:hover,
+        [data-theme="outlook"] .sidebar-media-mini-pin:hover,
+        [data-theme="outlook"] .sidebar-media-mini-expand:hover,
+        [data-theme="outlook"] .sidebar-media-mini-btn:hover,
+        [data-theme="outlook"] .sidebar-dm-contact:hover,
+        [data-theme="outlook"] .sidebar-peer:hover,
+        [data-theme="outlook"] .sidebar-peer:focus-visible,
+        [data-theme="teams"] .sidebar-panel-icon-btn:hover,
+        [data-theme="teams"] .sidebar-panel-expand-btn:hover,
+        [data-theme="teams"] .sidebar-media-mini-pin:hover,
+        [data-theme="teams"] .sidebar-media-mini-expand:hover,
+        [data-theme="teams"] .sidebar-media-mini-btn:hover,
+        [data-theme="teams"] .sidebar-dm-contact:hover,
+        [data-theme="teams"] .sidebar-peer:hover,
+        [data-theme="teams"] .sidebar-peer:focus-visible {
+            background: color-mix(in srgb, var(--canopy-primary) 8%, #ffffff);
+            border-color: color-mix(in srgb, var(--canopy-primary) 24%, var(--canopy-border));
+            color: var(--canopy-text-primary);
+        }
+
+        [data-theme="outlook"] .sidebar-dm-avatar,
+        [data-theme="outlook"] .sidebar-peer-avatar,
+        [data-theme="outlook"] .sidebar-media-mini-icon,
+        [data-theme="teams"] .sidebar-dm-avatar,
+        [data-theme="teams"] .sidebar-peer-avatar,
+        [data-theme="teams"] .sidebar-media-mini-icon {
+            background: color-mix(in srgb, var(--canopy-primary) 14%, #ffffff);
+            border-color: color-mix(in srgb, var(--canopy-primary) 18%, var(--canopy-border));
+            color: color-mix(in srgb, var(--canopy-primary) 70%, #111827);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+        }
+
+        [data-theme="outlook"] .sidebar-dm-status-dot,
+        [data-theme="teams"] .sidebar-dm-status-dot {
+            border-color: #ffffff;
+            box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.08);
+        }
+
         .notification-bell {
             border: none;
             background: rgba(255, 255, 255, 0.1);
@@ -4791,12 +4975,12 @@
             padding: 12px 24px;
             font-weight: 600;
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            box-shadow: 0 4px 15px rgba(34, 197, 94, 0.3);
+            box-shadow: 0 4px 15px color-mix(in srgb, var(--canopy-primary) 30%, transparent);
         }
         
         .btn-primary:hover {
             transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(34, 197, 94, 0.4);
+            box-shadow: 0 8px 25px color-mix(in srgb, var(--canopy-primary) 40%, transparent);
             background: var(--canopy-gradient-primary-hover);
         }
 
@@ -4804,9 +4988,9 @@
         .like-btn.btn-primary,
         .like-btn.btn-primary:focus,
         .like-btn.btn-primary:active {
-            background: rgba(34, 197, 94, 0.15) !important;
-            color: var(--canopy-primary, #22c55e) !important;
-            border: 1px solid rgba(34, 197, 94, 0.3) !important;
+            background: color-mix(in srgb, var(--canopy-primary) 15%, transparent) !important;
+            color: var(--canopy-primary) !important;
+            border: 1px solid color-mix(in srgb, var(--canopy-primary) 30%, transparent) !important;
             border-radius: 6px !important;
             padding: 4px 10px !important;
             font-weight: 500 !important;
@@ -4815,7 +4999,7 @@
             transform: none !important;
         }
         .like-btn.btn-primary:hover {
-            background: rgba(34, 197, 94, 0.25) !important;
+            background: color-mix(in srgb, var(--canopy-primary) 25%, transparent) !important;
             transform: none !important;
             box-shadow: none !important;
         }
@@ -5219,7 +5403,7 @@
             background: var(--canopy-primary);
             color: white;
             transform: translateY(-1px);
-            box-shadow: 0 8px 25px rgba(34, 197, 94, 0.3);
+            box-shadow: 0 8px 25px color-mix(in srgb, var(--canopy-primary) 30%, transparent);
         }
         
         .text-primary {
@@ -5269,7 +5453,7 @@
         .form-control:focus {
             background: var(--canopy-bg-card);
             border-color: var(--canopy-primary);
-            box-shadow: 0 0 0 0.25rem rgba(34, 197, 94, 0.1);
+            box-shadow: 0 0 0 0.25rem color-mix(in srgb, var(--canopy-primary) 12%, transparent);
             color: var(--canopy-text-primary);
         }
         

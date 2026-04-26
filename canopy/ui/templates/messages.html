@@ -50,20 +50,22 @@
         --dm-inline-editor-shadow: 0 14px 28px rgba(3, 10, 22, 0.24);
     }
 
-    [data-theme="light"] .messages-page {
+    [data-theme="light"] .messages-page,
+    [data-theme="outlook"] .messages-page,
+    [data-theme="teams"] .messages-page {
         --dm-panel-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(245, 248, 255, 0.96));
         --dm-sidebar-bg: linear-gradient(180deg, rgba(252, 254, 255, 0.98), rgba(244, 247, 252, 0.96));
-        --dm-panel-border: rgba(148, 163, 184, 0.18);
-        --dm-panel-shadow: 0 18px 42px rgba(15, 23, 42, 0.08);
+        --dm-panel-border: rgba(100, 116, 139, 0.24);
+        --dm-panel-shadow: 0 18px 42px rgba(15, 23, 42, 0.1);
         --dm-surface-soft: rgba(241, 245, 249, 0.92);
         --dm-surface-strong: rgba(226, 232, 240, 0.96);
-        --dm-accent-soft: rgba(59, 130, 246, 0.08);
-        --dm-accent-border: rgba(59, 130, 246, 0.2);
+        --dm-accent-soft: color-mix(in srgb, var(--canopy-primary) 10%, transparent);
+        --dm-accent-border: color-mix(in srgb, var(--canopy-primary) 24%, transparent);
         --dm-success-border: rgba(34, 197, 94, 0.26);
         --dm-success-glow: rgba(34, 197, 94, 0.14);
         --dm-thread-header-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 247, 252, 0.95));
-        --dm-thread-header-border: rgba(148, 163, 184, 0.16);
-        --dm-thread-scroll-bg: radial-gradient(circle at top, rgba(59, 130, 246, 0.08), transparent 45%), linear-gradient(180deg, rgba(249, 250, 251, 0.96), rgba(241, 245, 249, 0.98));
+        --dm-thread-header-border: rgba(100, 116, 139, 0.22);
+        --dm-thread-scroll-bg: radial-gradient(circle at top, color-mix(in srgb, var(--canopy-primary) 8%, transparent), transparent 45%), linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(226, 232, 240, 0.76));
         --dm-avatar-bg: rgba(219, 234, 254, 0.82);
         --dm-avatar-border: rgba(96, 165, 250, 0.22);
         --dm-avatar-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
@@ -72,18 +74,54 @@
         --dm-menu-bg: rgba(255, 255, 255, 0.98);
         --dm-menu-border: rgba(148, 163, 184, 0.2);
         --dm-menu-shadow: 0 16px 34px rgba(15, 23, 42, 0.12);
-        --dm-bubble-bg: rgba(255, 255, 255, 0.95);
-        --dm-bubble-border: rgba(148, 163, 184, 0.18);
-        --dm-bubble-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
-        --dm-bubble-outbound-bg: linear-gradient(135deg, rgba(220, 252, 231, 0.92), rgba(219, 234, 254, 0.92));
-        --dm-bubble-outbound-border: rgba(34, 197, 94, 0.24);
+        --dm-bubble-bg: #ffffff;
+        --dm-bubble-border: rgba(100, 116, 139, 0.3);
+        --dm-bubble-shadow: 0 12px 26px rgba(15, 23, 42, 0.11);
+        --dm-bubble-outbound-bg: linear-gradient(135deg, rgba(220, 252, 231, 0.98), rgba(224, 242, 254, 0.98));
+        --dm-bubble-outbound-border: rgba(21, 128, 61, 0.34);
         --dm-composer-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(244, 247, 252, 0.98));
-        --dm-composer-border: rgba(148, 163, 184, 0.16);
-        --dm-composer-reply-bg: rgba(248, 250, 252, 0.98);
-        --dm-composer-reply-border: rgba(148, 163, 184, 0.18);
+        --dm-composer-border: rgba(100, 116, 139, 0.22);
+        --dm-composer-reply-bg: #ffffff;
+        --dm-composer-reply-border: rgba(100, 116, 139, 0.24);
         --dm-inline-editor-bg: rgba(255, 255, 255, 0.98);
         --dm-inline-editor-border: rgba(148, 163, 184, 0.2);
         --dm-inline-editor-shadow: 0 14px 30px rgba(15, 23, 42, 0.1);
+    }
+
+    [data-theme="graphite"] .messages-page {
+        --dm-panel-bg: linear-gradient(180deg, rgba(45, 45, 48, 0.96), rgba(37, 37, 38, 0.94));
+        --dm-sidebar-bg: linear-gradient(180deg, rgba(42, 42, 45, 0.96), rgba(31, 31, 32, 0.96));
+        --dm-panel-border: rgba(148, 163, 184, 0.18);
+        --dm-panel-shadow: 0 20px 48px rgba(0, 0, 0, 0.3);
+        --dm-surface-soft: rgba(255, 255, 255, 0.045);
+        --dm-surface-strong: rgba(255, 255, 255, 0.08);
+        --dm-accent-soft: rgba(55, 148, 255, 0.1);
+        --dm-accent-border: rgba(55, 148, 255, 0.24);
+        --dm-success-border: rgba(63, 185, 80, 0.28);
+        --dm-success-glow: rgba(63, 185, 80, 0.14);
+        --dm-thread-header-bg: linear-gradient(180deg, rgba(45, 45, 48, 0.98), rgba(37, 37, 38, 0.94));
+        --dm-thread-header-border: rgba(148, 163, 184, 0.16);
+        --dm-thread-scroll-bg: radial-gradient(circle at top, rgba(55, 148, 255, 0.12), transparent 45%), linear-gradient(180deg, rgba(37, 37, 38, 0.94), rgba(30, 30, 30, 0.96));
+        --dm-avatar-bg: rgba(55, 148, 255, 0.16);
+        --dm-avatar-border: rgba(55, 148, 255, 0.26);
+        --dm-avatar-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+        --dm-day-divider-bg: rgba(255, 255, 255, 0.04);
+        --dm-day-divider-border: rgba(148, 163, 184, 0.14);
+        --dm-menu-bg: rgba(37, 37, 38, 0.98);
+        --dm-menu-border: rgba(148, 163, 184, 0.18);
+        --dm-menu-shadow: 0 18px 36px rgba(0, 0, 0, 0.38);
+        --dm-bubble-bg: rgba(255, 255, 255, 0.052);
+        --dm-bubble-border: rgba(148, 163, 184, 0.14);
+        --dm-bubble-shadow: 0 10px 22px rgba(0, 0, 0, 0.2);
+        --dm-bubble-outbound-bg: linear-gradient(135deg, rgba(55, 148, 255, 0.16), rgba(79, 193, 255, 0.1));
+        --dm-bubble-outbound-border: rgba(55, 148, 255, 0.28);
+        --dm-composer-bg: linear-gradient(180deg, rgba(45, 45, 48, 0.98), rgba(37, 37, 38, 0.99));
+        --dm-composer-border: rgba(148, 163, 184, 0.16);
+        --dm-composer-reply-bg: rgba(255, 255, 255, 0.05);
+        --dm-composer-reply-border: rgba(148, 163, 184, 0.15);
+        --dm-inline-editor-bg: rgba(37, 37, 38, 0.9);
+        --dm-inline-editor-border: rgba(55, 148, 255, 0.2);
+        --dm-inline-editor-shadow: 0 14px 28px rgba(0, 0, 0, 0.24);
     }
 
     .messages-page {
@@ -1162,6 +1200,72 @@
 
     [data-theme="light"] .dm-avatar.stacked {
         border-color: rgba(255, 255, 255, 0.94);
+    }
+
+    [data-theme="light"] .dm-bubble-reply-preview:hover,
+    [data-theme="light"] .dm-bubble-reply-preview:focus-visible,
+    [data-theme="light"] .dm-search-result-card:hover,
+    [data-theme="light"] .dm-search-result-card:focus-visible {
+        background: #f1f5f9;
+        border-color: rgba(37, 99, 235, 0.28);
+    }
+
+    [data-theme="light"] .dm-attachment-image img {
+        border-color: rgba(100, 116, 139, 0.26);
+    }
+
+    [data-theme="light"] .dm-composer-input-wrap:focus-within {
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.16);
+    }
+
+    [data-theme="outlook"] .dm-unread-pill,
+    [data-theme="teams"] .dm-unread-pill,
+    [data-theme="outlook"] .dm-security-pill.e2e,
+    [data-theme="outlook"] .dm-security-chip.e2e,
+    [data-theme="outlook"] .dm-bubble-reply-preview strong,
+    [data-theme="outlook"] .dm-composer-reply strong,
+    [data-theme="teams"] .dm-security-pill.e2e,
+    [data-theme="teams"] .dm-security-chip.e2e,
+    [data-theme="teams"] .dm-bubble-reply-preview strong,
+    [data-theme="teams"] .dm-composer-reply strong {
+        color: var(--canopy-primary);
+    }
+
+    [data-theme="outlook"] .dm-bubble-reply-preview:hover,
+    [data-theme="outlook"] .dm-bubble-reply-preview:focus-visible,
+    [data-theme="outlook"] .dm-search-result-card:hover,
+    [data-theme="outlook"] .dm-search-result-card:focus-visible,
+    [data-theme="teams"] .dm-bubble-reply-preview:hover,
+    [data-theme="teams"] .dm-bubble-reply-preview:focus-visible,
+    [data-theme="teams"] .dm-search-result-card:hover,
+    [data-theme="teams"] .dm-search-result-card:focus-visible {
+        background: color-mix(in srgb, var(--canopy-primary) 8%, #ffffff);
+        border-color: color-mix(in srgb, var(--canopy-primary) 28%, var(--canopy-border));
+    }
+
+    [data-theme="outlook"] .dm-attachment-image img,
+    [data-theme="teams"] .dm-attachment-image img {
+        border-color: rgba(100, 116, 139, 0.26);
+    }
+
+    [data-theme="outlook"] .dm-composer-input-wrap:focus-within,
+    [data-theme="teams"] .dm-composer-input-wrap:focus-within {
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--canopy-primary) 16%, transparent);
+    }
+
+    [data-theme="graphite"] .dm-security-pill.e2e,
+    [data-theme="graphite"] .dm-security-chip.e2e,
+    [data-theme="graphite"] .dm-bubble-reply-preview strong,
+    [data-theme="graphite"] .dm-composer-reply strong {
+        color: #4fc1ff;
+    }
+
+    [data-theme="graphite"] .dm-bubble-reply-preview:hover,
+    [data-theme="graphite"] .dm-bubble-reply-preview:focus-visible,
+    [data-theme="graphite"] .dm-search-result-card:hover,
+    [data-theme="graphite"] .dm-search-result-card:focus-visible {
+        background: rgba(55, 148, 255, 0.1);
+        border-color: rgba(55, 148, 255, 0.26);
     }
 
     @keyframes dmFlashFocus {

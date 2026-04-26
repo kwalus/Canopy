@@ -1838,6 +1838,143 @@
         box-shadow: -4px -4px 10px rgba(15, 23, 42, 0.06);
     }
 
+    :is([data-theme="outlook"], [data-theme="teams"]) .post-repost-card,
+    :is([data-theme="outlook"], [data-theme="teams"]) .post-variant-card,
+    :is([data-theme="outlook"], [data-theme="teams"]) .mention-builder-panel,
+    :is([data-theme="outlook"], [data-theme="teams"]) .mention-builder-user,
+    :is([data-theme="outlook"], [data-theme="teams"]) .inline-task-card,
+    :is([data-theme="outlook"], [data-theme="teams"]) .create-channel-posture-option,
+    :is([data-theme="outlook"], [data-theme="teams"]) .channel-post-policy-summary,
+    :is([data-theme="outlook"], [data-theme="teams"]) .channel-lifecycle-summary,
+    :is([data-theme="outlook"], [data-theme="teams"]) .create-channel-posture-card {
+        border-color: color-mix(in srgb, var(--canopy-primary) 18%, var(--canopy-border));
+        background:
+            radial-gradient(circle at top right, color-mix(in srgb, var(--canopy-primary) 8%, transparent), transparent 44%),
+            var(--canopy-surface-elevated);
+        box-shadow: var(--canopy-surface-shadow-soft);
+    }
+
+    :is([data-theme="outlook"], [data-theme="teams"]) .channel-header {
+        background: color-mix(in srgb, var(--canopy-primary) 7%, #ffffff);
+        border-color: color-mix(in srgb, var(--canopy-primary) 18%, var(--canopy-border)) !important;
+        box-shadow: var(--canopy-surface-shadow-soft);
+    }
+
+    :is([data-theme="outlook"], [data-theme="teams"]) .mention-builder-user:hover,
+    :is([data-theme="outlook"], [data-theme="teams"]) .mention-builder-user.is-selected,
+    :is([data-theme="outlook"], [data-theme="teams"]) .create-channel-posture-option:hover {
+        background: color-mix(in srgb, var(--canopy-primary) 8%, #ffffff);
+    }
+
+    :is([data-theme="outlook"], [data-theme="teams"]) .mention-builder-chip,
+    :is([data-theme="outlook"], [data-theme="teams"]) .structured-panel-chip {
+        color: color-mix(in srgb, var(--canopy-primary) 76%, #111827);
+        background: color-mix(in srgb, var(--canopy-primary) 12%, #ffffff);
+        border-color: color-mix(in srgb, var(--canopy-primary) 24%, var(--canopy-border));
+    }
+
+    [data-theme="graphite"] .post-repost-shell--streamlined .post-repost-card,
+    [data-theme="graphite"] .post-repost-card.is-unavailable {
+        background: rgba(45, 45, 48, 0.92);
+        border-color: rgba(148, 163, 184, 0.18);
+    }
+
+    [data-theme="graphite"] .post-lineage-bar,
+    [data-theme="graphite"] .post-repost-meta,
+    [data-theme="graphite"] .post-variant-param-delta,
+    [data-theme="graphite"] .post-repost-unavailable,
+    [data-theme="graphite"] .post-repost-unavailable-meta {
+        color: var(--canopy-text-secondary);
+    }
+
+    [data-theme="graphite"] .post-repost-card {
+        border-color: rgba(55, 148, 255, 0.2);
+        background:
+            linear-gradient(180deg, rgba(45, 45, 48, 0.96), rgba(37, 37, 38, 0.94)),
+            radial-gradient(circle at top right, rgba(55, 148, 255, 0.12), transparent 44%);
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.26);
+    }
+
+    [data-theme="graphite"] .post-variant-card {
+        border-color: rgba(210, 153, 34, 0.24);
+        background:
+            linear-gradient(180deg, rgba(47, 43, 33, 0.96), rgba(37, 37, 38, 0.94)),
+            radial-gradient(circle at top right, rgba(210, 153, 34, 0.12), transparent 42%);
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
+    }
+
+    [data-theme="graphite"] .post-repost-body,
+    [data-theme="graphite"] .post-repost-preview {
+        color: var(--canopy-text-primary);
+    }
+
+    [data-theme="graphite"] .post-repost-quote,
+    [data-theme="graphite"] .repost-inline-composer .repost-inline-inner {
+        background: rgba(45, 45, 48, 0.94);
+        border-color: rgba(148, 163, 184, 0.16);
+    }
+
+    [data-theme="graphite"] .variant-inline-composer .repost-inline-inner {
+        background:
+            linear-gradient(180deg, rgba(47, 43, 33, 0.96), rgba(37, 37, 38, 0.94)),
+            radial-gradient(circle at top right, rgba(210, 153, 34, 0.1), transparent 38%);
+        border-color: rgba(210, 153, 34, 0.22);
+    }
+
+    [data-theme="graphite"] .structured-panel-chip {
+        color: #cfe8ff;
+        background: rgba(55, 148, 255, 0.14);
+        border-color: rgba(55, 148, 255, 0.28);
+    }
+
+    [data-theme="graphite"] .mention-builder-panel {
+        background:
+            radial-gradient(circle at top right, rgba(55, 148, 255, 0.12), transparent 55%),
+            linear-gradient(145deg, rgba(45, 45, 48, 0.96), rgba(37, 37, 38, 0.94));
+        box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+    }
+
+    [data-theme="graphite"] .mention-builder-chip {
+        color: #cfe8ff;
+        background: rgba(55, 148, 255, 0.14);
+        border-color: rgba(55, 148, 255, 0.28);
+    }
+
+    [data-theme="graphite"] .mention-builder-chip button {
+        color: #8cc8ff;
+    }
+
+    [data-theme="graphite"] .mention-builder-user,
+    [data-theme="graphite"] .inline-task-card,
+    [data-theme="graphite"] .create-channel-posture-option {
+        background: rgba(45, 45, 48, 0.94);
+        border-color: rgba(148, 163, 184, 0.16);
+    }
+
+    [data-theme="graphite"] .mention-builder-user:hover,
+    [data-theme="graphite"] .mention-builder-user.is-selected,
+    [data-theme="graphite"] .create-channel-posture-option:hover {
+        background: rgba(55, 148, 255, 0.12);
+    }
+
+    [data-theme="graphite"] .channel-header {
+        background: linear-gradient(145deg, rgba(45, 45, 48, 0.96), rgba(37, 37, 38, 0.94));
+        border-color: rgba(148, 163, 184, 0.18) !important;
+        box-shadow: 0 10px 22px rgba(0, 0, 0, 0.24);
+    }
+
+    [data-theme="graphite"] .channel-post-policy-summary,
+    [data-theme="graphite"] .channel-lifecycle-summary,
+    [data-theme="graphite"] .create-channel-posture-card {
+        background: linear-gradient(160deg, rgba(45, 45, 48, 0.96), rgba(37, 37, 38, 0.94));
+    }
+
+    [data-theme="graphite"] .channel-posting-gate {
+        background: linear-gradient(145deg, rgba(47, 43, 33, 0.96), rgba(37, 37, 38, 0.94));
+        border-color: rgba(210, 153, 34, 0.24);
+        color: var(--canopy-text-primary);
+    }
+
     @media (max-width: 1199.98px) {
         .channel-inline-desc {
             display: none;
@@ -3878,6 +4015,23 @@
     background: linear-gradient(135deg, rgba(219, 234, 254, 0.98), rgba(220, 252, 231, 0.92)) !important;
     border-color: rgba(96, 165, 250, 0.24);
     box-shadow: 0 10px 20px rgba(15, 23, 42, 0.08);
+}
+
+:is([data-theme="outlook"], [data-theme="teams"]) .channel-item.active {
+    background: color-mix(in srgb, var(--canopy-primary) 12%, #ffffff) !important;
+    border-color: color-mix(in srgb, var(--canopy-primary) 28%, var(--canopy-border));
+    box-shadow: var(--canopy-surface-shadow-soft);
+}
+
+[data-theme="graphite"] .channel-item.active {
+    background: linear-gradient(135deg, rgba(55, 148, 255, 0.16), rgba(79, 193, 255, 0.08)) !important;
+    border-color: rgba(55, 148, 255, 0.3);
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.24);
+}
+
+[data-theme="graphite"] .channel-item.active .channel-pin-btn,
+[data-theme="graphite"] .channel-item.active .channel-tools-toggle {
+    color: rgba(204, 204, 204, 0.92);
 }
 
 .channel-item.channel-pinned .channel-pin-btn {
