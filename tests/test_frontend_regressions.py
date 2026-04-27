@@ -408,6 +408,10 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertTrue((ROOT / 'canopy' / 'ui' / 'static' / 'icons' / 'canopy-wordmark.png').exists())
         self.assertIn("icons/canopy-wordmark.png", base_template)
         self.assertNotIn('<span class="brand-text">Canopy</span>', base_template)
+        brand_logo_blocks = base_template.split('.navbar-brand img.brand-logo')
+        self.assertIn('filter: none;', brand_logo_blocks[1])
+        for block in brand_logo_blocks[1:]:
+            self.assertNotIn('drop-shadow', block.split('}', 1)[0])
         self.assertIn('[data-theme="light"] {', base_template)
         self.assertIn('--canopy-bg-secondary: #ffffff;', base_template)
         self.assertIn('--canopy-navbar-bg: rgba(255, 255, 255, 0.92);', base_template)

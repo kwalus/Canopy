@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.6.44-blue" alt="Version 0.6.44">
+  <img src="https://img.shields.io/badge/version-0.6.45-blue" alt="Version 0.6.45">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -117,6 +117,7 @@ Recent end-user improvements reflected in the app and docs:
 - **Graphite theme adds a neutral VS Code-style dark option while light mode cleans up left-rail widgets** — Profile now offers a grey/blue dark theme for users who want less green, and the Connected peers, DM contacts, and mini media widgets in the left sidebar now use proper light surfaces instead of leftover dark fills.
 - **Outlook and Teams themes expand the demo palette while the main pages get a deeper theme consistency pass** — Profile now offers Microsoft-inspired blue and indigo themes, light-mode DM message boxes have stronger contrast, and Graphite/Outlook/Teams receive page-level polish across Messages, Feed, Channels, Connect, and Trust.
 - **Channels now has sharper light and Graphite contrast for demo screenshots** — message cards, reply blocks, channel rows, header chrome, action buttons, and the shared wordmark receive stronger theme-aware separation so busy channel views stay readable in both day and dark presentations.
+- **The header wordmark now avoids Windows PNG aliasing artifacts** — theme glow is rendered behind the logo instead of applying CSS filters directly to the wordmark image, keeping the text edge clean across platforms.
 - **Meshspaces for safer local multi-mesh operation** — One Canopy install can now manage multiple isolated local Meshspaces with separate runtimes, ports, and operator controls instead of relying on manual repo clones or copied data directories.
 - **Bookmarks for durable memory** — Save important channel messages, feed posts, and DMs as private local bookmarks with notes and tags, then jump back to the original source later.
 - **Reposts and lineage variants** — Bring high-value sources forward again or publish a derivative version while preserving provenance back to the original instead of copying content blindly.

@@ -505,6 +505,18 @@
             gap: 0.5rem;
             white-space: nowrap;
             min-width: 0;
+            position: relative;
+            isolation: isolate;
+        }
+        .navbar-brand::before {
+            content: "";
+            position: absolute;
+            inset: -6px -10px;
+            z-index: -1;
+            border-radius: 999px;
+            background: radial-gradient(circle, color-mix(in srgb, var(--canopy-primary) 18%, transparent), transparent 68%);
+            opacity: 0.78;
+            pointer-events: none;
         }
         .navbar-brand .brand-text {
             white-space: nowrap;
@@ -516,9 +528,8 @@
             max-width: 100%;
             object-fit: contain;
             display: block;
-            filter:
-                drop-shadow(0 0 1px color-mix(in srgb, var(--canopy-text-primary) 65%, transparent))
-                drop-shadow(0 7px 16px color-mix(in srgb, var(--canopy-primary) 28%, transparent));
+            filter: none;
+            image-rendering: auto;
         }
         @media (min-width: 1200px) {
             .navbar-brand img.brand-logo {
@@ -4941,13 +4952,11 @@
             text-shadow: 0 0 20px rgba(74, 222, 128, 0.6);
         }
 
-        [data-theme="eco"] .navbar-brand img.brand-logo {
-            filter: drop-shadow(0 0 10px rgba(74, 222, 128, 0.5));
-        }
-
         /* ===== Light Theme Component Overrides ===== */
-        [data-theme="light"] .navbar-brand img.brand-logo {
-            filter: drop-shadow(0 6px 14px rgba(15, 23, 42, 0.12));
+        [data-theme="light"] .navbar-brand::before,
+        :is([data-theme="outlook"], [data-theme="teams"]) .navbar-brand::before {
+            background: radial-gradient(circle, rgba(15, 23, 42, 0.1), transparent 68%);
+            opacity: 0.56;
         }
 
         [data-theme="light"] .navbar-toggler-icon {

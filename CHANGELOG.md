@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.45] - 2026-04-27
+
+### Fixed
+- **The header wordmark no longer applies CSS filters directly to the PNG asset** - the theme glow now sits behind the brand container, avoiding Windows aliasing artifacts while preserving a subtle dark-theme halo.
+
 ## [0.6.44] - 2026-04-26
 
 ### Changed
