@@ -186,6 +186,26 @@ def evaluate_file_access(
 
     try:
         with db_manager.get_connection() as conn:
+            avatar_row = conn.execute(
+                """
+                SELECT id, origin_peer
+                FROM users
+                WHERE COALESCE(avatar_file_id, '') = ?
+                LIMIT 1
+                """,
+                (file_id,),
+            ).fetchone()
+            if avatar_row:
+                avatar_user_id = str((avatar_row['id'] if hasattr(avatar_row, 'keys') else '') or '').strip()
+                origin_peer = str((avatar_row['origin_peer'] if hasattr(avatar_row, 'keys') else '') or '').strip()
+                evidences.append(FileAccessEvidence(
+                    source_type='user_profile_avatar',
+                    source_id=avatar_user_id or file_id,
+                    detail=f"origin_peer:{origin_peer or 'local'}",
+                    can_view=True,
+                ))
+                return FileAccessResult(True, 'profile-avatar', evidences[:max_evidence])
+
             # Channel messages (attachments + content references)
             channel_rows = conn.execute(
                 """

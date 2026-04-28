@@ -65,6 +65,7 @@ class TestProfilePageRegressions(unittest.TestCase):
         self.profile_manager.update_profile.return_value = True
         self.profile_manager.update_avatar.return_value = 'file-test-avatar'
         self.profile_manager.get_profile_card.return_value = None
+        self.file_manager = MagicMock()
 
         p2p_manager = MagicMock()
         p2p_manager.is_running.return_value = False
@@ -77,7 +78,7 @@ class TestProfilePageRegressions(unittest.TestCase):
             MagicMock(),             # trust_manager
             MagicMock(),             # message_manager
             MagicMock(),             # channel_manager
-            MagicMock(),             # file_manager
+            self.file_manager,       # file_manager
             MagicMock(),             # feed_manager
             MagicMock(),             # interaction_manager
             self.profile_manager,    # profile_manager
@@ -103,10 +104,14 @@ class TestProfilePageRegressions(unittest.TestCase):
     def tearDown(self) -> None:
         self.conn.close()
 
-    def _set_authenticated_session(self, csrf_token: str = 'csrf-test-token') -> None:
+    def _set_authenticated_session(
+        self,
+        csrf_token: str = 'csrf-test-token',
+        user_id: str = 'test-user',
+    ) -> None:
         with self.client.session_transaction() as sess:
             sess['authenticated'] = True
-            sess['user_id'] = 'test-user'
+            sess['user_id'] = user_id
             sess['_csrf_token'] = csrf_token
 
     def _seed_stats_tables(self) -> None:
@@ -188,6 +193,46 @@ class TestProfilePageRegressions(unittest.TestCase):
         payload = response.get_json() or {}
         self.assertTrue(payload.get('success'))
         self.assertEqual(payload.get('avatar_url'), '/files/file-test-avatar')
+
+    def test_non_admin_user_can_view_other_users_avatar_file(self) -> None:
+        self.conn.executescript(
+            """
+            CREATE TABLE users (
+                id TEXT PRIMARY KEY,
+                username TEXT,
+                display_name TEXT,
+                avatar_file_id TEXT,
+                origin_peer TEXT
+            );
+            """
+        )
+        self.conn.execute(
+            """
+            INSERT INTO users (id, username, display_name, avatar_file_id, origin_peer)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            ('test-user', 'test-user', 'Test User', 'file-test-avatar', ''),
+        )
+        self.conn.commit()
+        self._set_authenticated_session(user_id='viewer-user')
+
+        self.file_manager.get_file_data.return_value = (
+            b'avatar-bytes',
+            types.SimpleNamespace(
+                uploaded_by='test-user',
+                content_type='image/png',
+                original_name='avatar.png',
+                size=12,
+            ),
+        )
+        self.file_manager.log_file_access = MagicMock()
+
+        response = self.client.get('/files/file-test-avatar')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, b'avatar-bytes')
+        self.assertEqual(response.mimetype, 'image/png')
+        self.file_manager.log_file_access.assert_called_once()
 
     def test_profile_stats_use_real_data(self) -> None:
         self._seed_stats_tables()

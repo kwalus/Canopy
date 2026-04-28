@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.46] - 2026-04-28
+
+### Fixed
+- **Profile avatars are now visible to signed-in non-admin users when served through `/files/...`** - file access checks now recognize files currently assigned as user profile avatars, fixing the case where admins could see local avatars but ordinary local users received `403 Access denied`.
+
 ## [0.6.45] - 2026-04-27
 
 ### Fixed
