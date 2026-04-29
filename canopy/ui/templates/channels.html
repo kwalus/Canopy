@@ -9992,6 +9992,104 @@ function isChannelMediaPlaying() {
     return false;
 }
 
+function getChannelMessageSortTime(message) {
+    const raw = String((message && message.created_at) || '').trim();
+    if (!raw) return 0;
+    let normalized = raw.replace(' ', 'T');
+    if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(normalized)) {
+        normalized += 'Z';
+    }
+    const parsed = Date.parse(normalized);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function compareChannelMessagesByChronology(a, b) {
+    const timeDiff = getChannelMessageSortTime(a) - getChannelMessageSortTime(b);
+    if (timeDiff !== 0) return timeDiff;
+    return String((a && a.id) || '').localeCompare(String((b && b.id) || ''));
+}
+
+function cssEscapeValue(value) {
+    const raw = String(value || '');
+    if (typeof window !== 'undefined' && window.CSS && typeof window.CSS.escape === 'function') {
+        return window.CSS.escape(raw);
+    }
+    if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+        return CSS.escape(raw);
+    }
+    return raw.replace(/["\\]/g, '\\$&');
+}
+
+function getRenderedMessageElement(container, messageId) {
+    if (!container || !messageId) return null;
+    return container.querySelector(`.message-item[data-message-id="${cssEscapeValue(messageId)}"]`);
+}
+
+function insertRenderedMessageHtml(container, html, beforeNode = null) {
+    const template = document.createElement('template');
+    template.innerHTML = String(html || '').trim();
+    const inserted = [];
+    const targetParent = beforeNode && beforeNode.parentNode ? beforeNode.parentNode : container;
+    while (template.content.firstChild) {
+        const node = template.content.firstChild;
+        targetParent.insertBefore(node, beforeNode || null);
+        inserted.push(node);
+    }
+    return inserted;
+}
+
+function insertRenderedMessageHtmlAfter(container, html, afterNode = null) {
+    const targetParent = afterNode && afterNode.parentNode ? afterNode.parentNode : container;
+    const beforeNode = afterNode ? afterNode.nextSibling : null;
+    const template = document.createElement('template');
+    template.innerHTML = String(html || '').trim();
+    const inserted = [];
+    while (template.content.firstChild) {
+        const node = template.content.firstChild;
+        targetParent.insertBefore(node, beforeNode || null);
+        inserted.push(node);
+    }
+    return inserted;
+}
+
+function findNextRenderedRootElement(rootId, orderedRootMessages, container) {
+    let seenTarget = false;
+    for (const root of orderedRootMessages || []) {
+        const candidateId = String((root && root.id) || '');
+        if (!candidateId) continue;
+        if (candidateId === String(rootId || '')) {
+            seenTarget = true;
+            continue;
+        }
+        if (!seenTarget) continue;
+        const el = getRenderedMessageElement(container, candidateId);
+        if (el) return el;
+    }
+    return null;
+}
+
+function findNextRenderedReplyElement(rootId, replyId, orderedReplies, container) {
+    let seenTarget = false;
+    for (const reply of orderedReplies || []) {
+        const candidateId = String((reply && reply.id) || '');
+        if (!candidateId) continue;
+        if (candidateId === String(replyId || '')) {
+            seenTarget = true;
+            continue;
+        }
+        if (!seenTarget) continue;
+        const el = getRenderedMessageElement(container, candidateId);
+        if (el) return el;
+    }
+    return null;
+}
+
+function findLastRenderedThreadElement(rootId, container) {
+    if (!container || !rootId) return null;
+    const items = container.querySelectorAll(`.message-item[data-thread-root-id="${cssEscapeValue(rootId)}"]`);
+    return items.length ? items[items.length - 1] : null;
+}
+
 /**
  * Incrementally append only NEW messages to the DOM without destroying
  * existing elements. This preserves audio/video playback state.
@@ -10015,6 +10113,7 @@ function appendNewMessages(allMessages) {
 
     const threadLayout = buildChannelThreadLayout(allMessages);
     const replyMetaById = threadLayout.replyMetaById;
+    const rootOrder = new Map((threadLayout.rootMessages || []).map((message, index) => [String(message.id || ''), index]));
 
     // Separate new root messages and new replies (grouped by thread root)
     const newRoots = [];
@@ -10059,76 +10158,59 @@ function appendNewMessages(allMessages) {
         });
         window.mentionDisplayMap = map;
 
-        // Append new root messages at the end
+        // Insert new root messages in the same order as a full thread render.
         if (newRoots.length > 0) {
-            let html = '';
-            newRoots.forEach(m => { html += renderMessage(m, userInfo, replyMetaById[m.id] || false); });
-            const fragment = document.createElement('div');
-            fragment.innerHTML = html;
-            while (fragment.firstChild) {
-                const node = fragment.firstChild;
-                const nodeId = node && node.getAttribute ? node.getAttribute('data-message-id') : null;
-                if (nodeId && messagesContainer.querySelector(`.message-item[data-message-id="${CSS.escape(nodeId)}"]`)) {
-                    fragment.removeChild(node);
-                    continue;
-                }
-                messagesContainer.appendChild(node);
-            }
+            newRoots
+                .sort((a, b) => {
+                    const ai = rootOrder.has(String(a.id || '')) ? rootOrder.get(String(a.id || '')) : Number.MAX_SAFE_INTEGER;
+                    const bi = rootOrder.has(String(b.id || '')) ? rootOrder.get(String(b.id || '')) : Number.MAX_SAFE_INTEGER;
+                    if (ai !== bi) return ai - bi;
+                    return compareChannelMessagesByChronology(a, b);
+                })
+                .forEach(m => {
+                    if (getRenderedMessageElement(messagesContainer, m.id)) return;
+                    const html = renderMessage(m, userInfo, replyMetaById[m.id] || false);
+                    const insertBefore = findNextRenderedRootElement(m.id, threadLayout.rootMessages, messagesContainer);
+                    insertRenderedMessageHtml(messagesContainer, html, insertBefore);
+                });
         }
 
         let needsFullReload = false;
 
         // Append new replies after their thread root
-        Object.keys(newReplies).forEach(rootId => {
+        Object.keys(newReplies).sort((a, b) => {
+            const ai = rootOrder.has(String(a || '')) ? rootOrder.get(String(a || '')) : Number.MAX_SAFE_INTEGER;
+            const bi = rootOrder.has(String(b || '')) ? rootOrder.get(String(b || '')) : Number.MAX_SAFE_INTEGER;
+            if (ai !== bi) return ai - bi;
+            return String(a || '').localeCompare(String(b || ''));
+        }).forEach(rootId => {
             const replies = newReplies[rootId];
+            const orderedReplies = threadLayout.repliesByRoot[rootId] || [];
+            const replyOrder = new Map(orderedReplies.map((message, index) => [String(message.id || ''), index]));
             replies.sort((a, b) => {
-                const da = Number((replyMetaById[a.id] || {}).depth || 0);
-                const db = Number((replyMetaById[b.id] || {}).depth || 0);
-                if (da !== db) return da - db;
-                return (a.created_at || '').localeCompare(b.created_at || '');
+                const ai = replyOrder.has(String(a.id || '')) ? replyOrder.get(String(a.id || '')) : Number.MAX_SAFE_INTEGER;
+                const bi = replyOrder.has(String(b.id || '')) ? replyOrder.get(String(b.id || '')) : Number.MAX_SAFE_INTEGER;
+                if (ai !== bi) return ai - bi;
+                return compareChannelMessagesByChronology(a, b);
             });
-            let html = '';
-            replies.forEach(r => { html += renderMessage(r, userInfo, replyMetaById[r.id] || true); });
-            const fragment = document.createElement('div');
-            fragment.innerHTML = html;
-
-            const firstReplyMeta = replies.length > 0 ? (replyMetaById[replies[0].id] || null) : null;
-            const anchorId = (firstReplyMeta && firstReplyMeta.parentMessageId) ? firstReplyMeta.parentMessageId : rootId;
-            const anchorEl = messagesContainer.querySelector(`.message-item[data-message-id="${CSS.escape(anchorId)}"]`);
-            if (!anchorEl) {
-                needsFullReload = true;
-                return;
-            }
-            let insertAfter = anchorEl;
-            const anchorDepth = parseInt(anchorEl.getAttribute('data-thread-depth') || '0', 10);
-            let sibling = anchorEl.nextElementSibling;
-            while (sibling) {
-                const siblingRoot = String(sibling.getAttribute('data-thread-root-id') || '').trim();
-                const siblingDepth = parseInt(sibling.getAttribute('data-thread-depth') || '0', 10);
-                if (siblingRoot !== rootId) break;
-                if (!sibling.classList.contains('thread-reply')) break;
-                if (siblingDepth <= anchorDepth) break;
-                insertAfter = sibling;
-                sibling = sibling.nextElementSibling;
-            }
-
-            while (fragment.firstChild) {
-                const node = fragment.firstChild;
-                const nodeId = node && node.getAttribute ? node.getAttribute('data-message-id') : null;
-                if (nodeId && messagesContainer.querySelector(`.message-item[data-message-id="${CSS.escape(nodeId)}"]`)) {
-                    fragment.removeChild(node);
-                    continue;
+            replies.forEach(r => {
+                if (getRenderedMessageElement(messagesContainer, r.id)) return;
+                const html = renderMessage(r, userInfo, replyMetaById[r.id] || true);
+                const insertBefore = findNextRenderedReplyElement(rootId, r.id, orderedReplies, messagesContainer);
+                if (insertBefore) {
+                    insertRenderedMessageHtml(messagesContainer, html, insertBefore);
+                    return;
                 }
-                if (insertAfter && insertAfter.nextSibling) {
-                    messagesContainer.insertBefore(node, insertAfter.nextSibling);
-                } else {
-                    messagesContainer.appendChild(node);
+                const insertAfter = findLastRenderedThreadElement(rootId, messagesContainer);
+                if (!insertAfter) {
+                    needsFullReload = true;
+                    return;
                 }
-                insertAfter = node;
-            }
+                insertRenderedMessageHtmlAfter(messagesContainer, html, insertAfter);
+            });
         });
 
-            if (needsFullReload) {
+        if (needsFullReload) {
             displayMessages(allMessages, { forceScroll: wasNearBottom });
             return;
         }
@@ -10186,8 +10268,21 @@ function buildChannelThreadLayout(messages) {
         if (!message || !message.id || !message.parent_message_id) {
             return {
                 isReply: false,
+                isOrphanThreadRoot: false,
                 depth: 0,
                 threadRootId: message && message.id ? message.id : '',
+                parentMessageId: '',
+                parentAuthorId: '',
+                parentPreview: '',
+            };
+        }
+        const directParent = getKnownMessage(message.parent_message_id);
+        if (!directParent) {
+            return {
+                isReply: false,
+                isOrphanThreadRoot: true,
+                depth: 0,
+                threadRootId: String(message.id || ''),
                 parentMessageId: '',
                 parentAuthorId: '',
                 parentPreview: '',
@@ -10197,7 +10292,7 @@ function buildChannelThreadLayout(messages) {
         let cur = message;
         let root = message;
         const visited = new Set();
-        const parent = getKnownMessage(message.parent_message_id);
+        const parent = directParent;
         while (cur && cur.parent_message_id && !visited.has(cur.parent_message_id)) {
             const next = getKnownMessage(cur.parent_message_id);
             if (!next) break;
@@ -10208,6 +10303,7 @@ function buildChannelThreadLayout(messages) {
         }
         return {
             isReply: true,
+            isOrphanThreadRoot: false,
             depth: Math.max(1, depth || 1),
             threadRootId: root && root.id ? root.id : String(message.parent_message_id || message.id || ''),
             parentMessageId: String(message.parent_message_id || '').trim(),
@@ -10233,9 +10329,9 @@ function buildChannelThreadLayout(messages) {
         }
     });
 
-    rootMessages.sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''));
+    rootMessages.sort(compareChannelMessagesByChronology);
     Object.values(childrenByParent).forEach((items) => {
-        items.sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''));
+        items.sort(compareChannelMessagesByChronology);
     });
 
     function flattenChildren(parentId) {

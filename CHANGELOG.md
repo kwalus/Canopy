@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.48] - 2026-04-29
+
+### Fixed
+- **Channel image and media reply batches now keep their chronological position when the original parent is outside the current render window** - the browser thread layout promotes missing-parent replies into visible root order for the current pass instead of appending them after all normal roots as late orphan groups.
+- **Incremental channel updates now use the same ordering model as full renders** - late-arriving roots and replies are inserted around already-rendered messages according to computed thread order, reducing cases where catchup or media-heavy messages stick at the bottom until a full reload.
+
 ## [0.6.47] - 2026-04-29
 
 ### Changed

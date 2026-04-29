@@ -1,6 +1,9 @@
 """Lightweight frontend regression guards for template/script logic."""
 
+import json
 from pathlib import Path
+import shutil
+import subprocess
 import unittest
 
 
@@ -511,6 +514,44 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('data-thread-root-id="${threadRootId}"', channels_template)
         self.assertIn('data-thread-depth="${threadDepth}"', channels_template)
         self.assertIn("Replying to ${parentAuthor}", channels_template)
+
+    def test_channel_thread_layout_promotes_missing_parent_reply_into_root_order(self) -> None:
+        if not shutil.which('node'):
+            self.skipTest('node is required to execute channel thread layout regression')
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        start = channels_template.index('function getChannelMessageSortTime(message)')
+        end = channels_template.index('\n/**\n * Load older messages', start)
+        script = channels_template[start:end]
+        node_code = f"""
+let channelMessageCache = {{}};
+{script}
+const layout = buildChannelThreadLayout([
+  {{ id: 'older', created_at: '2026-04-29T13:00:00', content: 'older root' }},
+  {{ id: 'newer', created_at: '2026-04-29T13:30:00', content: 'newer root' }},
+  {{ id: 'orphan-root', parent_message_id: 'missing-parent', created_at: '2026-04-29T13:10:00', content: 'image deck root' }},
+  {{ id: 'orphan-child', parent_message_id: 'orphan-root', created_at: '2026-04-29T13:11:00', attachments: [{{ id: 'file-1' }}] }}
+]);
+console.log(JSON.stringify({{
+  rootIds: layout.rootMessages.map((m) => m.id),
+  orphanRootIds: layout.orphanRootIds,
+  orphanRootMeta: layout.replyMetaById['orphan-root'],
+  orphanChildMeta: layout.replyMetaById['orphan-child'],
+  orphanReplies: (layout.repliesByRoot['orphan-root'] || []).map((m) => m.id)
+}}));
+"""
+        result = subprocess.run(
+            ['node', '-e', node_code],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload['rootIds'], ['older', 'orphan-root', 'newer'])
+        self.assertEqual(payload['orphanRootIds'], [])
+        self.assertFalse(payload['orphanRootMeta']['isReply'])
+        self.assertTrue(payload['orphanRootMeta']['isOrphanThreadRoot'])
+        self.assertEqual(payload['orphanChildMeta']['threadRootId'], 'orphan-root')
+        self.assertEqual(payload['orphanReplies'], ['orphan-child'])
 
     def test_create_channel_defaults_to_private_and_resets_to_private(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
