@@ -47,6 +47,30 @@
                 </div>
             </div>
             <p class="bookmark-card-preview">{{ bookmark.preview }}</p>
+            {% if bookmark.preview_items %}
+            <div class="bookmark-preview-items" aria-label="Saved source preview">
+                {% for item in bookmark.preview_items %}
+                    {% if item.kind == 'image' and item.url %}
+                    <a class="bookmark-preview-image" href="{{ bookmark.open_href }}" title="{{ item.name }}">
+                        <img src="{{ item.url }}" alt="{{ item.name }}" loading="lazy">
+                    </a>
+                    {% else %}
+                    <a class="bookmark-preview-chip bookmark-preview-{{ item.kind }}" href="{{ bookmark.open_href }}" title="{{ item.name }}">
+                        {% if item.kind == 'video' %}
+                        <i class="bi bi-camera-video"></i>
+                        {% elif item.kind == 'audio' %}
+                        <i class="bi bi-soundwave"></i>
+                        {% elif item.kind == 'module' %}
+                        <i class="bi bi-window-stack"></i>
+                        {% else %}
+                        <i class="bi bi-paperclip"></i>
+                        {% endif %}
+                        <span>{{ item.name }}</span>
+                    </a>
+                    {% endif %}
+                {% endfor %}
+            </div>
+            {% endif %}
             <div class="bookmark-card-flags">
                 {% if bookmark.has_deck_default %}<span class="bookmark-flag">Deck-first</span>{% endif %}
                 {% if bookmark.hero_ref %}<span class="bookmark-flag">Composed source</span>{% endif %}
@@ -251,6 +275,67 @@
         color: var(--canopy-text-secondary);
         line-height: 1.55;
         white-space: pre-wrap;
+    }
+
+    .bookmark-preview-items {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+        gap: 0.55rem;
+    }
+
+    .bookmark-preview-image,
+    .bookmark-preview-chip {
+        min-width: 0;
+        border-radius: 12px;
+        border: 1px solid rgba(148, 163, 184, 0.22);
+        background: rgba(15, 23, 42, 0.46);
+        overflow: hidden;
+        text-decoration: none;
+    }
+
+    .bookmark-preview-image {
+        display: block;
+        aspect-ratio: 4 / 3;
+    }
+
+    .bookmark-preview-image img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    .bookmark-preview-chip {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        min-height: 58px;
+        padding: 0.55rem 0.65rem;
+        color: var(--canopy-text-secondary);
+    }
+
+    .bookmark-preview-chip i {
+        flex-shrink: 0;
+        color: #fcd34d;
+    }
+
+    .bookmark-preview-chip span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 0.82rem;
+        font-weight: 600;
+    }
+
+    [data-theme="light"] .bookmark-preview-image,
+    [data-theme="light"] .bookmark-preview-chip {
+        background: rgba(255, 255, 255, 0.9);
+        border-color: rgba(148, 163, 184, 0.28);
+    }
+
+    [data-theme="light"] .bookmark-preview-chip {
+        color: var(--canopy-text-secondary);
     }
 
     .bookmark-card-flags {

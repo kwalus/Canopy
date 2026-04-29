@@ -297,6 +297,9 @@ class TestBookmarkRoutes(unittest.TestCase):
         self.assertIsNotNone(saved)
         self.assertEqual(saved['title'], 'Piano Lab')
         self.assertEqual(saved['source_href'], '/feed?focus_post=POST-1')
+        preview_items = (saved.get('snapshot') or {}).get('preview_items') or []
+        self.assertEqual(preview_items[0]['kind'], 'image')
+        self.assertEqual(preview_items[0]['url'], '/files/F2')
 
         response = self.client.post(
             '/ajax/bookmarks/toggle',
@@ -324,6 +327,8 @@ class TestBookmarkRoutes(unittest.TestCase):
         self.assertIn('Bookmarks', body)
         self.assertIn('Nothing in this view is mesh-broadcast.', body)
         self.assertIn('Keyboard Hero', body)
+        self.assertIn('bookmark-preview-items', body)
+        self.assertIn('/files/F1', body)
 
         open_response = self.client.get(f"/bookmarks/open/{bookmark['id']}")
         self.assertEqual(open_response.status_code, 302)

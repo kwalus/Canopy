@@ -280,16 +280,41 @@
 
     .post-repost-thumb-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
         gap: 0.5rem;
+    }
+
+    .post-repost-thumb-grid.is-single {
+        grid-template-columns: minmax(0, min(420px, 100%));
+    }
+
+    .post-repost-thumb-link {
+        display: block;
+        overflow: hidden;
+        border-radius: 0.7rem;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        background: rgba(15, 23, 42, 0.46);
+        aspect-ratio: 4 / 3;
     }
 
     .post-repost-thumb-link img {
         width: 100%;
-        height: 96px;
+        height: 100%;
         object-fit: cover;
-        border-radius: 0.7rem;
-        border: 1px solid rgba(148, 163, 184, 0.18);
+        display: block;
+    }
+
+    .post-repost-thumb-grid.is-single .post-repost-thumb-link {
+        aspect-ratio: auto;
+    }
+
+    .post-repost-thumb-grid.is-single .post-repost-thumb-link img {
+        width: auto;
+        height: auto;
+        max-width: 100%;
+        max-height: 420px;
+        object-fit: contain;
+        margin-inline: auto;
     }
 
     .post-repost-actions {
@@ -1228,6 +1253,10 @@
     /* Reply context bar */
     #reply-context {
         display: none;
+        align-items: center;
+        gap: 0.4rem;
+        min-width: 0;
+        max-width: 100%;
         background: var(--canopy-bg-tertiary);
         border: 1px solid var(--canopy-border);
         border-radius: 6px;
@@ -1235,14 +1264,39 @@
         margin-bottom: 6px;
         font-size: 0.85rem;
         color: var(--canopy-text-secondary);
+        overflow: hidden;
+    }
+    #reply-context.is-visible {
+        display: flex;
+    }
+    #reply-context .reply-context-prefix {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        min-width: 0;
+        max-width: 45%;
+        flex: 0 1 auto;
+        white-space: nowrap;
+    }
+    #reply-author {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
     #reply-context .reply-preview {
+        flex: 1 1 auto;
+        min-width: 0;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        max-width: 500px;
-        display: inline-block;
-        vertical-align: middle;
+        max-width: 100%;
+        display: block;
+    }
+    #reply-context .btn-close {
+        flex-shrink: 0;
+        margin-left: auto;
+        float: none !important;
     }
 
     /* Search bar */
@@ -3737,10 +3791,13 @@
                 </div>
                 <!-- Reply context bar (shown when replying to a message) -->
                 <div id="reply-context">
-                    <i class="bi bi-reply me-1"></i>
-                    Replying to <strong id="reply-author"></strong>:
+                    <span class="reply-context-prefix">
+                        <i class="bi bi-reply"></i>
+                        <span>Replying to</span>
+                        <strong id="reply-author"></strong>
+                    </span>
                     <span class="reply-preview" id="reply-preview"></span>
-                    <button type="button" class="btn-close btn-close-sm float-end" onclick="cancelReply()" aria-label="Cancel reply" style="font-size: 0.6rem;"></button>
+                    <button type="button" class="btn-close btn-close-sm" onclick="cancelReply()" aria-label="Cancel reply" style="font-size: 0.6rem;"></button>
                 </div>
                 <form id="message-form" onsubmit="sendMessage(event)">
                     <div class="channel-lifespan-row mb-2">
@@ -7795,8 +7852,9 @@ function renderChannelRepostCard(message) {
     const embed = (ref.embed && typeof ref.embed === 'object') ? ref.embed : {};
     let thumbGrid = '';
     if (Array.isArray(embed.attachment_images) && embed.attachment_images.length) {
+        const attachmentImageCount = embed.attachment_images.length;
         thumbGrid = `
-            <div class="post-repost-thumb-grid mt-2">
+            <div class="post-repost-thumb-grid${attachmentImageCount === 1 ? ' is-single' : ''} mt-2">
                 ${embed.attachment_images.map((img) => `
                     <a href="${href}" class="post-repost-thumb-link" title="View original message">
                         <img src="${escapeHtml(String(img.url || ''))}" alt="${escapeHtml(String(img.name || 'Image'))}" loading="lazy">
@@ -7814,7 +7872,7 @@ function renderChannelRepostCard(message) {
     }
     if (ytIds.length) {
         embedLinkOrVideo = `
-            <div class="post-repost-thumb-grid mt-2">
+            <div class="post-repost-thumb-grid${ytIds.length === 1 ? ' is-single' : ''} mt-2">
                 ${ytIds.map((ytId) => `
                     <a href="${href}" class="post-repost-thumb-link" title="View original message">
                         <img src="https://img.youtube.com/vi/${ytId}/hqdefault.jpg" alt="" class="img-fluid rounded post-repost-embed-img" loading="lazy">
@@ -11081,7 +11139,9 @@ function pollChannelMessages() {
 function setReplyTo(messageId, authorName, preview) {
     replyToMessageId = messageId;
     replyToAuthor = authorName;
-    document.getElementById('reply-context').style.display = 'block';
+    const context = document.getElementById('reply-context');
+    context.classList.add('is-visible');
+    context.style.display = '';
     document.getElementById('reply-author').textContent = authorName;
     document.getElementById('reply-preview').textContent = preview || '(attachment)';
     updateChannelPostingGate();
@@ -11100,7 +11160,9 @@ function setReplyFromButton(button) {
 function cancelReply() {
     replyToMessageId = null;
     replyToAuthor = '';
-    document.getElementById('reply-context').style.display = 'none';
+    const context = document.getElementById('reply-context');
+    context.classList.remove('is-visible');
+    context.style.display = 'none';
     updateChannelPostingGate();
 }
 

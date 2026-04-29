@@ -1410,10 +1410,10 @@
                                                         </div>
                                                     {% endif %}
                                                     {% if em.get('attachment_images') %}
-                                                        <div class="post-repost-thumb-grid mt-2">
+                                                        <div class="post-repost-thumb-grid{% if em.attachment_images|length == 1 %} is-single{% endif %} mt-2">
                                                             {% for img in em.attachment_images %}
                                                                 <a href="{{ ref.href }}" class="post-repost-thumb-link" title="View original post">
-                                                                    <img src="{{ img.url }}" alt="{{ img.name }}" loading="lazy" width="120" height="120">
+                                                                    <img src="{{ img.url }}" alt="{{ img.name }}" loading="lazy">
                                                                 </a>
                                                             {% endfor %}
                                                         </div>
@@ -2090,14 +2090,24 @@
 
 .post-repost-embed-img,
 .post-repost-embed-video {
+    display: block;
+    width: auto;
+    height: auto;
+    max-width: 100%;
     max-height: 360px;
+    object-fit: contain;
+    margin-inline: auto;
 }
 
 .post-repost-thumb-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
-    gap: 0.4rem;
+    grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+    gap: 0.55rem;
     max-width: 100%;
+}
+
+.post-repost-thumb-grid.is-single {
+    grid-template-columns: minmax(0, min(420px, 100%));
 }
 
 .post-repost-thumb-link {
@@ -2105,7 +2115,12 @@
     border-radius: 0.45rem;
     overflow: hidden;
     border: 1px solid rgba(255, 255, 255, 0.08);
-    aspect-ratio: 1;
+    aspect-ratio: 4 / 3;
+    background: rgba(15, 23, 42, 0.46);
+}
+
+.post-repost-thumb-grid.is-single .post-repost-thumb-link {
+    aspect-ratio: auto;
 }
 
 .post-repost-thumb-link img {
@@ -2113,6 +2128,16 @@
     height: 100%;
     object-fit: cover;
     vertical-align: middle;
+    display: block;
+}
+
+.post-repost-thumb-grid.is-single .post-repost-thumb-link img {
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 420px;
+    object-fit: contain;
+    margin-inline: auto;
 }
 
 .post-repost-actions {

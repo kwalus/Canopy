@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.47] - 2026-04-29
+
+### Changed
+- **Reposted media now preserves single-image aspect ratios in Feed and Channels** - single-image repost previews use a bounded contain layout instead of the compact grid crop, while multi-image reposts keep the existing thumbnail grid treatment.
+- **Bookmark cards now carry lightweight media preview context** - saved feed posts, channel messages, and DMs can snapshot up to four preview items so media-rich saved sources are easier to recognize without changing the bookmark data model.
+- **The channel reply composer now handles long reply context on narrow panes** - the "Replying to" bar uses width-safe flex layout and ellipsis behavior so long author names or previews stay inside the composer.
+
 ## [0.6.46] - 2026-04-28
 
 ### Fixed

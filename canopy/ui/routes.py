@@ -2035,6 +2035,92 @@ def create_ui_blueprint() -> Blueprint:
             return f'{count} attachment' + ('s' if count != 1 else '')
         return ''
 
+    def _bookmark_safe_preview_url(value: Any) -> str:
+        url = str(value or '').strip()
+        if not url:
+            return ''
+        if url.startswith('/files/'):
+            return url
+        try:
+            parsed = urlparse(url)
+        except Exception:
+            return ''
+        if parsed.scheme in {'http', 'https'} and parsed.netloc:
+            return url
+        return ''
+
+    def _bookmark_attachment_preview_items(attachments: Any, limit: int = 4) -> list[dict[str, str]]:
+        if not isinstance(attachments, list):
+            return []
+        items: list[dict[str, str]] = []
+        for entry in attachments:
+            if not isinstance(entry, dict):
+                continue
+            typ = str(
+                entry.get('type')
+                or entry.get('content_type')
+                or entry.get('mime_type')
+                or ''
+            ).strip().lower()
+            name = str(
+                entry.get('name')
+                or entry.get('filename')
+                or entry.get('original_name')
+                or entry.get('file_name')
+                or ''
+            ).strip()
+            file_id = str(entry.get('id') or entry.get('file_id') or '').strip()
+            raw_url = str(entry.get('url') or '').strip()
+            if not raw_url and file_id and typ.startswith('image/'):
+                raw_url = f'/files/{file_id}'
+            safe_url = _bookmark_safe_preview_url(raw_url)
+            if typ.startswith('image/') and safe_url:
+                kind = 'image'
+            elif typ.startswith('video/'):
+                kind = 'video'
+            elif typ.startswith('audio/'):
+                kind = 'audio'
+            elif name.lower().endswith(('.canopy-module.html', '.canopy-module.htm')):
+                kind = 'module'
+            else:
+                kind = 'file'
+            items.append({
+                'kind': kind,
+                'name': name or kind.title(),
+                'type': typ,
+                'url': safe_url if kind == 'image' else '',
+            })
+            if len(items) >= limit:
+                break
+        return items
+
+    def _bookmark_feed_preview_items(metadata: Any, attachments: Any) -> list[dict[str, str]]:
+        meta = metadata if isinstance(metadata, dict) else {}
+        items = _bookmark_attachment_preview_items(attachments)
+        image_url = _bookmark_safe_preview_url(meta.get('image_url'))
+        if image_url and not any(item.get('url') == image_url for item in items):
+            items.insert(0, {
+                'kind': 'image',
+                'name': str(meta.get('title') or 'Image preview').strip() or 'Image preview',
+                'type': 'image',
+                'url': image_url,
+            })
+        elif str(meta.get('video_url') or '').strip() and not any(item.get('kind') == 'video' for item in items):
+            items.insert(0, {
+                'kind': 'video',
+                'name': str(meta.get('title') or 'Video').strip() or 'Video',
+                'type': str(meta.get('video_type') or 'video').strip() or 'video',
+                'url': '',
+            })
+        elif str(meta.get('audio_url') or '').strip() and not any(item.get('kind') == 'audio' for item in items):
+            items.insert(0, {
+                'kind': 'audio',
+                'name': str(meta.get('title') or 'Audio').strip() or 'Audio',
+                'type': str(meta.get('audio_type') or 'audio').strip() or 'audio',
+                'url': '',
+            })
+        return items[:4]
+
     def _bookmark_extract_layout_refs(source_layout: Any) -> tuple[Optional[str], Optional[str]]:
         if not isinstance(source_layout, dict):
             return (None, None)
@@ -2156,6 +2242,7 @@ def create_ui_blueprint() -> Blueprint:
             'created_at': row['created_at'],
             'message_type': row['message_type'],
             'attachment_count': len(attachments),
+            'preview_items': _bookmark_attachment_preview_items(attachments),
             'has_source_layout': bool(source_layout),
             'has_deck_default': bool(deck_default_ref),
         }
@@ -2214,6 +2301,7 @@ def create_ui_blueprint() -> Blueprint:
             'visibility': post.visibility.value if getattr(post, 'visibility', None) else None,
             'post_type': post.post_type.value if getattr(post, 'post_type', None) else 'text',
             'attachment_count': len(attachments),
+            'preview_items': _bookmark_feed_preview_items(metadata, attachments),
             'has_source_layout': bool(source_layout),
             'has_deck_default': bool(deck_default_ref),
         }
@@ -2416,6 +2504,7 @@ def create_ui_blueprint() -> Blueprint:
             'created_at': row['created_at'],
             'message_type': row['message_type'],
             'attachment_count': len(attachments),
+            'preview_items': _bookmark_attachment_preview_items(attachments),
             'has_source_layout': bool(source_layout),
             'has_deck_default': bool(deck_default_ref),
         }
@@ -7117,6 +7206,7 @@ def create_ui_blueprint() -> Blueprint:
             for entry in bookmark_manager.list_bookmarks(user_id, limit=400):
                 snapshot = entry.get('snapshot') if isinstance(entry.get('snapshot'), dict) else {}
                 source_type = str(entry.get('source_type') or '').strip()
+                preview_items = snapshot.get('preview_items') if isinstance(snapshot.get('preview_items'), list) else []
                 bookmarks.append(
                     {
                         'id': entry.get('id'),
@@ -7130,6 +7220,7 @@ def create_ui_blueprint() -> Blueprint:
                         'created_at': entry.get('created_at'),
                         'last_opened_at': entry.get('last_opened_at'),
                         'attachment_count': int(snapshot.get('attachment_count') or 0),
+                        'preview_items': preview_items[:4],
                         'has_source_layout': bool(snapshot.get('has_source_layout')),
                         'has_deck_default': bool(entry.get('deck_default_ref')),
                         'hero_ref': entry.get('hero_ref'),

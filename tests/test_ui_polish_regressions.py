@@ -67,6 +67,23 @@ class TestUiPolishRegressions(unittest.TestCase):
         channels = (ROOT / "canopy" / "ui" / "templates" / "channels.html").read_text(encoding="utf-8")
         self.assertIn('aria-label="Cancel reply"', channels)
 
+    def test_repost_media_preserves_single_image_aspect_ratio(self) -> None:
+        feed = (ROOT / "canopy" / "ui" / "templates" / "feed.html").read_text(encoding="utf-8")
+        channels = (ROOT / "canopy" / "ui" / "templates" / "channels.html").read_text(encoding="utf-8")
+        self.assertIn('post-repost-thumb-grid{% if em.attachment_images|length == 1 %} is-single{% endif %}', feed)
+        self.assertIn('.post-repost-thumb-grid.is-single .post-repost-thumb-link img', feed)
+        self.assertIn("post-repost-thumb-grid${attachmentImageCount === 1 ? ' is-single' : ''} mt-2", channels)
+        self.assertIn('.post-repost-thumb-grid.is-single .post-repost-thumb-link img', channels)
+
+    def test_channel_reply_context_is_width_safe(self) -> None:
+        channels = (ROOT / "canopy" / "ui" / "templates" / "channels.html").read_text(encoding="utf-8")
+        self.assertIn('#reply-context.is-visible', channels)
+        self.assertIn('class="reply-context-prefix"', channels)
+        self.assertIn("context.classList.add('is-visible');", channels)
+        self.assertIn("context.classList.remove('is-visible');", channels)
+        self.assertIn('#reply-context .reply-preview', channels)
+        self.assertIn('text-overflow: ellipsis;', channels)
+
     def test_channel_primary_actions_keep_reply_bookmark_repost_visible(self) -> None:
         channels = (ROOT / "canopy" / "ui" / "templates" / "channels.html").read_text(encoding="utf-8")
         self.assertIn("Reply</span>", channels)
