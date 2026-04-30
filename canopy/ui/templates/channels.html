@@ -7938,7 +7938,7 @@ function renderChannelRepostCard(message) {
                     <a class="btn btn-sm btn-outline-primary" href="${href}">
                         <i class="bi bi-box-arrow-up-right me-1" aria-hidden="true"></i>Open original
                     </a>
-                    ${ref.source_id && ref.available !== false && ref.has_source_layout !== false ? `
+                    ${ref.source_id && ref.available !== false && ref.has_source_layout === true ? `
                     <button type="button" class="btn btn-sm btn-outline-primary"
                         onclick="canopyOpenChannelAntecedentDeck('${escapeHtml(String(ref.source_id)).replace(/'/g, '\\&#39;')}'); return false;"
                         title="Open the original source deck here">
@@ -7985,7 +7985,7 @@ function renderChannelVariantCard(message) {
                 </span>
                 <a class="link-light link-underline-opacity-50 link-underline-opacity-100-hover" href="${href}" title="Open the antecedent message">Antecedent${antecedentAuthor}</a>
                 ${createdAt ? `<span class="text-muted" data-timestamp="${createdAt}">${createdAt}</span>` : ''}
-                ${ref.source_id && ref.has_source_layout !== false ? `
+                ${ref.source_id && ref.has_source_layout === true ? `
                 <button type="button" class="btn btn-sm btn-outline-primary"
                     onclick="canopyOpenChannelAntecedentDeck('${escapeHtml(String(ref.source_id)).replace(/'/g, '\\&#39;')}'); return false;"
                     title="Open the antecedent deck here">
@@ -8169,7 +8169,7 @@ function renderMessage(message, userInfo, isReply) {
                                 aria-label="Repost source in this channel">
                             <i class="bi bi-repeat"></i><span class="action-label">Repost</span>
                         </button>
-                        ${message.is_repost && message.repost_reference && message.repost_reference.source_id && message.repost_reference.available !== false && message.repost_reference.has_source_layout !== false ? `
+                        ${message.is_repost && message.repost_reference && message.repost_reference.source_id && message.repost_reference.available !== false && message.repost_reference.has_source_layout === true ? `
                         <button type="button" class="btn btn-sm btn-outline-secondary icon-action-btn"
                                 onclick="canopyOpenChannelAntecedentDeck('${escapeHtml(String(message.repost_reference.source_id))}'); return false;"
                                 title="Open the original source deck here"

@@ -1021,6 +1021,16 @@ console.log(JSON.stringify({{
         self.assertIn("deckLayoutLastQueueCount", main_js)
         self.assertIn("deck.classList.toggle('is-module-active', moduleActive);", main_js)
 
+    def test_repost_deck_buttons_require_explicit_deck_capable_flag(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+
+        self.assertGreaterEqual(feed_template.count('ref.has_source_layout|default(false)'), 2)
+        self.assertNotIn('ref.has_source_layout|default(true)', feed_template)
+        self.assertIn('ref.has_source_layout === true', channels_template)
+        self.assertIn('message.repost_reference.has_source_layout === true', channels_template)
+        self.assertNotIn('has_source_layout !== false', channels_template)
+
     def test_media_deck_switching_uses_central_deactivation_and_disconnect_cleanup(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
         self.assertIn("function clearOrphanedDockedMedia(el, type, sourceEl) {", main_js)

@@ -1321,7 +1321,7 @@
                                                 {% if ref.created_at %}
                                                     <span class="text-muted" data-timestamp="{{ ref.created_at }}">{{ ref.created_at }}</span>
                                                 {% endif %}
-                                                {% if ref.source_id and (ref.has_source_layout|default(true)) %}
+                                                {% if ref.source_id and (ref.has_source_layout|default(false)) %}
                                                 <button type="button" class="btn btn-sm btn-outline-primary"
                                                         onclick="canopyNavigateFeedDeckForPostId({{ ref.source_id|tojson }})"
                                                         title="Jump to the antecedent post and open its deck">
@@ -1423,7 +1423,7 @@
                                                     <a class="btn btn-sm btn-outline-primary" href="{{ ref.href }}">
                                                         <i class="bi bi-box-arrow-up-right me-1" aria-hidden="true"></i>Open original
                                                     </a>
-                                                    {% if ref.source_id and (ref.has_source_layout|default(true)) %}
+                                                    {% if ref.source_id and (ref.has_source_layout|default(false)) %}
                                                     <button type="button" class="btn btn-sm btn-outline-primary"
                                                             onclick="canopyNavigateFeedDeckForPostId({{ ref.source_id|tojson }})"
                                                             title="Jump to the original post and open its deck">

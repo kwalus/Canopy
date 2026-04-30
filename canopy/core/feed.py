@@ -271,20 +271,17 @@ def _repost_embed_from_original(original: Post) -> Dict[str, Any]:
 
 
 _REPOST_EMBED_KEYS_IMPLYING_DECK_QUEUE = frozenset({
-    'link_url',
-    'image_url',
     'video_url',
     'audio_url',
-    'attachment_images',
 })
 
 
-def _metadata_has_canopy_module_attachment(metadata: Any, db_manager: Any = None) -> bool:
-    """True when attachments include HTML the feed deck can run (modules or demos).
+def _metadata_has_deck_capable_attachment(metadata: Any, db_manager: Any = None) -> bool:
+    """True when attachments include media/widgets the feed deck can actually queue.
 
-    Feed UI treats ``.html`` / ``.htm`` attachments as module-capable; MIME is often
-    wrong (e.g. ``application/octet-stream``). Align repost ``has_source_layout`` with
-    that so Deck appears on repost cards.
+    Static image attachments render as repost previews/lightbox targets, but the current
+    deck runtime does not queue images. Keep the repost Deck button limited to playable
+    audio/video and executable HTML/module attachments.
 
     When dicts only have ``id``/``file_id``, optional ``db_manager`` reads ``files``
     for ``original_name`` / ``content_type``.
@@ -307,6 +304,8 @@ def _metadata_has_canopy_module_attachment(metadata: Any, db_manager: Any = None
             or item.get('file_name')
             or ''
         ).lower()
+        if typ.startswith('audio/') or typ.startswith('video/'):
+            return True
         if name.endswith('.canopy-module.html') or name.endswith('.canopy-module.htm'):
             return True
         if typ.startswith('text/html'):
@@ -332,32 +331,13 @@ def _metadata_has_canopy_module_attachment(metadata: Any, db_manager: Any = None
             db_ct = str(row['content_type'] or '').lower()
         except (TypeError, KeyError, IndexError):
             continue
-        if db_ct.startswith('image/') or db_ct.startswith('video/') or db_ct.startswith('audio/'):
+        if db_ct.startswith('video/') or db_ct.startswith('audio/'):
             return True
         if db_name.endswith('.canopy-module.html') or db_name.endswith('.canopy-module.htm'):
             return True
         if db_ct.startswith('text/html'):
             return True
         if db_name.endswith('.html') or db_name.endswith('.htm'):
-            return True
-    return False
-
-
-def _metadata_has_any_file_attachment(metadata: Any) -> bool:
-    """True when the post metadata lists at least one stored file attachment by id.
-
-    Covers replication/sync where filenames or MIME are missing on the message row but
-    the source post still has a deck-capable surface when opened.
-    """
-    if not isinstance(metadata, dict):
-        return False
-    attachments = metadata.get('attachments')
-    if not isinstance(attachments, list):
-        return False
-    for item in attachments:
-        if not isinstance(item, dict):
-            continue
-        if str(item.get('id') or item.get('file_id') or '').strip():
             return True
     return False
 
@@ -1479,8 +1459,7 @@ class FeedManager:
         has_deck_ui = (
             bool(source_layout)
             or _repost_embed_implies_deck_queue(embed)
-            or _metadata_has_canopy_module_attachment(meta, self.db)
-            or _metadata_has_any_file_attachment(meta)
+            or _metadata_has_deck_capable_attachment(meta, self.db)
         )
         result.update({
             'available': True,
@@ -1585,8 +1564,7 @@ class FeedManager:
         has_deck_ui = (
             bool(source_layout)
             or _repost_embed_implies_deck_queue(embed)
-            or _metadata_has_canopy_module_attachment(meta, self.db)
-            or _metadata_has_any_file_attachment(meta)
+            or _metadata_has_deck_capable_attachment(meta, self.db)
         )
         result.update({
             'available': True,

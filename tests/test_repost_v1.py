@@ -167,6 +167,95 @@ class TestFeedRepostManager(unittest.TestCase):
         original_row = self.manager.get_post(original.id)
         self.assertEqual(original_row.shares, 1)
 
+    def test_resolve_repost_reference_sets_deck_flag_without_source_layout(self) -> None:
+        """Repost cards should offer Deck when the antecedent is module/media-backed."""
+        module_original = self._create_feed_post(
+            visibility=PostVisibility.NETWORK,
+            content='Module surface',
+            metadata={
+                'attachments': [
+                    {'id': 'M1', 'name': 'App.canopy-module.html', 'type': 'text/html'},
+                ],
+            },
+        )
+        module_repost = self.manager.create_repost(module_original.id, 'reposter', 'Share module')
+        self.assertIsNotNone(module_repost)
+        resolved_mod = self.manager.resolve_repost_reference(module_repost, 'viewer')
+        self.assertTrue(resolved_mod['available'])
+        self.assertTrue(resolved_mod['has_source_layout'])
+
+        video_original = self.manager.create_post(
+            author_id='author',
+            content='',
+            post_type=PostType.VIDEO,
+            visibility=PostVisibility.NETWORK,
+            metadata={'video_url': 'https://example.com/clip.mp4'},
+        )
+        self.assertIsNotNone(video_original)
+        video_repost = self.manager.create_repost(video_original.id, 'reposter', 'Share video')
+        self.assertIsNotNone(video_repost)
+        resolved_vid = self.manager.resolve_repost_reference(video_repost, 'viewer')
+        self.assertTrue(resolved_vid['available'])
+        self.assertTrue(resolved_vid['has_source_layout'])
+
+        html_demo = self._create_feed_post(
+            visibility=PostVisibility.NETWORK,
+            content='Open the attachment below to try it.',
+            metadata={
+                'attachments': [
+                    {
+                        'id': 'H1',
+                        'filename': 'stego-demo.html',
+                        'type': 'application/octet-stream',
+                    },
+                ],
+            },
+        )
+        html_repost = self.manager.create_repost(html_demo.id, 'reposter', 'Share demo')
+        self.assertIsNotNone(html_repost)
+        resolved_html = self.manager.resolve_repost_reference(html_repost, 'viewer')
+        self.assertTrue(resolved_html['available'])
+        self.assertTrue(
+            resolved_html['has_source_layout'],
+            'Plain .html attachments should flag deck UI (matches feed module card rules)',
+        )
+
+        id_only = self._create_feed_post(
+            visibility=PostVisibility.NETWORK,
+            content='See attachment',
+            metadata={'attachments': [{'id': 'Fz9'}]},
+        )
+        id_repost = self.manager.create_repost(id_only.id, 'reposter', 'Share file')
+        self.assertIsNotNone(id_repost)
+        resolved_id = self.manager.resolve_repost_reference(id_repost, 'viewer')
+        self.assertTrue(resolved_id['available'])
+        self.assertFalse(
+            resolved_id['has_source_layout'],
+            'Unknown/id-only attachments should not expose a Deck button the source card cannot open',
+        )
+
+    def test_resolve_repost_reference_does_not_set_deck_flag_for_image_only_source(self) -> None:
+        image_post = self.manager.create_post(
+            author_id='author',
+            content='Static image only',
+            post_type=PostType.IMAGE,
+            visibility=PostVisibility.NETWORK,
+            metadata={
+                'image_url': '/files/Fimg',
+                'attachments': [{'id': 'Fimg', 'name': 'photo.png', 'type': 'image/png', 'url': '/files/Fimg'}],
+            },
+        )
+        self.assertIsNotNone(image_post)
+        image_repost = self.manager.create_repost(image_post.id, 'reposter', 'Share image')
+        self.assertIsNotNone(image_repost)
+
+        resolved = self.manager.resolve_repost_reference(image_repost, 'viewer')
+
+        self.assertTrue(resolved['available'])
+        self.assertFalse(resolved['has_source_layout'])
+        self.assertEqual(resolved.get('embed', {}).get('image_url'), '/files/Fimg')
+        self.assertIn('attachment_images', resolved.get('embed') or {})
+
     def test_generic_create_and_update_strip_forged_repost_metadata(self) -> None:
         created = self.manager.create_post(
             author_id='author',

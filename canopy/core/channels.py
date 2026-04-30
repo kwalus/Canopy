@@ -265,7 +265,7 @@ def _channel_attachment_list_signals_deck_queue(
             or item.get('file_name')
             or ''
         ).lower()
-        if typ.startswith('image/') or typ.startswith('video/') or typ.startswith('audio/'):
+        if typ.startswith('video/') or typ.startswith('audio/'):
             return True
         if name.endswith('.canopy-module.html') or name.endswith('.canopy-module.htm'):
             return True
@@ -292,7 +292,7 @@ def _channel_attachment_list_signals_deck_queue(
             db_ct = str(row['content_type'] or '').lower()
         except (TypeError, KeyError, IndexError):
             continue
-        if db_ct.startswith('image/') or db_ct.startswith('video/') or db_ct.startswith('audio/'):
+        if db_ct.startswith('video/') or db_ct.startswith('audio/'):
             return True
         if db_name.endswith('.canopy-module.html') or db_name.endswith('.canopy-module.htm'):
             return True
@@ -309,9 +309,7 @@ def _channel_original_signals_deck_ui(
     db_manager: Any = None,
 ) -> bool:
     """Deck-eligible antecedent without requiring persisted source_layout JSON."""
-    if embed.get('attachment_images'):
-        return True
-    if str(embed.get('link_url') or embed.get('video_url') or '').strip():
+    if str(embed.get('video_url') or '').strip():
         return True
     if str(embed.get('youtube_video_id') or '').strip():
         return True
@@ -322,15 +320,14 @@ def _channel_original_signals_deck_ui(
     if _channel_attachment_list_signals_deck_queue(atts, db_manager):
         return True
     mt = getattr(original, 'message_type', None)
-    if mt in (MessageType.IMAGE, MessageType.LINK):
-        return True
-    # FILE (or any row with stored attachments) usually has a renderable surface on the source card.
+    # Stored attachment rows still need media/module hints; static images preview inline
+    # but are not queueable deck items.
     if isinstance(atts, list) and len(atts) > 0 and mt in (
         MessageType.FILE,
         MessageType.TEXT,
         MessageType.THREAD_REPLY,
     ):
-        return True
+        return _channel_attachment_list_signals_deck_queue(atts, db_manager)
     return False
 
 

@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.49] - 2026-04-29
+
+### Fixed
+- **Image-only reposts no longer show a non-functional Deck button** - Feed and Channels now expose repost/variant Deck controls only when the antecedent can actually produce deck queue items, such as explicit `source_layout`, playable audio/video, YouTube, HTML, or Canopy module content.
+- **Static image repost previews remain visible without implying deck capability** - image embeds and image attachments continue to render on repost cards, while generic links, static images, and unresolved id-only attachments no longer create a false deck affordance.
+
 ## [0.6.48] - 2026-04-29
 
 ### Fixed
