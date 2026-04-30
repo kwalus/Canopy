@@ -11573,6 +11573,32 @@
             
             // Sidebar states: 'expanded', 'collapsed', 'hidden'
             let currentState = localStorage.getItem('sidebar-state') || 'expanded';
+
+            function syncCompactNavTitles(state) {
+                const compact = state === 'collapsed';
+                sidebar.querySelectorAll('.nav-link[data-title]').forEach((link) => {
+                    const compactTitle = String(link.getAttribute('data-title') || '').trim();
+                    if (compact && compactTitle) {
+                        if (!link.hasAttribute('data-expanded-title')) {
+                            link.setAttribute('data-expanded-title', link.getAttribute('title') || '');
+                        }
+                        link.setAttribute('title', compactTitle);
+                        link.setAttribute('aria-label', compactTitle);
+                        return;
+                    }
+
+                    const previousTitle = link.getAttribute('data-expanded-title');
+                    if (previousTitle !== null) {
+                        if (previousTitle) {
+                            link.setAttribute('title', previousTitle);
+                        } else {
+                            link.removeAttribute('title');
+                        }
+                        link.removeAttribute('data-expanded-title');
+                    }
+                    link.removeAttribute('aria-label');
+                });
+            }
             
             // Check if mobile and adjust initial state
             if (window.innerWidth < 576 && currentState === 'expanded') {
@@ -11678,6 +11704,8 @@
                         break;
                 }
                 
+                syncCompactNavTitles(state);
+
                 // Update current state
                 currentState = state;
             }
@@ -11737,14 +11765,16 @@
             
             // Add keyboard shortcuts
             document.addEventListener('keydown', function(e) {
+                const key = String(e.key || '').toLowerCase();
+
                 // Ctrl+B or Cmd+B - cycle through states
-                if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+                if ((e.ctrlKey || e.metaKey) && !e.shiftKey && key === 'b') {
                     e.preventDefault();
                     toggleBtn.click();
                 }
                 
                 // Ctrl+Shift+B or Cmd+Shift+B - toggle between expanded and hidden
-                if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'B') {
+                if ((e.ctrlKey || e.metaKey) && e.shiftKey && key === 'b') {
                     e.preventDefault();
                     const newState = currentState === 'expanded' ? 'hidden' : 'expanded';
                     currentState = newState;

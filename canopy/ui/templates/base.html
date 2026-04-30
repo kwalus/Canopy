@@ -1000,6 +1000,11 @@
             text-align: center;
         }
 
+        .sidebar .nav-link .sidebar-nav-label i {
+            margin-right: 0;
+            flex-shrink: 0;
+        }
+
         .sidebar .nav-link.nav-link-unread {
             display: flex;
             align-items: center;
@@ -3845,46 +3850,71 @@
         
         /* State 2: Collapsed - Icon-only sidebar */
         .sidebar-container.collapsed {
-            width: 80px;
-            min-width: 80px;
-            flex: 0 0 80px;
+            width: 72px;
+            min-width: 72px;
+            flex: 0 0 72px;
         }
         
         .sidebar.collapsed {
-            width: 80px;
-            overflow: hidden;
+            width: 72px;
+            overflow-x: hidden;
+        }
+
+        .sidebar.collapsed nav.nav {
+            align-items: center;
         }
         
         .sidebar.collapsed .nav-link {
-            padding: 14px 10px;
-            margin: 4px 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 52px;
+            min-height: 48px;
+            padding: 0;
+            margin: 4px auto;
             text-align: center;
             position: relative;
+            border-radius: 14px;
         }
         
+        .sidebar.collapsed .nav-link > span:not(.sidebar-nav-label):not(.sidebar-nav-badge),
         .sidebar.collapsed .nav-link .sidebar-nav-text {
-            opacity: 0;
-            visibility: hidden;
-            transition: all 0.2s ease;
+            display: none !important;
+        }
+
+        .sidebar.collapsed .nav-link .badge:not(.sidebar-nav-badge) {
+            display: none !important;
+        }
+
+        .sidebar.collapsed .sidebar-nav-label {
+            width: 100%;
+            justify-content: center;
+            gap: 0;
         }
         
         .sidebar.collapsed .nav-link i {
-            font-size: 1.2rem;
+            font-size: 1.25rem;
+            width: auto;
+            margin-right: 0;
+            text-align: center;
+            line-height: 1;
         }
 
         .sidebar.collapsed .nav-link.nav-link-unread {
             justify-content: center;
+            gap: 0;
         }
 
         .sidebar.collapsed .sidebar-nav-badge {
             position: absolute;
-            top: 7px;
-            right: 7px;
-            min-width: 1.3rem;
-            height: 1.3rem;
-            padding: 0 0.3rem;
-            font-size: 0.68rem;
+            top: 4px;
+            right: 4px;
+            min-width: 1.15rem;
+            height: 1.15rem;
+            padding: 0 0.24rem;
+            font-size: 0.62rem;
             box-shadow: 0 6px 16px rgba(239, 68, 68, 0.25);
+            transform: translate(18%, -18%);
         }
         
         .sidebar.collapsed .sidebar-divider,
@@ -8649,42 +8679,69 @@
                         </a>
                         <a class="nav-link {% if request.endpoint == 'ui.tasks_page' %}active{% endif %}"
                            href="{{ url_for('ui.tasks_page') }}" data-title="Tasks">
-                            <i class="bi bi-check2-square"></i> <span>Tasks</span>
+                            <span class="sidebar-nav-label">
+                                <i class="bi bi-check2-square"></i>
+                                <span class="sidebar-nav-text">Tasks</span>
+                            </span>
                         </a>
                         <a class="nav-link {% if request.endpoint == 'ui.bookmarks_page' %}active{% endif %}"
                            href="{{ url_for('ui.bookmarks_page') }}" data-title="Bookmarks">
-                            <i class="bi bi-bookmarks"></i> <span>Bookmarks</span>
+                            <span class="sidebar-nav-label">
+                                <i class="bi bi-bookmarks"></i>
+                                <span class="sidebar-nav-text">Bookmarks</span>
+                            </span>
                         </a>
                         {% if is_admin is defined and is_admin %}
                         <a class="nav-link {% if request.endpoint in ['ui.meshes_home', 'ui.meshspace_create', 'ui.meshspace_detail'] %}active{% endif %}"
                            href="{{ url_for('ui.meshes_home') }}" data-title="Meshes">
-                            <i class="bi bi-grid-1x2"></i> <span>Meshes</span>
+                            <span class="sidebar-nav-label">
+                                <i class="bi bi-grid-1x2"></i>
+                                <span class="sidebar-nav-text">Meshes</span>
+                            </span>
                         </a>
                         {% endif %}
                         <a class="nav-link {% if request.endpoint == 'ui.api_keys' %}active{% endif %}" 
                            href="{{ url_for('ui.api_keys') }}" data-title="API Keys">
-                            <i class="bi bi-key"></i> <span>API Keys</span>
+                            <span class="sidebar-nav-label">
+                                <i class="bi bi-key"></i>
+                                <span class="sidebar-nav-text">API Keys</span>
+                            </span>
                         </a>
                         <a class="nav-link {% if request.endpoint == 'ui.trust_management' %}active{% endif %}" 
                            href="{{ url_for('ui.trust_management') }}" data-title="Trust Network">
-                            <i class="bi bi-shield-check"></i> <span>Trust Network</span>
+                            <span class="sidebar-nav-label">
+                                <i class="bi bi-shield-check"></i>
+                                <span class="sidebar-nav-text">Trust Network</span>
+                            </span>
                         </a>
                         <a class="nav-link {% if request.endpoint == 'ui.connect_page' %}active{% endif %}" 
                            href="{{ url_for('ui.connect_page') }}" data-title="Connect">
-                            <i class="bi bi-link-45deg"></i> <span>Connect</span>
+                            <span class="sidebar-nav-label">
+                                <i class="bi bi-link-45deg"></i>
+                                <span class="sidebar-nav-text">Connect</span>
+                            </span>
                         </a>
                         <a class="nav-link {% if request.endpoint == 'ui.profile' %}active{% endif %}" 
                            href="{{ url_for('ui.profile') }}" data-title="Profile">
-                            <i class="bi bi-person"></i> <span>Profile</span>
+                            <span class="sidebar-nav-label">
+                                <i class="bi bi-person"></i>
+                                <span class="sidebar-nav-text">Profile</span>
+                            </span>
                         </a>
                         <a class="nav-link {% if request.endpoint == 'ui.settings' %}active{% endif %}" 
                            href="{{ url_for('ui.settings') }}" data-title="Settings">
-                            <i class="bi bi-gear"></i> <span>Settings</span>
+                            <span class="sidebar-nav-label">
+                                <i class="bi bi-gear"></i>
+                                <span class="sidebar-nav-text">Settings</span>
+                            </span>
                         </a>
                         {% if is_admin is defined and is_admin %}
                         <a class="nav-link {% if request.endpoint == 'ui.admin_page' %}active{% endif %}" 
                            href="{{ url_for('ui.admin_page') }}" data-title="Admin">
-                            <i class="bi bi-shield-lock"></i> <span>Admin</span>
+                            <span class="sidebar-nav-label">
+                                <i class="bi bi-shield-lock"></i>
+                                <span class="sidebar-nav-text">Admin</span>
+                            </span>
                             {% if admin_pending_count is defined and admin_pending_count > 0 %}
                             <span class="badge bg-warning text-dark ms-1">{{ admin_pending_count }}</span>
                             {% endif %}
@@ -8692,7 +8749,10 @@
                         {% elif show_claim_admin is defined and show_claim_admin %}
                         <a class="nav-link {% if request.endpoint == 'ui.claim_admin' %}active{% endif %}" 
                            href="{{ url_for('ui.claim_admin') }}" data-title="Claim admin">
-                            <i class="bi bi-shield-plus"></i> <span>Claim admin</span>
+                            <span class="sidebar-nav-label">
+                                <i class="bi bi-shield-plus"></i>
+                                <span class="sidebar-nav-text">Claim admin</span>
+                            </span>
                         </a>
                         {% endif %}
                     </nav>

@@ -431,6 +431,23 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('html[data-theme="graphite"],', base_template)
         self.assertIn('color-scheme: light;', base_template)
 
+    def test_sidebar_collapsed_state_is_compact_icon_rail(self) -> None:
+        base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+
+        self.assertIn('.sidebar-container.collapsed {\n            width: 72px;', base_template)
+        self.assertIn('.sidebar.collapsed .nav-link {\n            display: flex;', base_template)
+        self.assertIn('width: 52px;\n            min-height: 48px;', base_template)
+        self.assertIn('.sidebar.collapsed .nav-link .badge:not(.sidebar-nav-badge)', base_template)
+        self.assertIn('.sidebar.collapsed .nav-link .sidebar-nav-text', base_template)
+        self.assertIn('.sidebar .nav-link .sidebar-nav-label i', base_template)
+        self.assertIn('<span class="sidebar-nav-text">Tasks</span>', base_template)
+        self.assertIn('<span class="sidebar-nav-text">Admin</span>', base_template)
+        self.assertIn('function syncCompactNavTitles(state) {', main_js)
+        self.assertIn("const key = String(e.key || '').toLowerCase();", main_js)
+        self.assertIn("!e.shiftKey && key === 'b'", main_js)
+        self.assertIn("e.shiftKey && key === 'b'", main_js)
+
     def test_theme_loader_preserves_auto_preference_and_updates_meta_color(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
         self.assertIn('function resolveCanopyThemePreference(theme)', main_js)

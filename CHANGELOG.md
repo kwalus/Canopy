@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.50] - 2026-04-30
+
+### Fixed
+- **The left sidebar collapsed state is now a deliberate compact icon rail** - all primary navigation entries use the same icon/label markup, compact mode tightens to a 72px rail with centered 52px icon targets, and incidental sidebar panels stay hidden while unread nav badges remain visible as small corner pills.
+- **Sidebar keyboard shortcuts now distinguish `Ctrl/Cmd+B` from `Ctrl/Cmd+Shift+B` consistently** - shortcut handling normalizes key casing, cycles expanded/collapsed/hidden for the normal shortcut, and keeps the shift variant as an expanded/hidden jump.
+
 ## [0.6.49] - 2026-04-29
 
 ### Fixed
