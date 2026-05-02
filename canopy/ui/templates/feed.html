@@ -4767,6 +4767,27 @@
             }
         }
 
+        function shouldAutoExpandComposerForPaste(event, textarea) {
+            if (!event || !textarea || event.target !== textarea) return false;
+            const clipboard = event.clipboardData;
+            if (!clipboard || typeof clipboard.getData !== 'function') return false;
+            const pastedText = clipboard.getData('text/plain') || '';
+            if (!pastedText) return false;
+            const lineCount = pastedText.split(/\r\n|\r|\n/).length;
+            const selectedLength = Math.max(0, (textarea.selectionEnd || 0) - (textarea.selectionStart || 0));
+            const projectedLength = Math.max(0, textarea.value.length - selectedLength) + pastedText.length;
+            return pastedText.length >= 480 || lineCount >= 6 || projectedLength >= 1200;
+        }
+
+        function maybeAutoExpandFeedComposerForPaste(event) {
+            const textarea = document.getElementById('postContent');
+            if (!shouldAutoExpandComposerForPaste(event, textarea)) return;
+            requestAnimationFrame(() => {
+                setFeedDraftExpanded(true);
+                syncFeedComposerLayout({ forceExpand: true });
+            });
+        }
+
         function toggleFeedDraftExpanded(forceExpanded) {
             const composer = document.getElementById('post-composer');
             const next = typeof forceExpanded === 'boolean'
@@ -7707,6 +7728,10 @@
 	    }
     
     function handlePaste(e) {
+        if (e.__canopyFeedPasteHandled) return;
+        e.__canopyFeedPasteHandled = true;
+        maybeAutoExpandFeedComposerForPaste(e);
+
         const items = e.clipboardData?.items;
         if (!items) return;
         

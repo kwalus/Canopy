@@ -2388,6 +2388,24 @@
         }
     }
 
+    function shouldAutoExpandComposerForPaste(event, textarea) {
+        if (!event || !textarea || event.target !== textarea) return false;
+        const clipboard = event.clipboardData;
+        if (!clipboard || typeof clipboard.getData !== 'function') return false;
+        const pastedText = clipboard.getData('text/plain') || '';
+        if (!pastedText) return false;
+        const lineCount = pastedText.split(/\r\n|\r|\n/).length;
+        const selectedLength = Math.max(0, (textarea.selectionEnd || 0) - (textarea.selectionStart || 0));
+        const projectedLength = Math.max(0, textarea.value.length - selectedLength) + pastedText.length;
+        return pastedText.length >= 480 || lineCount >= 6 || projectedLength >= 1200;
+    }
+
+    function maybeAutoExpandDmComposerForPaste(event) {
+        const textarea = document.getElementById('messageContent');
+        if (!shouldAutoExpandComposerForPaste(event, textarea)) return;
+        requestAnimationFrame(() => setDmComposerExpanded(true));
+    }
+
     function toggleDmComposerExpanded(forceExpanded) {
         const composer = document.getElementById('dm-composer');
         const next = typeof forceExpanded === 'boolean'
@@ -2528,6 +2546,10 @@
     }
 
     function handleMessagePaste(e) {
+        if (e.__canopyDmPasteHandled) return;
+        e.__canopyDmPasteHandled = true;
+        maybeAutoExpandDmComposerForPaste(e);
+
         const items = e.clipboardData?.items;
         if (!items) return;
 

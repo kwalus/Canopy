@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.55] - 2026-05-02
+
+### Changed
+- **`@Canopy` compose now drafts into the channel composer for review instead of auto-posting** - Send or Generate fills the textarea with the generated draft, expands the composer, and lets the user edit, send manually, or add another `@Canopy` instruction to refine again.
+
+### Fixed
+- **Primary composers now expand automatically for large pasted drafts** - Channels, DMs, and Feed grow the writing area when users paste long text, many lines, or content that pushes the draft past a large threshold while preserving the manual expand/collapse controls.
+
 ## [0.6.54] - 2026-05-02
 
 ### Fixed

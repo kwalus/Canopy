@@ -428,7 +428,7 @@
                             Canopy AI Compose
                         </div>
                         <p class="text-muted small mb-3">
-                            When a channel draft contains <code>@Canopy</code>, Canopy can expand that draft through your own provider key before the normal post is sent. The key is stored only on this node and is not shared over the mesh.
+                            When a channel draft contains <code>@Canopy</code>, Canopy can expand or refine that draft through your own provider key and put the result back into the composer for review before you send. The key is stored only on this node and is not shared over the mesh.
                         </p>
 
                         <div class="row g-3 align-items-end">
@@ -492,7 +492,7 @@
                                       rows="4"
                                       maxlength="4000">{{ canopy_ai.get('system_prompt') or '' }}</textarea>
                             <div class="form-text text-muted">
-                                Controls how <code>@Canopy</code> transforms your draft. Keep Canopy tags and mentions intact if you want normal downstream signals.
+                                Controls how <code>@Canopy</code> transforms your draft. You can add another <code>@Canopy</code> instruction to refine the generated draft again. Keep Canopy tags and mentions intact if you want normal downstream signals.
                             </div>
                         </div>
 

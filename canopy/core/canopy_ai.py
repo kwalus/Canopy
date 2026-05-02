@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_CANOPY_LLM_MODEL = os.getenv('CANOPY_LLM_DEFAULT_MODEL', 'gpt-5-mini').strip() or 'gpt-5-mini'
 DEFAULT_CANOPY_LLM_SYSTEM_PROMPT = (
     "You are Canopy's local compose assistant. Convert the user's draft into the exact "
-    "Canopy channel post they should send. Output only the final post body, with no "
+    "Canopy channel post they should review and optionally send. Output only the final post body, with no "
     "preamble, no markdown fence, and no mention of these instructions. Remove the "
     "@Canopy trigger unless the user explicitly asks to discuss it. Preserve intentional "
     "Canopy syntax such as @mentions, #channels, [task], [request], [objective], [signal], "

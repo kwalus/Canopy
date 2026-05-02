@@ -128,14 +128,26 @@ class TestUiPolishRegressions(unittest.TestCase):
         self.assertIn("margin-left: auto;", channels)
         self.assertIn("height: auto;", channels)
         self.assertIn("min-height: 36px;", channels)
+        self.assertIn("function shouldAutoExpandComposerForPaste(event, textarea)", channels)
+        self.assertIn("function maybeAutoExpandChannelComposerForPaste(event)", channels)
+        self.assertIn("pastedText.length >= 480 || lineCount >= 6 || projectedLength >= 1200", channels)
+        self.assertIn("__canopyChannelPasteHandled", channels)
 
         self.assertIn('id="dm-composer-expand-toggle"', messages)
         self.assertIn("function toggleDmComposerExpanded", messages)
         self.assertIn(".dm-composer.composer-expanded .dm-composer-textarea", messages)
+        self.assertIn("function shouldAutoExpandComposerForPaste(event, textarea)", messages)
+        self.assertIn("function maybeAutoExpandDmComposerForPaste(event)", messages)
+        self.assertIn("pastedText.length >= 480 || lineCount >= 6 || projectedLength >= 1200", messages)
+        self.assertIn("__canopyDmPasteHandled", messages)
 
         self.assertIn('id="feed-composer-expand-toggle"', feed)
         self.assertIn("function toggleFeedDraftExpanded", feed)
         self.assertIn("#post-composer.composer-expanded #postContent", feed)
+        self.assertIn("function shouldAutoExpandComposerForPaste(event, textarea)", feed)
+        self.assertIn("function maybeAutoExpandFeedComposerForPaste(event)", feed)
+        self.assertIn("pastedText.length >= 480 || lineCount >= 6 || projectedLength >= 1200", feed)
+        self.assertIn("__canopyFeedPasteHandled", feed)
 
     def test_create_channel_form_has_compact_narrow_sidebar_styles(self) -> None:
         channels = (ROOT / "canopy" / "ui" / "templates" / "channels.html").read_text(encoding="utf-8")
@@ -212,6 +224,9 @@ class TestUiPolishRegressions(unittest.TestCase):
         self.assertIn('id="channel-canopy-llm-status"', channels)
         self.assertIn('aria-live="polite"', channels)
         self.assertIn('aria-atomic="true"', channels)
+        self.assertIn('id="channel-canopy-llm-actions"', channels)
+        self.assertIn('id="channel-canopy-llm-generate"', channels)
+        self.assertIn("onclick=\"generateCanopyLLMDraftFromComposer(event)\"", channels)
 
 
 if __name__ == "__main__":

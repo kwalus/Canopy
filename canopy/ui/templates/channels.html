@@ -1091,10 +1091,18 @@
         align-items: center;
         justify-content: space-between;
         gap: 0.65rem;
+        flex-wrap: wrap;
     }
     .structured-panel-summary {
         font-size: 0.78rem;
         color: var(--canopy-text-secondary);
+    }
+    .canopy-llm-draft-actions {
+        justify-content: flex-end;
+    }
+    .canopy-llm-draft-actions .btn {
+        padding: 0.22rem 0.55rem;
+        font-size: 0.74rem;
     }
     .structured-panel-list {
         display: flex;
@@ -3904,6 +3912,20 @@
                                 </span>
                                 <small id="channel-canopy-llm-status-text" class="structured-panel-summary ms-2">Preparing draft...</small>
                             </div>
+                            <div id="channel-canopy-llm-actions" class="canopy-llm-draft-actions d-flex flex-wrap gap-2 ms-auto" style="display: none;">
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-primary"
+                                        id="channel-canopy-llm-generate"
+                                        onclick="generateCanopyLLMDraftFromComposer(event)">
+                                    <i class="bi bi-stars me-1"></i>Generate draft
+                                </button>
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-secondary"
+                                        id="channel-canopy-llm-dismiss"
+                                        onclick="dismissCanopyLLMComposePanel()">
+                                    Dismiss
+                                </button>
+                            </div>
                         </div>
                     </div>
                     <div id="channel-structured-nudge" class="task-inline-toggle mb-2" style="display: none;">
@@ -6146,6 +6168,8 @@ let selectedFiles = [];
 const channelInlineEditStates = {};
 let activeInlineEditMessageId = null;
 let channelSendInFlight = false;
+let channelCanopyLLMInFlight = false;
+let channelCanopyLLMDraftReady = false;
 let replyToMessageId = null;   // threading: parent message we're replying to
 let replyToAuthor = '';
 let isSearchActive = false;
@@ -6952,12 +6976,16 @@ function syncChannelComposerAvailability() {
     if (!sendBtn) return;
     const blockedByPolicy = isTopLevelPostingRestricted();
     const shouldDisable = !!channelSendInFlight || blockedByPolicy;
+    const input = document.getElementById('message-input');
+    const willGenerateCanopyDraft = hasCanopyLLMTrigger(input && input.value);
     sendBtn.disabled = shouldDisable;
     sendBtn.classList.toggle('disabled', shouldDisable);
     if (channelSendInFlight) {
-        sendBtn.setAttribute('title', 'Sending...');
+        sendBtn.setAttribute('title', channelCanopyLLMInFlight ? 'Generating @Canopy draft...' : 'Sending...');
     } else if (blockedByPolicy) {
         sendBtn.setAttribute('title', 'Curated channel: reply to a thread or ask an admin for posting access');
+    } else if (willGenerateCanopyDraft) {
+        sendBtn.setAttribute('title', 'Generate @Canopy draft for review');
     } else {
         sendBtn.setAttribute('title', 'Send message');
     }
@@ -13749,20 +13777,88 @@ function hasCanopyLLMTrigger(value) {
     return /(^|\s)@canopy\b/i.test(String(value || ''));
 }
 
-function setCanopyLLMStatus(message, visible = true, kind = 'info') {
+function setCanopyLLMStatus(message, visible = true, kind = 'info', options = {}) {
     const panel = document.getElementById('channel-canopy-llm-status');
     const text = document.getElementById('channel-canopy-llm-status-text');
+    const actions = document.getElementById('channel-canopy-llm-actions');
+    const generateBtn = document.getElementById('channel-canopy-llm-generate');
     if (!panel || !text) return;
     if (!visible) {
         panel.style.display = 'none';
         text.textContent = '';
         panel.classList.remove('canopy-llm-status-success', 'canopy-llm-status-error');
+        if (actions) actions.style.display = 'none';
         return;
     }
     text.textContent = message || 'Preparing draft...';
     panel.classList.toggle('canopy-llm-status-success', kind === 'success');
     panel.classList.toggle('canopy-llm-status-error', kind === 'error');
     panel.style.display = 'flex';
+    if (actions) {
+        actions.style.display = options.actions === false ? 'none' : 'flex';
+    }
+    if (generateBtn) {
+        const input = document.getElementById('message-input');
+        const hasTrigger = hasCanopyLLMTrigger(input && input.value);
+        const busy = !!options.busy || channelCanopyLLMInFlight;
+        const actionLabel = options.actionLabel || (channelCanopyLLMDraftReady ? 'Refine draft' : 'Generate draft');
+        generateBtn.disabled = busy || !hasTrigger;
+        generateBtn.innerHTML = busy
+            ? '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Generating...'
+            : `<i class="bi bi-stars me-1"></i>${escapeHtml(actionLabel)}`;
+    }
+}
+
+function updateCanopyLLMComposePanel() {
+    if (channelCanopyLLMInFlight) return;
+    const input = document.getElementById('message-input');
+    const content = String(input && input.value ? input.value : '');
+    const hasTrigger = hasCanopyLLMTrigger(content);
+    if (hasTrigger) {
+        setCanopyLLMStatus(
+            channelCanopyLLMDraftReady
+                ? 'Ready to refine this draft. The result will return here for review before sending.'
+                : 'Ready to generate a draft. Send or Generate will fill the composer first, not post automatically.',
+            true,
+            'info',
+            { actionLabel: channelCanopyLLMDraftReady ? 'Refine draft' : 'Generate draft' }
+        );
+        return;
+    }
+    if (channelCanopyLLMDraftReady && content.trim()) {
+        setCanopyLLMStatus(
+            'Draft inserted. Edit it, send when ready, or add @Canopy with instructions to refine again.',
+            true,
+            'success',
+            { actionLabel: 'Refine draft' }
+        );
+        return;
+    }
+    channelCanopyLLMDraftReady = false;
+    setCanopyLLMStatus('', false);
+}
+
+function dismissCanopyLLMComposePanel() {
+    channelCanopyLLMDraftReady = false;
+    setCanopyLLMStatus('', false);
+}
+
+function shouldAutoExpandComposerForPaste(event, textarea) {
+    if (!event || !textarea || event.target !== textarea) return false;
+    const clipboard = event.clipboardData;
+    if (!clipboard || typeof clipboard.getData !== 'function') return false;
+    const pastedText = clipboard.getData('text/plain') || '';
+    if (!pastedText) return false;
+    const lineCount = pastedText.split(/\r\n|\r|\n/).length;
+    const selectedLength = Math.max(0, (textarea.selectionEnd || 0) - (textarea.selectionStart || 0));
+    const projectedLength = Math.max(0, textarea.value.length - selectedLength) + pastedText.length;
+    return pastedText.length >= 480 || lineCount >= 6 || projectedLength >= 1200;
+}
+
+function maybeAutoExpandChannelComposerForPaste(event) {
+    const textarea = document.getElementById('message-input');
+    if (!shouldAutoExpandComposerForPaste(event, textarea)) return;
+    requestAnimationFrame(() => setChannelComposerExpanded(true));
 }
 
 function setChannelComposerExpanded(expanded) {
@@ -13797,12 +13893,14 @@ function toggleChannelComposerExpanded(forceExpanded) {
 
 async function maybeExpandCanopyLLMDraft(rawContent) {
     if (!hasCanopyLLMTrigger(rawContent)) {
-        setCanopyLLMStatus('', false);
+        updateCanopyLLMComposePanel();
         return rawContent;
     }
 
     const messageInput = document.getElementById('message-input');
-    setCanopyLLMStatus('Sending prompt to your configured LLM...');
+    channelCanopyLLMInFlight = true;
+    syncChannelComposerAvailability();
+    setCanopyLLMStatus('Sending prompt to your configured LLM...', true, 'info', { busy: true });
     const payload = {
         content: rawContent,
         channel_id: currentChannelId
@@ -13811,22 +13909,71 @@ async function maybeExpandCanopyLLMDraft(rawContent) {
         payload.parent_message_id = replyToMessageId;
     }
 
-    const data = await apiCall('/ajax/canopy_llm/expand', {
-        method: 'POST',
-        body: JSON.stringify(payload)
-    });
+    let data;
+    try {
+        data = await apiCall('/ajax/canopy_llm/expand', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+    } catch (error) {
+        channelCanopyLLMInFlight = false;
+        syncChannelComposerAvailability();
+        throw error;
+    }
     const expanded = String((data && data.content) || '').trim();
     if (!expanded) {
+        channelCanopyLLMInFlight = false;
+        syncChannelComposerAvailability();
         throw { error: 'Canopy AI Compose returned an empty draft.' };
     }
     if (messageInput) {
         messageInput.value = expanded;
+        messageInput.setSelectionRange(messageInput.value.length, messageInput.value.length);
+        setChannelComposerExpanded(true);
         notifyComposerUpdate();
     }
     const modelLabel = data && data.model ? data.model : 'LLM';
-    setCanopyLLMStatus(`Draft ready from ${modelLabel}; sending...`, true, 'success');
-    window.setTimeout(() => setCanopyLLMStatus('', false), 1800);
+    channelCanopyLLMDraftReady = true;
+    channelCanopyLLMInFlight = false;
+    syncChannelComposerAvailability();
+    setCanopyLLMStatus(`Draft inserted from ${modelLabel}. Review, edit, send, or add @Canopy to refine again.`, true, 'success', {
+        actionLabel: 'Refine draft'
+    });
     return expanded;
+}
+
+async function generateCanopyLLMDraftFromComposer(event) {
+    if (event && typeof event.preventDefault === 'function') {
+        event.preventDefault();
+    }
+    if (channelSendInFlight || channelCanopyLLMInFlight) return;
+
+    const messageInput = document.getElementById('message-input');
+    const rawContent = String(messageInput && messageInput.value ? messageInput.value : '');
+    if (!hasCanopyLLMTrigger(rawContent)) {
+        setCanopyLLMStatus('Add @Canopy plus instructions to the draft, then generate again.', true, 'info', {
+            actionLabel: channelCanopyLLMDraftReady ? 'Refine draft' : 'Generate draft'
+        });
+        if (messageInput) messageInput.focus();
+        return;
+    }
+    if (!currentChannelId) {
+        showAlert('Select a channel before using @Canopy.', 'warning');
+        return;
+    }
+
+    setChannelSendState(true);
+    try {
+        await maybeExpandCanopyLLMDraft(rawContent);
+    } catch (error) {
+        console.error('Canopy AI Compose failed:', error);
+        channelCanopyLLMInFlight = false;
+        setCanopyLLMStatus(error.error || error.message || 'Canopy AI Compose failed.', true, 'error');
+        showAlert(error.error || error.message || 'Canopy AI Compose failed.', 'warning');
+    } finally {
+        channelCanopyLLMInFlight = false;
+        setChannelSendState(false);
+    }
 }
 
 // Message sending
@@ -13843,8 +13990,7 @@ async function sendMessage(event) {
     const rawContent = messageInput.value;
     let content = rawContent.trim();
     let effectiveRawContent = rawContent;
-    let usedCanopyLLM = false;
-    let canopyLLMExpanded = false;
+    const requestedCanopyLLM = hasCanopyLLMTrigger(effectiveRawContent);
     
     console.log('Attempting to send message:', { 
         content: content, 
@@ -13869,15 +14015,10 @@ async function sendMessage(event) {
 
     setChannelSendState(true);
     try {
-        if (hasCanopyLLMTrigger(effectiveRawContent)) {
-            usedCanopyLLM = true;
-            effectiveRawContent = await maybeExpandCanopyLLMDraft(effectiveRawContent);
-            canopyLLMExpanded = true;
-            content = String(effectiveRawContent || '').trim();
-            if (!content && selectedFiles.length === 0) {
-                showAlert('Canopy AI Compose returned an empty draft.', 'warning');
-                return;
-            }
+        if (requestedCanopyLLM) {
+            await maybeExpandCanopyLLMDraft(effectiveRawContent);
+            showAlert('Canopy draft inserted. Review and send when ready.', 'success');
+            return;
         }
 
         const taskToggle = document.getElementById('channel-task-confirm');
@@ -13950,13 +14091,11 @@ async function sendMessage(event) {
             showAlert(error.error || 'Fix the structured block issues before sending this message.', 'warning');
             return;
         }
-        if (usedCanopyLLM && !canopyLLMExpanded && error && (error.reason || error.status)) {
+        if (requestedCanopyLLM) {
+            channelCanopyLLMInFlight = false;
             setCanopyLLMStatus(error.error || error.message || 'Canopy AI Compose failed.', true, 'error');
             showAlert(error.error || error.message || 'Canopy AI Compose failed.', 'warning');
             return;
-        }
-        if (usedCanopyLLM) {
-            setCanopyLLMStatus('', false);
         }
         alert('Failed to send message: ' + (error.error || error.message || 'Unknown error'));
     } finally {
@@ -15873,6 +16012,10 @@ function setupChannelPasteHandler() {
 }
 
 function handleChannelPaste(e) {
+    if (e.__canopyChannelPasteHandled) return;
+    e.__canopyChannelPasteHandled = true;
+    maybeAutoExpandChannelComposerForPaste(e);
+
     const items = e.clipboardData?.items;
     if (!items) return;
     
@@ -16277,6 +16420,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 msgInput.addEventListener('input', () => {
                     handleChannelMentionInput();
                     updateChannelTaskToggle();
+                    updateCanopyLLMComposePanel();
+                    syncChannelComposerAvailability();
                     updateChannelStructuredNudge();
                     updateChannelStructuredValidation();
                 });
@@ -16297,6 +16442,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 });
             }
             updateChannelTaskToggle();
+            updateCanopyLLMComposePanel();
+            syncChannelComposerAvailability();
             updateChannelStructuredNudge();
             updateChannelStructuredValidation();
 
