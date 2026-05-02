@@ -11,6 +11,19 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class TestFrontendRegressions(unittest.TestCase):
+    def test_canopy_llm_compose_ui_is_wired_to_channel_composer_and_profile(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        profile_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'profile.html').read_text(encoding='utf-8')
+
+        self.assertIn('channel-canopy-llm-status', channels_template)
+        self.assertIn('function hasCanopyLLMTrigger', channels_template)
+        self.assertIn('async function maybeExpandCanopyLLMDraft', channels_template)
+        self.assertIn('/ajax/canopy_llm/expand', channels_template)
+        self.assertIn('async function sendMessage(event)', channels_template)
+        self.assertIn('canopy-llm-compose-section', profile_template)
+        self.assertIn('canopy-llm-api-key', profile_template)
+        self.assertIn('/ajax/canopy_llm/settings', profile_template)
+
     def test_account_pages_do_not_render_deemphasized_stats_panels(self) -> None:
         bookmarks_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'bookmarks.html').read_text(encoding='utf-8')
         api_keys_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'api_keys.html').read_text(encoding='utf-8')
@@ -340,6 +353,18 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('.canopy-md-heading', base_template)
         self.assertIn('.canopy-md-list', base_template)
         self.assertIn('.canopy-md-quote', base_template)
+
+    def test_markdown_file_preview_uses_canopy_theme_contrast(self) -> None:
+        base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+        self.assertIn('.file-preview-container.md-preview {', base_template)
+        self.assertIn('var(--canopy-bg-card', base_template)
+        self.assertIn('color: var(--canopy-text-primary', base_template)
+        self.assertIn('.file-preview-container.md-preview :where(p, li, td)', base_template)
+        self.assertIn('.file-preview-container.md-preview blockquote', base_template)
+        self.assertIn('.file-preview-container.md-preview th', base_template)
+        self.assertIn('[data-theme="light"] .file-preview-container.md-preview', base_template)
+        self.assertIn('[data-theme="dark"] .file-preview-container.md-preview', base_template)
+        self.assertNotIn('background: var(--bs-tertiary-bg, #2b3035);', base_template)
 
     def test_timestamp_formatter_is_immediate_shared_and_utc_safe(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')

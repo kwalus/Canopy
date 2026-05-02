@@ -332,6 +332,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
         profile_manager = ProfileManager(db_manager, file_manager)
         app.config['PROFILE_MANAGER'] = profile_manager
         logger.info("Profile manager initialized successfully")
+
+        logger.info("Initializing Canopy AI compose manager...")
+        from .canopy_ai import CanopyLLMManager
+        canopy_llm_manager = CanopyLLMManager(db_manager, config.secret_key)
+        app.config['CANOPY_LLM_MANAGER'] = canopy_llm_manager
+        logger.info("Canopy AI compose manager initialized successfully")
         
         logger.info("Initializing channel manager...")
         channel_manager = ChannelManager(db_manager, api_key_manager)

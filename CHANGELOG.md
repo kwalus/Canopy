@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.51] - 2026-05-01
+
+### Added
+- **Channel drafts can now use a local `@Canopy` LLM compose trigger** - users can configure OpenAI compose settings from Profile, keep provider keys encrypted in node-local storage, and expand a channel draft through the existing authenticated composer path before the normal send flow posts it.
+- **Primary composers now have explicit long-draft expand controls** - Channels, DMs, and Feed can temporarily grow their text areas for longer writing, then return to compact density after send or clear.
+
+### Fixed
+- **Markdown attachment previews now use Canopy theme contrast instead of Bootstrap fallback surfaces** - `.md` and `.markdown` previews get readable theme-aware typography, headings, code blocks, tables, links, and blockquotes across dark and light presentations.
+
 ## [0.6.50] - 2026-04-30
 
 ### Fixed

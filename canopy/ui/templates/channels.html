@@ -3289,6 +3289,34 @@
         #channel-name, #channel-description { font-size: 16px; min-height: 44px; }
         #modal-member-input, #create-member-input { font-size: 16px; min-height: 36px; }
     }
+
+    .channel-composer-wrap.composer-expanded #message-input {
+        min-height: min(36vh, 360px) !important;
+        max-height: min(52vh, 520px) !important;
+        resize: vertical !important;
+        line-height: 1.45;
+    }
+
+    .channel-composer-wrap.composer-expanded #file-dropzone {
+        min-height: min(36vh, 360px);
+    }
+
+    .channel-composer-expand-btn[aria-pressed="true"] {
+        color: var(--canopy-primary);
+        border-color: color-mix(in srgb, var(--canopy-primary) 58%, var(--canopy-border));
+        background: color-mix(in srgb, var(--canopy-primary) 14%, transparent);
+    }
+
+    @media (max-width: 767.98px) {
+        .channel-composer-wrap.composer-expanded #message-input {
+            min-height: 34vh !important;
+            max-height: 46vh !important;
+            font-size: 0.95rem;
+        }
+        .channel-composer-wrap.composer-expanded #file-dropzone {
+            min-height: 34vh;
+        }
+    }
 </style>
 {% endblock %}
 
@@ -3832,6 +3860,16 @@
                             <label class="form-check-label" for="channel-task-confirm">Create task</label>
                         </div>
                     </div>
+                    <div id="channel-canopy-llm-status" class="task-inline-toggle mb-2 structured-panel" style="display: none;">
+                        <div class="structured-panel-header">
+                            <div class="task-inline-info">
+                                <span class="badge bg-primary-subtle text-primary-emphasis">
+                                    <i class="bi bi-stars me-1"></i>Canopy drafting
+                                </span>
+                                <small id="channel-canopy-llm-status-text" class="structured-panel-summary ms-2">Preparing draft...</small>
+                            </div>
+                        </div>
+                    </div>
                     <div id="channel-structured-nudge" class="task-inline-toggle mb-2" style="display: none;">
                         <div class="task-inline-info">
                             <span class="badge bg-info-subtle text-info-emphasis">Structured hint</span>
@@ -3890,6 +3928,15 @@
                             </button>
                             <button type="button" class="btn btn-outline-secondary" id="emoji-toggle-btn" onclick="insertEmoji()">
                                 <i class="bi bi-emoji-smile"></i>
+                            </button>
+                            <button type="button"
+                                    class="btn btn-outline-secondary channel-composer-expand-btn"
+                                    id="channel-composer-expand-toggle"
+                                    onclick="toggleChannelComposerExpanded()"
+                                    aria-pressed="false"
+                                    title="Expand drafting area"
+                                    aria-label="Expand drafting area">
+                                <i class="bi bi-arrows-angle-expand"></i>
                             </button>
                             <div class="dropdown channel-composer-more-mobile">
                                 <button type="button"
@@ -13660,8 +13707,92 @@ function appendOptimisticChannelMessage(message) {
     }
 }
 
+function hasCanopyLLMTrigger(value) {
+    return /(^|\s)@canopy\b/i.test(String(value || ''));
+}
+
+function setCanopyLLMStatus(message, visible = true, kind = 'info') {
+    const panel = document.getElementById('channel-canopy-llm-status');
+    const text = document.getElementById('channel-canopy-llm-status-text');
+    if (!panel || !text) return;
+    if (!visible) {
+        panel.style.display = 'none';
+        text.textContent = '';
+        panel.classList.remove('canopy-llm-status-success', 'canopy-llm-status-error');
+        return;
+    }
+    text.textContent = message || 'Preparing draft...';
+    panel.classList.toggle('canopy-llm-status-success', kind === 'success');
+    panel.classList.toggle('canopy-llm-status-error', kind === 'error');
+    panel.style.display = 'flex';
+}
+
+function setChannelComposerExpanded(expanded) {
+    const wrapper = document.querySelector('.channel-composer-wrap');
+    const button = document.getElementById('channel-composer-expand-toggle');
+    const textarea = document.getElementById('message-input');
+    const isExpanded = !!expanded;
+    if (wrapper) {
+        wrapper.classList.toggle('composer-expanded', isExpanded);
+    }
+    if (button) {
+        button.setAttribute('aria-pressed', isExpanded ? 'true' : 'false');
+        button.setAttribute('aria-label', isExpanded ? 'Collapse drafting area' : 'Expand drafting area');
+        button.setAttribute('title', isExpanded ? 'Collapse drafting area' : 'Expand drafting area');
+        button.innerHTML = isExpanded
+            ? '<i class="bi bi-arrows-angle-contract"></i>'
+            : '<i class="bi bi-arrows-angle-expand"></i>';
+    }
+    if (textarea) {
+        textarea.setAttribute('rows', isExpanded ? '10' : '1');
+        requestAnimationFrame(() => textarea.focus());
+    }
+}
+
+function toggleChannelComposerExpanded(forceExpanded) {
+    const wrapper = document.querySelector('.channel-composer-wrap');
+    const next = typeof forceExpanded === 'boolean'
+        ? forceExpanded
+        : !(wrapper && wrapper.classList.contains('composer-expanded'));
+    setChannelComposerExpanded(next);
+}
+
+async function maybeExpandCanopyLLMDraft(rawContent) {
+    if (!hasCanopyLLMTrigger(rawContent)) {
+        setCanopyLLMStatus('', false);
+        return rawContent;
+    }
+
+    const messageInput = document.getElementById('message-input');
+    setCanopyLLMStatus('Sending prompt to your configured LLM...');
+    const payload = {
+        content: rawContent,
+        channel_id: currentChannelId
+    };
+    if (replyToMessageId) {
+        payload.parent_message_id = replyToMessageId;
+    }
+
+    const data = await apiCall('/ajax/canopy_llm/expand', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+    });
+    const expanded = String((data && data.content) || '').trim();
+    if (!expanded) {
+        throw { error: 'Canopy AI Compose returned an empty draft.' };
+    }
+    if (messageInput) {
+        messageInput.value = expanded;
+        notifyComposerUpdate();
+    }
+    const modelLabel = data && data.model ? data.model : 'LLM';
+    setCanopyLLMStatus(`Draft ready from ${modelLabel}; sending...`, true, 'success');
+    window.setTimeout(() => setCanopyLLMStatus('', false), 1800);
+    return expanded;
+}
+
 // Message sending
-function sendMessage(event) {
+async function sendMessage(event) {
     if (event && typeof event.preventDefault === 'function') {
         event.preventDefault();
     }
@@ -13673,6 +13804,9 @@ function sendMessage(event) {
     const messageInput = document.getElementById('message-input');
     const rawContent = messageInput.value;
     let content = rawContent.trim();
+    let effectiveRawContent = rawContent;
+    let usedCanopyLLM = false;
+    let canopyLLMExpanded = false;
     
     console.log('Attempting to send message:', { 
         content: content, 
@@ -13695,45 +13829,56 @@ function sendMessage(event) {
         return;
     }
 
-    const taskToggle = document.getElementById('channel-task-confirm');
-    if (taskToggle && window.findTaskBlocks && window.applyTaskConfirmationToContent) {
-        const hasTasks = window.findTaskBlocks(rawContent || '').length > 0;
-        if (hasTasks) {
-            const adjusted = window.applyTaskConfirmationToContent(rawContent, taskToggle.checked);
-            content = adjusted.trim();
-        }
-    }
-
-    const structuredValidation = updateChannelStructuredValidation();
-    if (structuredValidation && structuredValidation.blocking) {
-        showAlert('Fix the structured block issues before sending this message.', 'warning');
-        return;
-    }
-    
-    const messageData = {
-        content: content,
-        channel_id: currentChannelId,
-        attachments: selectedFiles
-    };
-    const ttlInfo = resolveChannelTtlSelection();
-    if (ttlInfo) {
-        messageData.ttl_mode = ttlInfo.ttl_mode;
-        messageData.ttl_seconds = ttlInfo.ttl_seconds;
-    }
-    // Threading: attach parent message reference if replying
-    if (replyToMessageId) {
-        messageData.parent_message_id = replyToMessageId;
-    }
-    
-    console.log('Sending message data:', messageData);
-    
-    console.log('Making AJAX call to /ajax/send_channel_message...');
     setChannelSendState(true);
-    apiCall('/ajax/send_channel_message', {
-        method: 'POST',
-        body: JSON.stringify(messageData)
-    })
-    .then(data => {
+    try {
+        if (hasCanopyLLMTrigger(effectiveRawContent)) {
+            usedCanopyLLM = true;
+            effectiveRawContent = await maybeExpandCanopyLLMDraft(effectiveRawContent);
+            canopyLLMExpanded = true;
+            content = String(effectiveRawContent || '').trim();
+            if (!content && selectedFiles.length === 0) {
+                showAlert('Canopy AI Compose returned an empty draft.', 'warning');
+                return;
+            }
+        }
+
+        const taskToggle = document.getElementById('channel-task-confirm');
+        if (taskToggle && window.findTaskBlocks && window.applyTaskConfirmationToContent) {
+            const hasTasks = window.findTaskBlocks(effectiveRawContent || '').length > 0;
+            if (hasTasks) {
+                const adjusted = window.applyTaskConfirmationToContent(effectiveRawContent, taskToggle.checked);
+                content = adjusted.trim();
+            }
+        }
+
+        const structuredValidation = updateChannelStructuredValidation();
+        if (structuredValidation && structuredValidation.blocking) {
+            showAlert('Fix the structured block issues before sending this message.', 'warning');
+            return;
+        }
+
+        const messageData = {
+            content: content,
+            channel_id: currentChannelId,
+            attachments: selectedFiles
+        };
+        const ttlInfo = resolveChannelTtlSelection();
+        if (ttlInfo) {
+            messageData.ttl_mode = ttlInfo.ttl_mode;
+            messageData.ttl_seconds = ttlInfo.ttl_seconds;
+        }
+        // Threading: attach parent message reference if replying
+        if (replyToMessageId) {
+            messageData.parent_message_id = replyToMessageId;
+        }
+
+        console.log('Sending message data:', messageData);
+
+        console.log('Making AJAX call to /ajax/send_channel_message...');
+        const data = await apiCall('/ajax/send_channel_message', {
+            method: 'POST',
+            body: JSON.stringify(messageData)
+        });
         console.log('Send message response:', data);
         if (data.success || data.message) {
             console.log('Message sent successfully!');
@@ -13741,6 +13886,8 @@ function sendMessage(event) {
             selectedFiles = [];
             updateFilePreview();
             cancelReply();  // clear reply context
+            setChannelComposerExpanded(false);
+            setCanopyLLMStatus('', false);
             updateChannelTaskToggle();
             updateChannelStructuredNudge();
             renderChannelStructuredValidation({ issues: [] });
@@ -13756,8 +13903,7 @@ function sendMessage(event) {
             console.error('Send message failed:', data.error);
             alert('Failed to send message: ' + (data.error || 'Unknown error'));
         }
-    })
-    .catch(error => {
+    } catch (error) {
         console.error('Error sending message:', error);
         if (error && error.structured_validation) {
             renderChannelStructuredValidation(error.structured_validation);
@@ -13766,11 +13912,18 @@ function sendMessage(event) {
             showAlert(error.error || 'Fix the structured block issues before sending this message.', 'warning');
             return;
         }
+        if (usedCanopyLLM && !canopyLLMExpanded && error && (error.reason || error.status)) {
+            setCanopyLLMStatus(error.error || error.message || 'Canopy AI Compose failed.', true, 'error');
+            showAlert(error.error || error.message || 'Canopy AI Compose failed.', 'warning');
+            return;
+        }
+        if (usedCanopyLLM) {
+            setCanopyLLMStatus('', false);
+        }
         alert('Failed to send message: ' + (error.error || error.message || 'Unknown error'));
-    })
-    .finally(() => {
+    } finally {
         setChannelSendState(false);
-    });
+    }
 }
 
 function handleChannelExpiryChange() {

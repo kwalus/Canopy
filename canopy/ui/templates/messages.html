@@ -1121,6 +1121,19 @@
         resize: vertical;
         border-radius: 16px;
         padding: 0.76rem 0.9rem;
+        transition: min-height 0.18s ease, max-height 0.18s ease;
+    }
+
+    .dm-composer.composer-expanded .dm-composer-textarea {
+        min-height: min(40vh, 420px);
+        max-height: min(55vh, 560px);
+        line-height: 1.48;
+    }
+
+    .dm-composer-expand-btn[aria-pressed="true"] {
+        color: var(--canopy-primary);
+        border-color: color-mix(in srgb, var(--canopy-primary) 58%, var(--canopy-border));
+        background: color-mix(in srgb, var(--canopy-primary) 14%, transparent);
     }
 
     .dm-composer-actions {
@@ -1696,6 +1709,12 @@
         .dm-bubble-wrap {
             gap: 0.35rem;
         }
+
+        .dm-composer.composer-expanded .dm-composer-textarea {
+            min-height: 34vh;
+            max-height: 46vh;
+            font-size: 0.98rem;
+        }
     }
 </style>
 {% endblock %}
@@ -1767,6 +1786,16 @@
                             <small id="composer-target-subtitle">{{ active_thread.subtitle if active_thread else 'Select one or more recipients to begin' }}</small>
                         </div>
                         <div class="dm-thread-actions">
+                            <button class="btn btn-sm btn-outline-secondary dm-composer-expand-btn"
+                                    type="button"
+                                    id="dm-composer-expand-toggle"
+                                    onclick="toggleDmComposerExpanded()"
+                                    aria-pressed="false"
+                                    title="Expand message editor"
+                                    aria-label="Expand message editor">
+                                <i class="bi bi-arrows-angle-expand"></i>
+                                <span class="dm-btn-label">Expand</span>
+                            </button>
                             <button class="btn btn-sm btn-outline-secondary" type="button" onclick="toggleRecipientEditor()">
                                 <i class="bi bi-people"></i> Recipients
                             </button>
@@ -2327,6 +2356,7 @@
         messageSelectedFiles = [];
         updateMessageFilePreview();
         clearReplyContext();
+        setDmComposerExpanded(false);
         if (!ACTIVE_THREAD || !composerUsesActiveThread) {
             selectedRecipients = ACTIVE_THREAD && composerUsesActiveThread
                 ? [...INITIAL_RECIPIENTS]
@@ -2334,6 +2364,36 @@
             updateRecipientChips();
             updateComposerTarget();
         }
+    }
+
+    function setDmComposerExpanded(expanded) {
+        const composer = document.getElementById('dm-composer');
+        const button = document.getElementById('dm-composer-expand-toggle');
+        const textarea = document.getElementById('messageContent');
+        const isExpanded = !!expanded;
+        if (composer) {
+            composer.classList.toggle('composer-expanded', isExpanded);
+        }
+        if (button) {
+            button.setAttribute('aria-pressed', isExpanded ? 'true' : 'false');
+            button.setAttribute('aria-label', isExpanded ? 'Collapse message editor' : 'Expand message editor');
+            button.setAttribute('title', isExpanded ? 'Collapse message editor' : 'Expand message editor');
+            button.innerHTML = isExpanded
+                ? '<i class="bi bi-arrows-angle-contract"></i><span class="dm-btn-label">Collapse</span>'
+                : '<i class="bi bi-arrows-angle-expand"></i><span class="dm-btn-label">Expand</span>';
+        }
+        if (textarea) {
+            textarea.setAttribute('rows', isExpanded ? '10' : '2');
+            requestAnimationFrame(() => textarea.focus());
+        }
+    }
+
+    function toggleDmComposerExpanded(forceExpanded) {
+        const composer = document.getElementById('dm-composer');
+        const next = typeof forceExpanded === 'boolean'
+            ? forceExpanded
+            : !(composer && composer.classList.contains('composer-expanded'));
+        setDmComposerExpanded(next);
     }
 
     function setupMessageFileUpload() {
@@ -3279,6 +3339,7 @@
             messageSelectedFiles = [];
             updateMessageFilePreview();
             clearReplyContext();
+            setDmComposerExpanded(false);
             composerUsesActiveThread = true;
             composerForceNewGroupThread = false;
             const appended = appendOptimisticDmMessage((data && data.message) || null, {

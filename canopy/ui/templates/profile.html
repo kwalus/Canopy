@@ -421,6 +421,89 @@
                         </div>
                     </div>
 
+                    {% set canopy_ai = canopy_llm_settings|default({}) %}
+                    <div class="form-section" id="canopy-llm-compose-section">
+                        <div class="section-title">
+                            <i class="bi bi-stars"></i>
+                            Canopy AI Compose
+                        </div>
+                        <p class="text-muted small mb-3">
+                            When a channel draft contains <code>@Canopy</code>, Canopy can expand that draft through your own provider key before the normal post is sent. The key is stored only on this node and is not shared over the mesh.
+                        </p>
+
+                        <div class="row g-3 align-items-end">
+                            <div class="col-md-4">
+                                <label class="form-label" for="canopy-llm-provider">Provider</label>
+                                <select class="form-select" id="canopy-llm-provider">
+                                    <option value="openai" selected>OpenAI</option>
+                                </select>
+                                <div class="form-text text-muted">More providers can be added later without changing post flow.</div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label" for="canopy-llm-model">Model</label>
+                                <input type="text"
+                                       class="form-control"
+                                       id="canopy-llm-model"
+                                       value="{{ canopy_ai.get('model') or 'gpt-5-mini' }}"
+                                       placeholder="gpt-5-mini"
+                                       maxlength="120">
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-check form-switch mb-2">
+                                    <input class="form-check-input"
+                                           type="checkbox"
+                                           role="switch"
+                                           id="canopy-llm-enabled"
+                                           {% if canopy_ai.get('enabled') %}checked{% endif %}>
+                                    <label class="form-check-label" for="canopy-llm-enabled">Enable @Canopy compose trigger</label>
+                                </div>
+                                <div class="form-text text-muted">
+                                    {% if canopy_ai.get('api_key_configured') %}
+                                    API key saved locally.
+                                    {% else %}
+                                    Add an API key before enabling in real use.
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row g-3 mt-1">
+                            <div class="col-md-8">
+                                <label class="form-label" for="canopy-llm-api-key">OpenAI API Key</label>
+                                <input type="password"
+                                       class="form-control"
+                                       id="canopy-llm-api-key"
+                                       autocomplete="off"
+                                       placeholder="{% if canopy_ai.get('api_key_configured') %}Saved key configured - leave blank to keep{% else %}Paste API key{% endif %}">
+                                <div class="form-text text-muted">Leaving this blank keeps the existing saved key.</div>
+                            </div>
+                            <div class="col-md-4 d-flex align-items-end">
+                                <div class="form-check mb-2">
+                                    <input class="form-check-input" type="checkbox" id="canopy-llm-clear-key">
+                                    <label class="form-check-label" for="canopy-llm-clear-key">Clear saved key</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mt-3">
+                            <label class="form-label" for="canopy-llm-system-prompt">Compose instruction</label>
+                            <textarea class="form-control"
+                                      id="canopy-llm-system-prompt"
+                                      rows="4"
+                                      maxlength="4000">{{ canopy_ai.get('system_prompt') or '' }}</textarea>
+                            <div class="form-text text-muted">
+                                Controls how <code>@Canopy</code> transforms your draft. Keep Canopy tags and mentions intact if you want normal downstream signals.
+                            </div>
+                        </div>
+
+                        <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
+                            <button type="button" class="btn btn-outline-primary btn-sm" id="canopy-llm-save-btn">
+                                <i class="bi bi-shield-lock me-1"></i>Save AI Compose Settings
+                            </button>
+                            <span id="canopy-llm-status" class="small text-muted"></span>
+                        </div>
+                    </div>
+
                     <div class="text-end">
                         <button type="submit" class="save-button">
                             <i class="bi bi-check-circle me-2"></i>
@@ -556,6 +639,7 @@
 
 <script>
 let selectedTheme = '{{ profile.theme_preference }}';
+const CANOPY_LLM_SETTINGS = {{ (canopy_llm_settings|default({}))|tojson }};
 const PROFILE_CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 
 function profileFetch(url, options = {}) {
@@ -587,6 +671,7 @@ document.addEventListener('DOMContentLoaded', function() {
     setupThemeSelection();
     setupAvatarUpload();
     setupFormValidation();
+    setupCanopyLLMSettings();
 });
 
 function setupThemeSelection() {
@@ -740,6 +825,71 @@ function setupFormValidation() {
     
     bioTextarea.addEventListener('input', function() {
         bioCount.textContent = this.value.length;
+    });
+}
+
+function setupCanopyLLMSettings() {
+    const saveBtn = document.getElementById('canopy-llm-save-btn');
+    if (!saveBtn) return;
+    const statusEl = document.getElementById('canopy-llm-status');
+    const modelInput = document.getElementById('canopy-llm-model');
+    const promptInput = document.getElementById('canopy-llm-system-prompt');
+    const providerInput = document.getElementById('canopy-llm-provider');
+    const enabledInput = document.getElementById('canopy-llm-enabled');
+    const keyInput = document.getElementById('canopy-llm-api-key');
+    const clearKeyInput = document.getElementById('canopy-llm-clear-key');
+
+    if (CANOPY_LLM_SETTINGS && CANOPY_LLM_SETTINGS.provider && providerInput) {
+        providerInput.value = CANOPY_LLM_SETTINGS.provider;
+    }
+
+    saveBtn.addEventListener('click', () => {
+        const payload = {
+            provider: providerInput ? providerInput.value : 'openai',
+            model: modelInput ? modelInput.value.trim() : '',
+            enabled: !!(enabledInput && enabledInput.checked),
+            system_prompt: promptInput ? promptInput.value.trim() : '',
+            clear_api_key: !!(clearKeyInput && clearKeyInput.checked)
+        };
+        const apiKey = keyInput ? keyInput.value.trim() : '';
+        if (apiKey) {
+            payload.api_key = apiKey;
+        }
+        saveBtn.disabled = true;
+        if (statusEl) {
+            statusEl.className = 'small text-muted';
+            statusEl.textContent = 'Saving local AI compose settings...';
+        }
+        profileFetch('/ajax/canopy_llm/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then((data) => {
+            const settings = data.settings || {};
+            if (keyInput) keyInput.value = '';
+            if (clearKeyInput) clearKeyInput.checked = false;
+            if (keyInput) {
+                keyInput.placeholder = settings.api_key_configured
+                    ? 'Saved key configured - leave blank to keep'
+                    : 'Paste API key';
+            }
+            if (statusEl) {
+                statusEl.className = 'small text-success';
+                statusEl.textContent = settings.api_key_configured
+                    ? 'Saved. API key is configured locally.'
+                    : 'Saved. Add an API key before using @Canopy.';
+            }
+        })
+        .catch((error) => {
+            if (statusEl) {
+                statusEl.className = 'small text-danger';
+                statusEl.textContent = error.message || 'Failed to save AI compose settings';
+            }
+        })
+        .finally(() => {
+            saveBtn.disabled = false;
+        });
     });
 }
 

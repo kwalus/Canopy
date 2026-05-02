@@ -111,6 +111,23 @@ class TestUiPolishRegressions(unittest.TestCase):
         self.assertIn("More compose tools", channels)
         self.assertIn(".channel-composer-advanced-tool", channels)
 
+    def test_primary_composers_offer_expandable_draft_area(self) -> None:
+        channels = (ROOT / "canopy" / "ui" / "templates" / "channels.html").read_text(encoding="utf-8")
+        messages = (ROOT / "canopy" / "ui" / "templates" / "messages.html").read_text(encoding="utf-8")
+        feed = (ROOT / "canopy" / "ui" / "templates" / "feed.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="channel-composer-expand-toggle"', channels)
+        self.assertIn("function toggleChannelComposerExpanded", channels)
+        self.assertIn(".channel-composer-wrap.composer-expanded #message-input", channels)
+
+        self.assertIn('id="dm-composer-expand-toggle"', messages)
+        self.assertIn("function toggleDmComposerExpanded", messages)
+        self.assertIn(".dm-composer.composer-expanded .dm-composer-textarea", messages)
+
+        self.assertIn('id="feed-composer-expand-toggle"', feed)
+        self.assertIn("function toggleFeedDraftExpanded", feed)
+        self.assertIn("#post-composer.composer-expanded #postContent", feed)
+
     def test_create_channel_form_has_compact_narrow_sidebar_styles(self) -> None:
         channels = (ROOT / "canopy" / "ui" / "templates" / "channels.html").read_text(encoding="utf-8")
         self.assertIn("--channel-sidebar-width: clamp(236px, 24vw, 260px);", channels)

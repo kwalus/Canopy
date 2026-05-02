@@ -37,12 +37,22 @@
     <div class="card-body">
         <form id="createPostForm" onsubmit="event.preventDefault(); createPost();">
             <div class="mb-3">
-                <label for="postContent" class="form-label">
-                    What's on your mind?
-                    <span class="float-end">
+                <div class="d-flex justify-content-between align-items-center gap-2 mb-1 post-content-toolbar">
+                    <label for="postContent" class="form-label mb-0">What's on your mind?</label>
+                    <div class="d-flex align-items-center gap-2">
                         <small class="text-muted" id="charCounter">0 / 5000</small>
-                    </span>
-                </label>
+                        <button type="button"
+                                class="btn btn-sm btn-outline-secondary composer-expand-toggle"
+                                id="feed-composer-expand-toggle"
+                                onclick="toggleFeedDraftExpanded()"
+                                aria-pressed="false"
+                                aria-label="Expand post editor"
+                                title="Expand post editor">
+                            <i class="bi bi-arrows-angle-expand"></i>
+                            <span class="d-none d-sm-inline ms-1">Expand</span>
+                        </button>
+                    </div>
+                </div>
                 <div class="position-relative">
                     <!-- File Upload Dropzone -->
                     <div id="post-file-dropzone" class="file-dropzone">
@@ -4604,6 +4614,41 @@
         font-size: 0.82rem;
     }
 }
+
+#post-composer #postContent {
+    transition: min-height 0.18s ease, max-height 0.18s ease;
+}
+
+#post-composer.composer-expanded #postContent {
+    min-height: min(42vh, 420px);
+    max-height: min(58vh, 620px);
+    resize: vertical;
+    line-height: 1.48;
+}
+
+#post-composer.composer-expanded #post-file-dropzone {
+    min-height: min(42vh, 420px);
+}
+
+.composer-expand-toggle[aria-pressed="true"] {
+    color: var(--canopy-primary);
+    border-color: color-mix(in srgb, var(--canopy-primary) 58%, var(--canopy-border));
+    background: color-mix(in srgb, var(--canopy-primary) 14%, transparent);
+}
+
+@media (max-width: 576px) {
+    .post-content-toolbar {
+        align-items: flex-start !important;
+    }
+    #post-composer.composer-expanded #postContent {
+        min-height: 40vh;
+        max-height: 56vh;
+        font-size: 0.98rem;
+    }
+    #post-composer.composer-expanded #post-file-dropzone {
+        min-height: 40vh;
+    }
+}
 </style>
 {% endblock %}
 
@@ -4697,6 +4742,39 @@
                 if (textarea) {
                     requestAnimationFrame(() => textarea.focus());
                 }
+            }
+        }
+
+        function setFeedDraftExpanded(expanded) {
+            const composer = document.getElementById('post-composer');
+            const button = document.getElementById('feed-composer-expand-toggle');
+            const textarea = document.getElementById('postContent');
+            const isExpanded = !!expanded;
+            if (composer) {
+                composer.classList.toggle('composer-expanded', isExpanded);
+            }
+            if (button) {
+                button.setAttribute('aria-pressed', isExpanded ? 'true' : 'false');
+                button.setAttribute('aria-label', isExpanded ? 'Collapse post editor' : 'Expand post editor');
+                button.setAttribute('title', isExpanded ? 'Collapse post editor' : 'Expand post editor');
+                button.innerHTML = isExpanded
+                    ? '<i class="bi bi-arrows-angle-contract"></i><span class="d-none d-sm-inline ms-1">Collapse</span>'
+                    : '<i class="bi bi-arrows-angle-expand"></i><span class="d-none d-sm-inline ms-1">Expand</span>';
+            }
+            if (textarea) {
+                textarea.setAttribute('rows', isExpanded ? '12' : '4');
+                requestAnimationFrame(() => textarea.focus());
+            }
+        }
+
+        function toggleFeedDraftExpanded(forceExpanded) {
+            const composer = document.getElementById('post-composer');
+            const next = typeof forceExpanded === 'boolean'
+                ? forceExpanded
+                : !(composer && composer.classList.contains('composer-expanded'));
+            setFeedDraftExpanded(next);
+            if (next) {
+                syncFeedComposerLayout({ forceExpand: true });
             }
         }
 
@@ -5676,6 +5754,7 @@
             renderFeedStructuredValidation({ issues: [] });
             updateFeedStructuredTriggerState({ issues: [], blocking: false });
             renderFeedStructuredResult([]);
+            setFeedDraftExpanded(false);
 	    }
 
 	    function clearComposer() {
