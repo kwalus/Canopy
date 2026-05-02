@@ -183,6 +183,27 @@ class TestUiPolishRegressions(unittest.TestCase):
         self.assertIn('aria-expanded="false"', feed)
         self.assertIn('aria-controls="post-composer"', feed)
 
+    def test_channels_dropzone_overlay_uses_canopy_primary_not_bootstrap(self) -> None:
+        channels = (ROOT / "canopy" / "ui" / "templates" / "channels.html").read_text(encoding="utf-8")
+        self.assertIn('border: 2px dashed var(--canopy-primary);', channels)
+        self.assertNotIn('var(--bs-primary)', channels)
+
+    def test_channels_file_preview_item_uses_canopy_tokens(self) -> None:
+        channels = (ROOT / "canopy" / "ui" / "templates" / "channels.html").read_text(encoding="utf-8")
+        self.assertNotIn('var(--bs-gray-100)', channels)
+        self.assertIn('background: var(--canopy-bg-tertiary);', channels)
+
+    def test_channel_removal_peer_id_uses_system_monospace_not_bootstrap(self) -> None:
+        channels = (ROOT / "canopy" / "ui" / "templates" / "channels.html").read_text(encoding="utf-8")
+        self.assertNotIn('var(--bs-font-monospace)', channels)
+        self.assertIn('ui-monospace', channels)
+
+    def test_canopy_llm_status_panel_has_aria_live(self) -> None:
+        channels = (ROOT / "canopy" / "ui" / "templates" / "channels.html").read_text(encoding="utf-8")
+        self.assertIn('id="channel-canopy-llm-status"', channels)
+        self.assertIn('aria-live="polite"', channels)
+        self.assertIn('aria-atomic="true"', channels)
+
 
 if __name__ == "__main__":
     unittest.main()

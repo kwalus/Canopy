@@ -11680,6 +11680,7 @@
                         sidebar.classList.add('expanded');
                         toggleIcon.className = 'bi bi-list';
                         toggleBtn.setAttribute('title', 'Collapse to Icons');
+                        toggleBtn.setAttribute('aria-label', 'Collapse to Icons');
                         
                         // Show backdrop on mobile
                         if (isMobile && mobileBackdrop) {
@@ -11693,6 +11694,7 @@
                         sidebar.classList.add('collapsed');
                         toggleIcon.className = 'bi bi-chevron-left';
                         toggleBtn.setAttribute('title', 'Hide Sidebar');
+                        toggleBtn.setAttribute('aria-label', 'Hide Sidebar');
                         break;
                         
                     case 'hidden':
@@ -11701,6 +11703,7 @@
                         sidebar.classList.add('hidden');
                         toggleIcon.className = 'bi bi-chevron-right';
                         toggleBtn.setAttribute('title', 'Show Sidebar');
+                        toggleBtn.setAttribute('aria-label', 'Show Sidebar');
                         break;
                 }
                 

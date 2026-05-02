@@ -366,6 +366,22 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('[data-theme="dark"] .file-preview-container.md-preview', base_template)
         self.assertNotIn('background: var(--bs-tertiary-bg, #2b3035);', base_template)
 
+    def test_code_and_spreadsheet_preview_use_canopy_tokens_not_bootstrap(self) -> None:
+        base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+        self.assertIn('.file-preview-container.code-preview {', base_template)
+        self.assertIn('background: var(--canopy-bg-tertiary);', base_template)
+        self.assertNotIn('var(--bs-secondary-bg,', base_template)
+        self.assertNotIn('var(--bs-tertiary-bg,', base_template)
+        self.assertNotIn('var(--bs-border-color,', base_template)
+        self.assertIn('[data-theme="light"] .file-preview-container.code-preview,', base_template)
+        self.assertIn('[data-theme="light"] .file-preview-container.spreadsheet-preview', base_template)
+
+    def test_sidebar_toggle_aria_label_is_updated_per_state(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        self.assertIn("toggleBtn.setAttribute('aria-label', 'Collapse to Icons');", main_js)
+        self.assertIn("toggleBtn.setAttribute('aria-label', 'Hide Sidebar');", main_js)
+        self.assertIn("toggleBtn.setAttribute('aria-label', 'Show Sidebar');", main_js)
+
     def test_timestamp_formatter_is_immediate_shared_and_utc_safe(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
         self.assertIn("normalized = raw.replace(' ', 'T') + 'Z';", main_js)

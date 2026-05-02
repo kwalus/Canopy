@@ -3860,7 +3860,7 @@
                             <label class="form-check-label" for="channel-task-confirm">Create task</label>
                         </div>
                     </div>
-                    <div id="channel-canopy-llm-status" class="task-inline-toggle mb-2 structured-panel" style="display: none;">
+                    <div id="channel-canopy-llm-status" class="task-inline-toggle mb-2 structured-panel" style="display: none;" aria-live="polite" aria-atomic="true">
                         <div class="structured-panel-header">
                             <div class="task-inline-info">
                                 <span class="badge bg-primary-subtle text-primary-emphasis">
@@ -4472,8 +4472,8 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(13, 110, 253, 0.1);
-    border: 2px dashed var(--bs-primary);
+    background: color-mix(in srgb, var(--canopy-primary) 10%, transparent);
+    border: 2px dashed var(--canopy-primary);
     border-radius: 0.375rem;
     display: none;
     align-items: center;
@@ -4497,7 +4497,9 @@
     align-items: center;
     gap: 0.5rem;
     padding: 0.25rem 0.5rem;
-    background: var(--bs-gray-100);
+    background: var(--canopy-bg-tertiary);
+    border: 1px solid var(--canopy-border);
+    color: var(--canopy-text-primary);
     border-radius: 0.25rem;
     font-size: 0.875rem;
 }
@@ -6053,7 +6055,7 @@
     flex-wrap: wrap;
 }
 .channel-removal-peer-id {
-    font-family: var(--bs-font-monospace);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     font-size: 0.78rem;
 }
 .channel-removal-peer-vote {

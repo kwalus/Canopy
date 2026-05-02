@@ -135,6 +135,36 @@ class TestCanopyLLMManager(unittest.TestCase):
             'please draft this',
         )
 
+    def test_schema_ready_flag_prevents_repeated_create_table(self) -> None:
+        manager = CanopyLLMManager(self.db, 'test-secret')
+        self.assertTrue(manager._schema_ready)
+
+        with patch.object(self.db, 'get_connection', side_effect=AssertionError('schema touched')):
+            manager._ensure_schema()
+
+    def test_openai_response_read_is_bounded(self) -> None:
+        manager = CanopyLLMManager(self.db, 'test-secret')
+
+        class _LargeResponse:
+            def __enter__(self) -> '_LargeResponse':
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self, size: int = -1) -> bytes:
+                return b'{' + (b' ' * (size + 1))
+
+        with patch('canopy.core.canopy_ai.urlopen', return_value=_LargeResponse()):
+            with self.assertRaises(Exception) as ctx:
+                manager._call_openai(
+                    api_key='sk-test',
+                    model='gpt-5-mini',
+                    system_prompt='Compose.',
+                    prompt='Draft.',
+                )
+        self.assertEqual(getattr(ctx.exception, 'reason', ''), 'provider_response_too_large')
+
 
 class TestCanopyLLMComposeRoutes(unittest.TestCase):
     def setUp(self) -> None:

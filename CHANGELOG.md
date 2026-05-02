@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.52] - 2026-05-02
+
+### Fixed
+- **Attachment preview chrome now stays on Canopy theme tokens across more surfaces** - code and spreadsheet previews no longer depend on Bootstrap fallback surfaces, channel dropzones and file chips use Canopy colors, and the `@Canopy` drafting status announces progress through a polite live region.
+- **Local `@Canopy` compose has tighter backend guardrails** - the LLM settings schema is initialized once per manager, provider responses are bounded, and channel repost/variant cross-channel checks no longer leak source-channel membership through different error messages.
+- **The sidebar toggle now keeps its accessible label in sync with the next action** - expanded, compact, and hidden states update both `title` and `aria-label`.
+
 ## [0.6.51] - 2026-05-01
 
 ### Added

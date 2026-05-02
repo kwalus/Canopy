@@ -329,6 +329,37 @@ class TestChannelRepostManager(unittest.TestCase):
         assert first_repost is not None
         self.assertIsNone(self.manager.create_repost(first_repost.id, 'author-user', self.channel.id, 'chain attempt'))
 
+    def test_cross_channel_repost_and_variant_eligibility_do_not_leak_membership(self) -> None:
+        second_channel = self.manager.create_channel(
+            name='other-room',
+            channel_type=ChannelType.PUBLIC,
+            created_by='owner-user',
+            description='other',
+            privacy_mode='open',
+        )
+        assert second_channel is not None
+        original = self.manager.send_message(self.channel.id, 'author-user', 'Cross-channel probe target')
+        assert original is not None
+
+        for user_id in ('viewer-user', 'not-a-member'):
+            repost_decision = self.manager.get_repost_eligibility(
+                original.id,
+                user_id,
+                second_channel.id,
+            )
+            self.assertFalse(repost_decision['allowed'])
+            self.assertEqual(repost_decision['status_code'], 403)
+            self.assertEqual(repost_decision['reason'], 'Channel reposts are limited to the same channel in v1')
+
+            variant_decision = self.manager.get_variant_eligibility(
+                original.id,
+                user_id,
+                second_channel.id,
+            )
+            self.assertFalse(variant_decision['allowed'])
+            self.assertEqual(variant_decision['status_code'], 403)
+            self.assertEqual(variant_decision['reason'], 'Variants are limited to the same channel in v1')
+
     def test_resolve_repost_reference_degrades_when_original_disappears_or_access_changes(self) -> None:
         original = self.manager.send_message(self.channel.id, 'author-user', 'Source to lose')
         assert original is not None

@@ -319,15 +319,6 @@ def _channel_original_signals_deck_ui(
     atts = getattr(original, 'attachments', None)
     if _channel_attachment_list_signals_deck_queue(atts, db_manager):
         return True
-    mt = getattr(original, 'message_type', None)
-    # Stored attachment rows still need media/module hints; static images preview inline
-    # but are not queueable deck items.
-    if isinstance(atts, list) and len(atts) > 0 and mt in (
-        MessageType.FILE,
-        MessageType.TEXT,
-        MessageType.THREAD_REPLY,
-    ):
-        return _channel_attachment_list_signals_deck_queue(atts, db_manager)
     return False
 
 
@@ -8017,21 +8008,10 @@ class ChannelManager:
             }
 
         if source_channel_id != str(channel_id or '').strip():
-            source_access = self.get_channel_access_decision(
-                channel_id=source_channel_id,
-                user_id=user_id,
-                require_membership=True,
-            )
-            if source_access.get('allowed'):
-                return {
-                    'allowed': False,
-                    'status_code': 403,
-                    'reason': 'Channel reposts are limited to the same channel in v1',
-                }
             return {
                 'allowed': False,
                 'status_code': 403,
-                'reason': 'Access denied',
+                'reason': 'Channel reposts are limited to the same channel in v1',
             }
 
         state, original = self._get_message_for_reference(source_channel_id, message_id, user_id)
@@ -8163,21 +8143,10 @@ class ChannelManager:
             }
 
         if source_channel_id != str(channel_id or '').strip():
-            source_access = self.get_channel_access_decision(
-                channel_id=source_channel_id,
-                user_id=user_id,
-                require_membership=True,
-            )
-            if source_access.get('allowed'):
-                return {
-                    'allowed': False,
-                    'status_code': 403,
-                    'reason': 'Variants are limited to the same channel in v1',
-                }
             return {
                 'allowed': False,
                 'status_code': 403,
-                'reason': 'Access denied',
+                'reason': 'Variants are limited to the same channel in v1',
             }
 
         state, original = self._get_message_for_reference(source_channel_id, message_id, user_id)

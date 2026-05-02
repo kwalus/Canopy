@@ -37,6 +37,7 @@ DEFAULT_CANOPY_LLM_SYSTEM_PROMPT = (
 CANOPY_TRIGGER_RE = re.compile(r'(?i)(^|\s)@canopy\b[:,]?\s*')
 MAX_SYSTEM_PROMPT_CHARS = 4000
 MAX_LLM_INPUT_CHARS = 24000
+_MAX_LLM_RESPONSE_BYTES = 512 * 1024  # 512 KiB is generous; typical responses are much smaller.
 
 
 class CanopyLLMError(RuntimeError):
@@ -55,6 +56,7 @@ class CanopyLLMManager:
         self.db_manager = db_manager
         self.secret_key = self._normalize_secret(secret_key)
         self._fernet: Optional[Fernet] = None
+        self._schema_ready = False
         self._ensure_schema()
 
     @staticmethod
@@ -225,6 +227,8 @@ class CanopyLLMManager:
         }
 
     def _ensure_schema(self) -> None:
+        if self._schema_ready:
+            return
         with self.db_manager.get_connection() as conn:
             conn.execute(
                 """
@@ -241,6 +245,7 @@ class CanopyLLMManager:
                 """
             )
             conn.commit()
+        self._schema_ready = True
 
     def _default_settings(self) -> dict[str, Any]:
         return {
@@ -357,7 +362,14 @@ class CanopyLLMManager:
         )
         try:
             with urlopen(request, timeout=timeout) as response:
-                raw = response.read().decode('utf-8')
+                raw_bytes = response.read(_MAX_LLM_RESPONSE_BYTES + 1)
+                if len(raw_bytes) > _MAX_LLM_RESPONSE_BYTES:
+                    raise CanopyLLMError(
+                        'OpenAI returned a response that exceeded Canopy AI Compose limits.',
+                        status_code=502,
+                        reason='provider_response_too_large',
+                    )
+                raw = raw_bytes.decode('utf-8')
         except HTTPError as exc:
             message = self._extract_openai_error(exc)
             logger.warning('OpenAI compose request failed with HTTP %s: %s', exc.code, message)
