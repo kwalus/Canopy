@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.56] - 2026-05-02
+
+### Added
+- **The media deck now has a desktop Window view between Large and browser fullscreen** - the existing deck size control cycles Standard, Large, and Window, with Window expanding inside the active content panel while preserving the Canopy navbar/sidebar shell and current playback state.
+
 ## [0.6.55] - 2026-05-02
 
 ### Changed

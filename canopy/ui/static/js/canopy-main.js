@@ -6073,6 +6073,12 @@
             const deckDetailToggle = document.getElementById('sidebar-media-deck-detail-toggle');
             const youtubeDeckTitleCache = new Map();
 
+            function normalizeDeckDesktopMode(mode) {
+                const raw = String(mode || '').trim().toLowerCase();
+                if (raw === 'large' || raw === 'window') return raw;
+                return 'default';
+            }
+
             const state = {
                 current: null,
                 dismissedEl: null,
@@ -6105,7 +6111,7 @@
                 deckDetailCollapsed: false,
                 deckLayoutMode: 'default',
                 deckLayoutPrimedKey: '',
-                deckDesktopMode: String(loadSidebarRailPreference('deckDesktopMode', 'default') || 'default').trim().toLowerCase() === 'large' ? 'large' : 'default',
+                deckDesktopMode: normalizeDeckDesktopMode(loadSidebarRailPreference('deckDesktopMode', 'default')),
                 /** Last `state.deckItems.length` applied in `syncDeckLayoutMode` (module layout). */
                 deckLayoutLastQueueCount: -1,
             };
@@ -6218,27 +6224,73 @@
                 return window.innerWidth > 900 && window.innerHeight > 620;
             }
 
+            function isDesktopDeckWindowEligible() {
+                return window.innerWidth > 1020 && window.innerHeight > 660;
+            }
+
+            function activeDeckDesktopMode(mode) {
+                const requested = normalizeDeckDesktopMode(mode);
+                if (!isDesktopDeckLargeEligible()) return 'default';
+                if (requested === 'window' && !isDesktopDeckWindowEligible()) return 'large';
+                return requested;
+            }
+
+            function syncDeckWindowBounds(activeMode) {
+                if (!deck) return;
+                if (activeMode !== 'window') return;
+                const sourceRect = mainScroller && typeof mainScroller.getBoundingClientRect === 'function'
+                    ? mainScroller.getBoundingClientRect()
+                    : {
+                        top: 56,
+                        right: window.innerWidth,
+                        bottom: window.innerHeight,
+                        left: 0,
+                    };
+                const gutter = window.innerWidth > 1320 ? 18 : 14;
+                const left = Math.max(10, Math.round(sourceRect.left + gutter));
+                const top = Math.max(10, Math.round(sourceRect.top + gutter));
+                const right = Math.max(10, Math.round(window.innerWidth - sourceRect.right + gutter));
+                const bottom = Math.max(10, Math.round(window.innerHeight - sourceRect.bottom + gutter));
+                deck.style.setProperty('--canopy-deck-window-left', `${left}px`);
+                deck.style.setProperty('--canopy-deck-window-top', `${top}px`);
+                deck.style.setProperty('--canopy-deck-window-right', `${right}px`);
+                deck.style.setProperty('--canopy-deck-window-bottom', `${bottom}px`);
+            }
+
             function syncDeckDesktopModeButton() {
                 if (!deckLargeToggleBtn) return;
                 const eligible = isDesktopDeckLargeEligible();
-                const large = eligible && state.deckDesktopMode === 'large';
+                const activeMode = activeDeckDesktopMode(state.deckDesktopMode);
                 deckLargeToggleBtn.hidden = !eligible;
                 deckLargeToggleBtn.disabled = !eligible;
-                deckLargeToggleBtn.classList.toggle('is-active', large);
-                deckLargeToggleBtn.innerHTML = large
-                    ? '<i class="bi bi-fullscreen-exit"></i><span class="sidebar-media-deck-action-label">Standard view</span>'
-                    : '<i class="bi bi-arrows-fullscreen"></i><span class="sidebar-media-deck-action-label">Large view</span>';
-                deckLargeToggleBtn.title = large ? 'Return Canopy deck to standard size' : 'Use larger Canopy deck view';
+                deckLargeToggleBtn.classList.toggle('is-active', activeMode !== 'default');
+                if (activeMode === 'window') {
+                    deckLargeToggleBtn.innerHTML = '<i class="bi bi-fullscreen-exit"></i><span class="sidebar-media-deck-action-label">Standard view</span>';
+                    deckLargeToggleBtn.title = 'Return Canopy deck to standard size';
+                } else if (activeMode === 'large' && isDesktopDeckWindowEligible()) {
+                    deckLargeToggleBtn.innerHTML = '<i class="bi bi-aspect-ratio"></i><span class="sidebar-media-deck-action-label">Window view</span>';
+                    deckLargeToggleBtn.title = 'Expand Canopy deck to window view';
+                } else if (activeMode === 'large') {
+                    deckLargeToggleBtn.innerHTML = '<i class="bi bi-fullscreen-exit"></i><span class="sidebar-media-deck-action-label">Standard view</span>';
+                    deckLargeToggleBtn.title = 'Return Canopy deck to standard size';
+                } else {
+                    deckLargeToggleBtn.innerHTML = '<i class="bi bi-arrows-fullscreen"></i><span class="sidebar-media-deck-action-label">Large view</span>';
+                    deckLargeToggleBtn.title = 'Use larger Canopy deck view';
+                }
                 deckLargeToggleBtn.setAttribute('aria-label', deckLargeToggleBtn.title);
+                deckLargeToggleBtn.setAttribute('aria-pressed', activeMode !== 'default' ? 'true' : 'false');
             }
 
             function applyDeckDesktopMode(mode, options = {}) {
-                const requested = String(mode || '').trim().toLowerCase() === 'large' ? 'large' : 'default';
+                const requested = normalizeDeckDesktopMode(mode);
                 state.deckDesktopMode = requested;
                 saveSidebarRailPreference('deckDesktopMode', requested);
-                const activeMode = isDesktopDeckLargeEligible() ? requested : 'default';
+                const activeMode = activeDeckDesktopMode(requested);
+                syncDeckWindowBounds(activeMode);
                 if (deck) {
                     deck.classList.toggle('is-desktop-large', activeMode === 'large');
+                    deck.classList.toggle('is-desktop-window', activeMode === 'window');
+                    deck.setAttribute('data-deck-desktop-mode', activeMode);
                 }
                 syncDeckDesktopModeButton();
                 if (!options.silent) {
@@ -6246,8 +6298,15 @@
                 }
             }
 
-            function toggleDeckDesktopMode() {
-                applyDeckDesktopMode(state.deckDesktopMode === 'large' ? 'default' : 'large');
+            function cycleDeckDesktopMode() {
+                const activeMode = activeDeckDesktopMode(state.deckDesktopMode);
+                if (activeMode === 'window') {
+                    applyDeckDesktopMode('default');
+                } else if (activeMode === 'large') {
+                    applyDeckDesktopMode(isDesktopDeckWindowEligible() ? 'window' : 'default');
+                } else {
+                    applyDeckDesktopMode('large');
+                }
             }
 
             function normalizeYouTubeReadableTitle(value, videoId) {
@@ -11260,7 +11319,7 @@
             }
 
             if (deckLargeToggleBtn) {
-                deckLargeToggleBtn.addEventListener('click', () => toggleDeckDesktopMode());
+                deckLargeToggleBtn.addEventListener('click', () => cycleDeckDesktopMode());
             }
 
             if (deckMinimizeFooterBtn) {
@@ -11479,6 +11538,10 @@
             window.addEventListener('resize', () => {
                 applyDeckDesktopMode(state.deckDesktopMode, { silent: true });
                 scheduleMiniUpdate();
+            });
+            window.addEventListener('canopy:sidebar-state-changed', () => {
+                applyDeckDesktopMode(state.deckDesktopMode, { silent: true });
+                window.setTimeout(() => applyDeckDesktopMode(state.deckDesktopMode, { silent: true }), 340);
             });
             document.addEventListener('visibilitychange', scheduleMiniUpdate);
             document.addEventListener('keydown', (event) => {
@@ -11742,6 +11805,9 @@
 
                 // Update current state
                 currentState = state;
+                window.dispatchEvent(new CustomEvent('canopy:sidebar-state-changed', {
+                    detail: { state }
+                }));
             }
             
             // Handle window resize for responsive behavior

@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.6.55-blue" alt="Version 0.6.55">
+  <img src="https://img.shields.io/badge/version-0.6.56-blue" alt="Version 0.6.56">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -119,6 +119,7 @@ Recent end-user improvements reflected in the app and docs:
 - **Channels now has sharper light and Graphite contrast for demo screenshots** — message cards, reply blocks, channel rows, header chrome, action buttons, and the shared wordmark receive stronger theme-aware separation so busy channel views stay readable in both day and dark presentations.
 - **Theme choice now applies before first paint and the deck follows it** — the shared shell pre-seeds theme attributes before CSS loads, Outlook/Teams participate as light schemes, and the media deck chrome now tracks the selected theme instead of staying locked to dark glass.
 - **`@Canopy` now behaves like a review-first drafting assistant** — generated channel drafts return to the composer for editing instead of posting immediately, and Channels, DMs, and Feed auto-expand when users paste large text bodies.
+- **The media deck now offers a desktop Window view** — the existing deck size control cycles from Standard to Large to Window, expanding across the active content panel while preserving the app shell and playback state.
 - **Expanded channel composers now keep controls compact** — long-draft mode gives the extra height to the message editor while the action buttons wrap into a normal-height toolbar instead of stretching vertically beside the textarea.
 - **Copilot review hardening for previews, compose, and repost safety** — code/spreadsheet previews and channel upload chips now use Canopy theme tokens, the sidebar toggle exposes accurate accessible labels, local `@Canopy` compose bounds provider responses, and cross-channel repost/variant checks avoid membership-probing differences.
 - **Channel drafts can now use local `@Canopy` AI compose** — users can configure their own provider key in Profile, expand a channel draft through a local authenticated endpoint, and send the resulting post through the normal Canopy composer flow.

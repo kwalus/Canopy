@@ -1677,6 +1677,19 @@
             max-height: min(96vh, 1080px);
         }
 
+        .sidebar-media-deck.is-desktop-window {
+            left: var(--canopy-deck-window-left, 274px);
+            right: var(--canopy-deck-window-right, 18px);
+            top: var(--canopy-deck-window-top, 74px);
+            bottom: var(--canopy-deck-window-bottom, 18px);
+            width: auto;
+            max-height: none;
+        }
+
+        .sidebar-media-deck.is-desktop-window.is-visible {
+            max-height: none;
+        }
+
         .sidebar-media-deck-shell {
             border-radius: 26px;
             overflow: hidden;
@@ -1698,6 +1711,13 @@
 
         .sidebar-media-deck.is-desktop-large .sidebar-media-deck-shell {
             max-height: min(96vh, 1080px);
+        }
+
+        .sidebar-media-deck.is-desktop-window .sidebar-media-deck-shell {
+            width: 100%;
+            height: 100%;
+            max-height: none;
+            border-radius: 24px;
         }
 
         /* Scrollable middle: stage, queue, meta / station / widget — not transport controls */
@@ -1723,6 +1743,11 @@
 
         .sidebar-media-deck.is-module-active .sidebar-media-deck-shell {
             max-height: min(92vh, 1020px);
+        }
+
+        .sidebar-media-deck.is-desktop-window.is-module-active,
+        .sidebar-media-deck.is-desktop-window.is-module-active .sidebar-media-deck-shell {
+            max-height: none;
         }
 
         /* Give the module stage all remaining vertical space in the scroll region (avoids a short fixed vh box). */
@@ -1942,6 +1967,78 @@
         .sidebar-media-deck.is-desktop-large .sidebar-media-deck-stage {
             min-height: clamp(352px, 57vh, 770px);
             max-height: min(66vh, 770px);
+        }
+
+        .sidebar-media-deck.is-desktop-window .sidebar-media-deck-scroll {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(276px, 342px);
+            grid-template-rows: minmax(0, 1fr) auto;
+            gap: 14px;
+            padding: 16px 20px;
+            overflow: hidden;
+        }
+
+        .sidebar-media-deck.is-desktop-window .sidebar-media-deck-stage-shell {
+            grid-column: 1;
+            grid-row: 1 / span 2;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            padding: 0;
+        }
+
+        .sidebar-media-deck.is-desktop-window .sidebar-media-deck-stage {
+            aspect-ratio: auto;
+            flex: 1 1 auto;
+            min-height: 0;
+            max-height: none;
+            border-radius: 22px;
+        }
+
+        .sidebar-media-deck.is-desktop-window .sidebar-media-deck-queue-shell {
+            grid-column: 2;
+            grid-row: 1;
+            min-height: 0;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            padding: 0;
+        }
+
+        .sidebar-media-deck.is-desktop-window .sidebar-media-deck-queue {
+            flex: 1 1 auto;
+            min-height: 0;
+            flex-direction: column;
+            overflow-x: hidden;
+            overflow-y: auto;
+            scroll-snap-type: y proximity;
+            padding: 2px 4px 6px 2px;
+        }
+
+        .sidebar-media-deck.is-desktop-window .sidebar-media-deck-detail {
+            grid-column: 2;
+            grid-row: 2;
+            max-height: min(36vh, 360px);
+            overflow: auto;
+            padding: 0 4px 2px 0;
+        }
+
+        .sidebar-media-deck.is-desktop-window .sidebar-media-deck-item {
+            width: 100%;
+            min-width: 0;
+            flex: 0 0 auto;
+            grid-template-columns: minmax(92px, 34%) minmax(0, 1fr);
+            align-items: center;
+        }
+
+        .sidebar-media-deck.is-desktop-window .sidebar-media-deck-item-thumb {
+            min-width: 0;
+        }
+
+        .sidebar-media-deck.is-desktop-window .sidebar-media-deck-footer {
+            padding-left: 20px;
+            padding-right: 20px;
+            padding-bottom: 18px;
         }
 
         .sidebar-media-deck-stage.is-empty {
@@ -2770,6 +2867,45 @@
         @media (hover: hover) and (pointer: fine) {
             .sidebar-media-deck-backdrop.is-visible {
                 pointer-events: none;
+            }
+        }
+
+        @media (max-width: 1180px) {
+            .sidebar-media-deck.is-desktop-window .sidebar-media-deck-scroll {
+                grid-template-columns: minmax(0, 1fr);
+                grid-template-rows: minmax(420px, 1fr) auto auto;
+                overflow-y: auto;
+                overflow-x: hidden;
+            }
+
+            .sidebar-media-deck.is-desktop-window .sidebar-media-deck-stage-shell,
+            .sidebar-media-deck.is-desktop-window .sidebar-media-deck-queue-shell,
+            .sidebar-media-deck.is-desktop-window .sidebar-media-deck-detail {
+                grid-column: 1;
+                grid-row: auto;
+            }
+
+            .sidebar-media-deck.is-desktop-window .sidebar-media-deck-stage-shell {
+                min-height: clamp(420px, 58vh, 760px);
+            }
+
+            .sidebar-media-deck.is-desktop-window .sidebar-media-deck-queue {
+                flex-direction: row;
+                overflow-x: auto;
+                overflow-y: hidden;
+                scroll-snap-type: x proximity;
+            }
+
+            .sidebar-media-deck.is-desktop-window .sidebar-media-deck-item {
+                grid-template-columns: 1fr;
+                min-width: 156px;
+                width: 156px;
+                flex-basis: 156px;
+                align-items: stretch;
+            }
+
+            .sidebar-media-deck.is-desktop-window .sidebar-media-deck-detail {
+                max-height: none;
             }
         }
 
