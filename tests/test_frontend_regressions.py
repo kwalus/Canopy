@@ -42,6 +42,27 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('/ajax/canopy_llm/settings', profile_template)
         self.assertIn('put the result back into the composer for review before you send', profile_template)
 
+    def test_universal_collaboration_cards_render_in_feed_and_channels(self) -> None:
+        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        ui_routes = (ROOT / 'canopy' / 'ui' / 'routes.py').read_text(encoding='utf-8')
+        api_routes = (ROOT / 'canopy' / 'api' / 'routes.py').read_text(encoding='utf-8')
+
+        for template in (feed_template, channels_template):
+            self.assertIn('collab-card-stack', template)
+            self.assertIn('collab-card--input', template)
+            self.assertIn('collab-card--telemetry', template)
+            self.assertIn('collab-telemetry-bar', template)
+
+        self.assertIn('function renderCollabCards(message)', channels_template)
+        self.assertIn('submitCollabInputResponse', main_js)
+        self.assertIn('updateCollabTelemetry', main_js)
+        self.assertIn('/ajax/collab_cards/${encodeURIComponent(cardId)}/respond', main_js)
+        self.assertIn('parse_collab_card_blocks', ui_routes)
+        self.assertIn('_sync_inline_collab_cards_from_content', api_routes)
+        self.assertIn("/collab-cards/<card_id>/telemetry", api_routes)
+
     def test_account_pages_do_not_render_deemphasized_stats_panels(self) -> None:
         bookmarks_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'bookmarks.html').read_text(encoding='utf-8')
         api_keys_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'api_keys.html').read_text(encoding='utf-8')

@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.61] - 2026-05-02
+
+### Added
+- **Universal collaboration cards now support shared human-agent input and telemetry workflows** - feed posts and channel messages can declare durable `[input-card]` and `[telemetry-card]` blocks that render inline, accept permission-gated responses, expose update controls for authorized editors, and can be driven through browser AJAX or the REST API.
+
+### Fixed
+- **Direct collaboration-card endpoints now respect source visibility** - card reads and mutations are filtered against the source feed post or channel message so private/custom sources cannot be bypassed by guessing a card ID.
+
 ## [0.6.60] - 2026-05-02
 
 ### Fixed

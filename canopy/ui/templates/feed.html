@@ -1208,6 +1208,89 @@
                                     </div>
                                 {% endif %}
 
+                                {% if post.collab_cards %}
+                                    <div class="collab-card-stack">
+                                        {% for card in post.collab_cards %}
+                                            <div class="collab-card collab-card--{{ card.card_type }}" data-collab-card-id="{{ card.id }}" data-card-type="{{ card.card_type }}" data-status="{{ card.status }}">
+                                                <div class="collab-card-head">
+                                                    <span class="collab-card-label">
+                                                        {% if card.card_type == 'input' %}
+                                                            <i class="bi bi-ui-checks-grid"></i> Input Request
+                                                        {% else %}
+                                                            <i class="bi bi-activity"></i> Telemetry
+                                                        {% endif %}
+                                                    </span>
+                                                    <span class="collab-card-status {{ card.status }}">{{ card.status_label }}</span>
+                                                </div>
+                                                <div class="collab-card-title">{{ card.title }}</div>
+                                                {% if card.summary %}
+                                                    <div class="collab-card-summary">{{ card.summary }}</div>
+                                                {% endif %}
+                                                {% if card.card_type == 'input' %}
+                                                    {% if card.prompt %}
+                                                        <div class="collab-card-prompt">{{ card.prompt }}</div>
+                                                    {% endif %}
+                                                    {% set options = card.config.get('options', []) if card.config else [] %}
+                                                    {% if card.can_respond %}
+                                                        <div class="collab-card-response" data-collab-response-form="{{ card.id }}">
+                                                            {% if options %}
+                                                                <div class="collab-card-options">
+                                                                    {% for option in options %}
+                                                                        <button type="button" class="btn btn-sm btn-outline-info" onclick='submitCollabInputResponse("{{ card.id }}", {{ option|tojson }}, "choice")'>{{ option }}</button>
+                                                                    {% endfor %}
+                                                                </div>
+                                                            {% endif %}
+                                                            <div class="input-group input-group-sm mt-2">
+                                                                <input type="text" class="form-control" placeholder="Add a response or rationale" data-collab-input="{{ card.id }}">
+                                                                <button class="btn btn-primary" type="button" onclick='submitCollabInputResponse("{{ card.id }}", null, "text")'>Send</button>
+                                                            </div>
+                                                        </div>
+                                                    {% elif card.my_response %}
+                                                        <div class="collab-card-answer"><i class="bi bi-check2-circle"></i> Your response is recorded.</div>
+                                                    {% else %}
+                                                        <div class="collab-card-lock"><i class="bi bi-lock"></i> Allocated responders only.</div>
+                                                    {% endif %}
+                                                    <div class="collab-card-meta">
+                                                        <span>{{ card.response_count }} response{{ '' if card.response_count == 1 else 's' }}</span>
+                                                        {% if card.can_update %}
+                                                            <button type="button" class="btn btn-sm btn-outline-light" onclick='updateCollabInputStatus("{{ card.id }}", "resolved")'>Resolve</button>
+                                                        {% endif %}
+                                                    </div>
+                                                {% else %}
+                                                    {% set telemetry = card.telemetry or {} %}
+                                                    {% set progress = telemetry.get('progress') if telemetry.get('progress') is not none else 0 %}
+                                                    <div class="collab-telemetry-bar" aria-label="Progress {{ progress }} percent">
+                                                        <span style="width: {{ progress }}%"></span>
+                                                    </div>
+                                                    <div class="collab-telemetry-meta">
+                                                        <strong>{{ progress }}%</strong>
+                                                        {% if telemetry.get('stage') %}<span>{{ telemetry.get('stage') }}</span>{% endif %}
+                                                    </div>
+                                                    {% if telemetry.get('metrics') %}
+                                                        <div class="collab-metric-grid">
+                                                            {% for metric in telemetry.get('metrics') %}
+                                                                <div class="collab-metric">
+                                                                    <span>{{ metric.get('label') }}</span>
+                                                                    <strong>{{ metric.get('value') }}{% if metric.get('unit') %} {{ metric.get('unit') }}{% endif %}</strong>
+                                                                </div>
+                                                            {% endfor %}
+                                                        </div>
+                                                    {% endif %}
+                                                    {% if card.can_update %}
+                                                        <div class="collab-card-response collab-telemetry-update">
+                                                            <div class="input-group input-group-sm">
+                                                                <input type="number" min="0" max="100" class="form-control" placeholder="%" data-collab-progress="{{ card.id }}">
+                                                                <input type="text" class="form-control" placeholder="Stage" data-collab-stage="{{ card.id }}">
+                                                                <button class="btn btn-primary" type="button" onclick='updateCollabTelemetry("{{ card.id }}")'>Update</button>
+                                                            </div>
+                                                        </div>
+                                                    {% endif %}
+                                                {% endif %}
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+
                                 {% if post.skills %}
                                     <div class="skill-stack">
                                         {% for skill in post.skills %}
@@ -4213,6 +4296,217 @@
     margin-top: 0.6rem;
     position: relative;
     z-index: 1;
+}
+
+/* Collaboration Cards */
+.collab-card-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.collab-card {
+    position: relative;
+    overflow: hidden;
+    border-radius: 18px;
+    padding: 1rem 1.1rem;
+    border: 1px solid rgba(125, 211, 252, 0.28);
+    background:
+        radial-gradient(circle at top right, rgba(125, 211, 252, 0.2), transparent 46%),
+        linear-gradient(145deg, rgba(15, 23, 42, 0.94), rgba(12, 74, 110, 0.36));
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.26);
+    backdrop-filter: blur(10px);
+}
+
+.collab-card--input {
+    border-color: rgba(45, 212, 191, 0.32);
+    background:
+        radial-gradient(circle at top right, rgba(45, 212, 191, 0.18), transparent 46%),
+        linear-gradient(145deg, rgba(15, 23, 42, 0.94), rgba(20, 83, 45, 0.34));
+}
+
+.collab-card--telemetry {
+    border-color: rgba(96, 165, 250, 0.34);
+}
+
+.collab-card-head,
+.collab-card-meta,
+.collab-telemetry-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.65rem;
+    position: relative;
+    z-index: 1;
+}
+
+.collab-card-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.68rem;
+    color: #7dd3fc;
+    font-weight: 800;
+}
+
+.collab-card-status {
+    font-size: 0.7rem;
+    padding: 0.22rem 0.55rem;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.34);
+    background: rgba(148, 163, 184, 0.14);
+    color: var(--canopy-text-secondary);
+    font-weight: 700;
+}
+
+.collab-card-status.open,
+.collab-card-status.waiting,
+.collab-card-status.running {
+    border-color: rgba(56, 189, 248, 0.35);
+    background: rgba(56, 189, 248, 0.18);
+    color: #7dd3fc;
+}
+
+.collab-card-status.resolved,
+.collab-card-status.closed,
+.collab-card-status.complete {
+    border-color: rgba(52, 211, 153, 0.38);
+    background: rgba(52, 211, 153, 0.18);
+    color: #6ee7b7;
+}
+
+.collab-card-status.blocked,
+.collab-card-status.error,
+.collab-card-status.cancelled {
+    border-color: rgba(248, 113, 113, 0.4);
+    background: rgba(248, 113, 113, 0.16);
+    color: #fca5a5;
+}
+
+.collab-card-title {
+    margin-top: 0.45rem;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--canopy-text-primary);
+    position: relative;
+    z-index: 1;
+}
+
+.collab-card-summary,
+.collab-card-prompt {
+    margin-top: 0.4rem;
+    color: var(--canopy-text-secondary);
+    font-size: 0.9rem;
+    white-space: pre-wrap;
+    position: relative;
+    z-index: 1;
+}
+
+.collab-card-prompt {
+    padding: 0.65rem 0.75rem;
+    border-radius: 13px;
+    border: 1px solid rgba(125, 211, 252, 0.18);
+    background: rgba(15, 23, 42, 0.42);
+}
+
+.collab-card-response,
+.collab-card-answer,
+.collab-card-lock {
+    margin-top: 0.7rem;
+    position: relative;
+    z-index: 1;
+}
+
+.collab-card-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+}
+
+.collab-card-answer,
+.collab-card-lock,
+.collab-card-meta {
+    font-size: 0.78rem;
+    color: var(--canopy-text-muted);
+}
+
+.collab-telemetry-bar {
+    height: 9px;
+    margin-top: 0.75rem;
+    border-radius: 999px;
+    overflow: hidden;
+    background: rgba(148, 163, 184, 0.2);
+    position: relative;
+    z-index: 1;
+}
+
+.collab-telemetry-bar span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #38bdf8, #2dd4bf, #a3e635);
+    box-shadow: 0 0 18px rgba(45, 212, 191, 0.4);
+}
+
+.collab-telemetry-meta {
+    margin-top: 0.45rem;
+    color: var(--canopy-text-muted);
+    font-size: 0.78rem;
+}
+
+.collab-telemetry-meta strong {
+    color: var(--canopy-text-primary);
+}
+
+.collab-metric-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 0.5rem;
+    margin-top: 0.7rem;
+    position: relative;
+    z-index: 1;
+}
+
+.collab-metric {
+    padding: 0.55rem 0.65rem;
+    border-radius: 12px;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    background: rgba(15, 23, 42, 0.36);
+}
+
+.collab-metric span {
+    display: block;
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--canopy-text-muted);
+}
+
+.collab-metric strong {
+    display: block;
+    margin-top: 0.18rem;
+    color: var(--canopy-text-primary);
+}
+
+[data-theme="light"] .collab-card {
+    background:
+        radial-gradient(circle at top right, rgba(14, 165, 233, 0.14), transparent 46%),
+        linear-gradient(145deg, #ffffff, #e0f2fe);
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.1);
+}
+
+[data-theme="light"] .collab-card--input {
+    background:
+        radial-gradient(circle at top right, rgba(20, 184, 166, 0.13), transparent 46%),
+        linear-gradient(145deg, #ffffff, #dcfce7);
+}
+
+[data-theme="light"] .collab-card-prompt,
+[data-theme="light"] .collab-metric {
+    background: rgba(255, 255, 255, 0.72);
 }
 
 /* Contract Cards */

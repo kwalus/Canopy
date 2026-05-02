@@ -5185,6 +5185,147 @@
             });
         }
 
+        // --- Collaboration card helpers (input requests + telemetry) ---
+        function _collabCardSelector(cardId) {
+            const raw = String(cardId || '');
+            if (window.CSS && typeof window.CSS.escape === 'function') {
+                return `.collab-card[data-collab-card-id="${window.CSS.escape(raw)}"]`;
+            }
+            return `.collab-card[data-collab-card-id="${raw.replace(/"/g, '\\"')}"]`;
+        }
+
+        function submitCollabInputResponse(cardId, value, responseType) {
+            if (!cardId) return;
+            let finalValue = value;
+            if (finalValue === null || finalValue === undefined) {
+                const input = document.querySelector(`[data-collab-input="${cardId}"]`);
+                finalValue = input ? String(input.value || '').trim() : '';
+            }
+            if (!finalValue) {
+                showAlert('Add a response first.', 'warning');
+                return;
+            }
+            apiCall(`/ajax/collab_cards/${encodeURIComponent(cardId)}/respond`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    value: finalValue,
+                    response_type: responseType || 'text'
+                })
+            })
+                .then(data => {
+                    if (!data || !data.success) {
+                        showAlert((data && data.error) || 'Failed to save response', 'danger');
+                        return;
+                    }
+                    if (data.card) {
+                        applyCollabCardUpdate(data.card);
+                    }
+                    showAlert('Response saved.', 'success');
+                })
+                .catch(err => {
+                    showAlert((err && (err.error || err.message)) || 'Failed to save response', 'danger');
+                });
+        }
+
+        function updateCollabInputStatus(cardId, status) {
+            if (!cardId || !status) return;
+            apiCall(`/ajax/collab_cards/${encodeURIComponent(cardId)}/status`, {
+                method: 'POST',
+                body: JSON.stringify({ status })
+            })
+                .then(data => {
+                    if (!data || !data.success) {
+                        showAlert((data && data.error) || 'Failed to update card', 'danger');
+                        return;
+                    }
+                    if (data.card) {
+                        applyCollabCardUpdate(data.card);
+                    }
+                    showAlert('Card updated.', 'success');
+                })
+                .catch(err => {
+                    showAlert((err && (err.error || err.message)) || 'Failed to update card', 'danger');
+                });
+        }
+
+        function updateCollabTelemetry(cardId) {
+            if (!cardId) return;
+            const progressInput = document.querySelector(`[data-collab-progress="${cardId}"]`);
+            const stageInput = document.querySelector(`[data-collab-stage="${cardId}"]`);
+            const payload = {};
+            if (progressInput && String(progressInput.value || '').trim()) {
+                payload.progress = progressInput.value;
+            }
+            if (stageInput && String(stageInput.value || '').trim()) {
+                payload.stage = stageInput.value.trim();
+            }
+            if (!Object.keys(payload).length) {
+                showAlert('Enter a progress value or stage update first.', 'warning');
+                return;
+            }
+            apiCall(`/ajax/collab_cards/${encodeURIComponent(cardId)}/telemetry`, {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            })
+                .then(data => {
+                    if (!data || !data.success) {
+                        showAlert((data && data.error) || 'Failed to update telemetry', 'danger');
+                        return;
+                    }
+                    if (data.card) {
+                        applyCollabCardUpdate(data.card);
+                    }
+                    if (progressInput) progressInput.value = '';
+                    if (stageInput) stageInput.value = '';
+                    showAlert('Telemetry updated.', 'success');
+                })
+                .catch(err => {
+                    showAlert((err && (err.error || err.message)) || 'Failed to update telemetry', 'danger');
+                });
+        }
+
+        function applyCollabCardUpdate(card) {
+            if (!card || !card.id) return;
+            const cards = document.querySelectorAll(_collabCardSelector(card.id));
+            if (!cards.length) return;
+            const status = String(card.status || '');
+            const telemetry = card.telemetry || {};
+            const progress = Math.max(0, Math.min(100, Number(telemetry.progress || 0)));
+            cards.forEach(el => {
+                if (status) {
+                    el.dataset.status = status;
+                    const statusEl = el.querySelector('.collab-card-status');
+                    if (statusEl) {
+                        statusEl.textContent = card.status_label || status.replace(/_/g, ' ');
+                        statusEl.className = `collab-card-status ${status}`;
+                    }
+                }
+                const countEl = el.querySelector('.collab-card-meta > span');
+                if (countEl && card.response_count !== undefined) {
+                    const count = Number(card.response_count || 0);
+                    countEl.textContent = `${count} response${count === 1 ? '' : 's'}`;
+                }
+                if (card.my_response) {
+                    const responseEl = el.querySelector('.collab-card-response');
+                    if (responseEl) {
+                        responseEl.outerHTML = '<div class="collab-card-answer"><i class="bi bi-check2-circle"></i> Your response is recorded.</div>';
+                    }
+                }
+                const bar = el.querySelector('.collab-telemetry-bar span');
+                if (bar) {
+                    bar.style.width = `${progress}%`;
+                }
+                const progressLabel = el.querySelector('.collab-telemetry-meta strong');
+                if (progressLabel) {
+                    progressLabel.textContent = `${progress}%`;
+                }
+                const stageEl = el.querySelector('.collab-telemetry-meta span');
+                if (stageEl && telemetry.stage) {
+                    stageEl.textContent = telemetry.stage;
+                }
+            });
+        }
+
         // --- Circle (structured deliberation) helpers ---
         let activeCircleId = null;
         let circleEditingEntryId = null;

@@ -6444,6 +6444,7 @@ def create_ui_blueprint() -> Blueprint:
             from ..core.requests import parse_request_blocks, strip_request_blocks, derive_request_id
             from ..core.signals import parse_signal_blocks, strip_signal_blocks, derive_signal_id
             from ..core.contracts import parse_contract_blocks, strip_contract_blocks, derive_contract_id
+            from ..core.collab_cards import parse_collab_card_blocks, strip_collab_card_blocks
             now_dt = datetime.now(timezone.utc)
             task_manager = current_app.config.get('TASK_MANAGER')
             circle_manager = current_app.config.get('CIRCLE_MANAGER')
@@ -6453,6 +6454,7 @@ def create_ui_blueprint() -> Blueprint:
             request_manager = current_app.config.get('REQUEST_MANAGER')
             signal_manager = current_app.config.get('SIGNAL_MANAGER')
             contract_manager = current_app.config.get('CONTRACT_MANAGER')
+            collab_card_manager = current_app.config.get('COLLAB_CARD_MANAGER')
             admin_user_id = db_manager.get_instance_owner_user_id() if db_manager else None
             user_display_cache: dict[str, dict[str, Any]] = {}
 
@@ -7068,6 +7070,36 @@ def create_ui_blueprint() -> Blueprint:
                         inline_handoffs.append(payload)
                     display_content = strip_handoff_blocks(display_content or '', remove_unconfirmed=False)
 
+                # Inline collaboration cards (for [input-card] and [telemetry-card] posts)
+                collab_cards_payload = []
+                collab_specs = parse_collab_card_blocks(post.content or '')
+                if collab_specs and collab_card_manager:
+                    try:
+                        _sync_inline_collab_cards_from_content(
+                            collab_card_manager=collab_card_manager,
+                            db_manager=db_manager,
+                            content=post.content or '',
+                            scope='feed',
+                            source_id=post.id,
+                            actor_id=post.author_id,
+                            visibility=post.visibility.value,
+                            source_type='feed_post',
+                            origin_peer=getattr(post, 'origin_peer', None),
+                            created_at=post.created_at.isoformat() if getattr(post, 'created_at', None) else None,
+                            permissions=post.permissions,
+                            channel_id=None,
+                        )
+                        collab_cards_payload = collab_card_manager.list_cards_for_source(
+                            'feed_post',
+                            post.id,
+                            viewer_id=user_id,
+                            admin_user_id=admin_user_id,
+                            include_responses=True,
+                        )
+                    except Exception as card_err:
+                        logger.warning(f"Collaboration card render error for post {post.id}: {card_err}")
+                    display_content = strip_collab_card_blocks(display_content or '', remove_unconfirmed=False)
+
                 # Inline skills for feed posts
                 inline_skills = []
                 try:
@@ -7093,6 +7125,8 @@ def create_ui_blueprint() -> Blueprint:
                     post_dict['signals'] = signals_payload
                 if contracts_payload:
                     post_dict['contracts'] = contracts_payload
+                if collab_cards_payload:
+                    post_dict['collab_cards'] = collab_cards_payload
                 if inline_tasks:
                     post_dict['inline_tasks'] = inline_tasks
                 if inline_handoffs:
@@ -12521,6 +12555,138 @@ def create_ui_blueprint() -> Blueprint:
             logger.error(f"Update request error: {e}", exc_info=True)
             return jsonify({'success': False, 'error': 'Failed to update request'}), 500
 
+    def _broadcast_collab_card_update_ui(card: dict[str, Any],
+                                         *,
+                                         action: str,
+                                         response: Optional[dict[str, Any]] = None) -> None:
+        try:
+            _, _, _, _, _, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+            if not card or (card.get('visibility') or 'network') != 'network':
+                return
+            if not p2p_manager or not p2p_manager.is_running():
+                return
+            actor_id = get_current_user()
+            display_name = None
+            if profile_manager and actor_id:
+                try:
+                    profile = profile_manager.get_profile(actor_id)
+                    if profile:
+                        display_name = profile.display_name or profile.username
+                except Exception:
+                    display_name = None
+            extra: dict[str, Any] = {'card': card}
+            if response:
+                extra['response'] = response
+            p2p_manager.broadcast_interaction(
+                item_id=card.get('id'),
+                user_id=actor_id or card.get('created_by') or card.get('owner_id'),
+                action=action,
+                item_type='collab_card',
+                display_name=display_name,
+                extra=extra,
+            )
+        except Exception as p2p_err:
+            logger.warning(f"Failed to broadcast collaboration card update: {p2p_err}")
+
+    @ui.route('/ajax/collab_cards/<card_id>/respond', methods=['POST'])
+    @require_login
+    def ajax_respond_collab_card(card_id):
+        """Submit or replace the current user's response to an input card."""
+        try:
+            db_manager, *_ = _get_app_components_any(current_app)
+            collab_card_manager = current_app.config.get('COLLAB_CARD_MANAGER')
+            if not collab_card_manager:
+                return jsonify({'success': False, 'error': 'Collaboration card manager unavailable'}), 500
+            data = request.get_json() or {}
+            user_id = get_current_user()
+            if 'value' not in data and 'comment' not in data:
+                return jsonify({'success': False, 'error': 'Choose or enter a response first.'}), 400
+            admin_id = db_manager.get_instance_owner_user_id() if db_manager else None
+            card = collab_card_manager.submit_response(
+                card_id,
+                responder_id=user_id,
+                value=data.get('value'),
+                response_type=str(data.get('response_type') or data.get('type') or 'text'),
+                comment=data.get('comment'),
+                metadata=data.get('metadata') if isinstance(data.get('metadata'), dict) else None,
+                admin_user_id=admin_id,
+            )
+            response_payload = card.get('my_response') if isinstance(card, dict) else None
+            _broadcast_collab_card_update_ui(card, action='collab_card_response', response=response_payload)
+            return jsonify({'success': True, 'card': card, 'response': response_payload})
+        except KeyError:
+            return jsonify({'success': False, 'error': 'Card not found'}), 404
+        except PermissionError:
+            return jsonify({'success': False, 'error': 'You are not allocated to respond to this card.'}), 403
+        except ValueError as e:
+            return jsonify({'success': False, 'error': str(e)}), 400
+        except Exception as e:
+            logger.error(f"Input card response error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Failed to save response'}), 500
+
+    @ui.route('/ajax/collab_cards/<card_id>/telemetry', methods=['POST'])
+    @require_login
+    def ajax_update_collab_card_telemetry(card_id):
+        """Update a telemetry card from the web UI."""
+        try:
+            db_manager, *_ = _get_app_components_any(current_app)
+            collab_card_manager = current_app.config.get('COLLAB_CARD_MANAGER')
+            if not collab_card_manager:
+                return jsonify({'success': False, 'error': 'Collaboration card manager unavailable'}), 500
+            data = request.get_json() or {}
+            user_id = get_current_user()
+            admin_id = db_manager.get_instance_owner_user_id() if db_manager else None
+            card = collab_card_manager.update_telemetry(
+                card_id,
+                actor_id=user_id,
+                status=data.get('status'),
+                progress=data.get('progress'),
+                stage=data.get('stage'),
+                summary=data.get('summary'),
+                metrics=data.get('metrics') if isinstance(data.get('metrics'), list) else None,
+                telemetry_patch=data.get('telemetry') if isinstance(data.get('telemetry'), dict) else None,
+                admin_user_id=admin_id,
+            )
+            _broadcast_collab_card_update_ui(card, action='collab_card_telemetry')
+            return jsonify({'success': True, 'card': card})
+        except KeyError:
+            return jsonify({'success': False, 'error': 'Card not found'}), 404
+        except PermissionError:
+            return jsonify({'success': False, 'error': 'You are not allowed to update this telemetry card.'}), 403
+        except ValueError as e:
+            return jsonify({'success': False, 'error': str(e)}), 400
+        except Exception as e:
+            logger.error(f"Telemetry card update error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Failed to update telemetry'}), 500
+
+    @ui.route('/ajax/collab_cards/<card_id>/status', methods=['POST'])
+    @require_login
+    def ajax_update_collab_card_status(card_id):
+        """Close/resolve/cancel an input card."""
+        try:
+            db_manager, *_ = _get_app_components_any(current_app)
+            collab_card_manager = current_app.config.get('COLLAB_CARD_MANAGER')
+            if not collab_card_manager:
+                return jsonify({'success': False, 'error': 'Collaboration card manager unavailable'}), 500
+            data = request.get_json() or {}
+            status = str(data.get('status') or '').strip().lower()
+            if not status:
+                return jsonify({'success': False, 'error': 'status required'}), 400
+            user_id = get_current_user()
+            admin_id = db_manager.get_instance_owner_user_id() if db_manager else None
+            card = collab_card_manager.update_input_status(card_id, actor_id=user_id, status=status, admin_user_id=admin_id)
+            _broadcast_collab_card_update_ui(card, action='collab_card_update')
+            return jsonify({'success': True, 'card': card})
+        except KeyError:
+            return jsonify({'success': False, 'error': 'Card not found'}), 404
+        except PermissionError:
+            return jsonify({'success': False, 'error': 'You are not allowed to manage this card.'}), 403
+        except ValueError as e:
+            return jsonify({'success': False, 'error': str(e)}), 400
+        except Exception as e:
+            logger.error(f"Input card status update error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Failed to update card status'}), 500
+
     @ui.route('/ajax/contracts/<contract_id>', methods=['POST'])
     @require_login
     def ajax_update_contract(contract_id):
@@ -13409,6 +13575,28 @@ def create_ui_blueprint() -> Blueprint:
                 except Exception as contract_err:
                     logger.warning(f"Inline contract creation failed: {contract_err}")
 
+                # Inline collaboration cards from [input-card] and [telemetry-card] blocks
+                try:
+                    collab_card_manager = current_app.config.get('COLLAB_CARD_MANAGER')
+                    if collab_card_manager:
+                        card_visibility = 'network' if visibility_enum.value in ('public', 'network') else 'local'
+                        _sync_inline_collab_cards_from_content(
+                            collab_card_manager=collab_card_manager,
+                            db_manager=db_manager,
+                            content=content,
+                            scope='feed',
+                            source_id=post.id,
+                            actor_id=user_id,
+                            visibility=card_visibility,
+                            source_type='feed_post',
+                            origin_peer=p2p_manager.get_peer_id() if p2p_manager else None,
+                            created_at=post.created_at.isoformat() if getattr(post, 'created_at', None) else None,
+                            permissions=permissions,
+                            channel_id=None,
+                        )
+                except Exception as card_err:
+                    logger.warning(f"Inline collaboration card creation failed: {card_err}")
+
                 # Inline handoff creation from [handoff] blocks
                 try:
                     handoff_manager = current_app.config.get('HANDOFF_MANAGER')
@@ -13885,6 +14073,37 @@ def create_ui_blueprint() -> Blueprint:
                         )
                 except Exception as contract_err:
                     logger.warning(f"Inline contract sync failed on post update: {contract_err}")
+
+                # Sync inline collaboration cards from edited feed content
+                try:
+                    collab_card_manager = current_app.config.get('COLLAB_CARD_MANAGER')
+                    if collab_card_manager:
+                        effective_visibility = visibility_enum.value if visibility_enum else existing_post.visibility.value
+                        effective_permissions = permissions if permissions is not None else existing_post.permissions
+                        card_visibility = 'network' if effective_visibility in ('public', 'network') else 'local'
+                        origin_peer = getattr(existing_post, 'origin_peer', None)
+                        if not origin_peer and p2p_manager:
+                            try:
+                                origin_peer = p2p_manager.get_peer_id()
+                            except Exception:
+                                origin_peer = None
+                        _sync_inline_collab_cards_from_content(
+                            collab_card_manager=collab_card_manager,
+                            db_manager=db_manager,
+                            content=content,
+                            scope='feed',
+                            source_id=post_id,
+                            actor_id=user_id,
+                            visibility=card_visibility,
+                            source_type='feed_post',
+                            origin_peer=origin_peer,
+                            created_at=existing_post.created_at.isoformat()
+                            if getattr(existing_post, 'created_at', None) else None,
+                            permissions=effective_permissions,
+                            channel_id=None,
+                        )
+                except Exception as card_err:
+                    logger.warning(f"Inline collaboration card sync failed on post update: {card_err}")
 
                 # Sync inline handoffs from edited feed content
                 try:
@@ -15285,6 +15504,7 @@ def create_ui_blueprint() -> Blueprint:
             from ..core.requests import parse_request_blocks, strip_request_blocks, derive_request_id
             from ..core.signals import parse_signal_blocks, strip_signal_blocks, derive_signal_id
             from ..core.contracts import parse_contract_blocks, strip_contract_blocks, derive_contract_id
+            from ..core.collab_cards import parse_collab_card_blocks, strip_collab_card_blocks
             now_dt = datetime.now(timezone.utc)
             task_manager = current_app.config.get('TASK_MANAGER')
             circle_manager = current_app.config.get('CIRCLE_MANAGER')
@@ -15294,6 +15514,7 @@ def create_ui_blueprint() -> Blueprint:
             signal_manager = current_app.config.get('SIGNAL_MANAGER')
             contract_manager = current_app.config.get('CONTRACT_MANAGER')
             skill_manager = current_app.config.get('SKILL_MANAGER')
+            collab_card_manager = current_app.config.get('COLLAB_CARD_MANAGER')
             admin_user_id = db_manager.get_instance_owner_user_id() if db_manager else None
             user_display_cache: dict[str, dict[str, Any]] = {}
 
@@ -15949,6 +16170,47 @@ def create_ui_blueprint() -> Blueprint:
                     if objective_specs:
                         display_content = strip_objective_blocks(display_content or '')
 
+                    # Inline collaboration cards for channel messages
+                    collab_cards_payload = []
+                    collab_specs = parse_collab_card_blocks(message.content or '')
+                    if collab_specs and collab_card_manager:
+                        try:
+                            card_visibility = 'network'
+                            try:
+                                with db_manager.get_connection() as conn:
+                                    prow = conn.execute(
+                                        "SELECT privacy_mode FROM channels WHERE id = ?",
+                                        (message.channel_id,)
+                                    ).fetchone()
+                                if prow and prow['privacy_mode'] and prow['privacy_mode'] != 'open':
+                                    card_visibility = 'local'
+                            except Exception:
+                                card_visibility = 'local'
+                            _sync_inline_collab_cards_from_content(
+                                collab_card_manager=collab_card_manager,
+                                db_manager=db_manager,
+                                content=message.content or '',
+                                scope='channel',
+                                source_id=message.id,
+                                actor_id=message.user_id,
+                                visibility=card_visibility,
+                                source_type='channel_message',
+                                origin_peer=getattr(message, 'origin_peer', None),
+                                created_at=message.created_at.isoformat() if getattr(message, 'created_at', None) else None,
+                                permissions=None,
+                                channel_id=message.channel_id,
+                            )
+                            collab_cards_payload = collab_card_manager.list_cards_for_source(
+                                'channel_message',
+                                message.id,
+                                viewer_id=user_id,
+                                admin_user_id=admin_user_id,
+                                include_responses=True,
+                            )
+                        except Exception as card_err:
+                            logger.warning(f"Collaboration card render error for message {message.id}: {card_err}")
+                        display_content = strip_collab_card_blocks(display_content or '', remove_unconfirmed=False)
+
                     # Inline skills for channel messages
                     inline_skills = []
                     try:
@@ -15974,6 +16236,8 @@ def create_ui_blueprint() -> Blueprint:
                         msg_dict['signals'] = signals_payload
                     if contracts_payload:
                         msg_dict['contracts'] = contracts_payload
+                    if collab_cards_payload:
+                        msg_dict['collab_cards'] = collab_cards_payload
                     if inline_tasks:
                         msg_dict['inline_tasks'] = inline_tasks
                     if inline_handoffs:
@@ -17388,6 +17652,38 @@ def create_ui_blueprint() -> Blueprint:
                 except Exception as contract_err:
                     logger.warning(f"Inline contract creation failed: {contract_err}")
 
+                # Inline collaboration cards from [input-card] and [telemetry-card] blocks
+                try:
+                    collab_card_manager = current_app.config.get('COLLAB_CARD_MANAGER')
+                    if collab_card_manager:
+                        card_visibility = 'network'
+                        try:
+                            with db_manager.get_connection() as conn:
+                                row = conn.execute(
+                                    "SELECT privacy_mode FROM channels WHERE id = ?",
+                                    (channel_id,)
+                                ).fetchone()
+                                if row and row['privacy_mode'] and row['privacy_mode'] != 'open':
+                                    card_visibility = 'local'
+                        except Exception:
+                            card_visibility = 'local'
+                        _sync_inline_collab_cards_from_content(
+                            collab_card_manager=collab_card_manager,
+                            db_manager=db_manager,
+                            content=content,
+                            scope='channel',
+                            source_id=message.id,
+                            actor_id=user_id,
+                            visibility=card_visibility,
+                            source_type='channel_message',
+                            origin_peer=p2p_manager.get_peer_id() if p2p_manager else None,
+                            created_at=message.created_at.isoformat() if getattr(message, 'created_at', None) else None,
+                            permissions=None,
+                            channel_id=channel_id,
+                        )
+                except Exception as card_err:
+                    logger.warning(f"Inline collaboration card creation failed: {card_err}")
+
                 # Inline handoff creation from [handoff] blocks
                 try:
                     handoff_manager = current_app.config.get('HANDOFF_MANAGER')
@@ -18326,6 +18622,39 @@ def create_ui_blueprint() -> Blueprint:
                         )
                 except Exception as contract_err:
                     logger.warning(f"Inline contract sync failed on channel edit: {contract_err}")
+
+                # Sync inline collaboration cards from edited channel message
+                try:
+                    collab_card_manager = current_app.config.get('COLLAB_CARD_MANAGER')
+                    if collab_card_manager:
+                        privacy_mode = None
+                        try:
+                            with db_manager.get_connection() as conn:
+                                prow = conn.execute(
+                                    "SELECT privacy_mode FROM channels WHERE id = ?",
+                                    (row['channel_id'],)
+                                ).fetchone()
+                            if prow:
+                                privacy_mode = prow['privacy_mode']
+                        except Exception:
+                            privacy_mode = None
+                        card_visibility = 'local' if privacy_mode and privacy_mode != 'open' else 'network'
+                        _sync_inline_collab_cards_from_content(
+                            collab_card_manager=collab_card_manager,
+                            db_manager=db_manager,
+                            content=content,
+                            scope='channel',
+                            source_id=message_id,
+                            actor_id=user_id,
+                            visibility=card_visibility,
+                            source_type='channel_message',
+                            origin_peer=p2p_manager.get_peer_id() if p2p_manager else None,
+                            created_at=row['created_at'],
+                            permissions=None,
+                            channel_id=row['channel_id'],
+                        )
+                except Exception as card_err:
+                    logger.warning(f"Inline collaboration card sync failed on channel edit: {card_err}")
 
                 # Sync inline handoffs from edited channel message
                 try:
@@ -21305,6 +21634,128 @@ def create_ui_blueprint() -> Blueprint:
             if uid:
                 resolved.append(uid)
         return resolved
+
+    def _resolve_collab_card_handles(db_manager: Any,
+                                     handles: list[Any],
+                                     visibility: Optional[str] = None,
+                                     permissions: Optional[list[str]] = None,
+                                     channel_id: Optional[str] = None,
+                                     author_id: Optional[str] = None) -> list[str]:
+        """Resolve card audience/editor handles while preserving unresolved remote hints."""
+        resolved: list[str] = []
+        for raw in handles or []:
+            token = str(raw or '').strip()
+            if not token:
+                continue
+            if token.lower() in ('*', 'all', 'everyone', 'channel'):
+                resolved.append(token.lower())
+                continue
+            uid = _resolve_handle_to_user_id(
+                db_manager,
+                token,
+                visibility=visibility,
+                permissions=permissions,
+                channel_id=channel_id,
+                author_id=author_id,
+            )
+            resolved.append(uid or token)
+        return list(dict.fromkeys(resolved))
+
+    def _sync_inline_collab_cards_from_content(
+        *,
+        collab_card_manager: Any,
+        db_manager: Any,
+        content: str,
+        scope: str,
+        source_id: str,
+        actor_id: str,
+        visibility: str,
+        source_type: str,
+        origin_peer: Optional[str] = None,
+        created_at: Optional[str] = None,
+        permissions: Optional[list[str]] = None,
+        channel_id: Optional[str] = None,
+    ) -> None:
+        from ..core.collab_cards import (
+            InputCardSpec,
+            TelemetryCardSpec,
+            derive_collab_card_id,
+            parse_collab_card_blocks,
+        )
+
+        if not collab_card_manager:
+            return
+        specs = parse_collab_card_blocks(content or '')
+        if not specs:
+            return
+
+        totals: dict[str, int] = {'input': 0, 'telemetry': 0}
+        for spec in specs:
+            totals['input' if isinstance(spec, InputCardSpec) else 'telemetry'] += 1
+        seen: dict[str, int] = {'input': 0, 'telemetry': 0}
+
+        for spec in specs:
+            if not getattr(spec, 'confirmed', True):
+                continue
+            card_type = 'input' if isinstance(spec, InputCardSpec) else 'telemetry'
+            idx = seen[card_type]
+            seen[card_type] += 1
+            card_id = derive_collab_card_id(
+                scope,
+                source_id,
+                card_type,
+                idx,
+                totals[card_type],
+                override=getattr(spec, 'card_id', None),
+            )
+            card_permissions = _resolve_collab_card_handles(
+                db_manager,
+                list(getattr(spec, 'permissions', []) or []),
+                visibility=visibility,
+                permissions=permissions,
+                channel_id=channel_id,
+                author_id=actor_id,
+            )
+            card_editors = _resolve_collab_card_handles(
+                db_manager,
+                list(getattr(spec, 'editors', []) or []),
+                visibility=visibility,
+                permissions=permissions,
+                channel_id=channel_id,
+                author_id=actor_id,
+            )
+            if isinstance(spec, InputCardSpec):
+                collab_card_manager.upsert_input_card(
+                    card_id=card_id,
+                    spec=spec,
+                    created_by=actor_id,
+                    owner_id=actor_id,
+                    source_type=source_type,
+                    source_id=source_id,
+                    visibility='network' if visibility in ('public', 'network') else 'local',
+                    origin_peer=origin_peer,
+                    channel_id=channel_id,
+                    permissions=card_permissions,
+                    editors=card_editors,
+                    created_at=created_at,
+                    actor_id=actor_id,
+                )
+            elif isinstance(spec, TelemetryCardSpec):
+                collab_card_manager.upsert_telemetry_card(
+                    card_id=card_id,
+                    spec=spec,
+                    created_by=actor_id,
+                    owner_id=actor_id,
+                    source_type=source_type,
+                    source_id=source_id,
+                    visibility='network' if visibility in ('public', 'network') else 'local',
+                    origin_peer=origin_peer,
+                    channel_id=channel_id,
+                    permissions=card_permissions,
+                    editors=card_editors,
+                    created_at=created_at,
+                    actor_id=actor_id,
+                )
 
     _TASK_STATUS_SET = {'open', 'in_progress', 'blocked', 'done'}
     _TASK_PRIORITY_SET = {'low', 'normal', 'high', 'critical'}

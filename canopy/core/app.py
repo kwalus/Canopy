@@ -380,6 +380,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
         app.config['REQUEST_MANAGER'] = request_manager
         logger.info("Request manager initialized successfully")
 
+        logger.info("Initializing collaboration card manager...")
+        from .collab_cards import CollabCardManager
+        collab_card_manager = CollabCardManager(db_manager)
+        app.config['COLLAB_CARD_MANAGER'] = collab_card_manager
+        logger.info("Collaboration card manager initialized successfully")
+
         logger.info("Initializing objective manager...")
         from .objectives import ObjectiveManager
         objective_manager = ObjectiveManager(db_manager, task_manager=task_manager)
@@ -7300,6 +7306,26 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         if from_peer and not task_payload.get('origin_peer'):
                             task_payload['origin_peer'] = from_peer
                         task_manager.apply_task_snapshot(task_payload)
+                    return
+
+                if action in ('collab_card_update', 'collab_card_response', 'collab_card_telemetry') or item_type == 'collab_card':
+                    collab_card_manager = app.config.get('COLLAB_CARD_MANAGER')
+                    if collab_card_manager:
+                        card_payload = meta.get('card') or {}
+                        if not isinstance(card_payload, dict):
+                            card_payload = {}
+                        if item_id and not card_payload.get('id'):
+                            card_payload['id'] = item_id
+                        if user_id and not card_payload.get('created_by'):
+                            card_payload['created_by'] = user_id
+                        if user_id and not card_payload.get('owner_id'):
+                            card_payload['owner_id'] = user_id
+                        if from_peer and not card_payload.get('origin_peer'):
+                            card_payload['origin_peer'] = from_peer
+                        card_obj = collab_card_manager.ingest_card_snapshot(card_payload)
+                        response_payload = meta.get('response') or {}
+                        if card_obj and isinstance(response_payload, dict) and response_payload:
+                            collab_card_manager.ingest_response_snapshot(card_obj.get('id'), response_payload)
                     return
 
                 if action == 'circle_entry' or item_type == 'circle_entry':
