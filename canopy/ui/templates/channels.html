@@ -3297,6 +3297,39 @@
         line-height: 1.45;
     }
 
+    .channel-composer-wrap.composer-expanded #message-form .input-group {
+        align-items: stretch;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+    }
+
+    .channel-composer-wrap.composer-expanded #message-form .input-group > .position-relative.flex-grow-1 {
+        flex: 1 1 100%;
+        width: 100%;
+    }
+
+    .channel-composer-wrap.composer-expanded #message-form .input-group-append {
+        align-items: center !important;
+        align-self: flex-start;
+        flex: 0 0 auto;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+        justify-content: flex-end;
+        width: auto;
+        margin-left: auto;
+        margin-top: 0;
+    }
+
+    .channel-composer-wrap.composer-expanded #message-form .input-group .btn,
+    .channel-composer-wrap.composer-expanded #message-form .input-group-append .btn-group .btn,
+    .channel-composer-wrap.composer-expanded #message-form .input-group-append > .btn {
+        align-self: center;
+        height: auto;
+        min-height: 36px;
+        padding-top: 0.36rem;
+        padding-bottom: 0.36rem;
+    }
+
     .channel-composer-wrap.composer-expanded #file-dropzone {
         min-height: min(36vh, 360px);
     }
@@ -3315,6 +3348,9 @@
         }
         .channel-composer-wrap.composer-expanded #file-dropzone {
             min-height: 34vh;
+        }
+        .channel-composer-wrap.composer-expanded #message-form .input-group-append {
+            max-width: 100%;
         }
     }
 </style>

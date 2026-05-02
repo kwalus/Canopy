@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.53] - 2026-05-02
+
+### Fixed
+- **Expanded channel composers now keep their action buttons compact** - when the message editor grows for long drafts, the drafting area takes the extra vertical space while attach, emoji, compose tools, and send controls wrap into a normal-height toolbar instead of stretching beside the textarea.
+
 ## [0.6.52] - 2026-05-02
 
 ### Fixed
