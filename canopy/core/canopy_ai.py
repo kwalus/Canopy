@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import re
+from datetime import datetime
 from typing import Any, Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -23,6 +24,28 @@ logger = logging.getLogger(__name__)
 
 
 DEFAULT_CANOPY_LLM_MODEL = os.getenv('CANOPY_LLM_DEFAULT_MODEL', 'gpt-5-mini').strip() or 'gpt-5-mini'
+CANOPY_LLM_MODEL_OPTIONS = [
+    {
+        'id': 'gpt-5.4-mini',
+        'label': 'GPT-5.4 mini - recommended lower-latency Responses model with web search support',
+    },
+    {
+        'id': 'gpt-5.4',
+        'label': 'GPT-5.4 - stronger Responses model with web search support',
+    },
+    {
+        'id': 'gpt-5.5',
+        'label': 'GPT-5.5 - flagship Responses model with web search support',
+    },
+    {
+        'id': 'gpt-5-mini',
+        'label': 'GPT-5 mini - existing economical default with Responses web search support',
+    },
+    {
+        'id': 'gpt-5',
+        'label': 'GPT-5 - previous-generation Responses model with web search support',
+    },
+]
 CANOPY_LLM_POSTING_STRUCTURE_GUIDE = """
 Canopy structured block rules:
 - Default to plain text. Only emit a structured block when the user clearly asks to create a task, request, objective, signal, or handoff.
@@ -40,6 +63,14 @@ Canopy structured block rules:
   [signal]\ntype: finding\ntitle: Durable finding\nsummary: What was learned\ntags: update, evidence\n[/signal]
 - If you are unsure whether a block will be valid, do not use a structured block; write a normal readable Canopy post instead.
 """.strip()
+CANOPY_LLM_CURRENT_INFO_GUIDE = """
+Current-information and web-search rules:
+- If the user asks for current, today, latest, recent, live, weather, market, schedule, price, availability, news, or other time-sensitive information, use the hosted web search tool when it is available instead of relying on model memory.
+- If web search is unavailable or disabled, say in the draft that current facts were not checked; do not fabricate live information.
+- When web search is used, incorporate the useful facts into the post and include concise source attribution or source links in the post body so readers can verify them.
+- For local requests such as weather, traffic, restaurants, or events, use the location supplied by the user. If no location is supplied, ask for the location or write a short draft that explicitly says the location is needed.
+- Keep the result suitable for a Canopy post: short, useful, source-aware, and ready for human review.
+""".strip()
 DEFAULT_CANOPY_LLM_SYSTEM_PROMPT = (
     "You are Canopy's local compose assistant. Convert the user's draft into the exact "
     "Canopy channel post they should review and optionally send. Output only the final post body, with no "
@@ -50,7 +81,7 @@ DEFAULT_CANOPY_LLM_SYSTEM_PROMPT = (
     "rules below, so Canopy can process them normally after "
     "the post is sent. Do not claim access to hidden files, private channel context, or "
     "mesh state unless the user included that context in the draft."
-    f"\n\n{CANOPY_LLM_POSTING_STRUCTURE_GUIDE}"
+    f"\n\n{CANOPY_LLM_CURRENT_INFO_GUIDE}\n\n{CANOPY_LLM_POSTING_STRUCTURE_GUIDE}"
 )
 
 CANOPY_TRIGGER_RE = re.compile(r'(?i)(^|\s)@canopy\b[:,]?\s*')
@@ -95,7 +126,7 @@ class CanopyLLMManager:
         with self.db_manager.get_connection() as conn:
             row = conn.execute(
                 """
-                SELECT provider, model, api_key_ciphertext, enabled, system_prompt, updated_at
+                SELECT provider, model, api_key_ciphertext, enabled, system_prompt, updated_at, web_search_enabled
                 FROM user_llm_settings
                 WHERE user_id = ?
                 """,
@@ -109,13 +140,16 @@ class CanopyLLMManager:
         enabled = self._row_value(row, 'enabled', 3, 0)
         system_prompt = str(self._row_value(row, 'system_prompt', 4, '') or '').strip() or DEFAULT_CANOPY_LLM_SYSTEM_PROMPT
         updated_at = self._row_value(row, 'updated_at', 5, None)
+        web_search_enabled = self._row_value(row, 'web_search_enabled', 6, 1)
         return {
             'provider': provider if provider == 'openai' else 'openai',
             'model': model[:120],
             'enabled': bool(enabled),
             'api_key_configured': bool(str(ciphertext or '').strip()),
+            'web_search_enabled': self._normalize_bool(web_search_enabled, default=True),
             'system_prompt': system_prompt[:MAX_SYSTEM_PROMPT_CHARS],
             'updated_at': updated_at,
+            'model_options': CANOPY_LLM_MODEL_OPTIONS,
         }
 
     def save_settings(
@@ -128,6 +162,7 @@ class CanopyLLMManager:
         api_key: Optional[str] = None,
         clear_api_key: bool = False,
         system_prompt: Any = None,
+        web_search_enabled: Any = True,
     ) -> dict[str, Any]:
         user_id = str(user_id or '').strip()
         if not user_id:
@@ -136,6 +171,7 @@ class CanopyLLMManager:
         model_clean = self._normalize_model(model)
         prompt_clean = self._normalize_system_prompt(system_prompt)
         enabled_clean = 1 if bool(enabled) else 0
+        web_search_enabled_clean = 1 if self._normalize_bool(web_search_enabled, default=True) else 0
 
         self._ensure_schema()
         with self.db_manager.get_connection() as conn:
@@ -158,15 +194,16 @@ class CanopyLLMManager:
             conn.execute(
                 """
                 INSERT INTO user_llm_settings (
-                    user_id, provider, model, api_key_ciphertext, enabled, system_prompt, updated_at
+                    user_id, provider, model, api_key_ciphertext, enabled, system_prompt, web_search_enabled, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(user_id) DO UPDATE SET
                     provider = excluded.provider,
                     model = excluded.model,
                     api_key_ciphertext = excluded.api_key_ciphertext,
                     enabled = excluded.enabled,
                     system_prompt = excluded.system_prompt,
+                    web_search_enabled = excluded.web_search_enabled,
                     updated_at = CURRENT_TIMESTAMP
                 """,
                 (
@@ -176,6 +213,7 @@ class CanopyLLMManager:
                     ciphertext,
                     enabled_clean,
                     prompt_clean,
+                    web_search_enabled_clean,
                 ),
             )
             conn.commit()
@@ -226,8 +264,10 @@ class CanopyLLMManager:
             )
 
         channel_line = f"Channel: #{channel_name}\n\n" if channel_name else ''
+        current_timestamp = datetime.now().astimezone().isoformat(timespec='seconds')
         composed_prompt = (
             f"{channel_line}"
+            f"Current node timestamp: {current_timestamp}\n\n"
             "User draft to transform into a Canopy post:\n"
             f"{prompt}"
         )
@@ -236,6 +276,7 @@ class CanopyLLMManager:
             model=str(settings.get('model') or DEFAULT_CANOPY_LLM_MODEL),
             system_prompt=self._compose_system_prompt(str(settings.get('system_prompt') or DEFAULT_CANOPY_LLM_SYSTEM_PROMPT)),
             prompt=composed_prompt,
+            web_search_enabled=bool(settings.get('web_search_enabled', True)),
         )
         if not output.strip():
             raise CanopyLLMError('The LLM returned an empty draft.', status_code=502, reason='empty_llm_output')
@@ -257,12 +298,22 @@ class CanopyLLMManager:
                     model TEXT NOT NULL DEFAULT 'gpt-5-mini',
                     api_key_ciphertext TEXT,
                     enabled INTEGER NOT NULL DEFAULT 0,
+                    web_search_enabled INTEGER NOT NULL DEFAULT 1,
                     system_prompt TEXT,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
                 )
                 """
             )
+            columns = {
+                str(row['name'] if hasattr(row, 'keys') else row[1])
+                for row in conn.execute("PRAGMA table_info(user_llm_settings)").fetchall()
+            }
+            if 'web_search_enabled' not in columns:
+                conn.execute(
+                    "ALTER TABLE user_llm_settings "
+                    "ADD COLUMN web_search_enabled INTEGER NOT NULL DEFAULT 1"
+                )
             conn.commit()
         self._schema_ready = True
 
@@ -272,8 +323,10 @@ class CanopyLLMManager:
             'model': DEFAULT_CANOPY_LLM_MODEL,
             'enabled': False,
             'api_key_configured': False,
+            'web_search_enabled': True,
             'system_prompt': DEFAULT_CANOPY_LLM_SYSTEM_PROMPT,
             'updated_at': None,
+            'model_options': CANOPY_LLM_MODEL_OPTIONS,
         }
 
     @staticmethod
@@ -281,8 +334,12 @@ class CanopyLLMManager:
         """Attach non-optional Canopy syntax rules even when the user customizes tone."""
         base = str(system_prompt or '').strip() or DEFAULT_CANOPY_LLM_SYSTEM_PROMPT
         if 'Canopy structured block rules:' in base:
-            return base[:MAX_SYSTEM_PROMPT_CHARS]
-        guide = CANOPY_LLM_POSTING_STRUCTURE_GUIDE
+            if 'Current-information and web-search rules:' in base:
+                return base[:MAX_SYSTEM_PROMPT_CHARS]
+            guide = CANOPY_LLM_CURRENT_INFO_GUIDE
+            base_limit = max(0, MAX_SYSTEM_PROMPT_CHARS - len(guide) - 2)
+            return f"{base[:base_limit].rstrip()}\n\n{guide}"[:MAX_SYSTEM_PROMPT_CHARS]
+        guide = f"{CANOPY_LLM_CURRENT_INFO_GUIDE}\n\n{CANOPY_LLM_POSTING_STRUCTURE_GUIDE}"
         base_limit = max(0, MAX_SYSTEM_PROMPT_CHARS - len(guide) - 2)
         return f"{base[:base_limit].rstrip()}\n\n{guide}"[:MAX_SYSTEM_PROMPT_CHARS]
 
@@ -367,7 +424,41 @@ class CanopyLLMManager:
             )
         return prompt
 
-    def _call_openai(self, *, api_key: str, model: str, system_prompt: str, prompt: str) -> str:
+    @staticmethod
+    def _normalize_bool(value: Any, *, default: bool = False) -> bool:
+        if value is None:
+            return bool(default)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        text = str(value).strip().lower()
+        if text in {'1', 'true', 'yes', 'on', 'enabled'}:
+            return True
+        if text in {'0', 'false', 'no', 'off', 'disabled'}:
+            return False
+        return bool(default)
+
+    @staticmethod
+    def _web_search_tool_payload() -> dict[str, Any]:
+        tool: dict[str, Any] = {'type': 'web_search'}
+        context_size = str(os.getenv('CANOPY_LLM_WEB_SEARCH_CONTEXT_SIZE', 'low') or 'low').strip().lower()
+        if context_size in {'low', 'medium', 'high'}:
+            tool['search_context_size'] = context_size
+        external_access = os.getenv('CANOPY_LLM_WEB_SEARCH_EXTERNAL_ACCESS')
+        if external_access is not None:
+            tool['external_web_access'] = CanopyLLMManager._normalize_bool(external_access, default=True)
+        return tool
+
+    def _call_openai(
+        self,
+        *,
+        api_key: str,
+        model: str,
+        system_prompt: str,
+        prompt: str,
+        web_search_enabled: bool = False,
+    ) -> str:
         base_url = os.getenv('CANOPY_OPENAI_BASE_URL', 'https://api.openai.com/v1').strip().rstrip('/')
         timeout = float(os.getenv('CANOPY_LLM_TIMEOUT_SECONDS', '60') or '60')
         payload = {
@@ -377,6 +468,9 @@ class CanopyLLMManager:
             'max_output_tokens': int(os.getenv('CANOPY_LLM_MAX_OUTPUT_TOKENS', '2200') or '2200'),
             'store': False,
         }
+        if web_search_enabled:
+            payload['tools'] = [self._web_search_tool_payload()]
+            payload['tool_choice'] = 'auto'
         body = json.dumps(payload).encode('utf-8')
         request = Request(
             f'{base_url}/responses',

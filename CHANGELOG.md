@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.59] - 2026-05-02
+
+### Added
+- **`@Canopy` compose can use OpenAI hosted web search for current facts** - the local compose prompt now includes current-information guidance, request timestamps, model presets for Responses API web search, and a profile switch for allowing live search through the user's own OpenAI key.
+
 ## [0.6.58] - 2026-05-02
 
 ### Added

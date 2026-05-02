@@ -20388,6 +20388,7 @@ def create_ui_blueprint() -> Blueprint:
                 provider=data.get('provider') or 'openai',
                 model=data.get('model'),
                 enabled=bool(data.get('enabled')),
+                web_search_enabled=data.get('web_search_enabled', True),
                 api_key=data.get('api_key') if 'api_key' in data else None,
                 clear_api_key=bool(data.get('clear_api_key')),
                 system_prompt=data.get('system_prompt'),
@@ -20405,7 +20406,7 @@ def create_ui_blueprint() -> Blueprint:
     @ui.route('/ajax/canopy_llm/expand', methods=['POST'])
     @require_login
     def ajax_canopy_llm_expand():
-        """Expand a channel draft containing @Canopy before the normal send path."""
+        """Expand a channel draft containing @Canopy and return it for composer review."""
         try:
             from ..core.canopy_ai import CanopyLLMError
 
@@ -20526,6 +20527,7 @@ def create_ui_blueprint() -> Blueprint:
                     'model': 'gpt-5-mini',
                     'enabled': False,
                     'api_key_configured': False,
+                    'web_search_enabled': True,
                     'system_prompt': '',
                     'updated_at': None,
                 }

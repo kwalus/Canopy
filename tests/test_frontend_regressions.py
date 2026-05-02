@@ -36,6 +36,9 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('async function sendMessage(event)', channels_template)
         self.assertIn('canopy-llm-compose-section', profile_template)
         self.assertIn('canopy-llm-api-key', profile_template)
+        self.assertIn('canopy-llm-web-search-enabled', profile_template)
+        self.assertIn('gpt-5.4-mini', profile_template)
+        self.assertIn('Allow hosted web search for current facts', profile_template)
         self.assertIn('/ajax/canopy_llm/settings', profile_template)
         self.assertIn('put the result back into the composer for review before you send', profile_template)
 

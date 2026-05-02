@@ -1,5 +1,6 @@
 """Regression tests for local @Canopy LLM compose support."""
 
+import json
 import os
 import sqlite3
 import sys
@@ -26,6 +27,8 @@ if 'zeroconf' not in sys.modules:
     sys.modules['zeroconf'] = zeroconf_stub
 
 from canopy.core.canopy_ai import (
+    CANOPY_LLM_CURRENT_INFO_GUIDE,
+    CANOPY_LLM_MODEL_OPTIONS,
     CANOPY_LLM_POSTING_STRUCTURE_GUIDE,
     DEFAULT_CANOPY_LLM_SYSTEM_PROMPT,
     CanopyLLMManager,
@@ -77,6 +80,7 @@ class _FakeLLMManager:
             'model': 'gpt-5-mini',
             'enabled': True,
             'api_key_configured': True,
+            'web_search_enabled': True,
             'system_prompt': 'Compose clean Canopy posts.',
             'updated_at': None,
         }
@@ -121,6 +125,8 @@ class TestCanopyLLMManager(unittest.TestCase):
 
         self.assertTrue(settings['enabled'])
         self.assertTrue(settings['api_key_configured'])
+        self.assertTrue(settings['web_search_enabled'])
+        self.assertIn(CANOPY_LLM_MODEL_OPTIONS[0], settings['model_options'])
         self.assertNotIn('api_key', settings)
         row = self.conn.execute(
             "SELECT api_key_ciphertext FROM user_llm_settings WHERE user_id = ?",
@@ -142,10 +148,13 @@ class TestCanopyLLMManager(unittest.TestCase):
     def test_system_prompt_includes_canopy_structured_block_contract(self) -> None:
         self.assertIn('Canopy structured block rules:', DEFAULT_CANOPY_LLM_SYSTEM_PROMPT)
         self.assertIn('Default to plain text.', DEFAULT_CANOPY_LLM_SYSTEM_PROMPT)
+        self.assertIn('Current-information and web-search rules:', DEFAULT_CANOPY_LLM_SYSTEM_PROMPT)
+        self.assertIn('use the hosted web search tool', DEFAULT_CANOPY_LLM_SYSTEM_PROMPT)
         self.assertIn('Never invent bracket tags', DEFAULT_CANOPY_LLM_SYSTEM_PROMPT)
         self.assertIn('[signal] requires type:, title:, summary:, and tags:.', DEFAULT_CANOPY_LLM_SYSTEM_PROMPT)
         custom = CanopyLLMManager._compose_system_prompt('Compose clean Canopy posts.')
         self.assertIn('Compose clean Canopy posts.', custom)
+        self.assertIn(CANOPY_LLM_CURRENT_INFO_GUIDE, custom)
         self.assertIn(CANOPY_LLM_POSTING_STRUCTURE_GUIDE, custom)
         long_custom = CanopyLLMManager._compose_system_prompt('x' * 8000)
         self.assertLessEqual(len(long_custom), 4000)
@@ -180,6 +189,41 @@ class TestCanopyLLMManager(unittest.TestCase):
                     prompt='Draft.',
                 )
         self.assertEqual(getattr(ctx.exception, 'reason', ''), 'provider_response_too_large')
+
+    def test_openai_payload_can_enable_responses_web_search_tool(self) -> None:
+        manager = CanopyLLMManager(self.db, 'test-secret')
+        captured: dict[str, Any] = {}
+
+        class _Response:
+            def __enter__(self) -> '_Response':
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self, size: int = -1) -> bytes:
+                return b'{"output_text":"Current weather summary with source link."}'
+
+        def _fake_urlopen(request: Any, timeout: float = 0) -> _Response:
+            captured['url'] = request.full_url
+            captured['payload'] = json.loads(request.data.decode('utf-8'))
+            return _Response()
+
+        with patch('canopy.core.canopy_ai.urlopen', side_effect=_fake_urlopen):
+            output = manager._call_openai(
+                api_key='sk-test',
+                model='gpt-5.4-mini',
+                system_prompt='Compose.',
+                prompt='Current node timestamp: 2026-05-02T12:00:00-07:00\n\nUser draft to transform into a Canopy post:\npost today weather in Vancouver',
+                web_search_enabled=True,
+            )
+
+        self.assertIn('/responses', captured['url'])
+        self.assertEqual(output, 'Current weather summary with source link.')
+        self.assertEqual(captured['payload']['model'], 'gpt-5.4-mini')
+        self.assertEqual(captured['payload']['tool_choice'], 'auto')
+        self.assertEqual(captured['payload']['tools'][0]['type'], 'web_search')
+        self.assertEqual(captured['payload']['tools'][0]['search_context_size'], 'low')
 
 
 class TestCanopyLLMComposeRoutes(unittest.TestCase):
@@ -265,6 +309,7 @@ class TestCanopyLLMComposeRoutes(unittest.TestCase):
                 'provider': 'openai',
                 'model': 'gpt-5-mini',
                 'enabled': True,
+                'web_search_enabled': False,
                 'api_key': 'sk-test',
                 'system_prompt': 'Be useful.',
             },
@@ -275,3 +320,4 @@ class TestCanopyLLMComposeRoutes(unittest.TestCase):
         payload = response.get_json() or {}
         self.assertTrue(payload.get('success'))
         self.assertEqual(self.llm_manager.saved_payloads[0]['api_key'], 'sk-test')
+        self.assertFalse(self.llm_manager.saved_payloads[0]['web_search_enabled'])

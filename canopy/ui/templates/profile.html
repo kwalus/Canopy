@@ -444,9 +444,20 @@
                                 <input type="text"
                                        class="form-control"
                                        id="canopy-llm-model"
+                                       list="canopy-llm-model-options"
                                        value="{{ canopy_ai.get('model') or 'gpt-5-mini' }}"
-                                       placeholder="gpt-5-mini"
+                                       placeholder="gpt-5.4-mini"
                                        maxlength="120">
+                                <datalist id="canopy-llm-model-options">
+                                    <option value="gpt-5.4-mini">Recommended lower-latency Responses model with web search</option>
+                                    <option value="gpt-5.4">Stronger Responses model with web search</option>
+                                    <option value="gpt-5.5">Flagship Responses model with web search</option>
+                                    <option value="gpt-5-mini">Existing economical default with web search</option>
+                                    <option value="gpt-5">Previous-generation Responses model with web search</option>
+                                </datalist>
+                                <div class="form-text text-muted">
+                                    Use a Responses API model that supports hosted web search. Chat-Completions-only search models are not used here.
+                                </div>
                             </div>
                             <div class="col-md-4">
                                 <div class="form-check form-switch mb-2">
@@ -463,6 +474,24 @@
                                     {% else %}
                                     Add an API key before enabling in real use.
                                     {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row g-3 mt-1">
+                            <div class="col-md-8">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input"
+                                           type="checkbox"
+                                           role="switch"
+                                           id="canopy-llm-web-search-enabled"
+                                           {% if canopy_ai.get('web_search_enabled', True) %}checked{% endif %}>
+                                    <label class="form-check-label" for="canopy-llm-web-search-enabled">
+                                        Allow hosted web search for current facts
+                                    </label>
+                                </div>
+                                <div class="form-text text-muted">
+                                    When enabled, <code>@Canopy</code> can ask OpenAI's Responses API web search tool for current weather, news, prices, schedules, and other live facts before inserting a draft.
                                 </div>
                             </div>
                         </div>
@@ -838,6 +867,7 @@ function setupCanopyLLMSettings() {
     const promptInput = document.getElementById('canopy-llm-system-prompt');
     const providerInput = document.getElementById('canopy-llm-provider');
     const enabledInput = document.getElementById('canopy-llm-enabled');
+    const webSearchInput = document.getElementById('canopy-llm-web-search-enabled');
     const keyInput = document.getElementById('canopy-llm-api-key');
     const clearKeyInput = document.getElementById('canopy-llm-clear-key');
 
@@ -850,6 +880,7 @@ function setupCanopyLLMSettings() {
             provider: providerInput ? providerInput.value : 'openai',
             model: modelInput ? modelInput.value.trim() : '',
             enabled: !!(enabledInput && enabledInput.checked),
+            web_search_enabled: !!(webSearchInput && webSearchInput.checked),
             system_prompt: promptInput ? promptInput.value.trim() : '',
             clear_api_key: !!(clearKeyInput && clearKeyInput.checked)
         };
@@ -878,9 +909,10 @@ function setupCanopyLLMSettings() {
             }
             if (statusEl) {
                 statusEl.className = 'small text-success';
-                statusEl.textContent = settings.api_key_configured
+                const searchText = settings.web_search_enabled ? ' Web search is allowed for current facts.' : ' Web search is off.';
+                statusEl.textContent = (settings.api_key_configured
                     ? 'Saved. API key is configured locally.'
-                    : 'Saved. Add an API key before using @Canopy.';
+                    : 'Saved. Add an API key before using @Canopy.') + searchText;
             }
         })
         .catch((error) => {
